@@ -12,15 +12,25 @@
 Resume the CNI CRM project.
 
 Read these files first, in this order:
-  1. docs/SESSION-STATE.md     (this file — where we stopped)
-  2. docs/PROGRESS-TRACKER.md  (what's done, what's next)
-  3. docs/00-INDEX.md          (map of all documentation)
+  1. docs/SESSION-STATE.md                     (where we stopped)
+  2. docs/PROGRESS-TRACKER.md                  (done vs remaining)
+  3. docs/19-MASTER-SPECIFICATION-REGISTRY.md  (settles any doc conflict)
+  4. docs/20-IMPLEMENTATION-CONTRACTS.md §9    (build order)
 
 Then continue from the "NEXT ACTION" in SESSION-STATE.md §3.
 Do not restart or re-plan anything already marked complete.
 ```
 
 That's all you ever need to type. Everything else is recorded in the files.
+
+### Quick environment reminders
+| | |
+|---|---|
+| Run it | `npm run dev` → **http://localhost:4310** (not 3000 — a foreign service worker owns 3000) |
+| Verify | `npm run verify` = typecheck → lint → build |
+| Repo | https://github.com/habibaminhas989-blip/cni-crm (private, `main`) |
+| Browser testing | Use `http://192.168.100.131:4310` — Chrome here cannot reach `localhost` |
+| After changing `public/brand/` | Delete `.next` and restart, or the image optimiser serves the stale asset |
 
 ---
 
@@ -153,8 +163,24 @@ The new asset is a **transparent raster**, not vector. That changes what each fo
 
 ## 3. ⏭️ NEXT ACTION
 
-> **Phase 1, Step 1 is complete and Gate 1 has passed.**
-> Waiting for your go-ahead to begin **Step 2 — Data foundation**.
+> ### 🔄 SESSION 06 ENDED DELIBERATELY — to restart Claude Code so the Supabase MCP loads
+>
+> **Why the session was closed:** `.mcp.json` was created *during* session 06, but Claude Code reads MCP config only at startup. `/mcp` therefore showed 4 servers with no Supabase. A restart is the fix — nothing was broken.
+>
+> **On restart, the owner does this (not me):**
+> 1. Approve the trust prompt for the project `.mcp.json`
+> 2. Run `/mcp` → `supabase` appears as *needs authentication*
+> 3. Select it and complete the browser OAuth for project `rxjqbtvlzxigfakbiktw`
+>
+> If it still does not appear, fall back to registering it in user scope with `claude mcp add --transport http supabase <url>`.
+>
+> **Nothing else is blocked.** Step 2 does not depend on the MCP — the schema is built from numbered migration files (doc 20 §7), and the MCP is for verification only.
+
+**State on close:** Phase 1 Step 1 complete (Gate 1 ✅), application shell and dashboard complete (Gate 1b ✅), everything committed and pushed. Working tree clean.
+
+**Waiting for:** the owner's go-ahead to begin **Step 2 — Data foundation**.
+
+**First thing to do when Step 2 is authorised:** list the exact environment variables needed for `.env.local` and have the owner paste the values. Never handle their credentials.
 
 Phase 1 step order ([doc 20 §9](20-IMPLEMENTATION-CONTRACTS.md#9-phase-1--the-concrete-build-order)):
 
