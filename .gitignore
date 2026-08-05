@@ -30,8 +30,11 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files — never committed. Real values live only in .env.local and in the
+# Vercel dashboard (doc 16 §8).
 .env*
+# …except the template, which holds names and comments but never a value.
+!.env.example
 
 # vercel
 .vercel
