@@ -1,0 +1,179 @@
+'use client';
+
+/* ============================================================================
+ * THEME TOGGLE
+ * ----------------------------------------------------------------------------
+ * FR-201 — available to EVERY role, from Profile → Appearance.
+ *
+ * Two presentations of the same control:
+ *   <ThemeToggle />        compact icon button for the top bar (cycles)
+ *   <ThemeSegmented />     explicit three-way control for settings
+ * ========================================================================= */
+
+import * as React from 'react';
+import { Monitor, Moon, Sun } from 'lucide-react';
+
+import type { Theme } from '@/lib/domain/constants';
+import { cn } from '@/lib/utils';
+
+import { useTheme } from './theme-provider';
+
+const OPTIONS: ReadonlyArray<{
+  value: Theme;
+  label: string;
+  icon: typeof Sun;
+  description: string;
+}> = [
+  { value: 'light', label: 'Light', icon: Sun, description: 'Always light' },
+  { value: 'dark', label: 'Dark', icon: Moon, description: 'Always dark' },
+  { value: 'system', label: 'System', icon: Monitor, description: 'Match my device' },
+];
+
+/* --------------------------------------------------------------------------
+ * Compact — top bar
+ * ------------------------------------------------------------------------ */
+
+export function ThemeToggle({ className }: { className?: string }) {
+  const { preference, cycleTheme, isHydrated } = useTheme();
+  const active = OPTIONS.find((option) => option.value === preference) ?? OPTIONS[2];
+  const Icon = active.icon;
+
+  return (
+    <button
+      type="button"
+      onClick={cycleTheme}
+      // Until hydration the stored preference is unknown, so the label would
+      // be a guess. The button stays inert rather than announcing the wrong
+      // state to a screen reader.
+      aria-label={isHydrated ? `Theme: ${active.label}. Click to change.` : 'Change theme'}
+      title={isHydrated ? `Theme: ${active.label}` : undefined}
+      className={cn(
+        'inline-flex h-9 w-9 items-center justify-center rounded-md',
+        'text-text-secondary transition-colors duration-[120ms]',
+        'hover:bg-bg-hover hover:text-text-primary',
+        'focus-visible:outline-none',
+        className,
+      )}
+    >
+      <Icon className="h-[18px] w-[18px]" strokeWidth={1.75} aria-hidden="true" />
+    </button>
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * Segmented — Profile → Appearance
+ * ------------------------------------------------------------------------ */
+
+export function ThemeSegmented({ className }: { className?: string }) {
+  const { preference, setTheme, isHydrated } = useTheme();
+
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Colour theme"
+      className={cn(
+        'inline-flex items-center gap-1 rounded-lg border border-border-default',
+        'bg-bg-subtle p-1',
+        className,
+      )}
+    >
+      {OPTIONS.map((option) => {
+        const Icon = option.icon;
+        const isActive = isHydrated && preference === option.value;
+
+        return (
+          <button
+            key={option.value}
+            type="button"
+            role="radio"
+            aria-checked={isActive}
+            onClick={() => setTheme(option.value)}
+            className={cn(
+              'inline-flex items-center gap-2 rounded-md px-3 py-1.5',
+              'text-body-sm font-medium',
+              'transition-colors duration-[120ms]',
+              'focus-visible:outline-none',
+              isActive
+                ? 'bg-bg-surface text-text-primary shadow-sm'
+                : 'text-text-secondary hover:text-text-primary',
+            )}
+          >
+            <Icon className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
+            {option.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * Full setting row — the Appearance section of profile settings
+ * ------------------------------------------------------------------------ */
+
+export function ThemeSetting({ className }: { className?: string }) {
+  const { preference, setTheme, resolved, isHydrated } = useTheme();
+
+  return (
+    <section className={cn('space-y-4', className)}>
+      <div className="space-y-1">
+        <h3 className="text-h3 text-text-primary">Appearance</h3>
+        <p className="text-body-sm text-text-secondary">
+          Choose how CNI CRM looks to you. This applies to your account on every device.
+        </p>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        {OPTIONS.map((option) => {
+          const Icon = option.icon;
+          const isActive = isHydrated && preference === option.value;
+
+          return (
+            <button
+              key={option.value}
+              type="button"
+              role="radio"
+              aria-checked={isActive}
+              onClick={() => setTheme(option.value)}
+              className={cn(
+                'group flex flex-col items-start gap-3 rounded-xl border p-4 text-left',
+                'transition-colors duration-[120ms]',
+                'focus-visible:outline-none',
+                isActive
+                  ? 'border-border-brand bg-bg-brand-subtle'
+                  : 'border-border-default bg-bg-surface hover:border-border-strong',
+              )}
+            >
+              <span
+                className={cn(
+                  'inline-flex h-9 w-9 items-center justify-center rounded-lg',
+                  'transition-colors duration-[120ms]',
+                  isActive
+                    ? 'bg-accent-primary text-text-on-brand'
+                    : 'bg-bg-subtle text-text-secondary group-hover:text-text-primary',
+                )}
+              >
+                <Icon className="h-[18px] w-[18px]" strokeWidth={1.75} aria-hidden="true" />
+              </span>
+
+              <span className="space-y-0.5">
+                <span className="block text-body font-medium text-text-primary">
+                  {option.label}
+                </span>
+                <span className="block text-caption text-text-secondary">
+                  {option.description}
+                </span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {isHydrated && preference === 'system' && (
+        <p className="text-caption text-text-tertiary">
+          Your device is currently set to {resolved}.
+        </p>
+      )}
+    </section>
+  );
+}

@@ -1,0 +1,183 @@
+/* ============================================================================
+   CNI CRM — GLOBAL STYLESHEET
+   ----------------------------------------------------------------------------
+   Loads Tailwind, loads the design tokens, then exposes those tokens to
+   Tailwind's utility generator via `@theme inline`.
+
+   `inline` is essential: it makes Tailwind emit `var(--bg-base)` into the
+   utility rather than resolving the value at build time. Without it the
+   theme could not switch at runtime.
+   ========================================================================= */
+
+@import 'tailwindcss';
+@import '../styles/tokens.css';
+
+/* The dark variant keys off the resolved data-theme attribute, never a media
+   query — the pre-paint script has already resolved `system` to a concrete
+   value before any CSS is evaluated. One source of truth, no conflicts. */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+@theme inline {
+  /* ---- Typography ---- */
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-playfair), ui-serif, Georgia, serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, monospace;
+
+  /* ---- Surfaces ---- */
+  --color-bg-base: var(--bg-base);
+  --color-bg-subtle: var(--bg-subtle);
+  --color-bg-surface: var(--bg-surface);
+  --color-bg-surface-raised: var(--bg-surface-raised);
+  --color-bg-hover: var(--bg-hover);
+  --color-bg-selected: var(--bg-selected);
+  --color-bg-brand-subtle: var(--bg-brand-subtle);
+  --color-bg-gold-subtle: var(--bg-gold-subtle);
+  --color-bg-inverse: var(--bg-inverse);
+
+  /* ---- Borders ---- */
+  --color-border-default: var(--border-default);
+  --color-border-subtle: var(--border-subtle);
+  --color-border-strong: var(--border-strong);
+  --color-border-brand: var(--border-brand);
+  --color-border-gold: var(--border-gold);
+
+  /* ---- Text ---- */
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-tertiary: var(--text-tertiary);
+  --color-text-disabled: var(--text-disabled);
+  --color-text-brand: var(--text-brand);
+  --color-text-gold: var(--text-gold);
+  --color-text-inverse: var(--text-inverse);
+  --color-text-on-brand: var(--text-on-brand);
+  --color-text-on-gold: var(--text-on-gold);
+
+  /* ---- Accents ---- */
+  --color-accent-primary: var(--accent-primary);
+  --color-accent-primary-hover: var(--accent-primary-hover);
+  --color-accent-primary-active: var(--accent-primary-active);
+  --color-accent-gold: var(--accent-gold);
+  --color-accent-gold-hover: var(--accent-gold-hover);
+
+  /* ---- Task statuses ---- */
+  --color-status-backlog: var(--status-backlog);
+  --color-status-todo: var(--status-todo);
+  --color-status-progress: var(--status-progress);
+  --color-status-blocked: var(--status-blocked);
+  --color-status-review: var(--status-review);
+  --color-status-revisions: var(--status-revisions);
+  --color-status-done: var(--status-done);
+  --color-status-cancelled: var(--status-cancelled);
+
+  /* ---- Workload bands ---- */
+  --color-load-available: var(--load-available);
+  --color-load-healthy: var(--load-healthy);
+  --color-load-warning: var(--load-warning);
+  --color-load-over: var(--load-over);
+
+  /* ---- Priority ---- */
+  --color-priority-urgent: var(--priority-urgent);
+  --color-priority-high: var(--priority-high);
+  --color-priority-medium: var(--priority-medium);
+  --color-priority-low: var(--priority-low);
+
+  /* ---- Project types ---- */
+  --color-project-event: var(--project-event);
+  --color-project-client: var(--project-client);
+  --color-project-business: var(--project-business);
+  --color-project-promo: var(--project-promo);
+  --color-project-other: var(--project-other);
+
+  /* ---- Feedback ---- */
+  --color-feedback-success: var(--feedback-success);
+  --color-feedback-warning: var(--feedback-warning);
+  --color-feedback-error: var(--feedback-error);
+  --color-feedback-info: var(--feedback-info);
+
+  /* ---- Brand ramps — gradients and illustration only.
+          BR-024: none of these may express a semantic state. ---- */
+  --color-teal-950: var(--teal-950);
+  --color-teal-900: var(--teal-900);
+  --color-teal-800: var(--teal-800);
+  --color-teal-700: var(--teal-700);
+  --color-teal-600: var(--teal-600);
+  --color-teal-500: var(--teal-500);
+  --color-teal-400: var(--teal-400);
+  --color-teal-300: var(--teal-300);
+  --color-teal-200: var(--teal-200);
+  --color-teal-100: var(--teal-100);
+  --color-teal-50: var(--teal-50);
+  --color-gold-900: var(--gold-900);
+  --color-gold-800: var(--gold-800);
+  --color-gold-700: var(--gold-700);
+  --color-gold-600: var(--gold-600);
+  --color-gold-500: var(--gold-500);
+  --color-gold-400: var(--gold-400);
+  --color-gold-300: var(--gold-300);
+  --color-gold-200: var(--gold-200);
+  --color-gold-100: var(--gold-100);
+  --color-gold-50: var(--gold-50);
+
+  /* ---- Radius ---- */
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
+  --radius-2xl: var(--radius-2xl);
+
+  /* ---- Elevation ---- */
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+  --shadow-xl: var(--shadow-xl);
+}
+
+/* ==========================================================================
+   TYPE SCALE — doc 18 §7
+   ========================================================================== */
+
+@utility text-display {
+  font-family: var(--font-serif);
+  font-size: 2rem;
+  line-height: 2.5rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+@utility text-h1 {
+  font-size: 1.5rem;
+  line-height: 2rem;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+@utility text-h2 {
+  font-size: 1.25rem;
+  line-height: 1.75rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+@utility text-h3 {
+  font-size: 1rem;
+  line-height: 1.5rem;
+  font-weight: 600;
+}
+@utility text-body {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 400;
+}
+@utility text-body-sm {
+  font-size: 0.8125rem;
+  line-height: 1.125rem;
+  font-weight: 400;
+}
+@utility text-caption {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 400;
+}
+@utility text-micro {
+  font-size: 0.6875rem;
+  line-height: 0.875rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}

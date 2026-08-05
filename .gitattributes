@@ -1,0 +1,38 @@
+# ============================================================================
+# Line-ending normalisation
+# ----------------------------------------------------------------------------
+# Everything is stored LF in the repository and checked out native on Windows.
+# Without this, a Windows and a macOS contributor produce whole-file diffs on
+# every commit, which makes review useless.
+# ============================================================================
+
+* text=auto eol=lf
+
+# Windows-only files keep CRLF
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+*.ps1   text eol=crlf
+
+# Binary — never touch, never diff
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.webp  binary
+*.mp4   binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.otf   binary
+*.pdf   binary
+
+# SVG is text, but treat as binary for diff purposes — a one-line path change
+# produces unreadable noise otherwise.
+*.svg   text eol=lf -diff
+
+# Generated — collapse in pull request views
+package-lock.json linguist-generated=true -diff
+
+# Documentation drives this project; make sure GitHub counts it as such.
+docs/**  linguist-documentation=true

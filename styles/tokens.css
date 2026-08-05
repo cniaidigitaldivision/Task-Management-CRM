@@ -1,0 +1,427 @@
+/* ============================================================================
+   CNI CRM — DESIGN TOKENS
+   ----------------------------------------------------------------------------
+   Single source of truth for every colour, shadow, radius and motion value.
+   Derived from: docs/18-DESIGN-SYSTEM-AND-BRANDING.md
+   Governed by:  BR-024 · BR-025 · BR-026 · FR-205 · FR-206 · FR-207
+
+   ⛔ RULES — enforced by lint (eslint.config.mjs)
+      1. No component may contain a raw hex value. Use semantic tokens only.
+      2. Gold is brand chrome. Gold NEVER conveys a semantic state. (BR-024)
+      3. A new colour is added to doc 18 first, then here, then used. (BR-026)
+
+   STRUCTURE
+      Layer 1 — Raw palette      immutable, theme-independent
+      Layer 2 — Semantic tokens  swap between light and dark
+      Layer 3 — shadcn bridge    maps shadcn/ui variables onto our semantics
+   ========================================================================= */
+
+/* ==========================================================================
+   LAYER 1 — RAW PALETTE
+   Never referenced directly by a component. Only Layer 2 may read these.
+   ========================================================================== */
+
+:root {
+  /* ---- Primary · Deep Teal ------------------------------------ analytical */
+  --teal-950: #04262b;
+  --teal-900: #073238;
+  --teal-800: #0a4046;
+  --teal-700: #0e5c63; /* ⭐ core brand teal */
+  --teal-600: #12707a;
+  --teal-500: #17878f;
+  --teal-400: #2fa3a9; /* ⭐ dark-theme primary */
+  --teal-300: #5fc0c3;
+  --teal-200: #9bdadb;
+  --teal-100: #cbecec;
+  --teal-50: #e9f6f6;
+
+  /* ---- Accent · Gold -------------------------------------------- creative */
+  /* ⚠️ gold-500 on white is 2.1:1 — NEVER use for text in light theme.       */
+  --gold-900: #6b4a0f;
+  --gold-800: #8c6417; /* only gold safe for light-theme text — 5.4:1 */
+  --gold-700: #a87a1e;
+  --gold-600: #c29029;
+  --gold-500: #d4a63c; /* ⭐ core brand gold */
+  --gold-400: #e0b85c; /* ⭐ dark-theme gold */
+  --gold-300: #eacb86;
+  --gold-200: #f2ddb4;
+  --gold-100: #f8edd9;
+  --gold-50: #fcf7ee;
+
+  /* ---- Neutrals · teal-tinted -------------------------------------------- */
+  /* Pure grey reads as dead beside teal. Every neutral carries the brand hue. */
+  --neutral-0: #ffffff;
+  --neutral-25: #fafcfc;
+  --neutral-50: #f4f8f8;
+  --neutral-100: #e9f0f0;
+  --neutral-200: #dde7e8;
+  --neutral-300: #c3d3d4;
+  --neutral-400: #93a9ab;
+  --neutral-500: #6b8386;
+  --neutral-600: #516a6d;
+  --neutral-700: #3b5457;
+  --neutral-800: #263d40;
+  --neutral-900: #16292c;
+  --neutral-950: #0b1d1f;
+  --neutral-1000: #061417;
+
+  /* ---- Semantic hues ------------------------------------------------------
+     Chosen so no adjacent pair sits within 65° of hue, and none collides
+     with brand gold (43°). See doc 18 §3.                                    */
+  --slate-l: #64748b;  --slate-d: #94a3b8;
+  --blue-l: #3b82f6;   --blue-d: #60a5fa;
+  --violet-l: #8b5cf6; --violet-d: #a78bfa;
+  --red-l: #ef4444;    --red-d: #f87171;
+  --pink-l: #ec4899;   --pink-d: #f472b6;
+  --orange-l: #f97316; --orange-d: #fb923c;
+  --emerald-l: #10b981; --emerald-d: #34d399;
+  --zinc-l: #a1a1aa;   --zinc-d: #71717a;
+  --purple-l: #7c3aed; --purple-d: #a78bfa;
+  --fuchsia-l: #db2777; --fuchsia-d: #f472b6;
+  --amber-l: #b45309;  --amber-d: #f59e0b;
+  --red-deep-l: #dc2626; --red-deep-d: #ef4444;
+  --orange-deep-l: #ea580c; --orange-deep-d: #f97316;
+  --cyan-deep-l: #0e7490; --cyan-deep-d: #22d3ee;
+  --emerald-deep-l: #059669; --emerald-deep-d: #34d399;
+  --slate-deep-l: #475569; --slate-deep-d: #94a3b8;
+}
+
+/* ==========================================================================
+   LAYER 2 — SEMANTIC TOKENS
+   The ONLY layer components may reference.
+
+   The pre-paint script resolves the stored preference (light | dark | system)
+   to a concrete value and writes data-theme="light" | "dark" on <html>.
+   CSS therefore never needs a media query, which removes an entire class of
+   attribute-vs-media-query conflict bugs.
+   ========================================================================== */
+
+:root,
+[data-theme='light'] {
+  color-scheme: light;
+
+  /* ---- Surfaces ---- */
+  --bg-base: var(--neutral-0);
+  --bg-subtle: var(--neutral-50);
+  --bg-surface: var(--neutral-0);
+  --bg-surface-raised: var(--neutral-0);
+  --bg-hover: var(--neutral-100);
+  --bg-selected: var(--teal-50);
+  --bg-brand-subtle: var(--teal-50);
+  --bg-gold-subtle: var(--gold-50);
+  --bg-inverse: var(--neutral-950);
+  --bg-scrim: rgb(11 29 31 / 0.45);
+
+  /* ---- Borders ---- */
+  --border-default: var(--neutral-200);
+  --border-subtle: var(--neutral-100);
+  --border-strong: var(--neutral-300);
+  --border-brand: var(--teal-700);
+  --border-gold: var(--gold-500);
+
+  /* ---- Text ---- */
+  --text-primary: #0a2a2e;
+  --text-secondary: #4a6b6e;
+  --text-tertiary: var(--neutral-500);
+  --text-disabled: var(--neutral-400);
+  --text-brand: var(--teal-700);
+  --text-gold: var(--gold-800); /* ⚠️ NOT gold-500 — fails contrast on white */
+  --text-inverse: var(--neutral-0);
+  --text-on-brand: var(--neutral-0);
+  --text-on-gold: var(--neutral-950);
+
+  /* ---- Accents ---- */
+  --accent-primary: var(--teal-700);
+  --accent-primary-hover: var(--teal-600);
+  --accent-primary-active: var(--teal-800);
+  --accent-gold: var(--gold-500);
+  --accent-gold-hover: var(--gold-600);
+
+  /* ---- Focus ---- */
+  --focus-ring: var(--teal-700);
+  --focus-ring-offset: var(--neutral-0);
+
+  /* ---- Elevation ---- */
+  --shadow-sm: 0 1px 2px 0 rgb(10 42 46 / 0.06);
+  --shadow-md: 0 4px 8px -1px rgb(10 42 46 / 0.08), 0 2px 4px -2px rgb(10 42 46 / 0.06);
+  --shadow-lg: 0 12px 24px -4px rgb(10 42 46 / 0.1), 0 4px 8px -4px rgb(10 42 46 / 0.06);
+  --shadow-xl: 0 24px 48px -12px rgb(10 42 46 / 0.16);
+
+  /* ---- Task statuses — doc 18 §5 (supersedes doc 05) ---- */
+  --status-backlog: var(--slate-l);
+  --status-todo: var(--blue-l);
+  --status-progress: var(--violet-l); /* was amber — collided with gold */
+  --status-blocked: var(--red-l);
+  --status-review: var(--pink-l); /* was purple — too close to violet */
+  --status-revisions: var(--orange-l);
+  --status-done: var(--emerald-l);
+  --status-cancelled: var(--zinc-l);
+
+  /* ---- Workload bands ---- */
+  --load-available: var(--emerald-l);
+  --load-healthy: var(--blue-l);
+  --load-warning: var(--orange-l); /* orange, never amber/gold */
+  --load-over: var(--red-l);
+
+  /* ---- Priority ---- */
+  --priority-urgent: var(--red-deep-l);
+  --priority-high: var(--orange-deep-l);
+  --priority-medium: var(--cyan-deep-l);
+  --priority-low: var(--neutral-400);
+
+  /* ---- Project types ---- */
+  --project-event: var(--purple-l);
+  --project-client: var(--teal-700); /* core business carries the brand */
+  --project-business: var(--slate-deep-l);
+  --project-promo: var(--fuchsia-l);
+  --project-other: var(--amber-l);
+
+  /* ---- Feedback ---- */
+  --feedback-success: var(--emerald-deep-l);
+  --feedback-warning: var(--orange-l);
+  --feedback-error: var(--red-deep-l);
+  --feedback-info: var(--teal-700);
+
+  /* ---- Logo facet seam — matches the surface behind the mark ---- */
+  --logo-seam: var(--neutral-0);
+}
+
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  /* ---- Surfaces ---- */
+  --bg-base: var(--neutral-1000);
+  --bg-subtle: var(--neutral-950);
+  --bg-surface: #12292d;
+  --bg-surface-raised: #183539;
+  --bg-hover: #1d3e43;
+  --bg-selected: #0e3a3f;
+  --bg-brand-subtle: #0a3035;
+  --bg-gold-subtle: #2b2413;
+  --bg-inverse: var(--neutral-50);
+  --bg-scrim: rgb(0 0 0 / 0.65);
+
+  /* ---- Borders ---- */
+  --border-default: #1f4247;
+  --border-subtle: #163236;
+  --border-strong: #2a5257;
+  --border-brand: var(--teal-400);
+  --border-gold: var(--gold-400);
+
+  /* ---- Text ---- */
+  --text-primary: #e8f1f1;
+  --text-secondary: #9fb8ba;
+  --text-tertiary: #7a9497;
+  --text-disabled: #5b7376;
+  --text-brand: var(--teal-400);
+  --text-gold: var(--gold-400); /* gold is safe for text on dark — 9.8:1 */
+  --text-inverse: #0a2a2e;
+  --text-on-brand: var(--teal-950);
+  --text-on-gold: var(--neutral-1000);
+
+  /* ---- Accents ---- */
+  --accent-primary: var(--teal-400);
+  --accent-primary-hover: var(--teal-300);
+  --accent-primary-active: var(--teal-500);
+  --accent-gold: var(--gold-400);
+  --accent-gold-hover: var(--gold-300);
+
+  /* ---- Focus ---- */
+  --focus-ring: var(--teal-300);
+  --focus-ring-offset: var(--neutral-1000);
+
+  /* ---- Elevation ---- */
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.4);
+  --shadow-md: 0 4px 8px -1px rgb(0 0 0 / 0.45), 0 2px 4px -2px rgb(0 0 0 / 0.35);
+  --shadow-lg: 0 12px 24px -4px rgb(0 0 0 / 0.5), 0 4px 8px -4px rgb(0 0 0 / 0.4);
+  --shadow-xl: 0 24px 48px -12px rgb(0 0 0 / 0.6);
+
+  /* ---- Task statuses ---- */
+  --status-backlog: var(--slate-d);
+  --status-todo: var(--blue-d);
+  --status-progress: var(--violet-d);
+  --status-blocked: var(--red-d);
+  --status-review: var(--pink-d);
+  --status-revisions: var(--orange-d);
+  --status-done: var(--emerald-d);
+  --status-cancelled: var(--zinc-d);
+
+  /* ---- Workload bands ---- */
+  --load-available: var(--emerald-d);
+  --load-healthy: var(--blue-d);
+  --load-warning: var(--orange-d);
+  --load-over: var(--red-d);
+
+  /* ---- Priority ---- */
+  --priority-urgent: var(--red-deep-d);
+  --priority-high: var(--orange-deep-d);
+  --priority-medium: var(--cyan-deep-d);
+  --priority-low: var(--slate-l);
+
+  /* ---- Project types ---- */
+  --project-event: var(--purple-d);
+  --project-client: var(--teal-400);
+  --project-business: var(--slate-deep-d);
+  --project-promo: var(--fuchsia-d);
+  --project-other: var(--amber-d);
+
+  /* ---- Feedback ---- */
+  --feedback-success: var(--emerald-deep-d);
+  --feedback-warning: var(--orange-d);
+  --feedback-error: var(--red-d);
+  --feedback-info: var(--teal-400);
+
+  /* ---- Logo facet seam ---- */
+  --logo-seam: var(--neutral-1000);
+}
+
+/* ==========================================================================
+   SHARED — spacing, radius, motion (theme-independent)
+   ========================================================================== */
+
+:root {
+  /* Radius — the logo is faceted, so corners stay tight */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-2xl: 16px;
+  --radius-full: 9999px;
+
+  /* Motion */
+  --duration-fast: 120ms;
+  --duration-base: 180ms;
+  --duration-slow: 260ms;
+  --ease-out: cubic-bezier(0.2, 0, 0.2, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Layout */
+  --sidebar-width: 260px;
+  --sidebar-width-collapsed: 68px;
+  --topbar-height: 60px;
+}
+
+/* ==========================================================================
+   LAYER 3 — shadcn/ui BRIDGE
+   Maps shadcn's variable names onto our semantics so every shadcn component
+   inherits the CNI brand automatically, in both themes, with no per-component
+   overrides. (I-9 in doc 20 §6: no component knows which theme is active.)
+   ========================================================================== */
+
+:root,
+[data-theme='light'],
+[data-theme='dark'] {
+  --background: var(--bg-base);
+  --foreground: var(--text-primary);
+  --card: var(--bg-surface);
+  --card-foreground: var(--text-primary);
+  --popover: var(--bg-surface-raised);
+  --popover-foreground: var(--text-primary);
+  --primary: var(--accent-primary);
+  --primary-foreground: var(--text-on-brand);
+  --secondary: var(--bg-subtle);
+  --secondary-foreground: var(--text-primary);
+  --muted: var(--bg-subtle);
+  --muted-foreground: var(--text-secondary);
+  --accent: var(--bg-hover);
+  --accent-foreground: var(--text-primary);
+  --destructive: var(--feedback-error);
+  --destructive-foreground: var(--neutral-0);
+  --border: var(--border-default);
+  --input: var(--border-default);
+  --ring: var(--focus-ring);
+  --radius: var(--radius-lg);
+}
+
+/* ==========================================================================
+   BASE ELEMENT STYLES
+   ========================================================================== */
+
+* {
+  border-color: var(--border-default);
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+  font-feature-settings: 'cv11', 'ss01';
+  font-variation-settings: normal;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Colour-only transition on theme swap.
+   FR-213: never transition layout properties — that causes visible shift. */
+body,
+[data-theme] {
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+}
+
+/* Suppress every transition during the theme swap itself, so the change is
+   instantaneous rather than a visible sweep across the page. */
+.theme-transitions-disabled,
+.theme-transitions-disabled *,
+.theme-transitions-disabled *::before,
+.theme-transitions-disabled *::after {
+  transition: none !important;
+  animation-duration: 0.01ms !important;
+}
+
+/* FR-214 — focus ring visible in both themes on every interactive element */
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* FR-211 — digits must not jitter as a timer counts */
+.tabular {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+
+/* Scrollbars, themed */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border: 2px solid var(--bg-base);
+  border-radius: var(--radius-full);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
+}
+
+::selection {
+  background: var(--teal-200);
+  color: var(--teal-950);
+}
+[data-theme='dark'] ::selection {
+  background: var(--teal-800);
+  color: var(--teal-50);
+}
+
+/* FR-212 — respect reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
