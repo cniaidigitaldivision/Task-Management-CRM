@@ -1,9 +1,9 @@
 # 📊 PROGRESS TRACKER — CNI CRM
 
-**Last updated:** 2026-08-06 (Session 06)
-**Current phase:** **Phase 1 — Foundation & Security** · Step 1 + shell complete
-**Overall progress:** ▓▓▓▓▓░░░░░░░░░░░░░░░ 27%
-**Blocked on:** **Nothing.** Awaiting go-ahead for Step 2 (data foundation).
+**Last updated:** 2026-08-06 (Session 07)
+**Current phase:** **Phase 1 — Foundation & Security** · Steps 1, 1b, 2 complete
+**Overall progress:** ▓▓▓▓▓▓░░░░░░░░░░░░░░ 33%
+**Blocked on:** **Nothing.** Awaiting go-ahead for Step 3 (domain — permissions matrix + exhaustive tests).
 
 > ⛔ **Standing rule (owner, Session 06):** commit, push to GitHub and update these docs after **every** change — not batched at session end.
 **Run it:** `npm run dev` → http://localhost:4310 · `npm run verify` → typecheck + lint + build
@@ -37,7 +37,7 @@
 | Phase | Name | Status | Progress |
 |:--:|---|:--:|---|
 | 0 | Planning & Documentation | ✅ | ▓▓▓▓▓▓▓▓▓▓ 100% |
-| 1 | Foundation & **Security** (auth, DB, roles, MFA) | 🟡 | ▓▓░░░░░░░░ 14% — Step 1/7 |
+| 1 | Foundation & **Security** (auth, DB, roles, MFA) | 🟡 | ▓▓▓░░░░░░░ 29% — Step 2/7 |
 | 2 | **Projects** & core task management | ⬜ | ░░░░░░░░░░ 0% |
 | 3 | Real-time & notifications | ⬜ | ░░░░░░░░░░ 0% |
 | 4 | ★ Intelligence (workload + assignment) | ⬜ | ░░░░░░░░░░ 0% |
@@ -143,20 +143,45 @@ Pulled forward from Step 7 in response to owner feedback that the interface did 
 
 > **Still to do in the shell (Step 7):** responsive verification at 375px, keyboard navigation pass, collapsed sidebar rail, command palette.
 
-### Steps 2–7 — see [`20-IMPLEMENTATION-CONTRACTS.md`](20-IMPLEMENTATION-CONTRACTS.md) §9 for the gate on each
-| T-103 | Provision Supabase + storage + Resend | — | ⬜ |
-| T-104 | Schema + migrations, incl. security tables (doc 04 §2b) | — | ⬜ |
+### Step 2 — Data foundation *(Session 07)*
+
+Migrations are the schema's single source of truth (registry **C-16**); `types/database.ts` is generated from the live database and never hand-edited. Contract for layer 1: [`lib/db/README.md`](../lib/db/README.md).
+
+| ID | Task | Req IDs | Status |
+|---|---|---|:--:|
+| T-201a | **Registry first** — 5 conflicts resolved (C-13…C-17) + doc 04 deltas in §9a | doc 20 §10 | ✅ |
+| T-201b | Migration **001** — `users`, `auth_identities`, `invitations`, `sessions`, schema `app` | FR-161, doc 04 §2b | ✅ |
+| T-201c | Migration **002** — `mfa_factors`, `recovery_codes`, `login_attempts`, `break_glass` | FR-145, SA-9, doc 16 §6 | ✅ |
+| T-201d | Migration **003** — `audit_log`, `security_events` + append-only **triggers** | FR-153, SA-10 | ✅ |
+| T-201e | Migration **004** — `skills`, `user_skills`, `system_settings` | FR-012, FR-017 | ✅ |
+| T-201f | Migration **005** — role `cni_app`, identity helpers, `user_directory`, all RLS | FR-157, ADR-003 | ✅ |
+| T-201g | **Super Admin immutability trigger** — BR-027, FR-140, FR-156, BR-028, doc 03 §5, §3 | FR-140, FR-156 | ✅ |
+| T-201h | Super Admin MFA floor — always ≥1 verified factor, rotation still allowed | FR-146 | ✅ |
+| T-201i | Closed the `anon`/`authenticated` PostgREST surface on `public` | doc 16 §8 | ✅ |
+| T-201j | Migration **006** — `search_path = ''` on all `app` functions; all 7 linter WARNs closed | doc 16 §9 A05 | ✅ |
+| T-201k | Gate proof checked in — 35 assertions, `BEGIN…ROLLBACK`, safe against production | doc 20 §9 | ✅ |
+| T-201l | `types/database.ts` generated from the live schema | C-16 | ✅ |
+| T-201m | `.env.example` — every variable, and what breaks if it is wrong | doc 16 §8 | ✅ |
+| **Gate 2** | **Trigger blocks a foreign write to a `super_admin` row (proven by test)** | | ✅ **PASSED** |
+
+> **Gate 2 evidence (2026-08-06):** `lib/db/verify/005_super_admin_immutability.sql` — **35 assertions, 35 PASS**, re-run after migration 006 and still 35/35. Assertions 1–4 are the gate itself: an Admin, a Coordinator, a Member and an unidentified session are each refused a write to the `super_admin` row. Assertions ran as `postgres`, which has `BYPASSRLS` — so RLS was switched off entirely and the trigger held alone. Assertions 28–35 then re-ran as `cni_app` to check RLS separately: a Member sees exactly 1 of 5 `users` rows and 1 of 2 `auth_identities` rows, all 5 names via `user_directory`, 0 `security_events`, and cannot read `break_glass`, insert an Admin, or edit a colleague. Supabase security linter: **0 warnings**, 1 expected INFO (`break_glass` has RLS with no policies — doc 04 §5 requires exactly that). `npm run verify` clean.
+>
+> **Deliberately deferred, not forgotten:** the `queries/` layer and the `withUser()` helper → Step 4, with the code that needs them. Starter skills library → Step 6 (doc 20 §9, 6.1). Resend + SPF/DKIM/DMARC → **owner action**, needed by Step 5.
+
+### Steps 3–7 — see [`20-IMPLEMENTATION-CONTRACTS.md`](20-IMPLEMENTATION-CONTRACTS.md) §9 for the gate on each
+| T-103 | Provision Supabase + storage + Resend | — | 🟡 Supabase ✅ · Resend ⬜ owner |
+| T-104 | Schema + migrations, incl. security tables (doc 04 §2b) | — | ✅ Phase 1 tables; Phase 2 tables later |
 | T-105 | ~~`organisation_id` on every table~~ | — | ❌ Dropped — [ADR-008](decisions/ADR-008-single-tenant.md), single-tenant |
 | T-105a | One-time Super Admin setup route that self-disables after use | ADR-009 | ⬜ |
 | T-105b | Guided first-run wizard (empty system → working team) | ADR-009 | ⬜ |
 | T-105c | Editable starter skills library (~35 entries with keywords) | FR-017, ADR-009 | ⬜ |
 | T-106 | Password auth: Argon2id, breach check, blocklist, strength meter | FR-147, doc 16 §5 | ⬜ |
-| T-107 | `auth_identities` table — SSO-ready, no future migration | FR-161 | ⬜ |
+| T-107 | `auth_identities` table — SSO-ready, no future migration | FR-161 | ✅ Step 2 |
 | T-108 | Activation-token invitation flow (hashed, single-use, 48h) | FR-142, FR-143 | ⬜ |
 | T-109 | Optional temporary-password path (screen-only, never emailed) | FR-144 | ⬜ |
 | T-110 | MFA: TOTP + WebAuthn/passkey + recovery codes | FR-145 | ⬜ |
 | T-111 | Mandatory, undisableable MFA for Super Admin | FR-146 | ⬜ |
-| T-112 | **Super Admin immutability**: DB trigger + RLS + server guard | FR-140, FR-156 | ⬜ |
+| T-112 | **Super Admin immutability**: DB trigger + RLS + server guard | FR-140, FR-156 | 🟡 DB trigger ✅ + RLS ✅ (Step 2, Gate 2). Server guard → Step 3–4; UI → Step 6 |
 | T-113 | **"Forgot password"** — emailed one-time code + link, all 4 roles | FR-155, FR-155e | ⬜ |
 | T-113a | **3-attempt lockout** + email unlock code + owner alert | FR-155a | ⬜ |
 | T-113b | MFA required after email code for Super Admin and Admin resets | FR-155b, Q-039 | ⬜ |
@@ -168,8 +193,8 @@ Pulled forward from Step 7 in response to owner feedback that the interface did 
 | T-116 | Rate limiting, progressive lockout, generic errors, timing normalisation | FR-148 | ⬜ |
 | T-117 | Login alerts + anomaly detection (new device/country/impossible travel) | FR-151, FR-152 | ⬜ |
 | T-118 | Role enum (4 roles) + permission service | doc 03 | ⬜ |
-| T-119 | Row-level security incl. **member isolation** | FR-157, ADR-003 | ⬜ |
-| T-120 | Immutable audit + security event logs (no UPDATE/DELETE grant) | FR-153 | ⬜ |
+| T-119 | Row-level security incl. **member isolation** | FR-157, ADR-003 | ✅ Step 2 — proven by direct DB query, not via the UI |
+| T-120 | Immutable audit + security event logs (no UPDATE/DELETE grant) | FR-153 | ✅ Step 2 — trigger as well as grant; binds the table owner too |
 | T-121 | Seed Super Admin (guided setup with MFA + recovery codes) | FR-140 | ⬜ |
 | T-122 | Provisioning chain UI: Super Admin → Admin → Coordinator/Member | FR-141 | ⬜ |
 | T-123 | Team management UI (add/edit/deactivate) | FR-010–016 | ⬜ |
@@ -353,6 +378,7 @@ Pulled forward from Step 7 in response to owner feedback that the interface did 
 |---|---|---|---|
 | 2026-08-05 | 01 | Planning set 00–14 drafted: brief, requirements (FR/NFR/BR), permissions matrix, data model, task lifecycle, workload engine, assignment engine, real-time design, tech stack, UI screens, competitor benchmark, enhancement backlog, questions, roadmap, tracker. **No code.** | Get Q-001/002/003/010/012 answered |
 | 2026-08-06 | 02 | Answers locked (Q-002/003/010/012/015 + defaults). Role model expanded to 4 with **Team Coordinator**. **Doc 15** — projects, 5 types, task↔project linkage, "Other" rules, Member Activity Preview, 12 engineering enhancements. **Doc 16** — threat model, provisioning chain, Super Admin hardening, break-glass, OWASP/NIST coverage, incident runbook, Google SSO roadmap. **`SESSION-STATE.md`** crash-resume protocol. ADR-001–006 written. Docs 03, 04, 06, 13, 14 and tracker updated. 15 new questions (Q-024–Q-038). **No code.** | Q-001 roster · Q-030 break-glass · Q-034 tenancy · Q-022 name |
+| 2026-08-06 | 07 | **PHASE 1, STEP 2 — data foundation. Gate 2 PASSED, 35/35.** Registry first: five conflicts resolved in doc 19 §9 (**C-13** Supabase Auth vs doc 16 → **we implement our own auth**; **C-14** no `auth.uid()`, so RLS keys off `SET LOCAL app.user_id` under the `NOBYPASSRLS` role `cni_app`; **C-15** narrow pre-auth definer surface; **C-16** SQL migrations are the schema SSOT, types are generated; **C-17** `account_unlock` purpose) plus §9a for the doc 04 deltas. Migrations 001–006: full identity, MFA, recovery, append-only logs, skills, settings, RLS on all 13 tables, and the Super Admin immutability trigger. Two real holes found and closed — Supabase's default `anon`/`authenticated` grants on `public` (the anon key ships in the browser), and `user_directory` being an auto-updatable owner-run view, which writable would have been a total RLS bypass on `users`. Migration 006 cleared all 7 linter warnings. Gate proof checked in, `BEGIN…ROLLBACK`, safe against production. | **Awaiting go-ahead for Step 3** |
 | 2026-08-06 | 05 | **PHASE 1, STEP 1 — first code.** Next.js 16.3 / React 19.2 / TS / Tailwind v4 scaffolded into the existing docs tree. Complete design-token system (raw palette → semantic layer → shadcn bridge), light and dark. Canonical constants with a load-time assertion that score weights total 1.00. Theme provider built on `useSyncExternalStore` with pre-paint script and transition suppression. Logo rebuilt as a theme-aware inline SVG whose facet seams track the surface. Lint rules now enforce BR-025 (no raw hex) and layer-2 purity (no db/framework/React in `lib/domain/`, no `Date.now()`). Dev port moved to 4310 after finding a foreign service worker on 3000. **Gate 1 PASSED**, browser-verified. | **Awaiting go-ahead for Step 2** |
 | 2026-08-06 | 04 | Logo analysed → **doc 18 design system**: palette from the mark, semantic tokens, light/dark for every role (ADR-011). **Gold/amber collision** found and resolved — gold is brand chrome only; status and workload colours revised. **Doc 19 master registry** — canonical index of every FR/BR/enum/setting/table, document ownership map, **12 contradictions found and resolved**. **Doc 20 implementation contracts** — 4-layer architecture, module table ownership, dependency graph, frozen interfaces, 9 integration seams, migration safety, per-phase gates, concrete Phase 1 step order. Assignment weights corrected 1.05 → 1.00. Fixes applied to docs 04, 05, 06, 07, 10. Q-049–Q-053 raised. **No code.** | **Awaiting go-ahead for Phase 1** |
 | 2026-08-06 | 03 | **All blockers cleared.** No seeded roster — Admin builds the team in-app (ADR-009); roster template retired, replaced by `FIRST-RUN-SETUP-GUIDE.md`. Recovery redesigned around emailed one-time codes for all 4 roles + 3-attempt lockout (ADR-007); doc 16 §6 rewritten, MFA added after email code for privileged roles. Single-tenant confirmed (ADR-008). Company name: **Crescent Nova International**. **Doc 17** — task timers, time limits, working-hours pausing, over-limit enforcement, Admin-only extensions, 9 further enhancements (ADR-010). Phase-by-phase permission recorded as a working agreement. 10 new questions (Q-039–Q-048). **No code.** | **Awaiting your go-ahead for Phase 1** |

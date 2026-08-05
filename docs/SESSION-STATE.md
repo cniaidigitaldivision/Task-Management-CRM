@@ -31,6 +31,9 @@ That's all you ever need to type. Everything else is recorded in the files.
 | Repo | https://github.com/habibaminhas989-blip/cni-crm (private, `main`) |
 | Browser testing | Use `http://192.168.100.131:4310` — Chrome here cannot reach `localhost` |
 | After changing `public/brand/` | Delete `.next` and restart, or the image optimiser serves the stale asset |
+| Database | Supabase `rxjqbtvlzxigfakbiktw`. Schema lives in `lib/db/migrations/`; contract for using it in [`lib/db/README.md`](../lib/db/README.md) |
+| Re-prove the security gate | Paste `lib/db/verify/005_super_admin_immutability.sql` into the SQL editor or the MCP. Self-cleaning, safe against production. Every row must read PASS. |
+| After any migration | Regenerate `types/database.ts`, re-run the gate proof, and run `get_advisors(security)` |
 
 ---
 
@@ -38,12 +41,44 @@ That's all you ever need to type. Everything else is recorded in the files.
 
 | | |
 |---|---|
-| **Last updated** | 2026-08-06, Session 06 |
+| **Last updated** | 2026-08-06, Session 07 |
 | **Current phase** | **Phase 1 — Foundation & Security** |
-| **Phase 1 progress** | ▓▓▓░░░░░░░ Step 1 + application shell complete |
-| **Overall progress** | ▓▓▓▓▓░░░░░░░░░░░░░░░ 27% |
-| **Code written** | ✅ Step 1 (scaffold, tokens, theming, constants) + shell, dashboard, 9 routes |
-| **Currently blocked on** | **Nothing.** Awaiting go-ahead for Step 2 (data foundation). |
+| **Phase 1 progress** | ▓▓▓▓░░░░░░ Steps 1, 1b, 2 complete (2 of 7 gates + 1b) |
+| **Overall progress** | ▓▓▓▓▓▓░░░░░░░░░░░░░░ 33% |
+| **Code written** | ✅ Step 1 (scaffold, tokens, theming, constants) · shell, dashboard, 9 routes · **Step 2 (migrations 001–006, RLS, Super Admin trigger)** |
+| **Currently blocked on** | **Nothing.** Awaiting go-ahead for Step 3 (domain — permissions matrix + tests). |
+
+### What was completed in Session 07 (2026-08-06) — PHASE 1, STEP 2
+
+**Gate 2: ✅ PASSED** — 35 assertions, 35 PASS. Re-run after the hardening migration: still 35/35.
+
+**Registry first, code second** (doc 20 §10). Reading the specs surfaced five real conflicts; all are recorded in [doc 19 §9](19-MASTER-SPECIFICATION-REGISTRY.md) with binding resolutions, and doc 04's deltas in §9a:
+
+| | |
+|---|---|
+| **C-13** | Doc 09 §4 recommends **Supabase Auth**; doc 16 mandates our own Argon2id hashes, our own `sessions` table with device binding and rotation, a 3-attempt lock, our own MFA. **Doc 16 wins** (doc 19 §1 gives it every auth decision). ⇒ **We implement authentication ourselves. Supabase provides Postgres, Storage and Realtime — not Auth.** |
+| **C-14** | That removes `auth.uid()`. RLS instead keys off a transaction-local identity: `SET LOCAL ROLE cni_app; SET LOCAL app.user_id = '…'`. `cni_app` is `NOBYPASSRLS`; `postgres` is not. **No identity ⇒ every predicate false** (fail-closed). |
+| **C-15** | Verifying a password happens *before* an identity exists. That gap gets a narrow, named `SECURITY DEFINER` surface in schema `app` — **never a `postgres` connection**. Written in Step 4; the seam is documented now so it can't be filled in ad hoc. |
+| **C-16** | `lib/db/migrations/*.sql` is the schema's single source of truth. `types/database.ts` is **generated**. Doc 20 §3's `schema.ts` would have been a second hand-maintained declaration — guaranteed drift. |
+| **C-17** | `invitations.purpose` gains `account_unlock`: FR-155a's unlock keeps the existing password, so it is neither a reset nor an activation. |
+
+**Built — enforced in the database, so it holds when the application is wrong**
+- `super_admin` rows writable only by themselves (BR-027, FR-140) · no self-demotion, deactivation, suspension or lock (FR-156) · **at most one `super_admin` row, ever**, via a partial unique index (BR-028) · no account changes its own role · Admins manage downward only · **no user row is ever deleted** (BR-007)
+- Super Admin always keeps ≥1 verified MFA factor (FR-146) — read as protecting the *invariant*, so replacing a lost phone still works
+- `audit_log` / `security_events` / `login_attempts` append-only by **trigger** as well as revoked grants — a `REVOKE` cannot bind a table owner, and doc 19 §6 says "any role, including `super_admin`"
+- `token_hash ~ '^[0-9a-f]{64}$'` — "the raw token is never stored" is now an invariant, not a promise
+- `break_glass`: RLS on, **zero policies**, all privileges revoked (doc 04 §5)
+- Member isolation proven **by direct database query**, not via the UI — the Phase 1 exit criterion, met early
+
+**Two real holes found and closed**
+- Supabase grants `anon` and `authenticated` everything in `public` by default — and the `anon` key ships inside the browser bundle. Revoked, default privileges included.
+- `user_directory` is a simple single-table view running as its owner, which makes it **auto-updatable** in Postgres. Writable, it would have been a complete RLS bypass on `users`. Write privileges revoked explicitly.
+
+**Migration 006** cleared all 7 Supabase linter warnings raised by 005 (`search_path = ''` on every `app` function; `EXECUTE` revoked from `PUBLIC` on the platform event-trigger function, which a revoke from `anon`/`authenticated` cannot reach). One INFO remains and is correct — `break_glass` has RLS with no policies, exactly as doc 04 §5 requires. The table comment says so, so nobody "fixes" it.
+
+**Deliberately deferred, not forgotten:** the `queries/` layer and `withUser()` → Step 4, with the code that needs them. Starter skills library → Step 6 (doc 20 §9, 6.1). `system_settings` is intentionally **empty** — overrides only, falling back to `SYSTEM_DEFAULTS`.
+
+**Owner action outstanding:** Resend account + SPF/DKIM/DMARC on the sending domain. Needed by **Step 5**, not before. See §3.
 
 ### What was completed in Session 06 (2026-08-06)
 
@@ -163,31 +198,17 @@ The new asset is a **transparent raster**, not vector. That changes what each fo
 
 ## 3. ⏭️ NEXT ACTION
 
-> ### 🔄 SESSION 06 ENDED DELIBERATELY — to restart Claude Code so the Supabase MCP loads
->
-> **Why the session was closed:** `.mcp.json` was created *during* session 06, but Claude Code reads MCP config only at startup. `/mcp` therefore showed 4 servers with no Supabase. A restart is the fix — nothing was broken.
->
-> **On restart, the owner does this (not me):**
-> 1. Approve the trust prompt for the project `.mcp.json`
-> 2. Run `/mcp` → `supabase` appears as *needs authentication*
-> 3. Select it and complete the browser OAuth for project `rxjqbtvlzxigfakbiktw`
->
-> If it still does not appear, fall back to registering it in user scope with `claude mcp add --transport http supabase <url>`.
->
-> **Nothing else is blocked.** Step 2 does not depend on the MCP — the schema is built from numbered migration files (doc 20 §7), and the MCP is for verification only.
+**State on close:** Phase 1 Steps 1 (Gate 1 ✅), 1b (Gate 1b ✅) and **2 (Gate 2 ✅)** complete. Everything committed and pushed. Working tree clean. `npm run verify` clean.
 
-**State on close:** Phase 1 Step 1 complete (Gate 1 ✅), application shell and dashboard complete (Gate 1b ✅), everything committed and pushed. Working tree clean.
-
-**Waiting for:** the owner's go-ahead to begin **Step 2 — Data foundation**.
-
-**First thing to do when Step 2 is authorised:** list the exact environment variables needed for `.env.local` and have the owner paste the values. Never handle their credentials.
+**Waiting for:** the owner's go-ahead to begin **Step 3 — Domain: the permissions matrix**.
 
 Phase 1 step order ([doc 20 §9](20-IMPLEMENTATION-CONTRACTS.md#9-phase-1--the-concrete-build-order)):
 
 ```
 STEP 1  ✅ Scaffold + design tokens + theme provider + constants   GATE 1 PASSED
-STEP 2  ⬜ Data foundation — Supabase, migrations 001–005, RLS,
-           Super Admin immutability trigger
+STEP 1b ✅ Application shell + dashboard + logo correction        GATE 1b PASSED
+STEP 2  ✅ Data foundation — migrations 001–006, RLS,
+           Super Admin immutability trigger                       GATE 2 PASSED
 STEP 3  ⬜ Domain — permissions matrix + exhaustive tests
 STEP 4  ⬜ Authentication — hashing, sessions, lockout, MFA, step-up
 STEP 5  ⬜ Provisioning & recovery — setup route, invitations, forgot-password
@@ -195,8 +216,30 @@ STEP 6  ⬜ Team management — skills, members, profile, theme persistence
 STEP 7  ⬜ Shell, first-run wizard, responsive pass, deploy to preview
 ```
 
-**Step 2 needs from you:** a Supabase project (free tier) and a Resend account for email.
-I will list the exact environment variables required before starting, so nothing is guessed.
+### What Step 3 involves
+
+`lib/domain/permissions.ts` — the whole of [doc 03 §3](03-ROLES-AND-PERMISSIONS.md) as **data**, not scattered `if` statements, plus exhaustive tests covering every role × every action. Layer 2, so it stays pure: no database, no framework, no clock.
+
+**It needs nothing from you** — no credentials, no accounts, no decisions. Doc 03 §3 is already complete and the gate is a test suite. It will also need a test runner installed (Vitest), which is the first new dependency since Step 1.
+
+### 🔧 Two things only you can do — neither blocks Step 3
+
+**1. Resend + email deliverability — needed by Step 5, not before**
+- Create a free Resend account (3,000 emails/month covers 7 people comfortably)
+- Verify the sending domain, and set up **SPF, DKIM and DMARC** on it
+- This one genuinely matters: the entire account-recovery design ([ADR-007](decisions/ADR-007-account-recovery.md)) depends on a reset email actually arriving. Without those three records it lands in spam, and a locked-out user stays locked out.
+
+**2. Fill in `.env.local` — needed by Step 4**
+- `cp .env.example .env.local`, then fill it in. [`.env.example`](../.env.example) lists every variable, says which step needs it, and says what breaks if it is wrong.
+- **Do not send me any of these values.** I don't need them — the database work goes through the Supabase MCP, which authenticates as you.
+- The one item worth reading twice: `DATABASE_URL` must end with `?options=-c%20role%3Dcni_app`. Without it the app connects as `postgres`, which bypasses row-level security, and half the security model silently stops applying. [`lib/db/README.md`](../lib/db/README.md) §2 explains why.
+
+### Two questions answered by default, reversible on request
+
+Both were ambiguities in the specs that the trigger and the policies had to settle. Full reasoning in [doc 13](13-OPEN-QUESTIONS.md):
+
+- **Q-054** — "Admin sees the audit log, *own scope*" was never defined. Built as: an Admin reads everything **except entries whose actor was the Super Admin.**
+- **Q-055** — Does the automatic 3-attempt lock apply to the Super Admin? Built as: **yes.** The alternative is unlimited password guesses against the most valuable account in the system. He cannot lock *himself* (FR-156), and nobody else can lock him either.
 
 Work proceeds **step by step**, with this file and the tracker updated after each one — not the whole phase in one burst. At the Phase 1 exit criteria ([doc 20 §8](20-IMPLEMENTATION-CONTRACTS.md)), work **stops and reports**, then waits for permission to begin Phase 2.
 
@@ -240,6 +283,9 @@ Work proceeds **step by step**, with this file and the tracker updated after eac
 | Google Sign-In | Deferred to Phase 7a. Schema designed now so no migration is needed later. | doc 16 §11 |
 | **Brand & theme** | Palette derived from the CNI AI & Digital Division logo. Teal `#0E5C63` primary, gold `#D4A63C` accent. **Gold is never a semantic state.** Light/dark/system toggle for **every role** in Profile → Appearance. | ADR-011 |
 | **Architecture** | 4 layers, dependencies point downward only. `lib/domain/` is pure — imports nothing from db, framework, or React. Workload and assignment store nothing; both are fully derived. | doc 20 |
+| **Authentication** | **Our own, not Supabase Auth.** Argon2id in `auth_identities`, our own `sessions` table with device binding, role-scoped TTL, rotation + reuse detection. Supabase supplies Postgres, Storage and Realtime only. | doc 19 §9 **C-13** |
+| **RLS identity** | No `auth.uid()`. Every request opens a transaction and declares itself: `SET LOCAL ROLE cni_app; SET LOCAL app.user_id = '…'`. `cni_app` does **not** bypass RLS; `postgres` does. No identity set ⇒ every predicate false. | doc 19 §9 **C-14** |
+| **Schema SSOT** | `lib/db/migrations/*.sql`. `types/database.ts` is **generated** and never hand-edited. There is no `schema.ts`. | doc 19 §9 **C-16** |
 | **Spec arbitration** | [doc 19](19-MASTER-SPECIFICATION-REGISTRY.md) §1 names the owner of each subsystem; §9 records all 12 resolved contradictions. **The registry decides, nothing else.** | doc 19 |
 | **Phase permission** | **No phase starts without explicit go-ahead. Step by step within a phase, then stop and wait.** | §2 |
 
@@ -273,7 +319,8 @@ Each update rewrites §2 (where we are), §3 (next action), and appends to §7 (
 | 04 | 2026-08-06 | Logo analysed; **doc 18** design system — palette from the mark, semantic tokens, light/dark for all roles (ADR-011). **Gold/amber collision** found and resolved; status and workload colours revised. **Doc 19** master registry — canonical index + document ownership + **12 contradictions resolved**. **Doc 20** implementation contracts — 4-layer architecture, module table ownership, dependency graph, frozen interfaces, 9 integration seams, per-phase gates, Phase 1 step order. Assignment weights corrected from 1.05 → 1.00. Fixes applied to docs 04, 05, 06, 07, 10. Q-049–Q-053 raised. **No code.** | **Awaiting go-ahead for Phase 1** |
 | 05 | 2026-08-06 | **PHASE 1, STEP 1 — code begins.** Next.js 16.3 + React 19.2 + TS + Tailwind v4 scaffolded. Full design-token system (light/dark, semantic layer, shadcn bridge). Canonical constants with score-weight assertion. Theme provider on `useSyncExternalStore`, pre-paint script, toggle + segmented + Appearance controls. Logo rebuilt as theme-aware inline SVG. Lint rules enforcing BR-025 and layer-2 purity. Dev port moved to 4310 (service-worker collision on 3000). **Gate 1 PASSED** — verified in browser: both themes, no flash, persistence, correct gold-token asymmetry. `npm run verify` clean. | **Awaiting go-ahead for Step 2** |
 | 06 | 2026-08-06 | **Logo corrected + application shell built.** SVG reconstruction removed; supplied artwork used as-is with aspect ratio locked in code. Diagnosed the chequerboard baked into the supplied PNG and produced a genuinely transparent derived copy (original untouched). Richer surface tokens. UI primitives, app shell, role-aware nav, admin dashboard, 9 placeholder routes. Standing rule adopted: push and document after every change. | **Awaiting go-ahead for Step 2** |
-| 07 | — | *(next session)* | |
+| 07 | 2026-08-06 | **PHASE 1, STEP 2 — DATA FOUNDATION. GATE 2 PASSED, 35/35.** Registry first: five conflicts resolved (C-13 → **we implement our own auth**, Supabase is Postgres/Storage/Realtime only; C-14 → RLS keys off `SET LOCAL app.user_id` under the `NOBYPASSRLS` role `cni_app`, fail-closed; C-15 → narrow pre-auth definer surface; C-16 → SQL migrations are the schema SSOT and types are generated; C-17 → `account_unlock` purpose), plus doc 04 deltas in §9a. Migrations 001–006 applied: identity, MFA, recovery codes, break-glass, append-only audit and security logs, skills, settings, RLS on all 13 tables, and the Super Admin immutability trigger enforcing BR-027, FR-140, FR-156, BR-028, FR-146, doc 03 §5 and §3. Found and closed two real holes: Supabase's default `anon`/`authenticated` grants on `public`, and `user_directory` being an auto-updatable owner-run view. Migration 006 cleared all 7 linter warnings. 35-assertion gate proof checked in, `BEGIN…ROLLBACK`, safe against production. Types generated. `.env.example` written. Q-054 and Q-055 raised and built to defaults. | **Awaiting go-ahead for Step 3** |
+| 08 | — | *(next session)* | |
 
 ---
 

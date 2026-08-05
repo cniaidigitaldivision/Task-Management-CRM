@@ -118,7 +118,10 @@ cni-crm/
 │   │   ├── status-machine.ts      ★ allowed transitions
 │   │   └── __tests__/             ★ exhaustive
 │   ├── db/
-│   │   ├── schema.ts · migrations/ · queries/ · rls/
+│   │   ├── migrations/            ★ THE SCHEMA — numbered, never edited
+│   │   ├── verify/                ★ gate proofs, safe against production
+│   │   ├── queries/               the only code that issues SQL
+│   │   └── README.md              ★ the identity contract — read before querying
 │   ├── auth/ · notifications/ · realtime/ · audit/ · settings/
 ├── styles/
 │   └── tokens.css                 ★ ALL colour tokens (doc 18) — one file
@@ -134,7 +137,9 @@ Everything that could drift lives in exactly one file. If a value appears in two
 | `lib/domain/permissions.ts` | The full permission matrix as data | doc 03 §3 |
 | `lib/domain/status-machine.ts` | Every allowed status transition | doc 05 §2 |
 | `styles/tokens.css` | Every colour, spacing, radius, shadow | doc 18 |
-| `lib/db/schema.ts` | Every table and column | doc 04 + doc 19 §6 |
+| `lib/db/migrations/*.sql` | Every table and column | doc 04 + doc 19 §6 |
+
+> **Amended in Session 07 — [doc 19 §9 C-16](19-MASTER-SPECIFICATION-REGISTRY.md).** This row originally named `lib/db/schema.ts`, which conflicted with §7's rule that every schema change is a new numbered SQL migration: two hand-maintained declarations of one schema, which is exactly the drift this table exists to prevent. **The numbered migrations are authoritative**, and `types/database.ts` is *generated* from the live database — a generated mirror cannot disagree with its source. There is no `schema.ts`.
 
 ---
 

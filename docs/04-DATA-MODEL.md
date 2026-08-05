@@ -7,6 +7,17 @@ Naming: `snake_case` tables and columns, plural table names, `id` = UUID primary
 >
 > **`users` also carries `theme`** (`light` | `dark` | `system`, default `system`) per FR-202.
 
+> ## ⚠️ Session 07 note — the Phase 1 tables are now BUILT
+>
+> Migrations **001–006** in [`lib/db/migrations/`](../lib/db/migrations/) are the schema's single source of truth ([doc 19 §9 C-16](19-MASTER-SPECIFICATION-REGISTRY.md)). Where this document and a migration disagree, **the migration is what exists** — and every deliberate difference is listed in [doc 19 §9a](19-MASTER-SPECIFICATION-REGISTRY.md), not left for you to discover by diffing.
+>
+> Two corrections that apply throughout the sections below:
+>
+> 1. **`organisation_id` does not exist on any table.** Dropped by [ADR-008](decisions/ADR-008-single-tenant.md) (FR-162). It is still listed on `users` and `projects` in §2 and in the last row of §5 — **those mentions are void.**
+> 2. **`time_logs` does not exist.** Replaced by `time_entries` ([doc 17 §7](17-TASK-TIMERS-AND-TIME-LIMITS.md), contradiction C-05). §5's `time_logs` row means `time_entries`.
+>
+> Authentication is **not** Supabase Auth (C-13), so nothing here references `auth.users`. RLS identifies the caller through `app.current_user_id()`, set per transaction by the server (C-14) — see [`lib/db/README.md`](../lib/db/README.md) §2.
+
 ---
 
 ## 1. Entity relationship overview

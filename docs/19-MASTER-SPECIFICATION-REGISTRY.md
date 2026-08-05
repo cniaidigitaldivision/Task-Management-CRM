@@ -440,6 +440,7 @@ Owner: doc 04. Editable per doc 03 §3.
 | ✅ Answered | 001, 002, 003, 004, 006, 008, 010, 012, 015, 022, 030, 034, 038, 041, 046 |
 | 🟡 Open, default applies | 005, 007, 009, 011, 013, 014, 016, 017, 018, 019, 020, 021, 023, 024, 025, 026, 027, 028, 029, 031, 032, 033, 035, 036, 037, 039, 040, 042, 043, 044, 045, 047, 048 |
 | 🆕 New this session | **049, 050, 051, 052, 053** — see [doc 18](18-DESIGN-SYSTEM-AND-BRANDING.md) §12 |
+| 🆕 Session 07 (Step 2) | **054** audit-log "own scope" · **055** does the 3-attempt lock apply to the Super Admin — both **built to their defaults**, see [doc 13](13-OPEN-QUESTIONS.md) |
 
 **None block Phase 1.**
 

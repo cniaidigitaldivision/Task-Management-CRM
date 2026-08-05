@@ -30,6 +30,31 @@ Answer format: reply with `Q-0NN: your answer` for anything you want to change.
 
 ---
 
+## 🟠 NEW — from the data foundation (Session 07, Phase 1 Step 2)
+
+Both have working defaults already built. Neither blocks anything.
+
+### Q-054 · What does "Admin sees the audit log, own scope" actually mean?
+[Doc 03 §3](03-ROLES-AND-PERMISSIONS.md) gives the Super Admin the full audit log and the Admin *"⚠️ read-only, own scope"*. "Own scope" was never defined, and RLS needed a concrete rule.
+
+**Built as:** an Admin may read every entry **except those whose actor was the Super Admin.** The reasoning is that an audit trail readable in full by the audited party's subordinate protects neither of them — and doc 16 §10 is explicit that the log exists to be evidence.
+
+Three other readings are possible, and any of them is one policy change away:
+- **only their own actions** — narrowest, but then an Admin cannot investigate a Member, which is most of what they'd use it for
+- **everything except other Admins as well** — stricter peer privacy
+- **everything** — simplest, and gives away Super Admin activity
+
+**Default: as built.** Say the word if you want one of the others.
+
+### Q-055 · Should the Super Admin's account lock after 3 failed attempts?
+FR-155a locks *any* account after three failures. FR-156 says the Super Admin cannot lock his own account. Those are different things — one is a security response, the other is self-destruction or coercion — but the overlap had to be settled to write the trigger.
+
+**Built as:** yes, the automatic lockout applies to the Super Admin too, because the alternative is unlimited password guesses against the single most valuable account in the system. He cannot lock *himself*, and no other account can lock him. Recovery is the emailed code plus MFA (SA-3), with printed recovery codes and the sealed credential behind that.
+
+**Default: as built.** The only argument against is the denial-of-service angle — someone who knows his email address could deliberately lock him out — and doc 16 §4 already answers it: per-IP throttling, self-service unlock in about thirty seconds, and the 30-minute auto-clear (Q-048).
+
+---
+
 ## 🟠 NEW — from the branding work (Session 04)
 
 ### Q-049 · Do you have the logo as a vector?
