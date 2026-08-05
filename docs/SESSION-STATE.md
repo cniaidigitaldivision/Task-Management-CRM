@@ -35,6 +35,9 @@ That's all you ever need to type. Everything else is recorded in the files.
 | **Code written** | ✅ Step 1 — scaffold, tokens, theming, constants |
 | **Currently blocked on** | **Nothing.** Awaiting go-ahead for Step 2 (data foundation). |
 | **Dev server** | `npm run dev` → http://localhost:4310 |
+| **Repository** | https://github.com/habibaminhas989-blip/cni-crm — **private**, branch `main` |
+| **GitHub account** | `habibaminhas989-blip` · `gh` CLI v2.97.0 authenticated |
+| **Supabase** | Project `rxjqbtvlzxigfakbiktw` already exists (see `mcp.json`) — used in Step 2 |
 
 ### What was completed in Session 05 (2026-08-06) — PHASE 1, STEP 1
 
@@ -56,6 +59,27 @@ That's all you ever need to type. Everything else is recorded in the files.
 **Verified:** `npm run verify` (typecheck → lint → build) passes clean. Theme switch, persistence across reload, no-flash on load, and correct asymmetric `--text-gold` resolution all confirmed in a real browser.
 
 **Deferred to Step 7 (by design):** responsive verification at 375px — belongs with the app shell.
+
+### Version control established (Session 05)
+
+- ✅ `gh` CLI v2.97.0 installed; authenticated as `habibaminhas989-blip`
+- ✅ Repo initialised, `.gitattributes` added (LF normalisation, binary handling)
+- ✅ Commit identity uses GitHub's noreply address — commits link to the profile, real email stays private
+- ✅ **Private** repo created and pushed: https://github.com/habibaminhas989-blip/cni-crm
+- ✅ Verified no `.env`, key or credential files committed; `node_modules` excluded
+- ⏳ **Q-049 update:** a transparent PNG of the logo now exists at `logo/Gemini_Generated_Image_*.png`. See §9 below for how it changes the plan.
+
+### 🎨 Logo — revised plan after the transparent PNG arrived
+
+The new asset is a **transparent raster**, not vector. That changes what each format is best for:
+
+| Use | Asset | Why |
+|---|---|---|
+| Large stacked lockup (auth screens) | **PNG** | Full gradient/bevel fidelity of the original artwork |
+| Sidebar, small sizes, favicon | **inline SVG** | Stays crisp at any size; seams track the surface colour |
+| Wordmark in dark theme | **HTML text** (already built) | The PNG's wordmark is dark teal and would be unreadable on dark |
+
+**Still worth having:** the true vector (AI/EPS/SVG) for print and large display. The PNG solves the dark-background problem but not scaling.
 
 ### What was completed in Session 04 (2026-08-06)
 
