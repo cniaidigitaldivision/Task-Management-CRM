@@ -28,12 +28,35 @@ That's all you ever need to type. Everything else is recorded in the files.
 
 | | |
 |---|---|
-| **Last updated** | 2026-08-06, Session 05 |
+| **Last updated** | 2026-08-06, Session 06 |
 | **Current phase** | **Phase 1 — Foundation & Security** |
-| **Phase 1 progress** | ▓▓░░░░░░░░ Step 1 of 7 complete |
-| **Overall progress** | ▓▓▓▓░░░░░░░░░░░░░░░░ 22% |
-| **Code written** | ✅ Step 1 — scaffold, tokens, theming, constants |
+| **Phase 1 progress** | ▓▓▓░░░░░░░ Step 1 + application shell complete |
+| **Overall progress** | ▓▓▓▓▓░░░░░░░░░░░░░░░ 27% |
+| **Code written** | ✅ Step 1 (scaffold, tokens, theming, constants) + shell, dashboard, 9 routes |
 | **Currently blocked on** | **Nothing.** Awaiting go-ahead for Step 2 (data foundation). |
+
+### What was completed in Session 06 (2026-08-06)
+
+**Owner feedback addressed:** the Step 1 result was a design-token reference sheet, not a CRM screen. The shell was pulled forward from Step 7 so the look can be approved before six more steps are built on it.
+
+**Logo — corrected**
+- ❌ Removed the hand-authored SVG reconstruction from Session 05. **The supplied artwork is used as-is, always.**
+- ✅ Aspect ratio locked in code: `<Logo>` takes one dimension and derives the other, so stretching is impossible rather than merely discouraged
+- 🔍 **Found a real defect in the supplied PNG** — every pixel was opaque and the transparency chequerboard was painted into the image. A derived copy for `public/brand/` clears only background connected to the border by flood fill, preserving the white facet seams inside the mark. `logo/` is untouched.
+- ✅ `LogoPlate` keeps the dark-teal wordmark legible on dark surfaces without altering the artwork
+- ✅ Favicon now uses the real artwork
+
+**Design — richer**
+- Tinted page + white cards, so cards read as raised objects instead of dissolving into a flat white background
+- Full sidebar palette for both themes
+
+**Interface built**
+- UI primitives: Card, Badge, Button, Avatar
+- App shell: fixed sidebar, mobile drawer, top bar with search / notifications / theme / new-task
+- Role-aware navigation, route-typed hrefs (a link to a non-existent page is now a compile error)
+- **Admin dashboard**: KPI row, needs-attention list, team workload with bands, active work table with time-vs-limit, activity feed
+- Placeholder pages for all 9 nav routes — nothing 404s
+- Design system moved to `/design-system`
 | **Dev server** | `npm run dev` → http://localhost:4310 |
 | **Repository** | https://github.com/habibaminhas989-blip/cni-crm — **private**, branch `main` |
 | **GitHub account** | `habibaminhas989-blip` · `gh` CLI v2.97.0 authenticated |
@@ -222,7 +245,8 @@ Each update rewrites §2 (where we are), §3 (next action), and appends to §7 (
 | 03 | 2026-08-06 | **All blockers cleared — Phase 0 complete.** No seeded roster (ADR-009); roster template retired for `FIRST-RUN-SETUP-GUIDE.md`. Recovery redesigned around emailed one-time codes + 3-attempt lockout (ADR-007), doc 16 §6 rewritten. Single-tenant confirmed (ADR-008). Company name locked. **Doc 17 — task timers & time limits** (ADR-010). Phase-by-phase permission recorded as a standing rule. Q-039–Q-048 raised. No code. | **Awaiting go-ahead for Phase 1** |
 | 04 | 2026-08-06 | Logo analysed; **doc 18** design system — palette from the mark, semantic tokens, light/dark for all roles (ADR-011). **Gold/amber collision** found and resolved; status and workload colours revised. **Doc 19** master registry — canonical index + document ownership + **12 contradictions resolved**. **Doc 20** implementation contracts — 4-layer architecture, module table ownership, dependency graph, frozen interfaces, 9 integration seams, per-phase gates, Phase 1 step order. Assignment weights corrected from 1.05 → 1.00. Fixes applied to docs 04, 05, 06, 07, 10. Q-049–Q-053 raised. **No code.** | **Awaiting go-ahead for Phase 1** |
 | 05 | 2026-08-06 | **PHASE 1, STEP 1 — code begins.** Next.js 16.3 + React 19.2 + TS + Tailwind v4 scaffolded. Full design-token system (light/dark, semantic layer, shadcn bridge). Canonical constants with score-weight assertion. Theme provider on `useSyncExternalStore`, pre-paint script, toggle + segmented + Appearance controls. Logo rebuilt as theme-aware inline SVG. Lint rules enforcing BR-025 and layer-2 purity. Dev port moved to 4310 (service-worker collision on 3000). **Gate 1 PASSED** — verified in browser: both themes, no flash, persistence, correct gold-token asymmetry. `npm run verify` clean. | **Awaiting go-ahead for Step 2** |
-| 06 | — | *(next session)* | |
+| 06 | 2026-08-06 | **Logo corrected + application shell built.** SVG reconstruction removed; supplied artwork used as-is with aspect ratio locked in code. Diagnosed the chequerboard baked into the supplied PNG and produced a genuinely transparent derived copy (original untouched). Richer surface tokens. UI primitives, app shell, role-aware nav, admin dashboard, 9 placeholder routes. Standing rule adopted: push and document after every change. | **Awaiting go-ahead for Step 2** |
+| 07 | — | *(next session)* | |
 
 ---
 

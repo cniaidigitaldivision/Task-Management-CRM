@@ -100,17 +100,34 @@
 [data-theme='light'] {
   color-scheme: light;
 
-  /* ---- Surfaces ---- */
-  --bg-base: var(--neutral-0);
-  --bg-subtle: var(--neutral-50);
+  /* ---- Surfaces ----
+     The page carries a faint tint and cards are pure white. That one step
+     gives the interface depth: cards read as raised objects instead of
+     dissolving into the background, which is what made the first pass look
+     flat and unfinished. */
+  --bg-base: #f4f8f8;
+  --bg-subtle: #eef4f4;
   --bg-surface: var(--neutral-0);
   --bg-surface-raised: var(--neutral-0);
-  --bg-hover: var(--neutral-100);
+  --bg-hover: #e4eded;
   --bg-selected: var(--teal-50);
   --bg-brand-subtle: var(--teal-50);
   --bg-gold-subtle: var(--gold-50);
   --bg-inverse: var(--neutral-950);
   --bg-scrim: rgb(11 29 31 / 0.45);
+
+  /* ---- Sidebar — the brand's strongest presence in the interface ---- */
+  --sidebar-bg: var(--neutral-0);
+  --sidebar-border: var(--neutral-200);
+  --sidebar-item: var(--text-secondary);
+  --sidebar-item-hover-bg: #eef4f4;
+  --sidebar-item-active-bg: var(--teal-50);
+  --sidebar-item-active-text: var(--teal-700);
+  --sidebar-section-label: var(--neutral-500);
+  /* The logo's wordmark is dark teal, so it needs a light surface beneath it
+     in every theme. This plate provides one without touching the artwork. */
+  --brand-plate-bg: var(--neutral-0);
+  --brand-plate-border: var(--neutral-200);
 
   /* ---- Borders ---- */
   --border-default: var(--neutral-200);
@@ -191,15 +208,28 @@
 
   /* ---- Surfaces ---- */
   --bg-base: var(--neutral-1000);
-  --bg-subtle: var(--neutral-950);
-  --bg-surface: #12292d;
-  --bg-surface-raised: #183539;
-  --bg-hover: #1d3e43;
+  --bg-subtle: #0a1e21;
+  --bg-surface: #0f262a;
+  --bg-surface-raised: #163338;
+  --bg-hover: #1a3a3f;
   --bg-selected: #0e3a3f;
   --bg-brand-subtle: #0a3035;
   --bg-gold-subtle: #2b2413;
   --bg-inverse: var(--neutral-50);
   --bg-scrim: rgb(0 0 0 / 0.65);
+
+  /* ---- Sidebar ---- */
+  --sidebar-bg: #08191c;
+  --sidebar-border: #16343a;
+  --sidebar-item: #9fb8ba;
+  --sidebar-item-hover-bg: #10292e;
+  --sidebar-item-active-bg: #0d3a3f;
+  --sidebar-item-active-text: var(--teal-300);
+  --sidebar-section-label: #6a8a8d;
+  /* Stays light in dark theme — the logo's dark-teal wordmark would be
+     unreadable otherwise, and the artwork must not be altered. */
+  --brand-plate-bg: #f4f8f8;
+  --brand-plate-border: #1f4247;
 
   /* ---- Borders ---- */
   --border-default: #1f4247;

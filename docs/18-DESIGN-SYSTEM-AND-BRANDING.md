@@ -282,36 +282,55 @@ All animation respects `prefers-reduced-motion`.
 
 ## 9. Logo usage
 
-### Assets required
-The supplied file is `logo/WhatsApp Image 2026-08-05 at 11.46.28 PM.jpeg` — a JPEG on a **white background**, which cannot sit on a dark surface. Before Phase 1 we need:
+### 🔒 THE RULE — the supplied artwork, unaltered
 
-| Asset | Format | Purpose |
-|---|---|---|
-| `logo-full-light.svg` | SVG, transparent | Full lockup, dark text — for light theme |
-| `logo-full-dark.svg` | SVG, transparent | Full lockup, light text — for dark theme |
-| `logo-mark.svg` | SVG, transparent | Brain mark alone — collapsed sidebar, avatars |
-| `favicon.svg` + `.ico` | 32/16px | Browser tab — the mark simplified |
-| `apple-touch-icon.png` | 180×180 | Home screen |
-| `og-image.png` | 1200×630 | Link previews |
+> **The logo is used exactly as supplied. It is never recreated, recoloured, cropped, stretched or redrawn.**
+>
+> Session 05 built a hand-authored SVG reconstruction of the mark. **That was wrong and has been removed.** The logo is the division's real brand asset and appears as designed, or not at all.
 
-**This is Q-049.** If you have the original vector, that's ideal. If not, I can trace the mark to SVG from the JPEG — good enough at interface sizes, and it solves the transparency problem.
+### Assets
+
+| Path | Role |
+|---|---|
+| `logo/Gemini_Generated_Image_dnmem1dnmem1dnme.png` | **Source of truth.** Never modified. |
+| `public/brand/cni-ai-digital-division.png` | Served asset — identical artwork, background made genuinely transparent (see below) |
+| `app/icon.png` | Favicon / tab icon, via Next's app-icon convention |
+
+### How distortion is made structurally impossible
+
+`components/brand/logo.tsx` accepts **one** dimension and derives the other from the natural 2390 × 1792 ratio. Independent width and height cannot be passed. `object-contain` guarantees letterboxing rather than cropping if a container is ever the wrong shape. `next/image` handles delivery, so the 5 MB source is optimised in transport while the artwork itself is untouched.
+
+### ⚠️ The supplied PNG was not actually transparent
+
+The file was an export of a transparency **preview**: every pixel tested at alpha 255, with the grey/white chequerboard painted into the image. Rendered in the app it showed a visible chequer behind the mark.
+
+**Resolution:** a derived copy is generated for `public/brand/`, clearing only background **connected to the image border** by flood fill. That distinction matters — the mark contains white and silver facet seams, and a naive "remove everything light" would have erased them. Anything enclosed by artwork is preserved. 77.9% of pixels cleared; brain, wordmark and pixel-dissolve all verified intact.
+
+**The original file in `logo/` is never touched.** The artwork is unchanged — only the chequer background became transparent.
+
+**Still worth having (Q-049):** a true vector (AI / EPS / SVG). The cleaned PNG solves transparency but not scaling — at very large sizes, or in print, a raster will soften.
+
+### The dark-theme constraint
+
+The wordmark in the artwork is **dark teal**, so it is illegible on a dark surface. Rather than alter the logo, `<LogoPlate>` places it on a light panel that stays light in both themes. **The plate adapts; the artwork never does.**
 
 ### Placement
 
-| Location | Asset | Notes |
+| Location | Component | Notes |
 |---|---|---|
-| Sidebar top | Full lockup | Collapses to the mark alone when the sidebar collapses |
-| Login / activation screens | Full lockup, centred, generous space | The one place it's shown large |
-| Email templates | Full lockup, light version | Emails are light-background by convention |
-| Favicon / tab | Mark | |
-| Loading state | Mark, subtle pulse | Not a spinner — the brand pulses |
-| Empty states | Mark at 15% opacity | Behind the message |
+| Sidebar header | `<LogoSidebar />` | On a light plate, 158px wide |
+| Sign-in / activation | `<LogoHero />` | Centred, 280px, generous clear space |
+| Placeholder & empty states | `<Logo decorative />` | 7% opacity behind the message |
+| Design system reference | `<Logo width={260} />` | On a white card |
+| Favicon / tab | `app/icon.png` | Next generates the sizes |
+| Email templates | Light version | Emails are light-background by convention (FR-215) |
 
 ### Rules
-- **Never** stretch, recolour, rotate, or add effects to the mark
+- **Never** stretch, recolour, rotate, crop, or add effects
+- Only ever set **one** dimension — the other is derived
 - Minimum clear space on every side = the height of the "D" in DIVISION
-- Minimum size: 24px for the mark, 120px wide for the full lockup
-- Never place the full lockup on a mid-tone background — light or dark only
+- Minimum size: 120px wide for the full lockup
+- Never place it on a mid-tone background — light plate, always
 
 ---
 

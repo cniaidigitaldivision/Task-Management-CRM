@@ -1,9 +1,11 @@
 # 📊 PROGRESS TRACKER — CNI CRM
 
-**Last updated:** 2026-08-06 (Session 05)
-**Current phase:** **Phase 1 — Foundation & Security** · Step 1 of 7 complete
-**Overall progress:** ▓▓▓▓░░░░░░░░░░░░░░░░ 22%
+**Last updated:** 2026-08-06 (Session 06)
+**Current phase:** **Phase 1 — Foundation & Security** · Step 1 + shell complete
+**Overall progress:** ▓▓▓▓▓░░░░░░░░░░░░░░░ 27%
 **Blocked on:** **Nothing.** Awaiting go-ahead for Step 2 (data foundation).
+
+> ⛔ **Standing rule (owner, Session 06):** commit, push to GitHub and update these docs after **every** change — not batched at session end.
 **Run it:** `npm run dev` → http://localhost:4310 · `npm run verify` → typecheck + lint + build
 
 > **Phase 1 build order:** follow [`20-IMPLEMENTATION-CONTRACTS.md`](20-IMPLEMENTATION-CONTRACTS.md) §9 — 7 steps, each with a gate.
@@ -118,6 +120,28 @@
 > **Gate 1 evidence (browser-verified, 2026-08-06):** theme switch light↔dark works; preference persists across reload; `data-theme` is correct at first paint with no flash; `--text-gold` correctly resolves asymmetrically (gold-800 light / gold-400 dark); status colours all distinct with no gold in the semantic set; `npm run verify` passes clean.
 >
 > **Deferred by design:** 375px responsive verification → Step 7, with the app shell.
+
+### Step 1b — Application shell & brand correction *(added Session 06)*
+
+Pulled forward from Step 7 in response to owner feedback that the interface did not look like a CRM. Building the shell early lets the look be approved before six more steps are built on top of it.
+
+| ID | Task | Req IDs | Status |
+|---|---|---|:--:|
+| T-103a | **Use the supplied logo file as-is** — SVG reconstruction removed | FR-200, ADR-011 | ✅ |
+| T-103b | Aspect ratio locked in code — distortion structurally impossible | FR-209 | ✅ |
+| T-103c | Diagnosed and fixed the chequerboard baked into the supplied PNG | Q-049 | ✅ |
+| T-103d | `LogoPlate` — keeps the dark-teal wordmark legible on dark surfaces | FR-207 | ✅ |
+| T-103e | Favicon from the real artwork (`app/icon.png`) | FR-200 | ✅ |
+| T-104a | Richer surface tokens — tinted page, white cards, sidebar palette | FR-205 | ✅ |
+| T-104b | UI primitives: Card, Badge, Button, Avatar | — | ✅ |
+| T-104c | App shell — fixed sidebar, drawer on mobile, top bar | doc 10 §1 | ✅ |
+| T-104d | Role-aware navigation config, route-typed hrefs | doc 03 §4 | ✅ |
+| T-104e | **Admin dashboard** — KPIs, needs-attention, workload, activity | doc 10 §7 | ✅ |
+| T-104f | Placeholder pages for all 9 nav routes — no 404s anywhere | — | ✅ |
+| T-104g | Design system moved to `/design-system` | — | ✅ |
+| **Gate 1b** | **Looks like professional business software in both themes** | | ✅ **PASSED** |
+
+> **Still to do in the shell (Step 7):** responsive verification at 375px, keyboard navigation pass, collapsed sidebar rail, command palette.
 
 ### Steps 2–7 — see [`20-IMPLEMENTATION-CONTRACTS.md`](20-IMPLEMENTATION-CONTRACTS.md) §9 for the gate on each
 | T-103 | Provision Supabase + storage + Resend | — | ⬜ |
