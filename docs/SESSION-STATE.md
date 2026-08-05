@@ -60,7 +60,8 @@ That's all you ever need to type. Everything else is recorded in the files.
 | **Dev server** | `npm run dev` → http://localhost:4310 |
 | **Repository** | https://github.com/habibaminhas989-blip/cni-crm — **private**, branch `main` |
 | **GitHub account** | `habibaminhas989-blip` · `gh` CLI v2.97.0 authenticated |
-| **Supabase** | Project `rxjqbtvlzxigfakbiktw` already exists (see `mcp.json`) — used in Step 2 |
+| **Supabase** | Project `rxjqbtvlzxigfakbiktw` — used from Step 2 |
+| **Supabase MCP** | Configured in **`.mcp.json`** (project scope). Was named `mcp.json` and therefore never loaded — Claude Code only reads `.mcp.json`. Requires a Claude Code restart, then approval, then OAuth via `/mcp`. |
 
 ### What was completed in Session 05 (2026-08-06) — PHASE 1, STEP 1
 
