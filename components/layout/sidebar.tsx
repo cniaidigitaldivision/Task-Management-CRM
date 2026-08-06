@@ -83,9 +83,16 @@ export function Sidebar({
       <aside
         aria-label="Main navigation"
         className={cn(
-          'chrome-surface on-chrome',
-          'fixed inset-y-0 left-0 z-50 flex w-[var(--sidebar-width)] flex-col',
-          'transition-transform duration-200 ease-out lg:translate-x-0',
+          'group/rail chrome-surface on-chrome',
+          'fixed inset-y-0 left-0 z-50 flex flex-col overflow-hidden',
+          'w-[var(--sidebar-width)]',
+          // ── Hover-to-expand (owner request, Session 09) ──────────────────
+          // At rest the rail is icon-width; hovering restores it to full size.
+          // It EXPANDS OVER the content rather than pushing it, because the
+          // alternative reflows every card on the page on mouse-over — which
+          // reads as the layout breaking, not as a flourish.
+          'lg:w-[var(--sidebar-width-collapsed)] lg:hover:w-[var(--sidebar-width)]',
+          'transition-[width,transform] duration-[240ms] ease-out lg:translate-x-0',
           open ? 'translate-x-0' : '-translate-x-full',
         )}
         style={{ boxShadow: 'var(--sidebar-shadow)' }}
@@ -94,14 +101,19 @@ export function Sidebar({
             The logo sits in its gold aura with nothing boxing it in. A hairline
             of brand gradient runs beneath, which is what separates the brand
             block from the navigation without drawing a grey line across it. */}
-        <div className="relative shrink-0 px-4 pt-5 pb-4">
+        <div className="relative shrink-0 px-4 pt-5 pb-4 lg:px-3 lg:group-hover/rail:px-4">
           <div className="flex items-start justify-between gap-2">
             <Link
               href="/dashboard"
               className="rounded-xl focus-visible:outline-none"
               aria-label={`${ORGANISATION_NAME} — go to dashboard`}
             >
-              <LogoSidebar />
+              <span className="block lg:hidden lg:group-hover/rail:block">
+                <LogoSidebar />
+              </span>
+              <span className="hidden lg:block lg:group-hover/rail:hidden">
+                <LogoSidebar collapsed />
+              </span>
             </Link>
 
             <button
@@ -133,7 +145,10 @@ export function Sidebar({
             <div key={section.label ?? `section-${index}`} className="space-y-0.5">
               {section.label && (
                 <p
-                  className="px-3 pt-1 pb-1.5 text-micro font-semibold tracking-[0.1em] uppercase"
+                  className={cn(
+                    'px-3 pt-1 pb-1.5 text-micro font-semibold tracking-[0.1em] uppercase',
+                    'transition-opacity duration-150 lg:opacity-0 lg:group-hover/rail:opacity-100',
+                  )}
                   style={{ color: 'var(--sidebar-section-label)' }}
                 >
                   {section.label}
@@ -191,7 +206,11 @@ export function Sidebar({
                     >
                       {item.label}
                     </span>
-                    {badge && <RailBadge count={badge.count} tone={badge.tone} />}
+                    {badge && (
+                      <span className="shrink-0 transition-opacity duration-150 lg:opacity-0 lg:group-hover/rail:opacity-100">
+                        <RailBadge count={badge.count} tone={badge.tone} />
+                      </span>
+                    )}
                   </Link>
                 );
               })}
@@ -210,7 +229,7 @@ export function Sidebar({
             className="group flex items-center gap-2.5 rounded-lg p-2 transition-colors duration-[120ms] hover:bg-[var(--sidebar-item-hover-bg)] focus-visible:outline-none"
           >
             <Avatar name={userName} size="md" />
-            <span className="min-w-0 flex-1">
+            <span className="min-w-0 flex-1 transition-opacity duration-150 lg:opacity-0 lg:group-hover/rail:opacity-100">
               <span
                 className="block truncate text-body-sm font-semibold"
                 style={{ color: 'var(--sidebar-heading)' }}
@@ -240,7 +259,7 @@ export function Sidebar({
             style={{ color: 'var(--sidebar-muted)' }}
           >
             <Settings className="h-4 w-4 shrink-0" strokeWidth={1.75} aria-hidden="true" />
-            <span className="truncate">Workspace settings</span>
+            <span className="truncate transition-opacity duration-150 lg:opacity-0 lg:group-hover/rail:opacity-100">Workspace settings</span>
           </Link>
         </div>
       </aside>

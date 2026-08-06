@@ -464,3 +464,27 @@ Read these three files, in this order, and you'll have the full picture in about
 3. [`PROGRESS-TRACKER.md`](PROGRESS-TRACKER.md) — exactly what's done and what isn't
 
 If you want the short version of what makes this system different from ClickUp, read [`11-BENCHMARK-CLICKUP-AND-PEERS.md`](11-BENCHMARK-CLICKUP-AND-PEERS.md) §4 — it's one table.
+
+---
+
+## 10. 🎨 SESSION 09 (part 2) — hover-collapse rail + readability
+
+**Owner request:** the nav rail should collapse to icons when the cursor leaves it and expand on hover; the logo space should be used well when narrow; the workload bars and percentages are too small to read.
+
+### Hover-to-expand rail
+- Rail is **72px at rest** on desktop (`--sidebar-width-collapsed`), **264px on hover**, 240ms.
+- ⚠️ **It expands OVER the content, it does not push it.** `AppShell` reserves only the collapsed width, so nothing reflows. Pushing the content would re-lay-out every card on the page on mouse-over, which reads as the layout breaking rather than as a flourish.
+- Labels, section headings, counter chips and the footer text fade with `lg:opacity-0 lg:group-hover/rail:opacity-100`. The rail is `overflow-hidden`, so they are clipped; the opacity transition is what stops the clipping being visible mid-animation.
+- **Mobile is untouched** — it stays a full-width drawer. All the collapse rules are `lg:`-prefixed.
+
+### Logo at 72px
+Two logos, CSS-swapped: the compact glowing mark at rest, the full lockup on hover. Clipping the 4:3 artwork to 72px would show its left edge, which looks broken rather than deliberate.
+
+### Workload readability
+`ProgressBar` `sm` → `lg`, avatar `sm` → `md`, and the percentage from `text-body-sm` to `text-h3`. That bar answers *"how loaded is this person?"* — the question the whole capacity model exists for — and it was the smallest element on screen carrying the most important number.
+
+### Scope note — recorded so it is not misread later
+The owner clarified that **sales management and workflow automation are NOT wanted** and were offered only as examples of what professional CRMs contain. They are a possible *future* direction once the system is in real use. **Do not implement them.** Doc 01's scope is unchanged.
+
+### Still not visually verified by Claude
+No browser on this side for several sessions. Everything builds and every route returns 200, but the hover animation in particular is the kind of thing that needs an eye on it.

@@ -159,25 +159,29 @@ function WorkloadRow(member: (typeof PREVIEW_MEMBERS)[number]) {
   return (
     <div className="group rounded-lg px-2 py-2.5 transition-colors duration-[140ms] hover:bg-bg-hover">
       <div className="flex items-center gap-2.5">
-        <Avatar name={name} size="sm" />
+        <Avatar name={name} size="md" />
         <div className="min-w-0 flex-1">
           <p className="truncate text-body-sm font-medium text-text-primary">{name}</p>
           <p className="truncate text-micro text-text-tertiary">{roleTitle}</p>
         </div>
         <div className="shrink-0 text-right">
-          <p className="tabular text-body-sm font-semibold text-text-primary">{pct}%</p>
+          <p className="tabular text-h3 leading-none font-semibold text-text-primary">{pct}%</p>
           <p className="tabular text-micro text-text-tertiary">
             {loadPoints}/{capacityPoints} pts
           </p>
         </div>
       </div>
 
-      <div className="mt-2 pl-[calc(1.75rem+0.625rem)]">
+      <div className="mt-2 pl-[calc(2.25rem+0.625rem)]">
         <ProgressBar
           value={pct}
           token={meta.token}
           markerAt={SYSTEM_DEFAULTS.softThresholdPct}
-          size="sm"
+          // lg, not sm. This bar is the answer to "how loaded is this person?",
+          // which is the question the whole capacity model exists to answer — a
+          // 6px sliver was the smallest element on screen carrying the most
+          // important number on it.
+          size="lg"
           label={`${name}: ${pct}% of capacity`}
         />
         <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">

@@ -46,7 +46,7 @@ export function AppShell({
     <div className="min-h-full bg-bg-base">
       <Sidebar role={role} userName={userName} open={navOpen} onClose={closeNav} />
 
-      <div className="flex min-h-full flex-col lg:pl-[var(--sidebar-width)]">
+      <div className="flex min-h-full flex-col lg:pl-[var(--sidebar-width-collapsed)]">
         <Topbar title={title} subtitle={subtitle} onOpenNav={openNav} />
         {/* `page-ambience` lays two very faint brand gradients over the content
             surface, so the page is a lit plane rather than a flat slab. It is a
