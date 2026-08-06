@@ -77,7 +77,8 @@ In the owner's words, across several sessions:
 
 | # | Item | Note |
 |:--:|---|---|
-| O1 | **Step 5 — Provisioning & recovery** | Authorised, **not started**. The one-time self-disabling Super Admin setup route, invitation chain (hashed, 48h, single-use), activation, MFA enrolment ceremony, email templates. Needs Resend. |
+| O1 | **Step 5 — Provisioning & recovery** | Authorised, **in progress**. **5.1 done** (Session 10) — the one-time self-disabling Super Admin setup route at `/setup`, migration 011, verified 8/8. Remaining: 5.2 invitation chain (hashed, 48h, single-use) · 5.3 activation + MFA enrolment · 5.4 forgot-password wiring · 5.5 email templates (needs Resend) · 5.6 login and anomaly alerts. |
+| O1a | **Walk `/setup` yourself, once, and keep the codes** | `npm run dev` → http://localhost:4310/setup. It shows ten recovery codes **once** and never again — only their hashes are stored, so nobody, including this system, can reproduce them. Print them. After you submit, the route closes permanently: at most one `super_admin` row can exist in this database, ever. |
 | O2 | **Rotate three secrets** | Resend key + DB password ×2. See R5. |
 | O3 | **Create the Resend account** | Step 5's only external dependency. Sandbox sender `onboarding@resend.dev` needs no DNS — but only delivers to the Resend account's own address, so one person can walk the flow and the team cannot be onboarded until a real domain is verified. |
 | O4 | **Owner has not visually reviewed most of the UI** | Claude has had no browser for several sessions. The Tasks screen, the control scale, the auth screens and the rail animation have all been built and verified by build output rather than by eye. |

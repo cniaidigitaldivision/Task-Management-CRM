@@ -46,14 +46,14 @@ That's all you ever need to type. Everything else is recorded in the files.
 
 | | |
 |---|---|
-| **Last updated** | 2026-08-06, Session 09 |
+| **Last updated** | 2026-08-06, Session 10 |
 | **Tests** | `npm run test` → **640** · `npm run test:auth` → **13/13** (real DB) · `npm run check:db` → passing |
-| **⛔ Credential hygiene** | Three secrets were pasted into chat this session (Resend key, DB password ×2 — one echoed by my own script's error output). **All must be rotated.** Never paste a secret; `npm run check:db` redacts and is safe to share. |
+| **⛔ Credential hygiene** | Three secrets were pasted into chat in Session 09 (Resend key, DB password ×2 — one echoed by my own script's error output). **All must be rotated.** Never paste a secret; `npm run check:db` redacts and is safe to share. |
 | **Current phase** | **Phase 1 — Foundation & Security** |
-| **Phase 1 progress** | ▓▓▓▓▓▓░░░░ Steps 1, 1b, 1c, 2, 2b, 3, **4 complete** (Gate 4 ✅) |
-| **Overall progress** | ▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░░ 54% |
-| **Code written** | ✅ Step 1 scaffold + tokens · shell + dashboard · **Step 1c redesign** · **Step 2 migrations 001–006, RLS, Super Admin trigger** · **Step 2b Tasks screen** · **Step 3 permission matrix** |
-| **➡️ NEXT** | **Step 5 — Provisioning & recovery.** NOT STARTED. Needs Resend (sandbox sender is fine). See §3. |
+| **Phase 1 progress** | ▓▓▓▓▓▓▓░░░ Steps 1, 1b, 1c, 2, 2b, 3, 4 complete (Gate 4 ✅) · **Step 5.1 complete** |
+| **Overall progress** | ▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░ 57% |
+| **Code written** | ✅ Step 1 scaffold + tokens · shell + dashboard · **Step 1c redesign** · **Step 2 migrations 001–006, RLS, Super Admin trigger** · **Step 2b Tasks screen** · **Step 3 permission matrix** · **Step 4 authentication** · **Step 5.1 first-run setup** |
+| **➡️ NEXT** | **Step 5.2 — the invitation chain** (hashed token, 48h, single-use). Nothing outstanding blocks it; email delivery (5.5) is the part that needs Resend. See §3. |
 
 ### What was completed in Session 08, part 2 — TASKS SCREEN + STEP 3
 
@@ -317,11 +317,36 @@ Researched professional CRM dashboard structure first (Salesforce, Domo, monday.
 - **"Everything on top of each other" was literally spacing.** Five identical-weight blocks 16px apart with no headings. New `PageSection` primitive: heading, numbered reading order, 32px between sections.
 - **KPI cards moved to the top.** The page used to open with a chart nobody had context for. The preview notice moved to the foot — it is a caveat, not a headline.
 
-### ➡️ NEXT: Step 5 — Provisioning &amp; recovery
+### ✅ Session 10 — Step 5.1 COMPLETE: the first-run Super Admin setup route
 
-Argon2id hashing, the `queries/` layer with `withUser()`, TOTP/WebAuthn verification, and the sign-in, locked and forgot-password screens.
+**Verified 8/8 against the live database, in a rolled-back transaction.** `npm run verify` clean — typecheck, lint, 640 tests, build.
 
-**This is the part that needs `.env.local`.** Nothing above required it; nothing below can run without it.
+This was chosen as the first slice of Step 5 because it unblocks everything else: until it exists there is no account to sign in as, so none of Step 4's working authentication can actually be used by a human.
+
+| Built | |
+|---|---|
+| **Migration 011** | `app.setup_is_available()` and `app.setup_super_admin(full_name, email, password_hash, recovery_hashes[])`. The second creates the user, the password identity, ten recovery codes, a **CRITICAL** security event and an audit row **in one transaction** — a partial setup would leave an account that exists but cannot be signed into, in a system whose only remedy is the account it just failed to create. |
+| `app/(auth)/setup/actions.ts` | Validates against `validatePassword({ role: 'super_admin' })` — a **16-character** minimum, not 12 (SA-2), because this is the one account worth attacking. Hashes with Argon2id, generates and hashes ten recovery codes, returns the plaintext codes **once**. |
+| `app/(auth)/setup/page.tsx` | `force-dynamic`. If setup is already done it renders a closed-door page instead of a form that could only ever fail. |
+| `app/(auth)/setup/setup-form.tsx` | On success, the ten codes in a 2-column mono grid with a print button and an explicit "I have saved them" step. The copy says outright that this is the only time they will ever be shown. |
+
+#### Why "self-disabling" is not a flag
+
+Migration 001's `users_single_super_admin_idx` — a partial unique index on `((true)) where role = 'super_admin'` — means at most one such row can exist in this database, **ever** (BR-028). Delete the guard clause and `setup_is_available()` entirely and the route is *still* single-use; the database refuses the second insert. Those two only exist so a second attempt produces a readable sentence instead of a unique violation.
+
+That is the difference between a route that is *disabled* and one that is *impossible*, and it is why the constraint lives in an index rather than in a boolean somebody could flip back.
+
+#### One defect the build caught
+
+`await` inside a tagged template passed to a **non-async** arrow — `withAppRole((tx) => tx\`… ${await hashPassword(p)} …\`)` — is a syntax error, not a type error, so `tsc` never sees it; Turbopack rejected it. The hash and the code hashes are now computed into locals before the query. Worth remembering: anything awaited inside a `withUser`/`withAppRole` callback must be hoisted unless the callback itself is `async`.
+
+### ➡️ NEXT: Step 5.2 — the invitation chain
+
+FR-141's provisioning chain: Super Admin → Admin → Coordinator/Member. A `SECURITY DEFINER` issue-and-redeem pair over `invitations`, whose `token_hash ~ '^[0-9a-f]{64}$'` check (migration 001) already makes "we never store the raw token" a database invariant. 48-hour expiry, single-use, and the four `purpose` values including C-17's `account_unlock`.
+
+**Passwords are never emailed** (doc 16 §3) — an invitation carries a link, and the invitee chooses their own password on activation (5.3).
+
+Remaining in Step 5: **5.2** invitations · **5.3** activation + the MFA enrolment ceremony · **5.4** wiring `/forgot-password` to the real code path · **5.5** email templates and Resend (the only external dependency) · **5.6** login and anomaly alerts.
 
 ### What Step 4 involves
 
@@ -342,7 +367,14 @@ STEP 2  ✅ Data foundation — migrations 001–006, RLS,
            Super Admin immutability trigger                       GATE 2 PASSED
 STEP 3  ⬜ Domain — permissions matrix + exhaustive tests
 STEP 4  ⬜ Authentication — hashing, sessions, lockout, MFA, step-up
-STEP 5  ⬜ Provisioning & recovery — setup route, invitations, forgot-password
+STEP 4  ✅ Authentication — hashing, sessions, lockout, MFA, step-up  GATE 4 PASSED
+STEP 5  🔶 Provisioning & recovery
+           5.1 ✅ first-run Super Admin setup route (migration 011, 8/8)
+           5.2 ⬜ invitation chain — hashed token, 48h, single-use
+           5.3 ⬜ activation + MFA enrolment ceremony
+           5.4 ⬜ forgot-password wired to the real code path
+           5.5 ⬜ email templates + Resend
+           5.6 ⬜ login and anomaly alerts
 STEP 6  ⬜ Team management — skills, members, profile, theme persistence
 STEP 7  ⬜ Shell, first-run wizard, responsive pass, deploy to preview
 ```
@@ -453,7 +485,8 @@ Each update rewrites §2 (where we are), §3 (next action), and appends to §7 (
 | 07 | 2026-08-06 | **PHASE 1, STEP 2 — DATA FOUNDATION. GATE 2 PASSED, 35/35.** Registry first: five conflicts resolved (C-13 → **we implement our own auth**, Supabase is Postgres/Storage/Realtime only; C-14 → RLS keys off `SET LOCAL app.user_id` under the `NOBYPASSRLS` role `cni_app`, fail-closed; C-15 → narrow pre-auth definer surface; C-16 → SQL migrations are the schema SSOT and types are generated; C-17 → `account_unlock` purpose), plus doc 04 deltas in §9a. Migrations 001–006 applied: identity, MFA, recovery codes, break-glass, append-only audit and security logs, skills, settings, RLS on all 13 tables, and the Super Admin immutability trigger enforcing BR-027, FR-140, FR-156, BR-028, FR-146, doc 03 §5 and §3. Found and closed two real holes: Supabase's default `anon`/`authenticated` grants on `public`, and `user_directory` being an auto-updatable owner-run view. Migration 006 cleared all 7 linter warnings. 35-assertion gate proof checked in, `BEGIN…ROLLBACK`, safe against production. Types generated. `.env.example` written. Q-054 and Q-055 raised and built to defaults. | **Awaiting go-ahead for Step 3** |
 | 08 | 2026-08-06 | **INTERFACE REDESIGN — Gate 1c PASSED.** Owner: the CRM looked pale and unprofessional. Root cause was the **white sidebar in light theme** — no edge against a near-white page, so the whole interface read as one flat sheet — compounded by a 2% page-vs-card step, 0.06-alpha shadows and 6px status dots. **Theme-invariant chrome** added as a new token layer so the rail is identical in both themes. **White logo plate replaced by a four-layer gold glow** with a warm cream core centred on the whole artwork, keeping the dark-teal wordmark legible with no rectangle and no visible edge. Surfaces deepened, real elevation, tinted badge formula that holds contrast in both themes, eleven new primitives, dashboard rebuilt and reordered. Docs 18 §6a/§6b/§6c/§9a amended. Verified in Chrome in both themes; all 12 routes 200. | **Step 3 authorised — next** |
 | 08b | 2026-08-06 | **TASKS SCREEN + STEP 3 — Gate 3 PASSED, 502 tests.** Tasks screen pulled forward from Phase 2: list with grouping and collapsible groups, board with eight columns and drag-and-drop, working filters, rich cards. Preview data 6 → 18 tasks with **derived** status counts. **Step 3:** `lib/domain/permissions.ts` — doc 03 §3 as a table, 79 actions × 4 roles, frozen signatures, conditional rules failing closed. Test suite in three independent layers (second transcription · full cross product · prose scenarios). Board rewired to call `can()`. Vitest added; `verify` now includes tests. | **Awaiting go-ahead for Step 4** |
-| 09 | — | *(next session)* | |
+| 09 | 2026-08-06 | **STEP 4 COMPLETE — GATE 4 PASSED, 13/13 against the real database.** Argon2id (parameters chosen by measurement), peppered short codes, hand-written RFC 6238 TOTP proven against the spec's own vectors, opaque device-bound sessions with rotation and reuse detection, `withUser`/`withAppRole`/`withBreakGlass`, migrations 007–010, and the `/login`, `/forgot-password`, `/mfa-setup` screens. **Three real bugs found by testing, none findable by reading:** C-18 the pooler drops the URL role option so RLS was being bypassed silently; C-19 the lockout was evaluated against the app's clock against a 22-second skew and so never tripped; and the constant-time decoy hash was invented rather than real, so Argon2 rejected it during parsing in <1ms and left the timing oracle open. Dashboard readability rebuilt after owner feedback (legend as tiles, KPI cards first, `PageSection` spacing) following research into professional CRM dashboards. Hover-collapse rail built, then **corrected to push rather than cover** at the owner's direction, then corrected again so the collapsed icons no longer jump. `docs/OWNER-REQUESTS.md` created so the owner's standing rules survive an account switch. | **Step 5 authorised** |
+| 10 | 2026-08-06 | **STEP 5.1 COMPLETE — the first-run Super Admin setup route, verified 8/8.** Migration 011 adds `app.setup_is_available()` and `app.setup_super_admin(…)`, the latter creating the user, password identity, ten recovery codes, a CRITICAL security event and an audit row in one transaction. `/setup` renders the form only while no Super Admin exists and shows the ten recovery codes exactly once, with a print step. Single-use is **structural** — migration 001's partial unique index permits one `super_admin` row ever, so the guard clause exists only to produce a readable error. Fixed a stale comment in `sidebar.tsx` that still described the rail as overlaying the content, contradicting owner decision D7. `npm run verify` clean: 640 tests, build green, `/setup` correctly dynamic. | **Awaiting go-ahead for Step 5.2** |
 
 ---
 

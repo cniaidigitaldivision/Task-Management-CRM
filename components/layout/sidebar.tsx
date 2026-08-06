@@ -88,9 +88,10 @@ export function Sidebar({
           'w-[var(--sidebar-width)]',
           // ── Hover-to-expand (owner request, Session 09) ──────────────────
           // At rest the rail is icon-width; hovering restores it to full size.
-          // It EXPANDS OVER the content rather than pushing it, because the
-          // alternative reflows every card on the page on mouse-over — which
-          // reads as the layout breaking, not as a flourish.
+          // It PUSHES the content rather than covering it (owner decision D7):
+          // app-shell.tsx tracks this same width in `--rail` and animates the
+          // content's left padding with it, so nothing is ever hidden.
+          // Do not change this to an overlay.
           'lg:w-[var(--sidebar-width-collapsed)] lg:hover:w-[var(--sidebar-width)]',
           'transition-[width,transform] duration-[240ms] ease-out lg:translate-x-0',
           open ? 'translate-x-0' : '-translate-x-full',

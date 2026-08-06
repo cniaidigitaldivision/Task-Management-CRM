@@ -1,10 +1,10 @@
 # 📊 PROGRESS TRACKER — CNI CRM
 
-**Last updated:** 2026-08-06 (Session 08)
-**Current phase:** **Phase 1 — Foundation & Security** · Steps 1, 1b, 1c, 2, 2b, 3, **4 complete**
-**Overall progress:** ▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░░ 54%
-**Blocked on:** **Nothing.** Awaiting go-ahead for Step 5 (provisioning & recovery). Resend becomes required there.
-**Tests:** `npm run test` → **640** · `npm run test:auth` → **13/13** (real DB) · DB gates: Step 2 **35/35**, pre-auth **32/32**
+**Last updated:** 2026-08-06 (Session 10)
+**Current phase:** **Phase 1 — Foundation & Security** · Steps 1, 1b, 1c, 2, 2b, 3, 4 complete · **Step 5.1 complete**
+**Overall progress:** ▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░ 57%
+**Blocked on:** **Nothing.** Step 5 in progress — 5.1 done, next is 5.2 (invitation chain). Resend is required by 5.5, not before.
+**Tests:** `npm run test` → **640** · `npm run test:auth` → **13/13** (real DB) · DB gates: Step 2 **35/35**, pre-auth **32/32**, migration 010 **9/9**, migration 011 **8/8**
 
 > ⛔ **Standing rule (owner, Session 06):** commit, push to GitHub and update these docs after **every** change — not batched at session end.
 **Run it:** `npm run dev` → http://localhost:4310 · `npm run verify` → typecheck + lint + build
@@ -270,25 +270,25 @@ Pulled forward the same way the app shell was in Session 06 — this is where th
 | T-103 | Provision Supabase + storage + Resend | — | 🟡 Supabase ✅ · Resend ⬜ owner |
 | T-104 | Schema + migrations, incl. security tables (doc 04 §2b) | — | ✅ Phase 1 tables; Phase 2 tables later |
 | T-105 | ~~`organisation_id` on every table~~ | — | ❌ Dropped — [ADR-008](decisions/ADR-008-single-tenant.md), single-tenant |
-| T-105a | One-time Super Admin setup route that self-disables after use | ADR-009 | ⬜ |
+| T-105a | One-time Super Admin setup route that self-disables after use | ADR-009 | ✅ **Step 5.1** — `/setup` + migration 011, verified 8/8. Self-disabling is **structural**: migration 001's partial unique index permits one `super_admin` row ever, so the guard clause only exists to produce a readable error. |
 | T-105b | Guided first-run wizard (empty system → working team) | ADR-009 | ⬜ |
 | T-105c | Editable starter skills library (~35 entries with keywords) | FR-017, ADR-009 | ⬜ |
-| T-106 | Password auth: Argon2id, breach check, blocklist, strength meter | FR-147, doc 16 §5 | ⬜ |
+| T-106 | Password auth: Argon2id, breach check, blocklist, strength meter | FR-147, doc 16 §5 | 🟡 Argon2id ✅ + policy/blocklist ✅ (Step 4, Gate 4). **Breach-corpus check ⬜** — `validatePassword()` returns it in `pending`, named rather than silently skipped; it is a network call and arrives with 5.3. |
 | T-107 | `auth_identities` table — SSO-ready, no future migration | FR-161 | ✅ Step 2 |
 | T-108 | Activation-token invitation flow (hashed, single-use, 48h) | FR-142, FR-143 | ⬜ |
 | T-109 | Optional temporary-password path (screen-only, never emailed) | FR-144 | ⬜ |
-| T-110 | MFA: TOTP + WebAuthn/passkey + recovery codes | FR-145 | ⬜ |
+| T-110 | MFA: TOTP + WebAuthn/passkey + recovery codes | FR-145 | 🟡 TOTP ✅ (Step 4 — RFC 6238, proven against the spec's own vectors) · recovery codes ✅ issued at setup (Step 5.1, hash-only, shown once) · **WebAuthn ⬜** · **enrolment ceremony ⬜ → 5.3** |
 | T-111 | Mandatory, undisableable MFA for Super Admin | FR-146 | ⬜ |
 | T-112 | **Super Admin immutability**: DB trigger + RLS + server guard | FR-140, FR-156 | 🟡 DB trigger ✅ + RLS ✅ (Step 2, Gate 2). Server guard → Step 3–4; UI → Step 6 |
 | T-113 | **"Forgot password"** — emailed one-time code + link, all 4 roles | FR-155, FR-155e | ⬜ |
-| T-113a | **3-attempt lockout** + email unlock code + owner alert | FR-155a | ⬜ |
+| T-113a | **3-attempt lockout** + email unlock code + owner alert | FR-155a | 🟡 lockout ✅ and the unlock **path** ✅ (Step 4, Gate 4). The lock is **derived** from the append-only ledger, never counted in a column. **Sending the email ⬜ → 5.5** |
 | T-113b | MFA required after email code for Super Admin and Admin resets | FR-155b, Q-039 | ⬜ |
 | T-113c | Reset revokes all sessions + confirmation email with IP/location | FR-155c | ⬜ |
 | T-113d | Recovery codes + sealed master credential backstops | FR-155d | ⬜ |
 | T-113e | Email deliverability: SPF, DKIM, DMARC configured and verified | ADR-007 | ⬜ |
-| T-114 | Session hardening: device binding, role TTL, rotation + reuse detection | FR-150 | ⬜ |
-| T-115 | Step-up re-authentication for 🔒 actions | FR-149 | ⬜ |
-| T-116 | Rate limiting, progressive lockout, generic errors, timing normalisation | FR-148 | ⬜ |
+| T-114 | Session hardening: device binding, role TTL, rotation + reuse detection | FR-150 | ✅ Step 4, Gate 4 — opaque signed token, deliberately **not** a JWT so revocation is immediate and the role is never baked in |
+| T-115 | Step-up re-authentication for 🔒 actions | FR-149 | 🟡 `requiresStepUp()` ✅ (Step 3, frozen contract) · the challenge UI ⬜ → Step 6 |
+| T-116 | Rate limiting, progressive lockout, generic errors, timing normalisation | FR-148 | 🟡 3-attempt lockout ✅ + generic errors ✅ + timing normalisation ✅ (Step 4 — and the decoy hash had to be a **real** Argon2 hash; a malformed one is rejected during parsing in <1ms and leaves the oracle open). **Per-IP rate limiting ⬜** |
 | T-117 | Login alerts + anomaly detection (new device/country/impossible travel) | FR-151, FR-152 | ⬜ |
 | T-118 | Role enum (4 roles) + permission service | doc 03 | ✅ Step 3 — 79 actions, 502 tests |
 | T-119 | Row-level security incl. **member isolation** | FR-157, ADR-003 | ✅ Step 2 — proven by direct DB query, not via the UI |
