@@ -35,14 +35,37 @@ import postgres from 'postgres';
 
 const connectionString = process.env.DATABASE_URL;
 
-if (!connectionString) {
-  throw new Error(
-    'DATABASE_URL is not set. Copy .env.example to .env.local and fill it in, ' +
-      'then run `npm run check:db` to verify it.',
-  );
+/* ── WHY THIS NO LONGER THROWS WHEN THE MODULE LOADS ──────────────────────────
+ * It used to, on the reasoning that a misconfigured deployment should fail at
+ * startup rather than on its first query. Correct at runtime — and wrong during
+ * a BUILD, which is not a deployment and has no business holding production
+ * database credentials.
+ *
+ * `next build` evaluates this module while collecting page data, so the throw
+ * made the build itself require a live connection string. Deploying to Vercel
+ * before adding the environment variables therefore failed with
+ * "Failed to collect configuration for /security" — a message that says nothing
+ * about the actual cause. Verified by building with .env.local moved aside.
+ *
+ * So the check moved to the three entry points below. Nothing can reach the
+ * database without passing through one of them, the error is still immediate
+ * and still says exactly what to do, and a build no longer needs a secret it
+ * should never have needed.
+ *
+ * The placeholder is a syntactically valid URL that resolves to nothing.
+ * postgres.js does not connect until a query is issued, so during a build it is
+ * never dialled — and if it somehow were, `assertConfigured()` has already
+ * thrown the readable error first. */
+const MISSING_URL_MESSAGE =
+  'DATABASE_URL is not set. Locally: copy .env.example to .env.local, fill it in, ' +
+  'and run `npm run check:db`. On Vercel: add it under Project Settings → ' +
+  'Environment Variables, then redeploy.';
+
+function assertConfigured(): void {
+  if (!connectionString) throw new Error(MISSING_URL_MESSAGE);
 }
 
-export const sql = postgres(connectionString, {
+export const sql = postgres(connectionString ?? 'postgres://localhost:5432/unconfigured', {
   /* ── POOL SIZE IS SMALLER IN PRODUCTION, NOT LARGER ────────────────────────
      Counter-intuitive until you count what is actually running. On a laptop
      there is one Node process, so 10 connections is 10 connections. On Vercel
@@ -172,6 +195,7 @@ export async function withUser<T>(userId: string, fn: (tx: Tx) => Promise<T>): P
     // silently returning nothing and looking like missing data.
     throw new Error('withUser requires a user id. Use withAppRole for pre-auth work.');
   }
+  assertConfigured();
 
   return withRetry(
     () =>
@@ -196,6 +220,7 @@ export async function withUser<T>(userId: string, fn: (tx: Tx) => Promise<T>): P
  * lib/domain/permissions.ts, not by dropping the identity.
  */
 export async function withAppRole<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
+  assertConfigured();
   return withRetry(
     () =>
       sql.begin(async (tx) => {
@@ -217,6 +242,7 @@ export async function withBreakGlass<T>(reason: string, fn: (tx: Tx) => Promise<
   if (!reason || reason.trim().length < 20) {
     throw new Error('Break-glass requires a written reason of at least 20 characters.');
   }
+  assertConfigured();
 
   return sql.begin(async (tx) => {
     await tx`select set_config('app.break_glass', 'on', true)`;
