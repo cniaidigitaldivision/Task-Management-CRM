@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI &amp; Digital Division — Task Board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#08211F;
+    --teal-deep:#0F3D3E;
+    --teal:#1A5F60;
+    --teal-soft:#DCE8E6;
+    --gold:#B8912A;
+    --gold-bright:#E2BB4E;
+    --paper:#EFF3F2;
+    --card:#FFFFFF;
+    --line:#C9D8D5;
+    --muted:#5D7573;
+    --alert:#A8452F;
+  }
+  *{box-sizing:border-box;}
+  html{-webkit-text-size-adjust:100%;}
+  body{
+    margin:0; background:var(--paper); color:var(--ink);
+    font-family:'IBM Plex Sans',system-ui,sans-serif;
+    font-size:15px; line-height:1.55;
+  }
+  .wrap{max-width:1080px;margin:0 auto;padding:0 20px 90px;}
+
+  /* ---------- masthead ---------- */
+  .masthead{background:var(--teal-deep);color:#fff;margin-bottom:34px;}
+  .masthead-in{max-width:1080px;margin:0 auto;padding:34px 20px 30px;}
+  .eyebrow{
+    font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--gold-bright);margin:0 0 10px;
+  }
+  h1{
+    font-family:'Bricolage Grotesque',sans-serif;font-weight:800;
+    font-size:clamp(30px,5.5vw,50px);line-height:1.02;margin:0 0 14px;
+    letter-spacing:-.02em;
+  }
+  .stamp{
+    font-family:'IBM Plex Mono',monospace;font-size:12px;color:#A9C4C1;
+    border-top:1px solid rgba(255,255,255,.18);padding-top:12px;
+  }
+
+  /* ---------- runway (signature) ---------- */
+  .runway{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:0 0 34px;}
+  .ev{
+    background:var(--card);border:1px solid var(--line);border-left:5px solid var(--gold);
+    padding:20px 22px;
+  }
+  .ev.expo{border-left-color:var(--teal);}
+  .ev-name{
+    font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:20px;
+    margin:0 0 4px;letter-spacing:-.01em;
+  }
+  .ev-date{font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--muted);margin:0 0 16px;}
+  .ev-count{display:flex;align-items:baseline;gap:9px;}
+  .ev-num{
+    font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:52px;
+    line-height:.85;color:var(--teal-deep);letter-spacing:-.04em;
+  }
+  .ev-lab{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.13em;text-transform:uppercase;color:var(--muted);}
+  .ev-note{margin:14px 0 0;font-size:13.5px;color:var(--muted);border-top:1px dotted var(--line);padding-top:11px;}
+
+  /* ---------- section headers ---------- */
+  .sec{margin:0 0 16px;padding-top:10px;}
+  .sec h2{
+    font-family:'Bricolage Grotesque',sans-serif;font-weight:700;
+    font-size:23px;margin:0 0 3px;letter-spacing:-.01em;
+  }
+  .sec p{margin:0;font-size:13.5px;color:var(--muted);}
+  .rule{height:2px;background:var(--teal-deep);margin:0 0 18px;}
+
+  /* ---------- open items ---------- */
+  .open{background:var(--card);border:1px solid var(--line);border-top:4px solid var(--alert);padding:20px 22px;margin:0 0 40px;}
+  .open h3{font-family:'Bricolage Grotesque',sans-serif;font-size:17px;margin:0 0 4px;}
+  .open .sub{font-size:13.5px;color:var(--muted);margin:0 0 14px;}
+  .open ol{margin:0;padding-left:20px;}
+  .open li{margin-bottom:9px;font-size:14.5px;}
+  .open li:last-child{margin-bottom:0;}
+  .who{font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--alert);letter-spacing:.05em;text-transform:uppercase;}
+
+  /* ---------- filter ---------- */
+  .filters{display:flex;flex-wrap:wrap;gap:7px;margin:0 0 22px;}
+  .chip{
+    font-family:'IBM Plex Mono',monospace;font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;
+    background:transparent;border:1px solid var(--line);color:var(--muted);
+    padding:7px 13px;cursor:pointer;transition:.15s;
+  }
+  .chip:hover{border-color:var(--teal);color:var(--teal);}
+  .chip[aria-pressed="true"]{background:var(--teal-deep);border-color:var(--teal-deep);color:#fff;}
+  .chip:focus-visible{outline:2px solid var(--gold);outline-offset:2px;}
+
+  /* ---------- owner blocks ---------- */
+  .owner{background:var(--card);border:1px solid var(--line);margin:0 0 20px;}
+  .owner-hd{
+    display:flex;align-items:baseline;justify-content:space-between;gap:14px;
+    padding:16px 20px;border-bottom:1px solid var(--line);background:var(--teal-soft);
+  }
+  .owner-name{font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:18px;margin:0;}
+  .owner-role{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--teal);}
+
+  table{width:100%;border-collapse:collapse;}
+  thead th{
+    font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:.11em;text-transform:uppercase;
+    color:var(--muted);text-align:left;font-weight:500;
+    padding:10px 14px;border-bottom:1px solid var(--line);white-space:nowrap;
+  }
+  tbody td{padding:13px 14px;border-bottom:1px solid #E6EDEC;vertical-align:top;font-size:14.5px;}
+  tbody tr:last-child td{border-bottom:none;}
+  .c-id{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--teal);white-space:nowrap;}
+  .c-task{width:46%;}
+  .c-task .note{display:block;font-size:12.5px;color:var(--muted);margin-top:3px;}
+  .c-due{font-family:'IBM Plex Mono',monospace;font-size:13px;white-space:nowrap;}
+  .c-conf{
+    font-family:'IBM Plex Mono',monospace;font-size:13px;min-width:92px;
+    border-bottom:1px dashed var(--line);color:var(--muted);
+  }
+  .c-conf:focus{outline:2px solid var(--gold);outline-offset:1px;background:#FFFCF2;color:var(--ink);}
+
+  .tag{
+    display:inline-block;font-family:'IBM Plex Mono',monospace;font-size:10.5px;
+    letter-spacing:.07em;text-transform:uppercase;padding:3px 8px;white-space:nowrap;
+  }
+  .t-done{background:var(--teal-soft);color:var(--teal-deep);}
+  .t-active{background:#E7F0DE;color:#3C5A28;}
+  .t-todo{background:#F0F0EC;color:#5D5D55;}
+  .t-open{background:#F7E3DE;color:var(--alert);}
+  .t-conf{background:#FBF0D4;color:#7A5F12;}
+
+  /* ---------- critical path ---------- */
+  .path{background:var(--card);border:1px solid var(--line);margin:0 0 40px;}
+  .path .row{display:grid;grid-template-columns:112px 1fr;gap:16px;padding:14px 20px;border-bottom:1px solid #E6EDEC;}
+  .path .row:last-child{border-bottom:none;}
+  .path .row.hot{background:#FFFBF0;}
+  .path .d{font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600;color:var(--teal-deep);}
+  .path .w{font-size:14.5px;}
+  .path .w em{display:block;font-style:normal;font-size:12.5px;color:var(--muted);margin-top:2px;}
+
+  .foot{margin-top:44px;padding-top:18px;border-top:2px solid var(--teal-deep);font-size:13px;color:var(--muted);}
+  .btn{
+    font-family:'IBM Plex Mono',monospace;font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;
+    background:var(--teal-deep);color:#fff;border:none;padding:10px 16px;cursor:pointer;margin-top:12px;
+  }
+  .btn:hover{background:var(--teal);}
+  .btn:focus-visible{outline:2px solid var(--gold);outline-offset:2px;}
+
+  @media (max-width:720px){
+    .runway{grid-template-columns:1fr;}
+    .c-task{width:auto;}
+    thead{display:none;}
+    tbody td{display:block;border:none;padding:3px 16px;}
+    tbody tr{display:block;padding:14px 0;border-bottom:1px solid #E6EDEC;}
+    .c-id{padding-top:12px;}
+    .c-due::before{content:"Target: ";color:var(--muted);}
+    .c-conf::before{content:"Confirmed: ";color:var(--muted);}
+    .path .row{grid-template-columns:1fr;gap:4px;}
+  }
+  @media print{
+    body{background:#fff;}
+    .filters,.btn{display:none;}
+    .owner,.path,.open,.ev{break-inside:avoid;}
+    .masthead{background:#fff;color:var(--ink);border-bottom:3px solid var(--teal-deep);}
+    .eyebrow{color:var(--gold);}
+    .stamp{color:var(--muted);}
+  }
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;}}
+</style>
+</head>
+<body>
+
+<header class="masthead">
+  <div class="masthead-in">
+    <p class="eyebrow">Crescent Nova International &middot; AI &amp; Digital Division</p>
+    <h1>Task Board<br>August 2026</h1>
+    <p class="stamp">Issued 6 August 2026 &nbsp;·&nbsp; Umme Habiba, CTO &nbsp;·&nbsp; 31 tasks &nbsp;·&nbsp; 7 owners</p>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- RUNWAY -->
+  <section class="runway">
+    <div class="ev">
+      <p class="ev-name">Jashn-e-Subh-e-Noor</p>
+      <p class="ev-date">Mon 24 Aug 2026 — evening only</p>
+      <div class="ev-count"><span class="ev-num">18</span><span class="ev-lab">days remaining</span></div>
+      <p class="ev-note">11th Rabi-ul-Awwal night. One night, one shot — no second chance at coverage. All CNI businesses participate; the real goal is promoting CNI and the AI &amp; Digital Division.</p>
+    </div>
+    <div class="ev expo">
+      <p class="ev-name">Expo Event</p>
+      <p class="ev-date">Mon 31 Aug 2026</p>
+      <div class="ev-count"><span class="ev-num">25</span><span class="ev-lab">days remaining</span></div>
+      <p class="ev-note">Jashn is finished by then, so focus shifts entirely to the AI &amp; Digital Division. Only three working days sit between the two events — 26, 27 and 28 August.</p>
+    </div>
+  </section>
+
+  <!-- OPEN -->
+  <section class="open">
+    <h3>Three answers we still need</h3>
+    <p class="sub">These stay open until the team confirms. Nothing below them can be scheduled properly.</p>
+    <ol>
+      <li>Who <strong>creates</strong> the daily Post of the Day, and who <strong>publishes</strong> it? <span class="who">Ask Usra &amp; Arsalan</span></li>
+      <li>What are the remaining three CNI divisions? Confirmed so far: Logistics, Travel &amp; Tourism, AI &amp; Digital, Marketing, Real Estate. <span class="who">Master plan needed</span></li>
+      <li>Which posts has Moez completed, and which are still pending? <span class="who">Ask Moez</span></li>
+    </ol>
+  </section>
+
+  <!-- CRITICAL PATH -->
+  <div class="sec"><h2>Critical path</h2><p>Dates worked backwards from both events. Anything highlighted blocks other people's work.</p></div>
+  <div class="rule"></div>
+  <div class="path">
+    <div class="row hot"><span class="d">Fri 7 Aug</span><span class="w">Answer the daily-post ownership question<em>The whole content pipeline waits on this</em></span></div>
+    <div class="row hot"><span class="d">Sat 8 Aug</span><span class="w">Bilal submits written campaign scope and budget<em>No ad spend starts before this lands</em></span></div>
+    <div class="row"><span class="d">Sat 8 – Sun 9 Aug</span><span class="w">Local influencer meetup<em>Feeds the Islamabad shoot</em></span></div>
+    <div class="row"><span class="d">Mon 10 Aug</span><span class="w">New company number purchased<em>Verification takes several days after purchase</em></span></div>
+    <div class="row hot"><span class="d">Wed 12 Aug</span><span class="w">Islamabad shoot completed<em>Editing needs five to six days after the shoot</em></span></div>
+    <div class="row"><span class="d">Tue 18 Aug</span><span class="w">All three promo videos delivered</span></div>
+    <div class="row hot"><span class="d">Sat 22 Aug</span><span class="w">All print finalised — Jashn <em>and</em> Expo<em>Print lead time makes the 26–28 Aug window too short</em></span></div>
+    <div class="row"><span class="d">Sun 23 Aug</span><span class="w">Jashn creatives live or scheduled across all 11 pages</span></div>
+    <div class="row hot"><span class="d">Mon 24 Aug</span><span class="w">Kashif on site for full event coverage<em>Single opportunity — photo and video, whole night</em></span></div>
+    <div class="row"><span class="d">Wed 26 – Fri 28 Aug</span><span class="w">Jashn recap cut and published, Expo digital push runs<em>25 Aug is a public holiday</em></span></div>
+  </div>
+
+  <!-- TASKS -->
+  <div class="sec"><h2>Tasks by owner</h2><p>Target dates are my proposal. Fill the Confirmed column with the date you and your owner agree on.</p></div>
+  <div class="rule"></div>
+
+  <div class="filters" role="group" aria-label="Filter by owner">
+    <button class="chip" data-f="all" aria-pressed="true">All</button>
+    <button class="chip" data-f="kashif" aria-pressed="false">Kashif</button>
+    <button class="chip" data-f="arsalan" aria-pressed="false">Arsalan</button>
+    <button class="chip" data-f="usra" aria-pressed="false">Usra</button>
+    <button class="chip" data-f="bilal" aria-pressed="false">Bilal</button>
+    <button class="chip" data-f="dev" aria-pressed="false">Development</button>
+    <button class="chip" data-f="cto" aria-pressed="false">CTO</button>
+    <button class="chip" data-f="sales" aria-pressed="false">Sales</button>
+  </div>
+
+  <!-- KASHIF -->
+  <section class="owner" data-owner="kashif">
+    <div class="owner-hd"><p class="owner-name">Kashif</p><span class="owner-role">Coordinator · Video · Events</span></div>
+    <table>
+      <thead><tr><th>ID</th><th>Task</th><th>Target</th><th>Confirmed</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td class="c-id">K-01</td><td class="c-task">Promo video — CNI corporate<span class="note">Feature Saif-ur-Rehman. Bag and backdrop carrying all eight division logos, footage of every office.</span></td><td class="c-due">18 Aug</td><td class="c-conf" contenteditable="true"></td><td><span class="tag t-todo">To do</span></td></tr>
+        <tr><td class="c-id">K-02</td><td class="c-task">Promo video — AI &amp; Digital Division<span class="note">Same production standard as the corporate cut.</span></td><td class="c-due">18 Aug</td><td class="c-conf" contenteditable="true"></td><td><span class="tag t-todo">To do</span></td></tr>
+        <tr><td class="c-id">K-03</td><td class="c-task">Promo video — Jashn-e-Subh-e-Noor<span class="note">Needs to run before the event, not after.</span></td><td class="c-due">16 Aug</td><td class="c-conf" contenteditable="true"></td><td><span class="tag t-todo">To do</span></td></tr>
+        <tr><td class="c-id">K-04</td><td class="c-task">Islamabad shoot with influencers<span class="note">Influencers write and shoot their own scripts alongside the main shoot.</span></td><td class="c-due">12 Aug</td><td class="c-conf" contenteditable="true"></td><td><span class="tag t-todo">To do</span></td></tr>
+        <tr><td class="c-id">K-05</td><td class="c-task">Behind-the-scenes coverage of the shoot<span class="note">Same trip as K-04.</span></td><td class="c-due">12 Aug</td><td class="c-conf" contenteditable="true"></td><td><span class="tag t-todo">To do</span></td></tr>
+        <tr><td class="c-id">K-06</td><td class="c-task">Custom shirt design<span class="note">Front: CNI branding. Back: punchline. Design 11 Aug, printed by 20 Aug.</span></td><td class="c-due">20 Aug</td><td class="c-conf" contenteditable="true"></td><td><span class="tag t-todo">To do</span></td></tr>
+        <tr><td class="c-id">K-07</td><td class="c-task">Jashn-e-Subh-e-Noor invitations</td><td class="c-due">—</td><td class="c-conf" contenteditable="true"></td><td><span class="tag t-done">Done</span></td></tr>
+        <tr><td class="c-id">K-08</td><td class="c-task">Buy new company number for the division<span class="note">CTO to confirm whether this is already purchased.</span></td><td class="c-due">10 Aug</td><td class="c-conf" contenteditable="true"></td><td><span class="tag t-conf">Confirm</span></td></tr>
+        <tr><td class="c-id">K-09</td><td class="c-task">WhatsApp Business verification on that number<span class="note">Green tick. CTO to confirm whether submitted.</span></td><td class="c-due">14 Aug</td><td class="c-conf" contenteditable="true"></td><td><span class="tag t-conf">Confirm</span></td></tr>
+        <tr><td class="c-id">K-10</td><td class="c-task">Organise local influencer meetup<span class="note">Weekend slot. Time not yet fixed.</span></td><td class="c-due">8–9 Aug</td><td class="c-conf" contenteditable="true"></td><td><span class="tag t-todo">To do</span></td></tr>
+        <tr><td class="c-id">K-11</td><td class="c-task">Live coverage of Jashn night<span class="note">Photo and video, full event. One night only — no retakes.</span></td><td class="c-due">24 Aug</td><td class="c-conf" contenteditable="true"></td><td><span class="tag t-todo">To do</span></td></tr>
+        <tr><td class="c-id">K-12</td><td class="c-task">Jashn recap reel<span class="note">Cut from K-11 footage. Becomes Expo promotion material.</span></td><td class="c-due">26 Aug</td><td class="c-conf" contenteditable="true"></td><td><span class="tag t-todo">To do</span></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ARSALAN -->
+  <section class="owner" data-owner="arsalan">
+    <div class="owner-hd"><p class="owner-name">Arsalan</p><span class="owner-role">Graphic Design · Print</span></div>
+    <table>
+      <thead><tr><th>ID</th><th>Task</th><th>Target</th><th>Confirmed</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td class="c-id">A-01</td><td class="c-task">Own all printing across both events</td><td class="c-due">Ongoing</td><td class="c-conf" contenteditable="true"></td><td><span class="tag t-active">Active</span></td></tr>
+        <tr><td class="c-id">A-02</td><td class="c-task">Blue Area office tile theme<span class="note">AI &amp; Digital Division logo and full branding applied.</span></td><td class="c-due">20 Aug</td><td class="c-conf" contenteditable="true"></td><td><span class="tag t-todo">To do</span></td></tr>
+        <tr><td class="c-id">A-03</td><td class="c-task">Jashn print material<span class="note">Standees, banners, backdrops.</span></td><td class="c-due">20 Aug</td><td class="c-conf" contenteditable="true"></td><td><span class="tag t-todo">To do</span></td></tr>
+        <tr><td class="c-id">A-04</td><td class="c-task">Expo print material<span class="note">Must be finished before Jashn — three working days afterwards is not enough for a print run.</span></td><td class="c-due">22 Aug</td><td class="c-conf" contenteditable="true"></td><td><span class="tag t-todo">To do</span></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- USRA -->
+  <section class="owner" data-owner="usra">
+    <div class="owner-hd"><p class="owner-name">Usra</p><span class="owner-role">Pages · Publishing · Credentials</span></div>
+    <table>
+      <thead><tr><th>ID</th><th>Task</th><th>Target</th><th>Confirmed</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td class="c-id">U-01</td><td class="c-task">Daily static Post of the Day, per client</td><td class="c-due">Daily</td><td class="c-conf" contenteditable="true"></td><td><span class="tag t-active">Active</span></td></tr>
+        <tr><td class="c-id">U-02</td><td class="c-task">Keep all 11 business pages updated, every platform</td><td class="c-due">Daily</td><td class="c-conf" contenteditable="true"></td><td><span class="tag t-active">Active</span></td></tr>
+        <tr><td class="c-id">U-03</td><td class="c-task">Hiring posts for the five remaining open positions<span class="note">Model and videographer already posted.</span></td><td class="c-due">10 Aug</td><td class="c-conf" contenteditable="true"></td><td><span class="tag t-active">Part done</span></td></tr>
+        <tr><td class="c-id">U-04</td><td class="c-task">Reorganise the company Drive<span class="note">Proper folder names and a clean structure.</span></td><td class="c-due">13 Aug</td><td class="c-conf" contenteditable="true"></td><td><span class="tag t-todo">To do</span></td></tr>
+        <tr><td class="c-id">U-05</td><td class="c-task">Confirm who creates and who publishes the daily post</td><td class="c-due">7 Aug</td><td class="c-conf" contenteditable="true"></td><td><span class="tag t-open">Open</span></td></tr>
+        <tr><td class="c-id">U-06</td><td class="c-task">Publish Jashn recap across all 11 pages<span class="note">Uses K-12.</span></td><td class="c-due">27 Aug</td><td class="c-conf" contenteditable="true"></td><td><span class="tag t-todo">To do</span></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- BILAL -->
+  <section class="owner" data-owner="bilal">
+    <div class="owner-hd"><p class="owner-name">Bilal</p><span class="owner-role">Design · Ad Campaigns</span></div>
+    <table>
+      <thead><tr><th>ID</th><th>Task</th><th>Target</th><th>Confirmed</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td class="c-id">B-04</td><td class="c-task">Submit written campaign scope and budget to CTO<span class="note">Approach was agreed verbally but never came back in writing. Everything below waits on this.</span></td><td class="c-due">8 Aug</td><td class="c-conf" contenteditable="true"></td><td><span class="tag t-open">Overdue</span></td></tr>
+        <tr><td class="c-id">B-01</td><td class="c-task">Campaign phase one — broad reach, wide targeting</td><td class="c-due">12 Aug</td><td class="c-conf" contenteditable="true"></td><td><span class="tag t-todo">To do</span></td></tr>
+        <tr><td class="c-id">B-02</td><td class="c-task">Campaign phase two — read the data, find the strongest audience and region</td><td class="c-due">19 Aug</td><td class="c-conf" contenteditable="true"></td><td><span class="tag t-todo">To do</span></td></tr>
+        <tr><td class="c-id">B-03</td><td class="c-task">Campaign phase three — concentrate spend on the winning segment for both events</td><td class="c-due">21 Aug</td><td class="c-conf" contenteditable="true"></td><td><span class="tag t-todo">To do</span></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- DEV -->
+  <section class="owner" data-owner="dev">
+    <div class="owner-hd"><p class="owner-name">Development</p><span class="owner-role">Mubeen · Moez · Laraib</span></div>
+    <table>
+      <thead><tr><th>ID</th><th>Task &amp; owner</th><th>Target</th><th>Confirmed</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td class="c-id">D-01</td><td class="c-task">Umrah and travel packages CRM — <strong>Mubeen</strong></td><td class="c-due">—</td><td class="c-conf" contenteditable="true"></td><td><span class="tag t-done">Done</span></td></tr>
+        <tr><td class="c-id">D-02</td><td class="c-task">Assign Mubeen's next project — <strong>CTO</strong><span class="note">He is free. Decide before he idles.</span></td><td class="c-due">8 Aug</td><td class="c-conf" contenteditable="true"></td><td><span class="tag t-open">Open</span></td></tr>
+        <tr><td class="c-id">D-03</td><td class="c-task">Social media automation tool — <strong>Laraib</strong><span class="note">Internal tool. Auto-generates the post and the image, then publishes across every platform. Blueprint already handed over.</span></td><td class="c-due">Milestone 1 — 20 Aug</td><td class="c-conf" contenteditable="true"></td><td><span class="tag t-active">In progress</span></td></tr>
+        <tr><td class="c-id">D-04</td><td class="c-task">Post creation, interim assignment — <strong>Moez</strong><span class="note">Intern. Working slowly, so pace needs watching.</span></td><td class="c-due">Daily</td><td class="c-conf" contenteditable="true"></td><td><span class="tag t-active">Active</span></td></tr>
+        <tr><td class="c-id">D-05</td><td class="c-task">Get Moez's list — posts done, posts pending</td><td class="c-due">7 Aug</td><td class="c-conf" contenteditable="true"></td><td><span class="tag t-open">Open</span></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- CTO -->
+  <section class="owner" data-owner="cto">
+    <div class="owner-hd"><p class="owner-name">Umme Habiba</p><span class="owner-role">CTO</span></div>
+    <table>
+      <thead><tr><th>ID</th><th>Task</th><th>Target</th><th>Confirmed</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td class="c-id">H-01</td><td class="c-task">Buy all AI tools on the company Gmail</td><td class="c-due">10 Aug</td><td class="c-conf" contenteditable="true"></td><td><span class="tag t-todo">To do</span></td></tr>
+        <tr><td class="c-id">H-02</td><td class="c-task">A4 front and back packages summary sheet</td><td class="c-due">—</td><td class="c-conf" contenteditable="true"></td><td><span class="tag t-done">Done</span></td></tr>
+        <tr><td class="c-id">H-03</td><td class="c-task">AI &amp; Digital Division logo</td><td class="c-due">—</td><td class="c-conf" contenteditable="true"></td><td><span class="tag t-done">Done</span></td></tr>
+        <tr><td class="c-id">H-04</td><td class="c-task">Get the CNI master plan, confirm all eight division names</td><td class="c-due">9 Aug</td><td class="c-conf" contenteditable="true"></td><td><span class="tag t-open">Open</span></td></tr>
+        <tr><td class="c-id">H-05</td><td class="c-task">Confirm K-08 and K-09 status with Kashif</td><td class="c-due">8 Aug</td><td class="c-conf" contenteditable="true"></td><td><span class="tag t-conf">Confirm</span></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- SALES -->
+  <section class="owner" data-owner="sales">
+    <div class="owner-hd"><p class="owner-name">Sales Team</p><span class="owner-role">Distribution</span></div>
+    <table>
+      <thead><tr><th>ID</th><th>Task</th><th>Target</th><th>Confirmed</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td class="c-id">S-01</td><td class="c-task">Compile the master list of WhatsApp groups and links<span class="note">Ownership is disputed. Sales holds the group access, so the list sits with them.</span></td><td class="c-due">10 Aug</td><td class="c-conf" contenteditable="true"></td><td><span class="tag t-open">Disputed</span></td></tr>
+        <tr><td class="c-id">S-02</td><td class="c-task">Distribute approved creatives into the groups</td><td class="c-due">Ongoing</td><td class="c-conf" contenteditable="true"></td><td><span class="tag t-active">Active</span></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <p class="foot">
+    Confirmed dates typed into this page are not saved when it closes. Print or save as PDF to keep a copy, or send your dates back to the CTO for the CRM.
+    <br><button class="btn" id="printBtn">Print or save as PDF</button>
+  </p>
+
+</div>
+
+<script>
+  var chips = document.querySelectorAll('.chip');
+  var blocks = document.querySelectorAll('.owner');
+  chips.forEach(function(c){
+    c.addEventListener('click', function(){
+      chips.forEach(function(x){ x.setAttribute('aria-pressed','false'); });
+      c.setAttribute('aria-pressed','true');
+      var f = c.getAttribute('data-f');
+      blocks.forEach(function(b){
+        b.style.display = (f === 'all' || b.getAttribute('data-owner') === f) ? '' : 'none';
+      });
+    });
+  });
+  document.getElementById('printBtn').addEventListener('click', function(){ window.print(); });
+</script>
+
+</body>
+</html>
