@@ -61,6 +61,73 @@ export function PageHeader({
   );
 }
 
+/* ============================================================================
+ * PAGE SECTION
+ * ----------------------------------------------------------------------------
+ * ── WHY (owner feedback, Session 09) ─────────────────────────────────────────
+ *   "The CRM website looks like it's a clunk of tasks all jumbled up together …
+ *    Everything is just on top of each other too much."
+ *
+ * The dashboard was five blocks of identical weight stacked 16px apart. Nothing
+ * said where one idea ended and the next began, so the eye had no structure to
+ * hold on to and the whole page read as one dense mass — exactly the complaint.
+ *
+ * A named section fixes it with two cheap things, and this is the pattern every
+ * professional CRM dashboard uses:
+ *
+ *   1. A HEADING. A block of cards under "Needs a decision today" is a thought;
+ *      the same cards with no heading are just more cards.
+ *   2. REAL SPACE between sections — 32px, not 16px. Whitespace is what tells
+ *      the eye two things are separate, and it is the first thing sacrificed
+ *      when a page is built card-by-card instead of section-by-section.
+ *
+ * The numbered `step` is deliberate: it makes the reading order explicit rather
+ * than hoping the layout implies it. Dashboard guidance is consistent that the
+ * job is telling someone what to look at first, second and third.
+ * ========================================================================= */
+
+export function PageSection({
+  title,
+  description,
+  step,
+  actions,
+  children,
+  className,
+}: {
+  title: string;
+  description?: string;
+  /** Reading order, shown as a quiet numeral before the title. */
+  step?: number;
+  actions?: React.ReactNode;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <section className={cn('space-y-3', className)}>
+      <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
+        <div className="min-w-0">
+          <h3 className="flex items-baseline gap-2 text-h3 tracking-tight text-text-primary">
+            {step !== undefined && (
+              <span
+                aria-hidden="true"
+                className="tabular text-caption font-semibold text-text-tertiary"
+              >
+                {String(step).padStart(2, '0')}
+              </span>
+            )}
+            {title}
+          </h3>
+          {description && (
+            <p className="mt-0.5 max-w-2xl text-caption text-text-secondary">{description}</p>
+          )}
+        </div>
+        {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+      </div>
+      {children}
+    </section>
+  );
+}
+
 /* --------------------------------------------------------------------------
  * ViewTabs
  * ------------------------------------------------------------------------

@@ -19,7 +19,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardFooter, CardToolbar } from '@/components/ui/card';
 import { IconTile } from '@/components/ui/icon-tile';
 import { StatCard } from '@/components/ui/metric';
-import { FilterChip, PageHeader } from '@/components/ui/page-header';
+import { FilterChip, PageHeader, PageSection } from '@/components/ui/page-header';
 import {
   ProgressBar,
   ProgressRing,
@@ -253,7 +253,10 @@ export default function DashboardPage() {
       title="Dashboard"
       subtitle="Thursday, 6 August 2026"
     >
-      <div className="mx-auto max-w-[var(--content-max)] space-y-6">
+      {/* space-y-8, not space-y-6. 32px between named sections is what separates
+          "five ideas" from "one dense mass" — the owner's "everything is on top
+          of each other" was literally a spacing problem. */}
+      <div className="mx-auto max-w-[var(--content-max)] space-y-8">
         {/* ---- Page header ---- */}
         <PageHeader
           eyebrow="Admin dashboard · Week 32"
@@ -279,54 +282,17 @@ export default function DashboardPage() {
           }
         />
 
-        {/* ---- Preview notice ----
-            Stays until real queries land. It is honest about what the figures
-            are, which matters more than looking finished. */}
-        <div
-          className="flex items-start gap-3 rounded-xl border px-4 py-3"
-          style={{
-            borderColor: 'color-mix(in oklab, var(--accent-gold) 35%, transparent)',
-            backgroundColor: 'var(--bg-gold-subtle)',
-          }}
+        {/* ---- 1 · THE FOUR FIGURES ----
+            KPI cards go FIRST. Every professional CRM dashboard opens with a
+            horizontal row of headline numbers, because the first question anyone
+            asks is "are we all right?" and it should be answerable without
+            reading anything. The status bar used to sit above these, which meant
+            the page opened with a chart nobody had context for yet. */}
+        <PageSection
+          step={1}
+          title="Where we stand"
+          description="The four numbers that decide whether today needs intervention."
         >
-          <IconTile icon={Sparkles} token="accent-gold" size="sm" />
-          <p className="text-caption text-text-secondary">
-            <span className="font-semibold text-text-primary">Interface preview.</span> Figures are
-            placeholder data that follows the real rules — 36-point weekly capacity, weighted load,
-            the actual threshold bands. Live data arrives when the query layer lands in Step 4.
-          </p>
-        </div>
-
-        {/* ---- 1 · Where the work stands ---- */}
-        <Card>
-          <CardBody className="space-y-3.5">
-            <div className="flex flex-wrap items-end justify-between gap-3">
-              <div>
-                <p className="text-micro font-semibold tracking-[0.07em] text-text-tertiary uppercase">
-                  Open work by status
-                </p>
-                <p className="mt-1.5 flex items-baseline gap-2">
-                  <span className="tabular text-h1 leading-none font-semibold text-text-primary">
-                    {openTotal}
-                  </span>
-                  <span className="text-caption text-text-secondary">
-                    open · {doneCount} completed this week
-                  </span>
-                </p>
-              </div>
-              <Button variant="ghost" size="sm">
-                Open task list
-                <ArrowRight className="h-3.5 w-3.5" strokeWidth={2} aria-hidden="true" />
-              </Button>
-            </div>
-
-            <SegmentedBar segments={segments} />
-            <SegmentLegend segments={segments} />
-          </CardBody>
-        </Card>
-
-        {/* ---- 2 · The four figures ---- */}
-        <section aria-label="Key figures">
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <StatCard
               label="Open tasks"
@@ -366,13 +332,41 @@ export default function DashboardPage() {
               spark={PREVIEW_TRENDS.utilisation}
             />
           </div>
-        </section>
+        </PageSection>
+
+        {/* ---- 2 · THE ONE VISUALISATION ----
+            "Add a chart only when a list stops answering the question." One
+            proportional bar, with a legend that is now readable rather than a
+            grey smear (see SegmentLegend). */}
+        <PageSection
+          step={2}
+          title="How the open work breaks down"
+          description={`${openTotal} tasks in flight · ${doneCount} completed this week.`}
+          actions={
+            <Button variant="secondary" size="sm">
+              Open task list
+              <ArrowRight className="h-3.5 w-3.5" strokeWidth={2} aria-hidden="true" />
+            </Button>
+          }
+        >
+          <Card>
+            <CardBody className="space-y-4 p-5">
+              <SegmentedBar segments={segments} height="h-3" />
+              <SegmentLegend segments={segments} />
+            </CardBody>
+          </Card>
+        </PageSection>
 
         {/* ---- 3 + 4 · What needs me · Who is overloaded ----
             `items-start` matters here. Grid children stretch to the tallest row
             by default, and the workload card is much taller than the attention
             list — which left a slab of empty card below the list's footer. Each
             card is now its natural height. */}
+        <PageSection
+          step={3}
+          title="What needs a decision today"
+          description="The only list on this page that asks something of you, beside the capacity it has to fit into."
+        >
         <div className="grid items-start gap-4 xl:grid-cols-5">
           <Card className="xl:col-span-3">
             <CardToolbar
@@ -473,7 +467,13 @@ export default function DashboardPage() {
           </Card>
         </div>
 
+        </PageSection>
         {/* ---- 5 · Detail ---- */}
+        <PageSection
+          step={5}
+          title="The detail, when you need it"
+          description="Live work with time against limit, and what the team has just done."
+        >
         <div className="grid items-start gap-4 xl:grid-cols-5">
           <Card className="xl:col-span-3">
             <CardToolbar title="Active work" description="In progress now, with time against limit" />
@@ -620,6 +620,26 @@ export default function DashboardPage() {
               </p>
             </CardFooter>
           </Card>
+        </div>
+        </PageSection>
+
+        {/* ---- Footnote ----
+            Moved here from the top. It is a caveat about the data, not a
+            headline — and the strip directly under the page title is the most
+            valuable real estate on the screen. */}
+        <div
+          className="flex items-start gap-3 rounded-xl border px-4 py-3"
+          style={{
+            borderColor: 'color-mix(in oklab, var(--accent-gold) 30%, transparent)',
+            backgroundColor: 'var(--bg-gold-subtle)',
+          }}
+        >
+          <IconTile icon={Sparkles} token="accent-gold" size="sm" />
+          <p className="text-caption text-text-secondary">
+            <span className="font-semibold text-text-primary">Interface preview.</span> Figures are
+            placeholder data that follows the real rules — 36-point weekly capacity, weighted load,
+            the actual threshold bands. Live data arrives with the read queries in Step 6.
+          </p>
         </div>
       </div>
     </AppShell>

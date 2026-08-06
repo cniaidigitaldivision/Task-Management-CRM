@@ -184,6 +184,35 @@ export function SegmentedBar({
   );
 }
 
+/* --------------------------------------------------------------------------
+ * SegmentLegend
+ * ------------------------------------------------------------------------
+ * ── WHY THIS WAS REBUILT (owner feedback, Session 09) ────────────────────────
+ *   "The legend on the CRM dashboard is absolutely not readable. It's not very
+ *    visible and it's not very clear what it is."
+ *
+ * Correct, and it was a real defect rather than a matter of taste. The first
+ * version put three separate pieces of information — label, count, percentage —
+ * on ONE line, 6px apart, in 12px and 11px grey:
+ *
+ *     ● To Do 6 35%  ● In Progress 5 29%  ● In Review 3 18%
+ *
+ * At a glance that is not five facts, it is one grey smear. Three compounding
+ * mistakes:
+ *
+ *   1. no visual separation between ENTRIES, only 16px of gap — so entries ran
+ *      into each other and the eye could not find the boundaries
+ *   2. no separation WITHIN an entry either, so "To Do 6 35%" read as a phrase
+ *      rather than a label and two numbers
+ *   3. the numbers were the smallest, faintest text on the row, when they are
+ *      the reason the legend exists
+ *
+ * Now each status is a discrete tile in a grid: swatch and label on top, the
+ * count large and in primary text below it, the share quiet beside it. The
+ * numbers are the loudest thing, the entries have edges, and it reads in one
+ * pass instead of being decoded.
+ * ------------------------------------------------------------------------ */
+
 export function SegmentLegend({
   segments,
   className,
@@ -194,23 +223,46 @@ export function SegmentLegend({
   const total = segments.reduce((sum, s) => sum + s.value, 0);
 
   return (
-    <ul className={cn('flex flex-wrap items-center gap-x-4 gap-y-1.5', className)}>
-      {segments.map((s) => (
-        <li key={s.key} className="flex items-center gap-1.5">
-          <span
-            aria-hidden="true"
-            className="h-2 w-2 shrink-0 rounded-[3px]"
-            style={{ backgroundColor: `var(--${s.token})` }}
-          />
-          <span className="text-caption text-text-secondary">{s.label}</span>
-          <span className="tabular text-caption font-semibold text-text-primary">{s.value}</span>
-          {total > 0 && (
-            <span className="tabular text-micro text-text-tertiary">
-              {Math.round((s.value / total) * 100)}%
-            </span>
-          )}
-        </li>
-      ))}
+    <ul
+      className={cn(
+        'grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6',
+        className,
+      )}
+    >
+      {segments.map((s) => {
+        const colour = `var(--${s.token})`;
+        const share = total > 0 ? Math.round((s.value / total) * 100) : 0;
+
+        return (
+          <li
+            key={s.key}
+            className="rounded-lg border border-border-subtle bg-bg-surface-sunken px-3 py-2.5"
+          >
+            {/* Label row. A 10px bar rather than an 8px dot — a bar carries far
+                more colour at small size, which is what makes it findable. */}
+            <div className="flex items-center gap-2">
+              <span
+                aria-hidden="true"
+                className="h-2.5 w-1 shrink-0 rounded-full"
+                style={{ backgroundColor: colour }}
+              />
+              <span className="truncate text-micro font-semibold tracking-[0.04em] text-text-secondary uppercase">
+                {s.label}
+              </span>
+            </div>
+
+            {/* The numbers, given the weight they earn. */}
+            <div className="mt-1.5 flex items-baseline gap-1.5">
+              <span className="tabular text-h3 leading-none font-semibold text-text-primary">
+                {s.value}
+              </span>
+              {total > 0 && (
+                <span className="tabular text-micro font-medium text-text-tertiary">{share}%</span>
+              )}
+            </div>
+          </li>
+        );
+      })}
     </ul>
   );
 }
