@@ -13,12 +13,12 @@ import {
   PRIORITY_TOKEN,
   ROLE_LABEL,
   ROLES,
-  ROLE_RANK,
   STATUS_META,
   type Priority,
   type Role,
   type TaskStatus,
 } from '@/lib/domain/constants';
+import { can, type Actor } from '@/lib/domain/permissions';
 import type { PreviewTask } from '@/lib/preview-data';
 import { cn } from '@/lib/utils';
 
@@ -156,26 +156,45 @@ export function TasksWorkspace({
   }, []);
 
   /* ---- Drop legality ----------------------------------------------------
-   * ⚠️ TEMPORARY. This encodes ONE rule — doc 03 §3 and doc 05 §2's
-   * "In Review → Done / Revisions is Coordinator+ only, and nobody approves
-   * their own work" (BR-002) — using nothing but ROLE_RANK from the constants
-   * table.
+   * Layer 4 asking layer 2 a question and rendering the answer. This component
+   * holds no rules of its own — every decision below is `can()` reading the
+   * matrix in lib/domain/permissions.ts, which is the transcription of
+   * doc 03 §3 that the test suite checks against the document.
    *
-   * It is deliberately not the full transition table from doc 05 §2. That
+   * Three questions, in the order they matter:
+   *   1. may this actor change this task's status at all?
+   *   2. if this is an approval, may they approve it — and is it their own
+   *      work? (BR-002)
+   *   3. if this is a cancellation, is it theirs to cancel?
+   *
+   * Still absent: the rest of doc 05 §2's transition table (Backlog → To Do
+   * needs an estimate, Done → In Progress is Admin-only, and so on). That
    * belongs in lib/domain/status-machine.ts, which doc 20 §3 schedules for
-   * Phase 2, and a rules matrix living in a component is exactly the drift
-   * doc 20 §1 exists to prevent. This is the seam, ready for it. */
+   * Phase 2. It plugs in here beside these calls — no component rewrite. */
   const canMove = React.useCallback(
     (task: PreviewTask, to: TaskStatus): string | null => {
-      const isApproval = task.status === 'in_review' && (to === 'done' || to === 'revisions');
-      if (!isApproval) return null;
+      const actor: Actor = { id: currentUser, role: actingRole };
+      const context = { assigneeId: task.assignee, createdById: task.createdBy };
+      const isOwn = task.assignee === currentUser;
+      const roleLabel = ROLE_LABEL[actingRole];
 
-      if (ROLE_RANK[actingRole] < ROLE_RANK.team_coordinator) {
-        return `A ${ROLE_LABEL[actingRole]} cannot approve or reject work in review.`;
+      if (!can(actor, isOwn ? 'task.change_status_own' : 'task.change_status_any', context)) {
+        return `A ${roleLabel} can only change the status of their own tasks.`;
       }
-      if (task.assignee === currentUser) {
-        return 'Nobody approves their own work — this one escalates a level up.';
+
+      if (task.status === 'in_review' && (to === 'done' || to === 'revisions')) {
+        const action = to === 'done' ? 'task.approve_review' : 'task.request_revisions';
+        if (!can(actor, action, context)) {
+          return isOwn
+            ? 'Nobody approves their own work — this one escalates a level up (BR-002).'
+            : `A ${roleLabel} cannot approve or send back work in review.`;
+        }
       }
+
+      if (to === 'cancelled' && !can(actor, 'task.cancel', context)) {
+        return `A ${roleLabel} can only cancel tasks they created themselves.`;
+      }
+
       return null;
     },
     [actingRole, currentUser],
@@ -196,9 +215,11 @@ export function TasksWorkspace({
           <span className="font-semibold text-text-primary">Interface preview.</span> Filters,
           grouping and drag-and-drop all work, but{' '}
           <span className="font-semibold text-text-primary">nothing is saved</span> — the query
-          layer lands in Step 4. The full transition table (doc 05 §2) arrives with the status
-          machine in Phase 2; today the board enforces one real rule, that nobody approves their own
-          work.
+          layer lands in Step 4. Drop legality is real, though: it comes from{' '}
+          <span className="font-mono text-micro">lib/domain/permissions.ts</span>, the doc 03 §3
+          matrix. Change <span className="font-semibold text-text-primary">Preview as</span> to see
+          the board behave as each role. The rest of the transition table (doc 05 §2) arrives with
+          the status machine in Phase 2.
         </p>
       </div>
 
