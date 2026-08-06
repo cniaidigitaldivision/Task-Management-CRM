@@ -1,10 +1,10 @@
 # 📊 PROGRESS TRACKER — CNI CRM
 
 **Last updated:** 2026-08-06 (Session 08)
-**Current phase:** **Phase 1 — Foundation & Security** · Steps 1, 1b, 1c, 2, 2b, **3 complete**
-**Overall progress:** ▓▓▓▓▓▓▓▓░░░░░░░░░░░░ 41%
-**Blocked on:** **Nothing.** Awaiting go-ahead for Step 4 (authentication).
-**Tests:** `npm run test` → **502 passing**
+**Current phase:** **Phase 1 — Foundation & Security** · Steps 1, 1b, 1c, 2, 2b, 3 complete · **Step 4 in progress**
+**Overall progress:** ▓▓▓▓▓▓▓▓▓░░░░░░░░░░░ 46%
+**Blocked on:** Step 4's application layer needs **`.env.local`** — owner action. The rules and the database half are done.
+**Tests:** `npm run test` → **599 passing** · DB gates: Step 2 **35/35**, pre-auth **32/32**
 
 > ⛔ **Standing rule (owner, Session 06):** commit, push to GitHub and update these docs after **every** change — not batched at session end.
 **Run it:** `npm run dev` → http://localhost:4310 · `npm run verify` → typecheck + lint + build
@@ -221,7 +221,28 @@ Pulled forward the same way the app shell was in Session 06 — this is where th
 >
 > **Also delivered:** the Tasks board now calls `can()` for status changes, approvals and cancellations, so layer 4 holds no rules of its own — a working demonstration of the doc 20 §1 dependency direction.
 
-### Steps 4–7 — see [`20-IMPLEMENTATION-CONTRACTS.md`](20-IMPLEMENTATION-CONTRACTS.md) §9 for the gate on each
+### Step 4 — Authentication *(Session 08, in progress)*
+
+| ID | Task | Req IDs | Status |
+|---|---|---|:--:|
+| T-116a | `lib/domain/lockout.ts` — lock **derived** from the append-only ledger, both anti-DoS properties tested | FR-148, FR-155a | ✅ |
+| T-106a | `lib/domain/password-policy.ts` — NIST SP 800-63B; names the checks it cannot do | FR-147 | ✅ |
+| T-114a | `lib/domain/session-policy.ts` — role-scoped TTLs, idle, absolute cap, step-up, context change | FR-149, FR-150 | ✅ |
+| T-107a | **Migration 007** — the 13-function pre-auth `SECURITY DEFINER` surface | registry C-15 | ✅ |
+| T-107b | Migrations **008** and **009** — two real defects the proof caught | doc 20 §7 | ✅ |
+| T-107c | Gate proof `verify/007_pre_auth_surface.sql` — 32 assertions | — | ✅ **32/32** |
+| T-106 | Argon2id hashing + breach check + blocklist wiring | FR-147, doc 16 §5 | ⬜ needs `.env.local` |
+| T-114 | `queries/` layer + `withUser()` (registry C-14) | FR-150 | ⬜ needs `.env.local` |
+| T-110 | MFA — TOTP verification, WebAuthn, recovery codes | FR-145 | ⬜ |
+| T-115 | Step-up re-authentication wiring | FR-149 | ⬜ |
+| T-116b | Sign-in, locked and forgot-password screens | doc 16 §3 | ⬜ |
+| **Gate 4** | **Lockout, unlock and MFA work end to end** | | 🟡 proven at the database; needs the UI |
+
+> **Gate 4 progress (2026-08-06):** the rules are done and exhaustively tested (**599 domain tests**), and the database half is proven — `lib/db/verify/007_pre_auth_surface.sql`, **32/32**. What remains is the application layer, which cannot run until `.env.local` exists.
+>
+> **The proof earned its keep immediately.** It found two real defects in migration 007 on its first run: an enum cast that would have made every *failed* sign-in throw instead of being recorded (leaving the lockout ledger permanently empty), and an ambiguous column that would have made FR-150's response to a *stolen* refresh token throw — while the happy path worked perfectly in both cases. Both compiled and read correctly; plpgsql does not check statement bodies until they execute.
+
+### Steps 5–7 — see [`20-IMPLEMENTATION-CONTRACTS.md`](20-IMPLEMENTATION-CONTRACTS.md) §9 for the gate on each
 | T-103 | Provision Supabase + storage + Resend | — | 🟡 Supabase ✅ · Resend ⬜ owner |
 | T-104 | Schema + migrations, incl. security tables (doc 04 §2b) | — | ✅ Phase 1 tables; Phase 2 tables later |
 | T-105 | ~~`organisation_id` on every table~~ | — | ❌ Dropped — [ADR-008](decisions/ADR-008-single-tenant.md), single-tenant |

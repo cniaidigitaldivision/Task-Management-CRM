@@ -254,7 +254,22 @@ The new asset is a **transparent raster**, not vector. That changes what each fo
 
 **State on close:** Phase 1 Steps 1 (Gate 1 ✅), 1b (Gate 1b ✅), 1c (Gate 1c ✅), **2 (Gate 2 ✅)**, 2b (Tasks screen) and **3 (Gate 3 ✅, 502 tests)** complete. Everything committed and pushed. Working tree clean. `npm run verify` clean — typecheck, lint, test, build.
 
-**➡️ NEXT: Step 4 — Authentication.** Awaiting the owner's go-ahead.
+### ✅ Step 4, part 1 is DONE (Session 08) — rules + database
+
+**599 domain tests passing. Pre-auth database gate: 32/32.**
+
+- `lib/domain/lockout.ts` · `password-policy.ts` · `session-policy.ts` — the rules, pure and exhaustively tested
+- **Migration 007** — the 13-function pre-auth `SECURITY DEFINER` surface (registry C-15)
+- **Migrations 008 and 009** — two real defects the proof caught on its first run
+- `lib/db/verify/007_pre_auth_surface.sql` — the gate proof, self-cleaning, safe against production
+
+The lock is **derived** from the append-only ledger, never counted in a column, and the rule lives in TypeScript only — SQL supplies the inputs and caches the verdict, so a security control has one implementation rather than two.
+
+### ➡️ NEXT: Step 4, part 2 — the application layer
+
+Argon2id hashing, the `queries/` layer with `withUser()`, TOTP/WebAuthn verification, and the sign-in, locked and forgot-password screens.
+
+**This is the part that needs `.env.local`.** Nothing above required it; nothing below can run without it.
 
 ### What Step 4 involves
 
