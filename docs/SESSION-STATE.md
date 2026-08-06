@@ -53,6 +53,7 @@ That's all you ever need to type. Everything else is recorded in the files.
 | **Phase 1 progress** | ▓▓▓▓▓▓▓▓░░ Steps 1–4 complete · **5.1 complete** · **Phase 2 work core pulled forward and operational** |
 | **Overall progress** | ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░ 72% |
 | **Code written** | ✅ Step 1 scaffold + tokens · shell + dashboard · **Step 1c redesign** · **Step 2 migrations 001–006, RLS, Super Admin trigger** · **Step 2b Tasks screen** · **Step 3 permission matrix** · **Step 4 authentication** · **Step 5.1 first-run setup** |
+| **✅ MFA enrolment** | Built (Session 12). QR code plus a copyable setup key, the code proven before anything is stored, and `requireEnrolledUser()` enforcing FR-145 at the application boundary rather than by redirect alone. |
 | **➡️ NEXT** | **Step 5.2 — the invitation chain.** It is now the one thing standing between the demo and a system the team can actually be onboarded into. See §3 and [`DEMO-GUIDE.md`](DEMO-GUIDE.md). |
 
 ### What was completed in Session 08, part 2 — TASKS SCREEN + STEP 3

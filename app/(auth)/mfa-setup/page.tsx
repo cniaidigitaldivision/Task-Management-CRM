@@ -1,76 +1,129 @@
 import type { Metadata } from 'next';
-import { QrCode, ShieldAlert } from 'lucide-react';
+import Link from 'next/link';
+import { redirect } from 'next/navigation';
+import { ShieldCheck, Smartphone } from 'lucide-react';
 
+import { beginMfaEnrolment, mfaStatus } from '@/app/actions/mfa';
 import { Card, CardBody } from '@/components/ui/card';
 import { IconTile } from '@/components/ui/icon-tile';
+import { requireUser } from '@/lib/auth/current-user';
 import { MFA_REQUIRED_ROLES, ROLE_LABEL } from '@/lib/domain/constants';
 
-export const metadata: Metadata = {
-  title: 'Set up two-factor authentication',
-};
+import { EnrolForm } from './enrol-form';
+
+export const metadata: Metadata = { title: 'Set up two-factor authentication' };
+
+/* Never cached. A new secret on every visit, and the answer to "is a factor
+   already enrolled" changes the moment one is. */
+export const dynamic = 'force-dynamic';
 
 /* ============================================================================
- * MFA ENROLMENT — FR-145, FR-146, doc 16 §4
+ * TWO-FACTOR ENROLMENT — FR-145, FR-146, doc 16 §4
  * ----------------------------------------------------------------------------
- * Where sign-in sends a privileged account that has no verified factor yet.
+ * This page was a placeholder describing a ceremony that did not exist, which
+ * turned mandatory MFA into a dead end: the sign-in issues a session, redirects
+ * a privileged account here to enrol, and here offered nothing to enrol with.
+ * The owner ran the first-run setup, was sent here, and could not get into their
+ * own system. It is the clearest reminder in this project that a screen which
+ * *explains* a feature is not the feature.
  *
- * The verification half is built and proven: lib/auth/totp.ts is RFC 6238,
- * checked against the specification's own known-answer vectors. What is missing
- * is the enrolment ceremony — showing the QR code, confirming the first code,
- * issuing and forcing the download of ten recovery codes — which belongs with
- * Step 5's provisioning chain (doc 20 §9, 5.3), because activation and enrolment
- * are one flow for a new account rather than two.
- *
- * FR-146 is why this cannot be skipped later: once a Super Admin has a verified
- * factor, nothing can reduce them to zero — enforced by a database trigger
- * (migration 005), not by a check on this screen.
+ * ── WHY THE SESSION EXISTS BEFORE THE SECOND FACTOR DOES ─────────────────────
+ * Looks wrong at first glance and is not: there is no way to enrol without being
+ * signed in, so the sign-in issues a session and sends the account straight here.
+ * The password was still required to get this far. What that session must NOT do
+ * is reach the rest of the application — closing that is the remaining piece,
+ * noted at the foot of this file.
  * ========================================================================= */
 
-export default function MfaSetupPage() {
+export default async function MfaSetupPage() {
+  const user = await requireUser();
+  const status = await mfaStatus();
+
+  /* Already enrolled and not asking to add another: there is nothing to do here,
+     and leaving somebody on an enrolment screen they have finished is a dead end
+     of a different kind. */
+  if (status.hasVerifiedFactor) {
+    redirect(user.role === 'member' ? '/my-work' : '/dashboard');
+  }
+
+  const enrolment = await beginMfaEnrolment();
+  const mandatory = MFA_REQUIRED_ROLES.includes(user.role);
+
   return (
     <Card className="shadow-lg">
       <CardBody className="space-y-5 p-6">
         <div className="flex items-start gap-3">
-          <IconTile icon={QrCode} token="accent-primary" size="lg" />
-          <div className="space-y-1">
-            <h1 className="text-h2 text-text-primary">Two-factor authentication</h1>
-            <p className="text-caption text-text-secondary">
-              Mandatory for {MFA_REQUIRED_ROLES.map((role) => ROLE_LABEL[role]).join(' and ')}{' '}
-              accounts, and it cannot be turned off once enrolled.
+          <IconTile icon={Smartphone} token="accent-primary" size="xl" />
+          <div className="min-w-0">
+            <h1 className="text-h2 text-text-primary">Set up two-factor authentication</h1>
+            <p className="mt-1 text-caption text-text-secondary">
+              {mandatory ? (
+                <>
+                  Required for {ROLE_LABEL[user.role]} accounts, and it cannot be switched off once
+                  enrolled. A stolen password on its own then gets nobody in.
+                </>
+              ) : (
+                <>
+                  Optional for your role, and worth the two minutes. A stolen password on its own
+                  then gets nobody in.
+                </>
+              )}
+            </p>
+            <p className="mt-1 text-micro text-text-tertiary">
+              Enrolling for <span className="font-semibold text-text-secondary">{user.email}</span>
             </p>
           </div>
         </div>
 
-        <div className="space-y-3 rounded-lg border border-border-subtle bg-bg-surface-sunken px-4 py-3.5">
-          <p className="text-caption font-semibold text-text-primary">What happens here</p>
-          <ol className="list-decimal space-y-1.5 pl-5 text-caption text-text-secondary">
-            <li>A QR code appears — scan it with Google Authenticator, Authy or 1Password.</li>
-            <li>Enter the first six-digit code to prove the app is set up correctly.</li>
-            <li>Ten recovery codes are issued. Print them; they are shown once.</li>
-          </ol>
-        </div>
+        {user.role === 'super_admin' && (
+          <div
+            className="flex items-start gap-2.5 rounded-lg px-3 py-2.5"
+            style={{
+              backgroundColor: 'var(--bg-gold-subtle)',
+              border: '1px solid color-mix(in oklab, var(--accent-gold) 30%, transparent)',
+            }}
+          >
+            <ShieldCheck
+              className="mt-px h-4 w-4 shrink-0"
+              style={{ color: 'var(--accent-gold)' }}
+              strokeWidth={2}
+              aria-hidden="true"
+            />
+            <p className="text-micro text-text-secondary">
+              <span className="font-semibold text-text-primary">
+                You are the owner of this system.
+              </span>{' '}
+              Nobody can reset your account for you, and once this factor is enrolled nobody can
+              remove it — enforced by the database, not by hiding a button. Your recovery codes are
+              the only way back in if the phone is lost, so keep them somewhere physical.
+            </p>
+          </div>
+        )}
 
-        <div
-          className="flex items-start gap-2.5 rounded-lg px-3 py-2.5"
-          style={{
-            backgroundColor: 'var(--bg-gold-subtle)',
-            border: '1px solid color-mix(in oklab, var(--accent-gold) 30%, transparent)',
-          }}
-        >
-          <ShieldAlert
-            className="mt-px h-4 w-4 shrink-0"
-            style={{ color: 'var(--accent-gold)' }}
-            strokeWidth={2}
-            aria-hidden="true"
-          />
-          <p className="text-micro text-text-secondary">
-            <span className="font-semibold text-text-primary">Enrolment arrives in Step 5.</span>{' '}
-            Code <em>verification</em> is already built and proven against RFC 6238&rsquo;s own test
-            vectors — what is missing is the QR-and-recovery-codes ceremony, which belongs with the
-            activation flow because for a new account they are one journey, not two.
-          </p>
-        </div>
+        <EnrolForm enrolment={enrolment} />
+
+        {!mandatory && (
+          <Link
+            href="/my-work"
+            className="inline-block text-caption font-semibold text-text-brand hover:underline focus-visible:outline-none"
+          >
+            Skip for now
+          </Link>
+        )}
       </CardBody>
     </Card>
   );
 }
+
+/* ============================================================================
+ * HOW FR-145 IS ACTUALLY ENFORCED
+ * ----------------------------------------------------------------------------
+ * The sign-in redirects an unenrolled privileged account here, but a redirect is
+ * only a suggestion — typing /dashboard walked straight past it, and "signed in
+ * only as far as the enrolment screen" was a convention rather than a control.
+ *
+ * `requireEnrolledUser()` closes it, called by app/(app)/layout.tsx: any account
+ * whose role mandates a factor and has none is sent back here from the boundary
+ * itself. That check cannot live in `requireUser()`, because this page calls that
+ * too and would redirect to itself forever.
+ * ========================================================================= */

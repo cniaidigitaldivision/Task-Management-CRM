@@ -3,7 +3,7 @@ import 'server-only';
 import { cache } from 'react';
 import { redirect } from 'next/navigation';
 
-import type { Role, Theme } from '@/lib/domain/constants';
+import { MFA_REQUIRED_ROLES, type Role, type Theme } from '@/lib/domain/constants';
 import { withAppRole } from '@/lib/db/client';
 
 import { clearSessionCookie, readSessionTokenHash } from './session';
@@ -115,6 +115,32 @@ export async function requireUser(): Promise<CurrentUser> {
 }
 
 /**
+ * The guard, plus FR-145: a privileged account with no second factor gets no
+ * further than the enrolment screen.
+ *
+ * ── WHY THIS IS NOT INSIDE `requireUser()` ───────────────────────────────────
+ * The enrolment page calls `requireUser()` itself — it has to, since there is no
+ * way to enrol without being signed in. Putting the check there would redirect
+ * that page to itself, forever. So the check lives at the boundary it actually
+ * protects: the authenticated application group. `/mfa-setup` sits outside it.
+ *
+ * Until this existed, FR-145's "signed in only as far as the enrolment screen"
+ * was a redirect and a convention. A convention is not a control: typing
+ * /dashboard walked straight past it.
+ */
+export async function requireEnrolledUser(): Promise<CurrentUser> {
+  const user = await requireUser();
+  if (!MFA_REQUIRED_ROLES.includes(user.role)) return user;
+
+  const rows = await withAppRole(
+    (tx) => tx`select count(*) as n from app.auth_verified_factors(${user.id})`,
+  );
+  if (Number(rows[0]?.n ?? 0) === 0) redirect('/mfa-setup');
+
+  return user;
+}
+
+/**
  * The guard, plus a rank floor.
  *
  * ── WHY HIDING THE NAV ITEM IS NOT ENOUGH ────────────────────────────────────
@@ -133,7 +159,9 @@ export async function requireUser(): Promise<CurrentUser> {
  * with a refusal, and their own starting screen is one navigation away.
  */
 export async function requireRole(minimum: Role): Promise<CurrentUser> {
-  const user = await requireUser();
+  // Inherits the enrolment check — a rank floor on top of an unenrolled session
+  // would let a privileged account past the very screen it was sent to.
+  const user = await requireEnrolledUser();
   const rank: Readonly<Record<Role, number>> = {
     super_admin: 4,
     admin: 3,

@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 
 import { AppShell } from '@/components/layout/app-shell';
-import { requireUser, touchSession } from '@/lib/auth/current-user';
+import { requireEnrolledUser, touchSession } from '@/lib/auth/current-user';
 import { countUnread, listNotifications } from '@/lib/db/queries/feed';
 import { listAssignablepeople } from '@/lib/db/queries/people';
 import { listProjects } from '@/lib/db/queries/projects';
@@ -34,7 +34,9 @@ export const dynamic = 'force-dynamic';
  * ========================================================================= */
 
 export default async function AppGroupLayout({ children }: { children: React.ReactNode }) {
-  const user = await requireUser();
+  /* FR-145: a privileged account with no verified second factor is redirected
+     to enrolment here, at the boundary — not merely pointed at it by the sign-in. */
+  const user = await requireEnrolledUser();
 
   /* Independent reads, so they go together. Four sequential round trips to
      Supabase on every navigation is roughly 200ms of nothing happening. */
