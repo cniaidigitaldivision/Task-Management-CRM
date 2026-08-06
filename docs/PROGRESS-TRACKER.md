@@ -1,10 +1,10 @@
 # 📊 PROGRESS TRACKER — CNI CRM
 
-**Last updated:** 2026-08-06 (Session 10)
-**Current phase:** **Phase 1 — Foundation & Security** · Steps 1, 1b, 1c, 2, 2b, 3, 4 complete · **Step 5.1 complete**
-**Overall progress:** ▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░ 57%
-**Blocked on:** **Nothing.** Step 5 in progress — 5.1 done, next is 5.2 (invitation chain). Resend is required by 5.5, not before.
-**Tests:** `npm run test` → **640** · `npm run test:auth` → **13/13** (real DB) · DB gates: Step 2 **35/35**, pre-auth **32/32**, migration 010 **9/9**, migration 011 **8/8**
+**Last updated:** 2026-08-06 (Session 11)
+**Current phase:** **Phase 1** Steps 1–4 + 5.1 complete · **Phase 2 work core pulled forward at the owner's request and OPERATIONAL**
+**Overall progress:** ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░ 72%
+**Blocked on:** **Nothing.** Next is 5.2 (invitation chain) — the last thing between a working demo and onboarding the real team. Resend is required by 5.5.
+**Tests:** `npm run test` → **640** · `npm run test:auth` → **30/30** (real DB) · `npm run smoke` → **25/25** signed-in route checks · DB gates: Step 2 **35/35**, pre-auth **32/32**, 010 **9/9**, 011 **8/8**, work core **17/17**
 
 > ⛔ **Standing rule (owner, Session 06):** commit, push to GitHub and update these docs after **every** change — not batched at session end.
 **Run it:** `npm run dev` → http://localhost:4310 · `npm run verify` → typecheck + lint + build
@@ -38,11 +38,11 @@
 | Phase | Name | Status | Progress |
 |:--:|---|:--:|---|
 | 0 | Planning & Documentation | ✅ | ▓▓▓▓▓▓▓▓▓▓ 100% |
-| 1 | Foundation & **Security** (auth, DB, roles, MFA) | 🟡 | ▓▓▓▓▓▓░░░░ 57% — Step 4/7 |
-| 2 | **Projects** & core task management | ⬜ | ░░░░░░░░░░ 0% |
+| 1 | Foundation & **Security** (auth, DB, roles, MFA) | 🟡 | ▓▓▓▓▓▓▓▓░░ 80% — Steps 1–4 + 5.1 done; 5.2 next |
+| 2 | **Projects** & core task management | 🟡 | ▓▓▓▓▓▓▓▓░░ 80% — **pulled forward (Session 11)**: schema, RLS, task + project CRUD, board, capacity engine, timers all live. Missing: attachments, dependencies UI, recurring tasks, calendar view |
 | 3 | Real-time & notifications | ⬜ | ░░░░░░░░░░ 0% |
-| 4 | ★ Intelligence (workload + assignment) | ⬜ | ░░░░░░░░░░ 0% |
-| 5 | Dashboards & reporting | ⬜ | ░░░░░░░░░░ 0% |
+| 4 | ★ Intelligence (workload + assignment) | 🟡 | ▓▓▓▓▓░░░░░ 50% — **workload engine complete and live** (doc 06: bands, thresholds, the BR-003 block with logged override, availability). Missing: the assignment recommendation UI (doc 07) |
+| 5 | Dashboards & reporting | 🟡 | ▓▓▓▓▓▓░░░░ 60% — dashboard, workload and reports all live on real data. Missing: CSV export, the scheduled digest, editable settings |
 | 6 | Polish & adoption | ⬜ | ░░░░░░░░░░ 0% |
 | 7+ | Enhancements | ⬜ | ░░░░░░░░░░ 0% |
 

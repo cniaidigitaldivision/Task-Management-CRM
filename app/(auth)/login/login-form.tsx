@@ -146,7 +146,11 @@ export function LoginForm() {
         </div>
       )}
 
-      <Button variant="primary" size="lg" className="w-full" disabled={pending}>
+      {/* type="submit" is REQUIRED: Button defaults to type="button" (see
+          components/ui/button.tsx), so without this the form silently never
+          submits — which is exactly what happened here until it was caught in a
+          browser. */}
+      <Button type="submit" variant="primary" size="lg" className="w-full" disabled={pending}>
         {state.mfaRequired ? (
           <KeyRound className="h-[18px] w-[18px]" strokeWidth={2} aria-hidden="true" />
         ) : (

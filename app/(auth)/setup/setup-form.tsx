@@ -82,7 +82,7 @@ export function SetupForm() {
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <Button variant="secondary" size="md" onClick={() => window.print()}>
+          <Button type="button" variant="secondary" size="md" onClick={() => window.print()}>
             <Printer className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
             Print these codes
           </Button>
@@ -168,7 +168,8 @@ export function SetupForm() {
         />
       </Field>
 
-      <Button variant="primary" size="lg" className="w-full" disabled={pending}>
+      {/* type="submit" — Button defaults to type="button". */}
+      <Button type="submit" variant="primary" size="lg" className="w-full" disabled={pending}>
         <KeyRound className="h-[18px] w-[18px]" strokeWidth={2} aria-hidden="true" />
         {pending ? 'Creating your account…' : 'Create the Super Admin account'}
       </Button>

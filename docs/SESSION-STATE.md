@@ -46,14 +46,14 @@ That's all you ever need to type. Everything else is recorded in the files.
 
 | | |
 |---|---|
-| **Last updated** | 2026-08-06, Session 10 |
-| **Tests** | `npm run test` → **640** · `npm run test:auth` → **13/13** (real DB) · `npm run check:db` → passing |
+| **Last updated** | 2026-08-06, Session 11 |
+| **Tests** | `npm run test` → **640** · `npm run test:auth` → **30/30** (real DB) · `npm run smoke` → **25/25** (every route, both roles) |
 | **⛔ Credential hygiene** | Three secrets were pasted into chat in Session 09 (Resend key, DB password ×2 — one echoed by my own script's error output). **All must be rotated.** Never paste a secret; `npm run check:db` redacts and is safe to share. |
 | **Current phase** | **Phase 1 — Foundation & Security** |
-| **Phase 1 progress** | ▓▓▓▓▓▓▓░░░ Steps 1, 1b, 1c, 2, 2b, 3, 4 complete (Gate 4 ✅) · **Step 5.1 complete** |
-| **Overall progress** | ▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░ 57% |
+| **Phase 1 progress** | ▓▓▓▓▓▓▓▓░░ Steps 1–4 complete · **5.1 complete** · **Phase 2 work core pulled forward and operational** |
+| **Overall progress** | ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░ 72% |
 | **Code written** | ✅ Step 1 scaffold + tokens · shell + dashboard · **Step 1c redesign** · **Step 2 migrations 001–006, RLS, Super Admin trigger** · **Step 2b Tasks screen** · **Step 3 permission matrix** · **Step 4 authentication** · **Step 5.1 first-run setup** |
-| **➡️ NEXT** | **Step 5.2 — the invitation chain** (hashed token, 48h, single-use). Nothing outstanding blocks it; email delivery (5.5) is the part that needs Resend. See §3. |
+| **➡️ NEXT** | **Step 5.2 — the invitation chain.** It is now the one thing standing between the demo and a system the team can actually be onboarded into. See §3 and [`DEMO-GUIDE.md`](DEMO-GUIDE.md). |
 
 ### What was completed in Session 08, part 2 — TASKS SCREEN + STEP 3
 

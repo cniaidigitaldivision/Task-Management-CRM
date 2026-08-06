@@ -30,6 +30,7 @@
  * half-seeded team behind.
  * ========================================================================= */
 
+import { createHmac, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import postgres from 'postgres';
@@ -63,6 +64,72 @@ function readEnvLocal() {
    (14ms / 99ms / 130ms tried) and a seeded hash that does not match the app's
    verifier is a login that fails for no visible reason. */
 const ARGON = { algorithm: 2, memoryCost: 65536, timeCost: 3, parallelism: 1 };
+
+/* ---------------------------------------------------------------------------
+ * TOTP, for the privileged accounts
+ * ---------------------------------------------------------------------------
+ * FR-145 makes a second factor mandatory for Super Admin and Admin, and the
+ * sign-in action enforces it: an Admin with no verified factor is sent to the
+ * enrolment screen and cannot reach the application. Correct, and it means a
+ * seeded Admin with no factor can never be signed in as.
+ *
+ * So the seed enrols a real TOTP factor and prints the secret. Two ways to use
+ * it: scan/paste it into an authenticator app once, or read the current code off
+ * the console output below (it is recomputed and printed on every seed run).
+ *
+ * Deliberately NOT solved by exempting the demo from MFA. A demo that skips the
+ * security model demonstrates something the real system does not do.
+ * ------------------------------------------------------------------------- */
+const B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+
+function base32Encode(buffer) {
+  let bits = 0;
+  let value = 0;
+  let out = '';
+  for (const byte of buffer) {
+    value = (value << 8) | byte;
+    bits += 8;
+    while (bits >= 5) {
+      out += B32[(value >>> (bits - 5)) & 31];
+      bits -= 5;
+    }
+  }
+  if (bits > 0) out += B32[(value << (5 - bits)) & 31];
+  return out;
+}
+
+function base32Decode(input) {
+  const clean = input.replace(/[\s=]/g, '').toUpperCase();
+  let bits = 0;
+  let value = 0;
+  const bytes = [];
+  for (const char of clean) {
+    value = (value << 5) | B32.indexOf(char);
+    bits += 5;
+    if (bits >= 8) {
+      bytes.push((value >>> (bits - 8)) & 0xff);
+      bits -= 8;
+    }
+  }
+  return Buffer.from(bytes);
+}
+
+/** RFC 6238, matching lib/auth/totp.ts: SHA-1, 6 digits, 30-second period. */
+function totpNow(secret, atMs = Date.now()) {
+  const counter = Math.floor(atMs / 1000 / 30);
+  const counterBuffer = Buffer.alloc(8);
+  counterBuffer.writeUInt32BE(Math.floor(counter / 2 ** 32), 0);
+  counterBuffer.writeUInt32BE(counter >>> 0, 4);
+
+  const digest = createHmac('sha1', base32Decode(secret)).update(counterBuffer).digest();
+  const offset = digest[digest.length - 1] & 0x0f;
+  const binary =
+    ((digest[offset] & 0x7f) << 24) |
+    (digest[offset + 1] << 16) |
+    (digest[offset + 2] << 8) |
+    digest[offset + 3];
+  return String(binary % 10 ** 6).padStart(6, '0');
+}
 
 /* ---------------------------------------------------------------------------
  * The division — 1 Admin, 1 Coordinator, 5 Members
@@ -218,11 +285,23 @@ try {
       /* Order matters only for `users`, which has a DELETE-forbidding trigger.
          Everything else cascades from tasks and projects. */
       await tx`delete from public.tasks where created_by_id in (select id from public.users where email = any(${emails}))`;
-      await tx`delete from public.activity_log where actor_id in (select id from public.users where email = any(${emails}))`.catch(() => {});
+
+      /* ⚠️ activity_log is deliberately NOT touched.
+         It is append-only by trigger (migration 012), so deleting from it raises
+         and — this is the part worth knowing — that abort poisons the whole
+         transaction, so a `.catch()` around the statement does not save the wipe.
+         The first version of this script had exactly that and failed here.
+
+         Which is the correct outcome. "History is not editable by any role"
+         (doc 19 §6) is not a rule the demo tooling gets an exemption from. The
+         trail of what the demo team did stays; the actors it points at are
+         deactivated below and their names still resolve. */
       await tx`delete from public.notifications where user_id in (select id from public.users where email = any(${emails}))`;
       await tx`delete from public.projects where created_by_id in (select id from public.users where email = any(${emails}))`;
       await tx`delete from public.user_skills where user_id in (select id from public.users where email = any(${emails}))`;
       await tx`delete from public.availability where user_id in (select id from public.users where email = any(${emails}))`;
+      await tx`delete from public.mfa_factors where user_id in (select id from public.users where email = any(${emails}))`;
+      await tx`delete from public.recovery_codes where user_id in (select id from public.users where email = any(${emails}))`;
       await tx`delete from public.auth_identities where user_id in (select id from public.users where email = any(${emails}))`;
       await tx`delete from public.sessions where user_id in (select id from public.users where email = any(${emails}))`;
       /* users cannot be deleted (BR-007) — deactivate instead, and the trigger
@@ -239,13 +318,28 @@ try {
   console.log('\nSeeding the demo division …');
   const passwordHash = await argonHash(DEMO_PASSWORD, ARGON);
 
+  /* Declared outside the transaction so the summary at the end can print them.
+     The secret is generated here and never read back from the database — this is
+     the only moment it exists in plaintext, which is equally true of the real
+     enrolment ceremony. */
+  const totpSecrets = {};
+
   await sql.begin(async (tx) => {
+    /* ── Only ACTIVE demo accounts count as "already seeded" ──────────────────
+       A wipe deactivates the accounts rather than deleting them, because BR-007
+       forbids deleting a user row and the trigger enforces it. So after a wipe
+       the rows are still there, deactivated — and a check that counted those
+       would make the seed unrunnable exactly once, permanently.
+
+       Re-seeding therefore reactivates and refreshes the existing rows (the
+       upsert below), which is the same thing a real reinstatement would do. */
     const existing = await tx`
-      select count(*) as n from public.users where email like ${'%@' + DEMO_DOMAIN}
+      select count(*) as n from public.users
+       where email like ${'%@' + DEMO_DOMAIN} and is_active
     `;
     if (Number(existing[0].n) > 0) {
       throw new Error(
-        `The demo team already exists. Run "npm run seed:demo -- --wipe" first if you want to rebuild it.`,
+        `The demo team is already active. Run "npm run seed:demo -- --wipe" first if you want to rebuild it.`,
       );
     }
 
@@ -261,6 +355,15 @@ try {
           ${person.role}::public.user_role, ${person.title}, 'active', true,
           ${person.capacity}, ${person.maxTasks}, 'Asia/Karachi', 'system'
         )
+        on conflict (email) do update set
+          full_name = excluded.full_name,
+          role = excluded.role,
+          role_title = excluded.role_title,
+          account_state = 'active',
+          is_active = true,
+          weekly_capacity_points = excluded.weekly_capacity_points,
+          max_concurrent_tasks = excluded.max_concurrent_tasks,
+          locked_at = null
         returning id
       `;
       ids[person.key] = rows[0].id;
@@ -270,6 +373,24 @@ try {
           (user_id, provider, password_hash, last_password_change_at)
         values (${ids[person.key]}, 'password', ${passwordHash}, now())
       `;
+
+      /* FR-145: a second factor is mandatory for super_admin and admin, and the
+         sign-in action enforces it. Without a verified factor the seeded Admin is
+         redirected to enrolment on every attempt and can never reach the
+         application — which is correct behaviour, and would make the Admin
+         undemonstrable. Enrol a real one rather than exempting the demo: a demo
+         that skips the security model shows something the product does not do. */
+      if (person.role === 'admin' || person.role === 'super_admin') {
+        totpSecrets[person.key] = base32Encode(randomBytes(20));
+        await tx`
+          insert into public.mfa_factors
+            (user_id, type, secret_encrypted, friendly_name, is_primary, verified_at)
+          values (
+            ${ids[person.key]}, 'totp', ${totpSecrets[person.key]},
+            'Demo authenticator', true, now()
+          )
+        `;
+      }
     }
     console.log(`  ${PEOPLE.length} people`);
 
@@ -464,6 +585,30 @@ try {
   console.log(line);
   console.log(`  Password:  ${DEMO_PASSWORD}`);
   console.log(line);
+
+  /* ---- The second factor, for the privileged accounts ---- */
+  const privileged = Object.keys(totpSecrets);
+  if (privileged.length > 0) {
+    console.log('\n  TWO-FACTOR — mandatory for Admin and Super Admin (FR-145)');
+    console.log(line);
+    for (const key of privileged) {
+      const secret = totpSecrets[key];
+      console.log(`  ${key}@${DEMO_DOMAIN}`);
+      console.log(`    secret:    ${secret}`);
+      console.log(`    code now:  ${totpNow(secret)}   (changes every 30 seconds)`);
+      console.log(
+        `    otpauth://totp/CNI%20CRM:${key}@${DEMO_DOMAIN}?secret=${secret}&issuer=CNI%20CRM`,
+      );
+    }
+    console.log(line);
+    console.log('  Paste that secret into Google Authenticator, Authy or 1Password once.');
+    console.log(line);
+    console.log('\n  \x1b[33mNo authenticator to hand? Demo as kashif@cni-demo.com');
+    console.log('  (Team Coordinator).\x1b[0m MFA is not mandatory for that role, and a');
+    console.log('  Coordinator still sees the whole board, assigns work and approves');
+    console.log('  reviews. Signing in as the Admin then demonstrates the MFA');
+    console.log('  requirement itself, which is worth showing a CEO.');
+  }
   console.log('\n  Demo as sana@cni-demo.com (Admin) — it is the richest view:');
   console.log('  the whole board, every person\'s workload, and it can assign work.');
   console.log('  Sign in as a member to show ADR-003 isolation: they see only their own.\n');

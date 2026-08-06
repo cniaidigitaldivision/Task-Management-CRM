@@ -73,6 +73,30 @@ In the owner's words, across several sessions:
 
 ---
 
+## 🔴 SESSION 11 — "make everything operational, I am demoing tonight"
+
+The owner's instruction, in their words:
+
+> *"Right now don't implement that [5.2] first but firstly implement all the operations of the CRM first. I want my CRM to be completely working — everything on the dashboard, everything on the sidebar, every option, every mechanic, every logic, every single thing should work… because I have to show the working of the CRM to my CEO tonight."*
+
+**What this means for anybody picking the project up:** functional work was deliberately pulled ahead of the security roadmap. Phase 2's work core and Phase 4's workload engine were built out of order, on purpose, and the sequencing in doc 20 §9 no longer describes what happened. That was the owner's explicit call and it stands.
+
+| Delivered | |
+|---|---|
+| Migrations 012–014 | 14 work-core tables, 34 RLS policies, session resolution |
+| Domain | `task-machine.ts` (doc 05 §2 as an allowlist), `workload.ts` (doc 06) |
+| Operations | task create/edit/assign/status/comment/checklist/delete/timer, project create/edit, capacity + skills + leave, profile, theme |
+| Screens | all ten routes real — dashboard, my work, tasks, projects, workload, team, reports, settings, profile, security |
+| Proof | 640 unit · 30 integration · **25 signed-in route checks** (`npm run smoke`) |
+| Demo | [`DEMO-GUIDE.md`](DEMO-GUIDE.md) — accounts, an eight-minute flow, and what is honestly missing |
+
+**Two real bugs this found, both invisible to a build:**
+
+1. **The login form never submitted.** `Button` defaults to `type="button"`, so the submit button did nothing. Every integration test called the action directly, so nothing caught it — the sign-in page had never actually worked from a browser. Now fixed, with the reason written next to it in both auth forms.
+2. **A Member could reach `/team` and `/workload` by URL.** Row-level security meant nothing leaked, but the page was reachable. `requireRole()` now enforces the floor (registry C-21).
+
+---
+
 ## 📋 OUTSTANDING — not yet done
 
 | # | Item | Note |
@@ -81,4 +105,5 @@ In the owner's words, across several sessions:
 | O1a | **Walk `/setup` yourself, once, and keep the codes** | `npm run dev` → http://localhost:4310/setup. It shows ten recovery codes **once** and never again — only their hashes are stored, so nobody, including this system, can reproduce them. Print them. After you submit, the route closes permanently: at most one `super_admin` row can exist in this database, ever. |
 | O2 | **Rotate three secrets** | Resend key + DB password ×2. See R5. |
 | O3 | **Create the Resend account** | Step 5's only external dependency. Sandbox sender `onboarding@resend.dev` needs no DNS — but only delivers to the Resend account's own address, so one person can walk the flow and the team cannot be onboarded until a real domain is verified. |
-| O4 | **Owner has not visually reviewed most of the UI** | Claude has had no browser for several sessions. The Tasks screen, the control scale, the auth screens and the rail animation have all been built and verified by build output rather than by eye. |
+| O4 | ~~Owner has not visually reviewed most of the UI~~ | **Session 11: reviewed in Chrome.** Login, dashboard, tasks board, task drawer, the rail hover-expand pushing the content, light and dark mode all verified by eye at 1600px. Two gaps remain: **(a)** narrow-viewport layout is unverified — Chrome on Windows will not resize below ~500px, so 375px is still untested by eye, and **(b)** HTML5 drag-and-drop cannot be driven by synthetic mouse events, so the drag was not exercised in automation. The status dropdown in the task drawer takes the same code path and was verified end to end. |
+| O5 | **Narrow-viewport pass** | Every layout uses responsive grids and the mobile drawer is -gated, but nobody has looked at it on a phone. Worth ten minutes on a real device before the team uses it. |
