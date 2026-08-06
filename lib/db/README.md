@@ -62,22 +62,55 @@ Two things must both be true for the policies to bind:
 | **The session acts as `cni_app`** | `postgres` has `BYPASSRLS`. Connected as `postgres`, every policy in migration 005 is invisible and layer 2 of the security model is simply switched off. `cni_app` does not bypass anything. |
 | **`app.user_id` is set** | Unset, `app.current_user_id()` is NULL, every policy predicate is false, and queries return nothing. **Fail-closed** — a forgotten identity produces an empty result, never an unfiltered one. |
 
-### Setting the role
+### ⚠️ Setting the role — the connection string does NOT work (registry C-18)
 
-Put it in the connection string so it holds even if application code forgets:
+The original plan was to put it in the URL:
 
 ```
-postgresql://…/postgres?options=-c%20role%3Dcni_app
+postgresql://…/postgres?options=-c%20role%3Dcni_app        ← silently ignored
 ```
+
+**Supabase's pooler does not forward libpq startup options.** The session stays
+`postgres`, which has `BYPASSRLS`, so every policy is skipped and nothing looks
+wrong. Measured with `npm run check:db`, not assumed.
+
+The role is taken **per transaction** instead, by `withUser()` / `withAppRole()`:
+
+```sql
+BEGIN;
+  SELECT set_config('role', 'cni_app', true);      -- SET LOCAL
+  SELECT set_config('app.user_id', $1,   true);    -- SET LOCAL
+  …
+COMMIT;
+```
+
+Behind a **transaction-mode** pooler this is the only correct mechanism, not a
+fallback. A session-level `SET ROLE` would persist on the backend after the
+transaction ends and leak to whichever request reused that connection next.
+
+`prepare: false` is **mandatory** on the client for the same reason: a named
+prepared statement lives on one backend connection, and transaction mode hands
+out a different one each time.
 
 **Honest about the strength of this:** it is defence in depth, not a sandbox.
-The session's `session_user` is still `postgres`, so a `RESET ROLE` would climb
-back out. The hard boundary is the **trigger** layer, which fires for every
-role including the table owner — which is why the rules that matter most are
-triggers and not only policies.
+`session_user` is still `postgres`, so a `RESET ROLE` would climb back out. The
+hard boundary is the **trigger** layer, which fires for every role including the
+table owner — which is why the rules that matter most are triggers and not only
+policies.
 
-If a hard role boundary is wanted later: give `cni_app` `LOGIN` and its own
-password and connect as it directly. One migration, no application change.
+If a hard boundary is wanted later: give `cni_app` `LOGIN` and its own password
+and connect as it directly. One migration, no application change.
+
+### Verifying it
+
+```
+npm run check:db
+```
+
+Reads `.env.local`, redacts the password, and asks the database what it actually
+believes — including the one that matters: inside a transaction with
+`SET LOCAL ROLE`, is `current_user` really `cni_app`, does that role lack
+`BYPASSRLS`, and does `select from users` with no identity return **zero** rows?
 
 ### Never connect as `postgres`, and never use the service-role key
 

@@ -477,6 +477,17 @@ Found while building the data foundation. Same rule: recorded with a resolution 
 | **C-16** | **Doc 20 §3 names `lib/db/schema.ts` as the single source of truth for every table and column**, but doc 20 §7 requires every schema change to be a new numbered SQL migration. Two hand-maintained declarations of the same schema will drift — the exact failure §3 exists to prevent. | ✅ **`lib/db/migrations/*.sql` is the single source of truth for the schema.** Types are **generated** from the live database into `types/database.ts` and are never hand-edited. A generated mirror cannot drift from its source; a second hand-written declaration can. Doc 20 §3's ★ table is amended accordingly. |
 | **C-17** | **`invitations.purpose` (doc 04 §2b) lists `activation` \| `password_reset` \| `email_change`, but FR-155a requires an emailed account-**unlock** code**, which is neither a password reset nor an activation — an unlocked account keeps its existing password. | ✅ **`account_unlock` added to the purpose enum.** Doc 04 §2b amended in §9a below. |
 
+### Contradiction sweep — Session 08 (Phase 1, Step 4)
+
+| # | Conflict | Resolution |
+|:--:|---|---|
+| **C-18** | **C-14 said the app adopts `cni_app` through the connection string** (`?options=-c role=cni_app`). Measured against the real database, it does not: **Supabase's pooler (Supavisor) does not forward libpq startup options.** The session stays `postgres`, which has `BYPASSRLS` — so every policy in migration 005 is skipped, and nothing looks wrong. | ✅ **The role is taken PER TRANSACTION with `SET LOCAL ROLE cni_app`,** in `withUser()` / `withAppRole()` (`lib/db/client.ts`). C-14's *intent* is unchanged and its fail-closed guarantee still holds; only the mechanism moves.<br><br>This is not a workaround. Behind a **transaction-mode** pooler it is the only correct mechanism: a session-level `SET ROLE` persists on the backend after the transaction ends and leaks to whichever request reuses that connection next — a cross-tenant identity bug, which is considerably worse than the problem it would solve.<br><br>**Found by `npm run check:db`, not by reading documentation.** The URL suffix is harmless and can stay; it simply has no effect. |
+
+> **Two things this cost, both recorded so they are not repeated:**
+>
+> 1. **The checker printed "Ready" after two failed assertions,** so the owner reported the check as passed when the app was connected as `postgres` with RLS bypassed. A check that can report success alongside a failure is worse than no check — it manufactures false confidence. Failures are now counted and the script exits non-zero.
+> 2. **`prepare: false` is mandatory** on the postgres.js client. Named prepared statements live on one backend connection and transaction mode hands out a different one each time, so a statement prepared on connection A is missing when the next query lands on B. postgres.js prepares by default, so leaving it on produces *intermittent* failures under load — the worst way for this class of bug to present.
+
 ### 9a. Doc 04 amendments — Phase 1 tables as built
 
 Implementation-driven corrections to [doc 04](04-DATA-MODEL.md). Recorded here because §1 gives doc 04 ownership of every table and column; these are the deltas the migrations actually applied.

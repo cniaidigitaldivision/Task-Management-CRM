@@ -34,8 +34,18 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import postgres from 'postgres';
 
+/* Failures are COUNTED, not just printed. The first version of this script
+ * printed "Ready" after two red crosses, which is worse than not checking at
+ * all — it told the owner the connection was correct when it was connected as
+ * `postgres` with row-level security bypassed. A check that can report success
+ * alongside a failure is not a check. */
+let failures = 0;
+
 const ok = (m) => console.log(`  \x1b[32m✓\x1b[0m ${m}`);
-const bad = (m) => console.log(`  \x1b[31m✗\x1b[0m ${m}`);
+const bad = (m) => {
+  failures += 1;
+  console.log(`  \x1b[31m✗\x1b[0m ${m}`);
+};
 const warn = (m) => console.log(`  \x1b[33m!\x1b[0m ${m}`);
 const info = (m) => console.log(`    ${m}`);
 
@@ -120,19 +130,19 @@ if (parsed.port === '5432') {
   warn(`Unexpected port ${parsed.port || '(none)'} — expected 6543.`);
 }
 
-/* ---- 4 · ⚠️ the role override ------------------------------------------- */
+/* ---- 4 · the role override in the URL is INFORMATIONAL ONLY -------------
+ * Supabase's pooler (Supavisor) does not forward libpq startup options, so
+ * `?options=-c role=cni_app` is silently dropped and the session stays as
+ * `postgres`. Measured, not assumed — see registry C-18.
+ *
+ * The role is therefore taken per transaction with SET LOCAL ROLE instead,
+ * which is also the only thing that CAN work behind a transaction-mode pooler:
+ * a session-level SET would leak to whichever tenant reused the backend next.
+ * Check 6 below tests that path, because that is the one the app uses. */
 const options = parsed.searchParams.get('options') ?? '';
-const declaresRole = /-c\s*role\s*=\s*cni_app/.test(decodeURIComponent(options));
-
-if (!declaresRole) {
-  bad('The role override is MISSING. This is the one that matters.');
-  info('Append to DATABASE_URL:   ?options=-c%20role%3Dcni_app');
-  info('');
-  info('Without it the app connects as `postgres`, which has BYPASSRLS. Every');
-  info('row-level security policy is skipped, silently. Nothing will look wrong.');
-  process.exit(1);
+if (/-c\s*role\s*=\s*cni_app/.test(decodeURIComponent(options))) {
+  info('URL declares role=cni_app — harmless, but the pooler ignores it (registry C-18).');
 }
-ok('The connection string declares role=cni_app.');
 
 /* ---- 5 · connect and ask the database what it actually thinks ---------- */
 console.log('\n  Connecting…\n');
@@ -156,34 +166,52 @@ try {
 
   ok(`Connected. PostgreSQL ${String(row.version).split(' ')[0]}`);
   ok(`${row.tables} tables and ${row.policies} RLS policies in public.`);
+  info(`Session role is "${row.current_user}" (expected — the pooler drops the URL option).`);
 
-  if (row.current_user === 'cni_app') {
-    ok(`Acting as \x1b[1mcni_app\x1b[0m — row-level security applies.`);
+  /* ---- 6 · THE CHECK THAT MATTERS ---------------------------------------
+   * Exactly what withUser() does on every request: one transaction, SET LOCAL
+   * ROLE, SET LOCAL identity. If this works, row-level security binds. */
+  const inTx = await sql.begin(async (tx) => {
+    await tx`select set_config('role', 'cni_app', true)`;
+    const [who] = await tx`
+      select current_user                                as who,
+             (select rolbypassrls from pg_roles
+               where rolname = current_user)             as bypasses_rls,
+             (select count(*)::int from public.users)    as visible_no_identity
+    `;
+    return who;
+  });
+
+  if (inTx.who === 'cni_app') {
+    ok('Inside a transaction with SET LOCAL ROLE, the session is \x1b[1mcni_app\x1b[0m.');
   } else {
-    bad(`Acting as "${row.current_user}", NOT cni_app.`);
-    info('The ?options= suffix is present but the server did not apply it.');
-    info('Some poolers strip startup options — if this persists, the fallback is');
-    info('SET LOCAL ROLE cni_app inside withUser(), which lib/db/README.md §2 covers.');
+    bad(`SET LOCAL ROLE did not take effect — still "${inTx.who}".`);
+    info('Without this the app cannot enforce row-level security at all.');
   }
 
-  if (row.bypasses_rls === true) {
-    bad('This role BYPASSES row-level security. Do not run the app like this.');
+  if (inTx.bypasses_rls === false) {
+    ok('That role does NOT bypass row-level security.');
   } else {
-    ok('This role does not bypass row-level security.');
+    bad('That role bypasses row-level security.');
   }
 
-  /* The real proof: RLS is on, and with no app.user_id set it must return
-     nothing. Fail-closed is the property everything else depends on. */
-  const visible = await sql`select count(*)::int as n from public.users`;
-  if (row.current_user === 'cni_app') {
-    if (visible[0].n === 0) {
-      ok('With no identity set, users returns 0 rows — failing closed, as designed.');
-    } else {
-      warn(`users returned ${visible[0].n} rows with no identity set. Expected 0.`);
-    }
+  /* The real proof. Fail-closed is the property registry C-14 rests on, so it
+     is asserted from outside rather than assumed. */
+  if (inTx.visible_no_identity === 0) {
+    ok('With no app.user_id set, users returns 0 rows — failing closed, as designed.');
+  } else {
+    bad(`users returned ${inTx.visible_no_identity} rows with no identity set. Expected 0.`);
   }
 
-  console.log('\n  \x1b[32mReady.\x1b[0m Tell Claude the check passed.\n');
+  if (failures === 0) {
+    console.log('\n  \x1b[32mReady.\x1b[0m Everything checks out.\n');
+  } else {
+    console.log(
+      `\n  \x1b[31mNOT ready — ${failures} check${failures === 1 ? '' : 's'} failed.\x1b[0m` +
+        ' Send this output to Claude; it redacts the password.\n',
+    );
+    process.exitCode = 1;
+  }
 } catch (error) {
   bad(`Could not connect: ${error.message}`);
   console.log('');
