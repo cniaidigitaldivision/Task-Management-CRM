@@ -43,8 +43,23 @@ if (!connectionString) {
 }
 
 export const sql = postgres(connectionString, {
-  max: 10,
-  idle_timeout: 20,
+  /* ── POOL SIZE IS SMALLER IN PRODUCTION, NOT LARGER ────────────────────────
+     Counter-intuitive until you count what is actually running. On a laptop
+     there is one Node process, so 10 connections is 10 connections. On Vercel
+     there are as many function instances as there is traffic, and EACH one keeps
+     its own pool — so `max: 10` across eight warm instances is eighty client
+     connections against a pooler that permits a few hundred for the whole
+     project, shared with migrations, the SQL editor and every other tool.
+
+     Exhausting it does not fail cleanly either: new requests queue on connect
+     and time out, which reads as "the site is slow" rather than "the pool is
+     full". Three per instance is ample for a seven-person team, and the pooler's
+     own job is to multiplex them onto far fewer real backends. */
+  max: process.env.NODE_ENV === 'production' ? 3 : 10,
+
+  /* Shorter in production for the same reason: an idle serverless instance
+     should give its connection back rather than sit on it until it is frozen. */
+  idle_timeout: process.env.NODE_ENV === 'production' ? 10 : 20,
   connect_timeout: 15,
 
   /* Required behind a transaction-mode pooler. Named prepared statements live
@@ -73,6 +88,65 @@ export const sql = postgres(connectionString, {
  */
 export type Tx = postgres.TransactionSql<Record<string, never>>;
 
+/* ==========================================================================
+ * TRANSIENT FAILURES
+ * ==========================================================================
+ * A page crashed with `getaddrinfo ENOTFOUND aws-0-ap-southeast-1.pooler…`
+ * while the hostname was perfectly resolvable a second either side of it. A
+ * momentary DNS or socket failure between the app and the pooler is not a bug in
+ * either — it is what networks do — and there is no reason for it to become a
+ * failed page when trying again immediately almost always succeeds.
+ *
+ * ── WHAT IS RETRIED, AND WHAT DELIBERATELY IS NOT ────────────────────────────
+ * ONLY failures that happened *reaching* the database: DNS lookup, refused or
+ * reset connection, timeout, a connection closed under us. Those are safe to
+ * repeat because the transaction never started, so nothing can be applied twice.
+ *
+ * A query that reached Postgres and was rejected — a constraint violation, an
+ * RLS refusal, a permission error — is NOT retried. It would fail identically
+ * every time, and retrying it would turn a clear "this is not allowed" into a
+ * slow one. Every such error carries a SQLSTATE `code`; the absence of one is
+ * what identifies a connection-level failure.
+ *
+ * Two attempts, ~250ms apart. Enough to ride out a blip; short enough that a
+ * genuine outage still fails while somebody is waiting rather than after
+ * several seconds of silence.
+ * ========================================================================== */
+
+const TRANSIENT_CODES = new Set([
+  'ENOTFOUND', // DNS did not resolve — the case that prompted this
+  'EAI_AGAIN', // DNS timed out
+  'ECONNREFUSED',
+  'ECONNRESET',
+  'ETIMEDOUT',
+  'EPIPE',
+  'CONNECTION_CLOSED', // postgres.js: the socket went away mid-flight
+  'CONNECTION_ENDED',
+  'CONNECT_TIMEOUT',
+]);
+
+function isTransient(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const code = (error as { code?: unknown }).code;
+
+  /* A SQLSTATE is five characters and means Postgres answered. Those are real
+     answers — a constraint, a policy, a permission — and must not be retried. */
+  if (typeof code === 'string' && /^[0-9A-Z]{5}$/.test(code)) return false;
+
+  return typeof code === 'string' && TRANSIENT_CODES.has(code);
+}
+
+async function withRetry<T>(run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    if (!isTransient(error)) throw error;
+
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    return run();
+  }
+}
+
 /**
  * Run queries as `cni_app` **as a specific user**. This is how nearly all
  * application code should reach the database.
@@ -99,11 +173,14 @@ export async function withUser<T>(userId: string, fn: (tx: Tx) => Promise<T>): P
     throw new Error('withUser requires a user id. Use withAppRole for pre-auth work.');
   }
 
-  return sql.begin(async (tx) => {
-    await tx`select set_config('role', 'cni_app', true)`;
-    await tx`select set_config('app.user_id', ${userId}, true)`;
-    return fn(tx);
-  }) as Promise<T>;
+  return withRetry(
+    () =>
+      sql.begin(async (tx) => {
+        await tx`select set_config('role', 'cni_app', true)`;
+        await tx`select set_config('app.user_id', ${userId}, true)`;
+        return fn(tx);
+      }) as Promise<T>,
+  );
 }
 
 /**
@@ -119,10 +196,13 @@ export async function withUser<T>(userId: string, fn: (tx: Tx) => Promise<T>): P
  * lib/domain/permissions.ts, not by dropping the identity.
  */
 export async function withAppRole<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
-  return sql.begin(async (tx) => {
-    await tx`select set_config('role', 'cni_app', true)`;
-    return fn(tx);
-  }) as Promise<T>;
+  return withRetry(
+    () =>
+      sql.begin(async (tx) => {
+        await tx`select set_config('role', 'cni_app', true)`;
+        return fn(tx);
+      }) as Promise<T>,
+  );
 }
 
 /**
