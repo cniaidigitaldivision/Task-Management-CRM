@@ -28,6 +28,9 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['test/integration/**/*.test.ts'],
+    /* Must run before the test files import lib/db/client, which reads
+       DATABASE_URL at module scope and throws when it is absent. */
+    setupFiles: ['./test/load-env.ts'],
     // Argon2 at m=64MiB t=3 costs ~100ms a call and this suite makes several.
     testTimeout: 60_000,
     hookTimeout: 60_000,

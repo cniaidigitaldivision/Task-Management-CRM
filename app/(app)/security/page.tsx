@@ -20,8 +20,6 @@ export default function SecurityPage() {
         "Break-glass recovery status",
       ]}
       docRef={"docs/16 · FR-140 to FR-159"}
-      role="super_admin"
-      userName="Ahmed Minhas"
     />
   );
 }

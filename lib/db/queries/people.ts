@@ -1,0 +1,235 @@
+import 'server-only';
+
+import type { AvailabilityType, Role, Theme } from '@/lib/domain/constants';
+
+import { withUser } from '../client';
+import type { AvailabilityRow, PersonRow, SkillRow, UserSkillRow } from './types';
+
+/* ============================================================================
+ * PEOPLE QUERIES — LAYER 1
+ * ----------------------------------------------------------------------------
+ * ADR-003 is enforced by migration 005's policies on `users`, not here: a member
+ * reading this table sees their own row and nothing else. So `listPeople()`
+ * returns the whole team for a Coordinator and exactly one row for a member,
+ * from the same code path, with no branch anywhere in this file.
+ *
+ * That is worth stating plainly because it looks like a bug on first reading.
+ * The absence of a `where` clause is the point. A visibility filter here would
+ * be a second implementation of the rule — and the one that ran second would be
+ * the one everybody trusted.
+ * ========================================================================= */
+
+function toPerson(row: Record<string, unknown>): PersonRow {
+  return {
+    id: row.id as string,
+    fullName: row.full_name as string,
+    email: row.email as string,
+    role: row.role as Role,
+    roleTitle: (row.role_title as string | null) ?? null,
+    accountState: row.account_state as string,
+    isActive: row.is_active as boolean,
+    avatarUrl: (row.avatar_url as string | null) ?? null,
+    weeklyCapacityPoints: Number(row.weekly_capacity_points ?? 36),
+    maxConcurrentTasks: Number(row.max_concurrent_tasks ?? 5),
+    timezone: row.timezone as string,
+    lastLoginAt: iso(row.last_login_at),
+    lockedAt: iso(row.locked_at),
+    createdAt: iso(row.created_at) ?? '',
+  };
+}
+
+function iso(value: unknown): string | null {
+  if (!value) return null;
+  return value instanceof Date ? value.toISOString() : String(value);
+}
+
+export async function listPeople(
+  actorId: string,
+  options: { includeInactive?: boolean } = {},
+): Promise<PersonRow[]> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select * from public.users
+     where ${options.includeInactive ? tx`true` : tx`is_active`}
+     order by
+       case role when 'super_admin' then 0 when 'admin' then 1
+                 when 'team_coordinator' then 2 else 3 end,
+       full_name
+  `);
+  return rows.map(toPerson);
+}
+
+export async function getPerson(actorId: string, userId: string): Promise<PersonRow | null> {
+  const rows = await withUser(actorId, (tx) => tx`select * from public.users where id = ${userId}`);
+  return rows[0] ? toPerson(rows[0]) : null;
+}
+
+/**
+ * Who can be given work: active, not the Super Admin.
+ *
+ * The Super Admin is excluded deliberately. Doc 16 §2 makes that account the
+ * owner of the system rather than a member of the delivery team, and putting it
+ * in the assignee list means its capacity starts appearing in workload reports —
+ * which quietly inflates the team's apparent headroom.
+ */
+export async function listAssignablepeople(actorId: string): Promise<PersonRow[]> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select * from public.users
+     where is_active and account_state = 'active' and role <> 'super_admin'
+     order by full_name
+  `);
+  return rows.map(toPerson);
+}
+
+/* ---- Profile and preferences ---- */
+
+export async function updateOwnProfile(
+  actorId: string,
+  input: { fullName?: string; phone?: string | null; timezone?: string; theme?: Theme },
+): Promise<void> {
+  const has = (k: keyof typeof input) => Object.hasOwn(input, k);
+  await withUser(actorId, (tx) => tx`
+    update public.users set
+      full_name = case when ${has('fullName')} then ${input.fullName ?? null} else full_name end,
+      phone     = case when ${has('phone')} then ${input.phone ?? null} else phone end,
+      timezone  = case when ${has('timezone')} then ${input.timezone ?? null} else timezone end,
+      theme     = case when ${has('theme')} then ${input.theme ?? null}::public.theme_preference else theme end
+    where id = ${actorId}
+  `);
+}
+
+/**
+ * FR-202: the theme follows the person, not the browser.
+ *
+ * Kept separate from updateOwnProfile because the theme toggle fires on a click
+ * and must not carry the risk of touching a name or a timezone. One column, one
+ * statement.
+ */
+export async function setTheme(actorId: string, theme: Theme): Promise<void> {
+  await withUser(actorId, (tx) => tx`
+    update public.users set theme = ${theme}::public.theme_preference where id = ${actorId}
+  `);
+}
+
+/**
+ * Capacity and concurrency. Admin+ only — RLS on `users` enforces the downward
+ * rule (an Admin manages below themselves; nobody edits the Super Admin).
+ */
+export async function updateCapacity(
+  actorId: string,
+  userId: string,
+  input: { weeklyCapacityPoints?: number; maxConcurrentTasks?: number; roleTitle?: string | null },
+): Promise<void> {
+  const has = (k: keyof typeof input) => Object.hasOwn(input, k);
+  await withUser(actorId, (tx) => tx`
+    update public.users set
+      weekly_capacity_points = case when ${has('weeklyCapacityPoints')}
+        then ${input.weeklyCapacityPoints ?? null}::integer else weekly_capacity_points end,
+      max_concurrent_tasks = case when ${has('maxConcurrentTasks')}
+        then ${input.maxConcurrentTasks ?? null}::integer else max_concurrent_tasks end,
+      role_title = case when ${has('roleTitle')} then ${input.roleTitle ?? null} else role_title end
+    where id = ${userId}
+  `);
+}
+
+/* ---- Availability (FR-014) ---- */
+
+export async function listAvailability(
+  actorId: string,
+  window: { start: string; end: string },
+): Promise<AvailabilityRow[]> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select id, user_id, start_date, end_date, type, capacity_multiplier, note
+      from public.availability
+     where end_date >= ${window.start} and start_date <= ${window.end}
+  `);
+  return rows.map((row) => ({
+    id: row.id as string,
+    userId: row.user_id as string,
+    startDate: String(row.start_date).slice(0, 10),
+    endDate: String(row.end_date).slice(0, 10),
+    type: row.type as AvailabilityType,
+    capacityMultiplier: Number(row.capacity_multiplier),
+    note: (row.note as string | null) ?? null,
+  }));
+}
+
+export async function addAvailability(
+  actorId: string,
+  input: {
+    userId: string;
+    startDate: string;
+    endDate: string;
+    type: AvailabilityType;
+    capacityMultiplier: number;
+    note?: string | null;
+  },
+): Promise<void> {
+  await withUser(actorId, (tx) => tx`
+    insert into public.availability
+      (user_id, start_date, end_date, type, capacity_multiplier, note, approved_by_id)
+    values (
+      ${input.userId}, ${input.startDate}, ${input.endDate},
+      ${input.type}::public.availability_type, ${input.capacityMultiplier},
+      ${input.note?.trim() || null}, ${actorId}
+    )
+  `);
+}
+
+export async function deleteAvailability(actorId: string, id: string): Promise<void> {
+  await withUser(actorId, (tx) => tx`delete from public.availability where id = ${id}`);
+}
+
+/* ---- Skills (FR-012, FR-017) ---- */
+
+export async function listSkills(actorId: string): Promise<SkillRow[]> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select id, slug, label, category, keywords, is_active
+      from public.skills where is_active order by category nulls last, label
+  `);
+  return rows.map((row) => ({
+    id: row.id as string,
+    slug: row.slug as string,
+    label: row.label as string,
+    category: (row.category as string | null) ?? null,
+    keywords: (row.keywords as string[]) ?? [],
+    isActive: row.is_active as boolean,
+  }));
+}
+
+export async function listUserSkills(actorId: string): Promise<UserSkillRow[]> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select us.user_id, us.skill_id, s.label as skill_label, us.proficiency, us.is_primary
+      from public.user_skills us
+      join public.skills s on s.id = us.skill_id
+     order by us.is_primary desc, us.proficiency desc, s.label
+  `);
+  return rows.map((row) => ({
+    userId: row.user_id as string,
+    skillId: row.skill_id as string,
+    skillLabel: row.skill_label as string,
+    proficiency: Number(row.proficiency),
+    isPrimary: row.is_primary as boolean,
+  }));
+}
+
+export async function setUserSkill(
+  actorId: string,
+  input: { userId: string; skillId: string; proficiency: number; isPrimary?: boolean },
+): Promise<void> {
+  await withUser(actorId, (tx) => tx`
+    insert into public.user_skills (user_id, skill_id, proficiency, is_primary)
+    values (${input.userId}, ${input.skillId}, ${input.proficiency}, ${input.isPrimary ?? false})
+    on conflict (user_id, skill_id) do update
+      set proficiency = excluded.proficiency, is_primary = excluded.is_primary
+  `);
+}
+
+export async function removeUserSkill(
+  actorId: string,
+  userId: string,
+  skillId: string,
+): Promise<void> {
+  await withUser(actorId, (tx) => tx`
+    delete from public.user_skills where user_id = ${userId} and skill_id = ${skillId}
+  `);
+}

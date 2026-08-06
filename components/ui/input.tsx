@@ -57,6 +57,46 @@ export function Input({
 }
 
 /* --------------------------------------------------------------------------
+ * Textarea
+ * --------------------------------------------------------------------------
+ * The one control that deliberately ignores CONTROL_HEIGHT: its height is the
+ * row count, which is the entire reason it is a textarea and not an input.
+ * Everything else — border, radius, focus treatment, type scale — comes from
+ * the same tokens, so it still sits in the same visual family.
+ * ------------------------------------------------------------------------ */
+
+export function Textarea({
+  className,
+  invalid = false,
+  ref,
+  rows = 3,
+  ...props
+}: React.TextareaHTMLAttributes<HTMLTextAreaElement> & {
+  invalid?: boolean;
+  ref?: React.Ref<HTMLTextAreaElement>;
+}) {
+  return (
+    <textarea
+      ref={ref}
+      rows={rows}
+      aria-invalid={invalid || undefined}
+      className={cn(
+        'w-full min-w-0 resize-y px-3 py-2 text-text-primary placeholder:text-text-tertiary',
+        'focus-visible:outline-none',
+        CONTROL_TEXT.md,
+        CONTROL_RADIUS,
+        CONTROL_SURFACE,
+        invalid
+          ? 'border-[var(--feedback-error)] focus:border-[var(--feedback-error)]'
+          : 'hover:border-border-strong focus:border-border-brand focus:bg-bg-surface',
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+/* --------------------------------------------------------------------------
  * SearchInput — icon, optional shortcut hint, and it never outgrows its parent
  * ------------------------------------------------------------------------ */
 

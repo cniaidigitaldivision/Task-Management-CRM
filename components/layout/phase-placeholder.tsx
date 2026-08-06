@@ -3,11 +3,9 @@ import { ArrowRight, Check } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
 import { LogoGlow } from '@/components/brand/logo';
-import { AppShell } from '@/components/layout/app-shell';
 import { Card, CardBody } from '@/components/ui/card';
 import { IconTile } from '@/components/ui/icon-tile';
 import { PageHeader } from '@/components/ui/page-header';
-import type { Role } from '@/lib/domain/constants';
 
 /* ============================================================================
  * PHASE PLACEHOLDER
@@ -31,8 +29,6 @@ export function PhasePlaceholder({
   summary,
   features,
   docRef,
-  role = 'admin',
-  userName = 'Sana Minhas',
 }: {
   icon: LucideIcon;
   title: string;
@@ -41,13 +37,11 @@ export function PhasePlaceholder({
   summary: string;
   features: readonly string[];
   docRef: string;
-  role?: Role;
-  userName?: string;
 }) {
   return (
-    <AppShell role={role} userName={userName} title={title} subtitle={subtitle}>
+    <>
       <div className="mx-auto max-w-[var(--content-max)] space-y-6">
-        <PageHeader eyebrow={phase} title={title} description={summary} />
+        <PageHeader eyebrow={subtitle ? `${phase} · ${subtitle}` : phase} title={title} description={summary} />
 
         <div className="grid gap-4 lg:grid-cols-5">
           {/* ---- Brand panel ---- */}
@@ -125,6 +119,6 @@ export function PhasePlaceholder({
           </Card>
         </div>
       </div>
-    </AppShell>
+    </>
   );
 }

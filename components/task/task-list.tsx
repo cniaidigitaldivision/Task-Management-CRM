@@ -13,7 +13,7 @@ import {
   PROJECT_TYPE_META,
   STATUS_META,
 } from '@/lib/domain/constants';
-import type { PreviewTask } from '@/lib/preview-data';
+import type { TaskView } from '@/lib/view/task-view';
 import { cn } from '@/lib/utils';
 
 import { formatDuration } from './task-card';
@@ -40,14 +40,14 @@ export interface TaskGroup {
   key: string;
   label: string;
   token?: string;
-  tasks: readonly PreviewTask[];
+  tasks: readonly TaskView[];
 }
 
-export function groupTasks(tasks: readonly PreviewTask[], groupBy: GroupBy): TaskGroup[] {
+export function groupTasks(tasks: readonly TaskView[], groupBy: GroupBy): TaskGroup[] {
   if (groupBy === 'status') {
     // Status order comes from the enum table, not from the data, so an empty
     // status still sits in the right place when it later fills up.
-    const seen = new Map<string, PreviewTask[]>();
+    const seen = new Map<string, TaskView[]>();
     tasks.forEach((t) => {
       const list = seen.get(t.status) ?? [];
       list.push(t);
@@ -56,22 +56,22 @@ export function groupTasks(tasks: readonly PreviewTask[], groupBy: GroupBy): Tas
     return [...seen.entries()]
       .sort(
         ([a], [b]) =>
-          STATUS_META[a as PreviewTask['status']].sortOrder -
-          STATUS_META[b as PreviewTask['status']].sortOrder,
+          STATUS_META[a as TaskView['status']].sortOrder -
+          STATUS_META[b as TaskView['status']].sortOrder,
       )
       .map(([status, list]) => ({
         key: status,
-        label: STATUS_META[status as PreviewTask['status']].label,
-        token: STATUS_META[status as PreviewTask['status']].token,
+        label: STATUS_META[status as TaskView['status']].label,
+        token: STATUS_META[status as TaskView['status']].token,
         tasks: list,
       }));
   }
 
-  const keyOf = (t: PreviewTask) => (groupBy === 'project' ? t.projectName : t.assignee);
-  const tokenOf = (t: PreviewTask) =>
+  const keyOf = (t: TaskView) => (groupBy === 'project' ? t.projectName : t.assignee);
+  const tokenOf = (t: TaskView) =>
     groupBy === 'project' ? PROJECT_TYPE_META[t.projectType].token : undefined;
 
-  const seen = new Map<string, PreviewTask[]>();
+  const seen = new Map<string, TaskView[]>();
   tasks.forEach((t) => {
     const list = seen.get(keyOf(t)) ?? [];
     list.push(t);
@@ -90,7 +90,7 @@ export function groupTasks(tasks: readonly PreviewTask[], groupBy: GroupBy): Tas
 
 /* ---- Row ---------------------------------------------------------------- */
 
-function TaskRow({ task }: { task: PreviewTask }) {
+function TaskRow({ task, onOpen }: { task: TaskView; onOpen?: (id: string) => void }) {
   const status = STATUS_META[task.status];
   const project = PROJECT_TYPE_META[task.projectType];
   const isClosed = status.category === 'done' || status.category === 'cancelled';
@@ -101,7 +101,25 @@ function TaskRow({ task }: { task: PreviewTask }) {
   const overLimit = timePct > 100;
 
   return (
-    <tr className="group border-b border-border-subtle transition-colors duration-[140ms] last:border-0 hover:bg-bg-hover">
+    <tr
+      onClick={() => onOpen?.(task.id)}
+      /* A row is a button in disguise. tabIndex plus the Enter/Space handler is
+         what keeps it reachable from the keyboard, which a bare onClick on a
+         <tr> would not be. */
+      tabIndex={onOpen ? 0 : undefined}
+      onKeyDown={(event) => {
+        if (!onOpen) return;
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onOpen(task.id);
+        }
+      }}
+      aria-label={onOpen ? `Open ${task.reference}` : undefined}
+      className={cn(
+        'group border-b border-border-subtle transition-colors duration-[140ms] last:border-0 hover:bg-bg-hover',
+        onOpen && 'cursor-pointer focus-visible:outline-none focus-visible:bg-bg-hover',
+      )}
+    >
       {/* Task */}
       <td className="py-2.5 pr-3 pl-4">
         <div className="flex items-start gap-2.5">
@@ -230,8 +248,10 @@ const HEADINGS = [
 
 export function TaskList({
   groups,
+  onOpen,
 }: {
   groups: readonly TaskGroup[];
+  onOpen?: (taskId: string) => void;
 }) {
   const [collapsed, setCollapsed] = React.useState<ReadonlySet<string>>(new Set());
 
@@ -248,7 +268,7 @@ export function TaskList({
       <div className="rounded-xl border border-dashed border-border-default bg-bg-surface px-6 py-14 text-center">
         <p className="text-body-sm font-semibold text-text-primary">No tasks match these filters</p>
         <p className="mt-1 text-caption text-text-secondary">
-          Clear a filter, or create a task to get started.
+          Clear a filter, or press N to create a task.
         </p>
       </div>
     );
@@ -324,7 +344,10 @@ export function TaskList({
                   </th>
                 </tr>
 
-                {!isCollapsed && group.tasks.map((task) => <TaskRow key={task.id} task={task} />)}
+                {!isCollapsed &&
+                  group.tasks.map((task) => (
+                    <TaskRow key={task.id} task={task} onOpen={onOpen} />
+                  ))}
               </tbody>
             );
           })}

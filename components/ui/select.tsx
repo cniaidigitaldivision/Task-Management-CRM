@@ -51,12 +51,18 @@ export function Select({
   className,
   label,
   icon: Icon,
+  children,
   ...props
 }: Omit<React.SelectHTMLAttributes<HTMLSelectElement>, 'size'> & {
-  options: readonly SelectOption[];
+  /** Toolbar form: a flat list. Omit and pass <option> children for the rest. */
+  options?: readonly SelectOption[];
   size?: ControlSize;
-  /** Visually-hidden label. Every control needs an accessible name. */
-  label: string;
+  /**
+   * Accessible name. Optional only because a form field is usually labelled by
+   * a real <label htmlFor>, and adding aria-label there would override the
+   * visible text a screen reader should be reading instead.
+   */
+  label?: string;
   icon?: React.ComponentType<{ className?: string; strokeWidth?: number }>;
 }) {
   return (
@@ -91,11 +97,13 @@ export function Select({
         )}
         {...props}
       >
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
+        {options
+          ? options.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))
+          : children}
       </select>
 
       <ChevronDown

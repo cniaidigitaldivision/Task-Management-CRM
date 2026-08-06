@@ -1,0 +1,145 @@
+import 'server-only';
+
+import { withUser, type Tx } from '../client';
+import type { ActivityRow, NotificationRow } from './types';
+
+/* ============================================================================
+ * ACTIVITY & NOTIFICATIONS — LAYER 1
+ * ----------------------------------------------------------------------------
+ * Two feeds that look similar and are not:
+ *
+ *   activity_log  — "what happened", append-only, shared. Yusra moved CLI-091 to
+ *                   Blocked. Everyone who can see the task can see the entry.
+ *   notifications — "what happened *to you*", per person, readable and dismissable.
+ *                   RLS restricts every row to its own user, at every rank —
+ *                   including the Super Admin, who has no business reading a
+ *                   member's inbox.
+ *
+ * They are written together by the same server action, which is why `record()`
+ * and `notify()` both take a transaction: an action that logs but fails to notify
+ * leaves someone unaware their work was reassigned, and an action that notifies
+ * but fails to log leaves a change nobody can trace. Both or neither.
+ * ========================================================================= */
+
+export interface ActivityInput {
+  readonly entityType: 'task' | 'project' | 'user' | 'setting' | 'comment' | 'time';
+  readonly entityId: string;
+  readonly action: string;
+  readonly summary?: string | null;
+  readonly before?: unknown;
+  readonly after?: unknown;
+}
+
+/**
+ * Append to the shared feed, inside a caller's transaction.
+ *
+ * `actorId` comes from the transaction's identity, not from an argument — RLS on
+ * `activity_log` insists that `actor_id = app.current_user_id()`, so an entry
+ * cannot be attributed to someone else even by mistake.
+ */
+export async function record(tx: Tx, actorId: string, input: ActivityInput): Promise<void> {
+  await tx`
+    insert into public.activity_log (actor_id, entity_type, entity_id, action, summary, before, after)
+    values (
+      ${actorId}, ${input.entityType}, ${input.entityId}, ${input.action},
+      ${input.summary ?? null},
+      ${input.before === undefined ? null : JSON.stringify(input.before)}::jsonb,
+      ${input.after === undefined ? null : JSON.stringify(input.after)}::jsonb
+    )
+  `;
+}
+
+export interface NotifyInput {
+  readonly userId: string;
+  readonly kind: string;
+  readonly title: string;
+  readonly body?: string | null;
+  readonly linkTo?: string | null;
+  readonly entityId?: string | null;
+}
+
+/**
+ * Notify someone, inside a caller's transaction.
+ *
+ * Silently skips notifying the actor about their own action. Being told "you
+ * moved this task" the instant you moved it is noise, and a notification feed
+ * that is mostly noise gets ignored — which then costs you the one notification
+ * that mattered.
+ */
+export async function notify(
+  tx: Tx,
+  actorId: string,
+  input: NotifyInput,
+): Promise<void> {
+  if (input.userId === actorId) return;
+  await tx`
+    insert into public.notifications (user_id, kind, title, body, link_to, entity_id)
+    values (
+      ${input.userId}, ${input.kind}::public.notification_kind, ${input.title},
+      ${input.body ?? null}, ${input.linkTo ?? null}, ${input.entityId ?? null}
+    )
+  `;
+}
+
+/* ==========================================================================
+ * READS
+ * ========================================================================== */
+
+export async function listActivity(actorId: string, limit = 25): Promise<ActivityRow[]> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select a.id, a.actor_id, u.full_name as actor_name, a.entity_type, a.entity_id,
+           a.action, a.summary, a.created_at
+      from public.activity_log a
+      left join public.users u on u.id = a.actor_id
+     order by a.created_at desc
+     limit ${limit}
+  `);
+  return rows.map((row) => ({
+    id: row.id as string,
+    actorId: (row.actor_id as string | null) ?? null,
+    actorName: (row.actor_name as string | null) ?? null,
+    entityType: row.entity_type as string,
+    entityId: row.entity_id as string,
+    action: row.action as string,
+    summary: (row.summary as string | null) ?? null,
+    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
+  }));
+}
+
+export async function listNotifications(
+  actorId: string,
+  limit = 30,
+): Promise<NotificationRow[]> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select id, kind, title, body, link_to, is_read, created_at
+      from public.notifications
+     order by created_at desc
+     limit ${limit}
+  `);
+  return rows.map((row) => ({
+    id: row.id as string,
+    kind: row.kind as string,
+    title: row.title as string,
+    body: (row.body as string | null) ?? null,
+    linkTo: (row.link_to as string | null) ?? null,
+    isRead: row.is_read as boolean,
+    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
+  }));
+}
+
+export async function countUnread(actorId: string): Promise<number> {
+  const rows = await withUser(
+    actorId,
+    (tx) => tx`select count(*) as n from public.notifications where not is_read`,
+  );
+  return Number(rows[0]?.n ?? 0);
+}
+
+export async function markNotificationsRead(actorId: string, ids?: readonly string[]): Promise<void> {
+  await withUser(actorId, (tx) =>
+    ids?.length
+      ? tx`update public.notifications set is_read = true, read_at = now()
+            where id = any(${ids as unknown as string[]}::uuid[]) and not is_read`
+      : tx`update public.notifications set is_read = true, read_at = now() where not is_read`,
+  );
+}

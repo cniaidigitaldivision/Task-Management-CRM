@@ -1,3 +1,4 @@
+import * as React from 'react';
 import { MessageSquare, Paperclip, ListChecks, Lock } from 'lucide-react';
 
 import { Avatar } from '@/components/ui/avatar';
@@ -10,7 +11,7 @@ import {
   PROJECT_TYPE_META,
   STATUS_META,
 } from '@/lib/domain/constants';
-import type { PreviewTask } from '@/lib/preview-data';
+import type { TaskView } from '@/lib/view/task-view';
 import { cn } from '@/lib/utils';
 
 /* ============================================================================
@@ -44,13 +45,16 @@ export function TaskCard({
   dragging = false,
   immovable = false,
   className,
+  onOpen,
 }: {
-  task: PreviewTask;
+  task: TaskView;
   dragging?: boolean;
   /** Rendered as not-draggable, with a reason on hover. */
   immovable?: boolean;
   className?: string;
+  onOpen?: (taskId: string) => void;
 }) {
+  const pointerStart = React.useRef<{ x: number; y: number } | null>(null);
   const project = PROJECT_TYPE_META[task.projectType];
   const status = STATUS_META[task.status];
   const stripe = task.overdue ? 'feedback-error' : PRIORITY_TOKEN[task.priority];
@@ -64,9 +68,38 @@ export function TaskCard({
 
   return (
     <article
+      /* ── A card is both draggable and clickable ────────────────────────────
+         The browser fires a click at the end of a drag, so a naive onClick opens
+         the detail drawer every time somebody moves a card — which is maddening.
+         `dragging` is false again by the time that click lands, so the guard is
+         the pointer travel: a click that moved more than a few pixels since
+         mousedown was a drag, not a click. 5px absorbs ordinary hand tremor
+         without swallowing a real click. */
+      onPointerDown={(event) => {
+        pointerStart.current = { x: event.clientX, y: event.clientY };
+      }}
+      onClick={(event) => {
+        if (!onOpen) return;
+        const start = pointerStart.current;
+        if (start) {
+          const travel = Math.hypot(event.clientX - start.x, event.clientY - start.y);
+          if (travel > 5) return;
+        }
+        onOpen(task.id);
+      }}
+      onKeyDown={(event) => {
+        if (!onOpen) return;
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onOpen(task.id);
+        }
+      }}
+      tabIndex={onOpen ? 0 : undefined}
+      aria-label={onOpen ? `${task.reference} — ${task.title}` : undefined}
       className={cn(
         'group relative overflow-hidden rounded-lg border border-border-default bg-bg-surface',
         'shadow-xs transition-[border-color,box-shadow,transform,opacity] duration-[140ms]',
+        'focus-visible:border-border-brand focus-visible:outline-none',
         immovable
           ? 'cursor-not-allowed'
           : 'cursor-grab hover:-translate-y-px hover:border-border-strong hover:shadow-md active:cursor-grabbing',

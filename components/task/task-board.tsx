@@ -5,7 +5,7 @@ import { Plus } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { EFFORT_POINTS, STATUS_META, TASK_STATUSES, type TaskStatus } from '@/lib/domain/constants';
-import type { PreviewTask } from '@/lib/preview-data';
+import type { TaskView } from '@/lib/view/task-view';
 import { cn } from '@/lib/utils';
 
 import { TaskCard } from './task-card';
@@ -40,11 +40,15 @@ export function TaskBoard({
   tasks,
   onMove,
   canMove,
+  onOpen,
 }: {
-  tasks: readonly PreviewTask[];
+  tasks: readonly TaskView[];
   onMove: (taskId: string, to: TaskStatus) => void;
   /** Returns null when the move is allowed, or the reason it is refused. */
-  canMove: (task: PreviewTask, to: TaskStatus) => string | null;
+  canMove: (task: TaskView, to: TaskStatus) => string | null;
+  /** Opens the detail drawer. A card is draggable AND clickable, so the click
+   *  handler has to ignore the click the browser fires at the end of a drag. */
+  onOpen?: (taskId: string) => void;
 }) {
   const [draggingId, setDraggingId] = React.useState<string | null>(null);
   const [hoverColumn, setHoverColumn] = React.useState<TaskStatus | null>(null);
@@ -145,7 +149,11 @@ export function TaskBoard({
                     }}
                     onDragEnd={clearDrag}
                   >
-                    <TaskCard task={task} dragging={draggingId === task.id} />
+                    <TaskCard
+                      task={task}
+                      dragging={draggingId === task.id}
+                      onOpen={onOpen}
+                    />
                   </div>
                 ))}
 
