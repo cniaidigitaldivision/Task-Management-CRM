@@ -13,6 +13,7 @@ Resume the CNI CRM project.
 
 Read these files first, in this order:
   1. docs/SESSION-STATE.md                     (where we stopped)
+  1a. docs/BUILD-PLAN.md                       (the 8-step checklist — WHICH STEP IS NEXT)
   2. docs/OWNER-REQUESTS.md                    (my standing requests, verbatim)
   3. docs/PROGRESS-TRACKER.md                  (done vs remaining)
   4. docs/19-MASTER-SPECIFICATION-REGISTRY.md  (settles any doc conflict)
@@ -57,7 +58,8 @@ That's all you ever need to type. Everything else is recorded in the files.
 | **Code written** | ✅ Step 1 scaffold + tokens · shell + dashboard · **Step 1c redesign** · **Step 2 migrations 001–006, RLS, Super Admin trigger** · **Step 2b Tasks screen** · **Step 3 permission matrix** · **Step 4 authentication** · **Step 5.1 first-run setup** |
 | **✅ Deployed** | Live on Vercel, environment variables set, 25/25 signed-in route checks green against the real URL. Super Admin created and enrolled; `/setup` verified CLOSED in production. |
 | **✅ MFA enrolment** | Built (Session 12). QR code plus a copyable setup key, the code proven before anything is stored, and `requireEnrolledUser()` enforcing FR-145 at the application boundary rather than by redirect alone. |
-| **➡️ NEXT** | **Step 5.2 — the invitation chain.** It is now the one thing standing between the demo and a system the team can actually be onboarded into. See §3 and [`DEMO-GUIDE.md`](DEMO-GUIDE.md). |
+| **📋 THE PLAN** | [`docs/BUILD-PLAN.md`](BUILD-PLAN.md) — 8 steps to a complete system, owner approves each one. **Read it before doing anything.** |
+| **➡️ NEXT** | **BUILD-PLAN Step 1 — the invitation chain.** It is now the one thing standing between the demo and a system the team can actually be onboarded into. See §3 and [`DEMO-GUIDE.md`](DEMO-GUIDE.md). |
 
 ### What was completed in Session 08, part 2 — TASKS SCREEN + STEP 3
 
