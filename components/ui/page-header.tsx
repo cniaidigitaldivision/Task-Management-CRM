@@ -72,10 +72,13 @@ export interface ViewTab {
 export function ViewTabs({
   tabs,
   activeKey,
+  onSelect,
   className,
 }: {
   tabs: readonly ViewTab[];
   activeKey: string;
+  /** Omit for a purely presentational strip; supply it to make the tabs switch. */
+  onSelect?: (key: string) => void;
   className?: string;
 }) {
   return (
@@ -95,6 +98,7 @@ export function ViewTabs({
             role="tab"
             aria-selected={isActive}
             disabled={tab.disabled}
+            onClick={tab.disabled || !onSelect ? undefined : () => onSelect(tab.key)}
             title={tab.disabled ? `${tab.label} — arrives in a later phase` : undefined}
             className={cn(
               'relative -mb-px inline-flex items-center gap-1.5 rounded-t-lg px-3 py-2',

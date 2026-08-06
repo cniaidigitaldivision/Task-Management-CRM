@@ -38,6 +38,7 @@ import {
 import {
   PREVIEW_ACTIVITY,
   PREVIEW_MEMBERS,
+  PREVIEW_OPEN_STATUS_COUNTS,
   PREVIEW_STATUS_COUNTS,
   PREVIEW_TASKS,
   PREVIEW_TRENDS,
@@ -211,20 +212,25 @@ export default function DashboardPage() {
     (a, b) => a.loadPoints / a.capacityPoints - b.loadPoints / b.capacityPoints,
   )[0];
 
-  const attention = PREVIEW_TASKS.filter(
-    (t) => t.overdue || t.status === 'blocked' || t.timeSpentMinutes > t.timeLimitMinutes,
-  );
+  // Open work only — a task that is done or cancelled cannot need attention.
+  const attention = PREVIEW_TASKS.filter((t) => {
+    const category = STATUS_META[t.status].category;
+    if (category === 'done' || category === 'cancelled') return false;
+    return t.overdue || t.status === 'blocked' || t.timeSpentMinutes > t.timeLimitMinutes;
+  });
 
-  const openTotal = PREVIEW_STATUS_COUNTS.filter((s) => s.status !== 'done').reduce(
-    (sum, s) => sum + s.count,
-    0,
-  );
+  // "In progress right now" means exactly that: the two statuses whose timer
+  // runs (FR-174). Listing all eighteen tasks under that heading would be
+  // a table with a title that lied.
+  const activeNow = PREVIEW_TASKS.filter((t) => STATUS_META[t.status].timerRuns);
+
+  const openTotal = PREVIEW_OPEN_STATUS_COUNTS.reduce((sum, s) => sum + s.count, 0);
   const doneCount = PREVIEW_STATUS_COUNTS.find((s) => s.status === 'done')?.count ?? 0;
   const overLimitTasks = PREVIEW_TASKS.filter(
     (t) => t.timeSpentMinutes > t.timeLimitMinutes,
   ).length;
 
-  const segments: Segment[] = PREVIEW_STATUS_COUNTS.filter((s) => s.status !== 'done').map((s) => ({
+  const segments: Segment[] = PREVIEW_OPEN_STATUS_COUNTS.map((s) => ({
     key: s.status,
     label: STATUS_META[s.status].label,
     value: s.count,
@@ -492,7 +498,7 @@ export default function DashboardPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {PREVIEW_TASKS.map((task) => {
+                  {activeNow.map((task) => {
                     const status = STATUS_META[task.status];
                     const project = PROJECT_TYPE_META[task.projectType];
                     const pct = Math.round((task.timeSpentMinutes / task.timeLimitMinutes) * 100);
