@@ -28,7 +28,9 @@
   --color-bg-subtle: var(--bg-subtle);
   --color-bg-surface: var(--bg-surface);
   --color-bg-surface-raised: var(--bg-surface-raised);
+  --color-bg-surface-sunken: var(--bg-surface-sunken);
   --color-bg-hover: var(--bg-hover);
+  --color-bg-active: var(--bg-active);
   --color-bg-selected: var(--bg-selected);
   --color-bg-brand-subtle: var(--bg-brand-subtle);
   --color-bg-gold-subtle: var(--bg-gold-subtle);
@@ -124,12 +126,15 @@
   --radius-lg: var(--radius-lg);
   --radius-xl: var(--radius-xl);
   --radius-2xl: var(--radius-2xl);
+  --radius-3xl: var(--radius-3xl);
 
   /* ---- Elevation ---- */
+  --shadow-xs: var(--shadow-xs);
   --shadow-sm: var(--shadow-sm);
   --shadow-md: var(--shadow-md);
   --shadow-lg: var(--shadow-lg);
   --shadow-xl: var(--shadow-xl);
+  --shadow-brand-glow: var(--shadow-brand-glow);
 }
 
 /* ==========================================================================

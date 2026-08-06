@@ -11,14 +11,15 @@
       3. A new colour is added to doc 18 first, then here, then used. (BR-026)
 
    STRUCTURE
-      Layer 1 — Raw palette      immutable, theme-independent
-      Layer 2 — Semantic tokens  swap between light and dark
-      Layer 3 — shadcn bridge    maps shadcn/ui variables onto our semantics
+      Layer 1  — Raw palette       immutable, theme-independent
+      Layer 2a — CHROME            ★ THEME-INVARIANT. Identical light and dark.
+      Layer 2b — Semantic tokens   swap between light and dark
+      Layer 3  — shadcn bridge     maps shadcn/ui variables onto our semantics
    ========================================================================= */
 
 /* ==========================================================================
    LAYER 1 — RAW PALETTE
-   Never referenced directly by a component. Only Layer 2 may read these.
+   Never referenced directly by a component. Only Layers 2 and 3 may read these.
    ========================================================================== */
 
 :root {
@@ -87,8 +88,116 @@
 }
 
 /* ==========================================================================
-   LAYER 2 — SEMANTIC TOKENS
-   The ONLY layer components may reference.
+   LAYER 2a — CHROME  ★ THEME-INVARIANT
+   ==========================================================================
+
+   These are declared ONCE, outside both theme blocks, and neither theme block
+   may redefine them. The navigation rail therefore looks identical whether the
+   user is in light or dark mode.
+
+   ── WHY (owner decision, Session 08) ──────────────────────────────────────
+   "The light mode and the dark mode just paint the whole scheme of the pages.
+    I don't want that. I want some things like the sidebar and the option
+    packages to remain in the dark colour no matter what the theme is."
+
+   That instinct matches how every serious product does it — ClickUp, Linear,
+   Asana, Notion, Vercel all keep a constant dark navigation rail beside a
+   theme-aware content area. Two reasons it works:
+
+     1. STRUCTURE. A white sidebar next to a near-white page has no edge, so
+        the interface reads as one undifferentiated sheet. A dark rail draws
+        the frame, and the content area becomes the thing you look at.
+     2. IDENTITY. The rail is where the brand lives all day. Letting it flip
+        to white in light mode throws that away half the time.
+
+   ⛔ Do not move these into [data-theme='light'] or [data-theme='dark'].
+      Doing so re-breaks the exact thing this section exists to fix.
+
+   The token names stay `--sidebar-*` so no component needed changing when this
+   moved — the components were already reading the right names.
+   ========================================================================== */
+
+:root {
+  /* ---- The rail ----
+     A vertical gradient, not a flat fill. Flat dark panels look like a void;
+     a gradient that lightens towards the top reads as a lit surface and gives
+     the logo somewhere to sit. */
+  --sidebar-bg: #071e22;
+  --sidebar-bg-gradient: linear-gradient(
+    177deg,
+    #0b2a30 0%,
+    #071e22 42%,
+    #05171a 78%,
+    #041215 100%
+  );
+  /* Hairlines on dark surfaces work by luminosity, not by colour — a lighter
+     translucent white reads as an edge at any background darkness. */
+  --sidebar-border: rgb(255 255 255 / 0.08);
+  --sidebar-border-strong: rgb(255 255 255 / 0.14);
+
+  /* ---- Navigation items ---- */
+  --sidebar-item: #9db6b9;
+  --sidebar-item-hover-bg: rgb(255 255 255 / 0.055);
+  --sidebar-item-hover-text: #e4f1f1;
+  --sidebar-item-active-bg: rgb(47 163 169 / 0.16);
+  --sidebar-item-active-text: #86dadc;
+  --sidebar-item-active-icon: var(--teal-300);
+  --sidebar-section-label: #648487;
+  --sidebar-heading: #eef7f7;
+  --sidebar-muted: #7c9699;
+
+  /* ---- Counter chips on the rail ---- */
+  --sidebar-badge-bg: rgb(255 255 255 / 0.09);
+  --sidebar-badge-text: #c3d8da;
+
+  /* ---- Elevation, tuned for a dark surface ---- */
+  --sidebar-shadow: 1px 0 0 rgb(0 0 0 / 0.5), 8px 0 32px -12px rgb(0 0 0 / 0.45);
+
+  /* ==========================================================================
+     BRAND GLOW — what sits behind the logo
+     ==========================================================================
+     Replaces the white plate that used to box the artwork in.
+
+     ── WHY (owner decision, Session 08) ────────────────────────────────────
+     "The white plate behind it, the white space behind it does not look good.
+      Behind the logo just add a gradient glow of gold colour and make it more
+      shaded so it enhances the effect of shading towards the logo."
+
+     The plate existed for a real reason: the supplied artwork's wordmark is
+     dark teal, so it is illegible on the dark rail. The glow has to solve the
+     legibility problem too, or the logo becomes unreadable.
+
+     It does, because of how it is built: the CORE is a luminous warm cream, so
+     the dark-teal wordmark still has a light field under it. From there it
+     graduates out through gold and fades to fully transparent, so there is no
+     rectangle, no border, and no hard edge anywhere — the "white space" the
+     owner objected to simply has no boundary left to notice.
+
+     Gold was the owner's suggestion and it is also the right answer: gold is
+     already the brand accent, and a warm glow against a cool teal rail is a
+     complementary contrast, which is why it reads as lit rather than pasted.
+
+     ── ON THE CORE'S COLOUR ────────────────────────────────────────────────
+     It began as a near-white and that was wrong twice over: it read as the
+     white plate it was replacing, and it placed the brightest point above the
+     wordmark rather than behind it, so the wordmark stayed hard to read. It is
+     now a warm CREAM — unmistakably gold rather than white, and still bright
+     enough that the artwork's dark-teal wordmark clears WCAG AA on it (FR-207).
+
+     BR-024 is not violated — this is brand chrome behind a logo. It expresses
+     no state, and it never appears on anything that does.
+     ====================================================================== */
+  --brand-glow-core: rgb(255 243 211 / 0.96);
+  --brand-glow-warm: rgb(243 213 149 / 0.9);
+  --brand-glow-gold: rgb(224 184 92 / 0.42);
+  --brand-glow-edge: rgb(212 166 60 / 0.12);
+  --brand-glow-bloom: rgb(212 166 60 / 0.2);
+  --brand-glow-bloom-tight: rgb(224 184 92 / 0.24);
+}
+
+/* ==========================================================================
+   LAYER 2b — SEMANTIC TOKENS
+   The ONLY layer components may reference for content surfaces.
 
    The pre-paint script resolves the stored preference (light | dark | system)
    to a concrete value and writes data-theme="light" | "dark" on <html>.
@@ -101,45 +210,40 @@
   color-scheme: light;
 
   /* ---- Surfaces ----
-     The page carries a faint tint and cards are pure white. That one step
-     gives the interface depth: cards read as raised objects instead of
-     dissolving into the background, which is what made the first pass look
-     flat and unfinished. */
-  --bg-base: #f4f8f8;
-  --bg-subtle: #eef4f4;
+     The gap between the page and a card is what creates depth. It used to be
+     #f4f8f8 against #ffffff — about a 2% step, which is invisible, so cards
+     dissolved into the background and the whole screen read as flat. The page
+     is now meaningfully tinted and cards stay pure white. */
+  --bg-base: #e8f0f1;
+  --bg-subtle: #f1f6f7;
   --bg-surface: var(--neutral-0);
   --bg-surface-raised: var(--neutral-0);
-  --bg-hover: #e4eded;
+  --bg-surface-sunken: #f4f8f9;
+  --bg-hover: #eaf2f2;
+  --bg-active: #dfebec;
   --bg-selected: var(--teal-50);
   --bg-brand-subtle: var(--teal-50);
   --bg-gold-subtle: var(--gold-50);
   --bg-inverse: var(--neutral-950);
-  --bg-scrim: rgb(11 29 31 / 0.45);
+  --bg-scrim: rgb(6 20 23 / 0.55);
 
-  /* ---- Sidebar — the brand's strongest presence in the interface ---- */
-  --sidebar-bg: var(--neutral-0);
-  --sidebar-border: var(--neutral-200);
-  --sidebar-item: var(--text-secondary);
-  --sidebar-item-hover-bg: #eef4f4;
-  --sidebar-item-active-bg: var(--teal-50);
-  --sidebar-item-active-text: var(--teal-700);
-  --sidebar-section-label: var(--neutral-500);
-  /* The logo's wordmark is dark teal, so it needs a light surface beneath it
-     in every theme. This plate provides one without touching the artwork. */
-  --brand-plate-bg: var(--neutral-0);
-  --brand-plate-border: var(--neutral-200);
+  /* A whisper of brand light behind the content area, so the page is a lit
+     surface rather than a flat slab of colour. */
+  --page-ambience:
+    radial-gradient(80rem 34rem at 12% -8%, rgb(47 163 169 / 0.1), transparent 62%),
+    radial-gradient(64rem 30rem at 96% -12%, rgb(212 166 60 / 0.09), transparent 60%);
 
   /* ---- Borders ---- */
-  --border-default: var(--neutral-200);
-  --border-subtle: var(--neutral-100);
-  --border-strong: var(--neutral-300);
+  --border-default: #d3e1e2;
+  --border-subtle: #e3ecec;
+  --border-strong: #b9cdcf;
   --border-brand: var(--teal-700);
   --border-gold: var(--gold-500);
 
   /* ---- Text ---- */
-  --text-primary: #0a2a2e;
-  --text-secondary: #4a6b6e;
-  --text-tertiary: var(--neutral-500);
+  --text-primary: #06232a;
+  --text-secondary: #446468;
+  --text-tertiary: #6a8588;
   --text-disabled: var(--neutral-400);
   --text-brand: var(--teal-700);
   --text-gold: var(--gold-800); /* ⚠️ NOT gold-500 — fails contrast on white */
@@ -154,15 +258,26 @@
   --accent-gold: var(--gold-500);
   --accent-gold-hover: var(--gold-600);
 
+  /* ---- Gradients — brand chrome only (BR-024) ---- */
+  --gradient-brand: linear-gradient(135deg, var(--teal-600) 0%, var(--teal-800) 100%);
+  --gradient-brand-hover: linear-gradient(135deg, var(--teal-500) 0%, var(--teal-700) 100%);
+  --gradient-gold: linear-gradient(135deg, var(--gold-400) 0%, var(--gold-600) 100%);
+
   /* ---- Focus ---- */
   --focus-ring: var(--teal-700);
   --focus-ring-offset: var(--neutral-0);
 
-  /* ---- Elevation ---- */
-  --shadow-sm: 0 1px 2px 0 rgb(10 42 46 / 0.06);
-  --shadow-md: 0 4px 8px -1px rgb(10 42 46 / 0.08), 0 2px 4px -2px rgb(10 42 46 / 0.06);
-  --shadow-lg: 0 12px 24px -4px rgb(10 42 46 / 0.1), 0 4px 8px -4px rgb(10 42 46 / 0.06);
-  --shadow-xl: 0 24px 48px -12px rgb(10 42 46 / 0.16);
+  /* ---- Elevation ----
+     The old values sat at 0.06 alpha, which is invisible on a tinted page.
+     Real elevation is what makes a card look like an object. */
+  --shadow-xs: 0 1px 2px 0 rgb(6 35 42 / 0.06);
+  --shadow-sm: 0 1px 2px 0 rgb(6 35 42 / 0.08), 0 1px 3px 0 rgb(6 35 42 / 0.05);
+  --shadow-md:
+    0 2px 4px -1px rgb(6 35 42 / 0.08), 0 6px 12px -2px rgb(6 35 42 / 0.09);
+  --shadow-lg:
+    0 4px 8px -2px rgb(6 35 42 / 0.08), 0 16px 32px -8px rgb(6 35 42 / 0.14);
+  --shadow-xl: 0 32px 64px -16px rgb(6 35 42 / 0.22);
+  --shadow-brand-glow: 0 6px 20px -6px rgb(14 92 99 / 0.45);
 
   /* ---- Task statuses — doc 18 §5 (supersedes doc 05) ---- */
   --status-backlog: var(--slate-l);
@@ -199,53 +314,51 @@
   --feedback-error: var(--red-deep-l);
   --feedback-info: var(--teal-700);
 
-  /* ---- Logo facet seam — matches the surface behind the mark ---- */
-  --logo-seam: var(--neutral-0);
+  /* ---- Tint strengths for soft badges and accent washes ----
+     A component mixes a semantic colour with the surface at these strengths
+     via color-mix(), which keeps colour vivid without a hex ever appearing in
+     a component (BR-025). */
+  --tint-soft: 10%;
+  --tint-medium: 16%;
+  --tint-strong: 26%;
 }
 
 [data-theme='dark'] {
   color-scheme: dark;
 
   /* ---- Surfaces ---- */
-  --bg-base: var(--neutral-1000);
-  --bg-subtle: #0a1e21;
-  --bg-surface: #0f262a;
-  --bg-surface-raised: #163338;
-  --bg-hover: #1a3a3f;
+  --bg-base: #04161a;
+  --bg-subtle: #082024;
+  --bg-surface: #0c2429;
+  --bg-surface-raised: #123137;
+  --bg-surface-sunken: #061a1e;
+  --bg-hover: #163a40;
+  --bg-active: #1c464c;
   --bg-selected: #0e3a3f;
   --bg-brand-subtle: #0a3035;
   --bg-gold-subtle: #2b2413;
   --bg-inverse: var(--neutral-50);
-  --bg-scrim: rgb(0 0 0 / 0.65);
+  --bg-scrim: rgb(0 0 0 / 0.7);
 
-  /* ---- Sidebar ---- */
-  --sidebar-bg: #08191c;
-  --sidebar-border: #16343a;
-  --sidebar-item: #9fb8ba;
-  --sidebar-item-hover-bg: #10292e;
-  --sidebar-item-active-bg: #0d3a3f;
-  --sidebar-item-active-text: var(--teal-300);
-  --sidebar-section-label: #6a8a8d;
-  /* Stays light in dark theme — the logo's dark-teal wordmark would be
-     unreadable otherwise, and the artwork must not be altered. */
-  --brand-plate-bg: #f4f8f8;
-  --brand-plate-border: #1f4247;
+  --page-ambience:
+    radial-gradient(80rem 34rem at 12% -8%, rgb(47 163 169 / 0.14), transparent 62%),
+    radial-gradient(64rem 30rem at 96% -12%, rgb(212 166 60 / 0.1), transparent 60%);
 
   /* ---- Borders ---- */
-  --border-default: #1f4247;
-  --border-subtle: #163236;
-  --border-strong: #2a5257;
+  --border-default: #22484e;
+  --border-subtle: #17383d;
+  --border-strong: #2f5c63;
   --border-brand: var(--teal-400);
   --border-gold: var(--gold-400);
 
   /* ---- Text ---- */
-  --text-primary: #e8f1f1;
-  --text-secondary: #9fb8ba;
-  --text-tertiary: #7a9497;
+  --text-primary: #eaf3f3;
+  --text-secondary: #a3bcbe;
+  --text-tertiary: #7f999c;
   --text-disabled: #5b7376;
   --text-brand: var(--teal-400);
   --text-gold: var(--gold-400); /* gold is safe for text on dark — 9.8:1 */
-  --text-inverse: #0a2a2e;
+  --text-inverse: #06232a;
   --text-on-brand: var(--teal-950);
   --text-on-gold: var(--neutral-1000);
 
@@ -256,15 +369,22 @@
   --accent-gold: var(--gold-400);
   --accent-gold-hover: var(--gold-300);
 
+  /* ---- Gradients ---- */
+  --gradient-brand: linear-gradient(135deg, var(--teal-500) 0%, var(--teal-700) 100%);
+  --gradient-brand-hover: linear-gradient(135deg, var(--teal-400) 0%, var(--teal-600) 100%);
+  --gradient-gold: linear-gradient(135deg, var(--gold-400) 0%, var(--gold-600) 100%);
+
   /* ---- Focus ---- */
   --focus-ring: var(--teal-300);
   --focus-ring-offset: var(--neutral-1000);
 
   /* ---- Elevation ---- */
-  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.4);
-  --shadow-md: 0 4px 8px -1px rgb(0 0 0 / 0.45), 0 2px 4px -2px rgb(0 0 0 / 0.35);
-  --shadow-lg: 0 12px 24px -4px rgb(0 0 0 / 0.5), 0 4px 8px -4px rgb(0 0 0 / 0.4);
-  --shadow-xl: 0 24px 48px -12px rgb(0 0 0 / 0.6);
+  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.35);
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.45), 0 1px 3px 0 rgb(0 0 0 / 0.3);
+  --shadow-md: 0 2px 4px -1px rgb(0 0 0 / 0.5), 0 6px 12px -2px rgb(0 0 0 / 0.45);
+  --shadow-lg: 0 4px 8px -2px rgb(0 0 0 / 0.5), 0 16px 32px -8px rgb(0 0 0 / 0.6);
+  --shadow-xl: 0 32px 64px -16px rgb(0 0 0 / 0.7);
+  --shadow-brand-glow: 0 6px 22px -6px rgb(47 163 169 / 0.4);
 
   /* ---- Task statuses ---- */
   --status-backlog: var(--slate-d);
@@ -301,8 +421,10 @@
   --feedback-error: var(--red-d);
   --feedback-info: var(--teal-400);
 
-  /* ---- Logo facet seam ---- */
-  --logo-seam: var(--neutral-1000);
+  /* ---- Tint strengths — a touch stronger on dark, where washes read fainter */
+  --tint-soft: 14%;
+  --tint-medium: 22%;
+  --tint-strong: 32%;
 }
 
 /* ==========================================================================
@@ -310,12 +432,14 @@
    ========================================================================== */
 
 :root {
-  /* Radius — the logo is faceted, so corners stay tight */
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
-  --radius-xl: 12px;
-  --radius-2xl: 16px;
+  /* Radius — the logo is faceted, so corners stay tight, but not sharp:
+     8–18px is the range that reads as modern software rather than a document. */
+  --radius-sm: 5px;
+  --radius-md: 7px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+  --radius-2xl: 18px;
+  --radius-3xl: 24px;
   --radius-full: 9999px;
 
   /* Motion */
@@ -324,11 +448,14 @@
   --duration-slow: 260ms;
   --ease-out: cubic-bezier(0.2, 0, 0.2, 1);
   --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
 
   /* Layout */
-  --sidebar-width: 260px;
-  --sidebar-width-collapsed: 68px;
+  --sidebar-width: 264px;
+  --sidebar-width-collapsed: 72px;
   --topbar-height: 60px;
+  --subheader-height: 52px;
+  --content-max: 1520px;
 }
 
 /* ==========================================================================
@@ -412,13 +539,110 @@ body,
   border-radius: var(--radius-sm);
 }
 
+/* On the chrome rail the page focus ring would be nearly invisible, so it
+   switches to the light-on-dark equivalent. */
+.on-chrome :focus-visible {
+  outline-color: var(--teal-300);
+  outline-offset: 2px;
+}
+
 /* FR-211 — digits must not jitter as a timer counts */
 .tabular {
   font-variant-numeric: tabular-nums;
   font-feature-settings: 'tnum';
 }
 
-/* Scrollbars, themed */
+/* ==========================================================================
+   UTILITY CLASSES USED BY THE SHELL
+   Kept here rather than inline so no component needs a raw colour (BR-025).
+   ========================================================================== */
+
+/* The lit content surface. */
+.page-ambience {
+  background-image: var(--page-ambience);
+  background-repeat: no-repeat;
+}
+
+/* The navigation rail — theme-invariant, see Layer 2a. */
+.chrome-surface {
+  background-color: var(--sidebar-bg);
+  background-image: var(--sidebar-bg-gradient);
+}
+
+/* ==========================================================================
+   BRAND GLOW — the field behind the logo
+   ==========================================================================
+   Four stacked layers, each doing one job:
+     1. a tight warm core, high opacity, so the dark-teal wordmark stays legible
+     2. a wider gold body that gives the glow its colour
+     3. a soft outer falloff to fully transparent, so there is no visible edge
+     4. an outward bloom (box-shadow) so the logo appears to light the rail
+   ========================================================================== */
+
+.brand-glow {
+  position: relative;
+  isolation: isolate;
+}
+
+.brand-glow::before {
+  content: '';
+  position: absolute;
+  /* Overspills the logo — a glow that stops at the artwork's edge is a shape,
+     not a glow. */
+  inset: -26% -14%;
+  z-index: -1;
+  /* The bloom below is a box-shadow, and a box-shadow follows the BOX. Without
+     this the halo is a soft rectangle, which is visible and wrong. A full radius
+     on a wide, short box gives the ellipse the glow actually wants. */
+  border-radius: var(--radius-full);
+  background:
+    /* 1 · The luminous field. Centred on the WHOLE artwork, not on the mark, so
+          the wordmark underneath sits in the light rather than below it — that
+          was the first version's mistake and it made the wordmark unreadable. */
+    radial-gradient(
+      ellipse 60% 55% at 50% 49%,
+      var(--brand-glow-core) 0%,
+      var(--brand-glow-warm) 54%,
+      transparent 78%
+    ),
+    /* 2 · The gold body, reaching further out and giving the glow its hue. */
+    radial-gradient(
+      ellipse 84% 78% at 50% 50%,
+      var(--brand-glow-gold) 0%,
+      var(--brand-glow-edge) 54%,
+      transparent 82%
+    );
+  /* One wide, low-alpha bloom. The first version stacked two tight shadows with
+     negative spread, which drew a visible ring — the eye reads a hard edge as a
+     sphere, and the whole point is that there is no edge. */
+  box-shadow: 0 0 70px -6px var(--brand-glow-bloom);
+  pointer-events: none;
+}
+
+/* Lifts the mark off the glow so it reads as sitting IN the light rather than
+   printed on top of it — this is the "shading towards the logo" effect.
+   Kept deliberately light: a heavier shadow darkens the wordmark, which is the
+   one part of the artwork that cannot afford to lose contrast. */
+.brand-glow > * {
+  filter: drop-shadow(0 1px 2px rgb(6 35 42 / 0.12));
+}
+
+/* Compact variant for the collapsed rail and small placements. */
+.brand-glow-sm::before {
+  inset: -20% -10%;
+  box-shadow: 0 0 34px -6px var(--brand-glow-bloom);
+}
+
+/* Hero variant for the sign-in and activation screens. */
+.brand-glow-lg::before {
+  inset: -32% -18%;
+  box-shadow: 0 0 160px -20px var(--brand-glow-bloom);
+}
+
+/* ==========================================================================
+   SCROLLBARS
+   ========================================================================== */
+
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -428,11 +652,23 @@ body,
 }
 ::-webkit-scrollbar-thumb {
   background: var(--border-strong);
-  border: 2px solid var(--bg-base);
+  border: 2px solid transparent;
+  background-clip: content-box;
   border-radius: var(--radius-full);
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-tertiary);
+  background-clip: content-box;
+}
+
+/* The rail is theme-invariant, so its scrollbar has to be too. */
+.chrome-scroll::-webkit-scrollbar-thumb {
+  background: rgb(255 255 255 / 0.14);
+  background-clip: content-box;
+}
+.chrome-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgb(255 255 255 / 0.24);
+  background-clip: content-box;
 }
 
 ::selection {

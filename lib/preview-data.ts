@@ -205,3 +205,20 @@ export const PREVIEW_STATUS_COUNTS: ReadonlyArray<{ status: TaskStatus; count: n
   { status: 'revisions', count: 1 },
   { status: 'done', count: 12 },
 ];
+
+/* ----------------------------------------------------------------------------
+ * Trend series for the KPI sparklines — the last 8 working days, oldest first.
+ *
+ * Hand-shaped rather than random, for two reasons: a sparkline built from
+ * Math.random() changes on every render and would defeat the point of a stable
+ * preview, and `lib/domain` bans non-determinism anyway (doc 20 §5). These also
+ * agree with the headline figures they sit under, so the card is internally
+ * consistent instead of decorative.
+ * ------------------------------------------------------------------------- */
+
+export const PREVIEW_TRENDS = {
+  openTasks: [21, 24, 23, 26, 25, 28, 27, 29],
+  completed: [7, 9, 8, 11, 10, 9, 12, 12],
+  overLimit: [1, 1, 2, 2, 1, 3, 2, 3],
+  utilisation: [58, 62, 61, 66, 70, 69, 73, 76],
+} as const;

@@ -48,7 +48,10 @@ export function AppShell({
 
       <div className="flex min-h-full flex-col lg:pl-[var(--sidebar-width)]">
         <Topbar title={title} subtitle={subtitle} onOpenNav={openNav} />
-        <main className="flex-1 px-4 py-6 sm:px-6 sm:py-8">{children}</main>
+        {/* `page-ambience` lays two very faint brand gradients over the content
+            surface, so the page is a lit plane rather than a flat slab. It is a
+            token-driven utility (styles/tokens.css) so no colour appears here. */}
+        <main className="page-ambience flex-1 px-4 py-5 sm:px-6 sm:py-7">{children}</main>
       </div>
     </div>
   );

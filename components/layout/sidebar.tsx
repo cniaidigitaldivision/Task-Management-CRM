@@ -2,25 +2,29 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { X } from 'lucide-react';
+import { ChevronRight, Settings, X } from 'lucide-react';
 
 import { LogoSidebar } from '@/components/brand/logo';
 import { Avatar } from '@/components/ui/avatar';
-import { CountBadge } from '@/components/ui/badge';
-import { ROLE_LABEL, type Role } from '@/lib/domain/constants';
+import { ORGANISATION_NAME, ROLE_LABEL, type Role } from '@/lib/domain/constants';
 import { cn } from '@/lib/utils';
 
 import { sectionsForRole } from './nav-config';
 
 /* ============================================================================
- * SIDEBAR
+ * SIDEBAR — the navigation rail
  * ----------------------------------------------------------------------------
- * The brand's strongest presence in the interface. Deep teal in dark theme,
- * clean white with a teal-tinted page beside it in light theme.
+ * ★ THEME-INVARIANT. Every colour here comes from the `--sidebar-*` tokens,
+ *   which styles/tokens.css declares once outside both theme blocks. The rail
+ *   looks identical in light and dark mode, by owner decision (Session 08) and
+ *   in line with how ClickUp, Linear, Asana and Notion all handle it.
  *
- * The logo sits on a light plate (see components/brand/logo.tsx) because its
- * wordmark is dark teal and would vanish against the dark rail. The plate
- * adapts; the artwork never does.
+ *   The reason it matters: a white rail beside a near-white page has no edge,
+ *   so the interface reads as one flat sheet. A dark rail draws the frame and
+ *   lets the content area become the thing you actually look at.
+ *
+ * `.on-chrome` switches the focus ring to its light-on-dark equivalent, since
+ * the page's teal ring would be almost invisible against the rail (FR-214).
  * ========================================================================= */
 
 const BADGE_COUNTS: Record<string, { count: number; tone: 'neutral' | 'alert' }> = {
@@ -28,6 +32,27 @@ const BADGE_COUNTS: Record<string, { count: number; tone: 'neutral' | 'alert' }>
   review: { count: 3, tone: 'neutral' },
   overdue: { count: 4, tone: 'alert' },
 };
+
+/* ---- Counter chip, styled for the rail ---------------------------------- */
+
+function RailBadge({ count, tone }: { count: number; tone: 'neutral' | 'alert' }) {
+  if (count <= 0) return null;
+  return (
+    <span
+      className={cn(
+        'tabular inline-flex min-w-[21px] shrink-0 items-center justify-center',
+        'rounded-full px-1.5 py-0.5 text-micro font-semibold',
+      )}
+      style={
+        tone === 'alert'
+          ? { backgroundColor: 'var(--feedback-error)', color: 'var(--neutral-0)' }
+          : { backgroundColor: 'var(--sidebar-badge-bg)', color: 'var(--sidebar-badge-text)' }
+      }
+    >
+      {count > 99 ? '99+' : count}
+    </span>
+  );
+}
 
 export function Sidebar({
   role,
@@ -58,41 +83,57 @@ export function Sidebar({
       <aside
         aria-label="Main navigation"
         className={cn(
+          'chrome-surface on-chrome',
           'fixed inset-y-0 left-0 z-50 flex w-[var(--sidebar-width)] flex-col',
-          'border-r transition-transform duration-200 ease-out',
-          'lg:translate-x-0',
+          'transition-transform duration-200 ease-out lg:translate-x-0',
           open ? 'translate-x-0' : '-translate-x-full',
         )}
-        style={{
-          backgroundColor: 'var(--sidebar-bg)',
-          borderColor: 'var(--sidebar-border)',
-        }}
+        style={{ boxShadow: 'var(--sidebar-shadow)' }}
       >
-        {/* ---- Brand ---- */}
-        <div
-          className="flex items-center justify-between gap-2 border-b px-4 py-4"
-          style={{ borderColor: 'var(--sidebar-border)' }}
-        >
-          <Link href="/dashboard" className="rounded-xl focus-visible:outline-none">
-            <LogoSidebar />
-          </Link>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close navigation"
-            className="rounded-md p-1.5 text-[var(--sidebar-item)] hover:bg-[var(--sidebar-item-hover-bg)] lg:hidden"
-          >
-            <X className="h-5 w-5" strokeWidth={1.75} />
-          </button>
+        {/* ---- Brand ----
+            The logo sits in its gold aura with nothing boxing it in. A hairline
+            of brand gradient runs beneath, which is what separates the brand
+            block from the navigation without drawing a grey line across it. */}
+        <div className="relative shrink-0 px-4 pt-5 pb-4">
+          <div className="flex items-start justify-between gap-2">
+            <Link
+              href="/dashboard"
+              className="rounded-xl focus-visible:outline-none"
+              aria-label={`${ORGANISATION_NAME} — go to dashboard`}
+            >
+              <LogoSidebar />
+            </Link>
+
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close navigation"
+              className="-mr-1 rounded-md p-1.5 transition-colors duration-[120ms] hover:bg-[var(--sidebar-item-hover-bg)] focus-visible:outline-none lg:hidden"
+              style={{ color: 'var(--sidebar-item)' }}
+            >
+              <X className="h-5 w-5" strokeWidth={1.75} />
+            </button>
+          </div>
+
+          {/* Gradient hairline — fades out rather than stopping, so it reads as
+              light falling off rather than a rule someone drew. */}
+          <span
+            aria-hidden="true"
+            className="absolute inset-x-4 bottom-0 h-px"
+            style={{
+              background:
+                'linear-gradient(90deg, var(--brand-glow-gold), var(--sidebar-border) 55%, transparent)',
+            }}
+          />
         </div>
 
         {/* ---- Navigation ---- */}
-        <nav className="flex-1 space-y-6 overflow-y-auto px-3 py-5">
+        <nav className="chrome-scroll flex-1 space-y-5 overflow-y-auto px-3 py-4">
           {sections.map((section, index) => (
-            <div key={section.label ?? `section-${index}`} className="space-y-1">
+            <div key={section.label ?? `section-${index}`} className="space-y-0.5">
               {section.label && (
                 <p
-                  className="px-3 pb-1 text-micro font-semibold uppercase tracking-[0.08em]"
+                  className="px-3 pt-1 pb-1.5 text-micro font-semibold tracking-[0.1em] uppercase"
                   style={{ color: 'var(--sidebar-section-label)' }}
                 >
                   {section.label}
@@ -111,9 +152,10 @@ export function Sidebar({
                     onClick={onClose}
                     aria-current={isActive ? 'page' : undefined}
                     className={cn(
-                      'group relative flex items-center gap-3 rounded-lg px-3 py-2',
+                      'group relative flex items-center gap-2.5 rounded-lg py-2 pr-2.5 pl-3',
                       'text-body-sm font-medium transition-colors duration-[120ms]',
                       'focus-visible:outline-none',
+                      !isActive && 'hover:bg-[var(--sidebar-item-hover-bg)]',
                     )}
                     style={{
                       backgroundColor: isActive ? 'var(--sidebar-item-active-bg)' : undefined,
@@ -123,21 +165,33 @@ export function Sidebar({
                     }}
                   >
                     {/* Gold rail marks the active item. Chrome, not state —
-                        it identifies where you are, it never warns. */}
+                        it identifies where you are, it never warns. BR-024. */}
                     {isActive && (
                       <span
                         aria-hidden="true"
-                        className="absolute inset-y-1.5 left-0 w-[3px] rounded-full"
-                        style={{ backgroundColor: 'var(--accent-gold)' }}
+                        className="absolute inset-y-[7px] -left-px w-[3px] rounded-full"
+                        style={{
+                          backgroundColor: 'var(--accent-gold)',
+                          boxShadow: '0 0 10px -1px var(--brand-glow-bloom-tight)',
+                        }}
                       />
                     )}
+
                     <Icon
-                      className="h-[18px] w-[18px] shrink-0"
-                      strokeWidth={isActive ? 2 : 1.75}
+                      className="h-[17px] w-[17px] shrink-0 transition-colors duration-[120ms]"
+                      strokeWidth={isActive ? 2.1 : 1.75}
+                      style={{ color: isActive ? 'var(--sidebar-item-active-icon)' : undefined }}
                       aria-hidden="true"
                     />
-                    <span className="flex-1 truncate">{item.label}</span>
-                    {badge && <CountBadge count={badge.count} tone={badge.tone} />}
+                    <span
+                      className={cn(
+                        'flex-1 truncate transition-colors duration-[120ms]',
+                        !isActive && 'group-hover:text-[var(--sidebar-item-hover-text)]',
+                      )}
+                    >
+                      {item.label}
+                    </span>
+                    {badge && <RailBadge count={badge.count} tone={badge.tone} />}
                   </Link>
                 );
               })}
@@ -147,29 +201,46 @@ export function Sidebar({
 
         {/* ---- Current user ---- */}
         <div
-          className="border-t px-3 py-3"
+          className="shrink-0 border-t p-3"
           style={{ borderColor: 'var(--sidebar-border)' }}
         >
           <Link
             href="/profile"
             onClick={onClose}
-            className="flex items-center gap-3 rounded-lg px-2 py-2 transition-colors duration-[120ms] hover:bg-[var(--sidebar-item-hover-bg)] focus-visible:outline-none"
+            className="group flex items-center gap-2.5 rounded-lg p-2 transition-colors duration-[120ms] hover:bg-[var(--sidebar-item-hover-bg)] focus-visible:outline-none"
           >
             <Avatar name={userName} size="md" />
             <span className="min-w-0 flex-1">
               <span
-                className="block truncate text-body-sm font-medium"
-                style={{ color: 'var(--sidebar-item-active-text)' }}
+                className="block truncate text-body-sm font-semibold"
+                style={{ color: 'var(--sidebar-heading)' }}
               >
                 {userName}
               </span>
               <span
                 className="block truncate text-micro"
-                style={{ color: 'var(--sidebar-section-label)' }}
+                style={{ color: 'var(--sidebar-muted)' }}
               >
                 {ROLE_LABEL[role]}
               </span>
             </span>
+            <span
+              aria-hidden="true"
+              className="shrink-0 opacity-0 transition-opacity duration-[120ms] group-hover:opacity-100"
+              style={{ color: 'var(--sidebar-muted)' }}
+            >
+              <ChevronRight className="h-4 w-4" strokeWidth={2} />
+            </span>
+          </Link>
+
+          <Link
+            href="/settings"
+            onClick={onClose}
+            className="mt-0.5 flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-caption transition-colors duration-[120ms] hover:bg-[var(--sidebar-item-hover-bg)] focus-visible:outline-none"
+            style={{ color: 'var(--sidebar-muted)' }}
+          >
+            <Settings className="h-4 w-4 shrink-0" strokeWidth={1.75} aria-hidden="true" />
+            <span className="truncate">Workspace settings</span>
           </Link>
         </div>
       </aside>
