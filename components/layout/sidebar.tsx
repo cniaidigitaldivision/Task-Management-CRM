@@ -101,8 +101,21 @@ export function Sidebar({
             The logo sits in its gold aura with nothing boxing it in. A hairline
             of brand gradient runs beneath, which is what separates the brand
             block from the navigation without drawing a grey line across it. */}
-        <div className="relative shrink-0 px-4 pt-5 pb-4 lg:px-3 lg:group-hover/rail:px-4">
-          <div className="flex items-start justify-between gap-2">
+        {/* ── The brand block height is FIXED, and that is the whole point ────
+            Owner report: "when it closes the icons jump up and leave a lot of
+            space at the bottom."
+
+            Cause: the full lockup is 150px wide, so 112px tall; the collapsed
+            mark is 40px wide, so 30px tall. An 82px difference in this block
+            dragged every nav item up with it, and the animation appeared to
+            crack rather than glide.
+
+            h-[148px] is the padded height of the FULL lockup (112 + 20 + 16), so
+            the block never changes size. Whichever logo is showing is centred
+            inside it, the icons below never move, and the only thing that
+            animates is the width. */}
+        <div className="relative flex h-[148px] shrink-0 items-center px-4 pt-5 pb-4 lg:px-3 lg:group-hover/rail:px-4">
+          <div className="flex w-full items-center justify-between gap-2">
             <Link
               href="/dashboard"
               className="rounded-xl focus-visible:outline-none"
@@ -111,7 +124,7 @@ export function Sidebar({
               <span className="block lg:hidden lg:group-hover/rail:block">
                 <LogoSidebar />
               </span>
-              <span className="hidden lg:block lg:group-hover/rail:hidden">
+              <span className="hidden lg:flex lg:w-full lg:justify-center lg:group-hover/rail:hidden">
                 <LogoSidebar collapsed />
               </span>
             </Link>

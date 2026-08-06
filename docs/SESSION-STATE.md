@@ -13,12 +13,14 @@ Resume the CNI CRM project.
 
 Read these files first, in this order:
   1. docs/SESSION-STATE.md                     (where we stopped)
-  2. docs/PROGRESS-TRACKER.md                  (done vs remaining)
-  3. docs/19-MASTER-SPECIFICATION-REGISTRY.md  (settles any doc conflict)
-  4. docs/20-IMPLEMENTATION-CONTRACTS.md §9    (build order)
+  2. docs/OWNER-REQUESTS.md                    (my standing requests, verbatim)
+  3. docs/PROGRESS-TRACKER.md                  (done vs remaining)
+  4. docs/19-MASTER-SPECIFICATION-REGISTRY.md  (settles any doc conflict)
+  5. docs/20-IMPLEMENTATION-CONTRACTS.md §9    (build order)
 
 Then continue from the "NEXT ACTION" in SESSION-STATE.md §3.
 Do not restart or re-plan anything already marked complete.
+Honour every ✅ and 🔴 item in docs/OWNER-REQUESTS.md.
 ```
 
 That's all you ever need to type. Everything else is recorded in the files.
@@ -29,6 +31,7 @@ That's all you ever need to type. Everything else is recorded in the files.
 | Run it | `npm run dev` → **http://localhost:4310** (not 3000 — a foreign service worker owns 3000) |
 | Verify | `npm run verify` = typecheck → lint → build |
 | Repo | https://github.com/habibaminhas989-blip/cni-crm (private, `main`) |
+| **Owner requests** | [`docs/OWNER-REQUESTS.md`](OWNER-REQUESTS.md) — verbatim standing rules and design decisions. **Survives an account switch. Read it before any UI work.** |
 | Browser testing | Use `http://192.168.100.131:4310` — Chrome here cannot reach `localhost` |
 | After changing `public/brand/` | Delete `.next` and restart, or the image optimiser serves the stale asset |
 | **After adding a route** | Run `npm run build` **first**. `tsc` cannot see a new page until the typed-route manifest regenerates, so `verify` fails on a route that exists. |
