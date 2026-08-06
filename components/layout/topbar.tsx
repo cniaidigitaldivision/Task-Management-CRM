@@ -1,9 +1,10 @@
 'use client';
 
-import { Bell, ChevronRight, Menu, Plus, Search } from 'lucide-react';
+import { Bell, ChevronRight, Menu, Plus } from 'lucide-react';
 
 import { ThemeToggle } from '@/components/brand/theme-toggle';
-import { Button } from '@/components/ui/button';
+import { Button, IconButton } from '@/components/ui/button';
+import { SearchInput } from '@/components/ui/input';
 import { APP_NAME } from '@/lib/domain/constants';
 
 /* ============================================================================
@@ -34,14 +35,13 @@ export function Topbar({
   return (
     <header className="sticky top-0 z-30 border-b border-border-default bg-bg-surface/85 backdrop-blur-xl">
       <div className="flex h-[var(--topbar-height)] items-center gap-3 px-4 sm:px-6">
-        <button
-          type="button"
+        <IconButton
+          label="Open navigation"
+          icon={Menu}
+          size="md"
           onClick={onOpenNav}
-          aria-label="Open navigation"
-          className="-ml-1 rounded-lg p-2 text-text-secondary transition-colors duration-[120ms] hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none lg:hidden"
-        >
-          <Menu className="h-5 w-5" strokeWidth={1.75} />
-        </button>
+          className="-ml-1 lg:hidden"
+        />
 
         {/* ---- Breadcrumb ----
             Orientation, not decoration: it names the workspace, then the page,
@@ -63,54 +63,43 @@ export function Topbar({
           </ol>
         </nav>
 
-        {/* ---- Search — wired in Phase 5 (FR-086) ---- */}
-        <div className="hidden items-center md:flex">
-          <label className="relative block">
-            <span className="sr-only">Search tasks, projects and people</span>
-            <Search
-              className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-text-tertiary"
-              strokeWidth={1.75}
-              aria-hidden="true"
-            />
-            <input
-              type="search"
-              placeholder="Search tasks, projects, people…"
-              className="h-9 w-60 rounded-lg border border-border-default bg-bg-surface-sunken pr-14 pl-9 text-body-sm text-text-primary transition-[border-color,box-shadow] duration-[140ms] placeholder:text-text-tertiary hover:border-border-strong focus:border-border-brand focus:bg-bg-surface focus-visible:outline-none xl:w-80"
-            />
-            <kbd
-              aria-hidden="true"
-              className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 rounded-md border border-border-default bg-bg-surface px-1.5 py-0.5 font-sans text-micro font-semibold text-text-tertiary"
-            >
-              ⌘K
-            </kbd>
-          </label>
-        </div>
+        {/* ---- Search — wired in Phase 5 (FR-086) ----
+            Capped rather than fixed-width. `w-60 xl:w-80` with min-w-0 lets it
+            give way when the breadcrumb is long, instead of forcing the bar
+            wider than the viewport. */}
+        <SearchInput
+          label="Search tasks, projects and people"
+          placeholder="Search tasks, projects, people…"
+          shortcut="⌘K"
+          size="md"
+          className="hidden w-60 md:block xl:w-80"
+        />
 
-        <div className="flex items-center gap-0.5">
-          <button
-            type="button"
-            aria-label="Notifications — 3 unread"
-            className="relative rounded-lg p-2 text-text-secondary transition-colors duration-[120ms] hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none"
-          >
-            <Bell className="h-[18px] w-[18px]" strokeWidth={1.75} aria-hidden="true" />
+        <div className="flex shrink-0 items-center gap-1">
+          <span className="relative inline-flex">
+            <IconButton label="Notifications — 3 unread" icon={Bell} size="md" />
             <span
               aria-hidden="true"
-              className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full ring-2 ring-bg-surface"
+              className="pointer-events-none absolute top-1.5 right-1.5 h-2 w-2 rounded-full ring-2 ring-bg-surface"
               style={{ backgroundColor: 'var(--feedback-error)' }}
             />
-          </button>
+          </span>
 
           <ThemeToggle />
 
-          <span aria-hidden="true" className="mx-1.5 h-5 w-px bg-border-default" />
+          <span aria-hidden="true" className="mx-1 h-5 w-px shrink-0 bg-border-default" />
 
           <Button variant="primary" size="md" className="hidden sm:inline-flex">
             <Plus className="h-4 w-4" strokeWidth={2.25} aria-hidden="true" />
             New task
           </Button>
-          <Button variant="primary" size="icon" className="sm:hidden" aria-label="New task">
-            <Plus className="h-4 w-4" strokeWidth={2.25} aria-hidden="true" />
-          </Button>
+          <IconButton
+            label="New task"
+            icon={Plus}
+            variant="primary"
+            size="md"
+            className="sm:hidden"
+          />
         </div>
       </div>
     </header>

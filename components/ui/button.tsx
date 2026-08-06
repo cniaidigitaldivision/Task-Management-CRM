@@ -2,21 +2,35 @@ import * as React from 'react';
 
 import { cn } from '@/lib/utils';
 
+import {
+  CONTROL_GAP,
+  CONTROL_HEIGHT,
+  CONTROL_ICON,
+  CONTROL_PADDING,
+  CONTROL_RADIUS,
+  CONTROL_SQUARE,
+  CONTROL_TEXT,
+  type ControlSize,
+} from './control';
+
 /* ============================================================================
  * BUTTON
  * ----------------------------------------------------------------------------
+ * Dimensions come from components/ui/control.ts, which every other control
+ * imports too. A button, a select and a toggle placed side by side now line up
+ * exactly, because none of them decides its own height any more.
+ *
  * The primary action uses a brand gradient and a tinted shadow rather than a
- * flat fill. That is not decoration — on a screen with a dozen affordances, a
- * lit primary button is what makes the next step obvious at a glance.
+ * flat fill — on a screen with a dozen affordances, a lit primary button is
+ * what makes the next step obvious at a glance.
  *
  * Gold stays reserved for one hero action per screen and never expresses state
  * or urgency (BR-024).
  * ========================================================================= */
 
 type Variant = 'primary' | 'secondary' | 'ghost' | 'gold' | 'danger' | 'subtle';
-type Size = 'xs' | 'sm' | 'md' | 'lg' | 'icon' | 'icon-sm';
 
-const VARIANTS: Record<Variant, string> = {
+const VARIANTS: Readonly<Record<Variant, string>> = {
   primary:
     'text-text-on-brand bg-[image:var(--gradient-brand)] shadow-[var(--shadow-brand-glow)] hover:bg-[image:var(--gradient-brand-hover)] active:translate-y-px',
   secondary:
@@ -27,14 +41,10 @@ const VARIANTS: Record<Variant, string> = {
   danger: 'bg-feedback-error text-neutral-0 shadow-sm hover:brightness-110 active:translate-y-px',
 };
 
-const SIZES: Record<Size, string> = {
-  xs: 'h-7 gap-1.5 px-2.5 text-micro',
-  sm: 'h-8 gap-1.5 px-3 text-caption',
-  md: 'h-9 gap-2 px-3.5 text-body-sm',
-  lg: 'h-11 gap-2 px-6 text-body',
-  icon: 'h-9 w-9',
-  'icon-sm': 'h-8 w-8',
-};
+const SHARED =
+  'inline-flex shrink-0 items-center justify-center font-semibold whitespace-nowrap ' +
+  'transition-[background-color,background-image,border-color,box-shadow,transform,filter] duration-[140ms] ' +
+  'focus-visible:outline-none disabled:pointer-events-none disabled:opacity-45 disabled:shadow-none';
 
 export function Button({
   variant = 'secondary',
@@ -42,17 +52,21 @@ export function Button({
   className,
   type = 'button',
   ...props
-}: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: Variant; size?: Size }) {
+}: Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'size'> & {
+  variant?: Variant;
+  size?: ControlSize;
+}) {
   return (
     <button
       type={type}
       className={cn(
-        'inline-flex shrink-0 items-center justify-center rounded-lg font-semibold',
-        'transition-[background-color,background-image,border-color,box-shadow,transform,filter] duration-[140ms]',
-        'focus-visible:outline-none',
-        'disabled:pointer-events-none disabled:opacity-45 disabled:shadow-none',
+        SHARED,
+        CONTROL_RADIUS,
+        CONTROL_HEIGHT[size],
+        CONTROL_PADDING[size],
+        CONTROL_TEXT[size],
+        CONTROL_GAP[size],
         VARIANTS[variant],
-        SIZES[size],
         className,
       )}
       {...props}
@@ -61,25 +75,58 @@ export function Button({
 }
 
 /* --------------------------------------------------------------------------
- * Icon-only action, for dense table rows and card headers
+ * IconButton — square, and exactly as tall as a Button of the same size
  * ------------------------------------------------------------------------ */
 
 export function IconButton({
   label,
   icon: Icon,
   className,
-  size = 'icon-sm',
+  size = 'md',
   variant = 'ghost',
   ...props
-}: Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'children'> & {
+}: Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'children' | 'size'> & {
   label: string;
   icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
-  size?: Extract<Size, 'icon' | 'icon-sm'>;
+  size?: ControlSize;
   variant?: Variant;
 }) {
   return (
-    <Button variant={variant} size={size} aria-label={label} title={label} className={className} {...props}>
-      <Icon className="h-4 w-4" strokeWidth={1.9} />
-    </Button>
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      className={cn(SHARED, CONTROL_RADIUS, CONTROL_SQUARE[size], VARIANTS[variant], className)}
+      {...props}
+    >
+      <Icon className={CONTROL_ICON[size]} strokeWidth={1.9} />
+    </button>
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * ButtonGroup — buttons joined into one unit, with the seams tidied
+ * ------------------------------------------------------------------------ */
+
+export function ButtonGroup({
+  children,
+  className,
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        'inline-flex shrink-0 items-center',
+        // Square off the inner corners and collapse the doubled borders, so a
+        // group reads as one control rather than buttons that happen to touch.
+        '[&>*:not(:first-child)]:rounded-l-none [&>*:not(:last-child)]:rounded-r-none',
+        '[&>*:not(:first-child)]:-ml-px',
+        className,
+      )}
+    >
+      {children}
+    </div>
   );
 }

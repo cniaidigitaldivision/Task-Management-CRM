@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { ROLES, SYSTEM_DEFAULTS, type Role } from '../constants';
+import { ROLES, SYSTEM_DEFAULTS } from '../constants';
 import {
   PASSWORD_MAX_LENGTH,
   minLengthFor,

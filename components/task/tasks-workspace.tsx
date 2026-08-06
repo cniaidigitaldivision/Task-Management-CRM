@@ -6,6 +6,15 @@ import { CalendarDays, Columns3, EyeOff, Flag, Layers, List, Sparkles, User } fr
 import { Badge } from '@/components/ui/badge';
 import { IconTile } from '@/components/ui/icon-tile';
 import { ViewTabs, type ViewTab } from '@/components/ui/page-header';
+import { Select } from '@/components/ui/select';
+import {
+  ToggleButton,
+  ToggleGroup,
+  Toolbar,
+  ToolbarGroup,
+  ToolbarLabel,
+  ToolbarSpacer,
+} from '@/components/ui/toolbar';
 import {
   EFFORT_POINTS,
   PRIORITIES,
@@ -20,7 +29,6 @@ import {
 } from '@/lib/domain/constants';
 import { can, type Actor } from '@/lib/domain/permissions';
 import type { PreviewTask } from '@/lib/preview-data';
-import { cn } from '@/lib/utils';
 
 import { TaskBoard } from './task-board';
 import { TaskList, groupTasks, type GroupBy } from './task-list';
@@ -50,63 +58,6 @@ const GROUP_OPTIONS: ReadonlyArray<{ key: GroupBy; label: string }> = [
   { key: 'assignee', label: 'Assignee' },
 ];
 
-/* ---- Small segmented control ------------------------------------------- */
-
-function Segmented<T extends string>({
-  label,
-  icon: Icon,
-  options,
-  value,
-  onChange,
-}: {
-  label: string;
-  icon?: React.ComponentType<{ className?: string; strokeWidth?: number }>;
-  options: ReadonlyArray<{ key: T; label: string; token?: string }>;
-  value: T;
-  onChange: (next: T) => void;
-}) {
-  return (
-    <div className="flex items-center gap-1.5">
-      <span className="inline-flex items-center gap-1.5 text-micro font-semibold tracking-[0.06em] text-text-tertiary uppercase">
-        {Icon && <Icon className="h-3.5 w-3.5" strokeWidth={2} aria-hidden="true" />}
-        {label}
-      </span>
-      <div
-        role="group"
-        aria-label={label}
-        className="flex items-center gap-0.5 rounded-lg border border-border-default bg-bg-surface p-0.5 shadow-xs"
-      >
-        {options.map((option) => {
-          const isActive = option.key === value;
-          return (
-            <button
-              key={option.key}
-              type="button"
-              aria-pressed={isActive}
-              onClick={() => onChange(option.key)}
-              className={cn(
-                'inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-micro font-semibold',
-                'transition-colors duration-[140ms] focus-visible:outline-none',
-                isActive
-                  ? 'bg-bg-active text-text-primary'
-                  : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary',
-              )}
-            >
-              {option.token && (
-                <span
-                  aria-hidden="true"
-                  className="h-1.5 w-1.5 rounded-full"
-                  style={{ backgroundColor: `var(--${option.token})` }}
-                />
-              )}
-              {option.label}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
 
 /* ---- Workspace --------------------------------------------------------- */
 
@@ -235,89 +186,74 @@ export function TasksWorkspace({
         onSelect={(key) => setView(key as 'list' | 'board')}
       />
 
-      {/* ---- Toolbar ---- */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2.5">
+      {/* ---- Toolbar ----
+          Every control here now takes its height, padding, radius and type from
+          components/ui/control.ts, so the row is one straight line instead of
+          four different heights. The Toolbar itself wraps rather than pushing
+          the page sideways. */}
+      <Toolbar aria-label="Task filters">
         {view === 'list' && (
-          <Segmented
-            label="Group"
-            icon={Layers}
-            options={GROUP_OPTIONS}
-            value={groupBy}
-            onChange={setGroupBy}
-          />
+          <ToolbarGroup>
+            <ToolbarLabel>
+              <Layers className="mr-1 inline h-3.5 w-3.5 align-[-2px]" strokeWidth={2} />
+              Group
+            </ToolbarLabel>
+            <ToggleGroup label="Group tasks by" options={GROUP_OPTIONS} value={groupBy} onChange={setGroupBy} />
+          </ToolbarGroup>
         )}
 
-        <Segmented
-          label="Priority"
-          icon={Flag}
-          options={[
-            { key: 'all' as const, label: 'All' },
-            ...PRIORITIES.map((p) => ({
-              key: p,
-              label: PRIORITY_LABEL[p],
-              token: PRIORITY_TOKEN[p],
-            })),
-          ]}
-          value={priority}
-          onChange={setPriority}
-        />
+        {/* Priority moved from five segments to a select. Five segments plus a
+            caption is ~320px of a row that also has to hold three other
+            controls — the single widest thing in the old toolbar. */}
+        <ToolbarGroup>
+          <ToolbarLabel>Priority</ToolbarLabel>
+          <Select
+            label="Filter by priority"
+            icon={Flag}
+            value={priority}
+            onChange={(event) => setPriority(event.target.value as Priority | 'all')}
+            options={[
+              { value: 'all', label: 'Any priority' },
+              ...PRIORITIES.map((p) => ({ value: p, label: PRIORITY_LABEL[p] })),
+            ]}
+            className="w-[9.5rem]"
+          />
+        </ToolbarGroup>
 
-        {/* Assignee — a select rather than a segmented control, because six
-            people already overflows a row and the team will only grow. */}
-        <label className="flex items-center gap-1.5">
-          <span className="inline-flex items-center gap-1.5 text-micro font-semibold tracking-[0.06em] text-text-tertiary uppercase">
-            <User className="h-3.5 w-3.5" strokeWidth={2} aria-hidden="true" />
-            Assignee
-          </span>
-          <select
+        <ToolbarGroup>
+          <ToolbarLabel>Assignee</ToolbarLabel>
+          <Select
+            label="Filter by assignee"
+            icon={User}
             value={assignee}
             onChange={(event) => setAssignee(event.target.value)}
-            className="h-8 rounded-lg border border-border-default bg-bg-surface px-2 text-micro font-semibold text-text-primary shadow-xs transition-colors duration-[140ms] hover:border-border-strong focus-visible:outline-none"
-          >
-            <option value="all">Everyone</option>
-            {assignees.map((name) => (
-              <option key={name} value={name}>
-                {name}
-              </option>
-            ))}
-          </select>
-        </label>
+            options={[
+              { value: 'all', label: 'Everyone' },
+              ...assignees.map((name) => ({ value: name, label: name })),
+            ]}
+            className="w-[11rem]"
+          />
+        </ToolbarGroup>
 
-        <button
-          type="button"
-          aria-pressed={hideClosed}
-          onClick={() => setHideClosed((prev) => !prev)}
-          className={cn(
-            'inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-micro font-semibold shadow-xs',
-            'transition-colors duration-[140ms] focus-visible:outline-none',
-            hideClosed
-              ? 'border-border-default bg-bg-surface text-text-secondary hover:bg-bg-hover'
-              : 'border-border-brand bg-bg-selected text-text-brand',
-          )}
-        >
-          <EyeOff className="h-3.5 w-3.5" strokeWidth={2} aria-hidden="true" />
+        <ToggleButton pressed={!hideClosed} onChange={(next) => setHideClosed(!next)} icon={EyeOff}>
           {hideClosed ? 'Closed hidden' : 'Closed shown'}
-        </button>
+        </ToggleButton>
 
-        {/* ---- Acting role — preview only ---- */}
-        <label className="ml-auto flex items-center gap-1.5">
-          <span className="text-micro font-semibold tracking-[0.06em] text-text-tertiary uppercase">
-            Preview as
-          </span>
-          <select
+        <ToolbarSpacer />
+
+        {/* ---- Acting role — preview only, and visibly so ---- */}
+        <ToolbarGroup>
+          <ToolbarLabel>Preview as</ToolbarLabel>
+          <Select
+            label="Preview the board as a different role"
             value={actingRole}
             onChange={(event) => setActingRole(event.target.value as Role)}
-            className="h-8 rounded-lg border border-border-gold bg-bg-gold-subtle px-2 text-micro font-semibold text-text-primary shadow-xs focus-visible:outline-none"
+            options={ROLES.map((role) => ({ value: role, label: ROLE_LABEL[role] }))}
+            className="w-[10.5rem] border-border-gold bg-bg-gold-subtle"
             title="Preview control — shows how the board behaves for each role. Removed when real sessions land in Step 4."
-          >
-            {ROLES.map((role) => (
-              <option key={role} value={role}>
-                {ROLE_LABEL[role]}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
+          />
+        </ToolbarGroup>
+      </Toolbar>
 
       {/* ---- Result summary ---- */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">

@@ -6,6 +6,7 @@ import { Logo } from '@/components/brand/logo';
 import { ThemeSetting, ThemeToggle } from '@/components/brand/theme-toggle';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/card';
+import { ControlGallery } from '@/components/ui/control-gallery';
 import {
   EFFORT_POINTS,
   EFFORT_SIZES,
@@ -105,6 +106,13 @@ export default function DesignSystemPage() {
             </p>
           </div>
         </div>
+
+        <Section
+          title="Controls"
+          description="Every interactive element, at every size, over a ruled guide. Each row's controls must touch both dashed lines — a control that sets its own height instead of importing from components/ui/control.ts breaks the line here, where it is obvious, rather than on a product screen, where it merely looks untidy."
+        >
+          <ControlGallery />
+        </Section>
 
         <Section
           title="Theming"

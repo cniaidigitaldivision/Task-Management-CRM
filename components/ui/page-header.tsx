@@ -3,6 +3,15 @@ import * as React from 'react';
 import { cn } from '@/lib/utils';
 
 import { CountBadge } from './badge';
+import {
+  CONTROL_HEIGHT,
+  CONTROL_ICON,
+  CONTROL_PADDING,
+  CONTROL_RADIUS,
+  CONTROL_SURFACE,
+  CONTROL_TEXT,
+  type ControlSize,
+} from './control';
 
 /* ============================================================================
  * PAGE HEADER + VIEW TABS
@@ -137,22 +146,30 @@ export function FilterChip({
   label,
   value,
   icon: Icon,
+  size = 'md',
   className,
 }: {
   label: string;
   value?: string;
   icon?: React.ComponentType<{ className?: string; strokeWidth?: number }>;
+  size?: ControlSize;
   className?: string;
 }) {
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-bg-surface px-2.5 py-1.5',
-        'text-caption font-medium text-text-secondary shadow-xs',
+        // Height and padding from the shared scale, so a chip standing beside a
+        // Button in a header row lines up with it exactly.
+        'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap text-text-secondary',
+        CONTROL_HEIGHT[size],
+        CONTROL_PADDING[size],
+        CONTROL_TEXT[size],
+        CONTROL_RADIUS,
+        CONTROL_SURFACE,
         className,
       )}
     >
-      {Icon && <Icon className="h-3.5 w-3.5 text-text-tertiary" strokeWidth={2} />}
+      {Icon && <Icon className={cn(CONTROL_ICON[size], 'text-text-tertiary')} strokeWidth={2} />}
       {label}
       {value && <span className="font-semibold text-text-primary">{value}</span>}
     </span>

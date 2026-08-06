@@ -13,6 +13,7 @@
 import * as React from 'react';
 import { Monitor, Moon, Sun } from 'lucide-react';
 
+import { CONTROL_HEIGHT, CONTROL_RADIUS, CONTROL_SQUARE } from '@/components/ui/control';
 import type { Theme } from '@/lib/domain/constants';
 import { cn } from '@/lib/utils';
 
@@ -48,7 +49,13 @@ export function ThemeToggle({ className }: { className?: string }) {
       aria-label={isHydrated ? `Theme: ${active.label}. Click to change.` : 'Change theme'}
       title={isHydrated ? `Theme: ${active.label}` : undefined}
       className={cn(
-        'inline-flex h-9 w-9 items-center justify-center rounded-md',
+        // Square and radius from the shared scale. This sits between the
+        // notification bell and the New-task button in the topbar, so a
+        // `rounded-md` here against their `rounded-lg` was a visible 3px
+        // corner mismatch in the busiest strip of the interface.
+        'inline-flex items-center justify-center',
+        CONTROL_SQUARE.md,
+        CONTROL_RADIUS,
         'text-text-secondary transition-colors duration-[120ms]',
         'hover:bg-bg-hover hover:text-text-primary',
         'focus-visible:outline-none',
@@ -72,8 +79,10 @@ export function ThemeSegmented({ className }: { className?: string }) {
       role="radiogroup"
       aria-label="Colour theme"
       className={cn(
-        'inline-flex items-center gap-1 rounded-lg border border-border-default',
-        'bg-bg-subtle p-1',
+        'inline-flex items-center gap-0.5 border border-border-default p-0.5',
+        CONTROL_HEIGHT.md,
+        CONTROL_RADIUS,
+        'bg-bg-subtle',
         className,
       )}
     >
@@ -89,12 +98,12 @@ export function ThemeSegmented({ className }: { className?: string }) {
             aria-checked={isActive}
             onClick={() => setTheme(option.value)}
             className={cn(
-              'inline-flex items-center gap-2 rounded-md px-3 py-1.5',
-              'text-body-sm font-medium',
+              'inline-flex h-full items-center gap-1.5 rounded-md px-2.5',
+              'text-caption font-semibold',
               'transition-colors duration-[120ms]',
               'focus-visible:outline-none',
               isActive
-                ? 'bg-bg-surface text-text-primary shadow-sm'
+                ? 'bg-bg-surface text-text-primary shadow-xs'
                 : 'text-text-secondary hover:text-text-primary',
             )}
           >
