@@ -1,10 +1,10 @@
 # 📊 PROGRESS TRACKER — CNI CRM
 
 **Last updated:** 2026-08-06 (Session 08)
-**Current phase:** **Phase 1 — Foundation & Security** · Steps 1, 1b, 1c, 2, 2b, 3 complete · **Step 4 in progress**
-**Overall progress:** ▓▓▓▓▓▓▓▓▓░░░░░░░░░░░ 46%
-**Blocked on:** Step 4's application layer needs **`.env.local`** — owner action. The rules and the database half are done.
-**Tests:** `npm run test` → **599 passing** · DB gates: Step 2 **35/35**, pre-auth **32/32**
+**Current phase:** **Phase 1 — Foundation & Security** · Steps 1, 1b, 1c, 2, 2b, 3, **4 complete**
+**Overall progress:** ▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░░ 54%
+**Blocked on:** **Nothing.** Awaiting go-ahead for Step 5 (provisioning & recovery). Resend becomes required there.
+**Tests:** `npm run test` → **640** · `npm run test:auth` → **13/13** (real DB) · DB gates: Step 2 **35/35**, pre-auth **32/32**
 
 > ⛔ **Standing rule (owner, Session 06):** commit, push to GitHub and update these docs after **every** change — not batched at session end.
 **Run it:** `npm run dev` → http://localhost:4310 · `npm run verify` → typecheck + lint + build
@@ -38,7 +38,7 @@
 | Phase | Name | Status | Progress |
 |:--:|---|:--:|---|
 | 0 | Planning & Documentation | ✅ | ▓▓▓▓▓▓▓▓▓▓ 100% |
-| 1 | Foundation & **Security** (auth, DB, roles, MFA) | 🟡 | ▓▓▓▓░░░░░░ 43% — Step 3/7 |
+| 1 | Foundation & **Security** (auth, DB, roles, MFA) | 🟡 | ▓▓▓▓▓▓░░░░ 57% — Step 4/7 |
 | 2 | **Projects** & core task management | ⬜ | ░░░░░░░░░░ 0% |
 | 3 | Real-time & notifications | ⬜ | ░░░░░░░░░░ 0% |
 | 4 | ★ Intelligence (workload + assignment) | ⬜ | ░░░░░░░░░░ 0% |
@@ -236,7 +236,31 @@ Pulled forward the same way the app shell was in Session 06 — this is where th
 | T-110 | MFA — TOTP verification, WebAuthn, recovery codes | FR-145 | ⬜ |
 | T-115 | Step-up re-authentication wiring | FR-149 | ⬜ |
 | T-116b | Sign-in, locked and forgot-password screens | doc 16 §3 | ⬜ |
-| **Gate 4** | **Lockout, unlock and MFA work end to end** | | 🟡 proven at the database; needs the UI |
+| T-106 | Argon2id hashing — parameters chosen by measurement | FR-147 | ✅ |
+| T-114 | `queries/` layer + `withUser()` (registry C-14, C-18) | FR-150 | ✅ |
+| T-110 | TOTP verification, proven against RFC 6238 vectors | FR-145 | ✅ verification; enrolment → Step 5 |
+| T-116b | `/login`, `/forgot-password`, `/mfa-setup` | doc 16 §3 | ✅ |
+| T-107d | Migration 010 — pre-auth token issue + password write | registry C-15 | ✅ 9/9 |
+| T-116c | Gate 4 integration suite — `npm run test:auth` | — | ✅ **13/13** |
+| **Gate 4** | **Lockout, unlock and MFA work end to end** | | ✅ **PASSED** |
+
+> **Gate 4 evidence (2026-08-06):** `npm run test:auth` — **13/13 against the real database**. Covers identity lookup, Argon2id verify/refuse, the 3-attempt lock, the anti-DoS property (a further attempt while locked does **not** extend it), emailed unlock → new password → lock cleared, verified-factors-only MFA with a real TOTP code, failed MFA counting toward the lock, session revocation on password change, and refresh-token reuse revoking every session.
+>
+> **Three real bugs were found by testing, none of them findable by reading:**
+> 1. **C-18** — the pooler drops the URL role option, so the app connected as `postgres` with `BYPASSRLS` and **every RLS policy was silently skipped.**
+> 2. **C-19** — the lockout was evaluated against the app's clock while the timestamps came from the database's. With 22 seconds of measured skew, **every fresh failure was discarded and the lock never tripped.**
+> 3. The constant-time decoy hash was invented rather than real, so Argon2 rejected it during parsing and the 99ms timing oracle stayed open.
+>
+> Integration tests are deliberately **out** of `npm run test`: the moment a database is needed to run the unit suite, the unit suite stops being run.
+
+### Step 4b — Dashboard readability *(Session 09, owner-directed)*
+
+| ID | Task | Status |
+|---|---|:--:|
+| T-105j | **Legend rebuilt** — was three facts on one line, 6px apart, in 12px/11px grey | ✅ |
+| T-105k | `PageSection` primitive — heading, numbered reading order, 32px spacing | ✅ |
+| T-105l | Reordered: KPI cards first, one visualisation, detail last, caveat at the foot | ✅ |
+| T-105m | Researched professional CRM dashboard structure before changing anything | ✅ |
 
 > **Gate 4 progress (2026-08-06):** the rules are done and exhaustively tested (**599 domain tests**), and the database half is proven — `lib/db/verify/007_pre_auth_surface.sql`, **32/32**. What remains is the application layer, which cannot run until `.env.local` exists.
 >

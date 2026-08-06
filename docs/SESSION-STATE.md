@@ -43,7 +43,9 @@ That's all you ever need to type. Everything else is recorded in the files.
 
 | | |
 |---|---|
-| **Last updated** | 2026-08-06, Session 08 |
+| **Last updated** | 2026-08-06, Session 09 |
+| **Tests** | `npm run test` → **640** · `npm run test:auth` → **13/13** (real DB) · `npm run check:db` → passing |
+| **⛔ Credential hygiene** | Three secrets were pasted into chat this session (Resend key, DB password ×2 — one echoed by my own script's error output). **All must be rotated.** Never paste a secret; `npm run check:db` redacts and is safe to share. |
 | **Current phase** | **Phase 1 — Foundation & Security** |
 | **Phase 1 progress** | ▓▓▓▓▓░░░░░ Steps 1, 1b, 1c, 2, 2b, **3** complete |
 | **Overall progress** | ▓▓▓▓▓▓▓▓░░░░░░░░░░░░ 41% |
@@ -280,7 +282,40 @@ Both had one cause: the tasks toolbar had five controls in a row at four differe
 
 **Auth screens** — `/login` and `/forgot-password`. Pure UI, no database needed. FR-155e's never-reveal copy and FR-148's warn-before-lock are already correct on them, and both say plainly that they are not wired up.
 
-### ➡️ NEXT: Step 4, part 2 — the application layer
+### ✅ Session 09 — Step 4 COMPLETE (Gate 4 ✅) + dashboard readability
+
+**Gate 4: ✅ PASSED — 13/13 integration tests against the real database.** `npm run test:auth`
+
+Sign-in is live end to end: identity lookup → **lock checked before the password** → Argon2id → TOTP → device-bound session. Plus the emailed unlock path, session revocation on password change, and refresh-token reuse detection.
+
+| Built | |
+|---|---|
+| `lib/auth/hashing.ts` | Argon2id, m=64MiB t=3 p=1 — **chosen by measurement** (14ms / 99ms / 130ms tried) |
+| `lib/auth/tokens.ts` | 256-bit tokens bare-SHA256; 6-digit codes **peppered** (a million possibilities is enumerable) |
+| `lib/auth/totp.ts` | RFC 6238, proven against the spec's **own known-answer vectors** |
+| `lib/auth/session.ts` | Opaque signed cookie — deliberately **not** a JWT |
+| `lib/db/client.ts` | `withUser()` / `withAppRole()` / `withBreakGlass()` |
+| `lib/db/queries/auth.ts` | Typed wrappers, no logic |
+| Migrations 007–010 | The pre-auth `SECURITY DEFINER` surface |
+| `/login`, `/forgot-password`, `/mfa-setup` | Live screens |
+
+#### ⚠️ THREE REAL BUGS FOUND BY TESTING, NOT REVIEW
+
+1. **C-18 — the pooler drops the URL role option.** The app was connecting as `postgres`, which has `BYPASSRLS`, so **every RLS policy was being skipped, silently.** The role is now taken per transaction with `SET LOCAL ROLE`. Found by `npm run check:db`.
+2. **C-19 — the lockout was evaluated against the wrong clock.** `login_attempts.created_at` is written by the *database*; `evaluateLockout()` was handed the *app's* clock. It discards future-dated attempts, so with **22 seconds of measured skew** every fresh failure was thrown away and **the lockout never tripped.** Found by the Gate 4 integration test — two assertions failed and "my test is wrong" was the wrong conclusion.
+3. **The decoy hash for constant-time failure was invented rather than real.** Argon2 rejects a malformed hash *while parsing*, before allocating memory — so it returned in <1ms and left the 99ms timing oracle wide open.
+
+None of these were findable by reading. Each lived at a seam that only an end-to-end check crosses.
+
+#### Dashboard readability (owner feedback)
+
+Researched professional CRM dashboard structure first (Salesforce, Domo, monday.com, template teardowns). The consistent pattern was the opposite of what had been built.
+
+- **The legend was a genuine defect.** Three facts on one line, 6px apart, in 12px/11px grey — one grey smear rather than five numbers. Now a grid of discrete tiles with the count large and in primary text.
+- **"Everything on top of each other" was literally spacing.** Five identical-weight blocks 16px apart with no headings. New `PageSection` primitive: heading, numbered reading order, 32px between sections.
+- **KPI cards moved to the top.** The page used to open with a chart nobody had context for. The preview notice moved to the foot — it is a caveat, not a headline.
+
+### ➡️ NEXT: Step 5 — Provisioning &amp; recovery
 
 Argon2id hashing, the `queries/` layer with `withUser()`, TOTP/WebAuthn verification, and the sign-in, locked and forgot-password screens.
 
