@@ -42,3 +42,23 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SECRETS THAT ARRIVE AS FILES
+# ─────────────────────────────────────────────────────────────────────────────
+# Printing the recovery codes from /setup saves a PDF into whatever directory
+# the browser last used — which, when the CRM is the thing you are working on,
+# is this one. A set of Super Admin recovery codes was committed and pushed this
+# way before anybody noticed.
+#
+# They are the ONLY way back into an account nobody else can reset, so they are
+# exactly the thing that must never be in version control. Broad patterns on
+# purpose: a near-miss here costs far more than an over-eager ignore rule.
+*.pdf
+*recovery*code*
+*recovery-codes*
+*.p12
+*.pfx
+*.pem
+*.key
+secrets/
