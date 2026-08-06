@@ -47,11 +47,10 @@ That's all you ever need to type. Everything else is recorded in the files.
 | **Tests** | `npm run test` → **640** · `npm run test:auth` → **13/13** (real DB) · `npm run check:db` → passing |
 | **⛔ Credential hygiene** | Three secrets were pasted into chat this session (Resend key, DB password ×2 — one echoed by my own script's error output). **All must be rotated.** Never paste a secret; `npm run check:db` redacts and is safe to share. |
 | **Current phase** | **Phase 1 — Foundation & Security** |
-| **Phase 1 progress** | ▓▓▓▓▓░░░░░ Steps 1, 1b, 1c, 2, 2b, **3** complete |
-| **Overall progress** | ▓▓▓▓▓▓▓▓░░░░░░░░░░░░ 41% |
+| **Phase 1 progress** | ▓▓▓▓▓▓░░░░ Steps 1, 1b, 1c, 2, 2b, 3, **4 complete** (Gate 4 ✅) |
+| **Overall progress** | ▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░░ 54% |
 | **Code written** | ✅ Step 1 scaffold + tokens · shell + dashboard · **Step 1c redesign** · **Step 2 migrations 001–006, RLS, Super Admin trigger** · **Step 2b Tasks screen** · **Step 3 permission matrix** |
-| **Tests** | `npm run test` → **502 passing** |
-| **Currently blocked on** | **Nothing.** Awaiting go-ahead for **Step 4 — Authentication**. |
+| **➡️ NEXT** | **Step 5 — Provisioning & recovery.** NOT STARTED. Needs Resend (sandbox sender is fine). See §3. |
 
 ### What was completed in Session 08, part 2 — TASKS SCREEN + STEP 3
 
