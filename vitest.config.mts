@@ -1,3 +1,5 @@
+import { fileURLToPath } from 'node:url';
+
 import { defineConfig } from 'vitest/config';
 
 /* ============================================================================
@@ -14,6 +16,22 @@ import { defineConfig } from 'vitest/config';
  * ========================================================================= */
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      /* `server-only` is a guard, not a library: its default entry throws so
+       * that importing a server module from a Client Component is a build error
+       * rather than a leaked secret. Vitest resolves that default entry and
+       * every test touching lib/auth/ or lib/db/ fails before it starts.
+       *
+       * Aliased to a local no-op. Not to `server-only/empty` (not an exported
+       * subpath) and not via Vite's `react-server` condition, which would change
+       * how React itself resolves for the sake of one small guard.
+       *
+       * The guard still protects the real build — `next build` resolves the real
+       * package and still refuses a bad import. */
+      'server-only': fileURLToPath(new URL('./test/server-only-stub.ts', import.meta.url)),
+    },
+  },
   test: {
     environment: 'node',
     include: ['lib/**/__tests__/**/*.test.ts'],
