@@ -114,6 +114,38 @@ export async function requireUser(): Promise<CurrentUser> {
   redirect(`/login?reason=${outcome}`);
 }
 
+/**
+ * The guard, plus a rank floor.
+ *
+ * ── WHY HIDING THE NAV ITEM IS NOT ENOUGH ────────────────────────────────────
+ * `sectionsForRole()` already omits Team, Workload, Reports and Settings from a
+ * Member's sidebar, and its own comment says so: "hiding a nav item is
+ * convenience, never security" (NFR-006). Typing the URL reached the page
+ * anyway, and while row-level security meant a Member saw only their own row —
+ * so nothing leaked — they were looking at a screen built to answer a question
+ * they are not entitled to ask, with one row in it.
+ *
+ * Found by the signed-in smoke test, which fetches every route as a Member. A
+ * build cannot find this and neither can a click-through, because the sidebar
+ * never offers the link.
+ *
+ * Redirects rather than showing a 403: there is nothing useful the person can do
+ * with a refusal, and their own starting screen is one navigation away.
+ */
+export async function requireRole(minimum: Role): Promise<CurrentUser> {
+  const user = await requireUser();
+  const rank: Readonly<Record<Role, number>> = {
+    super_admin: 4,
+    admin: 3,
+    team_coordinator: 2,
+    member: 1,
+  };
+  if (rank[user.role] < rank[minimum]) {
+    redirect(user.role === 'member' ? '/my-work' : '/dashboard');
+  }
+  return user;
+}
+
 /** Slide the window. Fire-and-forget: a failure here must never block a page. */
 export async function touchSession(user: CurrentUser): Promise<void> {
   try {

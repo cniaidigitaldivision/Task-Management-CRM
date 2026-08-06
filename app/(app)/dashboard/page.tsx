@@ -16,7 +16,7 @@ import { IconTile } from '@/components/ui/icon-tile';
 import { StatCard } from '@/components/ui/metric';
 import { PageHeader, PageSection } from '@/components/ui/page-header';
 import { ProgressBar, SegmentLegend, SegmentedBar, type Segment } from '@/components/ui/progress';
-import { requireUser } from '@/lib/auth/current-user';
+import { requireRole } from '@/lib/auth/current-user';
 import { listActivity } from '@/lib/db/queries/feed';
 import { listProjects } from '@/lib/db/queries/projects';
 import { countTasksByStatus, listTasks } from '@/lib/db/queries/tasks';
@@ -66,7 +66,8 @@ function relative(iso: string, now: number): string {
 }
 
 export default async function DashboardPage() {
-  const user = await requireUser();
+  // Dashboard is a whole-team view; a Member has /my-work. Hiding the nav item is convenience, not security (NFR-006).
+  const user = await requireRole('team_coordinator');
   const now = nowMs();
 
   const [rows, statusCounts, workload, projects, activity] = await Promise.all([

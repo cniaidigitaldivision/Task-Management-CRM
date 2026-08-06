@@ -2,10 +2,15 @@ import { ShieldCheck } from 'lucide-react';
 import type { Metadata } from 'next';
 
 import { PhasePlaceholder } from '@/components/layout/phase-placeholder';
+import { requireRole } from '@/lib/auth/current-user';
 
 export const metadata: Metadata = { title: "Security" };
 
-export default function SecurityPage() {
+/* Super Admin only — nav-config lists it SUPER_ONLY, and hiding the item is
+   convenience rather than security (NFR-006). */
+export default async function SecurityPage() {
+  await requireRole('super_admin');
+
   return (
     <PhasePlaceholder
       icon={ShieldCheck}
