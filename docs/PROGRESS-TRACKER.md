@@ -1,9 +1,9 @@
 # 📊 PROGRESS TRACKER — CNI CRM
 
-**Last updated:** 2026-08-06 (Session 07)
-**Current phase:** **Phase 1 — Foundation & Security** · Steps 1, 1b, 2 complete
-**Overall progress:** ▓▓▓▓▓▓░░░░░░░░░░░░░░ 33%
-**Blocked on:** **Nothing.** Awaiting go-ahead for Step 3 (domain — permissions matrix + exhaustive tests).
+**Last updated:** 2026-08-06 (Session 08)
+**Current phase:** **Phase 1 — Foundation & Security** · Steps 1, 1b, 2 complete · interface redesigned (1c)
+**Overall progress:** ▓▓▓▓▓▓░░░░░░░░░░░░░░ 34%
+**Blocked on:** **Nothing.** Step 3 (permissions matrix) is **authorised** — next up.
 
 > ⛔ **Standing rule (owner, Session 06):** commit, push to GitHub and update these docs after **every** change — not batched at session end.
 **Run it:** `npm run dev` → http://localhost:4310 · `npm run verify` → typecheck + lint + build
@@ -142,6 +142,27 @@ Pulled forward from Step 7 in response to owner feedback that the interface did 
 | **Gate 1b** | **Looks like professional business software in both themes** | | ✅ **PASSED** |
 
 > **Still to do in the shell (Step 7):** responsive verification at 375px, keyboard navigation pass, collapsed sidebar rail, command palette.
+
+### Step 1c — Interface redesign *(Session 08, owner-directed)*
+
+Owner feedback: the interface looked pale and unprofessional, the theme toggle repainted everything including the sidebar, and the white plate behind the logo looked bad. Design decisions recorded in [doc 18 §6a, §6b, §6c, §9a](18-DESIGN-SYSTEM-AND-BRANDING.md).
+
+| ID | Task | Req IDs | Status |
+|---|---|---|:--:|
+| T-105a | **Theme-invariant chrome** — `--sidebar-*` moved to a single `:root` block neither theme may redefine | doc 18 §6a | ✅ |
+| T-105b | **Gold logo glow** replaces the white plate; `LogoPlate` withdrawn for `LogoGlow` | doc 18 §9a | ✅ |
+| T-105c | Surfaces deepened, borders and shadows raised to visible values, `--page-ambience` | doc 18 §6b | ✅ |
+| T-105d | Soft-tint formula so badges stay vivid **and** legible in both themes from one expression | FR-207, doc 18 §6c | ✅ |
+| T-105e | Topbar given a real surface + breadcrumb; page headings moved into content | doc 10 §1 | ✅ |
+| T-105f | Primitives upgraded: Card, Badge, Button, Avatar | — | ✅ |
+| T-105g | New primitives: StatCard, Sparkline, TrendPill, ProgressBar/Ring, SegmentedBar, IconTile, PageHeader, ViewTabs, FilterChip, AvatarStack, PriorityFlag | — | ✅ |
+| T-105h | Dashboard rebuilt and reordered around how the screen is used | doc 10 §7 | ✅ |
+| T-105i | Placeholder pages restyled | — | ✅ |
+| **Gate 1c** | **Reads as professional business software; sidebar constant across themes** | | ✅ **PASSED** |
+
+> **Gate 1c evidence (2026-08-06):** verified in Chrome at 1600px in **both** themes. The rail is identical light and dark; the logo sits in a gold aura with no plate, no border and no visible edge, and the dark-teal wordmark is legible in both. All 12 routes return 200 with no build error. `npm run verify` clean.
+>
+> **Known, deliberate:** eight of the nine nav destinations are still phase placeholders — those screens belong to Phase 2 and Phase 5. The redesign covers the shell, the dashboard, the primitives and the placeholders.
 
 ### Step 2 — Data foundation *(Session 07)*
 
@@ -378,6 +399,7 @@ Migrations are the schema's single source of truth (registry **C-16**); `types/d
 |---|---|---|---|
 | 2026-08-05 | 01 | Planning set 00–14 drafted: brief, requirements (FR/NFR/BR), permissions matrix, data model, task lifecycle, workload engine, assignment engine, real-time design, tech stack, UI screens, competitor benchmark, enhancement backlog, questions, roadmap, tracker. **No code.** | Get Q-001/002/003/010/012 answered |
 | 2026-08-06 | 02 | Answers locked (Q-002/003/010/012/015 + defaults). Role model expanded to 4 with **Team Coordinator**. **Doc 15** — projects, 5 types, task↔project linkage, "Other" rules, Member Activity Preview, 12 engineering enhancements. **Doc 16** — threat model, provisioning chain, Super Admin hardening, break-glass, OWASP/NIST coverage, incident runbook, Google SSO roadmap. **`SESSION-STATE.md`** crash-resume protocol. ADR-001–006 written. Docs 03, 04, 06, 13, 14 and tracker updated. 15 new questions (Q-024–Q-038). **No code.** | Q-001 roster · Q-030 break-glass · Q-034 tenancy · Q-022 name |
+| 2026-08-06 | 08 | **INTERFACE REDESIGN — Gate 1c PASSED.** Owner feedback that the CRM looked pale and unprofessional. Root causes found and fixed: the sidebar was **white** in light theme (a white rail beside a near-white page has no edge, so everything read as one flat sheet); page-vs-card was a 2% step; shadows sat at 0.06 alpha and borders were invisible; status was a 6px dot on a grey chip. **Theme-invariant chrome** added as a new token layer — the rail is now identical in light and dark, per the owner's instruction and matching ClickUp/Linear/Asana. **The white logo plate is gone**, replaced by a four-layer gold glow with a warm cream core centred on the whole artwork, so the dark-teal wordmark stays legible with no rectangle and no visible edge. Surfaces deepened, real elevation, `--page-ambience`. Badges became properly tinted pills with contrast that holds in both themes from one `color-mix()` expression. Eleven new primitives (StatCard, Sparkline, ProgressRing, SegmentedBar, …). Dashboard rebuilt and reordered around how the screen is actually used. Verified in Chrome, both themes. Docs 18 §6a/§6b/§6c/§9a amended. | **Step 3 authorised — next** |
 | 2026-08-06 | 07 | **PHASE 1, STEP 2 — data foundation. Gate 2 PASSED, 35/35.** Registry first: five conflicts resolved in doc 19 §9 (**C-13** Supabase Auth vs doc 16 → **we implement our own auth**; **C-14** no `auth.uid()`, so RLS keys off `SET LOCAL app.user_id` under the `NOBYPASSRLS` role `cni_app`; **C-15** narrow pre-auth definer surface; **C-16** SQL migrations are the schema SSOT, types are generated; **C-17** `account_unlock` purpose) plus §9a for the doc 04 deltas. Migrations 001–006: full identity, MFA, recovery, append-only logs, skills, settings, RLS on all 13 tables, and the Super Admin immutability trigger. Two real holes found and closed — Supabase's default `anon`/`authenticated` grants on `public` (the anon key ships in the browser), and `user_directory` being an auto-updatable owner-run view, which writable would have been a total RLS bypass on `users`. Migration 006 cleared all 7 linter warnings. Gate proof checked in, `BEGIN…ROLLBACK`, safe against production. | **Awaiting go-ahead for Step 3** |
 | 2026-08-06 | 05 | **PHASE 1, STEP 1 — first code.** Next.js 16.3 / React 19.2 / TS / Tailwind v4 scaffolded into the existing docs tree. Complete design-token system (raw palette → semantic layer → shadcn bridge), light and dark. Canonical constants with a load-time assertion that score weights total 1.00. Theme provider built on `useSyncExternalStore` with pre-paint script and transition suppression. Logo rebuilt as a theme-aware inline SVG whose facet seams track the surface. Lint rules now enforce BR-025 (no raw hex) and layer-2 purity (no db/framework/React in `lib/domain/`, no `Date.now()`). Dev port moved to 4310 after finding a foreign service worker on 3000. **Gate 1 PASSED**, browser-verified. | **Awaiting go-ahead for Step 2** |
 | 2026-08-06 | 04 | Logo analysed → **doc 18 design system**: palette from the mark, semantic tokens, light/dark for every role (ADR-011). **Gold/amber collision** found and resolved — gold is brand chrome only; status and workload colours revised. **Doc 19 master registry** — canonical index of every FR/BR/enum/setting/table, document ownership map, **12 contradictions found and resolved**. **Doc 20 implementation contracts** — 4-layer architecture, module table ownership, dependency graph, frozen interfaces, 9 integration seams, migration safety, per-phase gates, concrete Phase 1 step order. Assignment weights corrected 1.05 → 1.00. Fixes applied to docs 04, 05, 06, 07, 10. Q-049–Q-053 raised. **No code.** | **Awaiting go-ahead for Phase 1** |

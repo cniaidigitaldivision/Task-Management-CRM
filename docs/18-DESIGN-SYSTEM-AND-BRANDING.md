@@ -194,6 +194,67 @@ Chosen to be distinguishable from status colours, because both appear on the sam
 
 > **Requirement:** every member, in every role, can switch theme from their profile settings (FR-201).
 
+### 6a. ⚠️ AMENDED — the navigation chrome does NOT follow the theme
+
+**Owner decision, Session 08.** Supersedes the `bg-subtle` → "Sidebar" mapping in the table below.
+
+> *"The light mode and the dark mode just paint the whole scheme or the appearance scheme of the pages. I don't want that. I want some things like the sidebar and the option packages to remain in the pale colour or the dark colour no matter what the theme is."*
+
+**The rule:** the navigation rail is **theme-invariant**. It is the same deep teal-black in light mode and dark mode. Only the *content* area follows the theme.
+
+Implemented as a distinct token layer — `styles/tokens.css` **Layer 2a** — declared in a single `:root` block that neither `[data-theme='light']` nor `[data-theme='dark']` may redefine. The `--sidebar-*` token names were kept, so no component changed.
+
+| Token | Value (both themes) | Purpose |
+|---|---|---|
+| `sidebar-bg` | `#071E22` | Rail base |
+| `sidebar-bg-gradient` | `#0B2A30` → `#041215` | Vertical gradient; a flat dark panel reads as a void |
+| `sidebar-border` | `rgb(255 255 255 / 0.08)` | Hairlines work by luminosity on dark, not by hue |
+| `sidebar-item` | `#9DB6B9` | Resting nav label |
+| `sidebar-item-hover-bg` | `rgb(255 255 255 / 0.055)` | |
+| `sidebar-item-active-bg` | `rgb(47 163 169 / 0.16)` | Teal tint |
+| `sidebar-item-active-text` | `#86DADC` | |
+| `sidebar-section-label` | `#648487` | Section headings |
+| `sidebar-heading` | `#EEF7F7` | User name |
+
+**Why this is right, not just what was asked for.** ClickUp, Linear, Asana, Notion and Vercel all keep a constant dark rail beside a theme-aware content area. Two reasons:
+
+1. **Structure.** A white rail next to a near-white page has no edge, so the interface reads as one undifferentiated sheet. This was the single biggest cause of the first build looking flat.
+2. **Identity.** The rail is where the brand lives all day. Letting it flip to white in light mode discards that half the time.
+
+⛔ **Do not move these tokens into a theme block.** Doing so re-breaks precisely what this amendment fixes.
+
+### 6b. ⚠️ AMENDED — surface values deepened
+
+The original light theme set `bg-base` to `#FFFFFF` and `bg-surface` to `#FFFFFF`. Identical values mean a card cannot be distinguished from the page behind it. Session 05 improved this to `#F4F8F8` vs `#FFFFFF` — still only a ~2% step, which is invisible in practice.
+
+**Current values** (canonical: `styles/tokens.css`):
+
+| Token | Light | Dark | Note |
+|---|---|---|---|
+| `bg-base` | `#E8F0F1` | `#04161A` | Meaningfully tinted, so white cards read as raised |
+| `bg-surface` | `#FFFFFF` | `#0C2429` | |
+| `bg-surface-sunken` | `#F4F8F9` | `#061A1E` | Table headers, inset panels |
+| `bg-hover` | `#EAF2F2` | `#163A40` | |
+| `bg-active` | `#DFEBEC` | `#1C464C` | Progress-bar troughs, chips |
+| `border-default` | `#D3E1E2` | `#22484E` | Raised from `#DDE7E8` — the old value was invisible |
+| `text-primary` | `#06232A` | `#EAF3F3` | |
+
+Shadows were raised from `0.06` alpha to `0.08–0.22` across the scale. An invisible shadow is not elevation.
+
+**New:** `--page-ambience` lays two very faint brand gradients over the content area so the page is a lit plane rather than a flat slab. `--tint-soft` / `--tint-medium` / `--tint-strong` give components a token-driven strength for `color-mix()` washes, which is how badges stay vivid without a component ever containing a colour (BR-025).
+
+### 6c. Soft tints that stay legible in both themes
+
+Badges, chips and icon tiles derive their colours from one expression rather than hand-picked per-theme pairs:
+
+```
+background   color-mix(in oklab, var(--token) var(--tint-soft), var(--bg-surface))
+text         color-mix(in oklab, var(--token) 70%, var(--text-primary))
+border       inset ring at var(--tint-strong)
+```
+
+The text mix is the part that matters. `--text-primary` is near-black in light theme, so a mid-tone blue **darkens** into a readable navy on its own pale tint; it is near-white in dark theme, so the same expression **lightens** it instead. One rule, correct in both directions, nothing to keep in sync (FR-207).
+
 ### Semantic surface tokens
 Components reference **these** names — never a raw hex, never a raw palette step. Swapping the theme swaps what they resolve to, and nothing else changes.
 
@@ -312,25 +373,54 @@ The file was an export of a transparency **preview**: every pixel tested at alph
 
 ### The dark-theme constraint
 
-The wordmark in the artwork is **dark teal**, so it is illegible on a dark surface. Rather than alter the logo, `<LogoPlate>` places it on a light panel that stays light in both themes. **The plate adapts; the artwork never does.**
+The wordmark in the artwork is **dark teal**, so it is illegible on a dark surface. The logo needs a light field beneath it in every theme. What provides that field changed in Session 08 — see §9a.
+
+### 9a. ⚠️ AMENDED — the white plate is replaced by a gold glow
+
+**Owner decision, Session 08.** `<LogoPlate>` is withdrawn; `<LogoGlow>` replaces it.
+
+> *"The white plate behind it, the white space behind it does not look good. I want you to cover that space on the website so that the CRM's colour scheme is not affected. Behind the logo just add a gradient glow of gold colour and make it more shaded so it enhances the effect of shading towards the logo."*
+
+The plate was a bordered white rectangle — a sticker stuck onto the rail. The glow does the same structural job with none of that.
+
+**Built from four stacked layers** (`.brand-glow` in `styles/tokens.css`, not inline, because BR-025 forbids a colour in a component):
+
+| # | Layer | Job |
+|:--:|---|---|
+| 1 | Warm cream core, ellipse `60% × 55%` at `50% 49%` | The light field the dark-teal wordmark needs |
+| 2 | Gold body, ellipse `84% × 78%` | Gives the glow its hue |
+| 3 | Falloff to fully transparent at 78–82% | **No edge anywhere** — so there is no "white space" boundary left to notice |
+| 4 | One wide low-alpha bloom (`0 0 70px`) | Makes the logo appear to light the rail |
+
+Three sizes: `sm` (collapsed rail, small placements), `md` (sidebar), `lg` (auth screens, watermarks).
+
+**Two mistakes worth recording, because both are easy to repeat:**
+
+1. **A near-white core is wrong.** It reads as the plate it replaced. The core is a warm **cream** (`rgb(255 243 211 / 0.96)`) — unmistakably gold rather than white, and still bright enough that the artwork's dark-teal wordmark clears WCAG AA on it (FR-207).
+2. **Centre the core on the whole artwork, not on the mark.** The first attempt put the bright point at 44% height — above the wordmark rather than behind it — so the wordmark stayed hard to read, which is the one thing the glow had to fix. It is now centred at 49%.
+
+A `border-radius: 9999px` on the pseudo-element is **required**: the bloom is a `box-shadow`, and a box-shadow follows the box. Without it the halo is a visible soft rectangle.
+
+**Why gold is the right choice** (the owner offered the alternative): gold is already the brand accent, and a warm glow against the cool teal rail is a complementary contrast — which is exactly why it reads as *lit* rather than *pasted*. BR-024 is not violated: this is brand chrome behind a logo. It expresses no state and never appears on anything that does.
 
 ### Placement
 
 | Location | Component | Notes |
 |---|---|---|
-| Sidebar header | `<LogoSidebar />` | On a light plate, 158px wide |
-| Sign-in / activation | `<LogoHero />` | Centred, 280px, generous clear space |
-| Placeholder & empty states | `<Logo decorative />` | 7% opacity behind the message |
-| Design system reference | `<Logo width={260} />` | On a white card |
+| Sidebar header | `<LogoSidebar />` | Glow, 150px wide |
+| Collapsed rail | `<LogoSidebar collapsed />` | Glow `sm`, 40px |
+| Sign-in / activation | `<LogoHero />` | Centred, 300px, glow `lg` |
+| Placeholder & empty states | `<LogoGlow decorative />` | ~6% opacity behind the message |
+| Tight horizontal spaces | `<LogoWordmark />` | Glowing mark + **typeset** text, crisp at any size |
 | Favicon / tab | `app/icon.png` | Next generates the sizes |
 | Email templates | Light version | Emails are light-background by convention (FR-215) |
 
 ### Rules
-- **Never** stretch, recolour, rotate, crop, or add effects
+- **Never** stretch, recolour, rotate, crop, or add effects **to the artwork**
 - Only ever set **one** dimension — the other is derived
 - Minimum clear space on every side = the height of the "D" in DIVISION
 - Minimum size: 120px wide for the full lockup
-- Never place it on a mid-tone background — light plate, always
+- Never place it on a mid-tone background — **the glow, always**, and never a bare dark surface
 
 ---
 

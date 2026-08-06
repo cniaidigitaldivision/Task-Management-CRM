@@ -41,12 +41,39 @@ That's all you ever need to type. Everything else is recorded in the files.
 
 | | |
 |---|---|
-| **Last updated** | 2026-08-06, Session 07 |
+| **Last updated** | 2026-08-06, Session 08 |
 | **Current phase** | **Phase 1 — Foundation & Security** |
-| **Phase 1 progress** | ▓▓▓▓░░░░░░ Steps 1, 1b, 2 complete (2 of 7 gates + 1b) |
-| **Overall progress** | ▓▓▓▓▓▓░░░░░░░░░░░░░░ 33% |
-| **Code written** | ✅ Step 1 (scaffold, tokens, theming, constants) · shell, dashboard, 9 routes · **Step 2 (migrations 001–006, RLS, Super Admin trigger)** |
-| **Currently blocked on** | **Nothing.** Awaiting go-ahead for Step 3 (domain — permissions matrix + tests). |
+| **Phase 1 progress** | ▓▓▓▓░░░░░░ Steps 1, 1b, 2 complete · interface redesigned (1c) |
+| **Overall progress** | ▓▓▓▓▓▓░░░░░░░░░░░░░░ 34% |
+| **Code written** | ✅ Step 1 (scaffold, tokens, theming, constants) · shell + dashboard + 9 routes · **Step 2 (migrations 001–006, RLS, Super Admin trigger)** · **Step 1c interface redesign** |
+| **Currently blocked on** | **Nothing.** Step 3 (permissions matrix) is **authorised** — next up. |
+
+### What was completed in Session 08 (2026-08-06) — INTERFACE REDESIGN
+
+**Gate 1c: ✅ PASSED** — verified in Chrome at 1600px in both themes.
+
+**Owner feedback:** the CRM looked pale and unprofessional; the theme toggle repainted the whole interface including the sidebar; the white plate behind the logo looked bad.
+
+**Why it looked flat — four causes, all fixed**
+1. The sidebar was **white** in light theme. A white rail beside a near-white page has no edge, so the whole interface read as one undifferentiated sheet. This was the single biggest cause.
+2. Page `#f4f8f8` against card `#ffffff` — a 2% step, so cards dissolved into the background.
+3. Shadows at `0.06` alpha and `1px #dde7e8` borders — both effectively invisible.
+4. Status shown as a 6px dot on a grey chip, so every state looked identical from a foot away.
+
+**Theme-invariant chrome** ([doc 18 §6a](18-DESIGN-SYSTEM-AND-BRANDING.md))
+The `--sidebar-*` tokens now live in one `:root` block that **neither theme block may redefine**. The rail is identical in light and dark. Token names were unchanged, so no component needed editing. This is what ClickUp, Linear, Asana and Notion all do — the rail is where the brand lives all day, and it should not flip to white half the time.
+
+**Gold logo glow** ([doc 18 §9a](18-DESIGN-SYSTEM-AND-BRANDING.md))
+The white plate is gone. Four stacked layers: warm cream core, gold body, falloff to fully transparent, wide low-alpha bloom. No rectangle, no border, **no edge anywhere** — so the "white space" has no boundary left to notice. Two iterations were needed: a near-white core just looked like the plate again, and centring the bright point on the *mark* rather than the *whole artwork* left the dark-teal wordmark hard to read. Both fixed and re-verified.
+
+**Depth, colour and primitives**
+Surfaces deepened, borders and shadows raised to visible values, `--page-ambience` wash, softer radii. Badges are properly tinted pills whose contrast holds in both themes from one `color-mix()` expression (text mixed 70% toward `--text-primary`, which darkens on light and lightens on dark). Eleven new primitives: StatCard, Sparkline, TrendPill, ProgressBar, ProgressRing, SegmentedBar, IconTile, PageHeader, ViewTabs, FilterChip, AvatarStack, PriorityFlag, IconButton.
+
+**Dashboard rebuilt**, reordered around how the screen is used: where the work stands → the four figures that matter → what needs me today → who is overloaded → detail.
+
+**Known and deliberate:** eight of the nine nav destinations are still phase placeholders (restyled, but placeholders) — those screens belong to Phase 2 and Phase 5.
+
+**One self-inflicted break worth noting:** a CSS comment was opened without its `/*`, which broke the build and the owner saw the error. Fixed, `.next` cleared, all 12 routes re-verified at 200.
 
 ### What was completed in Session 07 (2026-08-06) — PHASE 1, STEP 2
 
@@ -198,9 +225,11 @@ The new asset is a **transparent raster**, not vector. That changes what each fo
 
 ## 3. ⏭️ NEXT ACTION
 
-**State on close:** Phase 1 Steps 1 (Gate 1 ✅), 1b (Gate 1b ✅) and **2 (Gate 2 ✅)** complete. Everything committed and pushed. Working tree clean. `npm run verify` clean.
+**State on close:** Phase 1 Steps 1 (Gate 1 ✅), 1b (Gate 1b ✅), **2 (Gate 2 ✅)** and the **interface redesign (Gate 1c ✅)** complete. Everything committed and pushed. Working tree clean. `npm run verify` clean.
 
-**Waiting for:** the owner's go-ahead to begin **Step 3 — Domain: the permissions matrix**.
+**Step 3 is authorised** (owner, Session 08: *"from now on you can implement this step 3"*). It was deferred behind the redesign because the owner's confidence in the interface was the blocker worth clearing first.
+
+**➡️ NEXT: Step 3 — Domain: the permissions matrix.** Needs nothing from the owner.
 
 Phase 1 step order ([doc 20 §9](20-IMPLEMENTATION-CONTRACTS.md#9-phase-1--the-concrete-build-order)):
 
@@ -320,7 +349,8 @@ Each update rewrites §2 (where we are), §3 (next action), and appends to §7 (
 | 05 | 2026-08-06 | **PHASE 1, STEP 1 — code begins.** Next.js 16.3 + React 19.2 + TS + Tailwind v4 scaffolded. Full design-token system (light/dark, semantic layer, shadcn bridge). Canonical constants with score-weight assertion. Theme provider on `useSyncExternalStore`, pre-paint script, toggle + segmented + Appearance controls. Logo rebuilt as theme-aware inline SVG. Lint rules enforcing BR-025 and layer-2 purity. Dev port moved to 4310 (service-worker collision on 3000). **Gate 1 PASSED** — verified in browser: both themes, no flash, persistence, correct gold-token asymmetry. `npm run verify` clean. | **Awaiting go-ahead for Step 2** |
 | 06 | 2026-08-06 | **Logo corrected + application shell built.** SVG reconstruction removed; supplied artwork used as-is with aspect ratio locked in code. Diagnosed the chequerboard baked into the supplied PNG and produced a genuinely transparent derived copy (original untouched). Richer surface tokens. UI primitives, app shell, role-aware nav, admin dashboard, 9 placeholder routes. Standing rule adopted: push and document after every change. | **Awaiting go-ahead for Step 2** |
 | 07 | 2026-08-06 | **PHASE 1, STEP 2 — DATA FOUNDATION. GATE 2 PASSED, 35/35.** Registry first: five conflicts resolved (C-13 → **we implement our own auth**, Supabase is Postgres/Storage/Realtime only; C-14 → RLS keys off `SET LOCAL app.user_id` under the `NOBYPASSRLS` role `cni_app`, fail-closed; C-15 → narrow pre-auth definer surface; C-16 → SQL migrations are the schema SSOT and types are generated; C-17 → `account_unlock` purpose), plus doc 04 deltas in §9a. Migrations 001–006 applied: identity, MFA, recovery codes, break-glass, append-only audit and security logs, skills, settings, RLS on all 13 tables, and the Super Admin immutability trigger enforcing BR-027, FR-140, FR-156, BR-028, FR-146, doc 03 §5 and §3. Found and closed two real holes: Supabase's default `anon`/`authenticated` grants on `public`, and `user_directory` being an auto-updatable owner-run view. Migration 006 cleared all 7 linter warnings. 35-assertion gate proof checked in, `BEGIN…ROLLBACK`, safe against production. Types generated. `.env.example` written. Q-054 and Q-055 raised and built to defaults. | **Awaiting go-ahead for Step 3** |
-| 08 | — | *(next session)* | |
+| 08 | 2026-08-06 | **INTERFACE REDESIGN — Gate 1c PASSED.** Owner: the CRM looked pale and unprofessional. Root cause was the **white sidebar in light theme** — no edge against a near-white page, so the whole interface read as one flat sheet — compounded by a 2% page-vs-card step, 0.06-alpha shadows and 6px status dots. **Theme-invariant chrome** added as a new token layer so the rail is identical in both themes. **White logo plate replaced by a four-layer gold glow** with a warm cream core centred on the whole artwork, keeping the dark-teal wordmark legible with no rectangle and no visible edge. Surfaces deepened, real elevation, tinted badge formula that holds contrast in both themes, eleven new primitives, dashboard rebuilt and reordered. Docs 18 §6a/§6b/§6c/§9a amended. Verified in Chrome in both themes; all 12 routes 200. | **Step 3 authorised — next** |
+| 09 | — | *(next session)* | |
 
 ---
 
