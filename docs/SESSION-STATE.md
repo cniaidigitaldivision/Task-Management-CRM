@@ -472,7 +472,8 @@ If you want the short version of what makes this system different from ClickUp, 
 
 ### Hover-to-expand rail
 - Rail is **72px at rest** on desktop (`--sidebar-width-collapsed`), **264px on hover**, 240ms.
-- ⚠️ **It expands OVER the content, it does not push it.** `AppShell` reserves only the collapsed width, so nothing reflows. Pushing the content would re-lay-out every card on the page on mouse-over, which reads as the layout breaking rather than as a flourish.
+- ⚠️ **It PUSHES the content, it does not cover it.** *(Corrected after the owner tried the first version.)* My initial choice was to overlay, reasoning that pushing reflows the layout on mouse-over. The owner was clear that covering the dashboard is worse — hiding part of the page to reveal a menu defeats the point of the menu. The content is left-padded by `--rail`, which tracks the rail width and animates with it at the same 240ms, so the page narrows and re-centres.
+- `has-[aside:hover]` on the shell root is what lets a **sibling** react to the rail being hovered. `group-hover` cannot do it — hovering anywhere in the shell would trigger it.
 - Labels, section headings, counter chips and the footer text fade with `lg:opacity-0 lg:group-hover/rail:opacity-100`. The rail is `overflow-hidden`, so they are clipped; the opacity transition is what stops the clipping being visible mid-animation.
 - **Mobile is untouched** — it stays a full-width drawer. All the collapse rules are `lg:`-prefixed.
 
