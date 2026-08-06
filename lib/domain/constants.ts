@@ -585,15 +585,23 @@ export const SYSTEM_DEFAULTS = {
   passwordHistoryCount: 5,
   recoveryCodeCount: 10,
 
-  /* -- Sessions (minutes) -- */
+  /* -- Sessions (minutes) — doc 16 §4 --
+     Privilege determines exposure: the Super Admin's window is hours, a
+     Member's is weeks. Every value here is from doc 16 §4's session table. */
   accessTokenTtlMinutes: 15,
   refreshTtlSuperAdminMinutes: 8 * 60,
   refreshTtlAdminMinutes: 24 * 60,
   refreshTtlDefaultMinutes: 7 * 24 * 60,
   idleTimeoutSuperAdminMinutes: 30,
   idleTimeoutAdminMinutes: 120,
+  /** No idle timeout for Coordinators and Members. doc 16 §4. */
+  idleTimeoutDefaultMinutes: null,
   absoluteSessionCapSuperAdminMinutes: 12 * 60,
+  /** doc 16 §4, "Absolute session cap — others 30 days". */
+  absoluteSessionCapDefaultMinutes: 30 * 24 * 60,
   maxConcurrentSessionsSuperAdmin: 2,
+  /** Unlimited for everyone else. doc 16 §4. */
+  maxConcurrentSessionsDefault: null,
   stepUpValidityMinutes: 10,
 
   /* -- Calendar & delivery -- */
