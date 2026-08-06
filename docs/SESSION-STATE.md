@@ -43,10 +43,37 @@ That's all you ever need to type. Everything else is recorded in the files.
 |---|---|
 | **Last updated** | 2026-08-06, Session 08 |
 | **Current phase** | **Phase 1 — Foundation & Security** |
-| **Phase 1 progress** | ▓▓▓▓░░░░░░ Steps 1, 1b, 2 complete · interface redesigned (1c) |
-| **Overall progress** | ▓▓▓▓▓▓░░░░░░░░░░░░░░ 34% |
-| **Code written** | ✅ Step 1 (scaffold, tokens, theming, constants) · shell + dashboard + 9 routes · **Step 2 (migrations 001–006, RLS, Super Admin trigger)** · **Step 1c interface redesign** |
-| **Currently blocked on** | **Nothing.** Step 3 (permissions matrix) is **authorised** — next up. |
+| **Phase 1 progress** | ▓▓▓▓▓░░░░░ Steps 1, 1b, 1c, 2, 2b, **3** complete |
+| **Overall progress** | ▓▓▓▓▓▓▓▓░░░░░░░░░░░░ 41% |
+| **Code written** | ✅ Step 1 scaffold + tokens · shell + dashboard · **Step 1c redesign** · **Step 2 migrations 001–006, RLS, Super Admin trigger** · **Step 2b Tasks screen** · **Step 3 permission matrix** |
+| **Tests** | `npm run test` → **502 passing** |
+| **Currently blocked on** | **Nothing.** Awaiting go-ahead for **Step 4 — Authentication**. |
+
+### What was completed in Session 08, part 2 — TASKS SCREEN + STEP 3
+
+**Gate 3: ✅ PASSED** — 502 tests, all passing, ~470ms.
+
+**Tasks screen (Step 2b)** — pulled forward from Phase 2 at the owner's request, the same way the shell was in Session 06.
+- **List view** grouped by status, project or assignee, with collapsible groups
+- **Board view** — eight columns, counts and effort totals, drag-and-drop
+- Working filters: priority, assignee, hide-closed. Real view switching.
+- Cards carry reference, project, priority stripe, effort, time-against-limit, blocked reason, comment/attachment/checklist counts
+- Preview data expanded 6 → 18 tasks; `PREVIEW_STATUS_COUNTS` now **derived** from them, so the dashboard and the board cannot disagree
+- **Not yet, and the UI says so:** nothing persists (Step 4), and the full transition table (doc 05 §2) arrives with `status-machine.ts` in Phase 2
+
+**Step 3 — the permission matrix**
+`lib/domain/permissions.ts` is doc 03 §3 transcribed into a table: **79 actions × 4 roles**, in document order, with doc 20 §5's frozen signatures `can()` and `requiresStepUp()`. Conditional rules (`self`, `own_task`, `self_created`, `not_assignee`, `outranks`, `in_project`) **fail closed** — a check that cannot prove it should pass, does not pass.
+
+The suite has three independent layers, because a test that imports the table it is checking proves only that the reader works:
+1. **Transcription** — doc 03 §3 written out a *second* time in the test file and compared
+2. **Behaviour** — the full 79 × 4 cross product through `can()`, each conditional exercised with contexts built to satisfy **and** to violate it
+3. **Prose** — named scenarios from the document's sentences: BR-002, BR-028, FR-156, FR-146, ADR-003, BR-003, BR-016, doc 03 §5
+
+**The board now calls `can()`** for status changes, approvals and cancellations, so layer 4 holds no rules of its own. The "Preview as" role picker makes it visible: switch to Member and the board stops accepting other people's cards.
+
+**Vitest** added — first new dependency since Step 1, dev-only. `npm run verify` is now typecheck → lint → **test** → build.
+
+**Not visually verified:** the Chrome extension disconnected partway through the session, so `/tasks` was checked by build and rendered output rather than by eye. Worth a look before Step 4.
 
 ### What was completed in Session 08 (2026-08-06) — INTERFACE REDESIGN
 
@@ -225,11 +252,19 @@ The new asset is a **transparent raster**, not vector. That changes what each fo
 
 ## 3. ⏭️ NEXT ACTION
 
-**State on close:** Phase 1 Steps 1 (Gate 1 ✅), 1b (Gate 1b ✅), **2 (Gate 2 ✅)** and the **interface redesign (Gate 1c ✅)** complete. Everything committed and pushed. Working tree clean. `npm run verify` clean.
+**State on close:** Phase 1 Steps 1 (Gate 1 ✅), 1b (Gate 1b ✅), 1c (Gate 1c ✅), **2 (Gate 2 ✅)**, 2b (Tasks screen) and **3 (Gate 3 ✅, 502 tests)** complete. Everything committed and pushed. Working tree clean. `npm run verify` clean — typecheck, lint, test, build.
 
-**Step 3 is authorised** (owner, Session 08: *"from now on you can implement this step 3"*). It was deferred behind the redesign because the owner's confidence in the interface was the blocker worth clearing first.
+**➡️ NEXT: Step 4 — Authentication.** Awaiting the owner's go-ahead.
 
-**➡️ NEXT: Step 3 — Domain: the permissions matrix.** Needs nothing from the owner.
+### What Step 4 involves
+
+Password hashing (Argon2id, FR-147), sign-in, device-bound sessions with rotation and reuse detection (FR-150), rate limiting and the 3-attempt lockout (FR-155a), MFA — TOTP, WebAuthn, recovery codes (FR-145) — and step-up re-authentication (FR-149). Gate: lockout, unlock and MFA all work end to end.
+
+It also builds the two pieces Step 2 deliberately deferred, both documented in [`lib/db/README.md`](../lib/db/README.md):
+- the `queries/` layer and the `withUser()` helper that sets the RLS identity (registry C-14)
+- the narrow pre-auth `SECURITY DEFINER` surface in schema `app` (registry C-15)
+
+**Step 4 is the first step that needs `.env.local` filled in.** See §3's checklist below — in particular `DATABASE_URL` must end with `?options=-c%20role%3Dcni_app`, or the app connects as `postgres`, bypasses row-level security, and silently disables half the security model.
 
 Phase 1 step order ([doc 20 §9](20-IMPLEMENTATION-CONTRACTS.md#9-phase-1--the-concrete-build-order)):
 
@@ -350,6 +385,7 @@ Each update rewrites §2 (where we are), §3 (next action), and appends to §7 (
 | 06 | 2026-08-06 | **Logo corrected + application shell built.** SVG reconstruction removed; supplied artwork used as-is with aspect ratio locked in code. Diagnosed the chequerboard baked into the supplied PNG and produced a genuinely transparent derived copy (original untouched). Richer surface tokens. UI primitives, app shell, role-aware nav, admin dashboard, 9 placeholder routes. Standing rule adopted: push and document after every change. | **Awaiting go-ahead for Step 2** |
 | 07 | 2026-08-06 | **PHASE 1, STEP 2 — DATA FOUNDATION. GATE 2 PASSED, 35/35.** Registry first: five conflicts resolved (C-13 → **we implement our own auth**, Supabase is Postgres/Storage/Realtime only; C-14 → RLS keys off `SET LOCAL app.user_id` under the `NOBYPASSRLS` role `cni_app`, fail-closed; C-15 → narrow pre-auth definer surface; C-16 → SQL migrations are the schema SSOT and types are generated; C-17 → `account_unlock` purpose), plus doc 04 deltas in §9a. Migrations 001–006 applied: identity, MFA, recovery codes, break-glass, append-only audit and security logs, skills, settings, RLS on all 13 tables, and the Super Admin immutability trigger enforcing BR-027, FR-140, FR-156, BR-028, FR-146, doc 03 §5 and §3. Found and closed two real holes: Supabase's default `anon`/`authenticated` grants on `public`, and `user_directory` being an auto-updatable owner-run view. Migration 006 cleared all 7 linter warnings. 35-assertion gate proof checked in, `BEGIN…ROLLBACK`, safe against production. Types generated. `.env.example` written. Q-054 and Q-055 raised and built to defaults. | **Awaiting go-ahead for Step 3** |
 | 08 | 2026-08-06 | **INTERFACE REDESIGN — Gate 1c PASSED.** Owner: the CRM looked pale and unprofessional. Root cause was the **white sidebar in light theme** — no edge against a near-white page, so the whole interface read as one flat sheet — compounded by a 2% page-vs-card step, 0.06-alpha shadows and 6px status dots. **Theme-invariant chrome** added as a new token layer so the rail is identical in both themes. **White logo plate replaced by a four-layer gold glow** with a warm cream core centred on the whole artwork, keeping the dark-teal wordmark legible with no rectangle and no visible edge. Surfaces deepened, real elevation, tinted badge formula that holds contrast in both themes, eleven new primitives, dashboard rebuilt and reordered. Docs 18 §6a/§6b/§6c/§9a amended. Verified in Chrome in both themes; all 12 routes 200. | **Step 3 authorised — next** |
+| 08b | 2026-08-06 | **TASKS SCREEN + STEP 3 — Gate 3 PASSED, 502 tests.** Tasks screen pulled forward from Phase 2: list with grouping and collapsible groups, board with eight columns and drag-and-drop, working filters, rich cards. Preview data 6 → 18 tasks with **derived** status counts. **Step 3:** `lib/domain/permissions.ts` — doc 03 §3 as a table, 79 actions × 4 roles, frozen signatures, conditional rules failing closed. Test suite in three independent layers (second transcription · full cross product · prose scenarios). Board rewired to call `can()`. Vitest added; `verify` now includes tests. | **Awaiting go-ahead for Step 4** |
 | 09 | — | *(next session)* | |
 
 ---
