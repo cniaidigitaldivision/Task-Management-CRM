@@ -24,13 +24,20 @@ export function Input({
   size = 'md',
   className,
   invalid = false,
+  ref,
   ...props
 }: Omit<React.InputHTMLAttributes<HTMLInputElement>, 'size'> & {
   size?: ControlSize;
   invalid?: boolean;
+  /* React 19 passes `ref` as an ordinary prop, so forwardRef is no longer
+     needed — but it still has to be declared and applied, or a caller's ref is
+     silently dropped. The sign-in form needs one to focus the MFA code field the
+     moment it appears. */
+  ref?: React.Ref<HTMLInputElement>;
 }) {
   return (
     <input
+      ref={ref}
       aria-invalid={invalid || undefined}
       className={cn(
         'w-full min-w-0 px-3 text-text-primary placeholder:text-text-tertiary',
