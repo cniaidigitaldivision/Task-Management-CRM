@@ -1,5 +1,14 @@
 # 🚀 DEPLOYING TO VERCEL
 
+> ✅ **Already done.** Live at **https://cni-crm.vercel.app**.
+>
+> The GitHub repository is connected to the Vercel project, so **every push to
+> `main` deploys itself** — steps 1, 2 and 4 below are only needed if that link
+> is ever broken and the CLI has to be used instead.
+>
+> What still matters here: the environment-variable list (step 3), the
+> redeploy-after-changing-them rule, and the notes at the foot.
+
 > Everything here you run yourself. **No environment value should ever be sent to
 > me** — `vercel env add` reads from your terminal and the dashboard reads from
 > your browser, and neither puts the value anywhere I can see it.

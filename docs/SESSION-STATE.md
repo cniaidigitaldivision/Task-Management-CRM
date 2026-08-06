@@ -30,6 +30,8 @@ That's all you ever need to type. Everything else is recorded in the files.
 |---|---|
 | Run it | `npm run dev` → **http://localhost:4310** (not 3000 — a foreign service worker owns 3000) |
 | Verify | `npm run verify` = typecheck → lint → build |
+| **Live** | **https://cni-crm.vercel.app** — Vercel project `cni-crm`, auto-deploys on every push to `main` |
+| Verify the live site | `npm run smoke -- https://cni-crm.vercel.app` — 25 checks, both roles |
 | Repo | https://github.com/habibaminhas989-blip/cni-crm (private, `main`) |
 | **Owner requests** | [`docs/OWNER-REQUESTS.md`](OWNER-REQUESTS.md) — verbatim standing rules and design decisions. **Survives an account switch. Read it before any UI work.** |
 | Browser testing | Use `http://192.168.100.131:4310` — Chrome here cannot reach `localhost` |
@@ -53,6 +55,7 @@ That's all you ever need to type. Everything else is recorded in the files.
 | **Phase 1 progress** | ▓▓▓▓▓▓▓▓░░ Steps 1–4 complete · **5.1 complete** · **Phase 2 work core pulled forward and operational** |
 | **Overall progress** | ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░ 72% |
 | **Code written** | ✅ Step 1 scaffold + tokens · shell + dashboard · **Step 1c redesign** · **Step 2 migrations 001–006, RLS, Super Admin trigger** · **Step 2b Tasks screen** · **Step 3 permission matrix** · **Step 4 authentication** · **Step 5.1 first-run setup** |
+| **✅ Deployed** | Live on Vercel, environment variables set, 25/25 signed-in route checks green against the real URL. Super Admin created and enrolled; `/setup` verified CLOSED in production. |
 | **✅ MFA enrolment** | Built (Session 12). QR code plus a copyable setup key, the code proven before anything is stored, and `requireEnrolledUser()` enforcing FR-145 at the application boundary rather than by redirect alone. |
 | **➡️ NEXT** | **Step 5.2 — the invitation chain.** It is now the one thing standing between the demo and a system the team can actually be onboarded into. See §3 and [`DEMO-GUIDE.md`](DEMO-GUIDE.md). |
 

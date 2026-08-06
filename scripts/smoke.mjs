@@ -60,7 +60,11 @@ const RANK = { super_admin: 4, admin: 3, team_coordinator: 2, member: 1 };
 const PUBLIC_ROUTES = [
   ['/login', 'Sign in'],
   ['/forgot-password', 'password'],
-  ['/setup', 'Setup'],
+  /* Deliberately asserts the CLOSED state, not just a 200. A Super Admin exists
+     and the database permits exactly one, so the form must never appear again —
+     and 'Setup' alone matched both the open form and the closed door. On a public
+     URL the difference is who owns the system. */
+  ['/setup', 'Setup is closed'],
 ];
 
 function redact(text) {
