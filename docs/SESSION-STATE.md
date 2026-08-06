@@ -31,6 +31,8 @@ That's all you ever need to type. Everything else is recorded in the files.
 | Repo | https://github.com/habibaminhas989-blip/cni-crm (private, `main`) |
 | Browser testing | Use `http://192.168.100.131:4310` — Chrome here cannot reach `localhost` |
 | After changing `public/brand/` | Delete `.next` and restart, or the image optimiser serves the stale asset |
+| **After adding a route** | Run `npm run build` **first**. `tsc` cannot see a new page until the typed-route manifest regenerates, so `verify` fails on a route that exists. |
+| Control sizing | Never set a height on a control. Import from [`components/ui/control.ts`](../components/ui/control.ts) and check `/design-system` → **Controls**. |
 | Database | Supabase `rxjqbtvlzxigfakbiktw`. Schema lives in `lib/db/migrations/`; contract for using it in [`lib/db/README.md`](../lib/db/README.md) |
 | Re-prove the security gate | Paste `lib/db/verify/005_super_admin_immutability.sql` into the SQL editor or the MCP. Self-cleaning, safe against production. Every row must read PASS. |
 | After any migration | Regenerate `types/database.ts`, re-run the gate proof, and run `get_advisors(security)` |
@@ -264,6 +266,19 @@ The new asset is a **transparent raster**, not vector. That changes what each fo
 - `lib/db/verify/007_pre_auth_surface.sql` — the gate proof, self-cleaning, safe against production
 
 The lock is **derived** from the append-only ledger, never counted in a column, and the rule lives in TypeScript only — SQL supplies the inputs and caches the verdict, so a security control has one implementation rather than two.
+
+### ✅ Also done in Session 08 — the control scale, and the auth screens
+
+**Owner feedback:** *"Some buttons are big and some are small. Some buttons and some dropdowns are bigger than the normal screen."*
+
+Both had one cause: the tasks toolbar had five controls in a row at four different heights (28/30/32/36px), each styled by hand. Nothing was wrong individually — there was no shared scale to be wrong against.
+
+- **`components/ui/control.ts`** is now that scale — 32/36/44px with matched padding, type, gap, icon size and one radius. Button, IconButton, Select, Input, SearchInput, FilterChip, ToggleGroup, ToggleButton and ThemeToggle all import from it. **No component sets its own height any more.**
+- **The dropdowns** were bare `<select>` elements rendering the *operating system's* widget — its own font, its own height ignoring the one set, a chunky native arrow. Fixed with `appearance-none` plus our own chevron. Audited: **every `<select>` on every route now carries it, zero native widgets remain.** It stays a real `<select>` — reimplementing it as a div-and-listbox loses keyboard navigation, type-ahead, screen-reader semantics and the mobile picker.
+- **"Bigger than the screen"** — controls must be `shrink-0` or flexbox squashes them unevenly, which makes a flex row exactly as wide as its contents; if that exceeds the viewport the *page* scrolls sideways. The new `Toolbar` wraps instead.
+- **`/design-system` → Controls** shows one of everything, at every size, over a ruled guide. A control off the scale breaks the line there. **This is how it stays fixed, and how you can check it without a browser on my side.**
+
+**Auth screens** — `/login` and `/forgot-password`. Pure UI, no database needed. FR-155e's never-reveal copy and FR-148's warn-before-lock are already correct on them, and both say plainly that they are not wired up.
 
 ### ➡️ NEXT: Step 4, part 2 — the application layer
 
