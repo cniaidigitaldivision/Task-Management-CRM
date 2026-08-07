@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 
 import { requireUser } from '@/lib/auth/current-user';
 import { withUser } from '@/lib/db/client';
+import { audit } from '@/lib/db/queries/audit';
 import { notify, record } from '@/lib/db/queries/feed';
 import { listAvailability } from '@/lib/db/queries/people';
 import * as T from '@/lib/db/queries/tasks';
@@ -544,6 +545,24 @@ export async function assignTaskAction(
           body: task.title,
           linkTo: '/my-work',
           entityId: taskId,
+        });
+      }
+
+      /* ── BR-003: an override goes in the AUDIT trail, not just the feed ─────
+         Deliberately overloading somebody past their limit is the single act
+         this system asks for a written justification for. The reason is stored
+         on the task so it is visible in context, and here so it is findable
+         later — "who has been overriding capacity, and what did they say" is a
+         question the feed cannot answer without scrolling through every task
+         movement. Only written when an override actually happened. */
+      if (overrideReason?.trim()) {
+        await audit(tx, user, {
+          entityType: 'task',
+          entityId: taskId,
+          action: 'task.capacity_override',
+          reason: overrideReason.trim(),
+          before: { assigneeId: task.assigneeId },
+          after: { assigneeId, reference: task.reference, effortPoints: task.effortPoints },
         });
       }
       /* The person losing the task is told too. Work disappearing from your list

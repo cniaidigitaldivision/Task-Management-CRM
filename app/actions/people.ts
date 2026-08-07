@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 
 import { requireUser } from '@/lib/auth/current-user';
 import { withUser } from '@/lib/db/client';
+import { audit } from '@/lib/db/queries/audit';
 import { record } from '@/lib/db/queries/feed';
 import {
   addAvailability,
@@ -108,8 +109,21 @@ export async function updateCapacityAction(
       roleTitle: str(form, 'roleTitle') || null,
     });
 
-    await withUser(user.id, (tx) =>
-      record(tx, user.id, {
+    await withUser(user.id, async (tx) => {
+      await audit(tx, user, {
+        entityType: 'user',
+        entityId: userId,
+        action: 'user.capacity_changed',
+        before: {
+          weeklyCapacityPoints: target.weeklyCapacityPoints,
+          maxConcurrentTasks: target.maxConcurrentTasks,
+        },
+        after: {
+          weeklyCapacityPoints: capacity ?? target.weeklyCapacityPoints,
+          maxConcurrentTasks: maxTasks ?? target.maxConcurrentTasks,
+        },
+      });
+      await record(tx, user.id, {
         entityType: 'user',
         entityId: userId,
         action: 'capacity_changed',
@@ -124,8 +138,8 @@ export async function updateCapacityAction(
           maxConcurrentTasks: maxTasks ?? target.maxConcurrentTasks,
           roleTitle: str(form, 'roleTitle') || null,
         },
-      }),
-    );
+      });
+    });
 
     revalidatePath('/team');
     revalidatePath('/workload');

@@ -6,6 +6,7 @@ import { requireUser } from '@/lib/auth/current-user';
 import { generateToken, hashToken } from '@/lib/auth/tokens';
 import { withUser } from '@/lib/db/client';
 import { issueToken, revokeAllSessions } from '@/lib/db/queries/auth';
+import { audit } from '@/lib/db/queries/audit';
 import { record } from '@/lib/db/queries/feed';
 import * as P from '@/lib/db/queries/provisioning';
 import { describeSender, sendEmail } from '@/lib/email/send';
@@ -163,15 +164,24 @@ export async function invitePersonAction(
 
   const activationUrl = `${appUrl()}/activate?token=${token}`;
 
-  await withUser(user.id, (tx) =>
-    record(tx, user.id, {
+  await withUser(user.id, async (tx) => {
+    await record(tx, user.id, {
       entityType: 'user',
       entityId: userId,
       action: 'invited',
       summary: `invited ${fullName} as ${ROLE_LABEL[role]}`,
       after: { email, role, invitedBy: user.fullName },
-    }),
-  );
+    });
+    /* Creating an account is a privileged act, so it goes in the audit trail as
+       well as the feed. Same transaction: an account that exists with no record
+       of who created it is exactly what FR-153 is for. */
+    await audit(tx, user, {
+      entityType: 'user',
+      entityId: userId,
+      action: 'user.invited',
+      after: { fullName, email, role, capacity, maxTasks },
+    });
+  });
 
   /* ---- Send it. Failure here is reported, never thrown. ---- */
   const sender = describeSender();
@@ -239,14 +249,20 @@ export async function resendInvitationAction(userId: string): Promise<TeamAction
   });
   const result = await sendEmail({ to: target.email, subject: message.subject, html: message.html, text: message.text });
 
-  await withUser(user.id, (tx) =>
-    record(tx, user.id, {
+  await withUser(user.id, async (tx) => {
+    await record(tx, user.id, {
       entityType: 'user',
       entityId: userId,
       action: 'invitation_resent',
       summary: `re-issued the invitation for ${target.fullName}`,
-    }),
-  );
+    });
+    await audit(tx, user, {
+      entityType: 'user',
+      entityId: userId,
+      action: 'user.invitation_reissued',
+      after: { email: target.email },
+    });
+  });
 
   revalidatePath('/team');
   return {
@@ -265,14 +281,19 @@ export async function revokeInvitationAction(invitationId: string): Promise<Team
   }
 
   await P.revokeInvitation(user.id, invitationId);
-  await withUser(user.id, (tx) =>
-    record(tx, user.id, {
+  await withUser(user.id, async (tx) => {
+    await record(tx, user.id, {
       entityType: 'user',
       entityId: invitationId,
       action: 'invitation_revoked',
       summary: 'withdrew an invitation',
-    }),
-  );
+    });
+    await audit(tx, user, {
+      entityType: 'user',
+      entityId: invitationId,
+      action: 'user.invitation_revoked',
+    });
+  });
 
   revalidatePath('/team');
   return { ok: true };
@@ -306,16 +327,23 @@ export async function setActiveAction(userId: string, isActive: boolean): Promis
        and explicit rather than relying on that. */
     if (!isActive) await revokeAllSessions(userId, 'account_deactivated');
 
-    await withUser(user.id, (tx) =>
-      record(tx, user.id, {
+    await withUser(user.id, async (tx) => {
+      await record(tx, user.id, {
         entityType: 'user',
         entityId: userId,
         action: isActive ? 'reactivated' : 'deactivated',
         summary: `${isActive ? 'restored' : 'deactivated'} ${target.fullName}`,
         before: { isActive: target.isActive },
         after: { isActive },
-      }),
-    );
+      });
+      await audit(tx, user, {
+        entityType: 'user',
+        entityId: userId,
+        action: isActive ? 'user.reactivated' : 'user.deactivated',
+        before: { isActive: target.isActive, email: target.email },
+        after: { isActive },
+      });
+    });
 
     revalidatePath('/team');
     return {
@@ -366,16 +394,26 @@ export async function changeRoleAction(userId: string, role: Role): Promise<Team
   try {
     await P.setPersonRole(user.id, userId, role);
 
-    await withUser(user.id, (tx) =>
-      record(tx, user.id, {
+    await withUser(user.id, async (tx) => {
+      await record(tx, user.id, {
         entityType: 'user',
         entityId: userId,
         action: 'role_changed',
         summary: `changed ${target.fullName} from ${ROLE_LABEL[target.role]} to ${ROLE_LABEL[role]}`,
         before: { role: target.role },
         after: { role },
-      }),
-    );
+      });
+      /* The single most sensitive entry in the whole trail: a role change is how
+         privilege is granted, so before AND after are recorded even though the
+         feed line already says it in words. */
+      await audit(tx, user, {
+        entityType: 'user',
+        entityId: userId,
+        action: 'user.role_changed',
+        before: { role: target.role, email: target.email },
+        after: { role },
+      });
+    });
 
     revalidatePath('/team');
     return {
@@ -408,14 +446,20 @@ export async function forceResetAction(userId: string): Promise<TeamActionResult
   await P.forcePasswordReset(user.id, userId);
   await revokeAllSessions(userId, 'admin_forced_password_reset');
 
-  await withUser(user.id, (tx) =>
-    record(tx, user.id, {
+  await withUser(user.id, async (tx) => {
+    await record(tx, user.id, {
       entityType: 'user',
       entityId: userId,
       action: 'password_reset_forced',
       summary: `forced a password reset on ${target.fullName}`,
-    }),
-  );
+    });
+    await audit(tx, user, {
+      entityType: 'user',
+      entityId: userId,
+      action: 'user.password_reset_forced',
+      after: { email: target.email, sessionsRevoked: true },
+    });
+  });
 
   revalidatePath('/team');
   return {

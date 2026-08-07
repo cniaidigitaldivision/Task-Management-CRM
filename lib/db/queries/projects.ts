@@ -124,7 +124,7 @@ export async function createProject(
       ${input.ownerId},
       ${input.startDate ?? null},
       ${input.targetEndDate ?? null},
-      ${JSON.stringify(input.typeFields ?? {})}::jsonb,
+      ${tx.json((input.typeFields ?? {}) as never)},
       ${actorId}
     )
     returning id
@@ -159,7 +159,7 @@ export async function updateProject(
       owner_id        = case when ${has('ownerId')} then ${input.ownerId ?? null}::uuid else owner_id end,
       start_date      = case when ${has('startDate')} then ${input.startDate ?? null}::date else start_date end,
       target_end_date = case when ${has('targetEndDate')} then ${input.targetEndDate ?? null}::date else target_end_date end,
-      type_fields     = case when ${has('typeFields')} then ${JSON.stringify(input.typeFields ?? {})}::jsonb else type_fields end
+      type_fields     = case when ${has('typeFields')} then ${tx.json((input.typeFields ?? {}) as never)} else type_fields end
     where id = ${projectId}
   `);
 }

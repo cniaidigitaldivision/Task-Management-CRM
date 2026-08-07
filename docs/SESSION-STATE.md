@@ -59,7 +59,7 @@ That's all you ever need to type. Everything else is recorded in the files.
 | **✅ Deployed** | Live on Vercel, environment variables set, 25/25 signed-in route checks green against the real URL. Super Admin created and enrolled; `/setup` verified CLOSED in production. |
 | **✅ MFA enrolment** | Built (Session 12). QR code plus a copyable setup key, the code proven before anything is stored, and `requireEnrolledUser()` enforcing FR-145 at the application boundary rather than by redirect alone. |
 | **📋 THE PLAN** | [`docs/BUILD-PLAN.md`](BUILD-PLAN.md) — 8 steps to a complete system, owner approves each one. **Read it before doing anything.** |
-| **➡️ NEXT** | **BUILD-PLAN Step 3 — the Security screen**, the last placeholder. Steps 1–2 done: 53 integration tests, run twice to prove they are repeatable. | It is now the one thing standing between the demo and a system the team can actually be onboarded into. See §3 and [`DEMO-GUIDE.md`](DEMO-GUIDE.md). |
+| **➡️ NEXT** | **BUILD-PLAN Step 4 — hardening** (encrypt the MFA secrets, step-up auth, rate limiting). Steps 1–3 done; **no placeholder screens remain**. 61 integration tests. | It is now the one thing standing between the demo and a system the team can actually be onboarded into. See §3 and [`DEMO-GUIDE.md`](DEMO-GUIDE.md). |
 
 ### What was completed in Session 08, part 2 — TASKS SCREEN + STEP 3
 

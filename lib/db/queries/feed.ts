@@ -43,8 +43,8 @@ export async function record(tx: Tx, actorId: string, input: ActivityInput): Pro
     values (
       ${actorId}, ${input.entityType}, ${input.entityId}, ${input.action},
       ${input.summary ?? null},
-      ${input.before === undefined ? null : JSON.stringify(input.before)}::jsonb,
-      ${input.after === undefined ? null : JSON.stringify(input.after)}::jsonb
+      ${input.before === undefined ? null : tx.json(input.before as never)},
+      ${input.after === undefined ? null : tx.json(input.after as never)}
     )
   `;
 }

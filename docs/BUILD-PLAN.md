@@ -19,10 +19,10 @@
 | | |
 |---|---|
 | **Live** | https://cni-crm.vercel.app — auto-deploys on push to `main` |
-| **Current step** | ✅ Steps 1–2 complete — awaiting go-ahead for **Step 3 (Security screen)** |
+| **Current step** | ✅ Steps 1–3 complete — awaiting go-ahead for **Step 4 (hardening)** |
 | **Last updated** | 2026-08-07 |
 
-**Progress:** ✅✅⬜⬜⬜⬜⬜⬜ 2 of 8 steps
+**Progress:** ✅✅✅⬜⬜⬜⬜⬜ 3 of 8 steps
 
 ---
 
@@ -34,7 +34,7 @@ tables have no write path in the application at all.
 | Table | Built for | Reachable from the app? |
 |---|---|:--:|
 | `invitations` | Adding a team member | ✅ **Step 1** |
-| `audit_log` | The privileged-action trail | ❌ nothing reads it |
+| `audit_log` | The privileged-action trail | ✅ **Step 3** — written by every privileged action, read on /security |
 | `system_settings` | Editable configuration | ❌ nothing writes it |
 | `task_dependencies` | "This blocks that" | ❌ |
 | `task_watchers` | Following work you are not assigned | ❌ |
@@ -42,7 +42,7 @@ tables have no write path in the application at all.
 | `time_extension_requests` | Asking for more time | ❌ seeded only |
 | `attachments` | Files on a task | ❌ read path only |
 
-Plus `/security`, the last remaining placeholder screen.
+~~Plus `/security`, the last remaining placeholder screen.~~ ✅ **Every screen is now real.**
 
 ---
 
@@ -115,7 +115,7 @@ emailed until a domain of yours is verified.
 
 ---
 
-### ⬜ Step 3 · The Security screen — the last placeholder
+### ✅ Step 3 · The Security screen — **DONE.** No placeholders remain.
 - Your live sessions, with device and location, and **sign out everywhere**
 - Recent sign-ins and failed attempts
 - The audit log, searchable — Admins see everything except Super Admin entries

@@ -437,7 +437,7 @@ try {
           ${project.name}, ${project.type}::public.project_type, ${project.code},
           ${project.desc}, ${project.status}::public.project_status,
           ${ids[project.owner]}, ${project.permanent ?? false},
-          ${JSON.stringify(fields)}::jsonb, ${ids.sana},
+          ${tx.json(fields)}, ${ids.sana},
           current_date - 30,
           ${project.type === 'event' ? sql`current_date + 70` : null}
         )
