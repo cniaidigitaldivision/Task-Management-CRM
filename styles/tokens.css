@@ -187,12 +187,25 @@
      BR-024 is not violated — this is brand chrome behind a logo. It expresses
      no state, and it never appears on anything that does.
      ====================================================================== */
-  --brand-glow-core: rgb(255 243 211 / 0.96);
-  --brand-glow-warm: rgb(243 213 149 / 0.9);
-  --brand-glow-gold: rgb(224 184 92 / 0.42);
-  --brand-glow-edge: rgb(212 166 60 / 0.12);
-  --brand-glow-bloom: rgb(212 166 60 / 0.2);
-  --brand-glow-bloom-tight: rgb(224 184 92 / 0.24);
+  /* ── REBUILT 2026-08-07 · "it's shouting too much" ────────────────────────
+     The previous treatment was a four-layer bloom with a near-opaque cream
+     core, added in session 08 to rescue a logo sitting on a white plate with no
+     edge. It solved that and over-corrected: the glow announced itself before
+     the mark did.
+
+     Now one warm layer at low alpha, fading out within about a tenth of the
+     artwork's width — present as warmth, not as a light source.
+
+     The cream core is GONE, and that has a consequence worth recording: it was
+     the core that made the dark-teal "AI & DIGITAL" wordmark legible against
+     the near-black rail (#071e22 — about 2.3:1, unreadable). Without it the
+     full artwork cannot sit there at all, which is why the sidebar now uses the
+     mark plus real text. See components/brand/logo.tsx. */
+  --brand-glow-warm: rgb(236 205 143 / 0.34);
+  --brand-glow-gold: rgb(224 184 92 / 0.30);
+  --brand-glow-edge: rgb(212 166 60 / 0.1);
+  --brand-glow-bloom: rgb(212 166 60 / 0.1);
+  --brand-glow-bloom-tight: rgb(224 184 92 / 0.18);
 }
 
 /* ==========================================================================
@@ -587,56 +600,65 @@ body,
 .brand-glow::before {
   content: '';
   position: absolute;
-  /* Overspills the logo — a glow that stops at the artwork's edge is a shape,
-     not a glow. */
-  inset: -26% -14%;
+  /* A TENTH of the artwork, not a quarter. The previous value was -26% -14%,
+     which put more glow on the page than logo. */
+  inset: -9% -5%;
   z-index: -1;
-  /* The bloom below is a box-shadow, and a box-shadow follows the BOX. Without
-     this the halo is a soft rectangle, which is visible and wrong. A full radius
-     on a wide, short box gives the ellipse the glow actually wants. */
+  /* A box-shadow follows the BOX, so without a full radius the halo is a soft
+     rectangle — visible, and wrong. */
   border-radius: var(--radius-full);
-  background:
-    /* 1 · The luminous field. Centred on the WHOLE artwork, not on the mark, so
-          the wordmark underneath sits in the light rather than below it — that
-          was the first version's mistake and it made the wordmark unreadable. */
-    radial-gradient(
-      ellipse 60% 55% at 50% 49%,
-      var(--brand-glow-core) 0%,
-      var(--brand-glow-warm) 54%,
-      transparent 78%
-    ),
-    /* 2 · The gold body, reaching further out and giving the glow its hue. */
-    radial-gradient(
-      ellipse 84% 78% at 50% 50%,
-      var(--brand-glow-gold) 0%,
-      var(--brand-glow-edge) 54%,
-      transparent 82%
-    );
-  /* One wide, low-alpha bloom. The first version stacked two tight shadows with
-     negative spread, which drew a visible ring — the eye reads a hard edge as a
-     sphere, and the whole point is that there is no edge. */
-  box-shadow: 0 0 70px -6px var(--brand-glow-bloom);
+  /* ONE layer. The previous stack was a cream core, a gold body and a 70px
+     bloom: three things competing with the thing they were meant to support. */
+  background: radial-gradient(
+    ellipse 70% 64% at 50% 50%,
+    var(--brand-glow-warm) 0%,
+    var(--brand-glow-edge) 54%,
+    transparent 78%
+  );
   pointer-events: none;
 }
 
-/* Lifts the mark off the glow so it reads as sitting IN the light rather than
-   printed on top of it — this is the "shading towards the logo" effect.
-   Kept deliberately light: a heavier shadow darkens the wordmark, which is the
-   one part of the artwork that cannot afford to lose contrast. */
-.brand-glow > * {
-  filter: drop-shadow(0 1px 2px rgb(6 35 42 / 0.12));
-}
+/* No drop shadow on the artwork any more. It existed to lift the mark off a
+   bright core that no longer exists, and against a quiet halo it only muddied
+   the wordmark — the one part that cannot afford to lose contrast. */
 
 /* Compact variant for the collapsed rail and small placements. */
 .brand-glow-sm::before {
-  inset: -20% -10%;
-  box-shadow: 0 0 34px -6px var(--brand-glow-bloom);
+  inset: -7% -4%;
 }
 
-/* Hero variant for the sign-in and activation screens. */
+/* Hero variant for the sign-in screen. A hero placement is bigger, not louder,
+   so the halo grows with the mark rather than beyond it. */
 .brand-glow-lg::before {
-  inset: -32% -18%;
-  box-shadow: 0 0 160px -20px var(--brand-glow-bloom);
+  inset: -10% -6%;
+  box-shadow: 0 0 48px -20px var(--brand-glow-bloom);
+}
+
+/* ==========================================================================
+   GOLD GRADIENT TEXT
+   --------------------------------------------------------------------------
+   For the organisation name above the sign-in card. `background-clip: text`
+   with a transparent fill, which every current browser supports.
+
+   ⚠️ The fallback `color` is set FIRST and is a real, contrast-checked token.
+   If the clip is unsupported or a forced-colours mode overrides it, the text
+   stays readable instead of vanishing into a transparent fill — which is the
+   usual way this effect breaks, and it breaks silently.
+   ========================================================================== */
+
+.text-gold-gradient {
+  color: var(--text-gold);
+  background-image: var(--gradient-gold);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+@media (forced-colors: active) {
+  .text-gold-gradient {
+    -webkit-text-fill-color: currentColor;
+    background-image: none;
+  }
 }
 
 /* ==========================================================================

@@ -20,25 +20,30 @@
  *     the transport is efficient.
  *
  * ────────────────────────────────────────────────────────────────────────────
- * THE GLOW REPLACED THE PLATE  (owner decision, Session 08)
+ * THE GLOW, TWICE REVISED  (owner decisions, sessions 08 and 15)
  *
- *   "The white plate behind it, the white space behind it does not look good.
- *    Behind the logo just add a gradient glow of gold colour and make it more
- *    shaded so it enhances the effect of shading towards the logo."
+ * Session 08: "The white plate behind it does not look good. Behind the logo
+ * just add a gradient glow of gold colour." A plate was replaced by a
+ * four-layer bloom with a near-opaque cream core.
  *
- * The plate existed for a real reason, and the glow had to inherit that job:
- * the supplied artwork's wordmark is dark teal, so on a dark rail it is
- * illegible. A plain coloured glow would have made the logo unreadable.
+ * Session 15: "the gradient behind it is too much glowing… it's shouting too
+ * much." Correct. It is now ONE warm layer at low alpha, fading within about a
+ * tenth of the artwork's width.
  *
- * <LogoGlow> solves both at once. Its core is a warm near-white at 97%
- * opacity, so the wordmark keeps a light field underneath it; from there it
- * graduates out through gold and fades to fully transparent. There is no
- * rectangle, no border and no hard edge — so there is no "white space" left to
- * notice, which was the actual complaint.
+ * ⚠️ THAT CHANGE HAD A CONSEQUENCE, AND IT IS THE REASON <LogoMark> EXISTS.
+ * The cream core was not decoration. The supplied wordmark "AI & DIGITAL" is
+ * dark teal, and the navigation rail is #071e22 — a contrast ratio of roughly
+ * 2.3:1, which is unreadable. The core was the light field underneath it.
  *
- * The gradient itself lives in styles/tokens.css (`.brand-glow`) because a
- * component may not contain a raw colour (BR-025), and because a glow assembled
- * from four stacked layers belongs in one place rather than inline on a span.
+ * Remove the core and the full artwork simply cannot go on the rail. So the
+ * rail now shows <LogoMark> — the brain alone, which is teal AND gold and
+ * reads perfectly on dark — with the division name set as real HTML beside it,
+ * taking its colour from the rail's own tokens.
+ *
+ * The full artwork stays where it belongs: the sign-in screen, which is white.
+ *
+ * The gradient lives in styles/tokens.css (`.brand-glow`) because a component
+ * may not contain a raw colour (BR-025).
  * ========================================================================= */
 
 import Image from 'next/image';
@@ -126,6 +131,79 @@ export function LogoGlow({
 }
 
 /* --------------------------------------------------------------------------
+ * The mark alone
+ * ------------------------------------------------------------------------ */
+
+/* ── MEASURED, NOT EYEBALLED ──────────────────────────────────────────────
+   Read off the artwork's own alpha channel: the opaque pixels fall into three
+   bands with clear gaps between them.
+
+     0.102 – 0.657   the polygonal brain          ← this is the mark
+     0.701 – 0.816   "AI & DIGITAL", dark teal    ← unreadable on the rail
+     0.859 – 0.922   "DIVISION", gold
+
+   The brain spans 0.227 – 0.850 horizontally. Those exact figures plus about a
+   percent of breathing room are below, as fractions so they survive the artwork
+   being re-exported at a different resolution.
+
+   Re-derive with: sharp(src).ensureAlpha().raw() and count opaque pixels per
+   row. Do not adjust these by guessing — the second band is only 4% of the
+   height away from the first, and clipping into it puts half a letterform in
+   the sidebar. */
+const MARK = { left: 0.219, top: 0.092, width: 0.639, height: 0.575 } as const;
+const MARK_RATIO = (MARK.width * NATURAL_WIDTH) / (MARK.height * NATURAL_HEIGHT);
+
+/**
+ * The polygonal brain, without the wordmark.
+ *
+ * ⛔ THE ARTWORK IS STILL NOT ALTERED. Nothing is redrawn, recoloured or
+ *    re-exported — the same file is served and a window of it is shown, the way
+ *    a picture frame shows part of a photograph. The rule that matters is that
+ *    the logo is never *changed*, and it is not.
+ *
+ * Cropped with CSS rather than a second image file for a practical reason: one
+ * asset cannot fall out of step with another. A separate mark-only PNG would be
+ * one more thing to re-export the day the brand is refreshed, and the day
+ * somebody forgets is the day the rail and the sign-in screen disagree.
+ */
+export function LogoMark({
+  width = 40,
+  className,
+  priority = false,
+}: {
+  width?: number;
+  className?: string;
+  priority?: boolean;
+}) {
+  return (
+    <span
+      className={cn('relative block overflow-hidden', className)}
+      style={{ width, height: Math.round(width / MARK_RATIO) }}
+    >
+      <Image
+        src={LOGO_SRC}
+        alt=""
+        aria-hidden="true"
+        width={NATURAL_WIDTH}
+        height={NATURAL_HEIGHT}
+        priority={priority}
+        sizes={`${Math.round(width / MARK.width)}px`}
+        className="absolute max-w-none"
+        style={{
+          width: `${100 / MARK.width}%`,
+          /* Percentages on an absolutely positioned box resolve against the
+             CONTAINER, not the image — so the image's own offsets are converted
+             into container terms here rather than looking obviously wrong. */
+          left: `-${(MARK.left / MARK.width) * 100}%`,
+          top: `-${(MARK.top / MARK.height) * 100}%`,
+          height: 'auto',
+        }}
+      />
+    </span>
+  );
+}
+
+/* --------------------------------------------------------------------------
  * Lockups
  * ------------------------------------------------------------------------ */
 
@@ -139,11 +217,20 @@ export function LogoHero({ className, width = 300 }: { className?: string; width
 }
 
 /**
- * Sidebar header.
+ * The navigation rail.
  *
- * The artwork carries the wordmark, so nothing is set beside it at full width —
- * a second, typeset "CNI CRM" next to a logo that already says CNI would be
- * saying it twice. Collapsed, the glow tightens and the width halves.
+ * ── WHY THIS IS THE MARK PLUS TEXT, NOT THE ARTWORK ──────────────────────────
+ * It used to be the whole artwork, which worked only because a near-opaque
+ * cream glow sat behind it. With the glow reduced to a whisper — the owner's
+ * instruction in session 15 — the supplied wordmark "AI & DIGITAL" is dark teal
+ * on a #071e22 rail, about 2.3:1. Unreadable.
+ *
+ * The brain is teal AND gold and reads beautifully on dark. So the brain is the
+ * image, and the words are words: real HTML, taking their colour from
+ * `--sidebar-heading` and `--sidebar-muted`, crisp at any zoom, selectable,
+ * and legible by construction rather than by luck.
+ *
+ * Collapsed, the text goes and the mark stays.
  */
 export function LogoSidebar({
   collapsed = false,
@@ -153,12 +240,28 @@ export function LogoSidebar({
   className?: string;
 }) {
   return (
-    <LogoGlow
-      width={collapsed ? 40 : 150}
-      size={collapsed ? 'sm' : 'md'}
-      className={className}
-      priority
-    />
+    <span className={cn('flex items-center gap-2.5', className)}>
+      <span className="brand-glow brand-glow-sm inline-flex shrink-0">
+        <LogoMark width={collapsed ? 38 : 42} priority />
+      </span>
+
+      {!collapsed && (
+        <span className="flex min-w-0 flex-col leading-tight">
+          <span
+            className="truncate text-body-sm font-semibold tracking-tight"
+            style={{ color: 'var(--sidebar-heading)' }}
+          >
+            {ORGANISATION_SHORT_NAME} {'·'} CRM
+          </span>
+          <span
+            className="truncate text-micro"
+            style={{ color: 'var(--sidebar-muted)' }}
+          >
+            {DIVISION_NAME}
+          </span>
+        </span>
+      )}
+    </span>
   );
 }
 

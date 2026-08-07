@@ -181,3 +181,8 @@ if (measured.length > 0) {
     );
   }
 }
+
+/* Every run would otherwise leave a valid session behind — a slow leak of
+   working credentials from a script somebody runs whenever the app feels
+   slow. */
+await signOut(sessionId);

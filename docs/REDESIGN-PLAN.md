@@ -11,8 +11,8 @@
 
 | | |
 |---|---|
-| **Phases** | ⬜⬜⬜⬜⬜⬜⬜ 0 of 7 |
-| **Current** | Phase 1 — speed |
+| **Phases** | ✅⬜✅⬜⬜⬜✅ 3 of 7 |
+| **Current** | Phases 1, 3 and 7 done. Next: 2 (email), 4 (forms), 5 (theme), 6 (sidebar tab) |
 | **Rule** | One phase at a time. Plan → implement → verify → commit → **ask before the next one.** |
 
 ---
@@ -82,8 +82,22 @@ the same rule, the same proof.
 
 ## 3. ✨ THE LOGO
 
-**Chosen: a tight halo, barely there.** 8 px spread, 18% opacity, one layer, no
-outer bloom. The glow fades out within about 10% of the mark's width.
+**Chosen: a tight halo, barely there.** One layer, low alpha, fading within
+about a tenth of the artwork's width. Done.
+
+**And it forced a second change, which is worth recording.** The old glow's
+cream core was not decoration — it was the light field that made the supplied
+wordmark "AI & DIGITAL" (dark teal) legible against the #071e22 rail. Measured
+without it: about 2.3:1. Unreadable.
+
+So the rail now shows the **mark alone** — the polygonal brain, which is teal
+*and* gold and reads perfectly on dark — with the division name set as real
+HTML beside it, taking its colour from the rail's own tokens.
+
+The crop is measured off the artwork's alpha channel, not estimated. The opaque
+pixels fall into three bands: the brain at 0.102–0.657, "AI & DIGITAL" at
+0.701–0.816, "DIVISION" at 0.859–0.922. The full artwork is untouched and still
+used, as supplied, on the sign-in screen — which is now white.
 
 The current treatment is a four-layer gold bloom with a cream core, added in
 session 08 to solve a real problem — the logo sat on a white plate with no edge.
@@ -147,13 +161,13 @@ The owner's words: *"too much green all over."*
 
 | Phase | What | State |
 |:--:|---|---|
-| **1** | Speed | ⬜ |
+| **1** | Speed | ✅ 7276 ms → 544 ms average in production |
 | **2** | Super Admin email change | ⬜ |
-| **3** | Logo | ⬜ |
+| **3** | Logo | ✅ |
 | **4** | Forms | ⬜ |
 | **5** | Theme toggle | ⬜ |
 | **6** | Sidebar toggle | ⬜ |
-| **7** | Login page | ⬜ |
+| **7** | Login page | ✅ |
 
 Each phase: implement → typecheck, lint, build, tests, smoke → commit → **stop
 and ask**.

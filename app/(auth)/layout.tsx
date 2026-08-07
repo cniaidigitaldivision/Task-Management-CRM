@@ -8,31 +8,41 @@ export const metadata: Metadata = {
 };
 
 /* ============================================================================
- * AUTH LAYOUT — doc 20 §3, doc 16 §3
+ * THE SIGN-IN SHELL
  * ----------------------------------------------------------------------------
- * Every unauthenticated screen shares this frame: sign-in, activation, forgot
- * password, locked, MFA enrolment.
+ * ── REBUILT 2026-08-07 · "too much green all over" ───────────────────────────
+ * It was a teal-washed page: a tinted base colour plus two large radial
+ * gradients across the whole viewport. Every surface carried the brand, so
+ * nothing did — the eye had nowhere to land, and the one control that matters
+ * on this screen competed with the wallpaper behind it.
  *
- * It deliberately does NOT use the app shell. There is no navigation to show
- * before you are signed in, and a rail full of destinations you cannot reach is
- * worse than no rail at all.
+ * Now: a plain surface, a neutral card, and teal on exactly one thing — the
+ * button. That is the whole point of an accent colour and it only works when
+ * it is rare.
  *
- * The mark sits at hero size in its gold aura. This is the one screen where the
- * brand is the whole composition rather than a corner of it — and, practically,
- * it is the screen that tells someone they are on the real CRM rather than a
- * convincing copy of it (threat T-2, doc 16 §1).
+ * The organisation name is set in the gold gradient, one step larger. It is the
+ * only decorative element left, which is what lets it read as deliberate rather
+ * than as more decoration.
+ *
+ * ── THE LOGO IS THE FULL ARTWORK HERE, AND ONLY HERE ─────────────────────────
+ * The navigation rail uses the mark plus real text because its dark-teal
+ * wordmark is illegible on a near-black rail. This page is white, so the
+ * artwork works exactly as supplied — with the quiet halo, not the old bloom.
  * ========================================================================= */
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="relative flex min-h-dvh flex-col items-center justify-center overflow-hidden bg-bg-base px-4 py-10">
-      {/* Ambient brand light. Two soft gradients, no image, no layout cost. */}
-      <div aria-hidden="true" className="page-ambience pointer-events-none absolute inset-0" />
-
-      <main className="relative w-full max-w-[26rem]">
-        <div className="mb-8 flex flex-col items-center gap-5 text-center">
+    <div className="flex min-h-dvh flex-col items-center justify-center bg-bg-surface px-4 py-10">
+      <main className="w-full max-w-[26rem]">
+        <div className="mb-8 flex flex-col items-center gap-4 text-center">
           <LogoHero width={230} />
-          <p className="text-caption text-text-tertiary">{ORGANISATION_NAME}</p>
+
+          {/* One size up from the caption it was, and the only gradient on the
+              page. `.text-gold-gradient` falls back to a solid contrast-checked
+              gold if the clip is unsupported — see styles/tokens.css. */}
+          <p className="text-gold-gradient text-body font-semibold tracking-[0.12em] uppercase">
+            {ORGANISATION_NAME}
+          </p>
         </div>
 
         {children}
