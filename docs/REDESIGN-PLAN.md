@@ -99,12 +99,7 @@ pixels fall into three bands: the brain at 0.102–0.657, "AI & DIGITAL" at
 0.701–0.816, "DIVISION" at 0.859–0.922. The full artwork is untouched and still
 used, as supplied, on the sign-in screen — which is now white.
 
-The current treatment is a four-layer gold bloom with a cream core, added in
-session 08 to solve a real problem — the logo sat on a white plate with no edge.
-It over-corrected. The owner's words: *"it's shouting too much."*
-
-The brand colour stays; it stops announcing itself. Applied identically in the
-sidebar, on the login page and anywhere else the mark appears.
+The brand colour stays; it stops announcing itself.
 
 ---
 
