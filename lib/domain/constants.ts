@@ -616,6 +616,24 @@ export const SYSTEM_DEFAULTS = {
 } as const;
 
 /* ==========================================================================
+ * TASK SKILL WEIGHTS — FR-055
+ * --------------------------------------------------------------------------
+ * How much a task needs a skill: 1 nice to have · 2 needed · 3 essential.
+ * Three levels, because a matching engine given a five-point scale gets asked
+ * to distinguish "quite important" from "fairly important", which nobody can
+ * do consistently and the score cannot use.
+ * ========================================================================== */
+
+export const SKILL_WEIGHTS = [1, 2, 3] as const;
+export type SkillWeight = (typeof SKILL_WEIGHTS)[number];
+
+export const SKILL_WEIGHT_LABEL: Readonly<Record<number, string>> = {
+  1: 'Nice to have',
+  2: 'Needed',
+  3: 'Essential',
+};
+
+/* ==========================================================================
  * NOTIFICATION KINDS
  * --------------------------------------------------------------------------
  * The eighteen values of `public.notification_kind`, in the order the enum

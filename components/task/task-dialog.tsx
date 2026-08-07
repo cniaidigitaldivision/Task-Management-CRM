@@ -10,6 +10,11 @@ import { Field, Input, Textarea } from '@/components/ui/input';
 import { Dialog } from '@/components/ui/dialog';
 import { Select } from '@/components/ui/select';
 import {
+  WEEKDAY_CODES,
+  WEEKDAY_LABEL,
+  parseRecurrence,
+} from '@/lib/domain/recurrence';
+import {
   EFFORT_LABEL,
   EFFORT_POINTS,
   EFFORT_SIZES,
@@ -47,6 +52,109 @@ import type { ShellPerson, ShellProject } from '@/components/layout/app-shell';
  * ========================================================================= */
 
 const EMPTY: ActionResult = { ok: false };
+
+/**
+ * The repeat control.
+ *
+ * ── IT SAYS WHEN THE NEXT ONE APPEARS, BECAUSE THAT IS THE SURPRISING PART ───
+ * Every calendar app creates the whole series up front. This one creates the
+ * next instance when the current one is marked done, so a weekly report three
+ * weeks late is one task three weeks old rather than four tasks implying four
+ * separate pieces of work. That is the better behaviour and it is not what
+ * anybody expects, so the control explains itself rather than leaving somebody
+ * to discover it by waiting.
+ */
+function RepeatField({ initial }: { initial: string | null }) {
+  const parsed = initial ? parseRecurrence(initial) : null;
+  const [freq, setFreq] = React.useState(parsed?.ok ? parsed.rule.freq : 'none');
+  const [interval, setInterval] = React.useState(
+    parsed?.ok ? String(parsed.rule.interval) : '1',
+  );
+  const [days, setDays] = React.useState<string[]>(parsed?.ok ? [...parsed.rule.byDay] : []);
+
+  return (
+    <Field
+      label="Repeats"
+      htmlFor="repeatFreq"
+      hint={
+        freq === 'none'
+          ? 'A one-off.'
+          : 'The next one is created when this is marked done — not on a timer, so the series can never run ahead of the work.'
+      }
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <Select
+          id="repeatFreq"
+          name="repeatFreq"
+          size="md"
+          value={freq}
+          onChange={(event) => setFreq(event.target.value as typeof freq)}
+          className="w-40"
+        >
+          <option value="none">Does not repeat</option>
+          <option value="DAILY">Daily</option>
+          <option value="WEEKLY">Weekly</option>
+          <option value="MONTHLY">Monthly</option>
+        </Select>
+
+        {freq !== 'none' && (
+          <>
+            <span className="text-caption text-text-tertiary">every</span>
+            <Input
+              name="repeatInterval"
+              type="number"
+              min="1"
+              max="52"
+              value={interval}
+              onChange={(event) => setInterval(event.target.value)}
+              className="w-20"
+            />
+            <span className="text-caption text-text-tertiary">
+              {freq === 'DAILY' ? 'day(s)' : freq === 'WEEKLY' ? 'week(s)' : 'month(s)'}
+            </span>
+          </>
+        )}
+      </div>
+
+      {freq === 'WEEKLY' && (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {WEEKDAY_CODES.map((code) => {
+            const on = days.includes(code);
+            return (
+              <label
+                key={code}
+                className={`cursor-pointer rounded-lg border px-2.5 py-1 text-micro font-semibold ${
+                  on
+                    ? 'border-transparent bg-[image:var(--gradient-brand)] text-text-on-brand'
+                    : 'border-border-subtle text-text-secondary hover:bg-bg-hover'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  name="repeatByDay"
+                  value={code}
+                  checked={on}
+                  onChange={(event) =>
+                    setDays((current) =>
+                      event.target.checked
+                        ? [...current, code]
+                        : current.filter((d) => d !== code),
+                    )
+                  }
+                  className="sr-only"
+                />
+                {WEEKDAY_LABEL[code].slice(0, 3)}
+              </label>
+            );
+          })}
+          <p className="w-full text-micro text-text-tertiary">
+            Leave all unticked to repeat on the same weekday as this one.
+          </p>
+        </div>
+      )}
+    </Field>
+  );
+}
 
 export function TaskDialog({
   open,
@@ -262,6 +370,8 @@ export function TaskDialog({
             <Input id="timeLimitHoursNew" name="timeLimitHours" type="number" min="0" step="0.5" />
           </Field>
         )}
+
+        <RepeatField initial={task?.recurrenceRule ?? null} />
 
         <Field label="Detail" htmlFor="description" hint="Brief, links, references — anything the person needs.">
           <Textarea

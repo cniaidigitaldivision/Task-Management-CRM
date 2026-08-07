@@ -652,3 +652,42 @@ export async function bulkWatchAction(
     note: watching ? `Following ${succeeded}.` : `Stopped following ${succeeded}.`,
   };
 }
+
+/* ==========================================================================
+ * PICKERS
+ * ========================================================================== */
+
+/**
+ * What the relation panel's two pickers need: the active skills, and a task
+ * search for the dependency box.
+ *
+ * One action rather than two because the panel opens both at once, and because
+ * a dependency picker that fetches on every keystroke is a request per
+ * character against a pooled connection. `query` is matched server-side so RLS
+ * decides what can be linked — a task the actor cannot see must not be
+ * offerable, or the picker becomes a way to enumerate work.
+ */
+export async function relationPickerAction(query: string): Promise<{
+  skills: Array<{ id: string; label: string; category: string | null }>;
+  tasks: Array<{ id: string; reference: string; title: string; status: string }>;
+}> {
+  const user = await requireUser();
+  const term = query.trim();
+
+  const [skills, tasks] = await Promise.all([
+    (await import('@/lib/db/queries/people')).listSkills(user.id),
+    term.length >= 2
+      ? T.listTasks(user.id, { search: term, includeClosed: true, limit: 12 })
+      : Promise.resolve([]),
+  ]);
+
+  return {
+    skills: skills.map((s) => ({ id: s.id, label: s.label, category: s.category })),
+    tasks: tasks.map((t) => ({
+      id: t.id,
+      reference: t.reference,
+      title: t.title,
+      status: t.status,
+    })),
+  };
+}

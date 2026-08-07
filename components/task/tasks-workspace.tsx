@@ -43,6 +43,7 @@ import {
 import { evaluateTransition, transitionNeedsReason } from '@/lib/domain/task-machine';
 import type { TaskView } from '@/lib/view/task-view';
 
+import { BulkBar } from './bulk-bar';
 import { TaskBoard } from './task-board';
 import { TaskDetail } from './task-detail';
 import { TaskList, groupTasks, type GroupBy } from './task-list';
@@ -91,12 +92,15 @@ export function TasksWorkspace({
   people,
   projects,
   initialSearch = '',
+  initialOpenTaskId = null,
 }: {
   initialTasks: readonly TaskView[];
   currentUser: { id: string; name: string; role: Role };
   people: readonly ShellPerson[];
   projects: readonly ShellProject[];
   initialSearch?: string;
+  /** Opens straight into this task — see the drawer state below. */
+  initialOpenTaskId?: string | null;
 }) {
   const router = useRouter();
 
@@ -109,7 +113,13 @@ export function TasksWorkspace({
   const [search, setSearch] = React.useState(initialSearch);
   const [pending, setPending] = React.useState(false);
   const [flash, setFlash] = React.useState<{ tone: 'error' | 'warn' | 'ok'; text: string } | null>(null);
-  const [openTaskId, setOpenTaskId] = React.useState<string | null>(null);
+  /* Seeded from `?task=…` so a notification, an email or the Admin's extension
+     queue can link straight to the task rather than to a list the person then
+     has to search. */
+  const [openTaskId, setOpenTaskId] = React.useState<string | null>(initialOpenTaskId);
+  /* Bulk selection. Board only — a list row is already a click target for
+     opening the task, and putting a second one inside it makes both worse. */
+  const [selectedIds, setSelectedIds] = React.useState<readonly string[]>([]);
 
   /* A reason-requiring move parks here until the person writes one. */
   const [reasonFor, setReasonFor] = React.useState<{ task: TaskView; to: TaskStatus } | null>(null);
@@ -133,6 +143,9 @@ export function TasksWorkspace({
   if (lastFromServer !== initialTasks) {
     setLastFromServer(initialTasks);
     setTasks(initialTasks);
+    /* Drop any selection pointing at rows that may no longer exist. Keeping it
+       would let a bulk action fire at a task somebody else has since closed. */
+    if (selectedIds.length > 0) setSelectedIds([]);
   }
 
   React.useEffect(() => {
@@ -377,7 +390,29 @@ export function TasksWorkspace({
       {view === 'list' ? (
         <TaskList groups={groups} onOpen={setOpenTaskId} />
       ) : (
-        <TaskBoard tasks={visible} onMove={move} canMove={canMove} onOpen={setOpenTaskId} />
+        <TaskBoard
+          tasks={visible}
+          onMove={move}
+          canMove={canMove}
+          onOpen={setOpenTaskId}
+          selectedIds={selectedIds}
+          onToggleSelect={(taskId) =>
+            setSelectedIds((current) =>
+              current.includes(taskId)
+                ? current.filter((id) => id !== taskId)
+                : [...current, taskId],
+            )
+          }
+        />
+      )}
+
+      {view === 'board' && (
+        <BulkBar
+          selectedIds={selectedIds}
+          onClear={() => setSelectedIds([])}
+          onDone={() => router.refresh()}
+          people={people.map((person) => ({ id: person.id, name: person.name }))}
+        />
       )}
 
       {/* ---- The reason prompt (FR-043) ---- */}

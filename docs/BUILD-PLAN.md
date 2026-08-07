@@ -19,10 +19,10 @@
 | | |
 |---|---|
 | **Live** | https://cni-crm.vercel.app — auto-deploys on push to `main` |
-| **Current step** | ✅ Steps 1–5 complete — awaiting go-ahead for **Step 6 (the rest of task management)** |
+| **Current step** | ✅ Steps 1–6 complete — awaiting go-ahead for **Step 7 (attachments)** |
 | **Last updated** | 2026-08-07 |
 
-**Progress:** ✅✅✅✅✅⬜⬜⬜ 5 of 8 steps
+**Progress:** ✅✅✅✅✅✅⬜⬜ 6 of 8 steps
 
 ---
 
@@ -152,14 +152,27 @@ emailed until a domain of yours is verified.
 
 ---
 
-### ⬜ Step 6 · The rest of task management
-- **Subtasks** — the column exists, nothing creates them
-- **Dependencies** — "this cannot start until that finishes", with a warning when you start something blocked
-- **Watchers** — follow a task you are not assigned
-- **Time extensions** — a Member requests, an Admin approves or declines, and only an Admin can (BR-018)
-- **Task skills** — what a task needs, which is what the matching engine reads
-- Bulk actions on the board
-- Recurring tasks
+### ✅ Step 6 · The rest of task management — **DONE**
+- **Subtasks** — one level deep, deliberately. `parent_task_id` cascades on delete, so an unbounded chain turns one delete into an unbounded cascade; the checklist already covers the smaller steps. Closing a parent warns that it does not close the children
+- **Dependencies** — both directions on the task ("waiting on" and "waiting on this"), with **cycle detection over the whole visible graph**. A → B → C → A is easy to build one reasonable edge at a time and the schema forbids only the self-edge
+- **BR-008** warns on starting something blocked; it does not refuse. A hard block would teach people to delete the dependency rather than record reality, and then the graph the warning is drawn from becomes fiction
+- **Watchers** — anybody may follow or unfollow themselves; a Coordinator may add somebody else, and that person is told
+- **Time extensions** — request with a mandatory reason, decide with a context block (used vs limit, prior extensions, "the estimate was probably low, not the work slow"), full or partial grant, decline requires a written reason (FR-186). Pending requests appear on the dashboard (FR-190) and deep-link straight into the task
+- **Task skills** — what a task needs, at three weights, which is what the matching engine reads
+- **Bulk actions** on the board — status, assignee, follow. Each task is decided separately and partial success is reported honestly
+- **Recurring tasks** — an RFC 5545 subset, and the next instance is created **when the current one closes**, not on a schedule
+
+**Design decisions worth knowing:**
+
+*Spawn-on-complete, not a scheduler.* A weekly report three weeks late is one task three weeks old — the truth — rather than four tasks implying four separate pieces of work, and four tasks' worth of capacity load nobody owes. No cron, and the series can never outrun the person doing it.
+
+*Bulk is not one transaction.* The same actor may legally move four of five selected tasks and be refused on the fifth by BR-002, because they are assigned to it. Deciding once would either approve the illegal one or refuse the four legal ones; rolling back would throw away four legitimate changes to report one expected refusal. Bulk **assignment** is sequential of necessity — each one changes the load the capacity gate reads, so five in parallel would all be judged against the same starting figure.
+
+*Two mismatches between the spec and the schema, resolved in favour of the schema.* `extension_status` spells it `partially_approved`, not `partial`. And FR-187 says an approval "resumes the timer" when there is nothing to resume — doc 17 §4 chose option B, where the timer is never stopped at the limit, and `timer_pause_reason` has no `limit_reached` value for exactly that reason. Restarting a pause that exists for leave or outside-hours would record time nobody is spending.
+
+**And one real hole closed.** `notify()` took `kind: string`, so an invented value compiled cleanly and failed only at the insert — at the end of a flow that had already written its decision. `NOTIFICATION_KINDS` now mirrors the enum. My own first draft used three kinds that do not exist.
+
+**Tests:** 103 new unit, 29 new integration. Totals **788 unit · 115 integration · 25 smoke**, integration run twice consecutively. The new suite creates real tasks and batch-deletes them — the first version looped eight deletes per fixture and timed out its own cleanup hook, leaving behind exactly the mess it existed to prevent.
 
 ---
 

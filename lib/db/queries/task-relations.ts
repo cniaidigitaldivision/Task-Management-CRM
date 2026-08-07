@@ -208,12 +208,6 @@ export interface TaskSkillRow {
   readonly isActive: boolean;
 }
 
-export const SKILL_WEIGHT_LABEL: Record<number, string> = {
-  1: 'Nice to have',
-  2: 'Needed',
-  3: 'Essential',
-};
-
 export async function listTaskSkills(actorId: string, taskId: string): Promise<TaskSkillRow[]> {
   const rows = await withUser(actorId, (tx) => tx`
     select ts.skill_id, ts.weight, s.slug, s.label, s.category, s.is_active

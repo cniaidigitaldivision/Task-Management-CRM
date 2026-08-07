@@ -41,6 +41,8 @@ export function TaskBoard({
   onMove,
   canMove,
   onOpen,
+  selectedIds,
+  onToggleSelect,
 }: {
   tasks: readonly TaskView[];
   onMove: (taskId: string, to: TaskStatus) => void;
@@ -49,6 +51,9 @@ export function TaskBoard({
   /** Opens the detail drawer. A card is draggable AND clickable, so the click
    *  handler has to ignore the click the browser fires at the end of a drag. */
   onOpen?: (taskId: string) => void;
+  /** Selection is optional: omit both and the board has no checkboxes at all. */
+  selectedIds?: readonly string[];
+  onToggleSelect?: (taskId: string) => void;
 }) {
   const [draggingId, setDraggingId] = React.useState<string | null>(null);
   const [hoverColumn, setHoverColumn] = React.useState<TaskStatus | null>(null);
@@ -140,6 +145,7 @@ export function TaskBoard({
                 {columnTasks.map((task) => (
                   <div
                     key={task.id}
+                    className="group/card relative"
                     draggable
                     onDragStart={(event) => {
                       setDraggingId(task.id);
@@ -149,6 +155,27 @@ export function TaskBoard({
                     }}
                     onDragEnd={clearDrag}
                   >
+                    {onToggleSelect && (
+                      /* The checkbox stays hidden until the card is hovered or
+                         something is already selected. A permanent checkbox on
+                         every card turns a board into a spreadsheet. */
+                      <label
+                        className={`absolute left-1.5 top-1.5 z-10 cursor-pointer rounded-md border border-border-default bg-bg-surface p-1 shadow-xs transition-opacity ${
+                          selectedIds?.includes(task.id)
+                            ? 'opacity-100'
+                            : 'opacity-0 group-hover/card:opacity-100 focus-within:opacity-100'
+                        }`}
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        <span className="sr-only">Select {task.reference}</span>
+                        <input
+                          type="checkbox"
+                          className="block h-3.5 w-3.5 cursor-pointer accent-[var(--accent-primary)]"
+                          checked={selectedIds?.includes(task.id) ?? false}
+                          onChange={() => onToggleSelect(task.id)}
+                        />
+                      </label>
+                    )}
                     <TaskCard
                       task={task}
                       dragging={draggingId === task.id}

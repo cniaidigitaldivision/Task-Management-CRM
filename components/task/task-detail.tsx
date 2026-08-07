@@ -28,6 +28,7 @@ import {
   type TaskDetailPayload,
 } from '@/app/actions/tasks';
 import type { ShellPerson, ShellProject } from '@/components/layout/app-shell';
+import { TaskRelationsPanel } from '@/components/task/task-relations-panel';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge, PriorityFlag } from '@/components/ui/badge';
 import { Button, IconButton } from '@/components/ui/button';
@@ -488,6 +489,15 @@ export function TaskDetail({
                 </p>
               </section>
             )}
+
+            {/* ---- Subtasks, dependencies, followers, skills, extra time ---- */}
+            <TaskRelationsPanel
+              data={data}
+              currentUserId={currentUser.id}
+              people={people.map((person) => ({ id: person.id, name: person.name }))}
+              busy={busy}
+              run={run}
+            />
 
             {/* ---- Checklist (FR-027) ---- */}
             <section className="space-y-2">

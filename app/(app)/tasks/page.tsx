@@ -30,7 +30,7 @@ export const metadata: Metadata = { title: 'Tasks' };
 export default async function TasksPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; project?: string; assignee?: string }>;
+  searchParams: Promise<{ q?: string; project?: string; assignee?: string; task?: string }>;
 }) {
   const user = await requireUser();
   const params = await searchParams;
@@ -86,6 +86,7 @@ export default async function TasksPage({
         people={people.map((p) => ({ id: p.id, name: p.fullName, roleTitle: p.roleTitle }))}
         projects={projects.map((p) => ({ id: p.id, name: p.name, type: p.type, code: p.code }))}
         initialSearch={params.q ?? ''}
+        initialOpenTaskId={params.task ?? null}
       />
     </div>
   );

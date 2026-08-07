@@ -30,6 +30,8 @@ import {
 } from '@/lib/domain/constants';
 import { nowMs } from '@/lib/now';
 import { toTaskView } from '@/lib/view/task-view';
+import { listPendingExtensions } from '@/lib/db/queries/task-relations';
+import { canDecideExtensions, formatMinutes } from '@/lib/domain/extensions';
 import { getSettings } from '@/lib/settings/current';
 
 export const metadata: Metadata = { title: 'Dashboard' };
@@ -111,6 +113,12 @@ export default async function DashboardPage() {
     }));
 
   const settings = await getSettings();
+
+  /* RLS decides the scope of this list, not the query: `tx_select` shows an
+     Admin every pending request and shows everybody else only their own. So the
+     same call renders an Admin's queue and a Member's "still waiting" line. */
+  const extensions = await listPendingExtensions(user.id);
+  const canDecide = canDecideExtensions(user.role);
   const softPct = Number(settings.softThresholdPct);
   const hardPct = Number(settings.hardThresholdPct);
   const weeklyCapacity = Number(settings.defaultWeeklyCapacity);
@@ -300,6 +308,56 @@ export default async function DashboardPage() {
           )}
         </Card>
       </PageSection>
+
+      {/* ── Pending extension requests · FR-190 ──────────────────────────── */}
+      {extensions.length > 0 && (
+        <PageSection
+          step={0}
+          title={`Waiting on you · ${extensions.length} ${extensions.length === 1 ? 'request' : 'requests'} for more time`}
+          description="A request sits here until somebody decides. Nothing is locked while it waits — doc 17 §4 chose that deliberately, because a hard stop just moves the work off the books."
+        >
+          <Card>
+            <ul className="divide-y divide-border-subtle">
+              {extensions.map((request) => (
+                <li key={request.id} className="flex flex-wrap items-start gap-x-3 gap-y-1 px-4 py-3">
+                  <div className="min-w-[14rem] flex-1">
+                    <p className="text-caption text-text-primary">
+                      <span className="tabular font-semibold text-text-brand">
+                        {request.taskReference}
+                      </span>{' '}
+                      — {request.requestedByName ?? 'Somebody'} asked for{' '}
+                      <span className="font-semibold">
+                        {formatMinutes(request.requestedMinutes)}
+                      </span>{' '}
+                      more
+                    </p>
+                    <p className="truncate text-micro italic text-text-secondary">
+                      “{request.reason}”
+                    </p>
+                    <p className="text-micro text-text-tertiary">
+                      Used {formatMinutes(request.taskSpentMinutes)} of{' '}
+                      {formatMinutes(request.taskLimitMinutes ?? 0)}
+                      {request.priorDecidedOnTask > 0 && (
+                        <span style={{ color: 'var(--feedback-warning)' }}>
+                          {' · '}extension #{request.priorDecidedOnTask + 1} — the estimate was
+                          probably low, not the work slow
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                  <Link
+                    href={{ pathname: '/tasks', query: { task: request.taskId } }}
+                    className="shrink-0 self-center text-caption font-semibold text-text-brand hover:underline"
+                  >
+                    {canDecide ? 'Decide' : 'Open'}
+                    <ArrowRight className="ml-1 inline h-3.5 w-3.5 align-[-2px]" strokeWidth={2} aria-hidden="true" />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </Card>
+        </PageSection>
+      )}
 
       {/* ── 4 · Who is carrying what ─────────────────────────────────────── */}
       <PageSection
