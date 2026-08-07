@@ -1,6 +1,7 @@
 import {
   BarChart3,
   CalendarClock,
+  CalendarDays,
   FolderKanban,
   Gauge,
   LayoutDashboard,
@@ -59,6 +60,9 @@ export const NAV_SECTIONS: readonly NavSection[] = [
     items: [
       { label: 'Tasks', href: '/tasks', icon: CalendarClock, roles: ALL },
       { label: 'Projects', href: '/projects', icon: FolderKanban, roles: ALL },
+      /* Open to everybody: RLS decides what is in it, so a Member sees their
+         own due dates and a Coordinator sees the division's. */
+      { label: 'Calendar', href: '/calendar', icon: CalendarDays, roles: ALL },
       { label: 'Workload', href: '/workload', icon: Gauge, roles: LEAD_UP },
     ],
   },

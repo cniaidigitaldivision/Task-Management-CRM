@@ -48,6 +48,7 @@ const APP_ROUTES = [
   ['/my-work', 'Your queue', 'member'],
   ['/tasks', 'effort points', 'member'],
   ['/projects', 'Ad-hoc work', 'member'],
+  ['/calendar', 'Every dated task', 'member'],
   ['/workload', 'Person by person', 'team_coordinator'],
   ['/team', 'Everybody', 'admin'],
   ['/reports', 'Where the effort is going', 'team_coordinator'],

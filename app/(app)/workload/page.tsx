@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardBody } from '@/components/ui/card';
 import { IconTile } from '@/components/ui/icon-tile';
 import { StatCard } from '@/components/ui/metric';
+import { ExportButton } from '@/components/ui/export-button';
 import { PageHeader, PageSection } from '@/components/ui/page-header';
 import { ProgressBar } from '@/components/ui/progress';
 import { requireRole } from '@/lib/auth/current-user';
@@ -98,6 +99,7 @@ export default async function WorkloadPage() {
             computed every time you look.
           </>
         }
+        actions={<ExportButton kind="workload" label="Export workload" />}
       />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

@@ -5,6 +5,7 @@ import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardBody, CardToolbar } from '@/components/ui/card';
 import { StatCard } from '@/components/ui/metric';
+import { ExportButton } from '@/components/ui/export-button';
 import { PageHeader, PageSection } from '@/components/ui/page-header';
 import { ProgressBar, SegmentLegend, SegmentedBar, type Segment } from '@/components/ui/progress';
 import { requireRole } from '@/lib/auth/current-user';
@@ -144,6 +145,7 @@ export default async function ReportsPage() {
             drift out of date.
           </>
         }
+        actions={<ExportButton kind="tasks" label="Export tasks" />}
       />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

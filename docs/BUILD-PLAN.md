@@ -19,10 +19,10 @@
 | | |
 |---|---|
 | **Live** | https://cni-crm.vercel.app — auto-deploys on push to `main` |
-| **Current step** | ✅ Steps 1–7 complete — awaiting go-ahead for **Step 8 (intelligence and the finishing pieces)**. ⚠️ Step 7 needs `SUPABASE_STORAGE_KEY` from the owner before uploads work |
+| **Current step** | ✅ **All 8 steps complete.** Two owner actions outstanding — see below |
 | **Last updated** | 2026-08-07 |
 
-**Progress:** ✅✅✅✅✅✅✅⬜ 7 of 8 steps
+**Progress:** ✅✅✅✅✅✅✅✅ 8 of 8 steps
 
 ---
 
@@ -205,14 +205,38 @@ Until then the panel says storage is not configured and the rest of the task dra
 
 ---
 
-### ⬜ Step 8 · Intelligence and the finishing pieces
-- **"Who should do this?"** — the assignment engine, which already knows everyone's skills and load, actually recommending somebody, with the reasoning shown
-- The rebalance advisor acting on its suggestions rather than only listing them
-- Global search across tasks, projects and people
-- Calendar view
-- CSV export and the Monday-morning digest
-- Notification preferences per person, per channel
+### ✅ Step 8 · Intelligence and the finishing pieces — **DONE**
 
+**Assignment recommendations** (doc 07). Six weighted dimensions minus penalties, tested against the document's own worked example. Every row expands into the numbers that produced it, because a ranked list with no explanation is an oracle. Below the usability floor it stops ranking people and says what to change instead — ordered by how cheap the fix is. Skills nobody holds above proficiency 3 surface as a hiring signal.
+
+**Global search** (⌘K). Tasks, projects and people. Runs on the server under the searcher's identity, so RLS removes the rows before they are sent — search is the classic place a permission model leaks, and the leak is almost always a client-side filter over a query that fetched too much. `ILIKE` rather than full-text: the tokeniser splits `EVT-142`, which is the single most common thing anybody searches for.
+
+**Calendar.** A month of due dates, Monday-first with Sunday shaded, because the working week is Monday to Saturday (ADR-004). Every date calculation is UTC — `new Date('2026-08-07').getDate()` answers locally, so west of Greenwich every task lands a cell early.
+
+**CSV export** of tasks and workload, with a formula-injection guard. A title beginning `=`, `+`, `-` or `@` executes when the file opens in Excel or Sheets; every cell is neutralised with a leading apostrophe and the file carries a UTF-8 BOM so accented names survive. Every export is audited with a row count — once a file is in somebody's Downloads folder no access control applies to it, so the record of when it left is the only thing left.
+
+**Notification preferences**, per kind, per channel. A few cannot be silenced and each says why on screen rather than being hidden. **`notify()` enforces them centrally** — a preference honoured in nineteen call sites and forgotten in the twentieth is worse than none, because the person stops trusting the switch.
+
+**The daily digest** (FR-081). `GET /api/digest`, called by Vercel Cron at 04:00 UTC Monday to Saturday. It sends nothing when there is nothing: a mail arriving every morning saying "nothing needs you" is deleted unread within a fortnight, and then the one that matters is deleted too. Each digest is built inside `withUser(theirId)` — one person at a time, RLS live — so a bug in that file cannot put somebody's work in somebody else's inbox.
+
+**A bug caught while writing the recommendation query.** The first draft summed effort × priority × status weight in SQL, and was already wrong: `revisions` as 0.75 where STATUS_META says 1, `blocked` as 0.25 where it says 1. Nothing would have failed — the recommendations would simply have ranked people against a different definition of "busy" than the workload screen beside them, forever. The rows now come back raw and `taskLoad()` does the arithmetic.
+
+**Migration 018** lets `notify()` read a recipient's preferences when the actor is a Member who cannot see their row. Without it the switch would work when a Coordinator triggered the notification and silently not when a Member did.
+
+**Tests:** 92 new unit. Totals **914 unit · 122 integration · 27 smoke**.
+
+---
+
+## ⚠️ WHAT THE OWNER STILL HAS TO DO
+
+Two environment variables. Everything else is built, deployed and green.
+
+| | What | Where |
+|---|---|---|
+| 1 | **`SUPABASE_STORAGE_KEY`** — file attachments will not upload without it | Supabase → Project Settings → API keys → **secret** key. Add to `.env.local` **and** Vercel. Verify with `npm run storage:check` |
+| 2 | **`CRON_SECRET`** — the daily digest endpoint is disabled without it | Generate with `openssl rand -base64 32`. Add to Vercel. The route returns 503 until then — off, never open |
+
+Still outstanding from earlier steps: rotate the three secrets that were pasted into chat (Resend key, database password twice), and verify a real sending domain in Resend — the sandbox sender only delivers to the Resend account owner's own address, so nobody else can be invited until then.
 ---
 
 ## 🔁 HOW EACH STEP RUNS

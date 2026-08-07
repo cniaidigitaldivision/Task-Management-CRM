@@ -8,6 +8,8 @@ import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardBody, CardToolbar } from '@/components/ui/card';
 import { IconTile } from '@/components/ui/icon-tile';
+import { getMyPrefsAction } from '@/app/actions/notification-prefs';
+import { NotificationPrefsPanel } from '@/components/settings/notification-prefs';
 import { PageHeader, PageSection } from '@/components/ui/page-header';
 import { ProgressBar } from '@/components/ui/progress';
 import { requireUser } from '@/lib/auth/current-user';
@@ -34,6 +36,7 @@ export const metadata: Metadata = { title: 'Your profile' };
  * ========================================================================= */
 
 export default async function ProfilePage() {
+  const prefs = await getMyPrefsAction();
   const user = await requireUser();
   const now = nowMs();
 
@@ -252,6 +255,14 @@ export default async function ProfilePage() {
             </CardBody>
           </Card>
         </div>
+      </PageSection>
+
+      <PageSection
+        step={4}
+        title="What reaches you"
+        description="A feed nobody can quieten becomes wallpaper, and wallpaper is how the important one gets missed. A few cannot be turned off — each says why."
+      >
+        <NotificationPrefsPanel initial={prefs} />
       </PageSection>
     </div>
   );

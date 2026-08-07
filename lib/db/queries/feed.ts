@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { mergePrefs, wantsInApp } from '@/lib/domain/notification-prefs';
+
 import type { NotificationKind } from '@/lib/domain/constants';
 
 import { withUser, type Tx } from '../client';
@@ -74,6 +76,21 @@ export async function notify(
   input: NotifyInput,
 ): Promise<void> {
   if (input.userId === actorId) return;
+
+  /* ── THE RECIPIENT'S PREFERENCES DECIDE, NOT THE CALLER ────────────────────
+     Checked here rather than at each of the twenty-odd call sites, because a
+     preference honoured in nineteen places and forgotten in the twentieth is
+     worse than one that does not exist: the person believes they have turned
+     something off and it keeps arriving, so they stop trusting the switch.
+
+     `mergePrefs` re-applies the locks, so a stored `false` against an
+     unsilenceable kind — written before it was locked, or by somebody posting
+     to the action directly — cannot suppress the notification. */
+  const [recipient] = await tx`
+    select app.notification_prefs_for(${input.userId}) as prefs
+  `;
+  if (!wantsInApp(mergePrefs(recipient?.prefs), input.kind)) return;
+
   await tx`
     insert into public.notifications (user_id, kind, title, body, link_to, entity_id)
     values (

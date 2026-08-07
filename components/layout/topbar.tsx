@@ -7,8 +7,8 @@ import { Bell, CheckCheck, ChevronRight, Menu, Plus } from 'lucide-react';
 
 import { markAllReadAction } from '@/app/actions/notifications';
 import { ThemeToggle } from '@/components/brand/theme-toggle';
+import { GlobalSearch } from '@/components/layout/global-search';
 import { Button, IconButton } from '@/components/ui/button';
-import { SearchInput } from '@/components/ui/input';
 import type { NotificationRow } from '@/lib/db/queries/types';
 import { APP_NAME } from '@/lib/domain/constants';
 import { cn } from '@/lib/utils';
@@ -106,24 +106,12 @@ export function Topbar({
           </ol>
         </nav>
 
-        <form
-          role="search"
-          onSubmit={(event) => {
-            event.preventDefault();
-            const value = new FormData(event.currentTarget).get('q');
-            const q = String(value ?? '').trim();
-            router.push(q ? `/tasks?q=${encodeURIComponent(q)}` : '/tasks');
-          }}
-          className="hidden w-60 md:block xl:w-80"
-        >
-          <SearchInput
-            name="q"
-            label="Search tasks by title or reference"
-            placeholder="Search tasks…  try CLI-101"
-            shortcut="⌘K"
-            size="md"
-          />
-        </form>
+        {/* Was a tasks-only form that advertised ⌘K and did not implement it.
+            The palette covers tasks, projects and people, and the shortcut is
+            now real. */}
+        <div className="hidden w-60 md:block xl:w-80">
+          <GlobalSearch />
+        </div>
 
         <div className="flex shrink-0 items-center gap-1">
           {/* ---- Notifications ---- */}
