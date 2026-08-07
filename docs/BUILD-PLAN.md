@@ -19,10 +19,10 @@
 | | |
 |---|---|
 | **Live** | https://cni-crm.vercel.app — auto-deploys on push to `main` |
-| **Current step** | ✅ Step 1 complete — awaiting go-ahead for **Step 2 (email)** |
+| **Current step** | ✅ Steps 1–2 complete — awaiting go-ahead for **Step 3 (Security screen)** |
 | **Last updated** | 2026-08-07 |
 
-**Progress:** ✅⬜⬜⬜⬜⬜⬜⬜ 1 of 8 steps
+**Progress:** ✅✅⬜⬜⬜⬜⬜⬜ 2 of 8 steps
 
 ---
 
@@ -105,7 +105,7 @@ emailed until a domain of yours is verified.
 
 ---
 
-### ⬜ Step 2 · Email
+### ✅ Step 2 · Email — **DONE**
 - Resend wired in, with templates: invitation, password reset, unlock, login alert, capacity warning
 - `/forgot-password` connected end to end — the code is emailed, verified, the password changes, every session is revoked
 - The 3-strike account lock emails an unlock code

@@ -96,6 +96,35 @@ export function hashCode(code: string): string {
   return createHash('sha256').update(`${pepper()}:${code}`, 'utf8').digest('hex');
 }
 
+/**
+ * A short code bound to the account it was issued for.
+ *
+ * ── WHY THE ACCOUNT IS IN THE HASH, AND NOT ONLY THE CODE ────────────────────
+ * Two reasons, and the second is the important one.
+ *
+ * 1. `invitations.token_hash` is globally UNIQUE (migration 001). Two people
+ *    holding the same six digits — which happens roughly once in a million
+ *    issues, so eventually — would produce the same digest, and the second
+ *    request would fail with a unique violation nobody could explain.
+ *
+ * 2. Far more seriously: with an unscoped hash, guessing *any* live code in the
+ *    system resets *somebody's* password. The attacker does not need to know
+ *    whose. Across a team, every outstanding code widens the target, and the
+ *    six-digit space collapses accordingly.
+ *
+ *    Scoped, a guess has to be right for a *named* account. That restores the
+ *    bound the design assumed: one account, one million possibilities, five
+ *    attempts, fifteen minutes.
+ *
+ * The purpose is included as well, so a reset code cannot be presented as an
+ * unlock code — the two flows have different consequences.
+ */
+export function hashScopedCode(purpose: string, accountEmail: string, code: string): string {
+  return createHash('sha256')
+    .update(`${pepper()}:${purpose}:${accountEmail.trim().toLowerCase()}:${code}`, 'utf8')
+    .digest('hex');
+}
+
 /* ==========================================================================
  * Recovery codes — SA-9
  * ========================================================================== */

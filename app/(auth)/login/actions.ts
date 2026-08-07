@@ -5,8 +5,10 @@ import { redirect } from 'next/navigation';
 
 import { burnTimeLikeAVerify, hashPassword, needsRehash, verifyPassword } from '@/lib/auth/hashing';
 import { issueSession, type RequestFacts } from '@/lib/auth/session';
+import { deviceFingerprint } from '@/lib/auth/tokens';
 import { verifyTotp } from '@/lib/auth/totp';
 import {
+  deviceIsKnown,
   findIdentity,
   getLockoutInputs,
   getVerifiedFactors,
@@ -15,6 +17,7 @@ import {
   setLock,
   setPassword,
 } from '@/lib/db/queries/auth';
+import { notifyAccountLocked, notifyNewDeviceSignIn } from '@/lib/email/notify';
 import { MFA_REQUIRED_ROLES } from '@/lib/domain/constants';
 import { evaluateLockout, failureMessage, minutesUntilUnlock } from '@/lib/domain/lockout';
 import type { LoginOutcome } from '@/lib/domain/lockout';
@@ -51,6 +54,10 @@ export interface SignInState {
   /** Set when the password was right but a second factor is required. */
   readonly mfaRequired?: boolean;
   readonly email?: string;
+}
+
+function appUrl(): string {
+  return (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:4310').replace(/\/+$/, '');
 }
 
 async function requestFacts(): Promise<RequestFacts> {
@@ -156,6 +163,19 @@ export async function signIn(_prev: SignInState, formData: FormData): Promise<Si
     });
     if (after.isLocked) {
       await setLock(identity.userId, new Date(after.lockedAt ?? dbNow));
+
+      /* FR-155a — tell them now, while they are sitting there wondering why
+         their password stopped working. Making somebody find "forgot password"
+         to discover they are locked is a worse thirty seconds than saying so.
+         Deliberately not awaited: the lock is already applied, and a mail
+         outage must not slow down or fail the response. */
+      notifyAccountLocked({
+        userId: identity.userId,
+        email: identity.email,
+        fullName: identity.fullName,
+        appUrl: appUrl(),
+      });
+
       return {
         error: failureMessage(after),
         locked: true,
@@ -224,7 +244,29 @@ export async function signIn(_prev: SignInState, formData: FormData): Promise<Si
     await setPassword(identity.userId, await hashPassword(password));
   }
 
+  /* ── FR-151: asked BEFORE the session is created, and that order matters ────
+     `issueSession` writes a row carrying this same fingerprint, so asking
+     afterwards would always answer "known" — matching the session just made,
+     and the alert would never fire for anybody. */
+  const fingerprint = deviceFingerprint(facts.userAgent, facts.acceptLanguage);
+  const knownDevice = await deviceIsKnown(identity.userId, fingerprint);
+
   await issueSession(identity.userId, identity.role, facts, now);
+
+  /* Only for a device never seen on this account. It is the one control that
+     catches a *successful* compromise — everything else resists the attempt —
+     and one of these a day would train people to ignore it. */
+  if (!knownDevice) {
+    notifyNewDeviceSignIn({
+      email: identity.email,
+      fullName: identity.fullName,
+      when: new Date(now),
+      ip: facts.ip,
+      country: facts.ipCountry,
+      userAgent: facts.userAgent,
+      appUrl: appUrl(),
+    });
+  }
 
   redirect(
     identity.isTemporaryPassword || identity.accountState === 'password_reset_required'

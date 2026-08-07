@@ -172,6 +172,20 @@ export async function getVerifiedFactors(userId: string): Promise<VerifiedFactor
  * Sessions
  * ========================================================================== */
 
+/**
+ * FR-151. Has this account signed in from this device before?
+ *
+ * ⚠️ Ask BEFORE creating the session. `createSession` writes a row carrying this
+ * same fingerprint, so afterwards the answer is always yes — matching the
+ * session that was just created.
+ */
+export async function deviceIsKnown(userId: string, fingerprint: string): Promise<boolean> {
+  const rows = await withAppRole(
+    (tx) => tx`select app.auth_device_is_known(${userId}, ${fingerprint}) as known`,
+  );
+  return rows[0]?.known === true;
+}
+
 export async function createSession(input: {
   userId: string;
   refreshTokenHash: string;

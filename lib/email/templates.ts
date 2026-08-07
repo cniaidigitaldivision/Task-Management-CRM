@@ -218,6 +218,85 @@ export function unlockEmail(input: { fullName: string; code: string; unlockUrl: 
 }
 
 /* ==========================================================================
+ * Login alert — FR-151
+ * ========================================================================== */
+
+export function loginAlertEmail(input: {
+  fullName: string;
+  when: Date;
+  ip: string | null;
+  country: string | null;
+  userAgent: string | null;
+  appUrl: string;
+}): Email {
+  const firstName = input.fullName.split(' ')[0];
+
+  /* A raw user-agent string is unreadable and the interesting part is small:
+     which browser, on what. Anything unparseable is reported honestly as
+     "an unrecognised browser" rather than guessed at. */
+  const ua = input.userAgent ?? '';
+  const browser =
+    /Edg\//.test(ua) ? 'Edge'
+    : /OPR\//.test(ua) ? 'Opera'
+    : /Chrome\//.test(ua) ? 'Chrome'
+    : /Safari\//.test(ua) && !/Chrome/.test(ua) ? 'Safari'
+    : /Firefox\//.test(ua) ? 'Firefox'
+    : 'an unrecognised browser';
+  const platform =
+    /Windows/.test(ua) ? 'Windows'
+    : /Android/.test(ua) ? 'Android'
+    : /iPhone|iPad/.test(ua) ? 'iOS'
+    : /Mac OS X/.test(ua) ? 'macOS'
+    : /Linux/.test(ua) ? 'Linux'
+    : 'an unknown device';
+
+  const stamp = input.when.toLocaleString('en-GB', {
+    dateStyle: 'full',
+    timeStyle: 'short',
+    timeZone: 'Asia/Karachi',
+  });
+  const where = [input.country, input.ip].filter(Boolean).join(' · ') || 'an unknown location';
+
+  return {
+    subject: `New sign-in to your ${APP_NAME} account`,
+    html: shell(
+      `<p style="margin:0 0 14px 0;">Hello ${firstName},</p>
+       <p style="margin:0 0 12px 0;">Your account was signed into from a device we have not seen before.</p>
+       <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 16px 0;width:100%;background:${PAGE};border:1px solid ${BORDER};border-radius:10px;">
+         <tr><td style="padding:12px 14px;font:400 14px/1.7 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:${INK};">
+           <strong>When</strong> · ${stamp} (Karachi)<br>
+           <strong>Where</strong> · ${where}<br>
+           <strong>What</strong> · ${browser} on ${platform}
+         </td></tr>
+       </table>
+       <p style="margin:0 0 14px 0;color:${MUTED};font-size:13px;">
+         <strong style="color:${INK};">If this was you</strong>, nothing to do — you will not be
+         told again for this device.
+       </p>
+       <p style="margin:0;color:${MUTED};font-size:13px;">
+         <strong style="color:${INK};">If it was not</strong>, change your password now. That signs
+         out every device immediately, including whoever this was.
+       </p>
+       ${button(`${input.appUrl}/forgot-password`, 'Change my password')}`,
+      `Signed in from ${where}.`,
+    ),
+    text: [
+      `Hello ${firstName},`,
+      ``,
+      `Your ${APP_NAME} account was signed into from a device we have not seen before.`,
+      ``,
+      `When:  ${stamp} (Karachi)`,
+      `Where: ${where}`,
+      `What:  ${browser} on ${platform}`,
+      ``,
+      `If this was you, nothing to do.`,
+      `If it was not, change your password now — that signs out every device immediately.`,
+      `${input.appUrl}/forgot-password`,
+    ].join('\n'),
+  };
+}
+
+/* ==========================================================================
  * Welcome, after activation
  * ========================================================================== */
 

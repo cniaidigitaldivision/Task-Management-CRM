@@ -59,7 +59,9 @@ const APP_ROUTES = [
 const RANK = { super_admin: 4, admin: 3, team_coordinator: 2, member: 1 };
 const PUBLIC_ROUTES = [
   ['/login', 'Sign in'],
-  ['/forgot-password', 'password'],
+  ['/forgot-password', 'Send me a code'],
+  ['/reset-password', 'Set a new password'],
+  ['/activate', 'This link is not usable'],
   /* Deliberately asserts the CLOSED state, not just a 200. A Super Admin exists
      and the database permits exactly one, so the form must never appear again —
      and 'Setup' alone matched both the open form and the closed door. On a public
