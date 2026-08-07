@@ -74,6 +74,8 @@ export interface TaskRow {
   readonly timerState: TimerState;
   readonly timerStartedAt: string | null;
   readonly extensionMinutesGranted: number;
+  /** An RFC 5545 subset — see lib/domain/recurrence.ts. Null for a one-off. */
+  readonly recurrenceRule: string | null;
   readonly commentCount: number;
   readonly attachmentCount: number;
   readonly checklistDone: number;

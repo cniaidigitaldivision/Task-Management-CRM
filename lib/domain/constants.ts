@@ -616,6 +616,43 @@ export const SYSTEM_DEFAULTS = {
 } as const;
 
 /* ==========================================================================
+ * NOTIFICATION KINDS
+ * --------------------------------------------------------------------------
+ * The eighteen values of `public.notification_kind`, in the order the enum
+ * declares them.
+ *
+ * ── WHY THIS LIST EXISTS AT ALL ──────────────────────────────────────────────
+ * `notify()` used to take `kind: string`, so an invented value — 'extension_
+ * granted' where the enum says 'time_extension_decided' — compiled cleanly and
+ * failed at the insert, at the end of a flow that had already written the
+ * decision. The union turns that into a red squiggle. Adding a value here
+ * without adding it to the enum fails at the same point it always did; the
+ * migration remains the source of truth (C-16).
+ * ========================================================================== */
+
+export const NOTIFICATION_KINDS = [
+  'task_assigned',
+  'task_reassigned',
+  'task_status_changed',
+  'task_blocked',
+  'task_due_soon',
+  'task_overdue',
+  'task_comment',
+  'task_mention',
+  'review_requested',
+  'review_approved',
+  'revisions_requested',
+  'capacity_warning',
+  'time_limit_warning',
+  'time_extension_requested',
+  'time_extension_decided',
+  'project_status_changed',
+  'security_alert',
+] as const;
+
+export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
+
+/* ==========================================================================
  * BRANDING
  * ========================================================================== */
 

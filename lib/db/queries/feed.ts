@@ -1,5 +1,7 @@
 import 'server-only';
 
+import type { NotificationKind } from '@/lib/domain/constants';
+
 import { withUser, type Tx } from '../client';
 import type { ActivityRow, NotificationRow } from './types';
 
@@ -51,7 +53,7 @@ export async function record(tx: Tx, actorId: string, input: ActivityInput): Pro
 
 export interface NotifyInput {
   readonly userId: string;
-  readonly kind: string;
+  readonly kind: NotificationKind;
   readonly title: string;
   readonly body?: string | null;
   readonly linkTo?: string | null;

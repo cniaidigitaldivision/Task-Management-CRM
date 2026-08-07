@@ -7,6 +7,7 @@ import { withUser } from '@/lib/db/client';
 import { audit } from '@/lib/db/queries/audit';
 import { notify, record } from '@/lib/db/queries/feed';
 import { listAvailability } from '@/lib/db/queries/people';
+import * as R from '@/lib/db/queries/task-relations';
 import * as T from '@/lib/db/queries/tasks';
 import {
   EFFORT_POINTS,
@@ -17,7 +18,20 @@ import {
   type Priority,
   type TaskStatus,
 } from '@/lib/domain/constants';
+import {
+  dependencyWarning,
+  isSettled as isSettledStatus,
+  parentCompletionWarning,
+  rollUpSubtasks,
+  unfinishedBlockers,
+} from '@/lib/domain/dependencies';
+import { canDecideExtensions } from '@/lib/domain/extensions';
 import { can } from '@/lib/domain/permissions';
+import {
+  formatRecurrence,
+  nextInstanceDates,
+  parseRecurrence,
+} from '@/lib/domain/recurrence';
 import { evaluateTransition, taskLoad } from '@/lib/domain/task-machine';
 import { computeWorkload, evaluateAssignment, weekWindow } from '@/lib/domain/workload';
 import { getSettings } from '@/lib/settings/current';
@@ -191,6 +205,25 @@ export interface TaskDetailPayload {
   readonly checklist: Awaited<ReturnType<typeof T.getChecklist>>;
   /** Which columns this actor may drag this card to, right now. */
   readonly allowed: readonly TaskStatus[];
+
+  /* ── Step 6 · the relations ────────────────────────────────────────────
+     All fetched in the same round trip. The drawer opens on a click and a
+     second, third and fourth request after it opens is exactly how a panel
+     ends up rendering four separate spinners. */
+  readonly subtasks: Awaited<ReturnType<typeof R.listSubtasks>>;
+  readonly dependencies: Awaited<ReturnType<typeof R.listDependencies>>;
+  readonly dependents: Awaited<ReturnType<typeof R.listDependents>>;
+  readonly watchers: Awaited<ReturnType<typeof R.listWatchers>>;
+  readonly skills: Awaited<ReturnType<typeof R.listTaskSkills>>;
+  readonly extensions: Awaited<ReturnType<typeof R.listExtensionsForTask>>;
+  /** Is the person reading this following it? */
+  readonly isWatching: boolean;
+  /** May they draw dependencies, set required skills, restructure? */
+  readonly canEditGraph: boolean;
+  /** BR-018 — may they decide an extension request? */
+  readonly canDecideExtensions: boolean;
+  /** What is holding this up right now, in one sentence (BR-008). */
+  readonly blockedWarning: string | null;
 }
 
 /**
@@ -205,12 +238,36 @@ export interface TaskDetailPayload {
 export async function getTaskDetailAction(taskId: string): Promise<TaskDetailPayload> {
   const user = await requireUser();
   const task = await T.getTask(user.id, taskId);
-  if (!task) return { task: null, comments: [], checklist: [], allowed: [] };
+  if (!task) {
+    return {
+      task: null,
+      comments: [],
+      checklist: [],
+      allowed: [],
+      subtasks: [],
+      dependencies: [],
+      dependents: [],
+      watchers: [],
+      skills: [],
+      extensions: [],
+      isWatching: false,
+      canEditGraph: false,
+      canDecideExtensions: false,
+      blockedWarning: null,
+    };
+  }
 
-  const [comments, checklist] = await Promise.all([
-    T.getTaskComments(user.id, taskId),
-    T.getChecklist(user.id, taskId),
-  ]);
+  const [comments, checklist, subtasks, dependencies, dependents, watchers, skills, extensions] =
+    await Promise.all([
+      T.getTaskComments(user.id, taskId),
+      T.getChecklist(user.id, taskId),
+      R.listSubtasks(user.id, taskId),
+      R.listDependencies(user.id, taskId),
+      R.listDependents(user.id, taskId),
+      R.listWatchers(user.id, taskId),
+      R.listTaskSkills(user.id, taskId),
+      R.listExtensionsForTask(user.id, taskId),
+    ]);
 
   const allowed = TASK_STATUSES.filter((to) => {
     if (to === task.status) return false;
@@ -223,7 +280,34 @@ export async function getTaskDetailAction(taskId: string): Promise<TaskDetailPay
     }).ok;
   });
 
-  return { task, comments, checklist, allowed };
+  /* Computed from the rows already fetched — no extra query, and the same
+     sentence the status change will show if they start it anyway. */
+  const blockers = dependencies
+    .filter((d) => d.type === 'blocks' && !isSettledStatus(d.status))
+    .map((d) => ({
+      taskId: d.dependsOnTaskId,
+      reference: d.reference,
+      title: d.title,
+      status: d.status,
+    }));
+
+  return {
+    task,
+    comments,
+    checklist,
+    allowed,
+    subtasks,
+    dependencies,
+    dependents,
+    watchers,
+    skills,
+    extensions,
+    isWatching: watchers.some((w) => w.userId === user.id),
+    canEditGraph:
+      user.role === 'super_admin' || user.role === 'admin' || user.role === 'team_coordinator',
+    canDecideExtensions: canDecideExtensions(user.role),
+    blockedWarning: dependencyWarning(blockers),
+  };
 }
 
 /* ==========================================================================
@@ -251,6 +335,9 @@ export async function createTaskAction(_prev: ActionResult, form: FormData): Pro
   if (!isPriority(priority)) return fail('Choose a priority.');
   if (!effort) return fail('Choose an effort estimate.');
   if (!isStatus(status)) return fail('That is not a valid status.');
+
+  const repeat = recurrenceFrom(form);
+  if (repeat.error) return fail(repeat.error);
 
   /* A member may only raise work for themselves. RLS enforces this too, but a
      clear sentence beats a policy violation the person cannot interpret. */
@@ -292,6 +379,7 @@ export async function createTaskAction(_prev: ActionResult, form: FormData): Pro
       blockedReason: optional(form, 'blockedReason'),
       timeLimitMinutes: minutesFrom(form),
       assignmentOverrideReason: overrideReason,
+      recurrenceRule: repeat.rule,
     });
 
     await withUser(user.id, async (tx) => {
@@ -319,6 +407,29 @@ export async function createTaskAction(_prev: ActionResult, form: FormData): Pro
   } catch (error) {
     return fail(readableDbError(error));
   }
+}
+
+/**
+ * The repeat rule from the form's three fields, or null for a one-off.
+ *
+ * Returns `{ error }` rather than throwing so the caller refuses with a
+ * sentence. A rule that cannot be parsed must never be stored: the spawn on
+ * completion is best-effort and silent, so a malformed rule would produce a
+ * task that simply never repeats and never says why.
+ */
+function recurrenceFrom(form: FormData): { rule: string | null; error?: string } {
+  const freq = str(form, 'repeatFreq');
+  if (!freq || freq === 'none') return { rule: null };
+
+  const interval = str(form, 'repeatInterval') || '1';
+  const byDay = form.getAll('repeatByDay').map(String).filter(Boolean);
+
+  const parts = [`FREQ=${freq.toUpperCase()}`, `INTERVAL=${interval}`];
+  if (freq.toUpperCase() === 'WEEKLY' && byDay.length > 0) parts.push(`BYDAY=${byDay.join(',')}`);
+
+  const parsed = parseRecurrence(parts.join(';'));
+  if (!parsed.ok) return { rule: null, error: parsed.message };
+  return { rule: formatRecurrence(parsed.rule) };
 }
 
 /** A time limit may be entered in hours (FR-171's default is 60 min per point). */
@@ -349,6 +460,9 @@ export async function updateTaskAction(_prev: ActionResult, form: FormData): Pro
   const effort = effortFrom(form);
   if (!isPriority(priority)) return fail('Choose a priority.');
   if (!effort) return fail('Choose an effort estimate.');
+
+  const repeat = recurrenceFrom(form);
+  if (repeat.error) return fail(repeat.error);
 
   let warning: string | null = null;
 
@@ -386,6 +500,7 @@ export async function updateTaskAction(_prev: ActionResult, form: FormData): Pro
       startDate: optional(form, 'startDate'),
       dueDate: optional(form, 'dueDate'),
       timeLimitMinutes: minutesFrom(form),
+      recurrenceRule: repeat.rule,
     });
 
     await withUser(user.id, (tx) =>
@@ -434,6 +549,34 @@ export async function changeStatusAction(
   });
 
   if (!verdict.ok) return fail(verdict.message);
+
+  /* ── BR-008 · unfinished blockers WARN, they do not refuse ─────────────────
+     Computed before the write, because the answer changes the moment the write
+     lands, and the person needs to be told about the state they were actually
+     starting from. */
+  let advisory: string | null = null;
+
+  if (to === 'in_progress') {
+    const [edges, blockers] = await Promise.all([
+      R.listAllDependencyEdges(user.id),
+      R.listDependencies(user.id, taskId),
+    ]);
+    const byId = new Map(
+      blockers.map((b) => [
+        b.dependsOnTaskId,
+        { taskId: b.dependsOnTaskId, reference: b.reference, title: b.title, status: b.status },
+      ]),
+    );
+    advisory = dependencyWarning(unfinishedBlockers(edges, taskId, byId));
+  }
+
+  /* Closing a parent does not close its children, and somebody who has not
+     scrolled the subtask list will not know that until three tasks turn up
+     orphaned next week. */
+  if (to === 'done' && task.subtaskCount > 0) {
+    const subtasks = await R.listSubtasks(user.id, taskId);
+    advisory = parentCompletionWarning(rollUpSubtasks(subtasks)) ?? advisory;
+  }
 
   try {
     await T.applyStatus(user.id, taskId, to, reason?.trim() || null);
@@ -487,10 +630,88 @@ export async function changeStatusAction(
       }
     });
 
+    /* ── A repeating task creates its successor when it closes ──────────────
+       Not on a schedule. Spawning here means the series can never outrun the
+       person doing it: a weekly report three weeks late is ONE task three weeks
+       old, which is the truth, rather than four tasks implying four separate
+       pieces of work — and four tasks' worth of capacity load nobody owes. */
+    let spawned: string | null = null;
+    if (to === 'done') spawned = await spawnNextOccurrence(user.id, taskId);
+
     revalidateWork();
-    return { ok: true, taskId };
+    return {
+      ok: true,
+      taskId,
+      warning:
+        spawned && advisory
+          ? `${advisory} The next one in the series is ${spawned}.`
+          : spawned
+            ? `Next in the series created: ${spawned}.`
+            : (advisory ?? undefined),
+    };
   } catch (error) {
     return fail(readableDbError(error));
+  }
+}
+
+/**
+ * Create the next instance of a repeating task, if this one repeats.
+ *
+ * ── EVERYTHING HERE IS BEST-EFFORT, AND DELIBERATELY SO ──────────────────────
+ * The task the person just completed IS completed. If the successor cannot be
+ * created — a malformed rule, no date to anchor on, a database hiccup — that
+ * must not undo their completion or show them an error about a task they did
+ * not ask for. It returns null and the caller says nothing.
+ */
+async function spawnNextOccurrence(actorId: string, taskId: string): Promise<string | null> {
+  try {
+    const rows = await withUser(actorId, (tx) => tx`
+      select recurrence_rule, title, description, project_id, other_description,
+             assignee_id, priority, effort_size, effort_points,
+             start_date, due_date, time_limit_minutes
+        from public.tasks where id = ${taskId}
+    `);
+
+    const row = rows[0];
+    if (!row?.recurrence_rule) return null;
+
+    const parsed = parseRecurrence(row.recurrence_rule as string);
+    if (!parsed.ok) return null;
+
+    const asDate = (value: unknown) => (value ? String(value).slice(0, 10) : null);
+    const dates = nextInstanceDates(parsed.rule, {
+      startDate: asDate(row.start_date),
+      dueDate: asDate(row.due_date),
+    });
+    if (!dates) return null;
+
+    const created = await T.createTask(actorId, {
+      title: row.title as string,
+      description: (row.description as string | null) ?? undefined,
+      projectId: row.project_id as string,
+      otherDescription: (row.other_description as string | null) ?? undefined,
+      /* Same person by default. A recurring task is usually somebody's standing
+         responsibility, and reassigning it to nobody every period would make
+         the series need re-planning each time. */
+      assigneeId: (row.assignee_id as string | null) ?? undefined,
+      priority: row.priority as Priority,
+      effortSize: (row.effort_size as EffortSize | null) ?? undefined,
+      effortPoints: Number(row.effort_points),
+      startDate: dates.startDate ?? undefined,
+      dueDate: dates.dueDate ?? undefined,
+      timeLimitMinutes: (row.time_limit_minutes as number | null) ?? undefined,
+      status: 'todo',
+    });
+
+    /* The rule travels with the new instance, or the series stops after one. */
+    await withUser(actorId, (tx) => tx`
+      update public.tasks set recurrence_rule = ${formatRecurrence(parsed.rule)}
+       where id = ${created.id}
+    `);
+
+    return created.reference;
+  } catch {
+    return null;
   }
 }
 

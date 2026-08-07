@@ -46,7 +46,7 @@ const TASK_SELECT = (tx: Tx) => tx`
     t.start_date, t.due_date, t.completed_at,
     t.blocked_reason, t.cancelled_reason, t.assignment_override_reason,
     t.time_limit_minutes, t.time_spent_minutes, t.timer_state, t.timer_started_at,
-    t.extension_minutes_granted,
+    t.extension_minutes_granted, t.recurrence_rule,
     t.created_at, t.updated_at,
     (select count(*) from public.comments        cm where cm.task_id = t.id) as comment_count,
     (select count(*) from public.attachments     at where at.task_id = t.id) as attachment_count,
@@ -93,6 +93,7 @@ function toTask(row: Record<string, unknown>): TaskRow {
     timerState: row.timer_state as TaskRow['timerState'],
     timerStartedAt: isoOrNull(row.timer_started_at),
     extensionMinutesGranted: Number(row.extension_minutes_granted ?? 0),
+    recurrenceRule: (row.recurrence_rule as string | null) ?? null,
     commentCount: Number(row.comment_count ?? 0),
     attachmentCount: Number(row.attachment_count ?? 0),
     checklistDone: Number(row.checklist_done ?? 0),
@@ -280,6 +281,7 @@ export interface CreateTaskInput {
   readonly parentTaskId?: string | null;
   readonly assignmentOverrideReason?: string | null;
   readonly blockedReason?: string | null;
+  readonly recurrenceRule?: string | null;
 }
 
 /**
@@ -302,7 +304,7 @@ export async function createTask(actorId: string, input: CreateTaskInput): Promi
         reference, title, description, project_id, other_description, parent_task_id,
         assignee_id, created_by_id, status, priority, effort_size, effort_points,
         start_date, due_date, blocked_reason, time_limit_minutes,
-        assignment_override_reason
+        assignment_override_reason, recurrence_rule
       ) values (
         ${ref[0].reference as string},
         ${input.title.trim()},
@@ -320,7 +322,8 @@ export async function createTask(actorId: string, input: CreateTaskInput): Promi
         ${input.dueDate ?? null},
         ${input.blockedReason?.trim() || null},
         ${input.timeLimitMinutes ?? null},
-        ${input.assignmentOverrideReason?.trim() || null}
+        ${input.assignmentOverrideReason?.trim() || null},
+        ${input.recurrenceRule ?? null}
       )
       returning id
     `;
@@ -343,6 +346,7 @@ export interface UpdateTaskInput {
   readonly startDate?: string | null;
   readonly dueDate?: string | null;
   readonly timeLimitMinutes?: number | null;
+  readonly recurrenceRule?: string | null;
 }
 
 /**
@@ -370,7 +374,8 @@ export async function updateTask(
         effort_points     = case when ${has('effortPoints')} then ${input.effortPoints ?? null} else effort_points end,
         start_date        = case when ${has('startDate')} then ${input.startDate ?? null}::date else start_date end,
         due_date          = case when ${has('dueDate')} then ${input.dueDate ?? null}::date else due_date end,
-        time_limit_minutes = case when ${has('timeLimitMinutes')} then ${input.timeLimitMinutes ?? null}::integer else time_limit_minutes end
+        time_limit_minutes = case when ${has('timeLimitMinutes')} then ${input.timeLimitMinutes ?? null}::integer else time_limit_minutes end,
+        recurrence_rule   = case when ${has('recurrenceRule')} then ${input.recurrenceRule ?? null} else recurrence_rule end
       where id = ${taskId} and not is_deleted
     `,
   );

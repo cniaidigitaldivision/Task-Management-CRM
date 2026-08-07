@@ -86,7 +86,22 @@ function when(iso: string): string {
   return `${Math.round(hours / 24)}d ago`;
 }
 
-const EMPTY: TaskDetailPayload = { task: null, comments: [], checklist: [], allowed: [] };
+const EMPTY: TaskDetailPayload = {
+  task: null,
+  comments: [],
+  checklist: [],
+  allowed: [],
+  subtasks: [],
+  dependencies: [],
+  dependents: [],
+  watchers: [],
+  skills: [],
+  extensions: [],
+  isWatching: false,
+  canEditGraph: false,
+  canDecideExtensions: false,
+  blockedWarning: null,
+};
 
 export function TaskDetail({
   taskId,
