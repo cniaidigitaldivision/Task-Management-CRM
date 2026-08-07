@@ -29,6 +29,7 @@ import {
 } from '@/app/actions/tasks';
 import type { ShellPerson, ShellProject } from '@/components/layout/app-shell';
 import { AttachmentsPanel } from '@/components/task/attachments-panel';
+import { RecommendPanel } from '@/components/task/recommend-panel';
 import { TaskRelationsPanel } from '@/components/task/task-relations-panel';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge, PriorityFlag } from '@/components/ui/badge';
@@ -361,6 +362,16 @@ export function TaskDetail({
                 )}
               </div>
             </div>
+
+            {/* ---- Who should take this (doc 07) ---- */}
+            {currentUser.role !== 'member' && (
+              <RecommendPanel
+                taskId={task.id}
+                currentAssigneeId={task.assigneeId}
+                busy={busy}
+                onPick={(userId) => void run(() => assignTaskAction(task.id, userId))}
+              />
+            )}
 
             {task.blockedReason && (
               <div
