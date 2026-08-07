@@ -12,9 +12,10 @@ import { listAssignablepeople } from '@/lib/db/queries/people';
 import { listProjects } from '@/lib/db/queries/projects';
 import { listTasks } from '@/lib/db/queries/tasks';
 import { teamWorkload } from '@/lib/db/queries/workload';
-import { SYSTEM_DEFAULTS, WORKLOAD_BAND_META } from '@/lib/domain/constants';
+import { WORKLOAD_BAND_META } from '@/lib/domain/constants';
 import { nowMs } from '@/lib/now';
 import { toTaskView } from '@/lib/view/task-view';
+import { getSettings } from '@/lib/settings/current';
 
 export const metadata: Metadata = { title: 'My Work' };
 
@@ -43,6 +44,8 @@ export default async function MyWorkPage() {
     listAssignablepeople(user.id),
     listProjects(user.id),
   ]);
+
+  const otherWarningPct = Number((await getSettings()).otherWorkWarningPct);
 
   const tasks = rows.map((row) => toTaskView(row, now));
   const mine = workload.people.find((p) => p.userId === user.id);
@@ -121,7 +124,7 @@ export default async function MyWorkPage() {
               {mine.otherWorkHigh && (
                 <p className="mt-1 text-micro" style={{ color: 'var(--load-warning)' }}>
                   {mine.otherWorkPct}% of your open work is ad-hoc, above the{' '}
-                  {SYSTEM_DEFAULTS.otherWorkWarningPct}% line. Worth raising.
+                  {otherWarningPct}% line. Worth raising.
                 </p>
               )}
             </div>

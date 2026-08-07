@@ -19,10 +19,10 @@
 | | |
 |---|---|
 | **Live** | https://cni-crm.vercel.app — auto-deploys on push to `main` |
-| **Current step** | ✅ Steps 1–4 complete — awaiting go-ahead for **Step 5 (editable settings)** |
+| **Current step** | ✅ Steps 1–5 complete — awaiting go-ahead for **Step 6 (the rest of task management)** |
 | **Last updated** | 2026-08-07 |
 
-**Progress:** ✅✅✅✅⬜⬜⬜⬜ 4 of 8 steps
+**Progress:** ✅✅✅✅✅⬜⬜⬜ 5 of 8 steps
 
 ---
 
@@ -132,15 +132,75 @@ emailed until a domain of yours is verified.
 - Regenerate your own recovery codes
 - ~~`npm run demo:code` gets deleted~~ — **kept, and the reasoning changed.** Encryption moved the bar from "holds the database" to "holds the database AND the key". A local script reading `.env.local` has both by definition, so keeping it is a developer using their own key rather than a hole. Gained `--enrol` for restoring a demo account that has lost its factor.
 
-**⚠️ STILL OPEN — step-up re-authentication (FR-149).** `requiresStepUp()` exists and is tested, `sessions.step_up_verified_at` exists, `app.session_mark_step_up` exists — nothing calls any of them. The challenge UI is the missing piece. Deferred rather than rushed at the end of a long step; it belongs with Step 5, where the settings it should protect become editable.
+~~**⚠️ STILL OPEN — step-up re-authentication (FR-149).**~~ ✅ **Closed in Step 5**, where it belonged: `app/actions/step-up.ts` runs the challenge (password, plus the authenticator for a privileged role), `components/security/step-up-dialog.tsx` is the UI, and the settings actions call `needsStepUp()` before they will accept a change.
 
 ---
 
-### ⬜ Step 5 · Settings you can actually change
-- Every value on the Settings screen becomes editable, by the role doc 03 permits
-- Written to `system_settings` as overrides, with the defaults still the fallback
-- Scoring weights validated to total exactly 1.00 before saving *(they were once 1.05 and silently inflated every recommendation by 5%)*
-- The skills library: add, rename, retire — never delete one somebody holds
+### ✅ Step 5 · Settings you can actually change — **DONE**
+- Every value on the Settings screen is editable, by the role doc 03 permits — 18 settings, each naming its own permission in `lib/domain/settings.ts`
+- Written to `system_settings` as overrides. Resetting **deletes the row** rather than writing today's default back, so a later change to a shipped default still reaches a workspace that once reset to it
+- Four gates, in order: role → step-up (FR-149) → the field's own bounds → **the combination**. The fourth is the one an obvious implementation leaves out: every value can be in range while the set is nonsense (a soft threshold above the hard one means the warning never fires before the block)
+- Scoring weights refused unless they total exactly 100% *(they were once 105% and silently inflated every recommendation by 5%, C-06)*
+- The skills library: add, rename, retire, restore — never delete. `user_skills` is ON DELETE RESTRICT, so a delete button would be offering an action the database refuses, and the ratings are the history the matching engine reads
+- Effort points, priority weight and status weight are shown but **fixed by design**, and the screen says why: every stored `effort_points` was computed from that table, so changing XS from 1 to 2 would restate the cost of work estimated months ago
+- Step-up re-authentication (FR-149), carried over from Step 4 — password plus the authenticator for a privileged role, failures audited, ten minutes, per-session
+
+**And the part that made it real rather than decorative.** Every consumer imported `SYSTEM_DEFAULTS` directly, so an override could be saved, audited and displayed as changed while nothing behaved differently. `lib/settings/current.ts` is now the single accessor, and the capacity gate, the workload screens, the dashboard, the lockout threshold, the code TTL and the invitation TTL all read through it. Migration 017 adds `app.settings_effective()` so the login screen can read the lock threshold it already prints — the RLS select policy needs an identity, and by definition there is none yet.
+
+**Two bugs found at the seams, both invisible to the layer that contained them:**
+1. `system_settings` carries `check (key ~ '^[a-z][a-z0-9_]*
+
+---
+
+### ⬜ Step 6 · The rest of task management
+- **Subtasks** — the column exists, nothing creates them
+- **Dependencies** — "this cannot start until that finishes", with a warning when you start something blocked
+- **Watchers** — follow a task you are not assigned
+- **Time extensions** — a Member requests, an Admin approves or declines, and only an Admin can (BR-018)
+- **Task skills** — what a task needs, which is what the matching engine reads
+- Bulk actions on the board
+- Recurring tasks
+
+---
+
+### ⬜ Step 7 · Attachments
+- Upload to a task or a comment, download, delete
+- Type and size limits, and the storage rules so one person's files are not readable by another
+
+**Needs from you:** a Supabase Storage bucket. I can create it through the Supabase connection — I will ask first.
+
+---
+
+### ⬜ Step 8 · Intelligence and the finishing pieces
+- **"Who should do this?"** — the assignment engine, which already knows everyone's skills and load, actually recommending somebody, with the reasoning shown
+- The rebalance advisor acting on its suggestions rather than only listing them
+- Global search across tasks, projects and people
+- Calendar view
+- CSV export and the Monday-morning digest
+- Notification preferences per person, per channel
+
+---
+
+## 🔁 HOW EACH STEP RUNS
+
+1. Owner says go
+2. Build it — schema first if needed, then rules, then the screen
+3. Prove it: `npm run verify`, integration tests where there is a real seam, `npm run smoke` against the live URL
+4. Commit, push (which deploys itself)
+5. **Update this file and `SESSION-STATE.md`**
+6. Report what changed, what it needs from the owner, and stop
+
+## ⛔ NOT IN THIS PLAN
+
+- **Sales management and workflow automation** — standing rule R4, the owner was explicit these are examples of what other CRMs do and are not wanted
+- **Visual redesign** — coming separately, after the system is complete
+- Google Sign-In (Phase 7a), WebAuthn/passkeys, multi-tenancy (ADR-008 says never)
+)` and every key is camelCase. The first save in production would have been a check violation. Fixed with a `toStorageKey`/`fromStorageKey` conversion at the one boundary that touches the column.
+2. The RLS **delete** policy is Super Admin only while **insert** is Admin+. An Admin pressing Reset deleted zero rows, with no error — the screen would have said "restored" over a row that was still there. `clearOverride` now reports whether it actually deleted anything, and the action says so honestly.
+
+**Tests:** 36 new unit tests, 16 new integration tests. Totals now **685 unit · 86 integration · 25 smoke**, integration run twice consecutively to prove it leaves the workspace as it found it (the suite snapshots and restores `system_settings`).
+
+**Worth knowing:** doc 03 §3.6 reserves the thresholds, the weights and the security timings for the **Super Admin**. An Admin opening Settings can change exactly one of the eighteen (the ad-hoc work line) plus the skills library; the rest render read-only with the count stated at the top of the section. That is the documented matrix, not an oversight.
 
 ---
 

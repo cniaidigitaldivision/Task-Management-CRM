@@ -4,9 +4,9 @@ import { KeyRound } from 'lucide-react';
 
 import { Card, CardBody } from '@/components/ui/card';
 import { IconTile } from '@/components/ui/icon-tile';
-import { SYSTEM_DEFAULTS } from '@/lib/domain/constants';
 
 import { RequestForm } from './request-form';
+import { getSettings } from '@/lib/settings/current';
 
 export const metadata: Metadata = { title: 'Forgot your password' };
 
@@ -26,7 +26,12 @@ export const dynamic = 'force-dynamic';
  * reset code.
  * ========================================================================= */
 
-export default function ForgotPasswordPage() {
+export default async function ForgotPasswordPage() {
+  const settings = await getSettings();
+  const ttlMinutes = Number(settings.recoveryCodeTtlMinutes);
+  const lockAfter = Number(settings.failedLoginsToLock);
+  const lockClearsAfter = Number(settings.accountLockAutoClearMinutes);
+
   return (
     <Card className="shadow-lg">
       <CardBody className="space-y-5 p-6">
@@ -36,19 +41,19 @@ export default function ForgotPasswordPage() {
             <h1 className="text-h2 text-text-primary">Can&rsquo;t get in?</h1>
             <p className="mt-1 text-caption text-text-secondary">
               Give us the address you sign in with and we will send a six-digit code. It lasts{' '}
-              {SYSTEM_DEFAULTS.recoveryCodeTtlMinutes} minutes.
+              {ttlMinutes} minutes.
             </p>
           </div>
         </div>
 
-        <RequestForm />
+        <RequestForm ttlMinutes={ttlMinutes} />
 
         <div className="space-y-2 border-t border-border-subtle pt-4">
           <p className="text-micro text-text-tertiary">
             <span className="font-semibold text-text-secondary">If your account is locked</span> —
-            after {SYSTEM_DEFAULTS.failedLoginsToLock} failed attempts — the same form sends an
+            after {lockAfter} failed attempts — the same form sends an
             unlock code instead, and your password stays as it is. The lock also clears itself after{' '}
-            {SYSTEM_DEFAULTS.accountLockAutoClearMinutes} minutes.
+            {lockClearsAfter} minutes.
           </p>
           <p className="text-micro text-text-tertiary">
             <span className="font-semibold text-text-secondary">If you have lost your phone</span>{' '}

@@ -2,10 +2,10 @@ import 'server-only';
 
 import { expiresInMinutes, generateNumericCode, hashScopedCode } from '@/lib/auth/tokens';
 import { issueToken } from '@/lib/db/queries/auth';
-import { SYSTEM_DEFAULTS } from '@/lib/domain/constants';
 
 import { sendEmail } from './send';
 import { loginAlertEmail, unlockEmail } from './templates';
+import { getSettings } from '@/lib/settings/current';
 
 /* ============================================================================
  * MAIL SENT BY THE SYSTEM, NOT BY A PERSON
@@ -46,13 +46,14 @@ export function notifyAccountLocked(input: {
   void (async () => {
     try {
       const code = generateNumericCode(6);
+      const settings = await getSettings();
 
       await issueToken({
         userId: input.userId,
         tokenHash: hashScopedCode('account_unlock', input.email, code),
         purpose: 'account_unlock',
         sentToEmail: input.email,
-        expiresAt: expiresInMinutes(Date.now(), SYSTEM_DEFAULTS.recoveryCodeTtlMinutes),
+        expiresAt: expiresInMinutes(Date.now(), Number(settings.recoveryCodeTtlMinutes)),
         createdBy: null,
       });
 
@@ -60,6 +61,8 @@ export function notifyAccountLocked(input: {
         fullName: input.fullName,
         code,
         unlockUrl: `${input.appUrl}/reset-password?code=${code}`,
+        lockAfter: Number(settings.failedLoginsToLock),
+        lockClearsAfterMinutes: Number(settings.accountLockAutoClearMinutes),
       });
       await sendEmail({
         to: input.email,

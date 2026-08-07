@@ -26,11 +26,11 @@ import {
   PRIORITY_TOKEN,
   PROJECT_TYPE_META,
   STATUS_META,
-  SYSTEM_DEFAULTS,
   WORKLOAD_BAND_META,
 } from '@/lib/domain/constants';
 import { nowMs } from '@/lib/now';
 import { toTaskView } from '@/lib/view/task-view';
+import { getSettings } from '@/lib/settings/current';
 
 export const metadata: Metadata = { title: 'Dashboard' };
 
@@ -110,9 +110,12 @@ export default async function DashboardPage() {
       token: STATUS_META[entry.status].token,
     }));
 
-  const atRisk = workload.people.filter(
-    (p) => p.workload.utilisationPct >= SYSTEM_DEFAULTS.softThresholdPct,
-  );
+  const settings = await getSettings();
+  const softPct = Number(settings.softThresholdPct);
+  const hardPct = Number(settings.hardThresholdPct);
+  const weeklyCapacity = Number(settings.defaultWeeklyCapacity);
+
+  const atRisk = workload.people.filter((p) => p.workload.utilisationPct >= softPct);
 
   return (
     <div className="mx-auto max-w-[var(--content-max)] space-y-8">
@@ -160,7 +163,7 @@ export default async function DashboardPage() {
           token={
             team.utilisationPct >= 100
               ? 'load-over'
-              : team.utilisationPct >= SYSTEM_DEFAULTS.softThresholdPct
+              : team.utilisationPct >= softPct
                 ? 'load-warning'
                 : 'load-healthy'
           }
@@ -302,7 +305,7 @@ export default async function DashboardPage() {
       <PageSection
         step={3}
         title="Who is carrying what"
-        description={`Load is effort × priority × status weight, against ${SYSTEM_DEFAULTS.defaultWeeklyCapacity} points a week. Over ${SYSTEM_DEFAULTS.hardThresholdPct}% a new assignment is blocked unless an Admin overrides it in writing.`}
+        description={`Load is effort × priority × status weight, against ${weeklyCapacity} points a week. Over ${hardPct}% a new assignment is blocked unless an Admin overrides it in writing.`}
         actions={
           <Link
             href="/workload"
@@ -463,7 +466,7 @@ export default async function DashboardPage() {
         <Clock className="mt-px h-4 w-4 shrink-0 text-text-tertiary" strokeWidth={2} aria-hidden="true" />
         <p className="text-micro text-text-tertiary">
           Figures cover the week of {workload.window.start} to {workload.window.end}, computed live
-          from {open.length} open tasks. Capacity is {SYSTEM_DEFAULTS.defaultWeeklyCapacity} points a
+          from {open.length} open tasks. Capacity is {weeklyCapacity} points a
           week per person by default — 75% of the 48 nominal hours, because attendance hours are not
           productive hours (ADR-004).
         </p>

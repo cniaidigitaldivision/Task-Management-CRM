@@ -19,6 +19,7 @@ import {
 } from '@/lib/domain/constants';
 import { can } from '@/lib/domain/permissions';
 import { nowMs } from '@/lib/now';
+import { getSettings } from '@/lib/settings/current';
 
 /* ============================================================================
  * TEAM PROVISIONING — LAYER 3, FR-141 to FR-144, doc 16 §3
@@ -151,7 +152,9 @@ export async function invitePersonAction(
      else. The database stores its SHA-256 and a check constraint enforces that
      the stored value is a 64-character hex digest (migration 001). */
   const token = generateToken();
-  const expiresAt = new Date(nowMs() + SYSTEM_DEFAULTS.activationTokenTtlHours * 3600_000);
+  const expiresAt = new Date(
+    nowMs() + Number((await getSettings()).activationTokenTtlHours) * 3600_000,
+  );
 
   await issueToken({
     userId,
@@ -226,7 +229,9 @@ export async function resendInvitationAction(userId: string): Promise<TeamAction
   }
 
   const token = generateToken();
-  const expiresAt = new Date(nowMs() + SYSTEM_DEFAULTS.activationTokenTtlHours * 3600_000);
+  const expiresAt = new Date(
+    nowMs() + Number((await getSettings()).activationTokenTtlHours) * 3600_000,
+  );
 
   /* `auth_issue_token` supersedes the previous outstanding token of the same
      purpose, so the old link stops working the moment a new one is issued —

@@ -20,6 +20,7 @@ import {
 import { can } from '@/lib/domain/permissions';
 import { evaluateTransition, taskLoad } from '@/lib/domain/task-machine';
 import { computeWorkload, evaluateAssignment, weekWindow } from '@/lib/domain/workload';
+import { getSettings } from '@/lib/settings/current';
 
 /* ============================================================================
  * TASK ACTIONS — LAYER 3
@@ -119,13 +120,14 @@ async function capacityGate(
 ): Promise<{ blocked: string | null; needsOverride: boolean; warning: string | null; projectedPct: number }> {
   const window = weekWindow(Date.now());
 
-  const [tasks, availability, person] = await Promise.all([
+  const [tasks, availability, person, settings] = await Promise.all([
     T.listOpenTasksForCapacity(actorId),
     listAvailability(actorId, window),
     withUser(actorId, (tx) => tx`
       select weekly_capacity_points, max_concurrent_tasks
         from public.users where id = ${assigneeId}
     `),
+    getSettings(),
   ]);
 
   if (!person[0]) {
@@ -154,10 +156,15 @@ async function capacityGate(
     ? { ...current, loadPoints: Math.max(0, current.loadPoints - (await currentLoadOf(actorId, excludeTaskId))) }
     : current;
 
+  /* The two thresholds are settings (FR-057). Read, not imported — this is the
+     one place in the application that actually BLOCKS somebody, so it is the
+     place where a saved value silently not applying would matter most. */
   const gate = evaluateAssignment({
     current: adjusted,
     incoming: { ...incoming, dueDate: null },
     actorRole,
+    softThresholdPct: Number(settings.softThresholdPct),
+    hardThresholdPct: Number(settings.hardThresholdPct),
   });
 
   return {

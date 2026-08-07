@@ -15,12 +15,12 @@ import { teamUtilisation, teamWorkload } from '@/lib/db/queries/workload';
 import {
   PRIORITY_WEIGHT,
   STATUS_META,
-  SYSTEM_DEFAULTS,
   WORKLOAD_BAND_META,
   type WorkloadBand,
 } from '@/lib/domain/constants';
 import { nowMs } from '@/lib/now';
 import { toTaskView } from '@/lib/view/task-view';
+import { getSettings } from '@/lib/settings/current';
 
 export const metadata: Metadata = { title: 'Workload' };
 
@@ -43,10 +43,14 @@ export default async function WorkloadPage() {
   const user = await requireRole('team_coordinator');
   const now = nowMs();
 
-  const [{ window, people }, rows] = await Promise.all([
+  const [{ window, people }, rows, settings] = await Promise.all([
     teamWorkload(user.id, now),
     listTasks(user.id, { includeClosed: false }),
+    getSettings(),
   ]);
+
+  const softPct = Number(settings.softThresholdPct);
+  const hardPct = Number(settings.hardThresholdPct);
 
   const team = teamUtilisation(people);
   const tasks = rows.map((row) => toTaskView(row, now));
@@ -102,7 +106,7 @@ export default async function WorkloadPage() {
           token={
             team.utilisationPct >= 100
               ? 'load-over'
-              : team.utilisationPct >= SYSTEM_DEFAULTS.softThresholdPct
+              : team.utilisationPct >= softPct
                 ? 'load-warning'
                 : 'load-healthy'
           }
@@ -115,14 +119,14 @@ export default async function WorkloadPage() {
           token={counts.over > 0 ? 'load-over' : 'load-healthy'}
           label="Over their limit"
           value={counts.over}
-          hint={`Blocked from new work above ${SYSTEM_DEFAULTS.hardThresholdPct}%`}
+          hint={`Blocked from new work above ${hardPct}%`}
         />
         <StatCard
           icon={TrendingUp}
           token={counts.warning > 0 ? 'load-warning' : 'load-healthy'}
           label="Near their limit"
           value={counts.warning}
-          hint={`${SYSTEM_DEFAULTS.softThresholdPct}–${SYSTEM_DEFAULTS.hardThresholdPct}% — warned, not blocked`}
+          hint={`${softPct}–${hardPct}% — warned, not blocked`}
         />
         <StatCard
           icon={Users}

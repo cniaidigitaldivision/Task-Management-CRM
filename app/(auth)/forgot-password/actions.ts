@@ -19,9 +19,10 @@ import {
 import { withAppRole } from '@/lib/db/client';
 import { sendEmail } from '@/lib/email/send';
 import { passwordResetEmail, unlockEmail } from '@/lib/email/templates';
-import { PRIVILEGED_RESET_ROLES, SYSTEM_DEFAULTS } from '@/lib/domain/constants';
+import { PRIVILEGED_RESET_ROLES } from '@/lib/domain/constants';
 import { validatePassword } from '@/lib/domain/password-policy';
 import { nowMs } from '@/lib/now';
+import { getSettings } from '@/lib/settings/current';
 
 /* ============================================================================
  * FORGOT PASSWORD / UNLOCK — FR-155, FR-155a–e, ADR-007
@@ -109,7 +110,9 @@ export async function requestReset(
   const purpose = locked ? 'account_unlock' : 'password_reset';
 
   const code = generateNumericCode(6);
-  const expiresAt = expiresInMinutes(nowMs(), SYSTEM_DEFAULTS.recoveryCodeTtlMinutes);
+  const settings = await getSettings();
+  const ttlMinutes = Number(settings.recoveryCodeTtlMinutes);
+  const expiresAt = expiresInMinutes(nowMs(), ttlMinutes);
 
   await issueToken({
     userId: identity.userId,
@@ -122,7 +125,13 @@ export async function requestReset(
 
   const link = `${appUrl()}/reset-password?code=${code}`;
   const message = locked
-    ? unlockEmail({ fullName: identity.fullName, code, unlockUrl: link })
+    ? unlockEmail({
+        fullName: identity.fullName,
+        code,
+        unlockUrl: link,
+        lockAfter: Number(settings.failedLoginsToLock),
+        lockClearsAfterMinutes: Number(settings.accountLockAutoClearMinutes),
+      })
     : passwordResetEmail({ fullName: identity.fullName, code, resetUrl: link });
 
   /* Not awaited into the response shape: whether Resend succeeded must not

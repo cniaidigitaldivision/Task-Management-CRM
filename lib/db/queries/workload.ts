@@ -8,7 +8,7 @@ import {
   weekWindow,
   type WorkloadResult,
 } from '@/lib/domain/workload';
-import { SYSTEM_DEFAULTS } from '@/lib/domain/constants';
+import { getSettings } from '@/lib/settings/current';
 
 /* ============================================================================
  * TEAM WORKLOAD — the composition step
@@ -48,12 +48,15 @@ export async function teamWorkload(
 ): Promise<{ window: { start: string; end: string }; people: PersonWorkload[] }> {
   const window = weekWindow(nowMs);
 
-  const [people, tasks, availability, otherShare] = await Promise.all([
+  const [people, tasks, availability, otherShare, settings] = await Promise.all([
     listPeople(actorId),
     listOpenTasksForCapacity(actorId),
     listAvailability(actorId, window),
     otherWorkShareByPerson(actorId),
+    getSettings(),
   ]);
+
+  const otherWarningPct = Number(settings.otherWorkWarningPct);
 
   const otherByUser = new Map(otherShare.map((row) => [row.userId, row]));
 
@@ -91,7 +94,7 @@ export async function teamWorkload(
         role: person.role,
         workload,
         otherWorkPct,
-        otherWorkHigh: otherWorkPct > SYSTEM_DEFAULTS.otherWorkWarningPct,
+        otherWorkHigh: otherWorkPct > otherWarningPct,
       };
     })
     /* Busiest first. A workload screen exists to answer "who is in trouble",

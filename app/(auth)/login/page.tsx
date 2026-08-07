@@ -2,9 +2,9 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 
 import { Card, CardBody } from '@/components/ui/card';
-import { SYSTEM_DEFAULTS } from '@/lib/domain/constants';
 
 import { LoginForm } from './login-form';
+import { getSettings } from '@/lib/settings/current';
 
 export const metadata: Metadata = {
   title: 'Sign in',
@@ -22,7 +22,9 @@ export const metadata: Metadata = {
  * session with role-scoped lifetimes.
  * ========================================================================= */
 
-export default function LoginPage() {
+export default async function LoginPage() {
+  const lockAfter = Number((await getSettings()).failedLoginsToLock);
+
   return (
     <Card className="shadow-lg">
       <CardBody className="space-y-5 p-6">
@@ -43,7 +45,7 @@ export default function LoginPage() {
             Forgot your password?
           </Link>
           <span className="text-micro text-text-tertiary">
-            {SYSTEM_DEFAULTS.failedLoginsToLock} failed attempts locks the account
+            {lockAfter} failed attempts locks the account
           </span>
         </div>
       </CardBody>

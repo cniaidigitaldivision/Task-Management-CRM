@@ -6,6 +6,7 @@ import { Card, CardBody } from '@/components/ui/card';
 import { IconTile } from '@/components/ui/icon-tile';
 
 import { ResetForm } from './reset-form';
+import { getSettings } from '@/lib/settings/current';
 
 export const metadata: Metadata = { title: 'Set a new password' };
 
@@ -45,7 +46,10 @@ export default async function ResetPasswordPage({
           </div>
         </div>
 
-        <ResetForm initialCode={initialCode} />
+        <ResetForm
+          initialCode={initialCode}
+          ttlMinutes={Number((await getSettings()).recoveryCodeTtlMinutes)}
+        />
 
         <Link
           href="/forgot-password"

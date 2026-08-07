@@ -179,7 +179,16 @@ export function passwordResetEmail(input: { fullName: string; code: string; rese
  * Account unlock — FR-155a
  * ========================================================================== */
 
-export function unlockEmail(input: { fullName: string; code: string; unlockUrl: string }): Email {
+export function unlockEmail(input: {
+  fullName: string;
+  code: string;
+  unlockUrl: string;
+  /* Passed in, not imported. Both are editable settings (FR-057), and an email
+     that states the wrong lock policy is worse than one that omits it — the
+     recipient has no way to tell it is stale. */
+  lockAfter: number;
+  lockClearsAfterMinutes: number;
+}): Email {
   const firstName = input.fullName.split(' ')[0];
 
   return {
@@ -187,14 +196,14 @@ export function unlockEmail(input: { fullName: string; code: string; unlockUrl: 
     html: shell(
       `<p style="margin:0 0 14px 0;">Hello ${firstName},</p>
        <p style="margin:0 0 4px 0;">
-         Your account locked itself after ${SYSTEM_DEFAULTS.failedLoginsToLock} failed
+         Your account locked itself after ${input.lockAfter} failed
          sign-in attempts. Use this code to unlock it — your password does not change:
        </p>
        ${codeBlock(input.code)}
        ${button(input.unlockUrl, 'Unlock my account')}
        <p style="margin:0 0 14px 0;color:${MUTED};font-size:13px;">
          The lock also clears on its own after
-         ${SYSTEM_DEFAULTS.accountLockAutoClearMinutes} minutes.
+         ${input.lockClearsAfterMinutes} minutes.
        </p>
        <p style="margin:0;color:${MUTED};font-size:13px;">
          <strong>If those attempts were not you</strong>, somebody is trying your
@@ -205,12 +214,12 @@ export function unlockEmail(input: { fullName: string; code: string; unlockUrl: 
     text: [
       `Hello ${firstName},`,
       ``,
-      `Your ${APP_NAME} account locked after ${SYSTEM_DEFAULTS.failedLoginsToLock} failed sign-in attempts.`,
+      `Your ${APP_NAME} account locked after ${input.lockAfter} failed sign-in attempts.`,
       ``,
       `Unlock code: ${input.code}`,
       input.unlockUrl,
       ``,
-      `Your password does not change. The lock also clears on its own after ${SYSTEM_DEFAULTS.accountLockAutoClearMinutes} minutes.`,
+      `Your password does not change. The lock also clears on its own after ${input.lockClearsAfterMinutes} minutes.`,
       ``,
       `If those attempts were not you, somebody is trying your password. Tell your administrator.`,
     ].join('\n'),

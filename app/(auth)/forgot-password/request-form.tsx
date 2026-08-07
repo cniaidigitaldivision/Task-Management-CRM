@@ -7,11 +7,14 @@ import { AlertTriangle, Loader2, MailCheck, Send } from 'lucide-react';
 import { requestReset, type ResetRequestState } from './actions';
 import { Button } from '@/components/ui/button';
 import { Field, Input } from '@/components/ui/input';
-import { SYSTEM_DEFAULTS } from '@/lib/domain/constants';
 
 const EMPTY: ResetRequestState = {};
 
-export function RequestForm() {
+/* The TTL comes in as a prop rather than being imported: it is an editable
+   setting now (FR-057), and a Client Component cannot read the database. A
+   number printed here that no longer matches what the action enforces is a
+   support call. */
+export function RequestForm({ ttlMinutes }: { ttlMinutes: number }) {
   const [state, formAction, pending] = React.useActionState(requestReset, EMPTY);
 
   /* ── The confirmation says nothing the request did not ─────────────────────
@@ -40,7 +43,7 @@ export function RequestForm() {
             <span className="font-semibold text-text-primary">
               If that address belongs to an account, a code is on its way.
             </span>{' '}
-            It expires in {SYSTEM_DEFAULTS.recoveryCodeTtlMinutes} minutes. Check your spam folder
+            It expires in {ttlMinutes} minutes. Check your spam folder
             if it does not appear.
           </p>
         </div>

@@ -59,7 +59,7 @@ That's all you ever need to type. Everything else is recorded in the files.
 | **✅ Deployed** | Live on Vercel, environment variables set, 25/25 signed-in route checks green against the real URL. Super Admin created and enrolled; `/setup` verified CLOSED in production. |
 | **✅ MFA enrolment** | Built (Session 12). QR code plus a copyable setup key, the code proven before anything is stored, and `requireEnrolledUser()` enforcing FR-145 at the application boundary rather than by redirect alone. |
 | **📋 THE PLAN** | [`docs/BUILD-PLAN.md`](BUILD-PLAN.md) — 8 steps to a complete system, owner approves each one. **Read it before doing anything.** |
-| **➡️ NEXT** | **BUILD-PLAN Step 5 — editable settings**, carrying the one Step 4 item left open: step-up re-authentication (FR-149). Steps 1–4 done. 649 unit · 70 integration. |
+| **➡️ NEXT** | **BUILD-PLAN Step 6 — the rest of task management** (subtasks, dependencies, watchers, time extensions, task skills, bulk actions, recurring). Steps 1–5 done. **685 unit · 86 integration · 25 smoke.** |
 | **🔑 MFA_ENCRYPTION_KEY is load-bearing** | Authenticator secrets are encrypted at rest as of Step 4. Lose that key and every enrolled authenticator stops working permanently, for everyone — recovery codes become the only way in. Back it up somewhere that is not this machine. | It is now the one thing standing between the demo and a system the team can actually be onboarded into. See §3 and [`DEMO-GUIDE.md`](DEMO-GUIDE.md). |
 
 ### What was completed in Session 08, part 2 — TASKS SCREEN + STEP 3
@@ -493,6 +493,45 @@ Each update rewrites §2 (where we are), §3 (next action), and appends to §7 (
 | 08 | 2026-08-06 | **INTERFACE REDESIGN — Gate 1c PASSED.** Owner: the CRM looked pale and unprofessional. Root cause was the **white sidebar in light theme** — no edge against a near-white page, so the whole interface read as one flat sheet — compounded by a 2% page-vs-card step, 0.06-alpha shadows and 6px status dots. **Theme-invariant chrome** added as a new token layer so the rail is identical in both themes. **White logo plate replaced by a four-layer gold glow** with a warm cream core centred on the whole artwork, keeping the dark-teal wordmark legible with no rectangle and no visible edge. Surfaces deepened, real elevation, tinted badge formula that holds contrast in both themes, eleven new primitives, dashboard rebuilt and reordered. Docs 18 §6a/§6b/§6c/§9a amended. Verified in Chrome in both themes; all 12 routes 200. | **Step 3 authorised — next** |
 | 08b | 2026-08-06 | **TASKS SCREEN + STEP 3 — Gate 3 PASSED, 502 tests.** Tasks screen pulled forward from Phase 2: list with grouping and collapsible groups, board with eight columns and drag-and-drop, working filters, rich cards. Preview data 6 → 18 tasks with **derived** status counts. **Step 3:** `lib/domain/permissions.ts` — doc 03 §3 as a table, 79 actions × 4 roles, frozen signatures, conditional rules failing closed. Test suite in three independent layers (second transcription · full cross product · prose scenarios). Board rewired to call `can()`. Vitest added; `verify` now includes tests. | **Awaiting go-ahead for Step 4** |
 | 09 | 2026-08-06 | **STEP 4 COMPLETE — GATE 4 PASSED, 13/13 against the real database.** Argon2id (parameters chosen by measurement), peppered short codes, hand-written RFC 6238 TOTP proven against the spec's own vectors, opaque device-bound sessions with rotation and reuse detection, `withUser`/`withAppRole`/`withBreakGlass`, migrations 007–010, and the `/login`, `/forgot-password`, `/mfa-setup` screens. **Three real bugs found by testing, none findable by reading:** C-18 the pooler drops the URL role option so RLS was being bypassed silently; C-19 the lockout was evaluated against the app's clock against a 22-second skew and so never tripped; and the constant-time decoy hash was invented rather than real, so Argon2 rejected it during parsing in <1ms and left the timing oracle open. Dashboard readability rebuilt after owner feedback (legend as tiles, KPI cards first, `PageSection` spacing) following research into professional CRM dashboards. Hover-collapse rail built, then **corrected to push rather than cover** at the owner's direction, then corrected again so the collapsed icons no longer jump. `docs/OWNER-REQUESTS.md` created so the owner's standing rules survive an account switch. | **Step 5 authorised** |
+| 11 | 2026-08-07 | **BUILD-PLAN STEP 5 COMPLETE — settings are editable, and they actually take effect.** 18 settings, each naming its own doc 03 permission, validated on four gates in order: role → step-up → the field's own bounds → **the combination** (a soft threshold above the hard one is individually legal and silently disables the warning). Scoring weights refused unless they total exactly 100% (C-06). Skills library: add, rename, retire, restore — never delete, because `user_skills` is ON DELETE RESTRICT and the ratings are the history the matcher reads. **Step-up re-authentication (FR-149) closed**, carried over from Step 4: password plus authenticator for a privileged role, failures audited, ten minutes, per-session. **The part that made it real:** every consumer imported `SYSTEM_DEFAULTS` directly, so an override could be saved, audited and shown as changed while nothing behaved differently — `lib/settings/current.ts` is now the one accessor and the capacity gate, workload screens, dashboard, lockout threshold, code TTL and invitation TTL all read through it (migration 017 adds `app.settings_effective()` so the login screen can read the lock threshold it prints, where there is no identity yet). **Two seam bugs found:** the table's `check (key ~ '^[a-z][a-z0-9_]* — the first-run Super Admin setup route, verified 8/8.** Migration 011 adds `app.setup_is_available()` and `app.setup_super_admin(…)`, the latter creating the user, password identity, ten recovery codes, a CRITICAL security event and an audit row in one transaction. `/setup` renders the form only while no Super Admin exists and shows the ten recovery codes exactly once, with a print step. Single-use is **structural** — migration 001's partial unique index permits one `super_admin` row ever, so the guard clause exists only to produce a readable error. Fixed a stale comment in `sidebar.tsx` that still described the rail as overlaying the content, contradicting owner decision D7. `npm run verify` clean: 640 tests, build green, `/setup` correctly dynamic. | **Awaiting go-ahead for Step 5.2** |
+
+---
+
+## 8. 🧭 IF YOU'RE COMPLETELY LOST
+
+Read these three files, in this order, and you'll have the full picture in about ten minutes:
+
+1. [`00-INDEX.md`](00-INDEX.md) — what every document is for
+2. [`01-PROJECT-BRIEF.md`](01-PROJECT-BRIEF.md) — what we're building and why
+3. [`PROGRESS-TRACKER.md`](PROGRESS-TRACKER.md) — exactly what's done and what isn't
+
+If you want the short version of what makes this system different from ClickUp, read [`11-BENCHMARK-CLICKUP-AND-PEERS.md`](11-BENCHMARK-CLICKUP-AND-PEERS.md) §4 — it's one table.
+
+---
+
+## 10. 🎨 SESSION 09 (part 2) — hover-collapse rail + readability
+
+**Owner request:** the nav rail should collapse to icons when the cursor leaves it and expand on hover; the logo space should be used well when narrow; the workload bars and percentages are too small to read.
+
+### Hover-to-expand rail
+- Rail is **72px at rest** on desktop (`--sidebar-width-collapsed`), **264px on hover**, 240ms.
+- ⚠️ **It PUSHES the content, it does not cover it.** *(Corrected after the owner tried the first version.)* My initial choice was to overlay, reasoning that pushing reflows the layout on mouse-over. The owner was clear that covering the dashboard is worse — hiding part of the page to reveal a menu defeats the point of the menu. The content is left-padded by `--rail`, which tracks the rail width and animates with it at the same 240ms, so the page narrows and re-centres.
+- `has-[aside:hover]` on the shell root is what lets a **sibling** react to the rail being hovered. `group-hover` cannot do it — hovering anywhere in the shell would trigger it.
+- Labels, section headings, counter chips and the footer text fade with `lg:opacity-0 lg:group-hover/rail:opacity-100`. The rail is `overflow-hidden`, so they are clipped; the opacity transition is what stops the clipping being visible mid-animation.
+- **Mobile is untouched** — it stays a full-width drawer. All the collapse rules are `lg:`-prefixed.
+
+### Logo at 72px
+Two logos, CSS-swapped: the compact glowing mark at rest, the full lockup on hover. Clipping the 4:3 artwork to 72px would show its left edge, which looks broken rather than deliberate.
+
+### Workload readability
+`ProgressBar` `sm` → `lg`, avatar `sm` → `md`, and the percentage from `text-body-sm` to `text-h3`. That bar answers *"how loaded is this person?"* — the question the whole capacity model exists for — and it was the smallest element on screen carrying the most important number.
+
+### Scope note — recorded so it is not misread later
+The owner clarified that **sales management and workflow automation are NOT wanted** and were offered only as examples of what professional CRMs contain. They are a possible *future* direction once the system is in real use. **Do not implement them.** Doc 01's scope is unchanged.
+
+### Still not visually verified by Claude
+No browser on this side for several sessions. Everything builds and every route returns 200, but the hover animation in particular is the kind of thing that needs an eye on it.
+)` would have rejected every camelCase key on the first save, and the RLS delete policy being Super-Admin-only meant an Admin's Reset deleted zero rows with no error. | **Awaiting go-ahead for Step 6** |
 | 10 | 2026-08-06 | **STEP 5.1 COMPLETE — the first-run Super Admin setup route, verified 8/8.** Migration 011 adds `app.setup_is_available()` and `app.setup_super_admin(…)`, the latter creating the user, password identity, ten recovery codes, a CRITICAL security event and an audit row in one transaction. `/setup` renders the form only while no Super Admin exists and shows the ten recovery codes exactly once, with a print step. Single-use is **structural** — migration 001's partial unique index permits one `super_admin` row ever, so the guard clause exists only to produce a readable error. Fixed a stale comment in `sidebar.tsx` that still described the rail as overlaying the content, contradicting owner decision D7. `npm run verify` clean: 640 tests, build green, `/setup` correctly dynamic. | **Awaiting go-ahead for Step 5.2** |
 
 ---

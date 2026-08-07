@@ -21,6 +21,7 @@ import {
 import { notifyAccountLocked, notifyNewDeviceSignIn } from '@/lib/email/notify';
 import { MFA_REQUIRED_ROLES } from '@/lib/domain/constants';
 import { evaluateLockout, failureMessage, minutesUntilUnlock } from '@/lib/domain/lockout';
+import { getSettings } from '@/lib/settings/current';
 import { WINDOW_MINUTES, evaluateRateLimit } from '@/lib/domain/rate-limit';
 import type { LoginOutcome } from '@/lib/domain/lockout';
 
@@ -170,7 +171,18 @@ export async function signIn(_prev: SignInState, formData: FormData): Promise<Si
    * decision, the temporary-password expiry, the session lifetimes. */
   const since = new Date(now - 24 * 60 * 60 * 1000);
   const { attempts, clearedAt, now: dbNow } = await getLockoutInputs(identity.userId, since);
-  const lock = evaluateLockout(attempts, dbNow, { clearedAt });
+
+  /* The threshold and the auto-clear are settings (FR-057), so they are read
+     rather than imported. Lowering "failed sign-ins before lock" to 3 has to
+     change what the login form DOES, not only what the Settings screen says —
+     a saved value that nothing reads is the worst of both. */
+  const live = await getSettings();
+  const lockSettings = {
+    failedLoginsToLock: Number(live.failedLoginsToLock),
+    autoClearMinutes: Number(live.accountLockAutoClearMinutes),
+  };
+
+  const lock = evaluateLockout(attempts, dbNow, { clearedAt, settings: lockSettings });
 
   if (lock.isLocked) {
     // Recorded, but this does NOT extend the lock — evaluateLockout ignores
@@ -199,6 +211,7 @@ export async function signIn(_prev: SignInState, formData: FormData): Promise<Si
 
     const after = evaluateLockout([...attempts, { outcome: 'bad_password', at: dbNow }], dbNow, {
       clearedAt,
+      settings: lockSettings,
     });
     if (after.isLocked) {
       await setLock(identity.userId, new Date(after.lockedAt ?? dbNow));
@@ -256,6 +269,7 @@ export async function signIn(_prev: SignInState, formData: FormData): Promise<Si
       await log('bad_mfa', identity.userId);
       const after = evaluateLockout([...attempts, { outcome: 'bad_mfa', at: dbNow }], dbNow, {
         clearedAt,
+        settings: lockSettings,
       });
       if (after.isLocked) {
         await setLock(identity.userId, new Date(after.lockedAt ?? dbNow));

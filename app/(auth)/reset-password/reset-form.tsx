@@ -6,7 +6,6 @@ import { AlertTriangle, KeyRound, Loader2, ShieldCheck } from 'lucide-react';
 import { completeReset, type ResetState } from '../forgot-password/actions';
 import { Button } from '@/components/ui/button';
 import { Field, Input } from '@/components/ui/input';
-import { SYSTEM_DEFAULTS } from '@/lib/domain/constants';
 
 /* ============================================================================
  * USE THE CODE
@@ -28,7 +27,13 @@ import { SYSTEM_DEFAULTS } from '@/lib/domain/constants';
 
 const EMPTY: ResetState = {};
 
-export function ResetForm({ initialCode }: { initialCode: string }) {
+export function ResetForm({
+  initialCode,
+  ttlMinutes,
+}: {
+  initialCode: string;
+  ttlMinutes: number;
+}) {
   const [state, formAction, pending] = React.useActionState(completeReset, EMPTY);
   const mfaRef = React.useRef<HTMLInputElement>(null);
 
@@ -88,7 +93,7 @@ export function ResetForm({ initialCode }: { initialCode: string }) {
       <Field
         label="The six-digit code"
         htmlFor="code"
-        hint={`From the email. It lasts ${SYSTEM_DEFAULTS.recoveryCodeTtlMinutes} minutes and works once.`}
+        hint={`From the email. It lasts ${ttlMinutes} minutes and works once.`}
       >
         <Input
           id="code"

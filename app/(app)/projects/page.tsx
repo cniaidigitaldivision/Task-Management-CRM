@@ -8,9 +8,10 @@ import { ProgressBar } from '@/components/ui/progress';
 import { requireUser } from '@/lib/auth/current-user';
 import { listAssignablepeople } from '@/lib/db/queries/people';
 import { listProjects } from '@/lib/db/queries/projects';
-import { PROJECT_TYPE_META, SYSTEM_DEFAULTS, type ProjectType } from '@/lib/domain/constants';
+import { PROJECT_TYPE_META, type ProjectType } from '@/lib/domain/constants';
 import { can } from '@/lib/domain/permissions';
 import { Package } from 'lucide-react';
+import { getSettings } from '@/lib/settings/current';
 
 export const metadata: Metadata = { title: 'Projects' };
 
@@ -25,7 +26,7 @@ export const metadata: Metadata = { title: 'Projects' };
  * and appeared in no plan. Making Other a *mandatory category with a written
  * explanation* turns that into a number, and the number belongs here where
  * somebody will see it — above 15% of committed effort it is a warning, not a
- * curiosity (doc 15 §6, SYSTEM_DEFAULTS.otherWorkWarningPct).
+ * curiosity (doc 15 §6, the otherWorkWarningPct setting).
  * ========================================================================= */
 
 export default async function ProjectsPage() {
@@ -47,7 +48,8 @@ export default async function ProjectsPage() {
   const totalPoints = projects.reduce((sum, p) => sum + p.effortPoints, 0);
   const otherPoints = byType.get('other')?.points ?? 0;
   const otherPct = totalPoints > 0 ? Math.round((otherPoints / totalPoints) * 100) : 0;
-  const otherHigh = otherPct > SYSTEM_DEFAULTS.otherWorkWarningPct;
+  const otherWarningPct = Number((await getSettings()).otherWorkWarningPct);
+  const otherHigh = otherPct > otherWarningPct;
 
   const canManage = can({ role: user.role, id: user.id }, 'project.create');
 
@@ -98,12 +100,12 @@ export default async function ProjectsPage() {
             <p className="mt-2 text-micro text-text-tertiary">
               {otherHigh ? (
                 <>
-                  Above the {SYSTEM_DEFAULTS.otherWorkWarningPct}% line. This is real capacity going
+                  Above the {otherWarningPct}% line. This is real capacity going
                   to work nobody planned — worth deciding whether it should become a project or stop.
                 </>
               ) : (
                 <>
-                  Under the {SYSTEM_DEFAULTS.otherWorkWarningPct}% line. Every Other task carries a
+                  Under the {otherWarningPct}% line. Every Other task carries a
                   written explanation, which is what keeps this figure honest (BR-012).
                 </>
               )}
