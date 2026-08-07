@@ -72,13 +72,27 @@ export default async function DashboardPage() {
   const user = await requireRole('team_coordinator');
   const now = nowMs();
 
-  const [rows, statusCounts, workload, projects, activity] = await Promise.all([
-    listTasks(user.id, { includeClosed: true }),
-    countTasksByStatus(user.id),
-    teamWorkload(user.id, now),
-    listProjects(user.id),
-    listActivity(user.id, 8),
-  ]);
+  /* ── ONE WAVE, NOT THREE ───────────────────────────────────────────────────
+     Every one of these opens its own transaction against a database in another
+     region, so what matters is not how many queries there are but how many
+     times the page STOPS AND WAITS. This used to be three waits — this list,
+     then getSettings(), then listPendingExtensions() — which is three times the
+     network latency for no reason: none of them depends on the others.
+
+     Anything that needs a previous result still has to wait. Nothing here does. */
+  const [rows, statusCounts, workload, projects, activity, settings, extensions] =
+    await Promise.all([
+      listTasks(user.id, { includeClosed: true }),
+      countTasksByStatus(user.id),
+      teamWorkload(user.id, now),
+      listProjects(user.id),
+      listActivity(user.id, 8),
+      getSettings(),
+      /* RLS decides the scope of this list, not the query: `tx_select` shows an
+         Admin every pending request and everybody else only their own, so the
+         same call renders the Admin queue and a Member's "still waiting" line. */
+      listPendingExtensions(user.id),
+    ]);
 
   const tasks = rows.map((row) => toTaskView(row, now));
   const team = teamUtilisation(workload.people);
@@ -112,12 +126,6 @@ export default async function DashboardPage() {
       token: STATUS_META[entry.status].token,
     }));
 
-  const settings = await getSettings();
-
-  /* RLS decides the scope of this list, not the query: `tx_select` shows an
-     Admin every pending request and shows everybody else only their own. So the
-     same call renders an Admin's queue and a Member's "still waiting" line. */
-  const extensions = await listPendingExtensions(user.id);
   const canDecide = canDecideExtensions(user.role);
   const softPct = Number(settings.softThresholdPct);
   const hardPct = Number(settings.hardThresholdPct);

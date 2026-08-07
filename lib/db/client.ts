@@ -200,8 +200,14 @@ export async function withUser<T>(userId: string, fn: (tx: Tx) => Promise<T>): P
   return withRetry(
     () =>
       sql.begin(async (tx) => {
-        await tx`select set_config('role', 'cni_app', true)`;
-        await tx`select set_config('app.user_id', ${userId}, true)`;
+        /* ONE statement, not two. Each round trip to Singapore costs real time,
+           and this one runs before every query in the application — measured at
+           roughly 20% of a simple query's total latency. Splitting it read more
+           clearly and cost a trip. */
+        await tx`
+          select set_config('role', 'cni_app', true),
+                 set_config('app.user_id', ${userId}, true)
+        `;
         return fn(tx);
       }) as Promise<T>,
   );

@@ -58,38 +58,66 @@ export function CalendarView({
   const router = useRouter();
   const [year, setYear] = React.useState(initialYear);
   const [month, setMonth] = React.useState(initialMonth);
-  const [tasks, setTasks] = React.useState<readonly CalendarTask[]>(initialTasks);
-  const [loadedKey, setLoadedKey] = React.useState(`${initialYear}-${initialMonth}`);
   const [assignee, setAssignee] = React.useState('all');
 
-  const key = `${year}-${month}`;
-  const loading = key !== loadedKey;
+  /* ── EVERY MONTH IS KEPT ONCE IT HAS BEEN SEEN ─────────────────────────────
+     The first version refetched on every click, so paging back and forth cost a
+     round trip to Singapore each time — the owner measured two to three seconds
+     for something that should be instant.
 
+     A Map keyed by year-month, held for the life of the page. Going back to
+     August after visiting September is now zero network and renders in the same
+     frame. Stale data is the trade, and it is the right one here: a calendar is
+     a planning view, the page is re-rendered from the server on any navigation,
+     and nothing in it is a number somebody acts on to the second. */
+  const [months, setMonths] = React.useState<ReadonlyMap<string, readonly CalendarTask[]>>(
+    () => new Map([[`${initialYear}-${initialMonth}`, initialTasks]]),
+  );
+
+  const key = `${year}-${month}`;
+  const tasks = months.get(key);
+  const loading = tasks === undefined;
+
+  /* Fetch what is missing — the month being shown, and the two either side of
+     it, so the NEXT click has nothing to wait for. Neighbours are fetched
+     without blocking: the arrows are already usable while they arrive. */
   React.useEffect(() => {
-    if (key === loadedKey) return;
     let cancelled = false;
-    calendarAction({
-      from: iso(year, month, 1),
-      to: iso(year, month, daysInMonth(year, month)),
-    })
-      .then((rows) => {
-        if (cancelled) return;
-        setTasks(rows);
-        setLoadedKey(key);
+
+    const want = [
+      { y: year, m: month },
+      month === 12 ? { y: year + 1, m: 1 } : { y: year, m: month + 1 },
+      month === 1 ? { y: year - 1, m: 12 } : { y: year, m: month - 1 },
+    ].filter((slot) => !months.has(`${slot.y}-${slot.m}`));
+
+    if (want.length === 0) return;
+
+    for (const slot of want) {
+      calendarAction({
+        from: iso(slot.y, slot.m, 1),
+        to: iso(slot.y, slot.m, daysInMonth(slot.y, slot.m)),
       })
-      .catch(() => {
-        if (cancelled) return;
-        setLoadedKey(key);
-      });
+        .then((rows) => {
+          if (cancelled) return;
+          setMonths((current) => new Map(current).set(`${slot.y}-${slot.m}`, rows));
+        })
+        .catch(() => {
+          /* An empty month rather than a spinner forever. The arrows keep
+             working and a reload retries. */
+          if (cancelled) return;
+          setMonths((current) => new Map(current).set(`${slot.y}-${slot.m}`, []));
+        });
+    }
+
     return () => {
       cancelled = true;
     };
-  }, [key, loadedKey, year, month]);
+  }, [year, month, months]);
 
-  const visible = React.useMemo(
-    () => (assignee === 'all' ? tasks : tasks.filter((t) => t.assigneeId === assignee)),
-    [tasks, assignee],
-  );
+  const visible = React.useMemo(() => {
+    const rows = tasks ?? [];
+    return assignee === 'all' ? rows : rows.filter((t) => t.assigneeId === assignee);
+  }, [tasks, assignee]);
 
   const byDay = React.useMemo(() => {
     const map = new Map<string, CalendarTask[]>();
@@ -129,16 +157,19 @@ export function CalendarView({
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
-        <Button variant="secondary" size="md" onClick={() => step(-1)} disabled={loading}>
+        <Button variant="secondary" size="md" onClick={() => step(-1)}>
           <ChevronLeft className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
           <span className="sr-only">Previous month</span>
         </Button>
         <h2 className="min-w-[10rem] text-h3 text-text-primary">{monthName}</h2>
-        <Button variant="secondary" size="md" onClick={() => step(1)} disabled={loading}>
+        <Button variant="secondary" size="md" onClick={() => step(1)}>
           <ChevronRight className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
           <span className="sr-only">Next month</span>
         </Button>
 
+        {/* The arrows are never disabled. Locking navigation while a month
+            loads is precisely the stalled feeling the cache exists to remove —
+            keep paging and the months fill in behind you. */}
         {loading && (
           <Loader2 className="h-4 w-4 animate-spin text-text-tertiary" aria-hidden="true" />
         )}

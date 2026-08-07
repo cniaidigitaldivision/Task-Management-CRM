@@ -19,7 +19,8 @@
     "smoke": "node scripts/smoke.mjs",
     "demo:code": "node scripts/demo-code.mjs",
     "encrypt:mfa": "node scripts/encrypt-mfa-secrets.mjs",
-    "storage:check": "node scripts/check-storage.mjs"
+    "storage:check": "node scripts/check-storage.mjs",
+    "perf": "node scripts/perf.mjs"
   },
   "dependencies": {
     "@node-rs/argon2": "^2.0.2",

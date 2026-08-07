@@ -20,6 +20,7 @@ import { listPendingInvitations } from '@/lib/db/queries/provisioning';
 import { assignableRolesFor } from '@/app/actions/team';
 import { describeSender } from '@/lib/email/send';
 import { can } from '@/lib/domain/permissions';
+import { weekWindow } from '@/lib/domain/workload';
 import { nowMs } from '@/lib/now';
 
 export const metadata: Metadata = { title: 'Team' };
@@ -48,20 +49,24 @@ export default async function TeamPage() {
   const user = await requireRole('admin');
   const now = nowMs();
 
-  const [people, { window, people: workload }, skills, userSkills] = await Promise.all([
-    listPeople(user.id, { includeInactive: true }),
-    teamWorkload(user.id, now),
-    listSkills(user.id),
-    listUserSkills(user.id),
-  ]);
-
-  const availability = await listAvailability(user.id, window);
-
+  /* ── ONE WAVE ──────────────────────────────────────────────────────────────
+     This was three: the list, then availability, then invitations. Only
+     availability genuinely depended on anything — it needed the week window
+     from teamWorkload — and that window is `weekWindow(now)`, a pure function
+     of the clock, so it can be computed here without waiting for a query. */
   const canProvision = can({ role: user.role, id: user.id }, 'user.create');
-  const [pending, assignableRoles] = await Promise.all([
-    canProvision ? listPendingInvitations(user.id) : Promise.resolve([]),
-    assignableRolesFor(user.role),
-  ]);
+  const window = weekWindow(now);
+
+  const [people, { people: workload }, skills, userSkills, availability, pending, assignableRoles] =
+    await Promise.all([
+      listPeople(user.id, { includeInactive: true }),
+      teamWorkload(user.id, now),
+      listSkills(user.id),
+      listUserSkills(user.id),
+      listAvailability(user.id, window),
+      canProvision ? listPendingInvitations(user.id) : Promise.resolve([]),
+      assignableRolesFor(user.role),
+    ]);
   const pendingUserIds = pending.map((p) => p.userId);
   const mail = describeSender();
 

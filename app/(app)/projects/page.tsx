@@ -32,9 +32,10 @@ export const metadata: Metadata = { title: 'Projects' };
 export default async function ProjectsPage() {
   const user = await requireUser();
 
-  const [projects, people] = await Promise.all([
+  const [projects, people, settings] = await Promise.all([
     listProjects(user.id, { includeArchived: true }),
     listAssignablepeople(user.id),
+    getSettings(),
   ]);
 
   const byType = new Map<ProjectType, { count: number; points: number }>();
@@ -48,7 +49,7 @@ export default async function ProjectsPage() {
   const totalPoints = projects.reduce((sum, p) => sum + p.effortPoints, 0);
   const otherPoints = byType.get('other')?.points ?? 0;
   const otherPct = totalPoints > 0 ? Math.round((otherPoints / totalPoints) * 100) : 0;
-  const otherWarningPct = Number((await getSettings()).otherWorkWarningPct);
+  const otherWarningPct = Number(settings.otherWorkWarningPct);
   const otherHigh = otherPct > otherWarningPct;
 
   const canManage = can({ role: user.role, id: user.id }, 'project.create');

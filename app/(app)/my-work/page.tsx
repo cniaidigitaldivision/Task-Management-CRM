@@ -38,14 +38,15 @@ export default async function MyWorkPage() {
   const user = await requireUser();
   const now = nowMs();
 
-  const [rows, workload, people, projects] = await Promise.all([
+  const [rows, workload, people, projects, settings] = await Promise.all([
     listTasks(user.id, { assigneeId: user.id, includeClosed: true }),
     teamWorkload(user.id, now),
     listAssignablepeople(user.id),
     listProjects(user.id),
+    getSettings(),
   ]);
 
-  const otherWarningPct = Number((await getSettings()).otherWorkWarningPct);
+  const otherWarningPct = Number(settings.otherWorkWarningPct);
 
   const tasks = rows.map((row) => toTaskView(row, now));
   const mine = workload.people.find((p) => p.userId === user.id);
