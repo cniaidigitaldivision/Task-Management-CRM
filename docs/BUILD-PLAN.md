@@ -19,10 +19,10 @@
 | | |
 |---|---|
 | **Live** | https://cni-crm.vercel.app — auto-deploys on push to `main` |
-| **Current step** | ✅ Steps 1–6 complete — awaiting go-ahead for **Step 7 (attachments)** |
+| **Current step** | ✅ Steps 1–7 complete — awaiting go-ahead for **Step 8 (intelligence and the finishing pieces)**. ⚠️ Step 7 needs `SUPABASE_STORAGE_KEY` from the owner before uploads work |
 | **Last updated** | 2026-08-07 |
 
-**Progress:** ✅✅✅✅✅✅⬜⬜ 6 of 8 steps
+**Progress:** ✅✅✅✅✅✅✅⬜ 7 of 8 steps
 
 ---
 
@@ -176,11 +176,32 @@ emailed until a domain of yours is verified.
 
 ---
 
-### ⬜ Step 7 · Attachments
-- Upload to a task or a comment, download, delete
-- Type and size limits, and the storage rules so one person's files are not readable by another
+### ✅ Step 7 · Attachments — **DONE** (one owner action outstanding)
 
-**Needs from you:** a Supabase Storage bucket. I can create it through the Supabase connection — I will ask first.
+Files attach to a task, download through a link that expires, and are removed by whoever uploaded them or a Coordinator.
+
+**The bucket is private, and that decision shaped everything else.** It was created public — meaning every file readable by URL, forever, by anyone, with no account. That routes straight around the RLS model the rest of the system is built on: a task can be locked to three people and its attachment still open to the world. It is now private, capped at 25 MB, with 17 allow-listed types.
+
+**Downloads are two steps.** A row carries no URL. Clicking asks the server, which re-checks the person can still see the task and then mints a link good for an hour. A link forwarded into a group chat is spent by the time anybody reads it, and access revoked this morning means nothing this afternoon.
+
+**Uploads write the file before the row.** They cannot be atomic — one is HTTP, one is Postgres — so the choice is which failure to suffer. Row first leaves a row pointing at nothing: it shows in the list and every download fails forever. File first leaves an unreferenced object: invisible, a few kilobytes, cleanable. Deleting reverses it for the same reason. When the row write fails the object is removed again immediately, best-effort.
+
+**The extension is checked separately from the MIME type**, because `file.type` is a claim the browser reads from the OS extension registry, not an inspection. Rename `payload.exe` to `payload.pdf` and Chrome reports `application/pdf` quite sincerely. An attachment carries an implicit endorsement — it came through the company system, from a colleague's account, on a real task — and people open those.
+
+**Filenames are sanitised and never used as paths.** The stored path is `tasks/<taskId>/<attachmentId>.<ext>`, so two people attaching `brief.pdf` cannot overwrite each other and no name-derived path can be traversable. The name goes in the database and is restored on download. Quotes, control characters and newlines are stripped because the name is echoed in a `Content-Disposition` header, where a quote ends the token early and everything after it is read as header syntax.
+
+**⚠️ OWNER ACTION — `SUPABASE_STORAGE_KEY` is not set yet.** A private bucket cannot be authorised the way everything else here is: Supabase Storage is a separate HTTP service and cannot see `app.user_id`, the transaction-local setting RLS is built on. So one server-side key is unavoidable. **The rule against using an elevated key for the DATABASE is unchanged and unrelaxed** — nothing reads or writes `public.*` with one. The containment is enforced rather than promised:
+
+- `lib/storage/bucket.ts` reads it and **nothing else does** — `npm run lint` fails the build if another file mentions it (rule in `eslint.config.mjs`, verified by deliberately planting a probe file)
+- that module exports four narrow functions and never returns a client
+- every caller has already run `requireUser()` and had RLS confirm task visibility. The key moves bytes; it never decides who may see them
+
+Get it from **Supabase → Project Settings → API keys → secret key**, put it in `.env.local` and Vercel, then run **`npm run storage:check`** — it uploads a test file, signs a link, downloads it back, confirms the bucket refuses unsigned access, deletes it, and never prints the key.
+
+Until then the panel says storage is not configured and the rest of the task drawer works normally.
+
+**Tests:** 34 new unit, 7 new integration. Totals **822 unit · 122 integration · 25 smoke**.
+
 
 ---
 

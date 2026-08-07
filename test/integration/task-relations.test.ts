@@ -536,3 +536,121 @@ describe('recurrence storage', () => {
     expect((await T.getTask(who.sana.id, task.id))?.recurrenceRule).toBe('FREQ=DAILY;INTERVAL=1');
   });
 });
+
+describe('attachments', () => {
+  it('records a file and reads it back', async () => {
+    const task = await makeTask(who.sana.id);
+    const id = await R.recordAttachment(who.sana.id, {
+      taskId: task.id,
+      filePath: `tasks/${task.id}/fixture.pdf`,
+      fileName: 'fixture.pdf',
+      mimeType: 'application/pdf',
+      sizeBytes: 2048,
+    });
+
+    const list = await R.listAttachments(who.sana.id, task.id);
+    expect(list).toHaveLength(1);
+    expect(list[0].id).toBe(id);
+    expect(list[0].fileName).toBe('fixture.pdf');
+    expect(list[0].uploadedByName).toBeTruthy();
+  });
+
+  it('returns the size as a number, not the string bigint sends', async () => {
+    /* `size_bytes` is a bigint and postgres.js hands those back as strings to
+       avoid losing precision. Left unconverted, `formatBytes` would receive
+       "2048" and every file would read as a dash. */
+    const task = await makeTask(who.sana.id);
+    await R.recordAttachment(who.sana.id, {
+      taskId: task.id,
+      filePath: `tasks/${task.id}/size.pdf`,
+      fileName: 'size.pdf',
+      mimeType: 'application/pdf',
+      sizeBytes: 2048,
+    });
+
+    const [row] = await R.listAttachments(who.sana.id, task.id);
+    expect(typeof row.sizeBytes).toBe('number');
+    expect(row.sizeBytes).toBe(2048);
+  });
+
+  it('hides a file on a task the actor cannot see', async () => {
+    /* `attachments_select` is `task_is_visible(task_id)`. A Member assigned
+       nothing gets nothing — and gets it as an empty list, not an error, so the
+       existence of the work is not leaked either. */
+    const task = await makeTask(who.sana.id, { assigneeId: who.ayesha.id });
+    const id = await R.recordAttachment(who.sana.id, {
+      taskId: task.id,
+      filePath: `tasks/${task.id}/private.pdf`,
+      fileName: 'private.pdf',
+      mimeType: 'application/pdf',
+      sizeBytes: 100,
+    });
+
+    expect(await R.listAttachments(who.yusra.id, task.id)).toHaveLength(0);
+    expect(await R.getAttachment(who.yusra.id, id)).toBeNull();
+  });
+
+  it('lets the uploader delete their own', async () => {
+    const task = await makeTask(who.sana.id, { assigneeId: who.yusra.id });
+    const id = await R.recordAttachment(who.yusra.id, {
+      taskId: task.id,
+      filePath: `tasks/${task.id}/mine.pdf`,
+      fileName: 'mine.pdf',
+      mimeType: 'application/pdf',
+      sizeBytes: 100,
+    });
+
+    expect(await R.deleteAttachmentRow(who.yusra.id, id)).toBe(true);
+    expect(await R.listAttachments(who.sana.id, task.id)).toHaveLength(0);
+  });
+
+  it('answers false when RLS refuses the delete, rather than throwing', async () => {
+    /* `attachments_delete` is `sees_all_work() or uploaded_by_id = me`. A
+       Member deleting a colleague's attachment matches zero rows and gets NO
+       error — the same silent shape as the settings reset (C-23). The boolean
+       is what stops the action deleting the stored object for a row that is
+       still there. */
+    const task = await makeTask(who.sana.id, { assigneeId: who.yusra.id });
+    const id = await R.recordAttachment(who.sana.id, {
+      taskId: task.id,
+      filePath: `tasks/${task.id}/theirs.pdf`,
+      fileName: 'theirs.pdf',
+      mimeType: 'application/pdf',
+      sizeBytes: 100,
+    });
+
+    expect(await R.deleteAttachmentRow(who.yusra.id, id)).toBe(false);
+    expect(await R.listAttachments(who.sana.id, task.id)).toHaveLength(1);
+  });
+
+  it('lets a Coordinator delete somebody else’s', async () => {
+    const task = await makeTask(who.sana.id);
+    const id = await R.recordAttachment(who.sana.id, {
+      taskId: task.id,
+      filePath: `tasks/${task.id}/any.pdf`,
+      fileName: 'any.pdf',
+      mimeType: 'application/pdf',
+      sizeBytes: 100,
+    });
+
+    expect(await R.deleteAttachmentRow(who.kashif.id, id)).toBe(true);
+  });
+
+  it('counts on the task row, and goes with the task', async () => {
+    const task = await makeTask(who.sana.id);
+    await R.recordAttachment(who.sana.id, {
+      taskId: task.id,
+      filePath: `tasks/${task.id}/counted.pdf`,
+      fileName: 'counted.pdf',
+      mimeType: 'application/pdf',
+      sizeBytes: 100,
+    });
+
+    expect((await T.getTask(who.sana.id, task.id))?.attachmentCount).toBe(1);
+
+    /* ON DELETE CASCADE. A row surviving its task would be unreachable — no
+       screen can show it, and nothing could ever delete it. */
+    await sql`delete from public.attachments where task_id = ${task.id}`;
+    expect(await R.listAttachments(who.sana.id, task.id)).toHaveLength(0);
+  });
+});

@@ -28,6 +28,7 @@ import {
   type TaskDetailPayload,
 } from '@/app/actions/tasks';
 import type { ShellPerson, ShellProject } from '@/components/layout/app-shell';
+import { AttachmentsPanel } from '@/components/task/attachments-panel';
 import { TaskRelationsPanel } from '@/components/task/task-relations-panel';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge, PriorityFlag } from '@/components/ui/badge';
@@ -98,6 +99,8 @@ const EMPTY: TaskDetailPayload = {
   watchers: [],
   skills: [],
   extensions: [],
+  attachments: [],
+  storage: { configured: false, reason: null },
   isWatching: false,
   canEditGraph: false,
   canDecideExtensions: false,
@@ -497,6 +500,17 @@ export function TaskDetail({
               people={people.map((person) => ({ id: person.id, name: person.name }))}
               busy={busy}
               run={run}
+            />
+
+            {/* ---- Files (FR-029) ---- */}
+            <AttachmentsPanel
+              taskId={task.id}
+              attachments={data.attachments}
+              currentUserId={currentUser.id}
+              canManage={data.canEditGraph}
+              storage={data.storage}
+              busy={busy}
+              onChanged={load}
             />
 
             {/* ---- Checklist (FR-027) ---- */}

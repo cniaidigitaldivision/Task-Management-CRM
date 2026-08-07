@@ -35,6 +35,7 @@ import {
 import { evaluateTransition, taskLoad } from '@/lib/domain/task-machine';
 import { computeWorkload, evaluateAssignment, weekWindow } from '@/lib/domain/workload';
 import { getSettings } from '@/lib/settings/current';
+import { describeStorage } from '@/lib/storage/bucket';
 
 /* ============================================================================
  * TASK ACTIONS — LAYER 3
@@ -216,6 +217,9 @@ export interface TaskDetailPayload {
   readonly watchers: Awaited<ReturnType<typeof R.listWatchers>>;
   readonly skills: Awaited<ReturnType<typeof R.listTaskSkills>>;
   readonly extensions: Awaited<ReturnType<typeof R.listExtensionsForTask>>;
+  readonly attachments: Awaited<ReturnType<typeof R.listAttachments>>;
+  /** Whether file storage is set up, so the panel can say so rather than fail. */
+  readonly storage: { configured: boolean; reason: string | null };
   /** Is the person reading this following it? */
   readonly isWatching: boolean;
   /** May they draw dependencies, set required skills, restructure? */
@@ -250,6 +254,8 @@ export async function getTaskDetailAction(taskId: string): Promise<TaskDetailPay
       watchers: [],
       skills: [],
       extensions: [],
+      attachments: [],
+      storage: { configured: false, reason: null },
       isWatching: false,
       canEditGraph: false,
       canDecideExtensions: false,
@@ -257,17 +263,27 @@ export async function getTaskDetailAction(taskId: string): Promise<TaskDetailPay
     };
   }
 
-  const [comments, checklist, subtasks, dependencies, dependents, watchers, skills, extensions] =
-    await Promise.all([
-      T.getTaskComments(user.id, taskId),
-      T.getChecklist(user.id, taskId),
-      R.listSubtasks(user.id, taskId),
-      R.listDependencies(user.id, taskId),
-      R.listDependents(user.id, taskId),
-      R.listWatchers(user.id, taskId),
-      R.listTaskSkills(user.id, taskId),
-      R.listExtensionsForTask(user.id, taskId),
-    ]);
+  const [
+    comments,
+    checklist,
+    subtasks,
+    dependencies,
+    dependents,
+    watchers,
+    skills,
+    extensions,
+    attachments,
+  ] = await Promise.all([
+    T.getTaskComments(user.id, taskId),
+    T.getChecklist(user.id, taskId),
+    R.listSubtasks(user.id, taskId),
+    R.listDependencies(user.id, taskId),
+    R.listDependents(user.id, taskId),
+    R.listWatchers(user.id, taskId),
+    R.listTaskSkills(user.id, taskId),
+    R.listExtensionsForTask(user.id, taskId),
+    R.listAttachments(user.id, taskId),
+  ]);
 
   const allowed = TASK_STATUSES.filter((to) => {
     if (to === task.status) return false;
@@ -302,6 +318,13 @@ export async function getTaskDetailAction(taskId: string): Promise<TaskDetailPay
     watchers,
     skills,
     extensions,
+    attachments,
+    /* Reported rather than assumed: with no key the panel says so in plain
+       words and the rest of the drawer is unaffected. */
+    storage: (() => {
+      const status = describeStorage();
+      return { configured: status.configured, reason: status.reason };
+    })(),
     isWatching: watchers.some((w) => w.userId === user.id),
     canEditGraph:
       user.role === 'super_admin' || user.role === 'admin' || user.role === 'team_coordinator',

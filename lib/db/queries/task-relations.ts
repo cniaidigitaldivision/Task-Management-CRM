@@ -478,3 +478,111 @@ export async function hasPendingExtension(actorId: string, taskId: string): Prom
   `);
   return rows.length > 0;
 }
+
+/* ==========================================================================
+ * ATTACHMENTS — FR-029
+ * ========================================================================== */
+
+export interface AttachmentRow {
+  readonly id: string;
+  readonly taskId: string;
+  readonly commentId: string | null;
+  readonly uploadedById: string;
+  readonly uploadedByName: string | null;
+  readonly filePath: string;
+  readonly fileName: string;
+  readonly mimeType: string | null;
+  readonly sizeBytes: number | null;
+  readonly createdAt: string;
+}
+
+function toAttachment(row: Record<string, unknown>): AttachmentRow {
+  return {
+    id: row.id as string,
+    taskId: row.task_id as string,
+    commentId: (row.comment_id as string | null) ?? null,
+    uploadedById: row.uploaded_by_id as string,
+    uploadedByName: (row.uploaded_by_name as string | null) ?? null,
+    filePath: row.file_path as string,
+    fileName: row.file_name as string,
+    mimeType: (row.mime_type as string | null) ?? null,
+    /* bigint arrives as a string from postgres.js, which refuses to lose
+       precision silently. Converted once, here. */
+    sizeBytes: row.size_bytes == null ? null : Number(row.size_bytes),
+    createdAt: isoOrNull(row.created_at) ?? '',
+  };
+}
+
+export async function listAttachments(actorId: string, taskId: string): Promise<AttachmentRow[]> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select a.*, u.full_name as uploaded_by_name
+      from public.attachments a
+      left join public.users u on u.id = a.uploaded_by_id
+     where a.task_id = ${taskId}
+     order by a.created_at desc
+  `);
+  return rows.map(toAttachment);
+}
+
+/**
+ * One attachment, if the actor may see the task it hangs off.
+ *
+ * RLS does that check — `attachments_select` is `task_is_visible(task_id)` — so
+ * there is no visibility test in this query and there must not be one. A null
+ * answer means "no such file, for you", which is the answer that leaks least.
+ */
+export async function getAttachment(
+  actorId: string,
+  attachmentId: string,
+): Promise<AttachmentRow | null> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select a.*, u.full_name as uploaded_by_name
+      from public.attachments a
+      left join public.users u on u.id = a.uploaded_by_id
+     where a.id = ${attachmentId}
+  `);
+  return rows[0] ? toAttachment(rows[0]) : null;
+}
+
+export async function recordAttachment(
+  actorId: string,
+  input: {
+    taskId: string;
+    commentId?: string | null;
+    filePath: string;
+    fileName: string;
+    mimeType: string;
+    sizeBytes: number;
+  },
+): Promise<string> {
+  const rows = await withUser(actorId, (tx) => tx`
+    insert into public.attachments
+      (task_id, comment_id, uploaded_by_id, file_path, file_name, mime_type, size_bytes)
+    values (
+      ${input.taskId}, ${input.commentId ?? null}, ${actorId},
+      ${input.filePath}, ${input.fileName}, ${input.mimeType}, ${input.sizeBytes}
+    )
+    returning id
+  `);
+  return rows[0].id as string;
+}
+
+/**
+ * Remove the row, and report whether it actually went.
+ *
+ * `attachments_delete` is `sees_all_work() or uploaded_by_id = me`, so a Member
+ * deleting somebody else's attachment matches zero rows and gets no error — the
+ * same shape of silent refusal that the settings reset had (registry C-23). The
+ * boolean is what stops the screen reporting a deletion that did not happen,
+ * and what stops the caller deleting the stored file for a row that is still
+ * there.
+ */
+export async function deleteAttachmentRow(
+  actorId: string,
+  attachmentId: string,
+): Promise<boolean> {
+  const rows = await withUser(actorId, (tx) => tx`
+    delete from public.attachments where id = ${attachmentId} returning id
+  `);
+  return rows.length > 0;
+}

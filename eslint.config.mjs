@@ -109,6 +109,58 @@ const eslintConfig = defineConfig([
       ],
     },
   },
+
+  {
+    /* ------------------------------------------------------------------
+     * THE STORAGE KEY LIVES IN ONE FILE
+     *
+     * `SUPABASE_STORAGE_KEY` is a privileged credential. It exists only
+     * because a private bucket cannot be authorised the way everything
+     * else in this system is: Supabase Storage is a separate HTTP
+     * service and cannot see `app.user_id`, the transaction-local
+     * setting our row-level security is built on.
+     *
+     * lib/storage/bucket.ts reads it, exports four narrow functions, and
+     * never returns a client. That containment is the entire reason the
+     * key is acceptable — so it is enforced here rather than left as a
+     * comment somebody removes in eight months.
+     *
+     * If a second file ever legitimately needs storage access, it calls
+     * lib/storage/bucket.ts. It does not read the key.
+     *
+     * scripts/check-storage.mjs is the one exemption, and it is a real one
+     * rather than a convenience: it is a standalone diagnostic run by hand
+     * from a terminal, it is never bundled and never served, and it
+     * cannot import the TypeScript module because plain node does not
+     * resolve the `@/` alias. It exists precisely so a failing key
+     * produces a readable answer instead of a rejected upload in a
+     * drawer, and it never prints the key.
+     * ---------------------------------------------------------------- */
+    files: ['**/*.{ts,tsx,mjs}'],
+    ignores: [
+      'lib/storage/**',
+      'eslint.config.mjs',
+      'scripts/check-db.mjs',
+      'scripts/check-storage.mjs',
+    ],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector:
+            "MemberExpression[object.object.name='process'][object.property.name='env'][property.name=/^SUPABASE_(STORAGE_KEY|SERVICE_ROLE_KEY|SECRET_KEY)$/]",
+          message:
+            'The storage credential is read in lib/storage/bucket.ts and nowhere else. Call that module instead — it already performs the request. See its header for why the containment matters.',
+        },
+        {
+          selector:
+            "MemberExpression[object.object.name='process'][object.property.name='env'][computed=true][property.value=/^SUPABASE_(STORAGE_KEY|SERVICE_ROLE_KEY|SECRET_KEY)$/]",
+          message:
+            'The storage credential is read in lib/storage/bucket.ts and nowhere else, including through a computed lookup.',
+        },
+      ],
+    },
+  },
 ]);
 
 export default eslintConfig;
