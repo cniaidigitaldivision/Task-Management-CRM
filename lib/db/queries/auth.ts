@@ -2,6 +2,7 @@ import 'server-only';
 
 import type { Role } from '@/lib/domain/constants';
 import type { LoginAttempt, LoginOutcome } from '@/lib/domain/lockout';
+import { isLegacyPlaintext, open, seal } from '@/lib/auth/secret-box';
 import type { InvitationPurpose } from '@/types/aliases';
 
 import { withAppRole } from '../client';
@@ -129,6 +130,38 @@ export async function getLockoutInputs(
   });
 }
 
+/**
+ * FR-148 — failed attempts from one source, for the rate limiter.
+ *
+ * Returns timestamps, and the database's own clock alongside them. Both matter:
+ * the RULE lives in lib/domain/rate-limit.ts so there is one implementation, and
+ * the clock must be the one that wrote the rows. Comparing these against the
+ * app's clock is the exact mistake that made the lockout never trip (C-19).
+ */
+export async function getFailuresFrom(
+  ip: string,
+  since: Date,
+): Promise<{ times: number[]; now: number }> {
+  return withAppRole(async (tx) => {
+    const [rows, clock] = await Promise.all([
+      tx`select at from app.auth_failures_from(${ip}::inet, ${since})`,
+      tx`select extract(epoch from now()) * 1000 as now_ms`,
+    ]);
+    return {
+      times: rows.map((row) => new Date(row.at as string | Date).getTime()),
+      now: Number(clock[0].now_ms),
+    };
+  });
+}
+
+/** doc 03 §3.1 — an Admin clears somebody's authenticators so they can re-enrol. */
+export async function resetMfaFor(actorId: string, targetId: string): Promise<number> {
+  const rows = await withAppRole(
+    (tx) => tx`select app.mfa_reset_for(${actorId}, ${targetId}) as removed`,
+  );
+  return Number(rows[0]?.removed ?? 0);
+}
+
 /** Cache the lockout verdict on `users`. Pass null to clear. */
 export async function setLock(userId: string, lockedAt: Date | null): Promise<void> {
   await withAppRole((tx) => tx`select app.auth_set_lock(${userId}, ${lockedAt})`);
@@ -153,14 +186,38 @@ export interface VerifiedFactor {
   readonly isPrimary: boolean;
 }
 
+/**
+ * The account's verified factors, with the TOTP seed DECRYPTED for use.
+ *
+ * ── LEGACY ROWS ARE UPGRADED AS THEY ARE USED ────────────────────────────────
+ * Encryption arrived after people had already enrolled. `open()` passes an
+ * un-prefixed value through unchanged, so those keep working, and each one is
+ * re-sealed the first time it is read. No downtime, no lockout, and the
+ * plaintext disappears as people sign in.
+ *
+ * `scripts/encrypt-mfa-secrets.mjs` does the same thing in one pass, so the
+ * window does not depend on everybody happening to log in.
+ */
 export async function getVerifiedFactors(userId: string): Promise<VerifiedFactor[]> {
   const rows = await withAppRole(
     (tx) => tx`select * from app.auth_verified_factors(${userId})`,
   );
+
+  for (const row of rows) {
+    const stored = row.secret_encrypted as string | null;
+    if (!stored || !isLegacyPlaintext(stored)) continue;
+    /* Best effort. A failure here must not stop somebody signing in — the
+       plaintext still verifies, and the one-pass script will catch it. */
+    await withAppRole((tx) => tx`
+      update public.mfa_factors set secret_encrypted = ${seal(stored)}
+       where id = ${row.factor_id as string}
+    `).catch(() => {});
+  }
+
   return rows.map((row) => ({
     factorId: row.factor_id as string,
     type: row.type as VerifiedFactor['type'],
-    secretEncrypted: (row.secret_encrypted as string | null) ?? null,
+    secretEncrypted: row.secret_encrypted ? open(row.secret_encrypted as string) : null,
     credentialId: (row.credential_id as string | null) ?? null,
     publicKey: (row.public_key as string | null) ?? null,
     signCount: Number(row.sign_count ?? 0),

@@ -10,6 +10,7 @@ import { verifyTotp } from '@/lib/auth/totp';
 import {
   deviceIsKnown,
   findIdentity,
+  getFailuresFrom,
   getLockoutInputs,
   getVerifiedFactors,
   recordAttempt,
@@ -20,6 +21,7 @@ import {
 import { notifyAccountLocked, notifyNewDeviceSignIn } from '@/lib/email/notify';
 import { MFA_REQUIRED_ROLES } from '@/lib/domain/constants';
 import { evaluateLockout, failureMessage, minutesUntilUnlock } from '@/lib/domain/lockout';
+import { WINDOW_MINUTES, evaluateRateLimit } from '@/lib/domain/rate-limit';
 import type { LoginOutcome } from '@/lib/domain/lockout';
 
 /* ============================================================================
@@ -97,6 +99,43 @@ export async function signIn(_prev: SignInState, formData: FormData): Promise<Si
       ipCountry: facts.ipCountry,
       userAgent: facts.userAgent,
     });
+
+  /* ---- 0 · FR-148, per SOURCE, before anything is looked up -------------
+   * Deliberately first. The three-strike lock protects an account; this stops
+   * one password being tried against every address in the company, where each
+   * account collects a single failure and none ever reaches three.
+   *
+   * Runs before the lookup so a refused source costs no database work and — more
+   * importantly — reveals nothing: the refusal is identical whether or not the
+   * address exists (FR-155e).
+   *
+   * Fails open with no IP. A shared bucket for everybody behind a stripped proxy
+   * would let one attacker lock the whole company out, which is a worse outcome
+   * than the attack. The account lockout still applies underneath. */
+  if (facts.ip) {
+    const since = new Date(now - WINDOW_MINUTES * 60_000);
+    const { times, now: dbNowForRate } = await getFailuresFrom(facts.ip, since);
+    const limit = evaluateRateLimit({ failureTimes: times, now: dbNowForRate });
+
+    if (!limit.allowed) {
+      /* ⚠️ The refusal is deliberately NOT recorded as an attempt.
+         `auth_failures_from` counts everything that is not a success, so logging
+         a refusal would feed straight back into the count that produced it — the
+         limit would extend itself for as long as anybody kept knocking, and a
+         source could never recover. It is the same reasoning that makes
+         `evaluateLockout` ignore `locked` outcomes: a control that can be used
+         to prolong its own effect has become the denial of service.
+
+         The failures that caused this ARE all recorded, so the Security screen
+         still shows the attack. */
+      return { error: limit.message ?? 'Too many attempts. Try again shortly.', email };
+    }
+    /* A rising delay rather than a cliff: an attacker never finds a clean edge
+       to calibrate against, and somebody mistyping twice notices nothing. */
+    if (limit.delayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, limit.delayMs));
+    }
+  }
 
   /* ---- 1 · look up ------------------------------------------------------ */
   const identity = await findIdentity(email);

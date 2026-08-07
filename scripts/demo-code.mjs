@@ -2,8 +2,9 @@
 /* ============================================================================
  * CNI CRM — PRINT THE CURRENT TWO-FACTOR CODE
  * ----------------------------------------------------------------------------
- *     npm run demo:code                    every account that has a factor
+ *     npm run demo:code                        every account that has a factor
  *     npm run demo:code -- sana@cni-demo.com
+ *     npm run demo:code -- --enrol sana@cni-demo.com   re-enrol a lost factor
  *
  * ── WHY THIS EXISTS ──────────────────────────────────────────────────────────
  * Two-factor is mandatory for Admin and Super Admin (FR-145), and `seed:demo`
@@ -14,17 +15,26 @@
  * This reads the enrolled secret and computes the code that is valid right now,
  * so getting in never depends on having kept that scrollback.
  *
- * ── ⚠️ THIS IS A DEVELOPMENT TOOL, AND IT ONLY WORKS BECAUSE OF A GAP ────────
- * `mfa_factors.secret_encrypted` is named for what it is supposed to hold and
- * currently holds plaintext — key management has not been built (doc 16 §4 wants
- * it encrypted at rest). While that is true, anything with database access can
- * mint codes, which is exactly what this script does.
+ * ── ⚠️ THIS NOW REQUIRES THE ENCRYPTION KEY, NOT JUST THE DATABASE ───────────
+ * The plan said this script would be DELETED once secrets were encrypted, on the
+ * reasoning that it only worked because of the plaintext gap. That turned out to
+ * be half right, and the distinction is worth stating rather than acting on the
+ * original note.
  *
- * When the secret is genuinely encrypted, this script stops working. That is the
- * point at which it should be deleted rather than given the decryption key.
+ * Encryption changed who can do this. Before: anybody holding the database.
+ * After: anybody holding the database AND MFA_ENCRYPTION_KEY — which lives in
+ * the application environment and never in Postgres, so a database dump alone is
+ * now worthless. That is the whole threat this closed.
+ *
+ * A local script reading .env.local has both, and always will. Keeping it is
+ * therefore not a hole; it is a developer on their own machine using their own
+ * key. It stays because a demo where the Admin cannot sign in is worse than a
+ * script that needs two secrets to run.
+ *
+ * It has no place anywhere but a development machine.
  * ========================================================================= */
 
-import { createHmac } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHmac, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import postgres from 'postgres';
@@ -50,6 +60,22 @@ function readEnvLocal() {
 
 /* RFC 6238, matching lib/auth/totp.ts: SHA-1, 6 digits, 30-second period. */
 const B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+
+function base32Encode(buffer) {
+  let bits = 0;
+  let value = 0;
+  let out = '';
+  for (const byte of buffer) {
+    value = (value << 8) | byte;
+    bits += 8;
+    while (bits >= 5) {
+      out += B32[(value >>> (bits - 5)) & 31];
+      bits -= 5;
+    }
+  }
+  if (bits > 0) out += B32[(value << (5 - bits)) & 31];
+  return out;
+}
 
 function base32Decode(input) {
   const clean = input.replace(/[\s=]/g, '').toUpperCase();
@@ -83,11 +109,42 @@ function totpAt(secret, atMs) {
   return String(binary % 10 ** 6).padStart(6, '0');
 }
 
-const wanted = process.argv.slice(2).find((a) => a.includes('@'));
+const args = process.argv.slice(2);
+const wanted = args.find((a) => a.includes('@'));
+/* ── --enrol ─────────────────────────────────────────────────────────────────
+   Restores a demo account that has lost its authenticator. Needed because a
+   test once reset the seeded Admin's own factor — permitted by FR-146's
+   self-exception, and it left the account unsignable-in with no way back short
+   of re-seeding the whole division and losing the data with it. */
+const enrolling = args.includes('--enrol');
 const env = readEnvLocal();
-if (!env.DATABASE_URL) {
-  console.error('✗ DATABASE_URL is not set in .env.local');
-  process.exit(1);
+for (const key of ['DATABASE_URL', 'MFA_ENCRYPTION_KEY']) {
+  if (!env[key]) {
+    console.error(`✗ ${key} is not set in .env.local`);
+    process.exit(1);
+  }
+}
+
+/* Mirrors lib/auth/secret-box.ts. A stored value without the version prefix
+   predates encryption and is still plaintext. */
+const MFA_KEY = Buffer.from(env.MFA_ENCRYPTION_KEY, 'base64');
+
+function sealSecret(plaintext) {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', MFA_KEY, iv);
+  const data = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+  return ['v1', iv.toString('base64url'), cipher.getAuthTag().toString('base64url'), data.toString('base64url')].join('.');
+}
+
+function openSecret(stored) {
+  if (!stored.startsWith('v1.')) return stored;
+  const [, ivPart, tagPart, dataPart] = stored.split('.');
+  const decipher = createDecipheriv('aes-256-gcm', MFA_KEY, Buffer.from(ivPart, 'base64url'));
+  decipher.setAuthTag(Buffer.from(tagPart, 'base64url'));
+  return Buffer.concat([
+    decipher.update(Buffer.from(dataPart, 'base64url')),
+    decipher.final(),
+  ]).toString('utf8');
 }
 
 const sql = postgres(env.DATABASE_URL, {
@@ -99,6 +156,39 @@ const sql = postgres(env.DATABASE_URL, {
 });
 
 try {
+  if (enrolling) {
+    if (!wanted) {
+      console.error('✗ Which account? npm run demo:code -- --enrol sana@cni-demo.com');
+      process.exit(1);
+    }
+
+    const who = await sql`select id, role from public.users where email = ${wanted}`;
+    if (!who[0]) {
+      console.error(`✗ No account for ${wanted}.`);
+      process.exit(1);
+    }
+
+    const secret = base32Encode(randomBytes(20));
+    await sql.begin(async (tx) => {
+      await tx`delete from public.mfa_factors where user_id = ${who[0].id} and type = 'totp'`;
+      await tx`
+        insert into public.mfa_factors
+          (user_id, type, secret_encrypted, friendly_name, is_primary, verified_at)
+        values (${who[0].id}, 'totp', ${sealSecret(secret)}, 'Demo authenticator', true, now())
+      `;
+    });
+
+    console.log(`
+  [32m✓[0m Fresh authenticator enrolled for ${wanted} (${who[0].role}).`);
+    console.log(`    setup key:  ${secret}`);
+    console.log(`    code now:   [1m${totpAt(secret, Date.now())}[0m`);
+    console.log(`    Any previous authenticator for this account no longer works.
+`);
+
+    await sql.end({ timeout: 5 });
+    process.exit(0);
+  }
+
   const rows = await sql`
     select u.email, u.role, f.secret_encrypted as secret
       from public.mfa_factors f
@@ -129,14 +219,15 @@ try {
   console.log(line);
 
   for (const row of rows) {
+    const secret = openSecret(row.secret);
     console.log(`  ${row.email}  (${row.role})`);
-    console.log(`    code:  \x1b[1m${totpAt(row.secret, now)}\x1b[0m`);
+    console.log(`    code:  \x1b[1m${totpAt(secret, now)}\x1b[0m`);
     /* The next code too, because typing a six-digit code with four seconds left
        fails and looks like the code was wrong. */
     if (secondsLeft <= 8) {
-      console.log(`    next:  ${totpAt(row.secret, now + 30_000)}  (use this one)`);
+      console.log(`    next:  ${totpAt(secret, now + 30_000)}  (use this one)`);
     }
-    console.log(`    setup key for an authenticator app:  ${row.secret}`);
+    console.log(`    setup key for an authenticator app:  ${secret}`);
   }
 
   console.log(line);

@@ -5,8 +5,12 @@ import { renderSVG } from 'uqr';
 
 import { requireUser } from '@/lib/auth/current-user';
 import { generateRecoveryCodes, hashRecoveryCode } from '@/lib/auth/tokens';
+import { seal } from '@/lib/auth/secret-box';
 import { generateTotpSecret, totpUri, verifyTotp } from '@/lib/auth/totp';
 import { withUser } from '@/lib/db/client';
+import { audit } from '@/lib/db/queries/audit';
+import { resetMfaFor } from '@/lib/db/queries/auth';
+import { getPerson } from '@/lib/db/queries/people';
 import { ORGANISATION_SHORT_NAME, SYSTEM_DEFAULTS } from '@/lib/domain/constants';
 import { nowMs } from '@/lib/now';
 
@@ -38,12 +42,11 @@ import { nowMs } from '@/lib/now';
  * is simply never stored. The alternative — a server-side pending record — is
  * an unverified factor by another name, plus expiry logic to get wrong.
  *
- * ── ⚠️ A GAP THAT IS NOT FIXED HERE ──────────────────────────────────────────
- * `mfa_factors.secret_encrypted` is named for what it should hold and currently
- * stores plaintext. `MFA_ENCRYPTION_KEY` exists in .env.example and nothing
- * reads it. Doc 16 §4 wants these encrypted at rest, and until that is built,
- * database access is enough to mint codes for any enrolled account. Recorded
- * rather than quietly shipped.
+ * ── THE SECRET IS ENCRYPTED BEFORE IT IS STORED ──────────────────────────────
+ * `seal()` is AES-256-GCM under MFA_ENCRYPTION_KEY (lib/auth/secret-box.ts).
+ * Until this existed the column held plaintext despite its name, and database
+ * access alone was enough to generate a valid second factor for any enrolled
+ * account — which undid most of the point of requiring one.
  * ========================================================================= */
 
 export interface MfaBeginResult {
@@ -146,7 +149,7 @@ export async function confirmMfaEnrolment(
         insert into public.mfa_factors
           (user_id, type, secret_encrypted, friendly_name, is_primary, verified_at)
         values (
-          ${user.id}, 'totp', ${secret}, ${label.slice(0, 80)},
+          ${user.id}, 'totp', ${seal(secret)}, ${label.slice(0, 80)},
           not exists (
             select 1 from public.mfa_factors
              where user_id = ${user.id} and verified_at is not null
@@ -200,4 +203,92 @@ export async function mfaStatus(): Promise<{
     hasVerifiedFactor: Number(rows[0].factors) > 0,
     unusedRecoveryCodes: Number(rows[0].codes),
   };
+}
+
+/* ==========================================================================
+ * ADMIN AND SELF-SERVICE RECOVERY — doc 03 §3.1, FR-146, SA-9
+ * ========================================================================== */
+
+/**
+ * Clear somebody's authenticators so they can enrol again — the answer to "I
+ * lost my phone and my recovery codes".
+ *
+ * The rank rules live in `app.mfa_reset_for` rather than here, because they are
+ * the same rules the database must enforce anyway: an Admin only downward, and
+ * the Super Admin's factor removable by nobody else at all (FR-146). Checking
+ * here as well would be a second implementation; this catches the refusal and
+ * turns it into a sentence.
+ */
+export async function resetMfaForAction(targetId: string): Promise<MfaConfirmResult> {
+  const user = await requireUser();
+
+  const target = await getPerson(user.id, targetId);
+  if (!target) return { ok: false, error: 'That person is no longer available.' };
+
+  try {
+    const removed = await resetMfaFor(user.id, targetId);
+
+    await withUser(user.id, async (tx) => {
+      await audit(tx, user, {
+        entityType: 'user',
+        entityId: targetId,
+        action: 'user.mfa_reset',
+        after: { email: target.email, factorsRemoved: removed },
+      });
+    });
+
+    /* Their sessions stay. Resetting the second factor does not mean the
+       password is compromised, and signing somebody out of work in progress
+       because they lost a phone is a punishment rather than a protection. The
+       next sign-in will require enrolment. */
+    revalidatePath('/team');
+    revalidatePath('/security');
+    return { ok: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '';
+    return {
+      ok: false,
+      error: message.includes('Super Admin')
+        ? 'The Super Admin’s authenticator cannot be reset by anybody else. Their recovery codes are the way back in (FR-146).'
+        : message.includes('below your own rank')
+          ? 'You can only manage people below your own rank.'
+          : 'That reset was refused.',
+    };
+  }
+}
+
+/**
+ * Issue a fresh set of recovery codes for yourself, invalidating the old ones.
+ *
+ * ── WHY THE OLD SET IS DESTROYED IN THE SAME TRANSACTION ─────────────────────
+ * Two live sets means a printed sheet somebody threw away last year still opens
+ * the account. The whole value of regenerating is that the previous codes stop
+ * working, so it happens atomically — never "issue new, then clean up old",
+ * which leaves both valid if the second half fails.
+ */
+export async function regenerateRecoveryCodesAction(): Promise<MfaConfirmResult> {
+  const user = await requireUser();
+
+  try {
+    const codes = generateRecoveryCodes(SYSTEM_DEFAULTS.recoveryCodeCount);
+
+    await withUser(user.id, async (tx) => {
+      await tx`delete from public.recovery_codes where user_id = ${user.id}`;
+      await tx`
+        insert into public.recovery_codes (user_id, code_hash)
+        select ${user.id}, h from unnest(${codes.map(hashRecoveryCode)}::text[]) as h
+      `;
+      await audit(tx, user, {
+        entityType: 'user',
+        entityId: user.id,
+        action: 'user.recovery_codes_regenerated',
+        after: { count: codes.length },
+      });
+    });
+
+    revalidatePath('/profile');
+    return { ok: true, recoveryCodes: codes };
+  } catch {
+    return { ok: false, error: 'New codes could not be issued. The old ones still work.' };
+  }
 }
