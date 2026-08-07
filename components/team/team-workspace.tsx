@@ -3,7 +3,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { AlertTriangle, CalendarOff, Gauge, Loader2, Pencil, Plus, X } from 'lucide-react';
+import { AlertTriangle, CalendarOff, Gauge, Loader2, Pencil, Plus, UserPlus, X } from 'lucide-react';
 
 import {
   addAvailabilityAction,
@@ -20,6 +20,8 @@ import { Dialog } from '@/components/ui/dialog';
 import { Field, Input, Textarea } from '@/components/ui/input';
 import { ProgressBar } from '@/components/ui/progress';
 import { Select } from '@/components/ui/select';
+import { InviteDialog } from './invite-dialog';
+import { PersonActions } from './person-actions';
 import type { PersonWorkload } from '@/lib/db/queries/workload';
 import type { AvailabilityRow, PersonRow, SkillRow, UserSkillRow } from '@/lib/db/queries/types';
 import {
@@ -36,11 +38,11 @@ import {
  * work: their capacity, their concurrent limit, their skills, and whether they
  * are actually here this week.
  *
- * ── WHAT THIS SCREEN DELIBERATELY CANNOT DO ──────────────────────────────────
- * Create an account. That needs an invitation token, a 48-hour expiry, an
- * activation ceremony and an email that arrives (FR-141 to FR-144) — Step 5.2.
- * A half-built version here would produce a row that looks like a colleague and
- * cannot be signed into, which is worse than an honest absence.
+ * ── PROVISIONING LIVES HERE (FR-141 to FR-144) ───────────────────────────────
+ * Add somebody, re-send or withdraw their invitation, deactivate and restore,
+ * change a role, force a password reset. There is no password field anywhere in
+ * it: an account is created with no credential at all, and the invitee sets
+ * their own through a single-use link (doc 16 §3).
  *
  * ── THE SUPER ADMIN ROW SHOWS BUT DOES NOT EDIT ──────────────────────────────
  * Not because this component hides the button — migration 005's trigger refuses
@@ -58,6 +60,9 @@ export function TeamWorkspace({
   availability,
   currentUser,
   canManage,
+  canProvision,
+  assignableRoles,
+  pendingUserIds,
 }: {
   people: readonly PersonRow[];
   workload: readonly PersonWorkload[];
@@ -66,10 +71,16 @@ export function TeamWorkspace({
   availability: readonly AvailabilityRow[];
   currentUser: { id: string; role: Role };
   canManage: boolean;
+  /** doc 03 §3.1 — Admin and above may create and manage accounts. */
+  canProvision: boolean;
+  assignableRoles: readonly Role[];
+  /** Invited, not yet activated. They get a re-send option and no capacity edit. */
+  pendingUserIds: readonly string[];
 }) {
   const [editing, setEditing] = React.useState<PersonRow | null>(null);
   const [leaveFor, setLeaveFor] = React.useState<PersonRow | null>(null);
   const [skillsFor, setSkillsFor] = React.useState<PersonRow | null>(null);
+  const [inviting, setInviting] = React.useState(false);
 
   const loadOf = (id: string) => workload.find((w) => w.userId === id);
   const skillsOf = (id: string) => userSkills.filter((s) => s.userId === id);
@@ -77,6 +88,27 @@ export function TeamWorkspace({
 
   return (
     <div className="space-y-4">
+      {canProvision && (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-caption text-text-secondary">
+            <span className="tabular font-semibold text-text-primary">{people.length}</span>{' '}
+            {people.length === 1 ? 'account' : 'accounts'}
+            {pendingUserIds.length > 0 && (
+              <>
+                {' · '}
+                <span className="font-semibold" style={{ color: 'var(--feedback-warning)' }}>
+                  {pendingUserIds.length} waiting to accept
+                </span>
+              </>
+            )}
+          </p>
+          <Button variant="primary" size="md" onClick={() => setInviting(true)}>
+            <UserPlus className="h-4 w-4" strokeWidth={2.25} aria-hidden="true" />
+            Add someone
+          </Button>
+        </div>
+      )}
+
       <Card>
         <ul className="divide-y divide-border-subtle">
           {people.map((person) => {
@@ -178,6 +210,14 @@ export function TeamWorkspace({
                         />
                       </>
                     )}
+                    {canProvision && (
+                      <PersonActions
+                        person={person}
+                        currentUser={currentUser}
+                        assignableRoles={assignableRoles}
+                        isPendingActivation={pendingUserIds.includes(person.id)}
+                      />
+                    )}
                     <Link
                       href={`/tasks?assignee=${person.id}`}
                       className="inline-flex h-8 items-center rounded-md px-2.5 text-micro font-semibold text-text-brand hover:bg-bg-hover"
@@ -225,6 +265,13 @@ export function TeamWorkspace({
           })}
         </ul>
       </Card>
+
+      <InviteDialog
+        open={inviting}
+        onClose={() => setInviting(false)}
+        assignableRoles={assignableRoles}
+        actorRoleLabel={ROLE_LABEL[currentUser.role]}
+      />
 
       {editing && (
         <CapacityDialog person={editing} onClose={() => setEditing(null)} />

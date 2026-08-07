@@ -19,10 +19,10 @@
 | | |
 |---|---|
 | **Live** | https://cni-crm.vercel.app — auto-deploys on push to `main` |
-| **Current step** | — awaiting go-ahead for **Step 1** |
+| **Current step** | ✅ Step 1 complete — awaiting go-ahead for **Step 2 (email)** |
 | **Last updated** | 2026-08-07 |
 
-**Progress:** ⬜⬜⬜⬜⬜⬜⬜⬜ 0 of 8 steps
+**Progress:** ✅⬜⬜⬜⬜⬜⬜⬜ 1 of 8 steps
 
 ---
 
@@ -33,7 +33,7 @@ tables have no write path in the application at all.
 
 | Table | Built for | Reachable from the app? |
 |---|---|:--:|
-| `invitations` | Adding a team member | ❌ nothing writes it |
+| `invitations` | Adding a team member | ✅ **Step 1** |
 | `audit_log` | The privileged-action trail | ❌ nothing reads it |
 | `system_settings` | Editable configuration | ❌ nothing writes it |
 | `task_dependencies` | "This blocks that" | ❌ |
@@ -85,7 +85,7 @@ file updated. **Nothing starts without the owner's go-ahead.**
 
 ---
 
-### ⬜ Step 1 · Adding people — the invitation chain
+### ✅ Step 1 · Adding people — the invitation chain — **DONE**
 **The single thing between a demo and your team using this.**
 
 - Admin creates a person: name, email, role, job title, capacity

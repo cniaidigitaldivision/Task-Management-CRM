@@ -1,0 +1,209 @@
+import 'server-only';
+
+import type { Role } from '@/lib/domain/constants';
+
+import { withUser } from '../client';
+
+/* ============================================================================
+ * PROVISIONING QUERIES — LAYER 1
+ * ----------------------------------------------------------------------------
+ * Creating people, and the invitations that let them in.
+ *
+ * ── THE CHAIN IS ENFORCED BY THE DATABASE, NOT BY THIS FILE ──────────────────
+ * FR-141: Super Admin → Admin → Coordinator/Member. Nothing here checks that,
+ * and the omission is the point — migration 005's insert policy already says it:
+ *
+ *     super_admin  may create  admin, team_coordinator, member
+ *     admin        may create  team_coordinator, member
+ *     anyone else  may create  nothing
+ *
+ * So an Admin attempting to mint another Admin is refused by Postgres, not by a
+ * branch somebody could forget. The server action checks the same rule first
+ * only so the person gets a sentence instead of a policy violation.
+ *
+ * ── AND NOBODY, EVER, CREATES A SUPER ADMIN ──────────────────────────────────
+ * Absent from every branch of that policy, and independently impossible:
+ * `users_single_super_admin_idx` permits exactly one such row in this database
+ * for its whole life (BR-028). Two mechanisms, deliberately.
+ * ========================================================================= */
+
+export interface PendingInvitation {
+  readonly id: string;
+  readonly userId: string;
+  readonly fullName: string;
+  readonly email: string;
+  readonly role: Role;
+  readonly purpose: string;
+  readonly sentToEmail: string;
+  readonly invitedByName: string | null;
+  readonly createdAt: string;
+  readonly expiresAt: string;
+  readonly isExpired: boolean;
+}
+
+function iso(value: unknown): string {
+  if (!value) return '';
+  return value instanceof Date ? value.toISOString() : String(value);
+}
+
+/**
+ * Create the person's row. Returns the new id.
+ *
+ * The account starts `pending_activation` and is deliberately left with no
+ * credential at all: no password, no temporary password, nothing to leak. It
+ * becomes usable only when the invitee sets their own password, which is what
+ * doc 16 §3 means by "passwords are never sent by email".
+ */
+export async function createPerson(
+  actorId: string,
+  input: {
+    fullName: string;
+    email: string;
+    role: Role;
+    roleTitle: string | null;
+    weeklyCapacityPoints: number;
+    maxConcurrentTasks: number;
+  },
+): Promise<string> {
+  const rows = await withUser(actorId, (tx) => tx`
+    insert into public.users (
+      full_name, email, role, role_title, account_state, is_active,
+      weekly_capacity_points, max_concurrent_tasks, created_by_id
+    ) values (
+      ${input.fullName.trim()},
+      ${input.email.trim().toLowerCase()},
+      ${input.role}::public.user_role,
+      ${input.roleTitle?.trim() || null},
+      'pending_activation',
+      true,
+      ${input.weeklyCapacityPoints},
+      ${input.maxConcurrentTasks},
+      ${actorId}
+    )
+    returning id
+  `);
+  return rows[0].id as string;
+}
+
+/** Is this address already taken? Checked before insert, for a readable error. */
+export async function emailIsTaken(actorId: string, email: string): Promise<boolean> {
+  /* ⚠️ Runs as the actor, so RLS applies — and `users_select` shows a Coordinator
+     and above every row, which is who reaches this. A Member could not see a
+     conflicting row, but a Member cannot create people either, so the question
+     never arises for them. The unique index is the real guarantee; this exists
+     only to turn a constraint violation into a sentence. */
+  const rows = await withUser(actorId, (tx) => tx`
+    select 1 from public.users where email = ${email.trim().toLowerCase()} limit 1
+  `);
+  return rows.length > 0;
+}
+
+/**
+ * Everyone who has been invited and has not yet activated.
+ *
+ * Joined to `users` rather than read from `invitations` alone, because the
+ * interesting question is "who cannot get in yet", and that lives on the account.
+ */
+export async function listPendingInvitations(actorId: string): Promise<PendingInvitation[]> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select i.id, i.user_id, i.purpose, i.sent_to_email, i.created_at, i.expires_at,
+           i.expires_at <= now() as is_expired,
+           u.full_name, u.email, u.role,
+           c.full_name as invited_by_name
+      from public.invitations i
+      join public.users u on u.id = i.user_id
+      left join public.users c on c.id = i.created_by_id
+     where i.consumed_at is null
+       and i.invalidated_at is null
+       and i.purpose = 'activation'
+     order by i.created_at desc
+  `);
+
+  return rows.map((row) => ({
+    id: row.id as string,
+    userId: row.user_id as string,
+    fullName: row.full_name as string,
+    email: row.email as string,
+    role: row.role as Role,
+    purpose: row.purpose as string,
+    sentToEmail: row.sent_to_email as string,
+    invitedByName: (row.invited_by_name as string | null) ?? null,
+    createdAt: iso(row.created_at),
+    expiresAt: iso(row.expires_at),
+    isExpired: row.is_expired as boolean,
+  }));
+}
+
+/**
+ * Withdraw an outstanding invitation.
+ *
+ * Marks it invalidated rather than deleting it — `invitations` is the record of
+ * who was invited and by whom, and an invitation that was issued and withdrawn
+ * is a fact worth keeping.
+ */
+export async function revokeInvitation(actorId: string, invitationId: string): Promise<void> {
+  await withUser(actorId, (tx) => tx`
+    update public.invitations set invalidated_at = now()
+     where id = ${invitationId} and consumed_at is null and invalidated_at is null
+  `);
+}
+
+/** Deactivate or restore. Never a delete — BR-007, and a trigger enforces it. */
+export async function setPersonActive(
+  actorId: string,
+  userId: string,
+  isActive: boolean,
+): Promise<void> {
+  await withUser(actorId, (tx) => tx`
+    update public.users
+       set is_active = ${isActive},
+           account_state = ${isActive ? 'active' : 'deactivated'}::public.account_state
+     where id = ${userId}
+  `);
+}
+
+/**
+ * Change somebody's role.
+ *
+ * The rank rules live in lib/domain/permissions.ts and are checked before this
+ * runs. `users_update` independently refuses any write to a `super_admin` row,
+ * and the migration-005 trigger refuses a self-demotion — so the three ways this
+ * could go wrong are each blocked by something that is not this statement.
+ */
+export async function setPersonRole(
+  actorId: string,
+  userId: string,
+  role: Role,
+): Promise<void> {
+  await withUser(actorId, (tx) => tx`
+    update public.users set role = ${role}::public.user_role where id = ${userId}
+  `);
+}
+
+/** FR-155: force the next sign-in to go through a password change. */
+export async function forcePasswordReset(actorId: string, userId: string): Promise<void> {
+  await withUser(actorId, (tx) => tx`
+    update public.users
+       set account_state = 'password_reset_required'::public.account_state
+     where id = ${userId}
+  `);
+}
+
+/** The account state, for deciding what to offer on a row. */
+export async function getAccountState(
+  actorId: string,
+  userId: string,
+): Promise<{ role: Role; accountState: string; isActive: boolean; email: string; fullName: string } | null> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select role, account_state, is_active, email, full_name
+      from public.users where id = ${userId}
+  `);
+  if (!rows[0]) return null;
+  return {
+    role: rows[0].role as Role,
+    accountState: rows[0].account_state as string,
+    isActive: rows[0].is_active as boolean,
+    email: rows[0].email as string,
+    fullName: rows[0].full_name as string,
+  };
+}
