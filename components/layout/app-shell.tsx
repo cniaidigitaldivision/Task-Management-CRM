@@ -2,14 +2,65 @@
 
 import * as React from 'react';
 import { usePathname } from 'next/navigation';
+import { ChevronLeft } from 'lucide-react';
 
 import { TaskDialog } from '@/components/task/task-dialog';
 import type { Role, Theme } from '@/lib/domain/constants';
 import type { NotificationRow } from '@/lib/db/queries/types';
+import { cn } from '@/lib/utils';
 
 import { NAV_SECTIONS } from './nav-config';
 import { Sidebar } from './sidebar';
 import { Topbar } from './topbar';
+
+/* ============================================================================
+ * THE RAIL PIN
+ * ----------------------------------------------------------------------------
+ * Its own localStorage key, not folded in with the theme — they are unrelated
+ * preferences, and a shared blob means writing either can clobber the other.
+ *
+ * Read through `useSyncExternalStore` rather than an effect, matching
+ * components/brand/theme-provider.tsx. localStorage genuinely IS an external
+ * store: it can change in another tab, and reading it in an effect body is the
+ * cascading render the compiler lint objects to.
+ * ========================================================================= */
+
+const RAIL_PIN_KEY = 'cni-rail-pinned';
+
+const pinListeners = new Set<() => void>();
+
+function subscribePin(onChange: () => void): () => void {
+  pinListeners.add(onChange);
+  /* Another tab pinning the rail should pin it here too — one person, one
+     preference, however many windows they have open. */
+  window.addEventListener('storage', onChange);
+  return () => {
+    pinListeners.delete(onChange);
+    window.removeEventListener('storage', onChange);
+  };
+}
+
+function readPin(): boolean {
+  try {
+    return window.localStorage.getItem(RAIL_PIN_KEY) === 'true';
+  } catch {
+    /* Private browsing can throw on localStorage. Unpinned is a fine answer. */
+    return false;
+  }
+}
+
+/* The server cannot know it. Unpinned matches the CSS-only default, so the
+   first paint is never wrong for somebody who has not chosen. */
+const readPinOnServer = (): boolean => false;
+
+function writePin(next: boolean): void {
+  try {
+    window.localStorage.setItem(RAIL_PIN_KEY, String(next));
+  } catch {
+    /* Not persisting is survivable. Not toggling would not be. */
+  }
+  for (const listener of pinListeners) listener();
+}
 
 export interface ShellUser {
   readonly id: string;
@@ -79,6 +130,12 @@ export function AppShell({
   children: React.ReactNode;
 }) {
   const [navOpen, setNavOpen] = React.useState(false);
+
+  /* The rail expands on hover, which is right for a glance and wrong for
+     somebody working down the list — it collapses the moment the pointer
+     leaves. The tab pins it open, and the choice is remembered. */
+  const pinned = React.useSyncExternalStore(subscribePin, readPin, readPinOnServer);
+  const togglePin = React.useCallback(() => writePin(!pinned), [pinned]);
   const [createOpen, setCreateOpen] = React.useState(false);
   const pathname = usePathname();
   const { title, subtitle } = titleFor(pathname);
@@ -135,12 +192,58 @@ export function AppShell({
        hovered; `group-hover` cannot, because hovering anywhere in the shell
        would trigger it. */
     <div
-      className={
-        'min-h-full bg-bg-base [--rail:0px] lg:[--rail:var(--sidebar-width-collapsed)] ' +
-        'lg:has-[aside:hover]:[--rail:var(--sidebar-width)]'
-      }
+      className={cn(
+        'min-h-full bg-bg-base [--rail:0px]',
+        pinned
+          ? 'lg:[--rail:var(--sidebar-width)]'
+          : 'lg:[--rail:var(--sidebar-width-collapsed)] lg:has-[aside:hover]:[--rail:var(--sidebar-width)]',
+      )}
     >
-      <Sidebar role={user.role} userName={user.name} open={navOpen} onClose={closeNav} />
+      <Sidebar
+        role={user.role}
+        userName={user.name}
+        open={navOpen}
+        onClose={closeNav}
+        pinned={pinned}
+      />
+
+      {/* ── The pin tab ────────────────────────────────────────────────────
+          It lives HERE and not inside the rail, because the rail is
+          `overflow-hidden` — a tab sitting half outside it would simply be
+          clipped away.
+
+          `left: var(--rail)` puts its flat edge exactly on the rail's edge and
+          means it travels with the rail, on the same 240ms, whether that is a
+          hover or a pin. Desktop only: on mobile the rail is a drawer with its
+          own close button, and a pin has nothing to pin. */}
+      <button
+        type="button"
+        onClick={togglePin}
+        aria-pressed={pinned}
+        aria-label={pinned ? 'Unpin the navigation' : 'Keep the navigation open'}
+        title={pinned ? 'Unpin — collapse to icons' : 'Keep open'}
+        className={cn(
+          'fixed top-1/2 z-[60] hidden -translate-y-1/2 items-center justify-center lg:flex',
+          'h-14 w-[22px] rounded-r-full border border-l-0',
+          'transition-[left,background-color,color] duration-[240ms] ease-out',
+        )}
+        style={{
+          left: 'var(--rail)',
+          backgroundColor: 'var(--sidebar-bg)',
+          borderColor: 'var(--sidebar-border-strong)',
+          color: 'var(--sidebar-item)',
+          boxShadow: '2px 0 10px -4px rgb(0 0 0 / 0.5)',
+        }}
+      >
+        <ChevronLeft
+          className={cn(
+            'h-3.5 w-3.5 transition-transform duration-[240ms]',
+            !pinned && 'rotate-180',
+          )}
+          strokeWidth={2.5}
+          aria-hidden="true"
+        />
+      </button>
 
       <div className="flex min-h-full flex-col pl-[var(--rail)] transition-[padding-left] duration-[240ms] ease-out">
         <Topbar

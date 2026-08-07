@@ -59,11 +59,14 @@ export function Sidebar({
   userName,
   open,
   onClose,
+  pinned = false,
 }: {
   role: Role;
   userName: string;
   open: boolean;
   onClose: () => void;
+  /** Kept open deliberately, rather than only while the pointer is over it. */
+  pinned?: boolean;
 }) {
   const pathname = usePathname();
   const sections = sectionsForRole(role);
@@ -82,6 +85,7 @@ export function Sidebar({
 
       <aside
         aria-label="Main navigation"
+        data-pinned={pinned}
         className={cn(
           'group/rail chrome-surface on-chrome',
           'fixed inset-y-0 left-0 z-50 flex flex-col overflow-hidden',
@@ -92,7 +96,9 @@ export function Sidebar({
           // app-shell.tsx tracks this same width in `--rail` and animates the
           // content's left padding with it, so nothing is ever hidden.
           // Do not change this to an overlay.
-          'lg:w-[var(--sidebar-width-collapsed)] lg:hover:w-[var(--sidebar-width)]',
+          pinned
+            ? 'lg:w-[var(--sidebar-width)]'
+            : 'lg:w-[var(--sidebar-width-collapsed)] lg:hover:w-[var(--sidebar-width)]',
           'transition-[width,transform] duration-[240ms] ease-out lg:translate-x-0',
           open ? 'translate-x-0' : '-translate-x-full',
         )}
@@ -115,17 +121,17 @@ export function Sidebar({
             be 100px of nothing above the navigation. 76px is the padded height
             of the current lockup (28 + 20 + 16, rounded up for breathing room),
             and it is still FIXED for the original reason. */}
-        <div className="relative flex h-[76px] shrink-0 items-center px-4 pt-5 pb-4 lg:px-3 lg:group-hover/rail:px-4">
+        <div className="relative flex h-[76px] shrink-0 items-center px-4 pt-5 pb-4 lg:px-3 lg:group-hover/rail:px-4 lg:group-data-[pinned=true]/rail:px-4">
           <div className="flex w-full items-center justify-between gap-2">
             <Link
               href="/dashboard"
               className="rounded-xl focus-visible:outline-none"
               aria-label={`${ORGANISATION_NAME} — go to dashboard`}
             >
-              <span className="block lg:hidden lg:group-hover/rail:block">
+              <span className="block lg:hidden lg:group-hover/rail:block lg:group-data-[pinned=true]/rail:block">
                 <LogoSidebar />
               </span>
-              <span className="hidden lg:flex lg:w-full lg:justify-center lg:group-hover/rail:hidden">
+              <span className="hidden lg:flex lg:w-full lg:justify-center lg:group-hover/rail:hidden lg:group-data-[pinned=true]/rail:hidden">
                 <LogoSidebar collapsed />
               </span>
             </Link>
@@ -161,7 +167,7 @@ export function Sidebar({
                 <p
                   className={cn(
                     'px-3 pt-1 pb-1.5 text-micro font-semibold tracking-[0.1em] uppercase',
-                    'transition-opacity duration-150 lg:opacity-0 lg:group-hover/rail:opacity-100',
+                    'transition-opacity duration-150 lg:opacity-0 lg:group-hover/rail:opacity-100 lg:group-data-[pinned=true]/rail:opacity-100',
                   )}
                   style={{ color: 'var(--sidebar-section-label)' }}
                 >
@@ -221,7 +227,7 @@ export function Sidebar({
                       {item.label}
                     </span>
                     {badge && (
-                      <span className="shrink-0 transition-opacity duration-150 lg:opacity-0 lg:group-hover/rail:opacity-100">
+                      <span className="shrink-0 transition-opacity duration-150 lg:opacity-0 lg:group-hover/rail:opacity-100 lg:group-data-[pinned=true]/rail:opacity-100">
                         <RailBadge count={badge.count} tone={badge.tone} />
                       </span>
                     )}
@@ -243,7 +249,7 @@ export function Sidebar({
             className="group flex items-center gap-2.5 rounded-lg p-2 transition-colors duration-[120ms] hover:bg-[var(--sidebar-item-hover-bg)] focus-visible:outline-none"
           >
             <Avatar name={userName} size="md" />
-            <span className="min-w-0 flex-1 transition-opacity duration-150 lg:opacity-0 lg:group-hover/rail:opacity-100">
+            <span className="min-w-0 flex-1 transition-opacity duration-150 lg:opacity-0 lg:group-hover/rail:opacity-100 lg:group-data-[pinned=true]/rail:opacity-100">
               <span
                 className="block truncate text-body-sm font-semibold"
                 style={{ color: 'var(--sidebar-heading)' }}
@@ -273,7 +279,7 @@ export function Sidebar({
             style={{ color: 'var(--sidebar-muted)' }}
           >
             <Settings className="h-4 w-4 shrink-0" strokeWidth={1.75} aria-hidden="true" />
-            <span className="truncate transition-opacity duration-150 lg:opacity-0 lg:group-hover/rail:opacity-100">Workspace settings</span>
+            <span className="truncate transition-opacity duration-150 lg:opacity-0 lg:group-hover/rail:opacity-100 lg:group-data-[pinned=true]/rail:opacity-100">Workspace settings</span>
           </Link>
         </div>
       </aside>

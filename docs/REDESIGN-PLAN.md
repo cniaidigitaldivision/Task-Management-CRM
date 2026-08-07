@@ -11,8 +11,8 @@
 
 | | |
 |---|---|
-| **Phases** | ✅⬜✅⬜⬜⬜✅ 3 of 7 |
-| **Current** | Phases 1, 3 and 7 done. Next: 2 (email), 4 (forms), 5 (theme), 6 (sidebar tab) |
+| **Phases** | ✅⬜✅✅✅✅✅ 6 of 7 |
+| **Current** | Only Phase 2 left — the Super Admin email change |
 | **Rule** | One phase at a time. Plan → implement → verify → commit → **ask before the next one.** |
 
 ---
@@ -112,8 +112,15 @@ The brand colour stays; it stops announcing itself.
 - Nothing is ever sized to its content
 - Every control on a row shares one height from `components/ui/control.ts`
 
-Applies to: new task, edit task, new project, invite person, profile, settings,
-and every dialog.
+Done. The new-task form was the offender: a `grid-cols-3` row for Priority,
+Effort and Status sat directly beneath a `grid-cols-2` row for Project and
+Assignee, so the fields below were visibly narrower than the fields above. The
+repeat control added a fourth and fifth width with an inline `w-40` select
+beside a `w-20` number box.
+
+Everything short now pairs into the same two-column grid and nothing is sized to
+its content. The project, invitation and profile forms were already consistent
+and were left alone.
 
 ---
 
@@ -125,6 +132,16 @@ and every dialog.
 - Anybody currently set to `system` is resolved to whichever they are actually
   seeing, once, so nobody's screen changes underneath them
 
+Done. `system` could not simply be deleted: the string still arrives from
+`localStorage` on any browser that used the app before today, and from
+`users.theme`, whose Postgres enum still carries it and still defaults to it.
+The read path now answers `null` for "no explicit choice" — covering a legacy
+`system`, a missing key and a corrupted one with the same honest answer — and
+`null` follows the device until the person picks one.
+
+The device still decides for somebody who has never chosen. What has gone is
+*following the device forever* as a standing choice.
+
 ---
 
 ## 6. ◀ THE SIDEBAR TOGGLE
@@ -134,7 +151,12 @@ outside the rail, with an arrow that flips direction.
 
 The rail already expands on hover (owner decision D7 — it *pushes* the content,
 it does not cover it). This adds a deliberate pin: click to keep it open, click
-to keep it shut, and the choice is remembered.
+to keep it shut, and the choice is remembered across tabs.
+
+Done. The tab lives in the shell rather than inside the rail, because the rail
+is `overflow-hidden` and would clip anything sitting half outside it.
+`left: var(--rail)` puts its flat edge exactly on the rail's edge and carries it
+along at the same 240 ms, whether the rail moved because of a hover or a pin.
 
 ---
 
@@ -159,9 +181,9 @@ The owner's words: *"too much green all over."*
 | **1** | Speed | ✅ 7276 ms → 544 ms average in production |
 | **2** | Super Admin email change | ⬜ |
 | **3** | Logo | ✅ |
-| **4** | Forms | ⬜ |
-| **5** | Theme toggle | ⬜ |
-| **6** | Sidebar toggle | ⬜ |
+| **4** | Forms | ✅ |
+| **5** | Theme toggle | ✅ |
+| **6** | Sidebar toggle | ✅ |
 | **7** | Login page | ✅ |
 
 Each phase: implement → typecheck, lint, build, tests, smoke → commit → **stop

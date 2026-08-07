@@ -73,46 +73,51 @@ function RepeatField({ initial }: { initial: string | null }) {
   const [days, setDays] = React.useState<string[]>(parsed?.ok ? [...parsed.rule.byDay] : []);
 
   return (
-    <Field
-      label="Repeats"
-      htmlFor="repeatFreq"
-      hint={
-        freq === 'none'
-          ? 'A one-off.'
-          : 'The next one is created when this is marked done — not on a timer, so the series can never run ahead of the work.'
-      }
-    >
-      <div className="flex flex-wrap items-center gap-2">
-        <Select
-          id="repeatFreq"
-          name="repeatFreq"
-          size="md"
-          value={freq}
-          onChange={(event) => setFreq(event.target.value as typeof freq)}
-          className="w-40"
+    <div className="space-y-2">
+      {/* Two columns, matching every other row on this form. The first draft
+          had a w-40 select beside a w-20 number box with the word "every"
+          between them — a third and fourth width on a form that is meant to
+          have one. */}
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field
+          label="Repeats"
+          htmlFor="repeatFreq"
+          hint={
+            freq === 'none'
+              ? 'A one-off.'
+              : 'The next one appears when this is marked done — not on a timer, so the series can never run ahead of the work.'
+          }
         >
-          <option value="none">Does not repeat</option>
-          <option value="DAILY">Daily</option>
-          <option value="WEEKLY">Weekly</option>
-          <option value="MONTHLY">Monthly</option>
-        </Select>
+          <Select
+            id="repeatFreq"
+            name="repeatFreq"
+            size="md"
+            value={freq}
+            onChange={(event) => setFreq(event.target.value as typeof freq)}
+          >
+            <option value="none">Does not repeat</option>
+            <option value="DAILY">Daily</option>
+            <option value="WEEKLY">Weekly</option>
+            <option value="MONTHLY">Monthly</option>
+          </Select>
+        </Field>
 
         {freq !== 'none' && (
-          <>
-            <span className="text-caption text-text-tertiary">every</span>
+          <Field
+            label={`Every … ${freq === 'DAILY' ? 'days' : freq === 'WEEKLY' ? 'weeks' : 'months'}`}
+            htmlFor="repeatInterval"
+            hint="1 is every one."
+          >
             <Input
+              id="repeatInterval"
               name="repeatInterval"
               type="number"
               min="1"
               max="52"
               value={interval}
               onChange={(event) => setInterval(event.target.value)}
-              className="w-20"
             />
-            <span className="text-caption text-text-tertiary">
-              {freq === 'DAILY' ? 'day(s)' : freq === 'WEEKLY' ? 'week(s)' : 'month(s)'}
-            </span>
-          </>
+          </Field>
         )}
       </div>
 
@@ -152,7 +157,7 @@ function RepeatField({ initial }: { initial: string | null }) {
           </p>
         </div>
       )}
-    </Field>
+    </div>
   );
 }
 
@@ -310,7 +315,15 @@ export function TaskDialog({
           </Field>
         )}
 
-        <div className="grid gap-4 sm:grid-cols-3">
+        {/* ── ONE GRID, ONE COLUMN WIDTH ────────────────────────────────────
+            This used to be a three-column row followed by two-column rows, so
+            Priority and Effort sat visibly narrower than Project and Assignee
+            directly above them. Owner: "some placeholders are bigger than the
+            others and some are smaller."
+
+            Every short field now pairs into the SAME two-column grid, and
+            anything long spans it. Nothing is sized to its content. */}
+        <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Priority" htmlFor="priority">
             <Select size="md" id="priority" name="priority" defaultValue={task?.priority ?? 'medium'} required>
               {PRIORITIES.map((priority) => (
@@ -331,6 +344,18 @@ export function TaskDialog({
             </Select>
           </Field>
 
+          <Field label="Start date" htmlFor="startDate">
+            <Input id="startDate" name="startDate" type="date" defaultValue={task?.startDate ?? ''} />
+          </Field>
+
+          <Field label="Due date" htmlFor="dueDate">
+            <Input id="dueDate" name="dueDate" type="date" defaultValue={task?.dueDate ?? ''} />
+          </Field>
+
+          {/* Paired deliberately: on create these two fill a row, and on edit
+              the status control is gone so the time limit takes the left cell
+              with the right one empty. A lone field stretched to full width
+              would be a third distinct width on the same form. */}
           {!isEdit && (
             <Field label="Starting status" htmlFor="status">
               <Select size="md" id="status" name="status" defaultValue="todo">
@@ -342,34 +367,18 @@ export function TaskDialog({
               </Select>
             </Field>
           )}
-          {isEdit && (
-            <Field label="Time limit" htmlFor="timeLimitHours" hint="Hours. Blank for none.">
-              <Input
-                id="timeLimitHours"
-                name="timeLimitHours"
-                type="number"
-                min="0"
-                step="0.5"
-                defaultValue={task?.timeLimitMinutes ? task.timeLimitMinutes / 60 : ''}
-              />
-            </Field>
-          )}
-        </div>
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Start date" htmlFor="startDate">
-            <Input id="startDate" name="startDate" type="date" defaultValue={task?.startDate ?? ''} />
-          </Field>
-          <Field label="Due date" htmlFor="dueDate">
-            <Input id="dueDate" name="dueDate" type="date" defaultValue={task?.dueDate ?? ''} />
+          <Field label="Time limit" htmlFor="timeLimitHours" hint="Hours. Blank for none.">
+            <Input
+              id="timeLimitHours"
+              name="timeLimitHours"
+              type="number"
+              min="0"
+              step="0.5"
+              defaultValue={task?.timeLimitMinutes ? task.timeLimitMinutes / 60 : ''}
+            />
           </Field>
         </div>
-
-        {!isEdit && (
-          <Field label="Time limit" htmlFor="timeLimitHoursNew" hint="Hours. Blank uses no limit.">
-            <Input id="timeLimitHoursNew" name="timeLimitHours" type="number" min="0" step="0.5" />
-          </Field>
-        )}
 
         <RepeatField initial={task?.recurrenceRule ?? null} />
 

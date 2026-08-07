@@ -6,7 +6,6 @@ import { useRouter } from 'next/navigation';
 import { Bell, CheckCheck, ChevronRight, Menu, Plus } from 'lucide-react';
 
 import { markAllReadAction } from '@/app/actions/notifications';
-import { ThemeToggle } from '@/components/brand/theme-toggle';
 import { GlobalSearch } from '@/components/layout/global-search';
 import { Button, IconButton } from '@/components/ui/button';
 import type { NotificationRow } from '@/lib/db/queries/types';
@@ -204,8 +203,11 @@ export function Topbar({
             )}
           </div>
 
-          <ThemeToggle />
-
+          {/* The theme control used to sit here. Owner decision, session 15:
+              it belongs in Profile → Appearance and nowhere else. A setting
+              somebody changes twice a year does not earn permanent space in the
+              busiest strip of the interface, and having it in two places meant
+              two things to keep in step. */}
           <span aria-hidden="true" className="mx-1 h-5 w-px shrink-0 bg-border-default" />
 
           <Button

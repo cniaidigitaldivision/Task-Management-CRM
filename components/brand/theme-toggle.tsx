@@ -11,7 +11,7 @@
  * ========================================================================= */
 
 import * as React from 'react';
-import { Monitor, Moon, Sun } from 'lucide-react';
+import { Moon, Sun } from 'lucide-react';
 
 import { CONTROL_HEIGHT, CONTROL_RADIUS, CONTROL_SQUARE } from '@/components/ui/control';
 import type { Theme } from '@/lib/domain/constants';
@@ -25,18 +25,28 @@ const OPTIONS: ReadonlyArray<{
   icon: typeof Sun;
   description: string;
 }> = [
-  { value: 'light', label: 'Light', icon: Sun, description: 'Always light' },
-  { value: 'dark', label: 'Dark', icon: Moon, description: 'Always dark' },
-  { value: 'system', label: 'System', icon: Monitor, description: 'Match my device' },
+  { value: 'light', label: 'Light', icon: Sun, description: 'Bright surfaces, dark text' },
+  { value: 'dark', label: 'Dark', icon: Moon, description: 'Dark surfaces, light text' },
 ];
+
+/* ── 'SYSTEM' WAS REMOVED, session 15 ──────────────────────────────────────
+   Owner: "the system preference I don't want — just the light toggle and the
+   moon toggle."
+
+   The device is still what decides for somebody who has never chosen; that is
+   the sensible default and it costs nothing. What has gone is *following the
+   device forever* as a standing choice. A person on this screen is choosing,
+   so the screen offers the two things they can choose between. */
 
 /* --------------------------------------------------------------------------
  * Compact — top bar
  * ------------------------------------------------------------------------ */
 
 export function ThemeToggle({ className }: { className?: string }) {
-  const { preference, cycleTheme, isHydrated } = useTheme();
-  const active = OPTIONS.find((option) => option.value === preference) ?? OPTIONS[2];
+  const { resolved, cycleTheme, isHydrated } = useTheme();
+  /* Reflects what is RENDERED. With nothing stored, `preference` is null and
+     an icon chosen from it would show a sun to somebody looking at dark. */
+  const active = OPTIONS.find((option) => option.value === resolved) ?? OPTIONS[0];
   const Icon = active.icon;
 
   return (
@@ -132,10 +142,13 @@ export function ThemeSetting({ className }: { className?: string }) {
         </p>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2">
         {OPTIONS.map((option) => {
           const Icon = option.icon;
-          const isActive = isHydrated && preference === option.value;
+          /* Against the RESOLVED theme, so the card that is lit is the one
+             they are actually looking at — including before they have ever
+             chosen, when the preference itself is null. */
+          const isActive = isHydrated && resolved === option.value;
 
           return (
             <button
@@ -178,9 +191,10 @@ export function ThemeSetting({ className }: { className?: string }) {
         })}
       </div>
 
-      {isHydrated && preference === 'system' && (
+      {isHydrated && preference === null && (
         <p className="text-caption text-text-tertiary">
-          Your device is currently set to {resolved}.
+          Following your device for now — it is set to {resolved}. Picking one above fixes it for
+          your account on every device.
         </p>
       )}
     </section>

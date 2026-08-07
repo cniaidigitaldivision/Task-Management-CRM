@@ -5,16 +5,25 @@
  *
  * Two distinct values, deliberately kept separate:
  *
- *   PREFERENCE  'light' | 'dark' | 'system'   what the user chose
- *   RESOLVED    'light' | 'dark'              what is actually rendered
+ *   PREFERENCE  'light' | 'dark' | null    what the user chose, or nothing yet
+ *   RESOLVED    'light' | 'dark'           what is actually rendered
  *
- * The preference is stored (localStorage now, the users row from Step 6).
- * The resolved value is written to <html data-theme>.
+ * ── 'system' WAS REMOVED, AND null IS WHAT REPLACED IT ───────────────────────
+ * Owner decision, session 15: a sun and a moon, nothing else.
  *
- * Because `system` is always resolved to a concrete value before it reaches
- * the DOM, CSS never has to reconcile an attribute against a media query —
- * which removes an entire class of "theme is right in one place and wrong in
- * another" bugs.
+ * It could not simply be deleted. The string still arrives from two places —
+ * `localStorage` in any browser that used the application before today, and
+ * `users.theme`, whose Postgres enum still carries it and still defaults to it.
+ * Treating an unrecognised value as light would flip a dark user to light on
+ * their next visit.
+ *
+ * So the read path answers `null` for "no explicit choice", which covers a
+ * legacy 'system', a missing key and a corrupted one with the same honest
+ * answer. `null` follows the device; the provider then persists the concrete
+ * result, once, and the ambiguity is gone for good.
+ *
+ * The resolved value is what reaches <html data-theme>, so CSS never has to
+ * reconcile an attribute against a media query.
  * ========================================================================= */
 
 import { THEMES, THEME_STORAGE_KEY, type ResolvedTheme, type Theme } from './domain/constants';
@@ -44,9 +53,11 @@ export function isTheme(value: unknown): value is Theme {
 }
 
 /** Resolves a preference to the concrete theme that will be rendered. */
-export function resolveTheme(preference: Theme, systemPrefersDark: boolean): ResolvedTheme {
-  if (preference === 'system') return systemPrefersDark ? 'dark' : 'light';
-  return preference;
+export function resolveTheme(
+  preference: Theme | null,
+  systemPrefersDark: boolean,
+): ResolvedTheme {
+  return preference ?? (systemPrefersDark ? 'dark' : 'light');
 }
 
 /** Reads the OS preference. Returns false in any non-browser context. */
@@ -55,15 +66,20 @@ export function systemPrefersDark(): boolean {
   return window.matchMedia(DARK_MEDIA_QUERY).matches;
 }
 
-/** Reads the stored preference, falling back to `system` on anything invalid,
- *  missing, or inaccessible (private browsing can throw on localStorage). */
-export function readStoredTheme(): Theme {
-  if (typeof window === 'undefined') return 'system';
+/**
+ * The stored preference, or `null` when there is not one.
+ *
+ * `null` covers three cases that all mean the same thing to the caller: nothing
+ * stored, a legacy 'system', and a corrupted value. Private browsing can throw
+ * on localStorage, which is the third.
+ */
+export function readStoredTheme(): Theme | null {
+  if (typeof window === 'undefined') return null;
   try {
     const raw = window.localStorage.getItem(THEME_STORAGE_KEY);
-    return isTheme(raw) ? raw : 'system';
+    return isTheme(raw) ? raw : null;
   } catch {
-    return 'system';
+    return null;
   }
 }
 
@@ -110,6 +126,6 @@ export function applyTheme(resolved: ResolvedTheme): void {
  */
 export const THEME_PRE_PAINT_SCRIPT = `(function(){try{var k=${JSON.stringify(
   THEME_STORAGE_KEY,
-)};var p=null;try{p=localStorage.getItem(k)}catch(e){}if(p!=="light"&&p!=="dark"&&p!=="system")p="system";var d=p==="system"?window.matchMedia(${JSON.stringify(
+)};var p=null;try{p=localStorage.getItem(k)}catch(e){}var d=(p==="light"||p==="dark")?p==="dark":window.matchMedia(${JSON.stringify(
   DARK_MEDIA_QUERY,
-)}).matches:p==="dark";var r=d?"dark":"light";var e=document.documentElement;e.setAttribute("data-theme",r);e.style.colorScheme=r}catch(_){document.documentElement.setAttribute("data-theme","light")}})();`;
+)}).matches;var r=d?"dark":"light";var e=document.documentElement;e.setAttribute("data-theme",r);e.style.colorScheme=r}catch(_){document.documentElement.setAttribute("data-theme","light")}})();`;

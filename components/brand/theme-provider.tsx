@@ -55,10 +55,10 @@ function subscribePreference(onChange: () => void): () => void {
   };
 }
 
-const getPreference = (): Theme => readStoredTheme();
-/** The server cannot know the preference; `system` is the documented default
- *  (FR-203) and the pre-paint script has already corrected the paint. */
-const getPreferenceOnServer = (): Theme => 'system';
+const getPreference = (): Theme | null => readStoredTheme();
+/** The server cannot know the preference. `null` means "not chosen", the
+ *  device decides, and the pre-paint script has already corrected the paint. */
+const getPreferenceOnServer = (): Theme | null => null;
 
 /* --------------------------------------------------------------------------
  * External store 2 — the OS colour setting
@@ -89,12 +89,12 @@ const hydratedOnServer = (): boolean => false;
  * ------------------------------------------------------------------------ */
 
 interface ThemeContextValue {
-  /** What the user chose. */
-  preference: Theme;
+  /** What the user chose, or null if they have not chosen. */
+  preference: Theme | null;
   /** What is actually rendered right now. */
   resolved: ResolvedTheme;
   setTheme: (next: Theme) => void;
-  /** Cycles light → dark → system. Used by the compact toggle. */
+  /** Flips light ↔ dark. */
   cycleTheme: () => void;
   /** False until the client has read the stored preference. Controls that
    *  depend on the preference must not announce a value before this is true,
@@ -104,7 +104,20 @@ interface ThemeContextValue {
 
 const ThemeContext = React.createContext<ThemeContextValue | null>(null);
 
-const CYCLE_ORDER: readonly Theme[] = ['light', 'dark', 'system'];
+/* ── 'system' IS GONE, BUT IT STILL HAS TO BE HANDLED ─────────────────────
+   Owner decision, session 15: light and dark only, a sun and a moon.
+
+   It cannot simply be deleted from the type and forgotten. Two places still
+   hand it over: `localStorage` on any browser that used the application before
+   today, and `users.theme`, whose Postgres enum still has the value and whose
+   default is still 'system'. A value that arrives and matches nothing would
+   silently fall through to light — flipping a dark user to light on their next
+   visit, which is precisely the flash the pre-paint script exists to prevent.
+
+   So it is RESOLVED once, at the moment it is seen: whatever the person is
+   actually looking at right now becomes their stored choice. Nobody's screen
+   changes underneath them, and after one visit the value is gone for good. */
+
 
 export function ThemeProvider({
   children,
@@ -136,10 +149,24 @@ export function ThemeProvider({
   // the account setting is authoritative across devices.
   React.useEffect(() => {
     if (!initialPreference) return;
+    /* The column still defaults to 'system' and its enum still carries the
+       value, so it arrives here typed as Theme and is not one. Ignoring it
+       leaves the device in charge, which is what it meant. */
+    if ((initialPreference as string) === 'system') return;
     if (readStoredTheme() === initialPreference) return;
     writeStoredTheme(initialPreference);
     emitPreferenceChange();
   }, [initialPreference]);
+
+  /* Retire a legacy 'system' preference, once, into whatever it currently
+     resolves to. Runs after hydration so `prefersDark` is the real media query
+     rather than the server's assumption. See the note on CYCLE_ORDER. */
+  React.useEffect(() => {
+    if (!isHydrated) return;
+    if (readStoredTheme() !== null) return;
+    writeStoredTheme(prefersDark ? 'dark' : 'light');
+    emitPreferenceChange();
+  }, [isHydrated, prefersDark]);
 
   // Sync the DOM to the resolved theme.
   //
@@ -161,12 +188,13 @@ export function ThemeProvider({
     emitPreferenceChange();
   }, []);
 
+  /* Flips from what is RENDERED, not from what is stored. With no stored
+     preference the two differ, and cycling from the stored null would jump to
+     light for somebody currently looking at dark. */
   const cycleTheme = React.useCallback(() => {
-    const current = readStoredTheme();
-    const nextIndex = (CYCLE_ORDER.indexOf(current) + 1) % CYCLE_ORDER.length;
-    writeStoredTheme(CYCLE_ORDER[nextIndex]);
+    writeStoredTheme(resolved === 'dark' ? 'light' : 'dark');
     emitPreferenceChange();
-  }, []);
+  }, [resolved]);
 
   const value = React.useMemo<ThemeContextValue>(
     () => ({ preference, resolved, setTheme, cycleTheme, isHydrated }),

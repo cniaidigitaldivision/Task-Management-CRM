@@ -509,7 +509,16 @@ export type AvailabilityType = (typeof AVAILABILITY_TYPES)[number];
 export const NOTIFICATION_CHANNELS = ['in_app', 'email', 'push'] as const;
 export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number];
 
-export const THEMES = ['light', 'dark', 'system'] as const;
+/* ── 'system' RETIRED, session 15 ─────────────────────────────────────────
+   Owner decision: light and dark only — a sun and a moon. "The system
+   preference I don't want, just the light toggle and the moon toggle."
+
+   The Postgres enum `public.theme_preference` still carries the value and
+   `users.theme` still defaults to it, deliberately: dropping a value from a
+   Postgres enum requires rewriting the type, and the only thing it buys is
+   tidiness. The provider resolves a legacy 'system' to whatever the person is
+   actually seeing, once, and never writes it again. */
+export const THEMES = ['light', 'dark'] as const;
 export type Theme = (typeof THEMES)[number];
 
 /** The concrete value written to <html data-theme>. `system` is always

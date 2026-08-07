@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 
 import { Logo } from '@/components/brand/logo';
-import { ThemeSetting, ThemeToggle } from '@/components/brand/theme-toggle';
+import { ThemeSetting } from '@/components/brand/theme-toggle';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/card';
 import { ControlGallery } from '@/components/ui/control-gallery';
@@ -90,7 +90,12 @@ export default function DesignSystemPage() {
           </Link>
           <div className="flex items-center gap-2">
             <span className="hidden text-caption text-text-tertiary sm:inline">Design system</span>
-            <ThemeToggle />
+            {/* Removed with the topbar control — the theme lives in
+                Profile → Appearance now, and a second one here would be a
+                second place to keep in step. */}
+            <span className="text-caption text-text-tertiary">
+              Set the theme in Profile → Appearance.
+            </span>
           </div>
         </div>
       </header>
