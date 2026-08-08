@@ -1,10 +1,9 @@
 # 📊 PROGRESS TRACKER — CNI CRM
 
-**Last updated:** 2026-08-06 (Session 11)
-**Current phase:** **Phase 1** Steps 1–4 + 5.1 complete · **Phase 2 work core pulled forward at the owner's request and OPERATIONAL**
-**Overall progress:** ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░ 72%
-**Blocked on:** **Nothing.** Next is 5.2 (invitation chain) — the last thing between a working demo and onboarding the real team. Resend is required by 5.5.
-**Tests:** `npm run test` → **640** · `npm run test:auth` → **30/30** (real DB) · `npm run smoke` → **25/25** signed-in route checks · DB gates: Step 2 **35/35**, pre-auth **32/32**, 010 **9/9**, 011 **8/8**, work core **17/17**
+**Last updated:** 2026-08-08 (Session 16)
+**Current phase:** **All 8 BUILD-PLAN steps complete**, and the 7-phase [REDESIGN-PLAN](REDESIGN-PLAN.md) complete as of Session 16.
+**Blocked on:** **Nothing, and nothing is queued** — awaiting the owner's next direction. Two env vars remain outstanding and are the owner's to set: `SUPABASE_STORAGE_KEY` (attachments) and `CRON_SECRET` (digest). Resend's sending domain is still deliberately deferred, and it is what the email-change verification link is waiting on.
+**Tests:** `npm run test` → **947** · `npm run test:auth` → **133** (real DB) · `npm run smoke` → **27/27** signed-in route checks · DB gates: Step 2 **35/35**, pre-auth **32/32**, 010 **9/9**, 011 **8/8**, work core **17/17**, email change **11/11**
 
 > ⛔ **Standing rule (owner, Session 06):** commit, push to GitHub and update these docs after **every** change — not batched at session end.
 **Run it:** `npm run dev` → http://localhost:4310 · `npm run verify` → typecheck + lint + build

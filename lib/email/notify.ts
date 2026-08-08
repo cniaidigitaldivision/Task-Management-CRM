@@ -4,7 +4,7 @@ import { expiresInMinutes, generateNumericCode, hashScopedCode } from '@/lib/aut
 import { issueToken } from '@/lib/db/queries/auth';
 
 import { sendEmail } from './send';
-import { loginAlertEmail, unlockEmail } from './templates';
+import { emailChangedEmail, loginAlertEmail, unlockEmail } from './templates';
 import { getSettings } from '@/lib/settings/current';
 
 /* ============================================================================
@@ -112,6 +112,53 @@ export function notifyNewDeviceSignIn(input: {
       });
     } catch {
       /* Never blocks or fails a sign-in. */
+    }
+  })();
+}
+
+/**
+ * REDESIGN-PLAN §2 — the sign-in address changed. Tell the address it *was*.
+ *
+ * ── `previousEmail` IS THE RECIPIENT, AND IT IS THE WHOLE POINT ──────────────
+ * Sending this to the new address would be a receipt, which is worthless: the
+ * person who made the change already knows. It is the *old* mailbox that has
+ * just quietly lost an account, and its owner is the only one who can tell that
+ * this was not them.
+ *
+ * ── FIRE-AND-FORGET, LIKE EVERYTHING ELSE HERE — WITH ONE DIFFERENCE ─────────
+ * The change is already committed and already in the audit trail and the
+ * security log before this runs, so a mail failure costs the alert and nothing
+ * else. That is the same trade the rest of this file makes. It is a worse trade
+ * here than anywhere else in the system, because this alert is the only control
+ * on the change rather than a courtesy on top of one — which is exactly why the
+ * event is written to `security_events` first, where the Super Admin sees it
+ * whether or not Resend was reachable.
+ */
+export function notifyEmailChanged(input: {
+  previousEmail: string;
+  newEmail: string;
+  fullName: string;
+  when: Date;
+  isSuperAdmin: boolean;
+  appUrl: string;
+}): void {
+  void (async () => {
+    try {
+      const message = emailChangedEmail({
+        fullName: input.fullName,
+        newEmail: input.newEmail,
+        when: input.when,
+        isSuperAdmin: input.isSuperAdmin,
+        appUrl: input.appUrl,
+      });
+      await sendEmail({
+        to: input.previousEmail,
+        subject: message.subject,
+        html: message.html,
+        text: message.text,
+      });
+    } catch {
+      /* The change stands, and the security event is already written. */
     }
   })();
 }

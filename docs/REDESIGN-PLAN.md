@@ -11,8 +11,8 @@
 
 | | |
 |---|---|
-| **Phases** | ✅⬜✅✅✅✅✅ 6 of 7 |
-| **Current** | Only Phase 2 left — the Super Admin email change |
+| **Phases** | ✅✅✅✅✅✅✅ **7 of 7 — complete** |
+| **Current** | Nothing outstanding in this plan. |
 | **Rule** | One phase at a time. Plan → implement → verify → commit → **ask before the next one.** |
 
 ---
@@ -77,6 +77,35 @@ do it silently.
 
 Available to **every** role for their own account, not only the Super Admin —
 the same rule, the same proof.
+
+**Done.** It lives under Profile → Security, above the three cards that only
+report a state, because it is the one thing on that section you can act on.
+
+**The premise was proven, not assumed.** An integration test changes the real
+Super Admin's address inside a transaction and rolls it back, then re-reads it on
+a fresh connection to prove the rollback took. The trigger permits it; the same
+test confirms the trigger still refuses self-deactivation, so "it allowed my
+change" cannot quietly mean "the trigger is gone".
+
+### ⚠️ The risk this design leaves, stated plainly
+
+The attacker case is handled. **The typo case is not, and cannot be without the
+verification link.** A mistyped address saves cleanly, looks right, and there is
+no way back — "forgot password" would send the recovery code to a mailbox that
+does not exist. For the Super Admin there is nobody above them, so recovery
+means direct database access.
+
+Three things reduce it, and none of them eliminate it:
+
+1. The address is typed **twice**, and pasting into the second field is blocked —
+   pasting the first field into the second defeats the entire check.
+2. `validateEmailAddress` is **stricter than the database**: the SQL constraint
+   accepts `name@example.com,` off a pasted list, which is syntactically valid
+   and can never receive mail. The last label of the domain must now be letters.
+3. The form says outright what happens if it is wrong, and names who can fix it.
+
+The real fix is the verification link, and it needs the Resend sending domain.
+When that arrives this should become: send to the new address, apply on click.
 
 ---
 
@@ -179,7 +208,7 @@ The owner's words: *"too much green all over."*
 | Phase | What | State |
 |:--:|---|---|
 | **1** | Speed | ✅ 7276 ms → 544 ms average in production |
-| **2** | Super Admin email change | ⬜ |
+| **2** | Super Admin email change | ✅ Every role, own account. 11 integration tests |
 | **3** | Logo | ✅ |
 | **4** | Forms | ✅ |
 | **5** | Theme toggle | ✅ |
@@ -196,3 +225,9 @@ and ask**.
 - Sales management and workflow automation — standing rule R4, still not wanted
 - The Resend sending domain — deliberately deferred by the owner
 - Any change to roles, permissions, business rules or the data model
+
+Phase 2 held to the last of those: no migration, no new permission, no new row
+in the doc 03 matrix. The email change is allowed by the trigger that was already
+there, scoped by the RLS policy that was already there, and gated by the step-up
+challenge built in Step 5. `security_events.event_type` is free text by design
+(migration 003), so `email_changed` needed no schema change either.

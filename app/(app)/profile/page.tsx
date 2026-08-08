@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { KeyRound, Shield, ShieldCheck, Smartphone } from 'lucide-react';
 
 import { ThemeSetting } from '@/components/brand/theme-toggle';
+import { EmailForm } from '@/components/team/email-form';
 import { ProfileForm } from '@/components/team/profile-form';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -185,7 +186,17 @@ export default async function ProfilePage() {
       </PageSection>
 
       <PageSection step={3} title="Security">
-        <div className="grid gap-4 md:grid-cols-3">
+        {/* The email card sits full width above the other three because it is the
+            only one here you can act on — the rest report a state. */}
+        <div className="space-y-4">
+          <Card>
+            <CardToolbar title="Your sign-in email address" />
+            <CardBody className="p-5">
+              <EmailForm currentEmail={user.email} isSuperAdmin={user.role === 'super_admin'} />
+            </CardBody>
+          </Card>
+
+          <div className="grid gap-4 md:grid-cols-3">
           <Card>
             <CardBody className="space-y-2 p-5">
               <IconTile icon={KeyRound} token="accent-primary" size="lg" />
@@ -254,6 +265,7 @@ export default async function ProfilePage() {
               </p>
             </CardBody>
           </Card>
+          </div>
         </div>
       </PageSection>
 

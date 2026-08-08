@@ -98,6 +98,53 @@ export async function updateOwnProfile(
 }
 
 /**
+ * Change your own sign-in address.
+ *
+ * ── WHY THIS IS NOT A FIELD ON `updateOwnProfile` ────────────────────────────
+ * Name, phone and timezone are labels. This is the identity `app.auth_find_identity`
+ * looks the account up by — get it wrong and there is no way back in. It gets its
+ * own statement, its own ceremony (step-up, in the action above this) and its own
+ * alert, and it can never be changed as a side effect of saving a phone number.
+ *
+ * ── THE OLD ADDRESS COMES BACK FROM A CTE, NOT A SECOND SELECT ───────────────
+ * The alert has to name the address that was actually replaced, so the old value
+ * must be captured atomically with the change. A `select` before the `update` is
+ * two round trips with a gap in between; a subquery inside `RETURNING` would
+ * work only because of a snapshot rule subtle enough that the next person to
+ * read it would reasonably assume it was a bug.
+ *
+ * A data-modifying CTE is neither. `previous` is evaluated against the
+ * statement's snapshot — that is documented, not incidental — so it holds the
+ * pre-update value, and the whole thing is one round trip. (Postgres 18's
+ * `RETURNING OLD.email` says this in one word; Supabase is not there yet.)
+ *
+ * ── COLLISIONS COME BACK AS 23505, AND THAT IS THE ONLY WAY TO SEE THEM ──────
+ * `users_email_key` is a unique index. Checking first is not an option: RLS on
+ * `users` shows a Member exactly one row — their own — so a "is this address
+ * taken?" select would answer "no" for every address in the system except their
+ * own. The database is the only thing that can see the whole column, so the
+ * caller maps the unique violation rather than pre-empting it.
+ */
+export async function changeOwnEmail(
+  actorId: string,
+  newEmail: string,
+): Promise<{ previousEmail: string } | null> {
+  const rows = await withUser(actorId, (tx) => tx`
+    with previous as (
+      select id, email from public.users where id = ${actorId}
+    )
+    update public.users u
+       set email = ${newEmail}
+      from previous p
+     where u.id = p.id
+    returning p.email as previous_email
+  `);
+
+  const previous = rows[0]?.previous_email as string | undefined;
+  return previous === undefined ? null : { previousEmail: previous };
+}
+
+/**
  * FR-202: the theme follows the person, not the browser.
  *
  * Kept separate from updateOwnProfile because the theme toggle fires on a click

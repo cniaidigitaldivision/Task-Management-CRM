@@ -49,8 +49,8 @@ That's all you ever need to type. Everything else is recorded in the files.
 
 | | |
 |---|---|
-| **Last updated** | 2026-08-06, Session 11 |
-| **Tests** | `npm run test` → **640** · `npm run test:auth` → **30/30** (real DB) · `npm run smoke` → **25/25** (every route, both roles) |
+| **Last updated** | 2026-08-08, Session 16 |
+| **Tests** | `npm run test` → **947** · `npm run test:auth` → **133** (real DB) · `npm run smoke` → **27/27** (every route, both roles) |
 | **⛔ Credential hygiene** | Three secrets were pasted into chat in Session 09 (Resend key, DB password ×2 — one echoed by my own script's error output). **All must be rotated.** Never paste a secret; `npm run check:db` redacts and is safe to share. |
 | **Current phase** | **Phase 1 — Foundation & Security** |
 | **Phase 1 progress** | ▓▓▓▓▓▓▓▓░░ Steps 1–4 complete · **5.1 complete** · **Phase 2 work core pulled forward and operational** |
@@ -59,7 +59,7 @@ That's all you ever need to type. Everything else is recorded in the files.
 | **✅ Deployed** | Live on Vercel, environment variables set, 25/25 signed-in route checks green against the real URL. Super Admin created and enrolled; `/setup` verified CLOSED in production. |
 | **✅ MFA enrolment** | Built (Session 12). QR code plus a copyable setup key, the code proven before anything is stored, and `requireEnrolledUser()` enforcing FR-145 at the application boundary rather than by redirect alone. |
 | **📋 THE PLAN** | [`docs/BUILD-PLAN.md`](BUILD-PLAN.md) — 8 steps to a complete system, owner approves each one. **Read it before doing anything.** |
-| **➡️ NEXT** | **All 8 build steps are complete.** 914 unit · 122 integration · 27 smoke. ⚠️ Two env vars outstanding: `SUPABASE_STORAGE_KEY` (attachments) and `CRON_SECRET` (digest) — see BUILD-PLAN. The owner has also said a new visual design is coming, which is customisation and does not change any convention or feature here. |
+| **➡️ NEXT** | **All 8 build steps complete, and the 7-phase [REDESIGN-PLAN](REDESIGN-PLAN.md) is now complete too.** 947 unit · 133 integration · 27 smoke. ⚠️ Two env vars outstanding: `SUPABASE_STORAGE_KEY` (attachments) and `CRON_SECRET` (digest) — see BUILD-PLAN. **Nothing is queued.** Awaiting the owner's next direction. |
 | **🔑 MFA_ENCRYPTION_KEY is load-bearing** | Authenticator secrets are encrypted at rest as of Step 4. Lose that key and every enrolled authenticator stops working permanently, for everyone — recovery codes become the only way in. Back it up somewhere that is not this machine. | It is now the one thing standing between the demo and a system the team can actually be onboarded into. See §3 and [`DEMO-GUIDE.md`](DEMO-GUIDE.md). |
 
 ### What was completed in Session 08, part 2 — TASKS SCREEN + STEP 3
@@ -264,6 +264,58 @@ The new asset is a **transparent raster**, not vector. That changes what each fo
 ---
 
 ## 3. ⏭️ NEXT ACTION
+
+### ✅ Session 16 — REDESIGN-PLAN Phase 2 COMPLETE: changing your sign-in address
+
+**The last of the seven redesign phases. Nothing is now queued.**
+
+`947 unit · 133 integration (11 new, real database) · 27/27 smoke · verified in Chrome, both themes.`
+
+The Profile page had promised an email change since Step 6 and had nothing behind
+it. It now exists, for **every** role on their own account — under Profile →
+Security, above the three cards that only report a state, because it is the one
+thing in that section you can act on.
+
+| Built | |
+|---|---|
+| `lib/domain/email-address.ts` | Layer 2, pure. Migration 001's `users_email_shaped` transcribed into TypeScript, plus `normaliseEmail`, `sameEmail` and `maskEmail`. 33 unit tests, one of which reads the migration off disk so the two definitions cannot drift silently. |
+| `changeOwnEmail()` in `queries/people.ts` | One statement, one round trip. A data-modifying CTE captures the old address atomically with the change. |
+| `changeEmailAction` | Validate → confirm-match → step-up → write → audit + security event → alert the old address. |
+| `emailChangedEmail` / `notifyEmailChanged` | The alert, sent to the **old** address, with the new one masked. |
+| `components/team/email-form.tsx` | Two equal columns (Phase 4's rule), the step-up dialog wired to replay the held submission. |
+| `test/integration/email-change.test.ts` | 11 assertions against the real database. |
+
+**No migration, no new permission, no new row in the doc 03 matrix.** All three
+were considered and all three were the wrong answer — see the header comment on
+`changeEmailAction` for why a `user.change_own_email` action would have broken
+the transcription test for no gain.
+
+#### Three things worth remembering
+
+1. **The typo, not the attacker, is the residual risk.** The alert to the old
+   address handles a hijack. Nothing handles a mistyped address, which saves
+   cleanly and locks the person out permanently — recovery mail would go to the
+   mailbox that does not exist. Mitigated by asking twice (paste blocked on the
+   second field), by a stricter-than-the-database validator, and by saying so on
+   screen. **Properly fixed only by the verification link, which needs the Resend
+   sending domain.** Recorded in [REDESIGN-PLAN §2](REDESIGN-PLAN.md).
+
+2. **The app-side rule is deliberately stricter than the constraint, in one
+   place.** The SQL pattern accepts `name@example.com,` — a trailing comma off a
+   pasted list — because `com,` satisfies `[^[:space:]@]+`. Syntactically fine,
+   can never receive mail. The last label of the domain must now be letters. The
+   test asserts the safe direction only: everything the app accepts, the database
+   accepts. Never the reverse.
+
+3. **The Super Admin premise was proven, not assumed.** The whole phase rests on
+   "migration 005's trigger does not block an email change on that row". There is
+   exactly one Super Admin row and BR-028 forbids a stand-in, so the test changes
+   the real one inside a transaction and rolls back — then re-reads the address on
+   a **fresh** connection, so a rollback that did not take fails loudly instead of
+   leaving somebody unable to sign in. The same test confirms the trigger still
+   refuses self-deactivation (FR-156), so a pass cannot quietly mean the trigger
+   is missing.
+
 
 **State on close:** Phase 1 Steps 1 (Gate 1 ✅), 1b (Gate 1b ✅), 1c (Gate 1c ✅), **2 (Gate 2 ✅)**, 2b (Tasks screen) and **3 (Gate 3 ✅, 502 tests)** complete. Everything committed and pushed. Working tree clean. `npm run verify` clean — typecheck, lint, test, build.
 
@@ -483,6 +535,7 @@ Each update rewrites §2 (where we are), §3 (next action), and appends to §7 (
 
 | # | Date | What happened | Ended at |
 |:--:|---|---|---|
+| 16 | 2026-08-08 | **REDESIGN-PLAN PHASE 2 COMPLETE — the sign-in address can be changed. All seven redesign phases now done.** Available to every role for their own account, under Profile → Security. Password + authenticator (the Step 5 step-up challenge, which replays the held submission rather than making somebody re-enter it), applied immediately, with an alert to the **old** address as the control. **No migration, no new permission, no new row in the doc 03 matrix** — the trigger already permitted it, RLS already scoped it, and `security_events.event_type` is free text by design. New pure module `lib/domain/email-address.ts` with 33 tests, one of which reads migration 001 off disk so the TypeScript pattern and the SQL constraint cannot drift apart silently. **The validator is deliberately stricter than the database in exactly one place:** the SQL pattern accepts `name@example.com,` off a pasted list — valid shape, undeliverable forever — so the domain's last label must now be letters; the test asserts only the safe direction (everything the app accepts, the database accepts). 11 integration tests, including the phase's premise proven rather than assumed: the **real** Super Admin's address is changed inside a transaction and rolled back, then re-read on a fresh connection so a rollback that did not take fails loudly, with FR-156 self-deactivation still refused alongside it. Verified in Chrome in both themes; the step-up dialog fires and a wrong password is refused. **Residual risk recorded, not hidden:** a typo still locks somebody out permanently — mitigated by asking twice with paste blocked on the second field, but only properly fixed by the verification link, which needs the Resend sending domain. | **Nothing queued — awaiting direction** |
 | 01 | 2026-08-05 | Full planning set (docs 00–14), progress tracker, roster template, 23 open questions raised. No code. | Awaiting answers to Q-001, 002, 003, 010, 012 |
 | 02 | 2026-08-06 | Answers locked. Roles expanded to 4 with Team Coordinator. Projects & project types subsystem designed (doc 15). Security & identity architecture designed (doc 16). Crash-resume protocol created (this file). All existing docs updated. ADR-001–006 written. 13 new questions raised (Q-024–Q-036). No code. | Awaiting Q-001, Q-030, Q-034, Q-022 |
 | 03 | 2026-08-06 | **All blockers cleared — Phase 0 complete.** No seeded roster (ADR-009); roster template retired for `FIRST-RUN-SETUP-GUIDE.md`. Recovery redesigned around emailed one-time codes + 3-attempt lockout (ADR-007), doc 16 §6 rewritten. Single-tenant confirmed (ADR-008). Company name locked. **Doc 17 — task timers & time limits** (ADR-010). Phase-by-phase permission recorded as a standing rule. Q-039–Q-048 raised. No code. | **Awaiting go-ahead for Phase 1** |

@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { APP_NAME, DIVISION_NAME, ORGANISATION_NAME, SYSTEM_DEFAULTS } from '@/lib/domain/constants';
+import { maskEmail } from '@/lib/domain/email-address';
 
 /* ============================================================================
  * EMAIL TEMPLATES
@@ -301,6 +302,104 @@ export function loginAlertEmail(input: {
       `If this was you, nothing to do.`,
       `If it was not, change your password now — that signs out every device immediately.`,
       `${input.appUrl}/forgot-password`,
+    ].join('\n'),
+  };
+}
+
+/* ==========================================================================
+ * The sign-in address was changed — sent to the OLD address
+ * ==========================================================================
+ * ── THIS IS THE ONLY CONTROL ON AN IMMEDIATE EMAIL CHANGE ────────────────────
+ * The change applies at once (REDESIGN-PLAN §2), because confirming a link at
+ * the new address needs a verified sending domain the owner has deliberately
+ * deferred. What keeps that honest is this message: somebody who moves the
+ * account cannot do it silently. Take this away and an attacker with a live
+ * session and a password changes the sign-in identity with no trace the real
+ * owner would ever see.
+ *
+ * ── IT DOES NOT OFFER A RESET LINK, AND THAT IS NOT AN OVERSIGHT ─────────────
+ * Every other alert in this file ends with "change your password". That advice
+ * is useless here and would be actively cruel: by the time this arrives, this
+ * address is no longer attached to the account, so "forgot password" on it
+ * reaches nothing. The only real remedy is a person, so the message names one.
+ *
+ * ── THE NEW ADDRESS IS MASKED ────────────────────────────────────────────────
+ * Enough to recognise your own typo, not enough to hand an attacker's inbox to
+ * whoever else reads this mailbox.
+ */
+
+export function emailChangedEmail(input: {
+  fullName: string;
+  newEmail: string;
+  when: Date;
+  isSuperAdmin: boolean;
+  appUrl: string;
+}): Email {
+  const firstName = input.fullName.split(' ')[0];
+  const masked = maskEmail(input.newEmail);
+
+  const stamp = input.when.toLocaleString('en-GB', {
+    dateStyle: 'full',
+    timeStyle: 'short',
+    timeZone: 'Asia/Karachi',
+  });
+
+  /* Who to shout at. The Super Admin has nobody above them — saying "contact
+     your Super Admin" to the Super Admin would be a dead end, and the real
+     answer for that account is direct database access (doc 16 §6). */
+  const remedy = input.isSuperAdmin
+    ? 'Contact whoever administers this deployment straight away. Restoring the Super Admin address needs direct database access — it cannot be undone from inside the application.'
+    : 'Contact your Super Admin straight away and ask them to change it back. You cannot do it yourself from here, because this address no longer signs in.';
+
+  const remedyText = input.isSuperAdmin
+    ? 'Contact whoever administers this deployment straight away. Restoring the Super Admin address needs direct database access.'
+    : 'Contact your Super Admin straight away and ask them to change it back.';
+
+  return {
+    subject: `The sign-in address on your ${APP_NAME} account was changed`,
+    html: shell(
+      `<p style="margin:0 0 14px 0;">Hello ${firstName},</p>
+       <p style="margin:0 0 12px 0;">
+         The email address used to sign in to your account was changed. This message is going to the
+         <strong>old</strong> address — the one you are reading now.
+       </p>
+       <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 16px 0;width:100%;background:${PAGE};border:1px solid ${BORDER};border-radius:10px;">
+         <tr><td style="padding:12px 14px;font:400 14px/1.7 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:${INK};">
+           <strong>When</strong> · ${stamp} (Karachi)<br>
+           <strong>Changed to</strong> · ${masked}
+         </td></tr>
+       </table>
+       <p style="margin:0 0 14px 0;color:${MUTED};font-size:13px;">
+         <strong style="color:${INK};">If this was you</strong>, nothing to do. Sign in with the new
+         address from now on — this one no longer works.
+       </p>
+       <p style="margin:0 0 4px 0;color:${MUTED};font-size:13px;">
+         <strong style="color:${INK};">If it was not you</strong>, your account has been taken over.
+         ${remedy}
+       </p>
+       <p style="margin:14px 0 0 0;color:${MUTED};font-size:13px;">
+         The change is recorded in the security log with the time and the address it came from, so
+         there is a trail either way.
+       </p>`,
+      `Your sign-in address was changed to ${masked}.`,
+    ),
+    text: [
+      `Hello ${firstName},`,
+      ``,
+      `The email address used to sign in to your ${APP_NAME} account was changed.`,
+      `This message is going to the OLD address — the one you are reading now.`,
+      ``,
+      `When:       ${stamp} (Karachi)`,
+      `Changed to: ${masked}`,
+      ``,
+      `If this was you, nothing to do. Sign in with the new address from now on —`,
+      `this one no longer works.`,
+      ``,
+      `If it was not you, your account has been taken over. ${remedyText}`,
+      ``,
+      `The change is recorded in the security log either way.`,
+      ``,
+      input.appUrl,
     ].join('\n'),
   };
 }

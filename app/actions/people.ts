@@ -2,12 +2,13 @@
 
 import { revalidatePath } from 'next/cache';
 
-import { requireUser } from '@/lib/auth/current-user';
+import { requireUser, stepUpIsFresh } from '@/lib/auth/current-user';
 import { withUser } from '@/lib/db/client';
 import { audit } from '@/lib/db/queries/audit';
 import { record } from '@/lib/db/queries/feed';
 import {
   addAvailability,
+  changeOwnEmail,
   getPerson,
   removeUserSkill,
   setTheme,
@@ -22,7 +23,10 @@ import {
   type AvailabilityType,
   type Theme,
 } from '@/lib/domain/constants';
+import { sameEmail, validateEmailAddress } from '@/lib/domain/email-address';
 import { can } from '@/lib/domain/permissions';
+import { notifyEmailChanged } from '@/lib/email/notify';
+import { nowMs } from '@/lib/now';
 
 /* ============================================================================
  * PEOPLE ACTIONS — LAYER 3
@@ -47,6 +51,10 @@ import { can } from '@/lib/domain/permissions';
 export interface PeopleActionResult {
   readonly ok: boolean;
   readonly error?: string;
+  /** The caller must re-authenticate before this will be accepted (FR-149). */
+  readonly stepUpRequired?: boolean;
+  /** Said on success where the outcome is worth spelling out. */
+  readonly note?: string;
 }
 
 const fail = (error: string): PeopleActionResult => ({ ok: false, error });
@@ -284,6 +292,145 @@ export async function updateProfileAction(
   } catch {
     return fail('That could not be saved.');
   }
+}
+
+/* ==========================================================================
+ * YOUR SIGN-IN ADDRESS — REDESIGN-PLAN §2
+ * ==========================================================================
+ * ── WHY THIS IS ALLOWED AT ALL, INCLUDING FOR THE SUPER ADMIN ────────────────
+ * Migration 005's immutability trigger blocks exactly four things on that row:
+ * modification by anyone else, self-demotion, self-deactivation and self-locking
+ * (BR-027, FR-140, FR-156). Email is not among them, and deliberately so — an
+ * account whose address can never change is an account that dies with the
+ * mailbox. The Profile page has promised this since Step 6 and never had it.
+ *
+ * ── WHY THE STEP-UP IS DEMANDED HERE AND NOT VIA `requiresStepUp()` ──────────
+ * There is no doc 03 §3 action for "change your own email", and there must not
+ * be one. `PERMISSIONS` is that document transcribed, and its test suite writes
+ * the document out a second time and compares — inventing a row would put a rule
+ * in the table the document does not contain, and the transcription layer would
+ * be right to fail.
+ *
+ * It also would not mean anything. `can()` answers "may this actor perform this
+ * action", and the answer is unconditionally yes: everybody may change their own
+ * address, and RLS on `users` already confines the write to their own row. The
+ * question this ceremony asks is a different one — is the person at the keyboard
+ * still the account holder — which is what FR-149 is for. So the freshness check
+ * is made directly, and it is unconditional rather than table-driven.
+ *
+ * ── APPLIED IMMEDIATELY, WITH THE ALERT AS THE CONTROL ───────────────────────
+ * A link sent to the new address would prove it exists before trusting it. That
+ * needs a verified sending domain, which the owner has deferred, so the plan
+ * chose password + authenticator + an alert to the OLD address instead. The
+ * hazard that leaves is a TYPO, not an attacker: a mistyped address saves
+ * cleanly and locks the person out for good. That is why this asks for the
+ * address twice, why `validateEmailAddress` refuses a domain that cannot
+ * receive mail, and why the form says plainly what is at stake.
+ * ========================================================================== */
+
+function appUrl(): string {
+  return (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:4310').replace(/\/+$/, '');
+}
+
+export async function changeEmailAction(
+  _prev: PeopleActionResult,
+  form: FormData,
+): Promise<PeopleActionResult> {
+  const user = await requireUser();
+
+  const checked = validateEmailAddress(str(form, 'newEmail'));
+  if (!checked.ok) return fail(checked.message);
+  const newEmail = checked.email;
+
+  /* Typed twice, compared after normalising — differing only in case is not a
+     mismatch worth refusing somebody over. */
+  if (!sameEmail(str(form, 'confirmEmail'), newEmail)) {
+    return fail('The two addresses do not match. Check both, character for character.');
+  }
+
+  if (sameEmail(newEmail, user.email)) {
+    return fail('That is already your sign-in address — nothing to change.');
+  }
+
+  /* FR-149, checked after the cheap validation so nobody is made to
+     re-authenticate and only then told they mistyped the address. */
+  if (!stepUpIsFresh(user, nowMs())) {
+    return {
+      ok: false,
+      stepUpRequired: true,
+      error: 'Confirm it is you before changing your sign-in address.',
+    };
+  }
+
+  let changed: { previousEmail: string } | null;
+  try {
+    changed = await changeOwnEmail(user.id, newEmail);
+  } catch (error) {
+    /* The unique index is the only thing that can see the whole email column —
+       RLS shows a Member one row, so there is no select that could have asked
+       this question first. See changeOwnEmail's header. */
+    const code = (error as { code?: string }).code;
+    if (code === '23505') {
+      return fail('Another account already uses that address. Every address here is one person.');
+    }
+    if (code === '23514') {
+      return fail('The database refused that address. Check it and try again.');
+    }
+    return fail('That could not be saved. Your address is unchanged.');
+  }
+
+  if (!changed) {
+    /* No row updated. They are signed in, so their row exists — this is the
+       Super Admin trigger or a policy refusing the write, not a missing user. */
+    return fail('That change was refused. Your address is unchanged.');
+  }
+
+  /* Pinned to a const before the closure below: `changed` is a `let`, and
+     TypeScript widens a narrowed `let` back to its declared type inside a
+     callback because it cannot prove nothing reassigned it in between. */
+  const previousEmail = changed.previousEmail;
+  const when = new Date(nowMs());
+
+  /* Written BEFORE the email is attempted, and not fire-and-forget. The alert
+     is the only control on an immediate change, and Resend is the one part of
+     this that can be unreachable — so the durable record lands first, where the
+     Super Admin sees it on /security whether or not the mail went. */
+  await withUser(user.id, async (tx) => {
+    await audit(tx, user, {
+      entityType: 'user',
+      entityId: user.id,
+      action: 'user.email_changed',
+      before: { email: previousEmail },
+      after: { email: newEmail },
+    });
+    await tx`
+      insert into public.security_events (user_id, event_type, severity, details)
+      values (
+        ${user.id},
+        'email_changed',
+        ${user.role === 'super_admin' ? 'critical' : 'warning'}::public.security_severity,
+        ${tx.json({ from: previousEmail, to: newEmail, role: user.role })}
+      )
+    `;
+  });
+
+  notifyEmailChanged({
+    previousEmail,
+    newEmail,
+    fullName: user.fullName,
+    when,
+    isSuperAdmin: user.role === 'super_admin',
+    appUrl: appUrl(),
+  });
+
+  revalidatePath('/profile');
+  revalidatePath('/security');
+  revalidatePath('/', 'layout');
+
+  return {
+    ok: true,
+    note: `Done — you now sign in as ${newEmail}. An alert has gone to ${previousEmail}, so a change nobody made is visible to whoever owns that mailbox.`,
+  };
 }
 
 /**

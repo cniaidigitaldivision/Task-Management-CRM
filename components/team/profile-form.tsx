@@ -126,10 +126,9 @@ export function ProfileForm({
         {pending ? 'Saving…' : 'Save changes'}
       </Button>
 
-      <p className="text-micro text-text-tertiary">
-        Your email is your sign-in identity and changing it needs a confirmation to both addresses —
-        that arrives with the invitation chain (Step 5.2).
-      </p>
+      {/* Your email is not here on purpose. It is the identity the account is
+          looked up by rather than a label, so it gets its own ceremony under
+          Security — password, authenticator, and an alert to the old address. */}
     </form>
   );
 }
