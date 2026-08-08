@@ -343,6 +343,43 @@ hold before a touch drag begins, or the board could never be scrolled by finger.
 into it. Doc 10 §3's "simply won't drop there", made visible rather than merely
 enforced. The refusal reason still shows on the column.
 
+#### 8.5a The shivering — three bugs in the first version (Session 18)
+
+> *"Whenever I drag one task to another column the other tasks just start
+> flickering… they move up and down up and down… they start shivering."*
+
+The first attempt did exactly that. Three separate causes, all in the same file,
+all now recorded in its header so a future refactor does not walk back into them.
+
+| # | Cause | Fix |
+|:--:|---|---|
+| 1 | **The FLIP effect was keyed on the pointer.** Its dependency array held the whole drag state, which was updated on every `pointermove` — so sixty times a second it re-measured cards that were still mid-transition, slammed `transition: none` on them and re-applied an inverse transform. Every frame restarted the animation from a different place. | Runs only when the gap's column or index actually changes. |
+| 2 | **The pointer position was React state.** Every move re-rendered eight columns and thirty cards in order to reposition one absolutely-positioned element. | The floating card is positioned imperatively through a ref. React renders only when the gap moves. |
+| 3 | **The insertion index was measured off animating elements.** `getBoundingClientRect()` includes transforms, so while cards slid, the midpoints deciding the index were themselves moving. Two adjacent indices could each be "correct" a frame apart, so the gap flipped between them — which restarted the animation, which moved the midpoints again. A feedback loop. | The index comes from a **settled layout model** built from container geometry and card heights, which no transform can touch. |
+
+**The shared lesson, worth keeping:** never measure something you are animating in
+order to decide how to animate it.
+
+**A fourth bug surfaced while proving the fix**, and it is the reason this is
+worth writing down rather than summarising. The `ref` prop on each card is an
+inline arrow, so it is a new function every render, so React detaches the old one
+— calling it with `null` — on every render. The detach handler deleted that
+card's FLIP snapshot. React runs ref callbacks during commit, *before*
+`useLayoutEffect`, so the snapshot was being wiped in the very commit meant to
+consume it: `priorRects` was always empty, and the cards **jumped** instead of
+sliding. Detach is now ignored; stale entries are pruned by `isConnected` at
+capture time.
+
+##### How it was proven, since "it looks smoother" is not evidence
+
+A `MutationObserver` on every card's `style` attribute, counting writes:
+
+| | Before | After |
+|---|---|---|
+| 25 pointer moves with the gap **stationary** | a write per card per move | **0 writes** |
+| one move that **does** shift the gap (0 → 2) | 0 writes (bug 4 — no animation at all) | **69 writes, 65 with a transform** |
+| gap index while sweeping down then back up | oscillated between adjacent values | `0→1→2→3→4` then `4→3→2→1→0`, monotonic over 64 steps |
+
 #### ⚠️ Board order is a session preference, not a saved one
 
 There is **no ordering column on `tasks`** — only `checklist_items.sort_order`

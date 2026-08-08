@@ -49,7 +49,7 @@ That's all you ever need to type. Everything else is recorded in the files.
 
 | | |
 |---|---|
-| **Last updated** | 2026-08-08, Session 17 |
+| **Last updated** | 2026-08-08, Session 18 |
 | **Tests** | `npm run test` → **947** · `npm run test:auth` → **133** (real DB) · `npm run smoke` → **27/27** (every route, both roles) |
 | **⛔ Credential hygiene** | Three secrets were pasted into chat in Session 09 (Resend key, DB password ×2 — one echoed by my own script's error output). **All must be rotated.** Never paste a secret; `npm run check:db` redacts and is safe to share. |
 | **Current phase** | **Phase 1 — Foundation & Security** |
@@ -264,6 +264,56 @@ The new asset is a **transparent raster**, not vector. That changes what each fo
 ---
 
 ## 3. ⏭️ NEXT ACTION
+
+### ✅ Session 18 — the board stopped shivering
+
+Owner report: *"whenever I drag one task to another column the other tasks just
+start flickering… they move up and down up and down… they start shivering."*
+
+**Three causes, all in `task-board.tsx`, and a fourth found while proving the
+fix.** Full detail in [REDESIGN-PLAN §8.5a](REDESIGN-PLAN.md) and in the file's
+own header, which is where it will actually be read.
+
+1. **The FLIP effect was keyed on the pointer** — its dependency array held the
+   drag state, which updated on every `pointermove`. Sixty times a second it
+   re-measured mid-transition cards and restarted their animation. *That was the
+   shiver.* It now runs only when the gap's column or index changes.
+2. **The pointer position was React state** — every move re-rendered eight
+   columns and thirty cards to move one absolutely-positioned element. The
+   floating card is now positioned imperatively through a ref.
+3. **The insertion index was measured off animating elements.**
+   `getBoundingClientRect()` includes transforms, so the midpoints deciding the
+   index moved while cards slid; two adjacent indices were each "correct" a frame
+   apart, so the gap flipped between them, which restarted the animation, which
+   moved the midpoints. A feedback loop — the "disturbing each other". The index
+   now comes from a settled layout model of container geometry and card heights,
+   which no transform can touch.
+4. **Found while proving it:** the inline `ref` arrow is a new function every
+   render, so React detaches it with `null` every render — and the detach handler
+   was deleting that card's FLIP snapshot. Ref callbacks run during commit,
+   *before* `useLayoutEffect`, so the snapshot was wiped in the very commit meant
+   to consume it. Cards **jumped** rather than slid. Detach is now ignored and
+   stale entries are pruned by `isConnected`.
+
+**The lesson worth keeping: never measure something you are animating in order to
+decide how to animate it.**
+
+#### Proven with numbers, because "it looks smoother" is not evidence
+
+A `MutationObserver` counting `style` writes on every card:
+
+| | Before | After |
+|---|---|---|
+| 25 moves, gap **stationary** | a write per card per move | **0** |
+| one move that shifts the gap (0 → 2) | 0 — bug 4, no animation at all | **69 writes, 65 with a transform** |
+| gap index sweeping down then up | oscillated between neighbours | `0→1→2→3→4` / `4→3→2→1→0`, monotonic over 64 steps |
+
+> **Testing note for next time:** the Chrome tab reports `visibilityState:
+> "hidden"`, so `setTimeout` and `requestAnimationFrame` are throttled to roughly
+> 1/second and any loop built on them appears to hang. `MessageChannel` is not
+> throttled — 50 ticks in 3ms — so use it to yield between synthetic pointer
+> events. Also: do not click the page to "focus" it mid-test; the click's
+> `pointerup` ends the drag under test and silently voids the run.
 
 ### 🔴 WAITING ON THE OWNER — the supplied task-board design
 
@@ -590,6 +640,7 @@ Each update rewrites §2 (where we are), §3 (next action), and appends to §7 (
 
 | # | Date | What happened | Ended at |
 |:--:|---|---|---|
+| 18 | 2026-08-08 | **THE BOARD STOPPED SHIVERING.** Owner: *"the other tasks just start flickering… up and down up and down… they start shivering."* Three causes in `task-board.tsx`, plus a fourth found while proving the fix. **(1)** The FLIP effect's dependency array held the drag state, which updated on every `pointermove` — so sixty times a second it re-measured mid-transition cards and restarted their animation. **(2)** The pointer position was React state, re-rendering eight columns and thirty cards to move one absolutely-positioned element; it is now imperative through a ref. **(3)** The insertion index was measured with `getBoundingClientRect()`, which includes transforms — so the midpoints deciding the index moved while the cards slid, two adjacent indices were each "correct" a frame apart, the gap flipped between them, and that restarted the animation which moved the midpoints again. A genuine feedback loop, and the "disturbing each other" in the report. The index now comes from a settled layout model of container geometry and card heights, which no transform can touch. **(4)** Found while proving it: the inline `ref` arrow is a new function every render, so React detaches it with `null` every render, and the detach handler was deleting that card's FLIP snapshot — ref callbacks run during commit *before* `useLayoutEffect`, so the snapshot was wiped in the very commit meant to consume it, and cards jumped rather than slid. **Proven with a MutationObserver counting style writes:** 0 across 25 moves with the gap stationary (was one per card per move), 69 on a move that shifts the gap (was 0), and a monotonic `0→1→2→3→4` / `4→3→2→1→0` gap index over a 64-step sweep (was oscillating). The lesson, recorded in the file header: never measure something you are animating in order to decide how to animate it. | **🔴 Still awaiting the §9 decision** |
 | 17 | 2026-08-08 | **INTERACTION FIXES (REDESIGN-PLAN §8) + A REAL DOCUMENTATION GAP FOUND.** The gap first: `CNI-AI-Digital-Task-Board.html` has been in the repo root since `141669f` and **was referenced by no planning document at all**, so the entire seven-phase redesign was written without it and the owner's expected work never appeared. Now REDESIGN-PLAN §9, blocked on an owner decision because its palette and type system collide with doc 18 / ADR-011. Five instructions delivered: **rail opens on click not hover** (reverses D6, keeps D7 — the Phase 6 tab is now the only control); **the duplicate `/settings` icon under the user removed** — it was in the nav's System section as well; **every rail icon on one 32.5px axis**, where there had been three (32.5 / 38 / 28), which only shows when collapsed and collapsed is now the resting state; **Dashboard above My Work**; **search rebuilt as a real box in the bar** with results anchored under it instead of a full-screen palette over a dimmed backdrop. **Drag-and-drop taken off the native HTML5 API entirely** — it cannot do what was asked, at all: its drag image is an unstyleable browser snapshot (the "blur"), `dragover` fires on a coarse timer (the "flicker"), it has a drop target but no drop position, and nothing animates. Rebuilt on pointer events: full-opacity card in hand, a real gap element at the landing index so cards genuinely reflow, FLIP to make that smooth, a flight to the gap on release, horizontal auto-scroll, and a 220ms hold before touch drags. Verified in Chrome — a legal move landed at the chosen index and persisted; an illegal one opened no gap and flew home. **Not finished:** board order within a column does not survive a reload — there is no ordering column on `tasks`, and adding one is a migration that waits for permission (R1). | **🔴 Awaiting an owner decision on §9** |
 | 16 | 2026-08-08 | **REDESIGN-PLAN PHASE 2 COMPLETE — the sign-in address can be changed. All seven redesign phases now done.** Available to every role for their own account, under Profile → Security. Password + authenticator (the Step 5 step-up challenge, which replays the held submission rather than making somebody re-enter it), applied immediately, with an alert to the **old** address as the control. **No migration, no new permission, no new row in the doc 03 matrix** — the trigger already permitted it, RLS already scoped it, and `security_events.event_type` is free text by design. New pure module `lib/domain/email-address.ts` with 33 tests, one of which reads migration 001 off disk so the TypeScript pattern and the SQL constraint cannot drift apart silently. **The validator is deliberately stricter than the database in exactly one place:** the SQL pattern accepts `name@example.com,` off a pasted list — valid shape, undeliverable forever — so the domain's last label must now be letters; the test asserts only the safe direction (everything the app accepts, the database accepts). 11 integration tests, including the phase's premise proven rather than assumed: the **real** Super Admin's address is changed inside a transaction and rolled back, then re-read on a fresh connection so a rollback that did not take fails loudly, with FR-156 self-deactivation still refused alongside it. Verified in Chrome in both themes; the step-up dialog fires and a wrong password is refused. **Residual risk recorded, not hidden:** a typo still locks somebody out permanently — mitigated by asking twice with paste blocked on the second field, but only properly fixed by the verification link, which needs the Resend sending domain. | **Nothing queued — awaiting direction** |
 | 01 | 2026-08-05 | Full planning set (docs 00–14), progress tracker, roster template, 23 open questions raised. No code. | Awaiting answers to Q-001, 002, 003, 010, 012 |

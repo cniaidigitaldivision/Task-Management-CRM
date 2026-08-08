@@ -15,51 +15,74 @@ import { TaskCard } from './task-card';
  * ----------------------------------------------------------------------------
  * Eight columns in status order, drag between them to change status.
  *
- * ── WHY THIS NO LONGER USES HTML5 DRAG-AND-DROP ──────────────────────────────
- * Owner instruction, Session 17: *"if I drag and drop it, it should fit into the
- * next column… it should push the other ones down… like a magnet is pulling it
- * towards it. I don't want it flickering around, I don't know where it is going.
- * And I don't want it to blur — I want the task to remain as it is."*
- *
- * Every one of those is impossible with the native `draggable` API, and not
- * because it was used badly:
+ * ── WHY THIS DOES NOT USE HTML5 DRAG-AND-DROP ────────────────────────────────
+ * Owner instruction, Session 17. The native `draggable` API cannot do any of
+ * what was asked, and not because it was used badly:
  *
  *   · the browser renders its own translucent drag image from a snapshot of the
  *     element and there is no way to style it — that IS the "blur"
- *   · `dragover` fires on a coarse timer, not per frame, so the feedback lags
- *     the pointer, which is the "flickering around"
- *   · there is no drop position, only a drop TARGET — so the card can be told
- *     which column it is going to and never where in it
+ *   · `dragover` fires on a coarse timer, not per frame, so feedback lags
+ *   · there is a drop TARGET but no drop POSITION, so a card can be told which
+ *     column it is going to and never where in it
  *   · nothing about it is animatable, so cards cannot make room
  *
- * So this is pointer events, and the three pieces that make it feel physical:
+ * So: pointer events, a real gap element at the landing index, and FLIP to make
+ * the reflow smooth.
  *
- *   1. THE CARD IN YOUR HAND is a fixed-position copy following the pointer at
- *      full opacity. It is the real card, lifted — not a ghost of it.
- *   2. THE GAP is a real element in the column at the exact index it will land,
- *      so the cards below genuinely move out of the way.
- *   3. FLIP makes that movement smooth. Measure every card before the gap moves,
- *      measure again after, apply the inverse transform, then release it to
- *      zero. The browser animates the difference. Without this the cards jump.
+ * ============================================================================
+ * ⚠️ THE THREE THINGS THAT MADE THE CARDS SHIVER — Session 18
+ * ----------------------------------------------------------------------------
+ * The first version of this did exactly what the owner then reported: *"the
+ * other tasks just start flickering… they move up and down up and down… they
+ * start shivering."* Three separate causes, all of which had to go. If this file
+ * is ever refactored, these are the traps.
  *
- * On release the floating card animates to the gap rather than vanishing from
- * one place and appearing in another — that is the magnet.
+ * 1. THE FLIP EFFECT WAS KEYED ON THE POINTER.
+ *    Its dependency array contained the whole drag state, and that state was
+ *    updated on every `pointermove`. So sixty times a second the effect
+ *    re-measured cards that were still mid-transition, compared them against a
+ *    `priorRects` snapshot that had not changed, slammed `transition: none` on
+ *    them and re-applied an inverse transform. Every frame restarted the
+ *    animation from a slightly different place. That is the shiver, exactly.
+ *    → It now runs ONLY when the gap's column or index actually changes.
+ *
+ * 2. THE POINTER POSITION WAS REACT STATE.
+ *    Every `pointermove` re-rendered eight columns and thirty cards to move one
+ *    absolutely-positioned element. Even without (1) that is enough to drop
+ *    frames on a full board.
+ *    → The floating card is now positioned IMPERATIVELY through a ref. React
+ *      re-renders only when the gap moves, which is a handful of times per drag.
+ *
+ * 3. THE INSERTION INDEX WAS MEASURED OFF ANIMATING ELEMENTS.
+ *    `getBoundingClientRect()` includes transforms, so while cards were sliding
+ *    the midpoints used to choose the index were themselves moving. Two adjacent
+ *    indices could each be "correct" a frame apart, so the gap flipped between
+ *    them, which re-triggered the animation, which moved the midpoints again.
+ *    A feedback loop — the "disturbing each other" in the report.
+ *    → The index is now computed from a SETTLED layout model built out of
+ *      heights and container geometry, none of which a transform can touch. The
+ *      decision boundary is fixed while the animation plays, so it cannot
+ *      oscillate.
+ *
+ * The shared lesson: never measure something you are animating in order to
+ * decide how to animate it.
+ * ============================================================================
  *
  * ── WHAT IS PERSISTED, AND WHAT IS NOT ───────────────────────────────────────
- * The STATUS is. `onMove` writes it, exactly as before.
+ * The STATUS is. `onMove` writes it.
  *
  * The position WITHIN a column is not, and cannot be yet: there is no ordering
  * column on `tasks` (only `checklist_items.sort_order` exists). `onReorder`
- * hands the new order to the workspace, which already holds the task array in
- * client state — so the card stays where it was dropped for the session and
- * returns to its natural order on reload. Making that survive a reload is a
- * migration, and migrations are not started without permission (rule R1).
+ * hands the new order to the workspace, which holds the task array in client
+ * state, so the card stays where it was dropped for the session and returns to
+ * its natural order on reload. Making that survive a reload is a migration, and
+ * migrations are not started without permission (rule R1).
  *
  * ── ACCESSIBILITY ────────────────────────────────────────────────────────────
  * Native drag-and-drop was never keyboard-operable either, so this is not a
- * regression — but it is still a gap, and it is recorded as one rather than
- * quietly left. Cards remain focusable and Enter still opens the detail drawer,
- * where the status can be changed from a real `<select>`.
+ * regression — but it is still a gap, recorded rather than quietly left. Cards
+ * remain focusable and Enter opens the detail drawer, where the status can be
+ * changed from a real `<select>`.
  * ========================================================================= */
 
 /** How far the pointer must travel before a press becomes a drag. */
@@ -67,8 +90,13 @@ const DRAG_THRESHOLD = 5;
 /** A touch must be held this long first, or the board could never be scrolled. */
 const TOUCH_HOLD_MS = 220;
 /** Shared by the gap opening, the FLIP shuffle and the drop flight. */
-const MOTION_MS = 200;
+const MOTION_MS = 190;
 const EASE = 'cubic-bezier(0.2, 0, 0, 1)';
+
+/** `space-y-2` between cards and `p-2.5` around the list, in pixels. Read by the
+ *  settled-layout model below; change them together with the classes. */
+const CARD_GAP = 8;
+const LIST_PAD = 10;
 
 interface DragState {
   readonly taskId: string;
@@ -81,8 +109,6 @@ interface DragState {
   /** Where the card started, for the flight home when a drop is refused. */
   readonly originX: number;
   readonly originY: number;
-  readonly x: number;
-  readonly y: number;
 }
 
 interface DropTarget {
@@ -115,74 +141,93 @@ export function TaskBoard({
   selectedIds?: readonly string[];
   onToggleSelect?: (taskId: string) => void;
 }) {
+  /* Only TWO pieces of React state, and neither changes with the pointer.
+     `drag` flips once on lift and once on drop; `target` changes only when the
+     gap moves. See trap 2 in the header. */
   const [drag, setDrag] = React.useState<DragState | null>(null);
   const [target, setTarget] = React.useState<DropTarget | null>(null);
-  /** Set for the duration of the flight, so the card animates instead of cutting. */
-  const [landing, setLanding] = React.useState<{ x: number; y: number } | null>(null);
 
   const scrollerRef = React.useRef<HTMLDivElement>(null);
   const columnRefs = React.useRef(new Map<TaskStatus, HTMLElement>());
+  const listRefs = React.useRef(new Map<TaskStatus, HTMLElement>());
   const cardRefs = React.useRef(new Map<string, HTMLElement>());
   const gapRef = React.useRef<HTMLDivElement>(null);
+  const floatRef = React.useRef<HTMLDivElement | null>(null);
+
   /** Card rects captured immediately before the gap moves — the "First" of FLIP. */
   const priorRects = React.useRef(new Map<string, DOMRect>());
+  /** Card heights, measured once per drag. A translate cannot change a height,
+   *  so these stay valid for the whole gesture — that is the point (trap 3). */
+  const heights = React.useRef(new Map<string, number>());
+  /** Latest pointer position. Not state: it drives one element, imperatively. */
+  const pointer = React.useRef({ x: 0, y: 0 });
 
-  /* Mirrors of the two pieces of drag state, written synchronously beside every
-     setState. The pointer handlers run outside React's render cycle and need
-     the CURRENT value — reading it from an effect-synced ref would be one frame
-     behind, and reading it inside a state updater would mean doing side effects
-     in an updater, which React may run twice. */
+  /* Mirrors of the two states, written synchronously beside every setState. The
+     pointer handlers run outside React's render cycle and need the CURRENT
+     value; an effect-synced ref would be a frame behind. */
   const dragRef = React.useRef<DragState | null>(null);
   const targetRef = React.useRef<DropTarget | null>(null);
 
   const dragged = drag ? tasks.find((t) => t.id === drag.taskId) : undefined;
+  const isDragging = drag !== null;
 
   /* ── FLIP: make the cards that moved slide instead of jump ──────────────────
-     Runs after every render in which the gap changed position. `useLayoutEffect`
-     and not `useEffect`, because the inverse transform has to be applied in the
-     same frame the browser lays the new positions out — one frame later and the
-     jump has already been painted. */
+     ⚠️ The dependency array is the whole fix for trap 1. It lists ONLY the gap's
+     position and whether a drag is running. It must never contain anything that
+     changes with the pointer, or every frame restarts the animation and the
+     board shivers. */
   React.useLayoutEffect(() => {
-    if (!drag) return;
-    const frames: number[] = [];
+    if (!isDragging) return;
 
-    cardRefs.current.forEach((element, id) => {
+    for (const [id, element] of cardRefs.current) {
       const prior = priorRects.current.get(id);
-      if (!prior) return;
+      if (!prior || !element.isConnected) continue;
+
+      /* Clear first, then measure. `getBoundingClientRect()` includes any
+         transform still in flight, so measuring before clearing would give the
+         card's animated position and compound the error on the next move. */
+      element.style.transition = 'none';
+      element.style.transform = '';
 
       const now = element.getBoundingClientRect();
       const dx = prior.left - now.left;
       const dy = prior.top - now.top;
-      if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
 
-      element.style.transition = 'none';
-      element.style.transform = `translate(${dx}px, ${dy}px)`;
+      if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) continue;
 
-      frames.push(
-        requestAnimationFrame(() => {
-          element.style.transition = `transform ${MOTION_MS}ms ${EASE}`;
-          element.style.transform = '';
-        }),
-      );
-    });
+      element.style.transform = `translate3d(${dx}px, ${dy}px, 0)`;
+      /* Forced reflow, so the browser treats the line below as a change worth
+         transitioning. requestAnimationFrame is unreliable here — React may
+         paint first, and the inverse position becomes briefly visible. */
+      void element.offsetHeight;
+      element.style.transition = `transform ${MOTION_MS}ms ${EASE}`;
+      element.style.transform = 'translate3d(0, 0, 0)';
+    }
+  }, [target?.status, target?.index, isDragging]);
 
-    return () => frames.forEach(cancelAnimationFrame);
-  }, [target?.status, target?.index, drag]);
-
-  /** The "First" half of FLIP. Call before any state change that moves cards. */
+  /** The "First" half of FLIP. Call before any state change that moves cards.
+   *  Also where `cardRefs` is pruned — see `registerCard`, which deliberately
+   *  ignores detach, so a card that has genuinely gone is dropped here instead. */
   const captureRects = React.useCallback(() => {
     const captured = new Map<string, DOMRect>();
-    cardRefs.current.forEach((element, id) => {
+    for (const [id, element] of cardRefs.current) {
+      if (!element.isConnected) {
+        cardRefs.current.delete(id);
+        continue;
+      }
       captured.set(id, element.getBoundingClientRect());
-    });
+    }
     priorRects.current = captured;
   }, []);
 
-  /* ── Where would it land, given where the pointer is? ───────────────────────
-     The column is whichever one the pointer is horizontally inside. The index
-     is found by comparing against each card's vertical MIDPOINT — the standard
-     rule, and the one that makes a card make room as soon as you are past half
-     of it rather than all of it. */
+  /* ── Where would it land? ──────────────────────────────────────────────────
+     ⚠️ Trap 3. This builds the column's layout AS IF THE GAP WERE NOT THERE,
+     from the list container's top and the cards' heights — neither of which a
+     transform affects. So the midpoints it compares against are fixed for the
+     whole drag, and the chosen index cannot oscillate while cards animate.
+
+     Measuring the live rects instead is the obvious implementation and it is
+     the one that shivers. */
   const resolveTarget = React.useCallback(
     (clientX: number, clientY: number, state: DragState): DropTarget | null => {
       const task = tasks.find((t) => t.id === state.taskId);
@@ -190,29 +235,26 @@ export function TaskBoard({
 
       for (const status of TASK_STATUSES) {
         const column = columnRefs.current.get(status);
-        if (!column) continue;
+        const list = listRefs.current.get(status);
+        if (!column || !list) continue;
 
         const box = column.getBoundingClientRect();
         if (clientX < box.left || clientX > box.right) continue;
 
-        /* A column that refuses this card is not a target at all — the card
-           will not follow the pointer into it, which is doc 10 §3's "simply
-           won't drop there" made visible rather than merely enforced. */
+        /* A column that refuses this card is not a target at all — the card will
+           not follow the pointer into it. Doc 10 §3's "simply won't drop there",
+           made visible rather than merely enforced. */
         if (status !== state.from && canMove(task, status)) return null;
 
         const siblings = tasks.filter((t) => t.status === status && t.id !== state.taskId);
 
-        let index = siblings.length;
+        let top = list.getBoundingClientRect().top + LIST_PAD;
         for (let i = 0; i < siblings.length; i += 1) {
-          const element = cardRefs.current.get(siblings[i].id);
-          if (!element) continue;
-          const rect = element.getBoundingClientRect();
-          if (clientY < rect.top + rect.height / 2) {
-            index = i;
-            break;
-          }
+          const height = heights.current.get(siblings[i].id) ?? 0;
+          if (clientY < top + height / 2) return { status, index: i };
+          top += height + CARD_GAP;
         }
-        return { status, index };
+        return { status, index: siblings.length };
       }
       return null;
     },
@@ -221,8 +263,8 @@ export function TaskBoard({
 
   /* ── Auto-scroll ───────────────────────────────────────────────────────────
      Eight columns do not fit on a laptop, so a card has to be draggable to a
-     column that is off-screen. Without this the drag simply stops at the edge
-     and the only way across is to drop, scroll, and pick it up again. */
+     column that is off-screen. Without this the drag stops at the edge and the
+     only way across is to drop, scroll, and pick it up again. */
   const autoScroll = React.useCallback((clientX: number) => {
     const scroller = scrollerRef.current;
     if (!scroller) return;
@@ -257,10 +299,19 @@ export function TaskBoard({
     [tasks, onMove, onReorder],
   );
 
+  /** Put the floating card where the pointer is. Imperative — see trap 2. */
+  const positionFloat = React.useCallback(() => {
+    const state = dragRef.current;
+    const element = floatRef.current;
+    if (!state || !element) return;
+    element.style.transform =
+      `translate3d(${pointer.current.x - state.grabX}px, ${pointer.current.y - state.grabY}px, 0)`;
+  }, []);
+
   /* ── The landing ───────────────────────────────────────────────────────────
      The card flies to the gap it has been holding open. Cutting straight to the
-     committed state instead is what makes a board feel like it is teleporting
-     things around — you lose track of the card you were just holding. */
+     committed state is what makes a board feel like it teleports things — you
+     lose track of the card you were just holding. */
   const finish = React.useCallback(() => {
     const state = dragRef.current;
     if (!state) return;
@@ -271,18 +322,23 @@ export function TaskBoard({
       ? { x: gap.left, y: gap.top }
       : { x: state.originX, y: state.originY };
 
-    setLanding(destination);
+    const element = floatRef.current;
+    if (element) {
+      element.style.transition = `transform ${MOTION_MS}ms ${EASE}`;
+      element.style.transform = `translate3d(${destination.x}px, ${destination.y}px, 0)`;
+    }
 
     window.setTimeout(() => {
+      /* The other cards are about to close up around the landed card. Capture
+         first so that reflow is a FLIP too, not a jump. */
+      captureRects();
       if (chosen) commit(state.taskId, state.from, chosen);
       dragRef.current = null;
       targetRef.current = null;
-      priorRects.current.clear();
-      setLanding(null);
       setDrag(null);
       setTarget(null);
     }, MOTION_MS);
-  }, [commit]);
+  }, [captureRects, commit]);
 
   /* ── The gesture ───────────────────────────────────────────────────────────
      Window listeners rather than pointer capture. Capture would swallow the
@@ -293,7 +349,7 @@ export function TaskBoard({
     (event: React.PointerEvent, task: TaskView) => {
       /* Ignore presses that landed on the checkbox or any other control. */
       if ((event.target as HTMLElement).closest('label,input,button,a')) return;
-      if (event.button !== 0 && event.pointerType === 'mouse') return;
+      if (event.pointerType === 'mouse' && event.button !== 0) return;
 
       const element = cardRefs.current.get(task.id);
       if (!element) return;
@@ -310,89 +366,108 @@ export function TaskBoard({
         height: rect.height,
         originX: rect.left,
         originY: rect.top,
-        x: startX,
-        y: startY,
       };
 
       let started = false;
       let holdTimer: number | undefined;
 
       /* Touch has to wait: the same gesture that drags a card is the one that
-         scrolls the board, and there is no way to tell them apart at the moment
-         the finger lands. A short hold disambiguates, which is what every touch
-         board does. Mouse and pen start on travel alone. */
+         scrolls the board, and there is no telling them apart at the moment the
+         finger lands. A short hold disambiguates, as every touch board does.
+         Mouse and pen start on travel alone. */
       const needsHold = event.pointerType === 'touch';
 
       const lift = (atX: number, atY: number) => {
         started = true;
+
+        /* Every card's height, once. A translate cannot change one, so these
+           stay true for the whole gesture — which is what lets `resolveTarget`
+           work off geometry that no animation can disturb (trap 3). */
+        heights.current.clear();
+        for (const [id, node] of cardRefs.current) {
+          heights.current.set(id, node.getBoundingClientRect().height);
+        }
+
+        pointer.current = { x: atX, y: atY };
         captureRects();
-        const state = { ...template, x: atX, y: atY };
-        dragRef.current = state;
-        setDrag(state);
+        dragRef.current = template;
+        setDrag(template);
         const first = resolveTarget(atX, atY, template);
         targetRef.current = first;
         setTarget(first);
       };
 
-      if (needsHold) {
-        holdTimer = window.setTimeout(() => lift(startX, startY), TOUCH_HOLD_MS);
-      }
-
-      const onMoveEvent = (move: PointerEvent) => {
+      const onPointerMove = (move: PointerEvent) => {
         if (!started) {
+          const travelled = Math.hypot(move.clientX - startX, move.clientY - startY);
           if (needsHold) {
             /* Moved before the hold elapsed — they are scrolling, not dragging. */
-            if (Math.hypot(move.clientX - startX, move.clientY - startY) > DRAG_THRESHOLD) {
+            if (travelled > DRAG_THRESHOLD) {
               window.clearTimeout(holdTimer);
               cleanup();
             }
             return;
           }
-          if (Math.hypot(move.clientX - startX, move.clientY - startY) <= DRAG_THRESHOLD) return;
+          if (travelled <= DRAG_THRESHOLD) return;
           lift(move.clientX, move.clientY);
           return;
         }
 
         move.preventDefault();
+        pointer.current = { x: move.clientX, y: move.clientY };
+        positionFloat();
         autoScroll(move.clientX);
 
-        const moved = { ...template, x: move.clientX, y: move.clientY };
-        dragRef.current = moved;
-        setDrag(moved);
-
+        /* React is told ONLY when the gap actually has to move. Everything else
+           about this drag is a style write on one element. */
         const next = resolveTarget(move.clientX, move.clientY, template);
         const current = targetRef.current;
         if (current?.status !== next?.status || current?.index !== next?.index) {
-          /* Only capture when the gap is actually about to move, or every
-             pointermove would reset the FLIP baseline mid-animation. */
           captureRects();
           targetRef.current = next;
           setTarget(next);
         }
       };
 
-      const onUp = () => {
+      const onPointerUp = () => {
         window.clearTimeout(holdTimer);
         if (started) finish();
         cleanup();
       };
 
       function cleanup() {
-        window.removeEventListener('pointermove', onMoveEvent);
-        window.removeEventListener('pointerup', onUp);
-        window.removeEventListener('pointercancel', onUp);
+        window.removeEventListener('pointermove', onPointerMove);
+        window.removeEventListener('pointerup', onPointerUp);
+        window.removeEventListener('pointercancel', onPointerUp);
       }
 
-      window.addEventListener('pointermove', onMoveEvent, { passive: false });
-      window.addEventListener('pointerup', onUp);
-      window.addEventListener('pointercancel', onUp);
+      if (needsHold) holdTimer = window.setTimeout(() => lift(startX, startY), TOUCH_HOLD_MS);
+
+      window.addEventListener('pointermove', onPointerMove, { passive: false });
+      window.addEventListener('pointerup', onPointerUp);
+      window.addEventListener('pointercancel', onPointerUp);
     },
-    [autoScroll, captureRects, resolveTarget, finish],
+    [autoScroll, captureRects, resolveTarget, positionFloat, finish],
   );
 
+  /* ⚠️ DETACH DOES NOTHING, AND THAT IS THE FIX FOR A SECOND SHIVER BUG.
+     The `ref` prop below is an inline arrow, so it is a new function on every
+     render, so React detaches the old one — calling this with `null` — and
+     attaches the new one, every single render.
+
+     The first version deleted the card's FLIP snapshot on detach. React runs ref
+     callbacks during commit, BEFORE `useLayoutEffect`, so the snapshot captured
+     a moment earlier was wiped in the very commit that was supposed to consume
+     it. `priorRects` was always empty by the time FLIP looked, so nothing ever
+     animated and the cards JUMPED to their new positions instead of sliding.
+
+     Measured, not reasoned about: a drag that moved the gap from index 0 to 2
+     produced zero style writes on any card.
+
+     So detach is ignored. Stale entries cannot accumulate because `captureRects`
+     prunes anything no longer in the document. */
   const registerCard = React.useCallback((id: string, element: HTMLElement | null) => {
     if (element) cardRefs.current.set(id, element);
-    else cardRefs.current.delete(id);
   }, []);
 
   return (
@@ -400,7 +475,7 @@ export function TaskBoard({
       ref={scrollerRef}
       className="-mx-4 overflow-x-auto px-4 pb-2 sm:-mx-6 sm:px-6"
       /* While a card is in the air the board must not also pan under it. */
-      style={drag ? { overscrollBehaviorX: 'contain' } : undefined}
+      style={isDragging ? { overscrollBehaviorX: 'contain' } : undefined}
     >
       <div className="flex min-w-max gap-3">
         {TASK_STATUSES.map((status) => {
@@ -464,8 +539,17 @@ export function TaskBoard({
                 }}
               />
 
-              {/* ---- Cards ---- */}
-              <div className="flex-1 space-y-2 p-2.5">
+              {/* ---- Cards ----
+                  `p-2.5` and `space-y-2` are mirrored by LIST_PAD and CARD_GAP,
+                  which the settled-layout model above measures with. Change
+                  them together. */}
+              <div
+                ref={(element) => {
+                  if (element) listRefs.current.set(status, element);
+                  else listRefs.current.delete(status);
+                }}
+                className="flex-1 space-y-2 p-2.5"
+              >
                 {visible.map((task, position) => (
                   <React.Fragment key={task.id}>
                     {isDropTarget && target.index === position && (
@@ -548,19 +632,26 @@ export function TaskBoard({
       {/* ---- The card in the air ----
           Rendered last so it stacks above every column without a z-index race.
           `pointer-events-none` is essential: it sits under the cursor, and if it
-          took hits, `resolveTarget` would be measuring against the card being
-          dragged rather than the column behind it. */}
+          took hits, `resolveTarget` would be measuring the card being dragged
+          rather than the column behind it.
+
+          The transform is NOT in the style prop. React re-renders this element
+          whenever the gap moves, and a transform declared here would be reset to
+          the lift position on every one of those renders — a visible snap
+          backwards. The ref callback seeds it and `positionFloat` maintains it;
+          React never touches a property it was not given. */}
       {drag && dragged && (
         <div
           aria-hidden="true"
-          className="pointer-events-none fixed z-[70] top-0 left-0"
-          style={{
-            width: drag.width,
-            transform: landing
-              ? `translate3d(${landing.x}px, ${landing.y}px, 0)`
-              : `translate3d(${drag.x - drag.grabX}px, ${drag.y - drag.grabY}px, 0)`,
-            transition: landing ? `transform ${MOTION_MS}ms ${EASE}` : 'none',
+          ref={(element) => {
+            floatRef.current = element;
+            if (element) {
+              element.style.transform =
+                `translate3d(${pointer.current.x - drag.grabX}px, ${pointer.current.y - drag.grabY}px, 0)`;
+            }
           }}
+          className="pointer-events-none fixed top-0 left-0 z-[70] will-change-transform"
+          style={{ width: drag.width }}
         >
           <TaskCard task={dragged} dragging />
         </div>
@@ -586,8 +677,8 @@ export function TaskBoard({
  * ----------------------------------------------------------------------------
  * A real element in the column's flow, exactly as tall as the card in the air.
  * That is what makes the cards below it move — they are not being animated out
- * of the way, they are being laid out around something that is genuinely there.
- * FLIP then makes that relayout smooth.
+ * of the way, they are being laid out around something genuinely there. FLIP
+ * then makes that relayout smooth.
  * ========================================================================= */
 const Gap = React.forwardRef<HTMLDivElement, { height: number }>(function Gap({ height }, ref) {
   return (
