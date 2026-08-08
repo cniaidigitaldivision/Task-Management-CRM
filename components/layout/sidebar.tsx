@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { ChevronRight, Settings, X } from 'lucide-react';
+import { ChevronRight, X } from 'lucide-react';
 
 import { LogoSidebar } from '@/components/brand/logo';
 import { Avatar } from '@/components/ui/avatar';
@@ -65,7 +65,8 @@ export function Sidebar({
   userName: string;
   open: boolean;
   onClose: () => void;
-  /** Kept open deliberately, rather than only while the pointer is over it. */
+  /** Open or collapsed. Toggled ONLY by the tab in app-shell.tsx — the rail no
+   *  longer reacts to the pointer at all (owner instruction, Session 17). */
   pinned?: boolean;
 }) {
   const pathname = usePathname();
@@ -84,21 +85,23 @@ export function Sidebar({
       />
 
       <aside
+        id="main-navigation"
         aria-label="Main navigation"
         data-pinned={pinned}
         className={cn(
           'group/rail chrome-surface on-chrome',
           'fixed inset-y-0 left-0 z-50 flex flex-col overflow-hidden',
           'w-[var(--sidebar-width)]',
-          // ── Hover-to-expand (owner request, Session 09) ──────────────────
-          // At rest the rail is icon-width; hovering restores it to full size.
-          // It PUSHES the content rather than covering it (owner decision D7):
-          // app-shell.tsx tracks this same width in `--rail` and animates the
-          // content's left padding with it, so nothing is ever hidden.
-          // Do not change this to an overlay.
-          pinned
-            ? 'lg:w-[var(--sidebar-width)]'
-            : 'lg:w-[var(--sidebar-width-collapsed)] lg:hover:w-[var(--sidebar-width)]',
+          // ── CLICK TO OPEN, NOT HOVER (owner instruction, Session 17) ──────
+          // This used to carry `lg:hover:w-[var(--sidebar-width)]`, from owner
+          // decision D6 in Session 09. The owner has since reversed that: the
+          // rail opening under the pointer on the way past was the problem, not
+          // the feature. The tab in app-shell.tsx is now the only control.
+          //
+          // It still PUSHES the content rather than covering it (owner decision
+          // D7, NOT reversed): app-shell tracks this width in `--rail` and
+          // animates the content's left padding with it. Do not make it overlay.
+          pinned ? 'lg:w-[var(--sidebar-width)]' : 'lg:w-[var(--sidebar-width-collapsed)]',
           'transition-[width,transform] duration-[240ms] ease-out lg:translate-x-0',
           open ? 'translate-x-0' : '-translate-x-full',
         )}
@@ -121,17 +124,17 @@ export function Sidebar({
             be 100px of nothing above the navigation. 76px is the padded height
             of the current lockup (28 + 20 + 16, rounded up for breathing room),
             and it is still FIXED for the original reason. */}
-        <div className="relative flex h-[76px] shrink-0 items-center px-4 pt-5 pb-4 lg:px-3 lg:group-hover/rail:px-4 lg:group-data-[pinned=true]/rail:px-4">
+        <div className="relative flex h-[76px] shrink-0 items-center px-4 pt-5 pb-4 lg:px-3 lg:group-data-[pinned=true]/rail:px-4">
           <div className="flex w-full items-center justify-between gap-2">
             <Link
               href="/dashboard"
               className="rounded-xl focus-visible:outline-none"
               aria-label={`${ORGANISATION_NAME} — go to dashboard`}
             >
-              <span className="block lg:hidden lg:group-hover/rail:block lg:group-data-[pinned=true]/rail:block">
+              <span className="block lg:hidden lg:group-data-[pinned=true]/rail:block">
                 <LogoSidebar />
               </span>
-              <span className="hidden lg:flex lg:w-full lg:justify-center lg:group-hover/rail:hidden lg:group-data-[pinned=true]/rail:hidden">
+              <span className="hidden lg:flex lg:w-full lg:justify-center lg:group-data-[pinned=true]/rail:hidden">
                 <LogoSidebar collapsed />
               </span>
             </Link>
@@ -167,7 +170,7 @@ export function Sidebar({
                 <p
                   className={cn(
                     'px-3 pt-1 pb-1.5 text-micro font-semibold tracking-[0.1em] uppercase',
-                    'transition-opacity duration-150 lg:opacity-0 lg:group-hover/rail:opacity-100 lg:group-data-[pinned=true]/rail:opacity-100',
+                    'transition-opacity duration-150 lg:opacity-0 lg:group-data-[pinned=true]/rail:opacity-100',
                   )}
                   style={{ color: 'var(--sidebar-section-label)' }}
                 >
@@ -227,7 +230,7 @@ export function Sidebar({
                       {item.label}
                     </span>
                     {badge && (
-                      <span className="shrink-0 transition-opacity duration-150 lg:opacity-0 lg:group-hover/rail:opacity-100 lg:group-data-[pinned=true]/rail:opacity-100">
+                      <span className="shrink-0 transition-opacity duration-150 lg:opacity-0 lg:group-data-[pinned=true]/rail:opacity-100">
                         <RailBadge count={badge.count} tone={badge.tone} />
                       </span>
                     )}
@@ -238,18 +241,42 @@ export function Sidebar({
           ))}
         </nav>
 
-        {/* ---- Current user ---- */}
+        {/* ---- Current user ----
+            ── ONE VERTICAL AXIS FOR EVERY ICON IN THE RAIL ────────────────────
+            Owner report, Session 17: this row sat "a little bit left sided"
+            compared with the navigation icons. It did, and so did the settings
+            row below it — there were three different axes in one rail:
+
+              nav icon      px-3 container + pl-3 link + 17px icon → centre 32.5
+              avatar        p-3  container + p-2  link + 36px      → centre 38
+              settings icon p-3  container + px-2 link + 16px      → centre 28
+
+            Only visible once the rail is collapsed, which since the hover change
+            is now its resting state — so it matters far more than it used to.
+            This block now uses the SAME geometry as a nav link (px-3 container,
+            pl-3 link) with the avatar centred in a 17px slot, so all three land
+            on 32.5px. Change one, change the other.
+
+            ── AND THERE IS ONLY ONE SETTINGS ICON NOW ─────────────────────────
+            Owner: *"two settings icons… I don't want that."* There were. This
+            row linked to /settings and so does the System section of the
+            navigation above — the same destination, the same icon, twice in one
+            rail. The nav item is the one that belongs to the navigation, so the
+            duplicate here is gone. Profile is reachable from this row, and
+            Settings from the nav. */}
         <div
-          className="shrink-0 border-t p-3"
+          className="shrink-0 border-t px-3 py-3"
           style={{ borderColor: 'var(--sidebar-border)' }}
         >
           <Link
             href="/profile"
             onClick={onClose}
-            className="group flex items-center gap-2.5 rounded-lg p-2 transition-colors duration-[120ms] hover:bg-[var(--sidebar-item-hover-bg)] focus-visible:outline-none"
+            className="group flex items-center gap-2.5 rounded-lg py-2 pr-2.5 pl-3 transition-colors duration-[120ms] hover:bg-[var(--sidebar-item-hover-bg)] focus-visible:outline-none"
           >
-            <Avatar name={userName} size="md" />
-            <span className="min-w-0 flex-1 transition-opacity duration-150 lg:opacity-0 lg:group-hover/rail:opacity-100 lg:group-data-[pinned=true]/rail:opacity-100">
+            <span className="flex w-[17px] shrink-0 justify-center">
+              <Avatar name={userName} size="sm" />
+            </span>
+            <span className="min-w-0 flex-1 transition-opacity duration-150 lg:opacity-0 lg:group-data-[pinned=true]/rail:opacity-100">
               <span
                 className="block truncate text-body-sm font-semibold"
                 style={{ color: 'var(--sidebar-heading)' }}
@@ -270,16 +297,6 @@ export function Sidebar({
             >
               <ChevronRight className="h-4 w-4" strokeWidth={2} />
             </span>
-          </Link>
-
-          <Link
-            href="/settings"
-            onClick={onClose}
-            className="mt-0.5 flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-caption transition-colors duration-[120ms] hover:bg-[var(--sidebar-item-hover-bg)] focus-visible:outline-none"
-            style={{ color: 'var(--sidebar-muted)' }}
-          >
-            <Settings className="h-4 w-4 shrink-0" strokeWidth={1.75} aria-hidden="true" />
-            <span className="truncate transition-opacity duration-150 lg:opacity-0 lg:group-hover/rail:opacity-100 lg:group-data-[pinned=true]/rail:opacity-100">Workspace settings</span>
           </Link>
         </div>
       </aside>

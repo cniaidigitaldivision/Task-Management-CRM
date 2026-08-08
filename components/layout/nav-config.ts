@@ -50,9 +50,12 @@ const SUPER_ONLY: readonly Role[] = ['super_admin'];
 export const NAV_SECTIONS: readonly NavSection[] = [
   {
     label: null,
+    /* Dashboard first, My Work under it — owner instruction, Session 17.
+       A Member has no Dashboard at all (LEAD_UP), so for them the list still
+       opens on My Work; the order only shows for a Coordinator and above. */
     items: [
-      { label: 'My Work', href: '/my-work', icon: ListChecks, roles: ALL, badgeKey: 'myTasks' },
       { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, roles: LEAD_UP },
+      { label: 'My Work', href: '/my-work', icon: ListChecks, roles: ALL, badgeKey: 'myTasks' },
     ],
   },
   {

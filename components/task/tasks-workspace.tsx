@@ -393,6 +393,33 @@ export function TasksWorkspace({
         <TaskBoard
           tasks={visible}
           onMove={move}
+          /* ── Board order is a SESSION preference, not a saved one ───────────
+             There is no ordering column on `tasks` — only `checklist_items`
+             has a `sort_order` — so a card dropped at the top of a column stays
+             there until the next revalidation replaces this list wholesale.
+             Persisting it is a migration, and migrations wait for permission
+             (rule R1). Recorded in REDESIGN-PLAN §8.
+
+             Only ever a permutation: the task objects themselves are untouched,
+             so this cannot fight `move`'s optimistic status update or its
+             rollback when the server refuses. */
+          onReorder={(orderedIds) =>
+            setTasks((all) => {
+              const rank = new Map(orderedIds.map((id, index) => [id, index]));
+              const slots: number[] = [];
+              all.forEach((task, index) => {
+                if (rank.has(task.id)) slots.push(index);
+              });
+              const reordered = slots
+                .map((index) => all[index])
+                .sort((a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0));
+              const next = [...all];
+              slots.forEach((slot, index) => {
+                next[slot] = reordered[index];
+              });
+              return next;
+            })
+          }
           canMove={canMove}
           onOpen={setOpenTaskId}
           selectedIds={selectedIds}

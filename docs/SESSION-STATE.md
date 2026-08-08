@@ -49,7 +49,7 @@ That's all you ever need to type. Everything else is recorded in the files.
 
 | | |
 |---|---|
-| **Last updated** | 2026-08-08, Session 16 |
+| **Last updated** | 2026-08-08, Session 17 |
 | **Tests** | `npm run test` → **947** · `npm run test:auth` → **133** (real DB) · `npm run smoke` → **27/27** (every route, both roles) |
 | **⛔ Credential hygiene** | Three secrets were pasted into chat in Session 09 (Resend key, DB password ×2 — one echoed by my own script's error output). **All must be rotated.** Never paste a secret; `npm run check:db` redacts and is safe to share. |
 | **Current phase** | **Phase 1 — Foundation & Security** |
@@ -59,7 +59,7 @@ That's all you ever need to type. Everything else is recorded in the files.
 | **✅ Deployed** | Live on Vercel, environment variables set, 25/25 signed-in route checks green against the real URL. Super Admin created and enrolled; `/setup` verified CLOSED in production. |
 | **✅ MFA enrolment** | Built (Session 12). QR code plus a copyable setup key, the code proven before anything is stored, and `requireEnrolledUser()` enforcing FR-145 at the application boundary rather than by redirect alone. |
 | **📋 THE PLAN** | [`docs/BUILD-PLAN.md`](BUILD-PLAN.md) — 8 steps to a complete system, owner approves each one. **Read it before doing anything.** |
-| **➡️ NEXT** | **All 8 build steps complete, and the 7-phase [REDESIGN-PLAN](REDESIGN-PLAN.md) is now complete too.** 947 unit · 133 integration · 27 smoke. ⚠️ Two env vars outstanding: `SUPABASE_STORAGE_KEY` (attachments) and `CRON_SECRET` (digest) — see BUILD-PLAN. **Nothing is queued.** Awaiting the owner's next direction. |
+| **➡️ NEXT** | 🔴 **Waiting on the owner: what the supplied `CNI-AI-Digital-Task-Board.html` is meant to become** ([REDESIGN-PLAN §9](REDESIGN-PLAN.md)) — it was never in any plan, which is why nothing was ever built against it. Also unfinished and needing permission: **persisting board order** needs a migration ([§8.5](REDESIGN-PLAN.md)). All 8 build steps and redesign phases 1–8 are complete. 947 unit · 133 integration · 27 smoke. The owner has confirmed `SUPABASE_STORAGE_KEY` and `CRON_SECRET` are now set. |
 | **🔑 MFA_ENCRYPTION_KEY is load-bearing** | Authenticator secrets are encrypted at rest as of Step 4. Lose that key and every enrolled authenticator stops working permanently, for everyone — recovery codes become the only way in. Back it up somewhere that is not this machine. | It is now the one thing standing between the demo and a system the team can actually be onboarded into. See §3 and [`DEMO-GUIDE.md`](DEMO-GUIDE.md). |
 
 ### What was completed in Session 08, part 2 — TASKS SCREEN + STEP 3
@@ -264,6 +264,61 @@ The new asset is a **transparent raster**, not vector. That changes what each fo
 ---
 
 ## 3. ⏭️ NEXT ACTION
+
+### 🔴 WAITING ON THE OWNER — the supplied task-board design
+
+`CNI-AI-Digital-Task-Board.html` has been in the repo root since commit `141669f`
+and **was referenced by no planning document at all** — not the redesign plan,
+not this file, not `OWNER-REQUESTS.md`, not doc 10. The owner expected work
+against it; it was never on any list. That is now
+[REDESIGN-PLAN §9](REDESIGN-PLAN.md), and **it needs a decision before any code**:
+its palette and type system are close to but not the same as doc 18's tokens,
+which ADR-011 locked. See §9 for the four things it could reasonably mean.
+
+### ✅ Session 17 — interaction fixes (REDESIGN-PLAN §8)
+
+Five owner instructions in one message. All five done and checked in Chrome.
+
+| | What changed |
+|---|---|
+| **Rail opens on click, not hover** | Reverses D6, which asked for the opposite. D7 (push, never cover) is untouched. The Phase 6 tab is now the only control. |
+| **One settings icon, not two** | `/settings` was in the nav's System section *and* as "Workspace settings" under the user. |
+| **Every rail icon on one axis** | There were three (32.5 / 38 / 28px). All measure **32.5px** now. Only visible when collapsed — which, after the hover change, is the resting state. |
+| **Dashboard above My Work** | `nav-config.ts`. |
+| **Search is a box, not a pop-up** | A real `<input>` in the bar, results anchored under it. No overlay. ⌘K focuses it. |
+| **Drag-and-drop rebuilt** | Off the native HTML5 API entirely — see below. |
+
+#### Why the board had to leave the native drag API
+
+The owner asked for four things — no blur on the dragged card, cards making room,
+a magnetic drop, and no flicker. **The HTML5 drag API can deliver none of them**,
+and not because it was used badly: its drag image is an unstyleable browser
+snapshot (that *is* the blur), `dragover` fires on a coarse timer rather than per
+frame (that *is* the flicker), it has a drop *target* but no drop *position*, and
+nothing about it animates.
+
+Now pointer events, with three pieces: the card in your hand is a fixed-position
+copy at **full opacity**; the gap is a **real element** at the exact landing
+index, so cards genuinely reflow around it; and **FLIP** makes that reflow smooth
+(measure, re-measure, invert, release). On drop the card flies to the gap.
+
+Plus horizontal auto-scroll while dragging, and a 220ms hold before a touch drag
+so the board can still be scrolled by finger.
+
+#### ⚠️ Not finished, and it needs permission
+
+**Board order within a column does not survive a reload.** There is no ordering
+column on `tasks` — only `checklist_items.sort_order` exists. The *status* change
+persists exactly as before; the position does not. Fixing it is a migration, and
+rule R1 says migrations wait for a go-ahead.
+
+#### One thing worth remembering about the test
+
+The first drag test looked like a bug — the card snapped home and nothing
+committed. It was correct: Backlog may only go to **To Do** or **Cancelled**
+(`lib/domain/task-machine.ts`), and the test was dropping it into In Progress.
+A refused column deliberately opens no gap. Re-tested with a legal move: the card
+landed at the chosen index and `CLI-115` was `todo` in the database.
 
 ### ✅ Session 16 — REDESIGN-PLAN Phase 2 COMPLETE: changing your sign-in address
 
@@ -535,6 +590,7 @@ Each update rewrites §2 (where we are), §3 (next action), and appends to §7 (
 
 | # | Date | What happened | Ended at |
 |:--:|---|---|---|
+| 17 | 2026-08-08 | **INTERACTION FIXES (REDESIGN-PLAN §8) + A REAL DOCUMENTATION GAP FOUND.** The gap first: `CNI-AI-Digital-Task-Board.html` has been in the repo root since `141669f` and **was referenced by no planning document at all**, so the entire seven-phase redesign was written without it and the owner's expected work never appeared. Now REDESIGN-PLAN §9, blocked on an owner decision because its palette and type system collide with doc 18 / ADR-011. Five instructions delivered: **rail opens on click not hover** (reverses D6, keeps D7 — the Phase 6 tab is now the only control); **the duplicate `/settings` icon under the user removed** — it was in the nav's System section as well; **every rail icon on one 32.5px axis**, where there had been three (32.5 / 38 / 28), which only shows when collapsed and collapsed is now the resting state; **Dashboard above My Work**; **search rebuilt as a real box in the bar** with results anchored under it instead of a full-screen palette over a dimmed backdrop. **Drag-and-drop taken off the native HTML5 API entirely** — it cannot do what was asked, at all: its drag image is an unstyleable browser snapshot (the "blur"), `dragover` fires on a coarse timer (the "flicker"), it has a drop target but no drop position, and nothing animates. Rebuilt on pointer events: full-opacity card in hand, a real gap element at the landing index so cards genuinely reflow, FLIP to make that smooth, a flight to the gap on release, horizontal auto-scroll, and a 220ms hold before touch drags. Verified in Chrome — a legal move landed at the chosen index and persisted; an illegal one opened no gap and flew home. **Not finished:** board order within a column does not survive a reload — there is no ordering column on `tasks`, and adding one is a migration that waits for permission (R1). | **🔴 Awaiting an owner decision on §9** |
 | 16 | 2026-08-08 | **REDESIGN-PLAN PHASE 2 COMPLETE — the sign-in address can be changed. All seven redesign phases now done.** Available to every role for their own account, under Profile → Security. Password + authenticator (the Step 5 step-up challenge, which replays the held submission rather than making somebody re-enter it), applied immediately, with an alert to the **old** address as the control. **No migration, no new permission, no new row in the doc 03 matrix** — the trigger already permitted it, RLS already scoped it, and `security_events.event_type` is free text by design. New pure module `lib/domain/email-address.ts` with 33 tests, one of which reads migration 001 off disk so the TypeScript pattern and the SQL constraint cannot drift apart silently. **The validator is deliberately stricter than the database in exactly one place:** the SQL pattern accepts `name@example.com,` off a pasted list — valid shape, undeliverable forever — so the domain's last label must now be letters; the test asserts only the safe direction (everything the app accepts, the database accepts). 11 integration tests, including the phase's premise proven rather than assumed: the **real** Super Admin's address is changed inside a transaction and rolled back, then re-read on a fresh connection so a rollback that did not take fails loudly, with FR-156 self-deactivation still refused alongside it. Verified in Chrome in both themes; the step-up dialog fires and a wrong password is refused. **Residual risk recorded, not hidden:** a typo still locks somebody out permanently — mitigated by asking twice with paste blocked on the second field, but only properly fixed by the verification link, which needs the Resend sending domain. | **Nothing queued — awaiting direction** |
 | 01 | 2026-08-05 | Full planning set (docs 00–14), progress tracker, roster template, 23 open questions raised. No code. | Awaiting answers to Q-001, 002, 003, 010, 012 |
 | 02 | 2026-08-06 | Answers locked. Roles expanded to 4 with Team Coordinator. Projects & project types subsystem designed (doc 15). Security & identity architecture designed (doc 16). Crash-resume protocol created (this file). All existing docs updated. ADR-001–006 written. 13 new questions raised (Q-024–Q-036). No code. | Awaiting Q-001, Q-030, Q-034, Q-022 |

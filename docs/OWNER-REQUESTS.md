@@ -46,10 +46,31 @@ Honour every ✅ and 🔴 item in docs/OWNER-REQUESTS.md.
 | D3 | *"Some buttons are big and some are small. Some dropdowns are bigger than the normal screen."* → one control scale in `components/ui/control.ts`; **no component sets its own height**. Verify on `/design-system` → **Controls**. | ✅ |
 | D4 | *"The legend on the CRM dashboard is absolutely not readable."* → rebuilt as a grid of tiles with the count large and in primary text. | ✅ |
 | D5 | *"It looks like a clunk of tasks all jumbled up together… everything is just on top of each other."* → `PageSection` primitive: headings, numbered reading order, 32px between sections. | ✅ |
-| D6 | *"If my cursor is not on it it should just close and only show the icons, and when I put my cursor on it it should come back."* → hover-to-expand rail, 72px ↔ 264px, 240ms. | ✅ |
+| ~~D6~~ | ~~*"If my cursor is not on it it should just close and only show the icons, and when I put my cursor on it it should come back."*~~ → **SUPERSEDED by D10 (Session 17).** The collapsed resting state it asked for is kept. The hover trigger is gone. | ⛔ |
 | D7 | *"I don't want it to cover the page. I want it to push its space into the page… it should just expand or squeeze the page but not cover the contents."* → the content's left padding tracks the rail and animates with it. **Claude initially chose overlay and was wrong; do not revert to overlay.** | ✅ |
 | D8 | *"Once it closes and only the icons appear… they just move a little bit up… they jump up and leave a lot of space in the bottom. The icons should stay where they were when the sidebar was opened."* → the brand block is a **fixed `h-[148px]`**, so swapping the full lockup (112px tall) for the compact mark (30px tall) no longer drags every nav item up by 82px. | ✅ |
 | D9 | *"The icons are like small and the bars are really small. I want them very readable and very visually appealing."* → workload bar `sm` → `lg`, avatar `sm` → `md`, percentage `text-body-sm` → `text-h3`. | ✅ |
+| **D10** | *"When I hover on the sidebar it opens by itself. I don't want that functionality — I want it to open when I click the small button beside it."* → **reverses D6.** Hover expansion removed from the rail and from the shell; the Phase 6 tab is the only control. **D7 is NOT reversed — it still pushes, never covers.** | ✅ |
+| **D11** | *"Two settings icons — I don't want that. Below the user I can go to the profile, I can do the settings… I don't want that there."* → `/settings` appeared twice, in the nav's System section and as "Workspace settings" under the user. The duplicate under the user is gone. | ✅ |
+| **D12** | *"It's a little bit left sided than the original icons — centre it like the other icons in the sidebar."* → there were three icon axes in one rail (32.5 / 38 / 28px). The footer now uses a nav link's exact geometry; everything measures **32.5px**. | ✅ |
+| **D13** | *"The dashboard should be above the My Work option in the sidebar."* → done in `nav-config.ts`. A Member has no Dashboard (ADR-003), so their rail still opens on My Work. | ✅ |
+| **D14** | *"If I click the search it should just search there… the cursor should start blinking over there… I don't want it to pop up and give another screen, it's looking very bad. There should be a small magnifier I can click."* → a real `<input>` in the top bar with results anchored under it. No overlay, no backdrop. ⌘K focuses it. | ✅ |
+| **D15** | *"It just blurs — I don't want it to blur, I want the task to remain as it is."* · *"It should fit into the next column, push the other ones down… like a magnet is pulling it towards it. I don't want it flickering around."* → the native HTML5 drag API can do none of that (its drag image is unstyleable, `dragover` is coarse, there is no drop position, nothing animates). Board rebuilt on pointer events with a real gap and FLIP. | ✅ |
+
+### 🔴 OPEN — the supplied task-board design has never been planned
+
+> *"The file I have told you to redesign is totally not there."* — Session 17
+
+`CNI-AI-Digital-Task-Board.html` has sat in the repository root since commit
+`141669f` and **is referenced by no planning document at all**. The whole
+seven-phase redesign was written and executed without it, which is why work the
+owner expected never appeared — it was never on any list.
+
+It is now [REDESIGN-PLAN §9](REDESIGN-PLAN.md). **It needs a decision from the
+owner before any code**, because it collides with doc 18 and ADR-011: its palette
+and type system are close to, but not the same as, the tokens the whole
+application is built on. Guessing which of "restyle the board", "adopt it
+everywhere", or "build that page for real" was meant would be worse than asking.
 
 ### ⚠️ The trap in D8 — read this before touching the rail
 

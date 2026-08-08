@@ -103,8 +103,17 @@ export function TaskCard({
         immovable
           ? 'cursor-not-allowed'
           : 'cursor-grab hover:-translate-y-px hover:border-border-strong hover:shadow-md active:cursor-grabbing',
-        dragging && 'rotate-[0.6deg] opacity-45 shadow-lg',
-        isClosed && 'opacity-75',
+        /* ── THE CARD BEING DRAGGED IS NOT FADED ──────────────────────────────
+           Owner instruction, Session 17: *"I don't want it to blur — I want the
+           task to remain as it is and I just drag and drop it."*
+           This was `opacity-45` plus a tilt, which is the standard "ghost" look
+           and is exactly what was being complained about: the thing in your hand
+           went half-transparent, so you were dragging a hint of a card rather
+           than the card. It now lifts — brighter border, a real shadow, a
+           fractional scale — and stays fully opaque. The board draws the gap it
+           will land in, so nothing needs to be dimmed to show intent. */
+        dragging && 'scale-[1.02] border-border-brand shadow-xl',
+        isClosed && !dragging && 'opacity-75',
         className,
       )}
     >

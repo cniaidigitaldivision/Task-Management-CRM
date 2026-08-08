@@ -11,9 +11,18 @@
 
 | | |
 |---|---|
-| **Phases** | ✅✅✅✅✅✅✅ **7 of 7 — complete** |
-| **Current** | Nothing outstanding in this plan. |
+| **Phases 1–7** | ✅✅✅✅✅✅✅ complete |
+| **Phase 8** | ✅ Interaction fixes — rail, search, drag-and-drop (Session 17) |
+| **Phase 9** | 🔴 **The supplied task-board design — NOT STARTED, and it was never written down.** See §9. |
 | **Rule** | One phase at a time. Plan → implement → verify → commit → **ask before the next one.** |
+
+> ### ⚠️ A gap in this document, recorded rather than quietly fixed
+> The owner's words, Session 17: *"The file I have told you to redesign is totally
+> not there."* Correct. `CNI-AI-Digital-Task-Board.html` has been in the repository
+> root since commit `141669f` and **is referenced nowhere** — not in this plan, not
+> in the progress tracker, not in `OWNER-REQUESTS.md`, not in doc 10. Phases 1–7
+> were written and executed without it. That is why work the owner was expecting
+> did not appear: it was never on the list. §9 puts it on the list.
 
 ---
 
@@ -214,9 +223,161 @@ The owner's words: *"too much green all over."*
 | **5** | Theme toggle | ✅ |
 | **6** | Sidebar toggle | ✅ |
 | **7** | Login page | ✅ |
+| **8** | Interaction fixes — rail, search, drag-and-drop | ✅ except board order (§8.5) |
+| **9** | The supplied task-board design | 🔴 Not started — needs a decision, §9 |
 
 Each phase: implement → typecheck, lint, build, tests, smoke → commit → **stop
 and ask**.
+
+---
+
+## 8. 🖱️ INTERACTION FIXES — Session 17
+
+Five things the owner asked for in one message. Recorded here because §1–§7 were
+about *appearance* and these are about *behaviour* — the plan had no section for
+that, which is part of why they were not picked up sooner.
+
+### 8.1 The rail must not open on hover
+
+> *"When I hover on the sidebar it opens by itself. I don't want that
+> functionality — I want it to open when I click the small button beside it."*
+
+**This reverses owner decision D6** (Session 09: *"if my cursor is not on it it
+should just close, and when I put my cursor on it it should come back"*). D6 is
+marked superseded in `OWNER-REQUESTS.md` rather than deleted — the collapsed
+resting state it asked for is kept; only the hover trigger is gone.
+
+The tab built for Phase 6 is now the only control. `lg:hover:w-…` is gone from
+the rail and `lg:has-[aside:hover]:` from the shell, so width depends on one
+thing. **D7 is NOT reversed** — it still pushes the content rather than covering
+it. The state is still remembered across tabs.
+
+### 8.2 Two settings icons, and icons off the same axis
+
+> *"Two settings icons — I don't want that. Below the user I can go to the
+> profile, I can do the settings… I don't want that there."*
+> *"It's a little bit left sided than the original icons — centre it like the
+> other icons in the sidebar."*
+
+Both were real. `/settings` appeared **twice**: once in the navigation's System
+section and again as "Workspace settings" under the user. Same destination, same
+icon, one rail. The duplicate is gone.
+
+The alignment was three different axes in one rail, which only becomes visible
+once collapsed — and since 8.1 collapsed is now the resting state:
+
+| | geometry | icon centre |
+|---|---|---|
+| nav icon | `px-3` container + `pl-3` link + 17px icon | **32.5px** |
+| avatar | `p-3` container + `p-2` link + 36px avatar | 38px |
+| settings icon | `p-3` container + `px-2` link + 16px icon | 28px |
+
+The footer now uses a nav link's exact geometry with the avatar centred in a 17px
+slot. Measured in the browser afterwards: every icon and the avatar report a
+centre of **32.5px**.
+
+### 8.3 Dashboard above My Work
+
+> *"The dashboard should be above the My Work option in the sidebar."*
+
+Done, in `nav-config.ts`. Worth knowing: a Team Member has no Dashboard at all
+(ADR-003), so their rail still opens on My Work — the order only shows for a
+Coordinator and above.
+
+### 8.4 Search happens in the bar, not in a pop-up
+
+> *"If I click the search it should just search there… the cursor should start
+> blinking over there… I don't want it to pop up and give another screen, it's
+> looking very bad. There should be a small magnifier I can click."*
+
+It was a button dressed as an input that opened a full-screen command palette
+over a dimmed backdrop. It is now a real `<input>` in the bar with its results
+anchored underneath it. No overlay, no backdrop, nothing moves. The magnifier is
+a real button. ⌘K focuses the box instead of opening anything.
+
+The old reasoning — *"it cannot be a real text field: the palette needs to own
+the keystrokes, and two boxes is a race for focus"* — was sound and still reached
+the wrong answer, because it missed the third option: **one** box, in the bar,
+owning its own keystrokes. No overlay, no second input, no race.
+
+Cost, accepted: the dropdown is narrower than a centred palette, so long titles
+truncate sooner.
+
+### 8.5 Drag-and-drop that feels physical
+
+> *"It just blurs — I don't want it to blur, I want the task to remain as it is."*
+> *"It should fit into the next column, push the other ones down… like a magnet
+> is pulling it towards it. I don't want it flickering around, I don't know where
+> it is going."*
+
+**Every one of those is impossible with the native HTML5 drag API**, and not
+because it was used badly:
+
+- the browser renders its own translucent drag image from a snapshot of the
+  element and it cannot be styled — **that is the "blur"**
+- `dragover` fires on a coarse timer rather than per frame, so feedback lags the
+  pointer — **that is the "flickering"**
+- there is no drop *position*, only a drop *target*, so a card can be told which
+  column it is going to and never where in it
+- none of it is animatable, so cards cannot make room
+
+So the board is now pointer-events based, with three pieces:
+
+1. **The card in your hand** is a fixed-position copy following the pointer at
+   full opacity — the real card, lifted, not a ghost of it. `opacity-45` and the
+   tilt are gone.
+2. **The gap** is a real element in the column at the exact index it will land,
+   so the cards below genuinely move out of the way.
+3. **FLIP** makes that movement smooth: measure every card before the gap moves,
+   measure after, apply the inverse transform, release to zero. Without this the
+   cards jump.
+
+On release the floating card animates *to the gap* rather than vanishing here and
+reappearing there. That is the magnet.
+
+Also added: horizontal auto-scroll while dragging (eight columns do not fit on a
+laptop, and without it a card cannot reach an off-screen column), and a 220ms
+hold before a touch drag begins, or the board could never be scrolled by finger.
+
+**A refused column opens no gap at all** — the card will not follow the pointer
+into it. Doc 10 §3's "simply won't drop there", made visible rather than merely
+enforced. The refusal reason still shows on the column.
+
+#### ⚠️ Board order is a session preference, not a saved one
+
+There is **no ordering column on `tasks`** — only `checklist_items.sort_order`
+exists. So a card dropped at the top of a column stays there until the next
+revalidation replaces the list. The *status* change is fully persisted, as
+before; the position within the column is not.
+
+Making that survive a reload needs a migration, and migrations do not start
+without permission (rule R1). **This is the one thing in §8 that is not
+finished.**
+
+---
+
+## 9. 🔴 THE SUPPLIED TASK-BOARD DESIGN — not started
+
+`CNI-AI-Digital-Task-Board.html` (repo root, commit `141669f`, 26 KB) is a
+standalone styled board the owner supplied: *"AI & Digital Division — Task
+Board"*. It uses Bricolage Grotesque, IBM Plex Sans and IBM Plex Mono, and its
+own palette — `--teal-deep:#0F3D3E`, `--gold:#B8912A`, `--paper:#EFF3F2` — which
+is **close to but not the same as** the tokens in doc 18.
+
+**It has never been referenced by any planning document, and no work has been
+done against it.** That is the gap named at the top of this file.
+
+**It is not started because the intent has to be settled first**, and guessing
+would be worse than asking. It could reasonably mean any of:
+
+1. Restyle the CRM's `/tasks` board to match that HTML's look
+2. Adopt its type system and palette across the whole application, revising doc 18
+3. Rebuild that page as a real, data-backed screen (it is a static mock-up)
+4. Something narrower — a specific element of it the owner liked
+
+**Whichever it is, doc 18 and the token system are the thing it collides with**,
+and that is a decision the owner has to make rather than one to be inferred:
+the current palette was derived from the logo and locked in ADR-011.
 
 ---
 

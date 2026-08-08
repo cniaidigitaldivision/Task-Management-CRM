@@ -22,11 +22,10 @@ import { cn } from '@/lib/utils';
  * It carries orientation (where am I) and global actions (search, alerts,
  * create). Page-specific headings live in the content, so nothing is said twice.
  *
- * ── SEARCH SUBMITS, IT DOES NOT FILTER-AS-YOU-TYPE ───────────────────────────
- * Enter navigates to /tasks?q=…, and the Tasks screen does the filtering with a
- * real query. Live filtering here would need every task on every page, which is
- * a lot of data to hold just so a header can be clever — and the results would
- * be wrong for a member, whose row-level view is narrower.
+ * ── SEARCH HAPPENS HERE, IN THE BAR ──────────────────────────────────────────
+ * A real input with its results anchored under it. It queries the server as you
+ * type, under your own identity, so row-level security decides what comes back.
+ * It does not open an overlay — owner instruction, Session 17.
  * ========================================================================= */
 
 function relative(iso: string): string {
@@ -105,10 +104,10 @@ export function Topbar({
           </ol>
         </nav>
 
-        {/* Was a tasks-only form that advertised ⌘K and did not implement it.
-            The palette covers tasks, projects and people, and the shortcut is
-            now real. */}
-        <div className="hidden w-60 md:block xl:w-80">
+        {/* Search is a real box that searches in place — not a button that
+            opens a screen (owner instruction, Session 17). ⌘K focuses it; the
+            results hang under it. See components/layout/global-search.tsx. */}
+        <div className="hidden w-64 md:block xl:w-80">
           <GlobalSearch />
         </div>
 

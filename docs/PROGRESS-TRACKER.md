@@ -1,8 +1,8 @@
 # 📊 PROGRESS TRACKER — CNI CRM
 
-**Last updated:** 2026-08-08 (Session 16)
-**Current phase:** **All 8 BUILD-PLAN steps complete**, and the 7-phase [REDESIGN-PLAN](REDESIGN-PLAN.md) complete as of Session 16.
-**Blocked on:** **Nothing, and nothing is queued** — awaiting the owner's next direction. Two env vars remain outstanding and are the owner's to set: `SUPABASE_STORAGE_KEY` (attachments) and `CRON_SECRET` (digest). Resend's sending domain is still deliberately deferred, and it is what the email-change verification link is waiting on.
+**Last updated:** 2026-08-08 (Session 17)
+**Current phase:** **All 8 BUILD-PLAN steps complete.** [REDESIGN-PLAN](REDESIGN-PLAN.md) phases 1–8 complete; **phase 9 not started.**
+**Blocked on:** 🔴 **An owner decision on [REDESIGN-PLAN §9](REDESIGN-PLAN.md)** — what the supplied `CNI-AI-Digital-Task-Board.html` is meant to become. It sat in the repo root, referenced by no planning document, through the whole redesign. Also awaiting permission: **persisting board order** needs a migration (§8.5). `SUPABASE_STORAGE_KEY` and `CRON_SECRET` are set as of Session 17. Resend's sending domain is still deferred, and it is what the email-change verification link waits on.
 **Tests:** `npm run test` → **947** · `npm run test:auth` → **133** (real DB) · `npm run smoke` → **27/27** signed-in route checks · DB gates: Step 2 **35/35**, pre-auth **32/32**, 010 **9/9**, 011 **8/8**, work core **17/17**, email change **11/11**
 
 > ⛔ **Standing rule (owner, Session 06):** commit, push to GitHub and update these docs after **every** change — not batched at session end.

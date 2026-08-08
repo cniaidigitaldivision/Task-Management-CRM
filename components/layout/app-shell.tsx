@@ -131,9 +131,17 @@ export function AppShell({
 }) {
   const [navOpen, setNavOpen] = React.useState(false);
 
-  /* The rail expands on hover, which is right for a glance and wrong for
-     somebody working down the list — it collapses the moment the pointer
-     leaves. The tab pins it open, and the choice is remembered. */
+  /* ── THE RAIL OPENS ON A CLICK, NOT ON HOVER ─────────────────────────────
+     Owner instruction, Session 17: *"when I hover on the sidebar it opens by
+     itself, I don't want that functionality — I want it to open when I click
+     the small button beside it."* This reverses owner decision D6 (Session 09),
+     which asked for the opposite; D6 is marked as superseded rather than
+     deleted, because the reasoning behind it is still the reason the collapsed
+     state exists at all.
+
+     The tab was already built for Phase 6 of the redesign. It is now the only
+     way to open the rail, so this state is no longer a "pin" on top of hover —
+     it IS the open/closed state, and it is still remembered across tabs. */
   const pinned = React.useSyncExternalStore(subscribePin, readPin, readPinOnServer);
   const togglePin = React.useCallback(() => writePin(!pinned), [pinned]);
   const [createOpen, setCreateOpen] = React.useState(false);
@@ -188,15 +196,13 @@ export function AppShell({
 
        So the content's left padding tracks the rail's width and animates with
        it, at the same 240ms. `--rail` is set here and read below.
-       `has-[aside:hover]` is what lets a SIBLING react to the rail being
-       hovered; `group-hover` cannot, because hovering anywhere in the shell
-       would trigger it. */
+
+       The `has-[aside:hover]` rule that used to widen this on hover is gone —
+       see the note on `pinned` above. Width now depends on one thing only. */
     <div
       className={cn(
         'min-h-full bg-bg-base [--rail:0px]',
-        pinned
-          ? 'lg:[--rail:var(--sidebar-width)]'
-          : 'lg:[--rail:var(--sidebar-width-collapsed)] lg:has-[aside:hover]:[--rail:var(--sidebar-width)]',
+        pinned ? 'lg:[--rail:var(--sidebar-width)]' : 'lg:[--rail:var(--sidebar-width-collapsed)]',
       )}
     >
       <Sidebar
@@ -213,19 +219,24 @@ export function AppShell({
           clipped away.
 
           `left: var(--rail)` puts its flat edge exactly on the rail's edge and
-          means it travels with the rail, on the same 240ms, whether that is a
-          hover or a pin. Desktop only: on mobile the rail is a drawer with its
-          own close button, and a pin has nothing to pin. */}
+          means it travels with the rail, on the same 240ms. Desktop only: on
+          mobile the rail is a drawer with its own close button.
+
+          Since Session 17 this is the ONLY way to open the rail, so it is sized
+          and lit to be found rather than discovered — it is a control now, not
+          an affordance on top of hover. */}
       <button
         type="button"
         onClick={togglePin}
-        aria-pressed={pinned}
-        aria-label={pinned ? 'Unpin the navigation' : 'Keep the navigation open'}
-        title={pinned ? 'Unpin — collapse to icons' : 'Keep open'}
+        aria-expanded={pinned}
+        aria-controls="main-navigation"
+        aria-label={pinned ? 'Collapse the navigation' : 'Open the navigation'}
+        title={pinned ? 'Collapse to icons' : 'Open the navigation'}
         className={cn(
           'fixed top-1/2 z-[60] hidden -translate-y-1/2 items-center justify-center lg:flex',
-          'h-14 w-[22px] rounded-r-full border border-l-0',
+          'h-16 w-6 rounded-r-full border border-l-0',
           'transition-[left,background-color,color] duration-[240ms] ease-out',
+          'hover:brightness-125 focus-visible:outline-none focus-visible:brightness-125',
         )}
         style={{
           left: 'var(--rail)',
