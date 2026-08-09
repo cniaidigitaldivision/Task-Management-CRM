@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
 import { Field, Input, Textarea } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
+import { ToggleGroup } from '@/components/ui/toolbar';
 import type { ProjectRow } from '@/lib/db/queries/types';
 import {
   PROJECT_STATUSES,
@@ -58,31 +59,42 @@ const TYPE_FIELD_FORMS: Record<
   }>
 > = {
   event: [
-    { name: 'event_date', label: 'Event date', type: 'date', hint: 'Deliverables schedule backwards from this.' },
+    /* `event_date` is gone: it duplicated `start_date`, which is a real column
+       the calendar, the workload window and every report already read. Two
+       places recording when the event is, is how they start disagreeing. */
     { name: 'venue', label: 'Venue', placeholder: 'Karachi Expo Centre, Hall 3' },
-    /* Owner instruction, Session 20: *"the scale should become a dropdown… I
-       should not write what the scale is."* It was a free-text box whose
-       placeholder was the word `large`, so every project recorded a slightly
-       different spelling of the same three ideas. */
-    { name: 'expected_scale', label: 'Expected scale', options: ['Small', 'Medium', 'Large'] },
+    {
+      name: 'expected_attendance',
+      label: 'Expected attendance',
+      type: 'number',
+      placeholder: '400',
+    },
   ],
   client: [
     { name: 'client_name', label: 'Client name', placeholder: 'ABC Traders' },
+    /* Was a free-text box whose placeholder read "retainer or project", so the
+       same two ideas were recorded a dozen ways and nothing could count them. */
+    { name: 'engagement_type', label: 'Engagement', options: ['Retainer', 'One-off'] },
+    { name: 'contract_end', label: 'Contract end', type: 'date' },
     { name: 'contact_person', label: 'Contact person' },
     { name: 'contact_email', label: 'Contact email', type: 'email' },
     { name: 'contact_phone', label: 'Contact phone' },
-    { name: 'engagement_type', label: 'Engagement', placeholder: 'retainer or project' },
     {
       name: 'retainer_hours_per_month',
       label: 'Retainer hours a month',
       type: 'number',
-      hint: 'Leave blank for project work.',
+      hint: 'Leave blank for one-off work.',
     },
     { name: 'priority_tier', label: 'Priority tier', placeholder: 'A' },
   ],
   business: [
     { name: 'objective', label: 'Objective', placeholder: 'Convert more inbound enquiries' },
-    { name: 'area', label: 'Area', placeholder: 'Marketing' },
+    { name: 'area', label: 'Business area', placeholder: 'Marketing' },
+    {
+      name: 'internal_sponsor',
+      label: 'Internal sponsor',
+      hint: 'Who inside CNI is asking for this and will sign it off.',
+    },
     { name: 'target_completion', label: 'Target completion', type: 'date' },
   ],
   self_promotion: [
@@ -99,6 +111,31 @@ const TYPE_FIELD_FORMS: Record<
     },
   ],
 };
+
+/* ── Asked of EVERY type ──────────────────────────────────────────────────────
+   Scale used to sit under `event` alone, which meant a client retainer and a
+   business initiative had no size recorded at all — so nothing could compare
+   them, and "how much of this quarter is large work" had no answer.
+
+   Owner instruction, Session 20: *"the scale should become a dropdown — I
+   should not write what the scale is."* It was a free-text box whose
+   placeholder was the word `large`, so the same three ideas were recorded in a
+   dozen spellings. */
+const SHARED_TYPE_FIELDS: (typeof TYPE_FIELD_FORMS)[ProjectType] = [
+  { name: 'expected_scale', label: 'Scale', options: ['Small', 'Medium', 'Large'] },
+];
+
+/* ── The event duration, which decides what the date fields mean ──────────────
+   Owner instruction: *"there should be an option of event length — if it is one
+   day then it is only one due date, and if it is multiple days then it should
+   be from the start time to the due time."*
+
+   A single-day event still has two TIMES (09:00 to 17:00) but only one DATE, so
+   asking for an end date is asking a question with one possible answer. The
+   target end date is hidden in that case and submitted as the start date, which
+   keeps the stored shape identical for both — every report, the calendar and
+   the `projects_dates_ordered` constraint carry on reading two dates. */
+type EventDuration = 'single' | 'multi';
 
 export function ProjectDialog({
   open,
@@ -134,7 +171,21 @@ export function ProjectDialog({
   const [status, setStatus] = React.useState<ProjectStatus>(project?.status ?? 'active');
 
   const needsReason = PROJECT_STATUS_REQUIRES_REASON.includes(status);
-  const fields = TYPE_FIELD_FORMS[type];
+  /* Scale is asked of everything, then the type's own questions. */
+  const fields = [...SHARED_TYPE_FIELDS, ...TYPE_FIELD_FORMS[type]];
+
+  const [duration, setDuration] = React.useState<EventDuration>(
+    (project?.typeFields?.duration as EventDuration) ?? 'single',
+  );
+  const isSingleDayEvent = type === 'event' && duration === 'single';
+
+  /* Controlled, because a single-day event submits this same value as its end
+     date — a `defaultValue` would leave the hidden field holding whatever the
+     date was when the dialog opened, so changing the date would silently move
+     the start without moving the end. */
+  const [startDate, setStartDate] = React.useState(
+    project?.startDate ?? (isEdit ? '' : today),
+  );
 
   React.useEffect(() => {
     if (state.ok) {
@@ -275,16 +326,41 @@ export function ProjectDialog({
             now, end left empty. `type="time"` uses the browser's own picker, so
             AM/PM appears on a 12-hour locale without the form choosing for
             anybody, and it always posts 24-hour "HH:MM". */}
+        {/* ---- How long is it? Events only, and it changes the dates below ---- */}
+        {type === 'event' && (
+          <Field
+            label="How long is the event?"
+            htmlFor="duration"
+            hint="A single day still has a start and an end time — it just does not need a second date."
+          >
+            <ToggleGroup
+              label="Event length"
+              value={duration}
+              onChange={setDuration}
+              options={[
+                { key: 'single', label: 'One day' },
+                { key: 'multi', label: 'Several days' },
+              ]}
+            />
+            <input type="hidden" name="duration" value={duration} />
+          </Field>
+        )}
+
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Start date" htmlFor="startDate">
+          <Field label={isSingleDayEvent ? 'Date' : 'Start date'} htmlFor="startDate">
             <Input
               id="startDate"
               name="startDate"
               type="date"
-              defaultValue={project?.startDate ?? (isEdit ? '' : today)}
+              value={startDate}
+              onChange={(event) => setStartDate(event.target.value)}
             />
           </Field>
-          <Field label="Start time" htmlFor="startTime" hint="Optional.">
+          <Field
+            label={isSingleDayEvent ? 'Starts at' : 'Start time'}
+            hint="Optional."
+            htmlFor="startTime"
+          >
             <Input
               id="startTime"
               name="startTime"
@@ -292,15 +368,28 @@ export function ProjectDialog({
               defaultValue={project?.startTime ?? (isEdit ? '' : nowTime)}
             />
           </Field>
-          <Field label="Target end date" htmlFor="targetEndDate">
-            <Input
-              id="targetEndDate"
-              name="targetEndDate"
-              type="date"
-              defaultValue={project?.targetEndDate ?? ''}
-            />
-          </Field>
-          <Field label="Target end time" htmlFor="targetEndTime" hint="Optional.">
+
+          {/* On a single day there is one possible answer to "which day does it
+              end", so it is not asked. The value is still submitted, so the
+              stored shape is identical either way. */}
+          {isSingleDayEvent ? (
+            <input type="hidden" name="targetEndDate" value={startDate} />
+          ) : (
+            <Field label="Target end date" htmlFor="targetEndDate">
+              <Input
+                id="targetEndDate"
+                name="targetEndDate"
+                type="date"
+                defaultValue={project?.targetEndDate ?? ''}
+              />
+            </Field>
+          )}
+
+          <Field
+            label={isSingleDayEvent ? 'Ends at' : 'Target end time'}
+            hint="Optional."
+            htmlFor="targetEndTime"
+          >
             <Input
               id="targetEndTime"
               name="targetEndTime"

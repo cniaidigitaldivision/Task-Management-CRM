@@ -41,22 +41,40 @@ export interface ProjectActionResult {
 
 const fail = (error: string): ProjectActionResult => ({ ok: false, error });
 
-/** Doc 15 §3 — the only keys each type may carry. An allowlist, not a filter. */
+/** Doc 15 §3 — the only keys each type may carry. An allowlist, not a filter.
+ *
+ *  ⚠️ THIS MUST BE KEPT IN STEP WITH `TYPE_FIELD_FORMS` IN
+ *  components/project/project-dialog.tsx. It is the server's list and it wins:
+ *  a field added to the form and not to this one renders, accepts input, and is
+ *  then **silently dropped on save** — which is exactly what happened when
+ *  `expected_attendance` was added in CHANGE-PLAN 3.2 and the project came back
+ *  without it.
+ *
+ *  The duplication is deliberate rather than lazy. The form's list carries
+ *  labels, hints, input types and option lists — presentation the server has no
+ *  business importing — and this one is a security boundary that must not be
+ *  derived from anything a client component can change. Two lists, one rule:
+ *  add to both, in the same commit. */
 const TYPE_FIELDS: Readonly<Record<ProjectType, readonly string[]>> = {
-  event: ['event_date', 'venue', 'expected_scale'],
+  /* `duration` is a form control rather than a field, but it is stored: it is
+     the only record of whether a one-day event was MEANT to be one day, as
+     opposed to one whose end date has not been filled in yet. */
+  event: ['venue', 'expected_scale', 'expected_attendance', 'duration'],
   client: [
     'client_name',
     'contact_person',
     'contact_email',
     'contact_phone',
     'engagement_type',
+    'contract_end',
     'retainer_hours_per_month',
     'is_billable',
     'priority_tier',
+    'expected_scale',
   ],
-  business: ['objective', 'area', 'target_completion'],
-  self_promotion: ['channel', 'campaign_goal', 'target_publish_date'],
-  other: ['requested_by', 'reason_not_a_project'],
+  business: ['objective', 'area', 'internal_sponsor', 'target_completion', 'expected_scale'],
+  self_promotion: ['channel', 'campaign_goal', 'target_publish_date', 'expected_scale'],
+  other: ['requested_by', 'reason_not_a_project', 'expected_scale'],
 };
 
 function str(form: FormData, key: string): string {

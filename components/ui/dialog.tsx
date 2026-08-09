@@ -19,11 +19,10 @@ import { IconButton } from './button';
  * What is NOT native and had to be added:
  *
  *   · CLOSING ON A BACKDROP CLICK. `::backdrop` is not an element, so it cannot
- *     receive a listener. The click lands on the <dialog> itself, and the test
- *     below distinguishes "clicked the backdrop" from "clicked inside the panel"
- *     by hit-testing the click against the panel's own rectangle. A naive
- *     `event.target === dialog` check breaks the moment a `<select>` is used,
- *     because the native option list reports the dialog as its target.
+ *     receive a listener; the click lands on the <dialog> itself and something
+ *     has to decide what that means. `useBackdropDismiss` below does, and its
+ *     note records the two tests that look right and are not — one of which
+ *     this file used until Session 23.
  *
  *   · SCROLL LOCK. An open dialog over a scrolling page lets the wheel scroll
  *     the page behind it, which reads as the modal being broken.
@@ -98,6 +97,59 @@ function lockBodyScroll(): () => void {
   };
 }
 
+/* ============================================================================
+ * ⚠️ CLOSING ON A BACKDROP CLICK — THREE WAYS TO GET IT WRONG
+ * ----------------------------------------------------------------------------
+ * `::backdrop` is not an element and cannot take a listener, so the click lands
+ * on the `<dialog>` itself and the component has to decide what it means. Both
+ * of the obvious tests are wrong, each in its own direction:
+ *
+ * ── HIT-TESTING THE COORDINATES (what this used to do) ───────────────────────
+ * Compare clientX/clientY against the panel's bounding box, close if outside.
+ * Reads correctly, and breaks for every click that has no position:
+ *
+ *   · A button activated with the KEYBOARD — Space or Enter — fires a click
+ *     with clientX = clientY = 0. That is outside every panel, so **every
+ *     keyboard user closed the dialog the moment they activated any control
+ *     inside it.** Found in Session 23 by a programmatic `.click()`, which has
+ *     the same signature.
+ *
+ * ── `event.target === dialog` alone ──────────────────────────────────────────
+ * Fixes the keyboard case and reintroduces the one the original author had
+ * already hit: a native `<select>` renders its option list outside the DOM, and
+ * the click that dismisses it can report the dialog as its target. The project
+ * form has six selects; choosing a type would close the form.
+ *
+ * ── WHAT ACTUALLY WORKS: REQUIRE BOTH HALVES OF THE GESTURE ─────────────────
+ * A real backdrop click presses AND releases on the dialog element. Nothing
+ * else does:
+ *
+ *   keyboard activation   no pointerdown at all            → does not close
+ *   select option list    pointerdown was on the <select>  → does not close
+ *   drag out of the panel pointerdown was inside it        → does not close
+ *   genuine backdrop      both on the dialog               → closes
+ *
+ * No geometry, and no way for a click without a position to be mistaken for one
+ * outside the panel.
+ * ========================================================================= */
+function useBackdropDismiss(onClose: () => void) {
+  /* A ref, not a closure variable. These handlers are spread into JSX, so a
+     plain variable would be re-created on every render — and any re-render
+     landing between the pointerdown and the click would lose the first half of
+     the gesture and stop the dialog closing at all. */
+  const pressedOnBackdrop = React.useRef(false);
+
+  return {
+    onPointerDown: (event: React.PointerEvent<HTMLDialogElement>) => {
+      pressedOnBackdrop.current = event.target === event.currentTarget;
+    },
+    onClick: (event: React.MouseEvent<HTMLDialogElement>) => {
+      if (pressedOnBackdrop.current && event.target === event.currentTarget) onClose();
+      pressedOnBackdrop.current = false;
+    },
+  };
+}
+
 /** Keeps the native `<dialog>` in step with React, and the body lock honest. */
 function useModal(open: boolean, ref: React.RefObject<HTMLDialogElement | null>) {
   /* NO dependency array, deliberately — see note 1 above. */
@@ -140,9 +192,9 @@ export function Dialog({
   size?: 'sm' | 'md' | 'lg';
 }) {
   const ref = React.useRef<HTMLDialogElement>(null);
-  const panelRef = React.useRef<HTMLDivElement>(null);
 
   useModal(open, ref);
+  const dismiss = useBackdropDismiss(onClose);
 
   const widths = { sm: 'max-w-md', md: 'max-w-2xl', lg: 'max-w-4xl' } as const;
 
@@ -154,17 +206,7 @@ export function Dialog({
         event.preventDefault();
         onClose();
       }}
-      onClick={(event) => {
-        const panel = panelRef.current;
-        if (!panel) return;
-        const r = panel.getBoundingClientRect();
-        const inside =
-          event.clientX >= r.left &&
-          event.clientX <= r.right &&
-          event.clientY >= r.top &&
-          event.clientY <= r.bottom;
-        if (!inside) onClose();
-      }}
+      {...dismiss}
       aria-label={title}
       className={cn(
         'm-0 h-full max-h-none w-full max-w-none bg-transparent p-0 backdrop:bg-[var(--bg-scrim)] backdrop:backdrop-blur-sm',
@@ -173,7 +215,6 @@ export function Dialog({
     >
       {open && (
         <div
-          ref={panelRef}
           className={cn(
             'flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-border-default',
             'bg-bg-surface shadow-[var(--shadow-xl)] sm:rounded-2xl',
@@ -224,9 +265,9 @@ export function Drawer({
   footer?: React.ReactNode;
 }) {
   const ref = React.useRef<HTMLDialogElement>(null);
-  const panelRef = React.useRef<HTMLDivElement>(null);
 
   useModal(open, ref);
+  const dismiss = useBackdropDismiss(onClose);
 
   return (
     <dialog
@@ -235,23 +276,12 @@ export function Drawer({
         event.preventDefault();
         onClose();
       }}
-      onClick={(event) => {
-        const panel = panelRef.current;
-        if (!panel) return;
-        const r = panel.getBoundingClientRect();
-        const inside =
-          event.clientX >= r.left &&
-          event.clientX <= r.right &&
-          event.clientY >= r.top &&
-          event.clientY <= r.bottom;
-        if (!inside) onClose();
-      }}
+      {...dismiss}
       aria-label={title}
       className="m-0 h-full max-h-none w-full max-w-none bg-transparent p-0 backdrop:bg-[var(--bg-scrim)] backdrop:backdrop-blur-sm open:flex open:justify-end"
     >
       {open && (
         <div
-          ref={panelRef}
           className="flex h-full w-full flex-col overflow-hidden border-l border-border-default bg-bg-surface shadow-[var(--shadow-xl)] sm:max-w-xl lg:max-w-2xl"
         >
           <div className="flex shrink-0 items-start gap-3 border-b border-border-subtle px-5 py-4">
