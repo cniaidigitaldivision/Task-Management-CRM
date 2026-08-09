@@ -50,7 +50,7 @@ That's all you ever need to type. Everything else is recorded in the files.
 | | |
 |---|---|
 | **Last updated** | 2026-08-09, Session 22 |
-| **Tests** | `npm run test` → **958** · `npm run test:auth` → **133** (real DB) · `npm run smoke` → **27/27** (every route, both roles) |
+| **Tests** | `npm run test` → **958** · `npm run test:auth` → **141** (real DB) · `npm run smoke` → **27/27** (every route, both roles) |
 | **⛔ Credential hygiene** | Three secrets were pasted into chat in Session 09 (Resend key, DB password ×2 — one echoed by my own script's error output). **All must be rotated.** Never paste a secret; `npm run check:db` redacts and is safe to share. |
 | **Current phase** | **Phase 1 — Foundation & Security** |
 | **Phase 1 progress** | ▓▓▓▓▓▓▓▓░░ Steps 1–4 complete · **5.1 complete** · **Phase 2 work core pulled forward and operational** |
@@ -265,10 +265,11 @@ The new asset is a **transparent raster**, not vector. That changes what each fo
 
 ## 3. ⏭️ NEXT ACTION
 
-### 🔴 Session 22 — Batch 2 part-done, and PURGE IS BLOCKED
+### ✅ Session 22 — Batch 2: the impact dialog, Cancel, and Purge (migration 019)
 
-**Built and verified in Chrome:** the shared impact dialog (2.1) and bulk
-**Cancel work** (2.2). **Not built:** avatars (2.3).
+**Built and verified in Chrome:** the shared impact dialog (2.1), bulk **Cancel
+work**, and **Purge** — which needed migration 019 and the owner's approval to
+be possible at all. **Still to do:** avatars (2.3).
 
 **The blocker, measured rather than assumed:**
 
@@ -277,28 +278,43 @@ policies on public.tasks →  tasks_select (r)  tasks_insert (a)  tasks_update (
 rows deleted as SUPER ADMIN via cni_app → 0
 ```
 
-`public.tasks` has row-level security enabled and **no DELETE policy**. With RLS
-on, a command with no policy is refused for every row — so a purge deletes
-nothing and raises nothing. It would have reported success.
+`public.tasks` had row-level security enabled and **no DELETE policy** — since
+migration 013, through eight further migrations. With RLS on, a command with no
+policy is refused for every row, and the refusal is **silent**: the statement
+succeeds and reports zero rows. It would have reported success.
 
 Session 11 hit this exact trap once already: *"the RLS delete policy being
 Super-Admin-only meant an Admin's Reset deleted zero rows with no error."*
 
 Worse: `purgeTasksAction` removes the attachment **storage objects first**, on
-purpose, so Postgres's cascade cannot orphan them. Shipping it would have
-destroyed the files and left the tasks in place.
+purpose — Postgres cascades every child table but cannot reach into Supabase
+Storage, so deleting the rows first would lose the only record of which objects
+to remove. Shipping it would have destroyed the files and left the tasks there.
 
-**So the control is not rendered and the action refuses loudly.**
-[`lib/capabilities.ts`](../lib/capabilities.ts) holds one flag naming the exact
-migration required:
+**Migration 019 closed it.** `DELETE` was already granted to `cni_app` — only
+the policy was absent, so the grant made it look permitted while RLS refused
+every row:
 
 ```sql
 create policy tasks_delete on public.tasks for delete to cni_app
   using (app.current_user_role() = 'super_admin');
 ```
 
-Everything else is written and waiting on that policy. **Migrations need the
-owner's go-ahead (rule R1).**
+Proven by `test/integration/task-purge.test.ts` — 8 assertions, every
+destructive case inside a rolled-back transaction, re-read afterwards on a
+**fresh** connection so a rollback that did not take fails loudly. Super Admin
+deletes 1 row; an Admin and a Member delete 0; comments, checklist items, time
+entries and watchers all cascade; and the audit trail **survives**, because
+`entity_id` is a snapshot rather than a foreign key.
+
+Then end to end in the browser as the Super Admin on a throwaway task: **Purge**
+appeared (Admins do not see it), the dialog required the reference to be typed,
+and afterwards the row was gone, its comment had cascaded, and `audit_log` held
+a `task.purged` entry naming `ZZZ-8369`.
+
+**`purgeTasksAction` now also fails outright if it destroyed nothing**, rather
+than reporting a success that did not happen — and says so explicitly when
+attachment files have already been removed from storage.
 
 > A dead control is exactly what opened this batch — B1's Add task had no
 > handler, B4's calendar tab was `disabled: true`. Shipping a third would have

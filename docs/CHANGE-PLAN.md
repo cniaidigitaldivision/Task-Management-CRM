@@ -23,8 +23,8 @@
 | **Items** | 26 — **9 bugs**, 17 features |
 | **Batches** | 7. One at a time: implement → verify → commit → **stop and ask** (rule R1) |
 | **Progress** | ✅🔶⬜⬜⬜⬜⬜ Batch 1 complete · **Batch 2 part-done** |
-| **Batch 2** | ✅ 2.1 impact dialog · ✅ 2.2 bulk Cancel · 🔴 **Purge blocked — needs a migration** · ⬜ 2.3 avatars |
-| **Next** | A decision on the purge migration, then avatars. |
+| **Batch 2** | ✅ 2.1 impact dialog · ✅ 2.2 Cancel **and Purge** · ⬜ 2.3 avatars |
+| **Next** | 2.3 — avatars. |
 
 ---
 
@@ -222,7 +222,10 @@ It now opens the same dialog.
 **Clear stays Clear.** The bar gained **Cancel work**, which requires a reason
 (FR-043) and is refused without one.
 
-#### 🔴 Purge cannot work yet, and it fails SILENTLY
+#### ✅ Purge — the gap that made it impossible, and the migration that closed it
+
+**Owner approved the migration on 2026-08-09. Migration 019 is applied and purge
+is live.** What follows is why it could not have shipped without it.
 
 Measured against the real database, not assumed:
 
@@ -242,20 +245,48 @@ Worse, the action removes the attachment **storage objects first** — deliberat
 so nothing is orphaned. Shipping it as-is would have destroyed the files and
 left the tasks in place.
 
-**So the control is not rendered and the action refuses loudly.**
-`lib/capabilities.ts` holds one flag with the exact migration needed:
+**Migration 019** adds the one thing that was missing:
 
 ```sql
 create policy tasks_delete on public.tasks for delete to cni_app
   using (app.current_user_role() = 'super_admin');
 ```
 
-Everything else — permission check, step-up, impact dialog, storage cleanup,
-audit entry naming what was destroyed — is written and waiting on that one
-policy. **Migrations wait for the owner (rule R1).**
+`DELETE` was **already granted** to `cni_app` — only the policy was absent, so
+the grant made it look permitted while RLS refused every row.
 
-> A dead control is exactly what opened this batch (B1's Add task, B4's calendar
-> tab). Shipping another one would have been worse than shipping nothing.
+##### Proven, in two places
+
+`test/integration/task-purge.test.ts` — 8 assertions against the real database,
+every destructive case inside a transaction that is rolled back, with a final
+re-read on a **fresh** connection so a rollback that did not take fails loudly:
+
+| | |
+|---|---|
+| The policy exists, and RLS is still **on** | it is a grant, not a bypass |
+| Super Admin deletes | **1 row** — this was 0 before |
+| Admin · Member | **0 rows** each |
+| Comments, checklist, time entries, watchers | all cascade to zero |
+| Audit trail | **survives** — `entity_id` is a snapshot, not a foreign key |
+
+And end to end in the browser as the Super Admin, on a throwaway task created
+for the purpose: **Purge** appeared (Admins do not see it), the dialog required
+the reference to be typed, and afterwards the task row was gone, its comment had
+cascaded, and `audit_log` held a `task.purged` entry naming `ZZZ-8369`.
+
+##### One more guard, added after the fact
+
+A refused delete succeeds and reports zero rows. So `purgeTasksAction` now
+**fails** if it destroyed nothing, rather than reporting success — and it says
+so explicitly when attachment files have already been removed from storage. The
+ordering is deliberate and cannot be reversed: Postgres cascades every child
+table but cannot reach into Supabase Storage, so the objects must go first or
+their only record is lost. Without the policy, that would have destroyed the
+files and left the tasks in place.
+
+`lib/capabilities.ts` keeps the flag rather than deleting it — it is the one
+place recording why this was broken, and the switch that turns the feature off
+honestly if the policy is ever dropped.
 
 ### ⬜ 2.3 Real avatars on every task
 > *"Avatars should be on every task the member, coordinator, admin is assigned

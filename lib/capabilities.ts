@@ -15,23 +15,28 @@
  * ========================================================================= */
 
 /**
- * Can a task be destroyed permanently?
+ * Can a task be destroyed permanently? **Yes, since migration 019.**
  *
- * **No, until a `tasks_delete` RLS policy exists.** `public.tasks` has
- * row-level security enabled and only `tasks_select`, `tasks_insert` and
- * `tasks_update` policies. With RLS on, a command with no policy is refused for
- * every row — so a delete affects **nothing and raises nothing**. Measured
- * against the real database as the Super Admin through `cni_app`: 0 rows.
+ * ── WHAT THIS FLAG IS A MONUMENT TO ──────────────────────────────────────────
+ * `public.tasks` had row-level security enabled and only `tasks_select`,
+ * `tasks_insert` and `tasks_update` policies. With RLS on, a command with NO
+ * policy is refused for every row — and the refusal is silent: the statement
+ * succeeds and reports zero rows. The DELETE privilege was already granted to
+ * `cni_app`, so it looked permitted while every row was refused.
  *
- * That is the same trap Session 11 hit, where a Super-Admin-only delete policy
- * meant an Admin's Reset deleted zero rows with no error at all.
+ * Measured before the migration, as the Super Admin through `cni_app`: **0 rows
+ * deleted.** The same shape Session 11 hit, where a Super-Admin-only delete
+ * policy meant an Admin's Reset deleted zero rows with no error.
  *
- * To turn this on: a migration adding
+ * Migration 019 added `tasks_delete`, restricted to
+ * `app.current_user_role() = 'super_admin'`, and
+ * `test/integration/task-purge.test.ts` now proves all of it against the real
+ * database: the Super Admin can, an Admin and a Member cannot, the children
+ * cascade, and the audit trail survives because it holds a snapshot rather than
+ * a foreign key.
  *
- *     create policy tasks_delete on public.tasks for delete to cni_app
- *       using (app.current_user_role() = 'super_admin');
- *
- * then flip this to `true`. The application side — permission check, step-up,
- * impact dialog, storage cleanup, audit entry — is already written and waiting.
+ * The flag is kept rather than deleted — it is the one place that records why
+ * this was ever broken, and if the policy is dropped it is the switch that
+ * turns the feature off honestly instead of letting it fail silently again.
  */
-export const PURGE_IS_AVAILABLE = false;
+export const PURGE_IS_AVAILABLE = true;

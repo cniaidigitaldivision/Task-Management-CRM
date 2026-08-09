@@ -1076,14 +1076,17 @@ export async function purgeTasksAction(taskIds: string[]): Promise<ActionResult>
     return fail('Only the Super Admin can permanently destroy a task. Delete keeps it for 30 days (FR-095).');
   }
 
-  /* ⚠️ Refuse before doing any of the work, rather than deleting the storage
-     objects and then finding the rows cannot go. `public.tasks` has RLS on and
-     no DELETE policy, so the delete silently affects zero rows — measured, and
-     the same trap Session 11 hit. Reporting "0 destroyed" as a success would be
-     the worst outcome: the attachments would already be gone. */
+  /* ⚠️ Checked before ANY of the work below, and that order is the point.
+     This action removes the attachment storage objects first — Postgres cannot
+     reach into Supabase Storage, so deleting the rows first would lose the only
+     record of which objects to remove. If the delete were then refused, the
+     files would be gone and the tasks still there.
+
+     Before migration 019 that is exactly what would have happened: `tasks` had
+     RLS on with no DELETE policy, so the delete silently affected zero rows. */
   if (!PURGE_IS_AVAILABLE) {
     return fail(
-      'Purge is not available yet. `public.tasks` has row-level security with no DELETE policy, so the database refuses every delete silently — a migration adding a Super-Admin-only `tasks_delete` policy is needed first, and migrations wait for your go-ahead. Use Delete, which hides it and keeps it recoverable for 30 days.',
+      'Purge is switched off. `public.tasks` needs its Super-Admin-only `tasks_delete` RLS policy — without it the database refuses every delete silently. Use Delete, which hides the task and keeps it recoverable for 30 days (FR-095).',
     );
   }
   if (!stepUpIsFresh(user, nowMs())) {
@@ -1127,6 +1130,18 @@ export async function purgeTasksAction(taskIds: string[]): Promise<ActionResult>
   );
 
   revalidateWork();
+
+  /* ⚠️ A delete refused by row-level security succeeds and reports zero rows.
+     Reporting that as a success is precisely how migration 019's gap stayed
+     invisible for eight migrations — and here it would be reported AFTER the
+     attachment objects had already been removed. Nothing that destroyed zero
+     tasks is allowed to call itself done. */
+  if (purged === 0) {
+    return fail(
+      `Nothing was destroyed — the database refused every row. This is what a missing RLS policy looks like: the delete succeeds and affects nothing. ${paths.length > 0 ? `⚠️ ${paths.length} attachment file(s) were already removed from storage.` : ''}`.trim(),
+    );
+  }
+
   return {
     ok: true,
     warning:
