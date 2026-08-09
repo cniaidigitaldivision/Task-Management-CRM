@@ -42,6 +42,7 @@ import {
   type TaskStatus,
 } from '@/lib/domain/constants';
 import { evaluateTransition, transitionNeedsReason } from '@/lib/domain/task-machine';
+import { PURGE_IS_AVAILABLE } from '@/lib/capabilities';
 import type { TaskView } from '@/lib/view/task-view';
 import { cn } from '@/lib/utils';
 
@@ -536,6 +537,10 @@ export function TasksWorkspace({
           onClear={() => setSelectedIds([])}
           onDone={() => router.refresh()}
           people={people.map((person) => ({ id: person.id, name: person.name }))}
+          /* Super Admin only AND only once the tasks_delete RLS policy exists.
+             Shipping a button that silently does nothing is exactly the
+             complaint that opened this batch (B1, B4) — so it is not shipped. */
+          canPurge={currentUser.role === 'super_admin' && PURGE_IS_AVAILABLE}
         />
       )}
 

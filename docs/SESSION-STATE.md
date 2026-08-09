@@ -49,7 +49,7 @@ That's all you ever need to type. Everything else is recorded in the files.
 
 | | |
 |---|---|
-| **Last updated** | 2026-08-09, Session 21 |
+| **Last updated** | 2026-08-09, Session 22 |
 | **Tests** | `npm run test` → **958** · `npm run test:auth` → **133** (real DB) · `npm run smoke` → **27/27** (every route, both roles) |
 | **⛔ Credential hygiene** | Three secrets were pasted into chat in Session 09 (Resend key, DB password ×2 — one echoed by my own script's error output). **All must be rotated.** Never paste a secret; `npm run check:db` redacts and is safe to share. |
 | **Current phase** | **Phase 1 — Foundation & Security** |
@@ -264,6 +264,48 @@ The new asset is a **transparent raster**, not vector. That changes what each fo
 ---
 
 ## 3. ⏭️ NEXT ACTION
+
+### 🔴 Session 22 — Batch 2 part-done, and PURGE IS BLOCKED
+
+**Built and verified in Chrome:** the shared impact dialog (2.1) and bulk
+**Cancel work** (2.2). **Not built:** avatars (2.3).
+
+**The blocker, measured rather than assumed:**
+
+```
+policies on public.tasks →  tasks_select (r)  tasks_insert (a)  tasks_update (w)
+rows deleted as SUPER ADMIN via cni_app → 0
+```
+
+`public.tasks` has row-level security enabled and **no DELETE policy**. With RLS
+on, a command with no policy is refused for every row — so a purge deletes
+nothing and raises nothing. It would have reported success.
+
+Session 11 hit this exact trap once already: *"the RLS delete policy being
+Super-Admin-only meant an Admin's Reset deleted zero rows with no error."*
+
+Worse: `purgeTasksAction` removes the attachment **storage objects first**, on
+purpose, so Postgres's cascade cannot orphan them. Shipping it would have
+destroyed the files and left the tasks in place.
+
+**So the control is not rendered and the action refuses loudly.**
+[`lib/capabilities.ts`](../lib/capabilities.ts) holds one flag naming the exact
+migration required:
+
+```sql
+create policy tasks_delete on public.tasks for delete to cni_app
+  using (app.current_user_role() = 'super_admin');
+```
+
+Everything else is written and waiting on that policy. **Migrations need the
+owner's go-ahead (rule R1).**
+
+> A dead control is exactly what opened this batch — B1's Add task had no
+> handler, B4's calendar tab was `disabled: true`. Shipping a third would have
+> been worse than shipping nothing.
+
+**Also built:** the per-task **Delete had no confirmation at all** and deleted on
+a single click. It now opens the same impact dialog.
 
 ### ✅ Session 21 — CHANGE-PLAN Batch 1 COMPLETE: all nine bugs
 

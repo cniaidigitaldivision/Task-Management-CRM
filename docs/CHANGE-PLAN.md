@@ -22,8 +22,9 @@
 |---|---|
 | **Items** | 26 — **9 bugs**, 17 features |
 | **Batches** | 7. One at a time: implement → verify → commit → **stop and ask** (rule R1) |
-| **Progress** | ✅⬜⬜⬜⬜⬜⬜ **Batch 1 complete** — all nine bugs fixed and verified in Chrome |
-| **Next** | Batch 2 — tasks and the board. **Awaiting the go-ahead.** |
+| **Progress** | ✅🔶⬜⬜⬜⬜⬜ Batch 1 complete · **Batch 2 part-done** |
+| **Batch 2** | ✅ 2.1 impact dialog · ✅ 2.2 bulk Cancel · 🔴 **Purge blocked — needs a migration** · ⬜ 2.3 avatars |
+| **Next** | A decision on the purge migration, then avatars. |
 
 ---
 
@@ -203,7 +204,60 @@ button that silently changed from "deselect" to "destroy" is the worst possible
 outcome of this request. Instead the bar gains **Cancel selected**, and for the
 Super Admin a separate, clearly-marked **Purge**. Both go through 2.1's dialog.
 
-### 2.3 Real avatars on every task
+### ✅ 2.1 / 2.2 built — and one blocker found
+
+`components/task/impact-dialog.tsx` is shared by all three actions, because the
+question is identical and only the consequence differs. It reports, in one
+database round trip for the whole selection:
+
+- **which tasks are waiting on these** — the only part shown as a warning,
+  because it is the only part that changes somebody's plan
+- subtasks, and what happens to them
+- comments, attachments, checklist items and logged time, and whether they are
+  kept or destroyed
+
+The per-task **Delete had no confirmation at all** — it deleted on one click.
+It now opens the same dialog.
+
+**Clear stays Clear.** The bar gained **Cancel work**, which requires a reason
+(FR-043) and is refused without one.
+
+#### 🔴 Purge cannot work yet, and it fails SILENTLY
+
+Measured against the real database, not assumed:
+
+```
+policies on public.tasks →  tasks_select (r)  tasks_insert (a)  tasks_update (w)
+rows deleted as SUPER ADMIN via cni_app → 0
+```
+
+`public.tasks` has row-level security enabled and **no DELETE policy**. With RLS
+on, a command with no policy is refused for every row — so a purge deletes
+nothing and raises nothing. It would have reported success.
+
+This is the same trap Session 11 already hit once: *"the RLS delete policy being
+Super-Admin-only meant an Admin's Reset deleted zero rows with no error."*
+
+Worse, the action removes the attachment **storage objects first** — deliberately,
+so nothing is orphaned. Shipping it as-is would have destroyed the files and
+left the tasks in place.
+
+**So the control is not rendered and the action refuses loudly.**
+`lib/capabilities.ts` holds one flag with the exact migration needed:
+
+```sql
+create policy tasks_delete on public.tasks for delete to cni_app
+  using (app.current_user_role() = 'super_admin');
+```
+
+Everything else — permission check, step-up, impact dialog, storage cleanup,
+audit entry naming what was destroyed — is written and waiting on that one
+policy. **Migrations wait for the owner (rule R1).**
+
+> A dead control is exactly what opened this batch (B1's Add task, B4's calendar
+> tab). Shipping another one would have been worse than shipping nothing.
+
+### ⬜ 2.3 Real avatars on every task
 > *"Avatars should be on every task the member, coordinator, admin is assigned
 > to… not the icons which you have right now."*
 

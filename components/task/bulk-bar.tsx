@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { AlertTriangle, Bell, CheckCheck, Loader2, X } from 'lucide-react';
+import { AlertTriangle, Ban, Bell, CheckCheck, Loader2, Trash2, X } from 'lucide-react';
 
 import {
   bulkAssignAction,
@@ -9,9 +9,13 @@ import {
   bulkWatchAction,
   type BulkResult,
 } from '@/app/actions/task-relations';
+import { purgeTasksAction } from '@/app/actions/tasks';
+import { StepUpDialog } from '@/components/security/step-up-dialog';
 import { Button } from '@/components/ui/button';
 import { Select } from '@/components/ui/select';
 import { STATUS_META, TASK_STATUSES, type TaskStatus } from '@/lib/domain/constants';
+
+import { ImpactDialog, type ImpactMode } from './impact-dialog';
 
 /* ============================================================================
  * BULK ACTIONS
@@ -36,17 +40,23 @@ export function BulkBar({
   onClear,
   onDone,
   people,
+  canPurge = false,
 }: {
   selectedIds: readonly string[];
   onClear: () => void;
   /** Refresh the list once the writes have landed. */
   onDone: () => void;
   people: readonly { id: string; name: string }[];
+  /** Super Admin only. The server checks it again — this only hides a control
+   *  that would always be refused, which is convenience, never security. */
+  canPurge?: boolean;
 }) {
   const [busy, setBusy] = React.useState(false);
   const [result, setResult] = React.useState<BulkResult | null>(null);
   const [status, setStatus] = React.useState<TaskStatus | ''>('');
   const [assignee, setAssignee] = React.useState('');
+  const [confirming, setConfirming] = React.useState<ImpactMode | null>(null);
+  const [stepUpOpen, setStepUpOpen] = React.useState(false);
 
   const run = async (fn: () => Promise<BulkResult>) => {
     setBusy(true);
@@ -120,6 +130,35 @@ export function BulkBar({
           Follow
         </Button>
 
+        <span aria-hidden="true" className="h-5 w-px bg-border-subtle" />
+
+        {/* ── CANCEL, AND WHY "CLEAR" WAS NOT REPURPOSED ────────────────────
+            The owner asked for *"the clear button's functionality of deleting
+            the selected task"*. Clear stays Clear. A control that means
+            "deselect" today and "destroy" tomorrow is how work gets lost by
+            muscle memory, and the two are one pixel apart on the same bar.
+
+            Cancel is reversible and keeps everything attached to the task,
+            which is what "remove this from my board" almost always means.
+            Purge — permanent — is Super Admin only and sits behind the same
+            dialog plus a typed confirmation. */}
+        <Button
+          variant="secondary"
+          size="md"
+          disabled={busy}
+          onClick={() => setConfirming('cancel')}
+        >
+          <Ban className="h-3.5 w-3.5" strokeWidth={2} aria-hidden="true" />
+          Cancel work
+        </Button>
+
+        {canPurge && (
+          <Button variant="danger" size="md" disabled={busy} onClick={() => setConfirming('purge')}>
+            <Trash2 className="h-3.5 w-3.5" strokeWidth={2} aria-hidden="true" />
+            Purge
+          </Button>
+        )}
+
         <Button variant="ghost" size="md" disabled={busy} onClick={onClear}>
           <X className="h-3.5 w-3.5" strokeWidth={2} aria-hidden="true" />
           Clear
@@ -129,6 +168,51 @@ export function BulkBar({
           <Loader2 className="h-4 w-4 animate-spin text-text-tertiary" aria-hidden="true" />
         )}
       </div>
+
+      <ImpactDialog
+        open={confirming !== null}
+        mode={confirming ?? 'cancel'}
+        taskIds={selectedIds}
+        busy={busy}
+        onClose={() => setConfirming(null)}
+        onConfirm={(reason) => {
+          const mode = confirming;
+          setConfirming(null);
+          if (mode === 'cancel') {
+            void run(() => bulkChangeStatusAction(selectedIds, 'cancelled', reason));
+          } else if (mode === 'purge') {
+            void run(async () => {
+              const outcome = await purgeTasksAction([...selectedIds]);
+              if (outcome.stepUpRequired) {
+                setStepUpOpen(true);
+                return { ok: false, succeeded: 0, failed: 0, refusals: [], error: outcome.error };
+              }
+              /* Purged tasks cannot stay selected — they no longer exist. */
+              if (outcome.ok) onClear();
+              return {
+                ok: outcome.ok,
+                succeeded: outcome.ok ? selectedIds.length : 0,
+                failed: outcome.ok ? 0 : selectedIds.length,
+                refusals: outcome.error ? [outcome.error] : [],
+                error: outcome.error,
+                note: outcome.ok
+                  ? `${selectedIds.length} destroyed permanently.`
+                  : undefined,
+              };
+            });
+          }
+        }}
+      />
+
+      <StepUpDialog
+        open={stepUpOpen}
+        actionLabel="Destroying tasks permanently"
+        onClose={() => setStepUpOpen(false)}
+        onConfirmed={() => {
+          setStepUpOpen(false);
+          setConfirming('purge');
+        }}
+      />
 
       {result && (
         <div

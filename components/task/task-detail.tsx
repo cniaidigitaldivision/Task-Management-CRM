@@ -49,6 +49,7 @@ import {
 import { transitionNeedsReason } from '@/lib/domain/task-machine';
 import { cn } from '@/lib/utils';
 
+import { ImpactDialog } from './impact-dialog';
 import { TaskDialog } from './task-dialog';
 
 /* ============================================================================
@@ -130,6 +131,7 @@ export function TaskDetail({
      removes the possibility of the flag and the data disagreeing. */
   const [loadedId, setLoadedId] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
+  const [confirmingDelete, setConfirmingDelete] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [comment, setComment] = React.useState('');
   const [newItem, setNewItem] = React.useState('');
@@ -629,14 +631,16 @@ export function TaskDetail({
                 <Pencil className="h-3.5 w-3.5" strokeWidth={2} aria-hidden="true" />
                 Edit details
               </Button>
+              {/* ── IT ASKS FIRST NOW ────────────────────────────────────────
+                  Owner instruction, Session 20. This deleted on a single click,
+                  with no confirmation of any kind — and deleting a task that
+                  three others are waiting on silently unblocks all three. The
+                  dialog names them before it happens. */}
               <Button
                 variant="ghost"
                 size="sm"
                 disabled={busy}
-                onClick={async () => {
-                  const ok = await run(() => deleteTaskAction(task.id));
-                  if (ok) onClose();
-                }}
+                onClick={() => setConfirmingDelete(true)}
               >
                 <Trash2 className="h-3.5 w-3.5" strokeWidth={2} aria-hidden="true" />
                 Delete
@@ -687,6 +691,22 @@ export function TaskDetail({
           aria-label="Reason"
         />
       </Drawer>
+
+      {/* ---- Delete, with the blast radius shown first ---- */}
+      {task && (
+        <ImpactDialog
+          open={confirmingDelete}
+          mode="delete"
+          taskIds={[task.id]}
+          busy={busy}
+          onClose={() => setConfirmingDelete(false)}
+          onConfirm={async () => {
+            setConfirmingDelete(false);
+            const ok = await run(() => deleteTaskAction(task.id));
+            if (ok) onClose();
+          }}
+        />
+      )}
 
       {/* ---- Edit ---- */}
       {task && (

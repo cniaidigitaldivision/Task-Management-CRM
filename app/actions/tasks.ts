@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 
-import { requireUser } from '@/lib/auth/current-user';
+import { requireUser, stepUpIsFresh } from '@/lib/auth/current-user';
 import { withUser } from '@/lib/db/client';
 import { audit } from '@/lib/db/queries/audit';
 import { notify, record } from '@/lib/db/queries/feed';
@@ -26,7 +26,9 @@ import {
   unfinishedBlockers,
 } from '@/lib/domain/dependencies';
 import { canDecideExtensions } from '@/lib/domain/extensions';
+import { PURGE_IS_AVAILABLE } from '@/lib/capabilities';
 import { can } from '@/lib/domain/permissions';
+import { nowMs } from '@/lib/now';
 import {
   formatRecurrence,
   nextInstanceDates,
@@ -35,7 +37,7 @@ import {
 import { evaluateTransition, taskLoad } from '@/lib/domain/task-machine';
 import { computeWorkload, evaluateAssignment, weekWindow } from '@/lib/domain/workload';
 import { getSettings } from '@/lib/settings/current';
-import { describeStorage } from '@/lib/storage/bucket';
+import { describeStorage, removeObject } from '@/lib/storage/bucket';
 
 /* ============================================================================
  * TASK ACTIONS — LAYER 3
@@ -69,6 +71,9 @@ export interface ActionResult {
   readonly warning?: string;
   readonly taskId?: string;
   readonly reference?: string;
+  /** The caller must re-authenticate before this will be accepted (FR-149).
+   *  Only `purgeTasksAction` raises it — nothing else here is irreversible. */
+  readonly stepUpRequired?: boolean;
 }
 
 const fail = (error: string): ActionResult => ({ ok: false, error });
@@ -1024,4 +1029,109 @@ function readableDbError(error: unknown): string {
     return 'You do not have permission to change that.';
   }
   return 'That could not be saved. Nothing was changed.';
+}
+
+/* ==========================================================================
+ * WHAT WOULD THIS DISTURB, AND THE PERMANENT DELETE
+ * ========================================================================== */
+
+/**
+ * Read the blast radius of a cancel, delete or purge, for the dialog that asks.
+ *
+ * No permission check of its own, deliberately: every count and every reference
+ * it returns comes from a `withUser` query, so row-level security has already
+ * decided what this person may see. A Member's impact report cannot name a task
+ * they are not entitled to know exists (ADR-003).
+ */
+export async function describeImpactAction(taskIds: string[]): Promise<T.TaskImpact[]> {
+  const user = await requireUser();
+  return T.describeImpact(user.id, taskIds);
+}
+
+/**
+ * Destroy tasks permanently. Super Admin only, and only with a fresh step-up.
+ *
+ * ── WHY THIS EXISTS WHEN A SOFT DELETE ALREADY DOES ──────────────────────────
+ * `task.purge` has been in doc 03 §3 since Step 3 with no implementation.
+ * FR-095's soft delete is the right answer almost always — hidden, recoverable
+ * for 30 days. Purge covers the one case it cannot: something that should never
+ * have been recorded at all, carrying a client name or a note that must not sit
+ * in the database for a month.
+ *
+ * ── THE ORDER MATTERS, AND IT IS THE ONLY ORDER THAT DOES NOT LITTER ─────────
+ * Storage objects are removed BEFORE the rows. Postgres cascades every child
+ * table for us, but it cannot reach into Supabase Storage — so deleting the
+ * rows first would lose the only record of which objects to remove, leaving
+ * files nobody can find and nobody can delete.
+ *
+ * Doing it this way risks the opposite: objects gone and the delete then
+ * refused, leaving rows pointing at nothing. That is the better failure. A
+ * broken download link is visible and fixable; an orphaned private object is
+ * invisible and permanent.
+ */
+export async function purgeTasksAction(taskIds: string[]): Promise<ActionResult> {
+  const user = await requireUser();
+
+  if (!can({ role: user.role, id: user.id }, 'task.purge')) {
+    return fail('Only the Super Admin can permanently destroy a task. Delete keeps it for 30 days (FR-095).');
+  }
+
+  /* ⚠️ Refuse before doing any of the work, rather than deleting the storage
+     objects and then finding the rows cannot go. `public.tasks` has RLS on and
+     no DELETE policy, so the delete silently affects zero rows — measured, and
+     the same trap Session 11 hit. Reporting "0 destroyed" as a success would be
+     the worst outcome: the attachments would already be gone. */
+  if (!PURGE_IS_AVAILABLE) {
+    return fail(
+      'Purge is not available yet. `public.tasks` has row-level security with no DELETE policy, so the database refuses every delete silently — a migration adding a Super-Admin-only `tasks_delete` policy is needed first, and migrations wait for your go-ahead. Use Delete, which hides it and keeps it recoverable for 30 days.',
+    );
+  }
+  if (!stepUpIsFresh(user, nowMs())) {
+    return { ok: false, error: 'Confirm it is you before destroying anything permanently.', stepUpRequired: true };
+  }
+  if (taskIds.length === 0) return fail('Nothing was selected.');
+
+  /* Read what is about to be destroyed while it still exists — the audit entry
+     has to name it, and afterwards there is nothing left to name. */
+  const doomed = await T.describeImpact(user.id, taskIds);
+  if (doomed.length === 0) return fail('Those tasks no longer exist.');
+
+  const paths = await T.attachmentPathsFor(user.id, taskIds);
+  for (const path of paths) {
+    /* A failure here is logged by describeStorage's own result and does not
+       stop the purge: an object we could not remove is litter, and refusing to
+       destroy the row because of it would leave the task in place instead. */
+    await removeObject(path).catch(() => null);
+  }
+
+  const purged = await T.purgeTasks(user.id, doomed.map((row) => row.taskId));
+
+  await withUser(user.id, (tx) =>
+    audit(tx, user, {
+      entityType: 'task',
+      entityId: doomed.length === 1 ? doomed[0].taskId : null,
+      action: 'task.purged',
+      before: {
+        tasks: doomed.map((row) => ({
+          reference: row.reference,
+          title: row.title,
+          status: row.status,
+          comments: row.commentCount,
+          attachments: row.attachmentCount,
+          minutesLogged: row.minutesLogged,
+        })),
+        attachmentObjects: paths.length,
+      },
+      after: { purged },
+    }),
+  );
+
+  revalidateWork();
+  return {
+    ok: true,
+    warning:
+      purged === doomed.length
+        ? undefined
+        : `${purged} of ${doomed.length} were destroyed; the rest were refused by the database.`,
+  };
 }

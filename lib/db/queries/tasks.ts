@@ -576,3 +576,166 @@ export async function logManualTime(
     `;
   });
 }
+
+/* ==========================================================================
+ * WHAT A CANCELLATION OR A PURGE WOULD ACTUALLY DISTURB
+ * ==========================================================================
+ * Owner instruction, Session 20: *"if I'm deleting, it should tell me a
+ * confirmation message before deletion — that these things will be affected by
+ * this deletion, and what the dependencies will be, and how I would have to
+ * rearrange them."*
+ *
+ * ── ONE ROUND TRIP FOR THE WHOLE SELECTION ───────────────────────────────────
+ * A bulk cancel can name twenty tasks. Asking per task would be twenty round
+ * trips to Singapore before a dialog could open, and the dialog would appear
+ * a second and a half after the click — which is exactly when somebody has
+ * already clicked again.
+ *
+ * ── IT ANSWERS "WHAT BECOMES UNBLOCKED", NOT JUST "WHAT IS LINKED" ───────────
+ * The interesting direction is `depends_on_task_id = these`: tasks that are
+ * WAITING on the ones being removed. Those are the ones whose plan changes, and
+ * they are what the owner meant by "how would I have to rearrange them".
+ *
+ * Row-level security applies throughout, so a Member's impact report cannot
+ * name a task they are not entitled to see (ADR-003).
+ * ========================================================================= */
+
+export interface TaskImpact {
+  readonly taskId: string;
+  readonly reference: string;
+  readonly title: string;
+  readonly status: TaskStatus;
+  /** Open subtasks. They follow the parent, so they are named before it happens. */
+  readonly subtaskCount: number;
+  readonly commentCount: number;
+  readonly attachmentCount: number;
+  readonly checklistCount: number;
+  readonly minutesLogged: number;
+  /** Tasks WAITING on this one — the plan that changes if it goes. */
+  readonly blocks: ReadonlyArray<{ reference: string; title: string }>;
+}
+
+export async function describeImpact(
+  actorId: string,
+  taskIds: readonly string[],
+): Promise<TaskImpact[]> {
+  if (taskIds.length === 0) return [];
+
+  const ids = [...taskIds];
+
+  const [rows, edges] = await withUser(actorId, async (tx) => {
+    const counts = await tx`
+      select t.id, t.reference, t.title, t.status,
+             (select count(*) from public.tasks st
+               where st.parent_task_id = t.id and not st.is_deleted)      as subtask_count,
+             (select count(*) from public.comments c
+               where c.task_id = t.id)                                     as comment_count,
+             (select count(*) from public.attachments a
+               where a.task_id = t.id)                                     as attachment_count,
+             (select count(*) from public.checklist_items ci
+               where ci.task_id = t.id)                                    as checklist_count,
+             (select coalesce(sum(te.minutes), 0) from public.time_entries te
+               where te.task_id = t.id)                                    as minutes_logged
+        from public.tasks t
+       where t.id = any(${ids}::uuid[]) and not t.is_deleted
+       order by t.reference
+    `;
+
+    const dependents = await tx`
+      select d.depends_on_task_id as subject_id, t.reference, t.title
+        from public.task_dependencies d
+        join public.tasks t on t.id = d.task_id and not t.is_deleted
+       where d.depends_on_task_id = any(${ids}::uuid[])
+       order by t.reference
+    `;
+
+    return [counts, dependents] as const;
+  });
+
+  const blocksBy = new Map<string, Array<{ reference: string; title: string }>>();
+  for (const edge of edges) {
+    const key = edge.subject_id as string;
+    const list = blocksBy.get(key) ?? [];
+    list.push({ reference: edge.reference as string, title: edge.title as string });
+    blocksBy.set(key, list);
+  }
+
+  return rows.map((row) => ({
+    taskId: row.id as string,
+    reference: row.reference as string,
+    title: row.title as string,
+    status: row.status as TaskStatus,
+    subtaskCount: Number(row.subtask_count ?? 0),
+    commentCount: Number(row.comment_count ?? 0),
+    attachmentCount: Number(row.attachment_count ?? 0),
+    checklistCount: Number(row.checklist_count ?? 0),
+    minutesLogged: Number(row.minutes_logged ?? 0),
+    blocks: blocksBy.get(row.id as string) ?? [],
+  }));
+}
+
+/* ==========================================================================
+ * PURGE — permanent, Super Admin only
+ * ==========================================================================
+ * doc 03 §3 has had `task.purge` as Super-Admin-with-step-up since Step 3, and
+ * it has never had an implementation. This is it.
+ *
+ * ── WHY A REAL DELETE, WHEN A SOFT DELETE ALREADY EXISTS ─────────────────────
+ * FR-095's soft delete hides a task for 30 days and is the right answer almost
+ * always. Purge is for the case it cannot serve: something that should never
+ * have been recorded — a task created against the wrong client, carrying a name
+ * or a note that must not sit in the database for a month.
+ *
+ * ── EVERYTHING ATTACHED GOES WITH IT, BY THE SCHEMA ──────────────────────────
+ * `comments`, `attachments`, `checklist_items`, `time_entries`,
+ * `task_dependencies`, `task_watchers` and `task_skills` are all
+ * `on delete cascade` from `tasks`, and subtasks cascade through
+ * `parent_task_id`. So one delete is genuinely one delete — there is no
+ * half-purged state to design around.
+ *
+ * ⚠️ Storage objects are NOT cascaded. Postgres cannot reach into Supabase
+ * Storage, so an attachment's row goes and its object would be left orphaned.
+ * The caller removes those first; see purgeTasksAction.
+ *
+ * ⚠️⚠️ THIS CANNOT WORK YET, AND IT FAILS SILENTLY — MEASURED, NOT ASSUMED.
+ * `public.tasks` has row-level security enabled and **no DELETE policy**:
+ *
+ *     policies on public.tasks → tasks_select (r), tasks_insert (a), tasks_update (w)
+ *
+ * With RLS on, a command with no policy is refused for every row — so this
+ * deletes NOTHING and raises NOTHING. Verified against the real database as the
+ * Super Admin through `cni_app`: **0 rows deleted.**
+ *
+ * This is the same trap Session 11 hit, where "the RLS delete policy being
+ * Super-Admin-only meant an Admin's Reset deleted zero rows with no error".
+ *
+ * Closing it needs a migration adding `tasks_delete` restricted to
+ * `app.current_user_role() = 'super_admin'`, and migrations wait for the
+ * owner's go-ahead (rule R1). Until then `PURGE_IS_AVAILABLE` is false, the
+ * control is not rendered, and the action refuses loudly rather than reporting
+ * a success that did not happen.
+ * ========================================================================= */
+
+/* The flag itself lives in lib/capabilities.ts — a client component needs to
+   read it too, and everything here is server-only. */
+
+export async function purgeTasks(actorId: string, taskIds: readonly string[]): Promise<number> {
+  if (taskIds.length === 0) return 0;
+  const rows = await withUser(actorId, (tx) => tx`
+    delete from public.tasks where id = any(${[...taskIds]}::uuid[]) returning id
+  `);
+  return rows.length;
+}
+
+/** The storage paths a purge would orphan, read before the rows are gone. */
+export async function attachmentPathsFor(
+  actorId: string,
+  taskIds: readonly string[],
+): Promise<string[]> {
+  if (taskIds.length === 0) return [];
+  const rows = await withUser(actorId, (tx) => tx`
+    select file_path from public.attachments
+     where task_id = any(${[...taskIds]}::uuid[])
+  `);
+  return rows.map((row) => row.file_path as string);
+}
