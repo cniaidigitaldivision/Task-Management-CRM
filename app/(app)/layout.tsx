@@ -61,6 +61,7 @@ export default async function AppGroupLayout({ children }: { children: React.Rea
         role: user.role,
         roleTitle: user.roleTitle,
         theme: user.theme,
+        avatarUrl: user.avatarUrl,
       }}
       notifications={notifications}
       unreadCount={unread}

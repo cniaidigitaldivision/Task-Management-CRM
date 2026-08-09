@@ -69,6 +69,8 @@ export interface ShellUser {
   readonly role: Role;
   readonly roleTitle: string | null;
   readonly theme: Theme;
+  /** Their uploaded picture, shown in the rail. CHANGE-PLAN 2.3. */
+  readonly avatarUrl: string | null;
 }
 
 export interface ShellProject {
@@ -208,6 +210,7 @@ export function AppShell({
       <Sidebar
         role={user.role}
         userName={user.name}
+        userAvatarUrl={user.avatarUrl}
         open={navOpen}
         onClose={closeNav}
         pinned={pinned}

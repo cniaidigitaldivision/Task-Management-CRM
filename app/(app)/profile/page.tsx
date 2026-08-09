@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { KeyRound, Shield, ShieldCheck, Smartphone } from 'lucide-react';
 
 import { ThemeSetting } from '@/components/brand/theme-toggle';
+import { AvatarForm } from '@/components/team/avatar-form';
 import { EmailForm } from '@/components/team/email-form';
 import { ProfileForm } from '@/components/team/profile-form';
 import { Avatar } from '@/components/ui/avatar';
@@ -61,7 +62,7 @@ export default async function ProfilePage() {
 
       <Card>
         <CardBody className="flex flex-wrap items-center gap-x-6 gap-y-4 p-5">
-          <Avatar name={user.fullName} size="xl" />
+          <Avatar name={user.fullName} src={user.avatarUrl} size="xl" />
           <div className="min-w-[12rem] flex-1">
             <p className="text-h3 text-text-primary">{user.fullName}</p>
             <p className="text-caption text-text-secondary">{user.roleTitle ?? '—'}</p>
@@ -125,6 +126,13 @@ export default async function ProfilePage() {
                   timezone: user.timezone,
                 }}
               />
+            </CardBody>
+          </Card>
+
+          <Card>
+            <CardToolbar title="Your picture" />
+            <CardBody className="p-5">
+              <AvatarForm name={user.fullName} currentUrl={user.avatarUrl} />
             </CardBody>
           </Card>
 

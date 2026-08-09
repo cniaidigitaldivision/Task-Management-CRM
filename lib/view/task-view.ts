@@ -37,6 +37,8 @@ export interface TaskView {
   readonly assigneeId: string | null;
   /** Display name, or 'Unassigned'. The grouping key is `assigneeId`. */
   readonly assignee: string;
+  /** Their uploaded picture, or null for initials. CHANGE-PLAN 2.3. */
+  readonly assigneeAvatarUrl: string | null;
   readonly createdById: string;
   readonly createdBy: string;
   readonly status: TaskStatus;
@@ -136,6 +138,7 @@ export function toTaskView(row: TaskRow, nowMs: number): TaskView {
     projectType: row.projectType,
     assigneeId: row.assigneeId,
     assignee: row.assigneeName ?? 'Unassigned',
+    assigneeAvatarUrl: row.assigneeAvatarUrl,
     createdById: row.createdById,
     createdBy: row.createdByName ?? 'Unknown',
     status: row.status,

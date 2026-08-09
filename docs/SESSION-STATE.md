@@ -265,7 +265,44 @@ The new asset is a **transparent raster**, not vector. That changes what each fo
 
 ## 3. ⏭️ NEXT ACTION
 
-### ✅ Session 22 — Batch 2: the impact dialog, Cancel, and Purge (migration 019)
+### ✅ Session 22 — CHANGE-PLAN Batch 2 COMPLETE
+
+`958 unit · 141 integration · 27/27 smoke · every part checked in Chrome.`
+
+**Next: Batch 3 (forms) — awaiting the go-ahead.**
+
+#### Avatars (2.3)
+
+Bucket `avatars` provisioned with the owner's approval: **public**, 2 MB,
+JPEG/PNG/WebP only. `attachments` stays **private** — that was a deliberate
+Step 7 fix and is untouched. An attachment is work and a permanent URL to one is
+access forever; an avatar is a face drawn on every card, where a signing round
+trip per person per page would protect a photograph the same people are already
+looking at.
+
+**Which makes the file check the important part.** A public bucket serves what
+it is given, and an SVG is a document that can carry script.
+`lib/storage/bucket.ts` decides the type from the file's **magic bytes**, never
+from `File.type` — a claim by the client, not an inspection. Verified: an SVG
+containing `<script>alert(1)</script>` declared as `image/png` was refused and
+nothing reached the bucket.
+
+**One component did it everywhere.** Every screen already rendered
+`<Avatar name=… />`; adding `src` to that primitive put faces on the board, the
+list, the drawer, Team, Workload, the dashboard and the rail at once. Initials
+stay underneath, so a 404 falls back rather than showing a broken image.
+
+**Resized in the browser** to 256px before sending — measured on a real upload,
+560,200 bytes → 5,093. Canvas output carries no EXIF, so a phone photo's GPS
+coordinates never leave the device. That is convenience, not a boundary; the
+magic-byte check is the boundary.
+
+**Two things the browser test caught:** a refused upload kept its preview, so a
+rejection appeared to delete the existing picture; and `loading="lazy"` was
+wrong for avatars — browsers defer lazy images entirely in a background tab, so
+a board opened in a second tab showed no faces until it was looked at.
+
+### ✅ Session 22 (part 1) — the impact dialog, Cancel, and Purge (migration 019)
 
 **Built and verified in Chrome:** the shared impact dialog (2.1), bulk **Cancel
 work**, and **Purge** — which needed migration 019 and the owner's approval to

@@ -138,7 +138,7 @@ export function TaskCard({
                 aria-hidden="true"
               />
             ) : (
-              <Avatar name={task.assignee} size="xs" />
+              <Avatar name={task.assignee} src={task.assigneeAvatarUrl} size="xs" />
             )}
           </div>
           <p

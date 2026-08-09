@@ -122,7 +122,7 @@ export function TeamWorkspace({
             return (
               <li key={person.id} className="space-y-3 px-5 py-4">
                 <div className="flex flex-wrap items-start gap-4">
-                  <Avatar name={person.fullName} size="lg" />
+                  <Avatar name={person.fullName} src={person.avatarUrl} size="lg" />
 
                   <div className="min-w-[12rem] flex-1">
                     <div className="flex flex-wrap items-center gap-2">

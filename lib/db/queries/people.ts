@@ -280,3 +280,28 @@ export async function removeUserSkill(
     delete from public.user_skills where user_id = ${userId} and skill_id = ${skillId}
   `);
 }
+
+/**
+ * Set or clear your own profile picture, returning the URL it replaced.
+ *
+ * The previous URL comes back so the caller can remove the old object once the
+ * row is safely updated. That order matters: delete-then-update risks a row
+ * pointing at a file that is gone (a broken image on every card), while
+ * update-then-delete risks an orphaned file (40 KB of litter nobody sees).
+ */
+export async function setOwnAvatar(
+  actorId: string,
+  url: string | null,
+): Promise<{ previousUrl: string | null }> {
+  const rows = await withUser(actorId, (tx) => tx`
+    with previous as (
+      select id, avatar_url from public.users where id = ${actorId}
+    )
+    update public.users u
+       set avatar_url = ${url}
+      from previous p
+     where u.id = p.id
+    returning p.avatar_url as previous_url
+  `);
+  return { previousUrl: (rows[0]?.previous_url as string | null) ?? null };
+}

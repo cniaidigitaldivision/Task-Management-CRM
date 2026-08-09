@@ -57,12 +57,14 @@ function RailBadge({ count, tone }: { count: number; tone: 'neutral' | 'alert' }
 export function Sidebar({
   role,
   userName,
+  userAvatarUrl = null,
   open,
   onClose,
   pinned = false,
 }: {
   role: Role;
   userName: string;
+  userAvatarUrl?: string | null;
   open: boolean;
   onClose: () => void;
   /** Open or collapsed. Toggled ONLY by the tab in app-shell.tsx — the rail no
@@ -274,7 +276,7 @@ export function Sidebar({
             className="group flex items-center gap-2.5 rounded-lg py-2 pr-2.5 pl-3 transition-colors duration-[120ms] hover:bg-[var(--sidebar-item-hover-bg)] focus-visible:outline-none"
           >
             <span className="flex w-[17px] shrink-0 justify-center">
-              <Avatar name={userName} size="sm" />
+              <Avatar name={userName} src={userAvatarUrl} size="sm" />
             </span>
             <span className="min-w-0 flex-1 transition-opacity duration-150 lg:opacity-0 lg:group-data-[pinned=true]/rail:opacity-100">
               <span

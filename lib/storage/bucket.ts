@@ -239,3 +239,145 @@ export async function removeObject(path: string): Promise<StorageResult<null>> {
     return { ok: false, message: 'File storage could not be reached.' };
   }
 }
+
+/* ============================================================================
+ * AVATARS — a SECOND bucket, and a public one
+ * ----------------------------------------------------------------------------
+ * Owner approved on 2026-08-09. Provisioned `avatars`: **public**, 2 MB, and
+ * `image/jpeg`, `image/png`, `image/webp` only.
+ *
+ * ── WHY PUBLIC HERE WHEN ATTACHMENTS ARE PRIVATE ─────────────────────────────
+ * That distinction is deliberate and is not a softening of Step 7's fix.
+ *
+ * An attachment is WORK. A client's brief, a contract, an unreleased campaign —
+ * a permanent URL to one, forwarded once, is access forever, to anybody, with
+ * no account, including after somebody leaves. That is why it is private and
+ * why every download is a one-hour signed link.
+ *
+ * An avatar is a face. It appears on every card on the board, so a private
+ * bucket would mean a signing round trip per person per page — and what it
+ * would be protecting is a photograph the same people can see on screen anyway.
+ * The trade is a guessable URL to somebody's profile picture, against a
+ * measurable cost on every page. Every CRM makes it the same way.
+ *
+ * ── NO SVG, AND THAT IS THE IMPORTANT PART ───────────────────────────────────
+ * A public bucket serves whatever it is given. An SVG is a document that can
+ * carry script, so an uploaded one becomes stored XSS on the storage origin.
+ * The bucket's own MIME allow-list excludes it, and `uploadAvatar` below checks
+ * the file's MAGIC BYTES rather than trusting the declared type — a browser's
+ * `File.type` is a claim by the client, not an inspection.
+ * ========================================================================= */
+
+const AVATAR_BUCKET = 'avatars';
+
+/** JPEG, PNG and WebP, identified by their leading bytes. */
+function sniffImage(bytes: Uint8Array): 'image/jpeg' | 'image/png' | 'image/webp' | null {
+  if (bytes.length < 12) return null;
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg';
+  if (
+    bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47 &&
+    bytes[4] === 0x0d && bytes[5] === 0x0a && bytes[6] === 0x1a && bytes[7] === 0x0a
+  ) {
+    return 'image/png';
+  }
+  /* RIFF....WEBP */
+  if (
+    bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
+    bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50
+  ) {
+    return 'image/webp';
+  }
+  return null;
+}
+
+/** 2 MB, matching the bucket's own limit so the refusal is ours and readable. */
+export const AVATAR_MAX_BYTES = 2 * 1024 * 1024;
+
+/**
+ * Store somebody's profile picture and return the URL to show it at.
+ *
+ * The content type is decided HERE from the bytes, never from what the caller
+ * said it was. That is the whole defence: a public bucket serves what it is
+ * given, so what it is given has to be an image in fact and not by assertion.
+ */
+export async function uploadAvatar(
+  userId: string,
+  bytes: Uint8Array,
+): Promise<StorageResult<{ path: string; url: string }>> {
+  const status = describeStorage();
+  if (!status.configured) return { ok: false, message: status.reason ?? 'Storage is not set up.' };
+
+  if (bytes.byteLength === 0) return { ok: false, message: 'That file is empty.' };
+  if (bytes.byteLength > AVATAR_MAX_BYTES) {
+    return { ok: false, message: 'Pictures have to be under 2 MB. Try a smaller one.' };
+  }
+
+  const contentType = sniffImage(bytes);
+  if (!contentType) {
+    return {
+      ok: false,
+      message:
+        'That is not a JPEG, PNG or WebP image. SVG is deliberately not accepted — it can carry script, and this bucket is public.',
+    };
+  }
+
+  /* A new path every time, so a changed picture is never served from a cache
+     under the old URL. The previous object is removed by the caller after the
+     row is updated — that order leaves a brief orphan rather than a broken
+     image, which is the better of the two failures. */
+  const extension = contentType === 'image/jpeg' ? 'jpg' : contentType === 'image/png' ? 'png' : 'webp';
+  const path = `${userId}/${Date.now()}.${extension}`;
+
+  try {
+    const response = await fetch(
+      `${PROJECT_URL}/storage/v1/object/${AVATAR_BUCKET}/${encodePath(path)}`,
+      {
+        method: 'POST',
+        headers: headers({ 'Content-Type': contentType, 'x-upsert': 'false' }),
+        body: bytes as BodyInit,
+        signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
+      },
+    );
+    if (!response.ok) {
+      return { ok: false, message: await readError(response, 'The picture could not be saved.') };
+    }
+    return { ok: true, value: { path, url: avatarPublicUrl(path) } };
+  } catch (error) {
+    return {
+      ok: false,
+      message:
+        error instanceof Error && error.name === 'TimeoutError'
+          ? 'The upload timed out. Try a smaller picture.'
+          : 'File storage could not be reached. Nothing was changed.',
+    };
+  }
+}
+
+/** The permanent URL for a stored avatar. Public bucket — no signing needed. */
+export function avatarPublicUrl(path: string): string {
+  return `${PROJECT_URL}/storage/v1/object/public/${AVATAR_BUCKET}/${encodePath(path)}`;
+}
+
+/** Best-effort tidy-up of a replaced picture. Never blocks the change itself. */
+export async function removeAvatar(path: string): Promise<void> {
+  if (!describeStorage().configured) return;
+  try {
+    await fetch(`${PROJECT_URL}/storage/v1/object/${AVATAR_BUCKET}/${encodePath(path)}`, {
+      method: 'DELETE',
+      headers: headers(),
+      signal: AbortSignal.timeout(API_TIMEOUT_MS),
+    });
+  } catch {
+    /* An orphaned 40 KB image is litter. Failing the person's profile change
+       because of it would be worse. */
+  }
+}
+
+/** The storage path inside a stored avatar URL, or null if it is not one. */
+export function avatarPathFromUrl(url: string | null): string | null {
+  if (!url) return null;
+  const marker = `/storage/v1/object/public/${AVATAR_BUCKET}/`;
+  const at = url.indexOf(marker);
+  if (at === -1) return null;
+  return decodeURIComponent(url.slice(at + marker.length));
+}

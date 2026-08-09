@@ -186,7 +186,7 @@ function TaskRow({ task, onOpen }: { task: TaskView; onOpen?: (id: string) => vo
       {/* Assignee */}
       <td className="px-3 py-2.5">
         <div className="flex items-center gap-2">
-          <Avatar name={task.assignee} size="xs" />
+          <Avatar name={task.assignee} src={task.assigneeAvatarUrl} size="xs" />
           <span className="hidden truncate text-caption text-text-secondary xl:inline">
             {task.assignee.split(' ')[0]}
           </span>

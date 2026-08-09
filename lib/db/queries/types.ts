@@ -57,6 +57,8 @@ export interface TaskRow {
   readonly parentTaskId: string | null;
   readonly assigneeId: string | null;
   readonly assigneeName: string | null;
+  /** Their uploaded picture, so a card can show a face rather than initials. */
+  readonly assigneeAvatarUrl: string | null;
   readonly createdById: string;
   readonly createdByName: string | null;
   readonly status: TaskStatus;

@@ -11,6 +11,7 @@ import {
   changeOwnEmail,
   getPerson,
   removeUserSkill,
+  setOwnAvatar,
   setTheme,
   setUserSkill,
   updateCapacity,
@@ -26,6 +27,12 @@ import {
 import { sameEmail, validateEmailAddress } from '@/lib/domain/email-address';
 import { can } from '@/lib/domain/permissions';
 import { notifyEmailChanged } from '@/lib/email/notify';
+import {
+  AVATAR_MAX_BYTES,
+  avatarPathFromUrl,
+  removeAvatar,
+  uploadAvatar,
+} from '@/lib/storage/bucket';
 import { nowMs } from '@/lib/now';
 import { appUrl } from '@/lib/app-url';
 
@@ -445,4 +452,81 @@ export async function setThemeAction(theme: Theme): Promise<PeopleActionResult> 
   if (!THEMES.includes(theme)) return fail('Unknown theme.');
   await setTheme(user.id, theme);
   return { ok: true };
+}
+
+/* ==========================================================================
+ * YOUR PROFILE PICTURE — CHANGE-PLAN 2.3
+ * ==========================================================================
+ * Owner instruction, Session 20: *"on the profiles everyone can add their
+ * profile picture, their avatar… and that picture is presented on every task."*
+ *
+ * ── THE BUCKET IS PUBLIC, AND ATTACHMENTS ARE STILL PRIVATE ─────────────────
+ * Owner decision. An attachment is work — a brief, a contract, an unreleased
+ * campaign — and a permanent URL to one is access forever with no account. An
+ * avatar is a face that appears on every card on the board, so a private bucket
+ * would mean a signing round trip per person per page to protect a photograph
+ * the same people are looking at anyway.
+ *
+ * ── WHICH MAKES THE FILE CHECK THE IMPORTANT PART ────────────────────────────
+ * A public bucket serves whatever it is given. `uploadAvatar` decides the
+ * content type from the file's MAGIC BYTES, never from what the browser said —
+ * `File.type` is a claim by the client, not an inspection. SVG is refused
+ * outright at both the bucket and the code: it is a document that can carry
+ * script, and an uploaded one would be stored XSS on the storage origin.
+ * ========================================================================== */
+
+export async function uploadAvatarAction(
+  _prev: PeopleActionResult,
+  form: FormData,
+): Promise<PeopleActionResult> {
+  const user = await requireUser();
+
+  const file = form.get('avatar');
+  if (!(file instanceof File) || file.size === 0) return fail('Choose a picture first.');
+  if (file.size > AVATAR_MAX_BYTES) {
+    return fail('Pictures have to be under 2 MB. Try a smaller one.');
+  }
+
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const stored = await uploadAvatar(user.id, bytes);
+  if (!stored.ok) return fail(stored.message);
+
+  /* Row first, THEN the old object. The other order risks a row pointing at a
+     file that is gone — a broken image on every card — where this one risks an
+     orphaned 40 KB file nobody ever sees. */
+  const { previousUrl } = await setOwnAvatar(user.id, stored.value.url);
+
+  const oldPath = avatarPathFromUrl(previousUrl);
+  if (oldPath) void removeAvatar(oldPath);
+
+  await withUser(user.id, (tx) =>
+    audit(tx, user, {
+      entityType: 'user',
+      entityId: user.id,
+      action: 'user.avatar_changed',
+      after: { path: stored.value.path },
+    }),
+  ).catch(() => {});
+
+  revalidatePath('/profile');
+  revalidatePath('/', 'layout');
+  for (const path of ['/tasks', '/team', '/workload', '/my-work', '/dashboard']) {
+    revalidatePath(path);
+  }
+  return { ok: true, note: 'Your picture is set. It now appears wherever you do.' };
+}
+
+export async function removeAvatarAction(): Promise<PeopleActionResult> {
+  const user = await requireUser();
+  const { previousUrl } = await setOwnAvatar(user.id, null);
+
+  const oldPath = avatarPathFromUrl(previousUrl);
+  if (oldPath) void removeAvatar(oldPath);
+
+  revalidatePath('/profile');
+  revalidatePath('/', 'layout');
+  for (const path of ['/tasks', '/team', '/workload', '/my-work', '/dashboard']) {
+    revalidatePath(path);
+  }
+  return { ok: true, note: 'Removed. Your initials are shown again.' };
 }

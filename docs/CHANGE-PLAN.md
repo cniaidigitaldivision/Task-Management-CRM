@@ -23,8 +23,8 @@
 | **Items** | 26 — **9 bugs**, 17 features |
 | **Batches** | 7. One at a time: implement → verify → commit → **stop and ask** (rule R1) |
 | **Progress** | ✅🔶⬜⬜⬜⬜⬜ Batch 1 complete · **Batch 2 part-done** |
-| **Batch 2** | ✅ 2.1 impact dialog · ✅ 2.2 Cancel **and Purge** · ⬜ 2.3 avatars |
-| **Next** | 2.3 — avatars. |
+| **Batch 2** | ✅ **complete** — impact dialog · Cancel and Purge · avatars |
+| **Next** | Batch 3 — forms. **Awaiting the go-ahead.** |
 
 ---
 
@@ -288,7 +288,7 @@ files and left the tasks in place.
 place recording why this was broken, and the switch that turns the feature off
 honestly if the policy is ever dropped.
 
-### ⬜ 2.3 Real avatars on every task
+### ✅ 2.3 Real avatars on every task
 > *"Avatars should be on every task the member, coordinator, admin is assigned
 > to… not the icons which you have right now."*
 
@@ -298,9 +298,72 @@ honestly if the policy is ever dropped.
 - Validated on the server: image types only, size-capped, and **re-encoded** —
   an uploaded file is never trusted or served back as-is.
 
-⚠️ **This needs a new Supabase bucket.** It is separate from `attachments`, which
-stays private — that was a deliberate security fix in Step 7 and is not being
-weakened.
+**Bucket provisioned** (owner approved): `avatars` — **public**, 2 MB,
+`image/jpeg` · `image/png` · `image/webp` only. `attachments` stays **private**;
+that was a deliberate Step 7 fix and is untouched.
+
+#### Why one is public and the other is not
+
+An attachment is **work** — a brief, a contract, an unreleased campaign. A
+permanent URL to one, forwarded once, is access forever, to anybody, with no
+account, including after somebody leaves. Hence private, and a one-hour signed
+link per download.
+
+An avatar is **a face**, drawn on every card on the board. A private bucket would
+mean a signing round trip per person per page to protect a photograph the same
+people are already looking at. The trade is a guessable URL to a profile
+picture, against a measurable cost on every page load.
+
+#### The part that actually matters: no SVG, and no trusting the browser
+
+A public bucket serves whatever it is given. An SVG is a **document that can
+carry script**, so an accepted one is stored XSS on the storage origin.
+
+`lib/storage/bucket.ts` decides the content type from the file's **magic bytes**,
+never from `File.type` — which is a claim by the client, not an inspection. The
+bucket's own MIME allow-list is the second layer.
+
+Verified: an SVG containing `<script>alert(1)</script>`, declared as
+`image/png`, was **refused**, and nothing reached the bucket.
+
+#### One component, so one change put photos everywhere
+
+Every screen already rendered `<Avatar name=… />`. Adding `src` to that one
+primitive put faces on the board, the list, the task drawer, Team, Workload, the
+dashboard and the rail at once. The coloured initials stay **underneath** the
+picture, so a photo that 404s falls back rather than showing a broken image.
+
+#### Resized in the browser, and why that is not the security boundary
+
+A phone photograph is 3–8 MB and 4,000px wide, for something drawn at 28px. It
+is canvas-resized to 256px and re-encoded as JPEG before sending — measured on a
+real upload: **560,200 bytes → 5,093 bytes.**
+
+Canvas output also carries **no EXIF**, so the GPS coordinates in a phone photo
+are gone before the file leaves the device.
+
+That is a convenience, not a boundary — anything can post anything to a server
+action, which is exactly why the magic-byte check exists on the server.
+
+#### Two things the browser test caught
+
+1. **A refused upload kept its preview**, so rejecting a file left the person
+   looking at the thing that had just been refused where their picture used to
+   be. Nothing on the server changed, so nothing on screen should have.
+2. **`loading="lazy"` was wrong here.** Lazy loading is for images below the
+   fold; these are 5 KB and usually in the first viewport. Worse, browsers defer
+   lazy images entirely in a background tab — a board opened in a second tab
+   showed no faces at all until it was looked at. Removed.
+
+##### Verified end to end
+
+| | |
+|---|---|
+| Upload | 560 KB PNG → **5,093-byte JPEG**, magic bytes `ffd8ff` |
+| Stored | public URL fetches 200 `image/jpeg` with no auth |
+| Row + audit | `users.avatar_url` set, `user.avatar_changed` written |
+| Shown | task card, page header and rail all render it at 256px |
+| Refused | SVG-as-PNG rejected; bucket unchanged; existing picture kept |
 
 ---
 

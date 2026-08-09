@@ -47,13 +47,32 @@ const SIZES = {
   xl: 'h-14 w-14 text-body',
 } as const;
 
+/* ── ONE COMPONENT, SO ONE CHANGE PUT PHOTOS EVERYWHERE ──────────────────────
+   Owner instruction, Session 20: *"avatars should be on every task the member,
+   coordinator, admin is assigned to."*
+
+   Every screen already rendered `<Avatar name=… />` — the board, the list, the
+   task drawer, Team, Workload, the rail, the assignee stacks. Adding `src` here
+   is what makes a picture appear in all of them at once. Anything that does not
+   pass a `src` yet simply keeps its initials, which is also the fallback for
+   anybody who has not uploaded one.
+
+   ── A PLAIN <img>, NOT next/image ─────────────────────────────────────────────
+   next/image would route every avatar through the optimiser: a serverless
+   invocation per face per page, for a file already stored at exactly the size
+   it is displayed. These are ≤2 MB, served from a public bucket with its own
+   CDN, and rendered at 28–56px. `loading="lazy"` and `decoding="async"` cover
+   what matters here. */
 export function Avatar({
   name,
+  src,
   size = 'md',
   className,
   ring = false,
 }: {
   name: string;
+  /** Their uploaded picture. Falls back to initials when absent or broken. */
+  src?: string | null;
   size?: keyof typeof SIZES;
   className?: string;
   /** A surface-coloured ring, for overlapping stacks. */
@@ -61,21 +80,45 @@ export function Avatar({
 }) {
   const colour = `var(--${tokenFor(name)})`;
 
+  const shell = cn(
+    'relative inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full',
+    'font-semibold select-none text-neutral-0 shadow-xs',
+    SIZES[size],
+    ring && 'ring-2 ring-bg-surface',
+    className,
+  );
+
+  /* The initials stay underneath the picture rather than being replaced by it.
+     A photo that 404s — a removed object, a bucket rename — then shows the same
+     coloured initials as everybody else instead of a broken-image icon. */
   return (
     <span
       title={name}
-      className={cn(
-        'inline-flex shrink-0 items-center justify-center rounded-full font-semibold select-none',
-        'text-neutral-0 shadow-xs',
-        SIZES[size],
-        ring && 'ring-2 ring-bg-surface',
-        className,
-      )}
+      className={shell}
       style={{
         backgroundImage: `linear-gradient(145deg, color-mix(in srgb, ${colour} 82%, white) 0%, ${colour} 52%, color-mix(in srgb, ${colour} 84%, black) 100%)`,
       }}
     >
       {initialsOf(name)}
+      {src && (
+        /* Deliberately a plain <img>: next/image would mean a serverless
+           optimiser invocation per face per page, for a ≤2 MB file rendered at
+           28–56px that already sits behind the storage CDN. */
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={src}
+          alt=""
+          /* NOT `loading="lazy"`. Lazy loading is for images below the fold;
+             these are 5 KB and almost always in the first viewport — the rail,
+             the page header, the top row of the board. Deferring them buys
+             nothing and costs a visible flash of initials before the face
+             arrives. Browsers also defer lazy images entirely in a background
+             tab, so a board opened in a second tab would show no faces at all
+             until it was looked at. */
+          decoding="async"
+          className="absolute inset-0 h-full w-full object-cover"
+        />
+      )}
       <span className="sr-only">{name}</span>
     </span>
   );

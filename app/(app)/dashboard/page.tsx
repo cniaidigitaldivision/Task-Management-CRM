@@ -306,7 +306,7 @@ export default async function DashboardPage() {
                         >
                           {task.dueLabel}
                         </span>
-                        <Avatar name={task.assignee} size="xs" />
+                        <Avatar name={task.assignee} src={task.assigneeAvatarUrl} size="xs" />
                       </div>
                     </Link>
                   </li>
