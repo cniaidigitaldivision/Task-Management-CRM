@@ -23,6 +23,7 @@ import {
   PROJECT_TYPE_META,
   STATUS_META,
   type Role,
+  type TaskStatus,
 } from '@/lib/domain/constants';
 import type { TaskRow } from '@/lib/db/queries/types';
 
@@ -168,6 +169,8 @@ export function TaskDialog({
   people,
   currentUser,
   task,
+  defaultStatus,
+  defaultAssigneeId,
 }: {
   open: boolean;
   onClose: () => void;
@@ -176,6 +179,13 @@ export function TaskDialog({
   currentUser: { id: string; role: Role };
   /** Present when editing. Absent when creating. */
   task?: TaskRow;
+  /** Pre-selects the starting status. Set by a board column's "Add task", so a
+   *  card created from the Blocked column does not arrive in To Do. */
+  defaultStatus?: TaskStatus;
+  /** Pre-selects the assignee. Set when the Tasks screen is already filtered to
+   *  one person — arriving from their row on Team — so the task lands on the
+   *  person whose list you were looking at. Still changeable. */
+  defaultAssigneeId?: string;
 }) {
   const isEdit = Boolean(task);
   const router = useRouter();
@@ -284,7 +294,12 @@ export function TaskDialog({
           </Field>
 
           <Field label="Assignee" htmlFor="assigneeId" hint="Leave unassigned to plan it first.">
-            <Select size="md" id="assigneeId" name="assigneeId" defaultValue={task?.assigneeId ?? ''}>
+            <Select
+              size="md"
+              id="assigneeId"
+              name="assigneeId"
+              defaultValue={task?.assigneeId ?? defaultAssigneeId ?? ''}
+            >
               <option value="">Unassigned</option>
               {assignable.map((person) => (
                 <option key={person.id} value={person.id}>
@@ -358,7 +373,21 @@ export function TaskDialog({
               would be a third distinct width on the same form. */}
           {!isEdit && (
             <Field label="Starting status" htmlFor="status">
-              <Select size="md" id="status" name="status" defaultValue="todo">
+              <Select
+                size="md"
+                id="status"
+                name="status"
+                defaultValue={
+                  defaultStatus && (['backlog', 'todo', 'in_progress'] as const).includes(
+                    defaultStatus as 'backlog' | 'todo' | 'in_progress',
+                  )
+                    ? defaultStatus
+                    : 'todo'
+                }
+              >
+                {/* Only the three a task may legally START in (doc 05 §2). A
+                    board column further along still opens the form — it just
+                    cannot pre-select a status the task machine would refuse. */}
                 {(['backlog', 'todo', 'in_progress'] as const).map((status) => (
                   <option key={status} value={status}>
                     {STATUS_META[status].label}

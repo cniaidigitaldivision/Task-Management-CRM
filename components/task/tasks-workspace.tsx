@@ -12,6 +12,7 @@ import {
   Layers,
   List,
   Loader2,
+  RotateCw,
   User,
 } from 'lucide-react';
 
@@ -42,8 +43,10 @@ import {
 } from '@/lib/domain/constants';
 import { evaluateTransition, transitionNeedsReason } from '@/lib/domain/task-machine';
 import type { TaskView } from '@/lib/view/task-view';
+import { cn } from '@/lib/utils';
 
 import { BulkBar } from './bulk-bar';
+import { TaskDialog } from './task-dialog';
 import { TaskBoard } from './task-board';
 import { TaskDetail } from './task-detail';
 import { TaskList, groupTasks, type GroupBy } from './task-list';
@@ -74,10 +77,15 @@ import { TaskList, groupTasks, type GroupBy } from './task-list';
  *    the authority. Same function, same table, one implementation.
  * ========================================================================= */
 
+/* The Calendar tab was `disabled: true` — a control that could never be clicked
+   (owner instruction, Session 20). It now navigates to the calendar screen,
+   which already exists and is already role-scoped by RLS. The month-and-week
+   view lands with Batch 7 of CHANGE-PLAN.md; until then this is a real
+   destination rather than a dead tab. */
 const VIEW_TABS: readonly ViewTab[] = [
   { key: 'list', label: 'List', icon: List },
   { key: 'board', label: 'Board', icon: Columns3 },
-  { key: 'calendar', label: 'Calendar', icon: CalendarDays, disabled: true },
+  { key: 'calendar', label: 'Calendar', icon: CalendarDays },
 ];
 
 const GROUP_OPTIONS: ReadonlyArray<{ key: GroupBy; label: string }> = [
@@ -93,6 +101,7 @@ export function TasksWorkspace({
   projects,
   initialSearch = '',
   initialOpenTaskId = null,
+  initialAssignee = null,
 }: {
   initialTasks: readonly TaskView[];
   currentUser: { id: string; name: string; role: Role };
@@ -101,6 +110,8 @@ export function TasksWorkspace({
   initialSearch?: string;
   /** Opens straight into this task — see the drawer state below. */
   initialOpenTaskId?: string | null;
+  /** From `?assignee=…`, set when arriving from somebody's row on Team. */
+  initialAssignee?: string | null;
 }) {
   const router = useRouter();
 
@@ -108,7 +119,13 @@ export function TasksWorkspace({
   const [view, setView] = React.useState<'list' | 'board'>('board');
   const [groupBy, setGroupBy] = React.useState<GroupBy>('status');
   const [priority, setPriority] = React.useState<Priority | 'all'>('all');
-  const [assignee, setAssignee] = React.useState<string>('all');
+  /* Seeded from `?assignee=…`. The server already filtered the rows, so leaving
+     this at "all" meant the toolbar said "Everyone" while showing one person's
+     work — the filter was invisible and could not be cleared. */
+  const [assignee, setAssignee] = React.useState<string>(initialAssignee ?? 'all');
+  /* Only for the create dialog's default. `assignee` is a FILTER and the person
+     may change it; this remembers who you arrived here for. */
+  const [arrivedFor] = React.useState<string | null>(initialAssignee);
   const [hideClosed, setHideClosed] = React.useState(true);
   const [search, setSearch] = React.useState(initialSearch);
   const [pending, setPending] = React.useState(false);
@@ -124,6 +141,46 @@ export function TasksWorkspace({
   /* A reason-requiring move parks here until the person writes one. */
   const [reasonFor, setReasonFor] = React.useState<{ task: TaskView; to: TaskStatus } | null>(null);
   const [reasonText, setReasonText] = React.useState('');
+
+  /* ── Creating from a board column ──────────────────────────────────────────
+     Owner report, Session 20: *"there is a button called Add — when I click it,
+     it does not show the form."* It did nothing at all: the button in each board
+     column had a class and no handler. It opens the create form now, with that
+     column's status already chosen.
+
+     This dialog is separate from the one the top bar's "New task" opens, which
+     lives in the app shell. They are mutually exclusive and each carries its own
+     defaults; hoisting one shared dialog up to the shell would mean threading
+     board state through the layout for no gain. */
+  const [addToStatus, setAddToStatus] = React.useState<TaskStatus | null>(null);
+
+  /* ── Refresh, and dropping the assignee filter with it ─────────────────────
+     Owner instruction: *"there should be a refresh button… it should remove the
+     assignee variable from the URL and then refresh the task page."* The filter
+     lived only in the URL, so it survived every reload and quietly kept the page
+     narrowed to one person long after that was wanted. */
+  const [refreshing, setRefreshing] = React.useState(false);
+
+  const refreshAll = React.useCallback(() => {
+    setRefreshing(true);
+    setAssignee('all');
+
+    /* ⚠️ `replace` and `refresh` must not both fire. Calling them together left
+       the URL untouched — measured: the filter reset to Everyone while
+       `?assignee=…` was still in the address bar. `refresh()` re-fetches the
+       CURRENT route, so it raced the navigation and won.
+       Navigating to a different query string already re-fetches from the
+       server, so `replace` alone is both the clear and the refresh. */
+    if (window.location.search) {
+      router.replace('/tasks', { scroll: false });
+    } else {
+      router.refresh();
+    }
+
+    /* The spinner only shows the click registered; the navigation has no
+       completion callback to hang it on. */
+    setTimeout(() => setRefreshing(false), 600);
+  }, [router]);
 
   /* ── Adopting fresher server data, WITHOUT an effect ────────────────────────
      The server is the source of truth. When a revalidation delivers a new list,
@@ -295,9 +352,18 @@ export function TasksWorkspace({
       )}
 
       <ViewTabs
-        tabs={VIEW_TABS.map((tab) => (tab.disabled ? tab : { ...tab, count: visible.length }))}
+        tabs={VIEW_TABS.map((tab) =>
+          tab.key === 'calendar' ? tab : { ...tab, count: visible.length },
+        )}
         activeKey={view}
-        onSelect={(key) => setView(key as 'list' | 'board')}
+        onSelect={(key) => {
+          /* Calendar is a page, not a third view of this component. */
+          if (key === 'calendar') {
+            router.push('/calendar');
+            return;
+          }
+          setView(key as 'list' | 'board');
+        }}
       />
 
       <Toolbar aria-label="Task filters">
@@ -358,6 +424,22 @@ export function TasksWorkspace({
             Saving…
           </span>
         )}
+
+        <Button
+          type="button"
+          variant="ghost"
+          size="md"
+          onClick={refreshAll}
+          disabled={refreshing}
+          title="Reload from the server and clear the assignee filter"
+        >
+          <RotateCw
+            className={cn('h-4 w-4', refreshing && 'animate-spin')}
+            strokeWidth={2}
+            aria-hidden="true"
+          />
+          Refresh
+        </Button>
       </Toolbar>
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
@@ -422,6 +504,7 @@ export function TasksWorkspace({
           }
           canMove={canMove}
           onOpen={setOpenTaskId}
+          onAddTask={setAddToStatus}
           selectedIds={selectedIds}
           onToggleSelect={(taskId) =>
             setSelectedIds((current) =>
@@ -432,6 +515,20 @@ export function TasksWorkspace({
           }
         />
       )}
+
+      {/* ---- Create, from a board column ----
+           Opened by "Add task" at the foot of a column, which until now did
+           nothing at all. Carries that column's status, and the person the page
+           was opened for if it arrived from their row on Team. */}
+      <TaskDialog
+        open={addToStatus !== null}
+        onClose={() => setAddToStatus(null)}
+        projects={projects}
+        people={people}
+        currentUser={{ id: currentUser.id, role: currentUser.role }}
+        defaultStatus={addToStatus ?? undefined}
+        defaultAssigneeId={arrivedFor ?? undefined}
+      />
 
       {view === 'board' && (
         <BulkBar

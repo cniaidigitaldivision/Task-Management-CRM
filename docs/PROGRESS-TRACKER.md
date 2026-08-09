@@ -1,9 +1,9 @@
 # 📊 PROGRESS TRACKER — CNI CRM
 
-**Last updated:** 2026-08-09 (Session 20)
+**Last updated:** 2026-08-09 (Session 21)
 **Current phase:** **All 8 BUILD-PLAN steps complete.** [REDESIGN-PLAN](REDESIGN-PLAN.md) phases 1–8 complete; **phase 9 not started.**
-**Blocked on:** 🔴 **Owner approval of [CHANGE-PLAN.md](CHANGE-PLAN.md)** — 26 requested changes (9 bugs, 17 features), planned and documented but not built. Also still open: **a decision on [REDESIGN-PLAN §9](REDESIGN-PLAN.md)** — what the supplied `CNI-AI-Digital-Task-Board.html` is meant to become. It sat in the repo root, referenced by no planning document, through the whole redesign. Also awaiting permission: **persisting board order** needs a migration (§8.5). `SUPABASE_STORAGE_KEY` and `CRON_SECRET` are set as of Session 17. Resend's sending domain is still deferred, and it is what the email-change verification link waits on.
-**Tests:** `npm run test` → **947** · `npm run test:auth` → **133** (real DB) · `npm run smoke` → **27/27** signed-in route checks · DB gates: Step 2 **35/35**, pre-auth **32/32**, 010 **9/9**, 011 **8/8**, work core **17/17**, email change **11/11**
+**Blocked on:** 🟢 **Batch 1 of [CHANGE-PLAN.md](CHANGE-PLAN.md) is complete** — all 9 bugs fixed and verified in Chrome. Awaiting the go-ahead for Batch 2 (tasks and the board). ⚠️ **Owner action: remove `NEXT_PUBLIC_APP_URL` from `.env.local`** — it pins `http://localhost:4310`, which is why activation links said localhost. Also still open: **a decision on [REDESIGN-PLAN §9](REDESIGN-PLAN.md)** — what the supplied `CNI-AI-Digital-Task-Board.html` is meant to become. It sat in the repo root, referenced by no planning document, through the whole redesign. Also awaiting permission: **persisting board order** needs a migration (§8.5). `SUPABASE_STORAGE_KEY` and `CRON_SECRET` are set as of Session 17. Resend's sending domain is still deferred, and it is what the email-change verification link waits on.
+**Tests:** `npm run test` → **958** · `npm run test:auth` → **133** (real DB) · `npm run smoke` → **27/27** signed-in route checks · DB gates: Step 2 **35/35**, pre-auth **32/32**, 010 **9/9**, 011 **8/8**, work core **17/17**, email change **11/11**
 
 > ⛔ **Standing rule (owner, Session 06):** commit, push to GitHub and update these docs after **every** change — not batched at session end.
 **Run it:** `npm run dev` → http://localhost:4310 · `npm run verify` → typecheck + lint + build

@@ -104,7 +104,7 @@ export function TeamWorkspace({
           </p>
           <Button variant="primary" size="md" onClick={() => setInviting(true)}>
             <UserPlus className="h-4 w-4" strokeWidth={2.25} aria-hidden="true" />
-            Add someone
+            Add member
           </Button>
         </div>
       )}

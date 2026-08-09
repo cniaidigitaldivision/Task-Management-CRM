@@ -87,6 +87,9 @@ export default async function TasksPage({
         projects={projects.map((p) => ({ id: p.id, name: p.name, type: p.type, code: p.code }))}
         initialSearch={params.q ?? ''}
         initialOpenTaskId={params.task ?? null}
+        /* So the toolbar shows the filter that is actually applied, and a task
+           created here defaults to the person whose row you came from. */
+        initialAssignee={params.assignee ?? null}
       />
     </div>
   );

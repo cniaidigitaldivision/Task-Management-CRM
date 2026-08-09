@@ -24,6 +24,7 @@ import { evaluateLockout, failureMessage, minutesUntilUnlock } from '@/lib/domai
 import { getSettings } from '@/lib/settings/current';
 import { WINDOW_MINUTES, evaluateRateLimit } from '@/lib/domain/rate-limit';
 import type { LoginOutcome } from '@/lib/domain/lockout';
+import { appUrl } from '@/lib/app-url';
 
 /* ============================================================================
  * SIGN IN — the server action
@@ -59,9 +60,8 @@ export interface SignInState {
   readonly email?: string;
 }
 
-function appUrl(): string {
-  return (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:4310').replace(/\/+$/, '');
-}
+/* `appUrl()` now lives in lib/app-url.ts and derives the origin from the
+   request, so a link is never built against localhost. See that file. */
 
 async function requestFacts(): Promise<RequestFacts> {
   const list = await headers();
@@ -225,7 +225,7 @@ export async function signIn(_prev: SignInState, formData: FormData): Promise<Si
         userId: identity.userId,
         email: identity.email,
         fullName: identity.fullName,
-        appUrl: appUrl(),
+        appUrl: await appUrl(),
       });
 
       return {
@@ -317,7 +317,7 @@ export async function signIn(_prev: SignInState, formData: FormData): Promise<Si
       ip: facts.ip,
       country: facts.ipCountry,
       userAgent: facts.userAgent,
-      appUrl: appUrl(),
+      appUrl: await appUrl(),
     });
   }
 

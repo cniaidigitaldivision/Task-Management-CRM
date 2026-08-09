@@ -27,6 +27,7 @@ import { sameEmail, validateEmailAddress } from '@/lib/domain/email-address';
 import { can } from '@/lib/domain/permissions';
 import { notifyEmailChanged } from '@/lib/email/notify';
 import { nowMs } from '@/lib/now';
+import { appUrl } from '@/lib/app-url';
 
 /* ============================================================================
  * PEOPLE ACTIONS — LAYER 3
@@ -328,9 +329,8 @@ export async function updateProfileAction(
  * receive mail, and why the form says plainly what is at stake.
  * ========================================================================== */
 
-function appUrl(): string {
-  return (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:4310').replace(/\/+$/, '');
-}
+/* `appUrl()` now lives in lib/app-url.ts and derives the origin from the
+   request, so a link is never built against localhost. See that file. */
 
 export async function changeEmailAction(
   _prev: PeopleActionResult,
@@ -420,7 +420,7 @@ export async function changeEmailAction(
     fullName: user.fullName,
     when,
     isSuperAdmin: user.role === 'super_admin',
-    appUrl: appUrl(),
+    appUrl: await appUrl(),
   });
 
   revalidatePath('/profile');

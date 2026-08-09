@@ -35,6 +35,93 @@ import { IconButton } from './button';
  * should have discarded.
  * ========================================================================= */
 
+/* ============================================================================
+ * ⚠️ THE PAGE THAT WENT BLACK AND WOULD NOT SCROLL — Session 20
+ * ----------------------------------------------------------------------------
+ * Owner report: *"I am resetting a password of some team member… the page gets
+ * stuck, I can't scroll up or down and I don't see what happens… it's going
+ * black… I have to switch tabs and come back and it's still there."*
+ *
+ * Reproduced on the Team screen. The reset itself worked perfectly — every
+ * database step succeeded. Two separate defects in THIS file made it look like a
+ * crash, and both were in the machinery every dialog in the application shares.
+ *
+ * ── 1. A RE-RENDER SILENTLY CLOSED THE DIALOG ────────────────────────────────
+ * The open/close effect was keyed on `[open]`, so it only ran when that prop
+ * changed. But `router.refresh()` re-renders the server tree, React reconciles,
+ * and the <dialog> DOM node can be recreated — **a recreated node is not open**,
+ * because `showModal()` state lives on the element, not in React.
+ *
+ * The result: `open` was still `true`, the panel's children were still in the
+ * DOM, and `dialog.open` was `false`. Measured exactly that in the browser. So
+ * the confirmation of what had just happened was rendered and invisible, which
+ * is precisely "I don't see what happens".
+ *
+ * The effect now runs on EVERY render with no dependency array. It is two
+ * boolean checks; making it cheap enough to run always is far better than
+ * trying to enumerate everything that can invalidate a DOM node.
+ *
+ * ── 2. THE SCROLL LOCK WAS PER-DIALOG, SO TWO DIALOGS FOUGHT ─────────────────
+ * Each dialog saved `document.body.style.overflow` on open and restored it on
+ * close. With one dialog that is fine. `PersonActions` closes its confirmation
+ * and opens its result dialog IN THE SAME COMMIT, and then the restore order
+ * decides the outcome: if the second captured `previous` while the first still
+ * held `hidden`, the page stayed locked after both had gone. Intermittent, which
+ * is why it did not happen every time.
+ *
+ * It is now ONE reference-counted lock for the whole application. The body is
+ * unlocked when the last dialog closes and not before, in any order.
+ *
+ * ── 3. AND IT CLOSES ITSELF ON UNMOUNT ───────────────────────────────────────
+ * A dialog destroyed while open — which is what `router.refresh()` did here —
+ * left the top layer to the browser to tidy. Now it always closes itself.
+ * ========================================================================= */
+
+let scrollLocks = 0;
+let overflowBeforeFirstLock = '';
+
+function lockBodyScroll(): () => void {
+  if (scrollLocks === 0) {
+    overflowBeforeFirstLock = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+  }
+  scrollLocks += 1;
+
+  let released = false;
+  return () => {
+    /* Guarded: React may run a cleanup twice in development's double-invoke, and
+       a double decrement would unlock the page while a dialog is still open. */
+    if (released) return;
+    released = true;
+    scrollLocks -= 1;
+    if (scrollLocks === 0) document.body.style.overflow = overflowBeforeFirstLock;
+  };
+}
+
+/** Keeps the native `<dialog>` in step with React, and the body lock honest. */
+function useModal(open: boolean, ref: React.RefObject<HTMLDialogElement | null>) {
+  /* NO dependency array, deliberately — see note 1 above. */
+  React.useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    if (open && !el.open) el.showModal();
+    if (!open && el.open) el.close();
+  });
+
+  /* Separate effect, because this one genuinely only fires on an open/close. */
+  React.useEffect(() => {
+    if (!open) return;
+    return lockBodyScroll();
+  }, [open]);
+
+  React.useEffect(() => {
+    const el = ref.current;
+    return () => {
+      if (el?.open) el.close();
+    };
+  }, [ref]);
+}
+
 export function Dialog({
   open,
   onClose,
@@ -55,21 +142,7 @@ export function Dialog({
   const ref = React.useRef<HTMLDialogElement>(null);
   const panelRef = React.useRef<HTMLDivElement>(null);
 
-  React.useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    if (open && !el.open) el.showModal();
-    if (!open && el.open) el.close();
-  }, [open]);
-
-  React.useEffect(() => {
-    if (!open) return;
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = previous;
-    };
-  }, [open]);
+  useModal(open, ref);
 
   const widths = { sm: 'max-w-md', md: 'max-w-2xl', lg: 'max-w-4xl' } as const;
 
@@ -153,21 +226,7 @@ export function Drawer({
   const ref = React.useRef<HTMLDialogElement>(null);
   const panelRef = React.useRef<HTMLDivElement>(null);
 
-  React.useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    if (open && !el.open) el.showModal();
-    if (!open && el.open) el.close();
-  }, [open]);
-
-  React.useEffect(() => {
-    if (!open) return;
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = previous;
-    };
-  }, [open]);
+  useModal(open, ref);
 
   return (
     <dialog

@@ -127,7 +127,7 @@ export function InviteDialog({
     <Dialog
       open={open}
       onClose={onClose}
-      title="Add someone to the team"
+      title="Add a member"
       description="They get a link and choose their own password. No password is generated, sent, or shown to you."
       footer={
         <>

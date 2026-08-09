@@ -47,12 +47,24 @@ const EMPTY: ProjectActionResult = { ok: false };
 /** Doc 15 §3, and the labels a human would actually use. */
 const TYPE_FIELD_FORMS: Record<
   ProjectType,
-  ReadonlyArray<{ name: string; label: string; type?: string; hint?: string; placeholder?: string }>
+  ReadonlyArray<{
+    name: string;
+    label: string;
+    type?: string;
+    hint?: string;
+    placeholder?: string;
+    /** Present ⇒ rendered as a `<select>` rather than a free-text box. */
+    options?: readonly string[];
+  }>
 > = {
   event: [
     { name: 'event_date', label: 'Event date', type: 'date', hint: 'Deliverables schedule backwards from this.' },
     { name: 'venue', label: 'Venue', placeholder: 'Karachi Expo Centre, Hall 3' },
-    { name: 'expected_scale', label: 'Expected scale', placeholder: 'large' },
+    /* Owner instruction, Session 20: *"the scale should become a dropdown… I
+       should not write what the scale is."* It was a free-text box whose
+       placeholder was the word `large`, so every project recorded a slightly
+       different spelling of the same three ideas. */
+    { name: 'expected_scale', label: 'Expected scale', options: ['Small', 'Medium', 'Large'] },
   ],
   client: [
     { name: 'client_name', label: 'Client name', placeholder: 'ABC Traders' },
@@ -218,7 +230,10 @@ export function ProjectDialog({
             </Select>
           </Field>
 
-          <Field label="Owner" htmlFor="ownerId">
+          {/* "Lead", not "Owner" — owner instruction, Session 20: *"so it is
+              easily understandable who is leading the project."* Label only; the
+              column stays `owner_id` and nothing downstream changes. */}
+          <Field label="Lead" htmlFor="ownerId" hint="Who is leading this project.">
             <Select size="md" id="ownerId" name="ownerId" defaultValue={project?.ownerId ?? ''}>
               <option value="">You</option>
               {people.map((person) => (
@@ -278,13 +293,29 @@ export function ProjectDialog({
           <div className="grid gap-4 sm:grid-cols-2">
             {fields.map((field) => (
               <Field key={field.name} label={field.label} htmlFor={field.name} hint={field.hint}>
-                <Input
-                  id={field.name}
-                  name={field.name}
-                  type={field.type ?? 'text'}
-                  placeholder={field.placeholder}
-                  defaultValue={String(project?.typeFields?.[field.name] ?? '')}
-                />
+                {field.options ? (
+                  <Select
+                    size="md"
+                    id={field.name}
+                    name={field.name}
+                    defaultValue={String(project?.typeFields?.[field.name] ?? '')}
+                  >
+                    <option value="">Not set</option>
+                    {field.options.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </Select>
+                ) : (
+                  <Input
+                    id={field.name}
+                    name={field.name}
+                    type={field.type ?? 'text'}
+                    placeholder={field.placeholder}
+                    defaultValue={String(project?.typeFields?.[field.name] ?? '')}
+                  />
+                )}
               </Field>
             ))}
           </div>

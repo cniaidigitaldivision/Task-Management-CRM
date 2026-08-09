@@ -23,6 +23,7 @@ import { PRIVILEGED_RESET_ROLES } from '@/lib/domain/constants';
 import { validatePassword } from '@/lib/domain/password-policy';
 import { nowMs } from '@/lib/now';
 import { getSettings } from '@/lib/settings/current';
+import { appUrl } from '@/lib/app-url';
 
 /* ============================================================================
  * FORGOT PASSWORD / UNLOCK — FR-155, FR-155a–e, ADR-007
@@ -79,9 +80,8 @@ async function requestFacts(): Promise<RequestFacts> {
   };
 }
 
-function appUrl(): string {
-  return (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:4310').replace(/\/+$/, '');
-}
+/* `appUrl()` now lives in lib/app-url.ts and derives the origin from the
+   request, so a link is never built against localhost. See that file. */
 
 /* ==========================================================================
  * 1 · ASK FOR A CODE
@@ -123,7 +123,7 @@ export async function requestReset(
     createdBy: null,
   });
 
-  const link = `${appUrl()}/reset-password?code=${code}`;
+  const link = `${await appUrl()}/reset-password?code=${code}`;
   const message = locked
     ? unlockEmail({
         fullName: identity.fullName,

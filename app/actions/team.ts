@@ -20,6 +20,7 @@ import {
 import { can } from '@/lib/domain/permissions';
 import { nowMs } from '@/lib/now';
 import { getSettings } from '@/lib/settings/current';
+import { appUrl } from '@/lib/app-url';
 
 /* ============================================================================
  * TEAM PROVISIONING — LAYER 3, FR-141 to FR-144, doc 16 §3
@@ -68,9 +69,8 @@ function str(form: FormData, key: string): string {
   return String(form.get(key) ?? '').trim();
 }
 
-function appUrl(): string {
-  return (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:4310').replace(/\/+$/, '');
-}
+/* `appUrl()` now lives in lib/app-url.ts and derives the origin from the
+   request, so a link is never built against localhost. See that file. */
 
 /** Which roles this actor may hand out. doc 03 §3.1, and `users_insert` agrees. */
 function assignableRoles(actorRole: Role): Role[] {
@@ -165,7 +165,7 @@ export async function invitePersonAction(
     createdBy: user.id,
   });
 
-  const activationUrl = `${appUrl()}/activate?token=${token}`;
+  const activationUrl = `${await appUrl()}/activate?token=${token}`;
 
   await withUser(user.id, async (tx) => {
     await record(tx, user.id, {
@@ -245,7 +245,7 @@ export async function resendInvitationAction(userId: string): Promise<TeamAction
     createdBy: user.id,
   });
 
-  const activationUrl = `${appUrl()}/activate?token=${token}`;
+  const activationUrl = `${await appUrl()}/activate?token=${token}`;
   const message = invitationEmail({
     fullName: target.fullName,
     invitedByName: user.fullName,

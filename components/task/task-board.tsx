@@ -123,6 +123,7 @@ export function TaskBoard({
   onReorder,
   canMove,
   onOpen,
+  onAddTask,
   selectedIds,
   onToggleSelect,
 }: {
@@ -138,6 +139,9 @@ export function TaskBoard({
   /** Returns null when the move is allowed, or the reason it is refused. */
   canMove: (task: TaskView, to: TaskStatus) => string | null;
   onOpen?: (taskId: string) => void;
+  /** "Add task" at the foot of a column. Until Session 20 that button had no
+   *  handler at all and did nothing when clicked. */
+  onAddTask?: (status: TaskStatus) => void;
   /** Selection is optional: omit both and the board has no checkboxes at all. */
   selectedIds?: readonly string[];
   onToggleSelect?: (taskId: string) => void;
@@ -633,7 +637,10 @@ export function TaskBoard({
                 <footer className="p-2.5 pt-0">
                   <button
                     type="button"
-                    className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-transparent px-2 py-1.5 text-micro font-semibold text-text-tertiary transition-colors duration-[140ms] hover:border-border-default hover:bg-bg-surface hover:text-text-primary focus-visible:outline-none"
+                    onClick={() => onAddTask?.(status)}
+                    disabled={!onAddTask}
+                    aria-label={`Add a task to ${meta.label}`}
+                    className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-transparent px-2 py-1.5 text-micro font-semibold text-text-tertiary transition-colors duration-[140ms] hover:border-border-default hover:bg-bg-surface hover:text-text-primary focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     <Plus className="h-3.5 w-3.5" strokeWidth={2.5} aria-hidden="true" />
                     Add task

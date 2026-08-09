@@ -22,8 +22,8 @@
 |---|---|
 | **Items** | 26 — **9 bugs**, 17 features |
 | **Batches** | 7. One at a time: implement → verify → commit → **stop and ask** (rule R1) |
-| **Progress** | ⬜⬜⬜⬜⬜⬜⬜ none started |
-| **Where we start** | Batch 1 — the bugs, by owner's choice |
+| **Progress** | ✅⬜⬜⬜⬜⬜⬜ **Batch 1 complete** — all nine bugs fixed and verified in Chrome |
+| **Next** | Batch 2 — tasks and the board. **Awaiting the go-ahead.** |
 
 ---
 
@@ -48,10 +48,99 @@ Recorded before anything else, because each one changes what gets built.
 
 ---
 
-## 1️⃣ BATCH 1 — THE BUGS
+## 1️⃣ BATCH 1 — THE BUGS ✅ COMPLETE
 
-Nine things that are visibly broken. All small, and several of them block testing
-everything else, which is why they go first.
+Nine things that were visibly broken. All fixed, and **every one checked in a
+real browser** rather than declared done because it compiled.
+
+### What the fixes turned out to be
+
+Three of the nine were not what they looked like from the outside.
+
+**B2, the password reset that "went black and got stuck", was not the reset.**
+Every database step succeeded when replayed — account state, session revocation,
+activity log, audit log, all five. The fault was in `components/ui/dialog.tsx`,
+the machinery **every dialog in the application shares**, and it was two separate
+defects:
+
+1. *A re-render silently closed the dialog.* The open/close effect was keyed on
+   `[open]`, so it only ran when that prop changed. But `router.refresh()`
+   re-renders the server tree, React reconciles, and the `<dialog>` DOM node can
+   be recreated — **and a recreated node is not open**, because `showModal()`
+   state lives on the element, not in React. Measured exactly that in Chrome:
+   `open` was `true`, the panel's children were in the DOM, and `dialog.open`
+   was `false`. The confirmation of what had just happened was rendered and
+   invisible. That is precisely *"I don't see what happens."*
+2. *The scroll lock was per-dialog, so two dialogs fought.* `PersonActions`
+   closes its confirmation and opens its result dialog **in the same commit**.
+   Each saved and restored `document.body.style.overflow` independently, so the
+   restore order decided whether the page stayed locked. Intermittent — which is
+   why it did not happen every time.
+
+Plus two in the caller: `run()` had **no `try`/`catch`**, so a server action that
+threw left `busy` true and the dialog open with a spinner forever, unrecoverable
+without a reload — and that applied to *every* action on that menu, not just the
+reset. And `router.refresh()` fired while the result was being shown, destroying
+the outcome before it could be read.
+
+The scroll lock is now **one reference-counted lock for the whole application**,
+the open/close effect runs on every render, dialogs close themselves on unmount,
+and the refresh waits until the result is dismissed.
+
+**B3, the localhost activation link, was five copies of one line.** Every file
+carried its own `process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:4310'`.
+Now one `lib/app-url.ts` that **derives the origin from the request**, so a link
+is right on localhost, right over the LAN, right on a Vercel preview with a
+generated hostname, and right in production, with nothing to keep in step.
+
+⚠️ **The environment variable still wins when set, deliberately** — a fixed value
+cannot be influenced by a request header, which matters because host-header
+poisoning in a password-reset email is a real attack. And that is also the actual
+cause of the report: **`.env.local` pins it to `http://localhost:4310`**, so
+every link says localhost even when the page was opened over the LAN. See the
+owner action at the foot of this file.
+
+**B1, the dead Add-task button, was exactly as dead as it looked** — a `<button>`
+with a class and no handler. It now opens the create form with that column's
+status pre-selected, and with the assignee pre-selected when the page arrived
+filtered to one person.
+
+### The nine
+
+| # | Owner's words | What was wrong | What was done |
+|:--:|---|---|---|
+| B1 | *"There is a button called active — when I click that it does not show the form"* | **No `onClick` at all** on the board column's Add task | Opens the create form, pre-set to that column's status (and only to a status a task may legally start in, doc 05 §2) |
+| B2 | *"The page gets stuck, it's going black… I have to switch tabs"* | Four defects, two in the shared Dialog primitive — see above | Reference-counted scroll lock · effect runs every render · closes on unmount · `try`/`catch` · refresh deferred until the result is read |
+| B3 | *"That activation link is still in localhost"* | Five copies of the same fallback; `.env.local` pins localhost | One `lib/app-url.ts`, origin derived from the request, **11 unit tests** |
+| B4 | *"Calendar option is just unclickable"* | Literally `disabled: true` | Navigates to the calendar screen. Month + week view arrives in Batch 7 |
+| B5 | *"The assignee should automatically be that member"* | Not carried through from Team | Filter and create-form default both pre-set to that person |
+| B6 | *"It should remove the assignee variable from the URL"* | `?assignee=` survived every reload, invisibly | **Refresh** button clears it and re-fetches |
+| B7 | *"Instead of 'someone' just put 'add member'"* | *"Add someone to the team"* | **Add member** |
+| B8 | *"Instead of owner just put lead"* | Field labelled **Owner** | **Lead** (label only; the column stays `owner_id`) |
+| B9 | *"Scale should become a dropdown"* | Free-text box placeholder'd `large` | **Small · Medium · Large** |
+
+### Verified in Chrome, not just built
+
+| | |
+|---|---|
+| B1 | Add task opens the form; To Do column pre-sets `todo`, Backlog pre-sets `backlog` |
+| B2 | Result dialog now **opens and is readable**; locked while shown, unlocked after, refresh lands |
+| B3 | 11 unit tests including the reported case — a LAN request produces a LAN link |
+| B4 | Tab is live and lands on `/calendar` |
+| B5 | Toolbar shows *Yusra Khan* instead of *Everyone*; form pre-fills *Yusra Khan — Ads Manager* |
+| B6 | URL `?assignee=…` → cleared · filter → Everyone · 6 cards → 31 |
+| B7 | Button *Add member*, dialog *Add a member*, no "someone" left anywhere |
+| B8/B9 | *Lead* present, *Owner* gone; scale is a `SELECT` with Not set / Small / Medium / Large |
+
+**958 unit tests** (11 new) · **133 integration** · **27/27 smoke**.
+
+#### One thing worth remembering
+
+`router.replace()` and `router.refresh()` must not both fire on the same click.
+Together they left the URL untouched — measured: the filter reset while
+`?assignee=…` stayed in the address bar, because `refresh()` re-fetches the
+*current* route and raced the navigation. Navigating to a different query string
+already re-fetches, so `replace` alone is both the clear and the refresh.
 
 | # | Owner's words | What is actually wrong | Fix |
 |:--:|---|---|---|
@@ -343,3 +432,4 @@ Everything else can proceed on the decisions already taken.
 | 2 | **A migration for per-type project fields** | Rule R1: migrations do not start without a go-ahead. I will recommend a `details jsonb` column |
 | 3 | **One new dependency for `.xlsx`** | The first new runtime package since Step 1. I will name it and its size first |
 | 4 | **The Resend sending domain** | Still deferred. Until it exists, the reset status trail will honestly say *"not sent — no mail domain"* rather than imply an email arrived |
+| 5 | **Remove `NEXT_PUBLIC_APP_URL` from your `.env.local`** | It is pinned to `http://localhost:4310`, which is the actual reason links said localhost. Delete the line (or blank it) and the origin is derived from whatever host you opened — localhost, the LAN IP, or production. `.env.example` now explains this. **Check the Vercel project too:** if it is set there, make sure it is the real URL; if it is unset, links are now derived correctly rather than defaulting to localhost |

@@ -94,14 +94,45 @@ export function PersonActions({
     );
   }
 
+  /* ── WHY THIS CATCHES, AND WHY IT NO LONGER REFRESHES HERE ─────────────────
+     Owner report, Session 20: the password reset left the page "stuck… going
+     black… I don't see what happens". Two of the three causes were in the Dialog
+     primitive and are fixed there. The other two were here.
+
+     1. THERE WAS NO try/catch. A server action that throws — a dropped
+        connection is enough — left `busy` true and the confirmation dialog open
+        with a spinner, forever. Nothing in the interface could recover it. That
+        alone is the whole "stuck" report, and it applied to every action on this
+        menu, not just the reset.
+
+     2. THE REFRESH RAN WHILE THE RESULT WAS BEING SHOWN. `router.refresh()`
+        re-renders the server tree; React reconciles; this component can be
+        unmounted or its <dialog> node recreated, and the outcome the person was
+        meant to read went with it. The refresh now waits until they dismiss the
+        result — the data on screen is a few seconds stale in exchange for the
+        answer actually being readable, which is the right trade. */
   const run = async (fn: () => Promise<TeamActionResult>) => {
     setBusy(true);
-    const outcome = await fn();
-    setResult(outcome);
-    setConfirm(null);
-    setOpen(false);
-    if (outcome.ok) router.refresh();
-    setBusy(false);
+    try {
+      const outcome = await fn();
+      setResult(outcome);
+    } catch {
+      setResult({
+        ok: false,
+        error: 'That could not be completed — the server did not answer. Nothing was changed.',
+      });
+    } finally {
+      setConfirm(null);
+      setOpen(false);
+      setBusy(false);
+    }
+  };
+
+  /** Dismiss the result, and only then pick up the server's new state. */
+  const dismissResult = () => {
+    const wasOk = result?.ok === true;
+    setResult(null);
+    if (wasOk) router.refresh();
   };
 
   const item =
@@ -289,14 +320,16 @@ export function PersonActions({
         )}
       </Dialog>
 
-      {/* ---- Outcome ---- */}
+      {/* ---- Outcome ----
+           Dismissing this is what triggers the refresh, not the action finishing.
+           See `dismissResult` above for why. */}
       <Dialog
         open={result !== null}
-        onClose={() => setResult(null)}
+        onClose={dismissResult}
         size="sm"
         title={result?.ok ? 'Done' : 'That was refused'}
         footer={
-          <Button variant="primary" size="md" onClick={() => setResult(null)}>
+          <Button variant="primary" size="md" onClick={dismissResult}>
             Close
           </Button>
         }

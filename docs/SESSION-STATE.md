@@ -49,8 +49,8 @@ That's all you ever need to type. Everything else is recorded in the files.
 
 | | |
 |---|---|
-| **Last updated** | 2026-08-09, Session 20 |
-| **Tests** | `npm run test` → **947** · `npm run test:auth` → **133** (real DB) · `npm run smoke` → **27/27** (every route, both roles) |
+| **Last updated** | 2026-08-09, Session 21 |
+| **Tests** | `npm run test` → **958** · `npm run test:auth` → **133** (real DB) · `npm run smoke` → **27/27** (every route, both roles) |
 | **⛔ Credential hygiene** | Three secrets were pasted into chat in Session 09 (Resend key, DB password ×2 — one echoed by my own script's error output). **All must be rotated.** Never paste a secret; `npm run check:db` redacts and is safe to share. |
 | **Current phase** | **Phase 1 — Foundation & Security** |
 | **Phase 1 progress** | ▓▓▓▓▓▓▓▓░░ Steps 1–4 complete · **5.1 complete** · **Phase 2 work core pulled forward and operational** |
@@ -265,7 +265,65 @@ The new asset is a **transparent raster**, not vector. That changes what each fo
 
 ## 3. ⏭️ NEXT ACTION
 
-### 🔴 AWAITING APPROVAL — 26 changes, planned but not built (Session 20)
+### ✅ Session 21 — CHANGE-PLAN Batch 1 COMPLETE: all nine bugs
+
+`958 unit (11 new) · 133 integration · 27/27 smoke · every fix checked in Chrome.`
+
+**Next: Batch 2 (tasks and the board) — awaiting the go-ahead.**
+
+Three of the nine were not what they looked like.
+
+**B2 — the password reset that "went black and got stuck" was not the reset.**
+Replayed every database step against the real database: all five succeeded. The
+fault was in `components/ui/dialog.tsx`, which **every dialog in the application
+shares**, and it was two defects:
+
+1. The open/close effect was keyed on `[open]`, so it only ran when that prop
+   changed. `router.refresh()` re-renders the server tree, React reconciles, and
+   the `<dialog>` node can be **recreated — and a recreated node is not open**,
+   because `showModal()` state lives on the element, not in React. Measured in
+   Chrome: `open` was `true`, the children were in the DOM, `dialog.open` was
+   `false`. The confirmation was rendered and invisible.
+2. The scroll lock was per-dialog. `PersonActions` closes its confirmation and
+   opens its result dialog **in the same commit**, and the restore order decided
+   whether the page stayed locked. Intermittent, hence "sometimes".
+
+Two more in the caller: `run()` had **no try/catch**, so a thrown action left the
+dialog open with a spinner forever — for every action on that menu, not just the
+reset — and the refresh destroyed the result before it could be read.
+
+Now: one **reference-counted** scroll lock for the whole app, the sync effect
+runs every render, dialogs close on unmount, `try`/`catch`, and the refresh waits
+until the result is dismissed.
+
+**B3 — the localhost link was five copies of one line.** Replaced by
+`lib/app-url.ts`, which derives the origin from the request. 11 unit tests.
+⚠️ The environment variable still wins **on purpose** — a fixed value cannot be
+influenced by a request header, and host-header poisoning in a reset email is a
+real attack. Which is also the true cause: **`.env.local` pins
+`NEXT_PUBLIC_APP_URL=http://localhost:4310`.** See the owner action below.
+
+**B1 — the Add-task button was exactly as dead as it looked**: a `<button>` with
+a class and no handler.
+
+The rest — B4 calendar tab (`disabled: true`), B5 assignee pre-select, B6 refresh
+that clears `?assignee=`, B7 "Add member", B8 "Lead", B9 scale dropdown — were as
+described. Full detail and the browser evidence in
+[`CHANGE-PLAN.md`](CHANGE-PLAN.md) §1.
+
+> ⚠️ **OWNER ACTION — remove `NEXT_PUBLIC_APP_URL` from `.env.local`.** It is
+> pinned to `http://localhost:4310`, which is why links said localhost even when
+> the page was opened over the LAN. Delete or blank the line and the origin
+> follows whatever host was used. `.env.example` now explains it. **Check Vercel
+> too** — if it is set there it must be the real URL; if unset, links are now
+> derived correctly instead of defaulting to localhost.
+
+> **Worth remembering:** `router.replace()` and `router.refresh()` must not both
+> fire on one click. Together they left the URL untouched — the filter reset
+> while `?assignee=…` stayed in the address bar, because `refresh()` re-fetches
+> the *current* route and raced the navigation.
+
+### 🔴 THE OTHER 17 — planned, not built (Session 20)
 
 The owner gave 26 separate changes in one instruction — **9 bugs and 17
 features** — with the explicit sequence *"ask me questions… confirm to me every
