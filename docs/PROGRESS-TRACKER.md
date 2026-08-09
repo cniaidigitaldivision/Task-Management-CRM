@@ -1,6 +1,6 @@
 # 📊 PROGRESS TRACKER — CNI CRM
 
-**Last updated:** 2026-08-08 (Session 18)
+**Last updated:** 2026-08-09 (Session 19)
 **Current phase:** **All 8 BUILD-PLAN steps complete.** [REDESIGN-PLAN](REDESIGN-PLAN.md) phases 1–8 complete; **phase 9 not started.**
 **Blocked on:** 🔴 **An owner decision on [REDESIGN-PLAN §9](REDESIGN-PLAN.md)** — what the supplied `CNI-AI-Digital-Task-Board.html` is meant to become. It sat in the repo root, referenced by no planning document, through the whole redesign. Also awaiting permission: **persisting board order** needs a migration (§8.5). `SUPABASE_STORAGE_KEY` and `CRON_SECRET` are set as of Session 17. Resend's sending domain is still deferred, and it is what the email-change verification link waits on.
 **Tests:** `npm run test` → **947** · `npm run test:auth` → **133** (real DB) · `npm run smoke` → **27/27** signed-in route checks · DB gates: Step 2 **35/35**, pre-auth **32/32**, 010 **9/9**, 011 **8/8**, work core **17/17**, email change **11/11**

@@ -683,6 +683,22 @@ body,
   background-clip: content-box;
 }
 
+/* ── A scroller whose bar is drawn somewhere else ────────────────────────────
+   For components/ui/floating-scrollbar.tsx. The element keeps every bit of its
+   scrolling behaviour — wheel, shift-wheel, trackpad, keyboard, programmatic —
+   and only its BAR is suppressed, because a proxy pinned to the bottom of the
+   viewport is showing it instead. Without this there would be two bars for one
+   scroller, which reads as a bug.
+
+   Not `overflow: hidden`, which would remove the scrolling as well. */
+.scrollbar-hidden {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* legacy Edge */
+}
+.scrollbar-hidden::-webkit-scrollbar {
+  display: none;
+}
+
 /* The rail is theme-invariant, so its scrollbar has to be too. */
 .chrome-scroll::-webkit-scrollbar-thumb {
   background: rgb(255 255 255 / 0.14);

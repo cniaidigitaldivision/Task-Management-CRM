@@ -380,6 +380,63 @@ A `MutationObserver` on every card's `style` attribute, counting writes:
 | one move that **does** shift the gap (0 → 2) | 0 writes (bug 4 — no animation at all) | **69 writes, 65 with a transform** |
 | gap index while sweeping down then back up | oscillated between adjacent values | `0→1→2→3→4` then `4→3→2→1→0`, monotonic over 64 steps |
 
+#### 8.6 The horizontal scrollbar was at the bottom of the board, not the screen
+
+> *"For scrolling towards the left or right the scrollbar is literally at the
+> bottom — I don't want to scroll down to the bottom just for moving to the
+> right."*
+
+The board is **2,420px wide** (eight 286px columns plus gaps) against about
+1,454px of room — roughly **966px of overflow** to travel. And it is as TALL as
+its fullest column, so a scroll container's bar, which sits at the bottom of the
+CONTAINER, was ~2,100px down the page.
+
+**Chosen: a floating bar pinned to the bottom of the viewport** (option 2 of the
+six offered). A second, scrollbar-height scroll container is given a spacer
+exactly as wide as the real content, so it gets a bar with identical proportions,
+and the two scroll positions are mirrored.
+
+`position: sticky; bottom: 0` does the rest **without measuring anything**: the
+bar rides the bottom of the screen while the board's end is below the fold, and
+settles into its natural place underneath the board the moment that end scrolls
+into view. No scroll listener, no viewport arithmetic, nothing to keep in step
+on resize or when the navigation rail animates.
+
+The board's own bar is hidden (`.scrollbar-hidden`, which suppresses the BAR and
+nothing else — wheel, shift-wheel, trackpad, keyboard and the drag auto-scroll
+all still drive the real element). **There is exactly one bar at any moment**,
+which was the owner's stated worry about this approach.
+
+Two things fixed alongside it, both consequences of the same restructure:
+
+- **The legend no longer drifts sideways.** It was inside the scroller, so it
+  slid away whenever the board was scrolled. It is a key to the whole board, not
+  part of its content.
+- The airborne drag card moved out of the scroller too.
+
+##### Two bugs found by testing, both invisible to a build
+
+1. **The first version measured with ResizeObserver's initial callback** — on the
+   reasonable belief that observing an element always delivers one. It does,
+   *except while the page is not being rendered*: in a background tab the
+   resize-observation step never runs, so the bar never appeared at all. Now read
+   through `useSyncExternalStore`, matching the theme provider and the rail pin.
+   React re-reads the snapshot immediately after subscribing, so the first
+   measurement lands whether or not the observer ever fires.
+2. **The snapshot has to be a string.** `useSyncExternalStore` compares by
+   identity, so returning a fresh `{ scrollWidth, clientWidth }` each call would
+   re-render forever.
+
+##### Measured
+
+| | |
+|---|---|
+| board scroll range vs proxy scroll range | **966 = 966** — the thumb maps one-to-one |
+| proxy drives board / board drives proxy | 500 → 500 · 136.8 → 136.8 |
+| echo loop from mirroring | **none** — each handler compares before it assigns |
+| bar position at page top, mid, and end | 730 / 730 / parked under the board (viewport is 730) |
+| drag-and-drop after the restructure | unchanged — 69 style writes when the gap moves, 0 while stationary |
+
 #### ⚠️ Board order is a session preference, not a saved one
 
 There is **no ordering column on `tasks`** — only `checklist_items.sort_order`

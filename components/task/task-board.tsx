@@ -4,6 +4,7 @@ import * as React from 'react';
 import { Plus } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
+import { FloatingScrollbar } from '@/components/ui/floating-scrollbar';
 import { EFFORT_POINTS, STATUS_META, TASK_STATUSES, type TaskStatus } from '@/lib/domain/constants';
 import type { TaskView } from '@/lib/view/task-view';
 import { cn } from '@/lib/utils';
@@ -471,163 +472,185 @@ export function TaskBoard({
   }, []);
 
   return (
-    <div
-      ref={scrollerRef}
-      className="-mx-4 overflow-x-auto px-4 pb-2 sm:-mx-6 sm:px-6"
-      /* While a card is in the air the board must not also pan under it. */
-      style={isDragging ? { overscrollBehaviorX: 'contain' } : undefined}
-    >
-      <div className="flex min-w-max gap-3">
-        {TASK_STATUSES.map((status) => {
-          const meta = STATUS_META[status];
-          const columnTasks = tasks.filter((t) => t.status === status);
-          const points = columnTasks.reduce((sum, t) => sum + EFFORT_POINTS[t.effort], 0);
+    /* ── The wrapper is what makes the floating scrollbar work ────────────────
+       It is the sticky bar's containing block, so the bar can ride the bottom of
+       the viewport anywhere between the top of the board and its natural resting
+       place beneath it. It must not gain an `overflow` of its own, or sticky
+       stops working.
 
-          const refusal = dragged ? canMove(dragged, status) : null;
-          const isSameColumn = dragged?.status === status;
-          const isDropTarget = target?.status === status;
-          const isRefused = !!dragged && !!refusal && !isSameColumn;
+       The legend moved out of the scroller at the same time: it was drifting
+       sideways whenever the board was scrolled, and it is a key to the whole
+       board rather than part of its content. */
+    <div className="relative">
+      <div
+        ref={scrollerRef}
+        /* `.scrollbar-hidden` suppresses only this element's BAR, because
+           FloatingScrollbar draws it at the bottom of the screen instead. Every
+           other way of scrolling it — wheel, shift-wheel, trackpad, keyboard,
+           and the drag auto-scroll — still drives this element. */
+        className="scrollbar-hidden -mx-4 overflow-x-auto px-4 pb-2 sm:-mx-6 sm:px-6"
+        /* While a card is in the air the board must not also pan under it. */
+        style={isDragging ? { overscrollBehaviorX: 'contain' } : undefined}
+      >
+        <div className="flex min-w-max gap-3">
+          {TASK_STATUSES.map((status) => {
+            const meta = STATUS_META[status];
+            const columnTasks = tasks.filter((t) => t.status === status);
+            const points = columnTasks.reduce((sum, t) => sum + EFFORT_POINTS[t.effort], 0);
 
-          /* The dragged card leaves the flow entirely — it is in the air. */
-          const visible = drag ? columnTasks.filter((t) => t.id !== drag.taskId) : columnTasks;
+            const refusal = dragged ? canMove(dragged, status) : null;
+            const isSameColumn = dragged?.status === status;
+            const isDropTarget = target?.status === status;
+            const isRefused = !!dragged && !!refusal && !isSameColumn;
 
-          return (
-            <section
-              key={status}
-              ref={(element) => {
-                if (element) columnRefs.current.set(status, element);
-                else columnRefs.current.delete(status);
-              }}
-              aria-label={`${meta.label} — ${columnTasks.length} tasks`}
-              className={cn(
-                'flex w-[286px] shrink-0 flex-col rounded-xl border',
-                'transition-[border-color,background-color] duration-[140ms]',
-                isDropTarget
-                  ? 'border-border-brand bg-bg-selected'
-                  : 'border-border-subtle bg-bg-subtle',
-              )}
-              style={
-                isRefused
-                  ? { borderColor: 'color-mix(in oklab, var(--feedback-error) 45%, transparent)' }
-                  : undefined
-              }
-              title={isRefused ? refusal : undefined}
-            >
-              {/* ---- Column header ---- */}
-              <header className="flex items-center gap-2 px-3 pt-3 pb-2">
+            /* The dragged card leaves the flow entirely — it is in the air. */
+            const visible = drag ? columnTasks.filter((t) => t.id !== drag.taskId) : columnTasks;
+
+            return (
+              <section
+                key={status}
+                ref={(element) => {
+                  if (element) columnRefs.current.set(status, element);
+                  else columnRefs.current.delete(status);
+                }}
+                aria-label={`${meta.label} — ${columnTasks.length} tasks`}
+                className={cn(
+                  'flex w-[286px] shrink-0 flex-col rounded-xl border',
+                  'transition-[border-color,background-color] duration-[140ms]',
+                  isDropTarget
+                    ? 'border-border-brand bg-bg-selected'
+                    : 'border-border-subtle bg-bg-subtle',
+                )}
+                style={
+                  isRefused
+                    ? { borderColor: 'color-mix(in oklab, var(--feedback-error) 45%, transparent)' }
+                    : undefined
+                }
+                title={isRefused ? refusal : undefined}
+              >
+                {/* ---- Column header ---- */}
+                <header className="flex items-center gap-2 px-3 pt-3 pb-2">
+                  <span
+                    aria-hidden="true"
+                    className="h-2 w-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: `var(--${meta.token})` }}
+                  />
+                  <h3 className="flex-1 truncate text-caption font-semibold text-text-primary">
+                    {meta.label}
+                  </h3>
+                  <span className="tabular shrink-0 text-micro font-semibold text-text-tertiary">
+                    {columnTasks.length}
+                    {points > 0 && <span className="font-normal"> · {points}p</span>}
+                  </span>
+                </header>
+
+                {/* A hairline in the status colour, so a long board stays
+                    navigable by colour as you scroll sideways. */}
                 <span
                   aria-hidden="true"
-                  className="h-2 w-2 shrink-0 rounded-full"
-                  style={{ backgroundColor: `var(--${meta.token})` }}
+                  className="mx-3 h-[2px] shrink-0 rounded-full"
+                  style={{
+                    background: `linear-gradient(90deg, var(--${meta.token}), color-mix(in oklab, var(--${meta.token}) 20%, transparent))`,
+                  }}
                 />
-                <h3 className="flex-1 truncate text-caption font-semibold text-text-primary">
-                  {meta.label}
-                </h3>
-                <span className="tabular shrink-0 text-micro font-semibold text-text-tertiary">
-                  {columnTasks.length}
-                  {points > 0 && <span className="font-normal"> · {points}p</span>}
-                </span>
-              </header>
 
-              {/* A hairline in the status colour, so a long board stays
-                  navigable by colour as you scroll sideways. */}
-              <span
-                aria-hidden="true"
-                className="mx-3 h-[2px] shrink-0 rounded-full"
-                style={{
-                  background: `linear-gradient(90deg, var(--${meta.token}), color-mix(in oklab, var(--${meta.token}) 20%, transparent))`,
-                }}
-              />
-
-              {/* ---- Cards ----
-                  `p-2.5` and `space-y-2` are mirrored by LIST_PAD and CARD_GAP,
-                  which the settled-layout model above measures with. Change
-                  them together. */}
-              <div
-                ref={(element) => {
-                  if (element) listRefs.current.set(status, element);
-                  else listRefs.current.delete(status);
-                }}
-                className="flex-1 space-y-2 p-2.5"
-              >
-                {visible.map((task, position) => (
-                  <React.Fragment key={task.id}>
-                    {isDropTarget && target.index === position && (
-                      <Gap ref={gapRef} height={drag?.height ?? 0} />
-                    )}
-
-                    <div
-                      ref={(element) => registerCard(task.id, element)}
-                      className="group/card relative"
-                      style={{ touchAction: 'pan-x' }}
-                      onPointerDown={(event) => beginGesture(event, task)}
-                    >
-                      {onToggleSelect && (
-                        /* The checkbox stays hidden until the card is hovered or
-                           something is already selected. A permanent checkbox on
-                           every card turns a board into a spreadsheet. */
-                        <label
-                          className={cn(
-                            'absolute top-1.5 left-1.5 z-10 cursor-pointer rounded-md border',
-                            'border-border-default bg-bg-surface p-1 shadow-xs transition-opacity',
-                            selectedIds?.includes(task.id)
-                              ? 'opacity-100'
-                              : 'opacity-0 group-hover/card:opacity-100 focus-within:opacity-100',
-                          )}
-                          onClick={(event) => event.stopPropagation()}
-                        >
-                          <span className="sr-only">Select {task.reference}</span>
-                          <input
-                            type="checkbox"
-                            className="block h-3.5 w-3.5 cursor-pointer accent-[var(--accent-primary)]"
-                            checked={selectedIds?.includes(task.id) ?? false}
-                            onChange={() => onToggleSelect(task.id)}
-                          />
-                        </label>
-                      )}
-                      <TaskCard task={task} onOpen={onOpen} />
-                    </div>
-                  </React.Fragment>
-                ))}
-
-                {isDropTarget && target.index >= visible.length && (
-                  <Gap ref={gapRef} height={drag?.height ?? 0} />
-                )}
-
-                {visible.length === 0 && !isDropTarget && (
-                  <p className="rounded-lg border border-dashed border-border-default px-3 py-6 text-center text-micro text-text-tertiary">
-                    {isRefused ? refusal : 'Nothing here'}
-                  </p>
-                )}
-
-                {isRefused && visible.length > 0 && (
-                  <p
-                    className="rounded-lg px-2.5 py-2 text-micro font-medium"
-                    style={{
-                      backgroundColor:
-                        'color-mix(in oklab, var(--feedback-error) var(--tint-soft), var(--bg-surface))',
-                      color: 'color-mix(in oklab, var(--feedback-error) 74%, var(--text-primary))',
-                    }}
-                  >
-                    {refusal}
-                  </p>
-                )}
-              </div>
-
-              {/* ---- Add ---- */}
-              <footer className="p-2.5 pt-0">
-                <button
-                  type="button"
-                  className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-transparent px-2 py-1.5 text-micro font-semibold text-text-tertiary transition-colors duration-[140ms] hover:border-border-default hover:bg-bg-surface hover:text-text-primary focus-visible:outline-none"
+                {/* ---- Cards ----
+                    `p-2.5` and `space-y-2` are mirrored by LIST_PAD and CARD_GAP,
+                    which the settled-layout model above measures with. Change
+                    them together. */}
+                <div
+                  ref={(element) => {
+                    if (element) listRefs.current.set(status, element);
+                    else listRefs.current.delete(status);
+                  }}
+                  className="flex-1 space-y-2 p-2.5"
                 >
-                  <Plus className="h-3.5 w-3.5" strokeWidth={2.5} aria-hidden="true" />
-                  Add task
-                </button>
-              </footer>
-            </section>
-          );
-        })}
+                  {visible.map((task, position) => (
+                    <React.Fragment key={task.id}>
+                      {isDropTarget && target.index === position && (
+                        <Gap ref={gapRef} height={drag?.height ?? 0} />
+                      )}
+
+                      <div
+                        ref={(element) => registerCard(task.id, element)}
+                        className="group/card relative"
+                        style={{ touchAction: 'pan-x' }}
+                        onPointerDown={(event) => beginGesture(event, task)}
+                      >
+                        {onToggleSelect && (
+                          /* The checkbox stays hidden until the card is hovered or
+                             something is already selected. A permanent checkbox on
+                             every card turns a board into a spreadsheet. */
+                          <label
+                            className={cn(
+                              'absolute top-1.5 left-1.5 z-10 cursor-pointer rounded-md border',
+                              'border-border-default bg-bg-surface p-1 shadow-xs transition-opacity',
+                              selectedIds?.includes(task.id)
+                                ? 'opacity-100'
+                                : 'opacity-0 group-hover/card:opacity-100 focus-within:opacity-100',
+                            )}
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            <span className="sr-only">Select {task.reference}</span>
+                            <input
+                              type="checkbox"
+                              className="block h-3.5 w-3.5 cursor-pointer accent-[var(--accent-primary)]"
+                              checked={selectedIds?.includes(task.id) ?? false}
+                              onChange={() => onToggleSelect(task.id)}
+                            />
+                          </label>
+                        )}
+                        <TaskCard task={task} onOpen={onOpen} />
+                      </div>
+                    </React.Fragment>
+                  ))}
+
+                  {isDropTarget && target.index >= visible.length && (
+                    <Gap ref={gapRef} height={drag?.height ?? 0} />
+                  )}
+
+                  {visible.length === 0 && !isDropTarget && (
+                    <p className="rounded-lg border border-dashed border-border-default px-3 py-6 text-center text-micro text-text-tertiary">
+                      {isRefused ? refusal : 'Nothing here'}
+                    </p>
+                  )}
+
+                  {isRefused && visible.length > 0 && (
+                    <p
+                      className="rounded-lg px-2.5 py-2 text-micro font-medium"
+                      style={{
+                        backgroundColor:
+                          'color-mix(in oklab, var(--feedback-error) var(--tint-soft), var(--bg-surface))',
+                        color: 'color-mix(in oklab, var(--feedback-error) 74%, var(--text-primary))',
+                      }}
+                    >
+                      {refusal}
+                    </p>
+                  )}
+                </div>
+
+                {/* ---- Add ---- */}
+                <footer className="p-2.5 pt-0">
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-transparent px-2 py-1.5 text-micro font-semibold text-text-tertiary transition-colors duration-[140ms] hover:border-border-default hover:bg-bg-surface hover:text-text-primary focus-visible:outline-none"
+                  >
+                    <Plus className="h-3.5 w-3.5" strokeWidth={2.5} aria-hidden="true" />
+                    Add task
+                  </button>
+                </footer>
+              </section>
+            );
+          })}
+        </div>
       </div>
+
+      {/* ---- The bar that follows you down the page ----
+          Sits directly under the board and rides the bottom of the viewport
+          until the board's real end scrolls into view. The bleed classes match
+          the scroller's exactly, so the two elements are the same width and the
+          thumb maps one-to-one onto the real scroll range. */}
+      <FloatingScrollbar targetRef={scrollerRef} className="-mx-4 sm:-mx-6" />
 
       {/* ---- The card in the air ----
           Rendered last so it stacks above every column without a z-index race.

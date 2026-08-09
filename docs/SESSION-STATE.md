@@ -49,7 +49,7 @@ That's all you ever need to type. Everything else is recorded in the files.
 
 | | |
 |---|---|
-| **Last updated** | 2026-08-08, Session 18 |
+| **Last updated** | 2026-08-09, Session 19 |
 | **Tests** | `npm run test` → **947** · `npm run test:auth` → **133** (real DB) · `npm run smoke` → **27/27** (every route, both roles) |
 | **⛔ Credential hygiene** | Three secrets were pasted into chat in Session 09 (Resend key, DB password ×2 — one echoed by my own script's error output). **All must be rotated.** Never paste a secret; `npm run check:db` redacts and is safe to share. |
 | **Current phase** | **Phase 1 — Foundation & Security** |
@@ -264,6 +264,41 @@ The new asset is a **transparent raster**, not vector. That changes what each fo
 ---
 
 ## 3. ⏭️ NEXT ACTION
+
+### ✅ Session 19 — the board's horizontal scrollbar follows you down the page
+
+Owner: *"the scrollbar is literally at the bottom — I don't want to scroll down
+to the bottom just for moving to the right."* The board is 2,420px wide against
+~1,454px of room (966px of overflow) and as tall as its fullest column, so its
+bar sat ~2,100px down the page.
+
+Six options were offered; the owner chose **the floating bar**
+([REDESIGN-PLAN §8.6](REDESIGN-PLAN.md)). New primitive
+[`components/ui/floating-scrollbar.tsx`](../components/ui/floating-scrollbar.tsx),
+reusable for any wide scroller.
+
+- A scrollbar-height proxy holds a spacer exactly as wide as the real content, so
+  its bar has identical proportions; the two scroll positions are mirrored.
+- `position: sticky; bottom: 0` needs **no measurement at all** — it rides the
+  bottom of the screen while the board's end is off-screen and parks under the
+  board when that end arrives.
+- The board's own bar is hidden with `.scrollbar-hidden`, which suppresses the
+  BAR only. Wheel, shift-wheel, trackpad, keyboard and the drag auto-scroll all
+  still drive the real element. **One bar, always reachable.**
+- The legend was moved out of the scroller at the same time — it had been
+  drifting sideways with the columns.
+
+**Two bugs found by testing.** The first version measured off ResizeObserver's
+initial callback; that callback never fires while a tab is not being rendered, so
+the bar simply never appeared. It now reads through `useSyncExternalStore` (the
+pattern already used for the theme and the rail pin), which re-reads the snapshot
+right after subscribing and so does not depend on the observer firing at all. And
+that snapshot must be a **string** — `useSyncExternalStore` compares by identity,
+so a fresh object each call would re-render forever.
+
+Measured: scroll ranges 966 = 966, both directions mirror exactly, no echo loop,
+bar at the viewport bottom (730) at the top and middle of the page and parked
+under the board at the end — and drag-and-drop unchanged by the restructure.
 
 ### ✅ Session 18 — the board stopped shivering
 
@@ -640,6 +675,7 @@ Each update rewrites §2 (where we are), §3 (next action), and appends to §7 (
 
 | # | Date | What happened | Ended at |
 |:--:|---|---|---|
+| 19 | 2026-08-09 | **THE BOARD'S HORIZONTAL SCROLLBAR NOW FOLLOWS YOU DOWN THE PAGE.** Owner: *"the scrollbar is literally at the bottom — I don't want to scroll down to the bottom just for moving to the right."* The board is 2,420px wide against ~1,454px of room, and as tall as its fullest column, so its bar sat ~2,100px down the page. Six options offered; the owner chose the floating bar. New reusable primitive `components/ui/floating-scrollbar.tsx`: a scrollbar-height proxy holding a spacer exactly as wide as the real content, so its bar has identical proportions, with the two scroll positions mirrored — each handler compares before it assigns, so the echo cannot loop. `position: sticky; bottom: 0` does the positioning with **no measurement at all**: the bar rides the bottom of the screen while the board's end is off-screen and parks beneath the board when that end arrives, including through the rail's 240ms width animation. The board's own bar is hidden by a new `.scrollbar-hidden` utility that suppresses the BAR only — wheel, shift-wheel, trackpad, keyboard and the drag auto-scroll still drive the real element — so there is exactly one bar at any moment, which was the owner's stated worry about this approach. The legend moved out of the scroller at the same time; it had been drifting sideways with the columns. **Two bugs found by testing:** the first version measured off ResizeObserver's initial callback, which never fires while a tab is not being rendered, so the bar simply never appeared — it now reads through `useSyncExternalStore`, which re-reads the snapshot right after subscribing and so does not depend on the observer at all; and that snapshot must be a **string**, because `useSyncExternalStore` compares by identity and a fresh object each call re-renders forever. Measured: ranges 966 = 966, both directions mirror exactly, bar at viewport bottom (730) at the top and middle and parked at the end, drag-and-drop unchanged by the restructure. | **🔴 Still awaiting the §9 decision** |
 | 18 | 2026-08-08 | **THE BOARD STOPPED SHIVERING.** Owner: *"the other tasks just start flickering… up and down up and down… they start shivering."* Three causes in `task-board.tsx`, plus a fourth found while proving the fix. **(1)** The FLIP effect's dependency array held the drag state, which updated on every `pointermove` — so sixty times a second it re-measured mid-transition cards and restarted their animation. **(2)** The pointer position was React state, re-rendering eight columns and thirty cards to move one absolutely-positioned element; it is now imperative through a ref. **(3)** The insertion index was measured with `getBoundingClientRect()`, which includes transforms — so the midpoints deciding the index moved while the cards slid, two adjacent indices were each "correct" a frame apart, the gap flipped between them, and that restarted the animation which moved the midpoints again. A genuine feedback loop, and the "disturbing each other" in the report. The index now comes from a settled layout model of container geometry and card heights, which no transform can touch. **(4)** Found while proving it: the inline `ref` arrow is a new function every render, so React detaches it with `null` every render, and the detach handler was deleting that card's FLIP snapshot — ref callbacks run during commit *before* `useLayoutEffect`, so the snapshot was wiped in the very commit meant to consume it, and cards jumped rather than slid. **Proven with a MutationObserver counting style writes:** 0 across 25 moves with the gap stationary (was one per card per move), 69 on a move that shifts the gap (was 0), and a monotonic `0→1→2→3→4` / `4→3→2→1→0` gap index over a 64-step sweep (was oscillating). The lesson, recorded in the file header: never measure something you are animating in order to decide how to animate it. | **🔴 Still awaiting the §9 decision** |
 | 17 | 2026-08-08 | **INTERACTION FIXES (REDESIGN-PLAN §8) + A REAL DOCUMENTATION GAP FOUND.** The gap first: `CNI-AI-Digital-Task-Board.html` has been in the repo root since `141669f` and **was referenced by no planning document at all**, so the entire seven-phase redesign was written without it and the owner's expected work never appeared. Now REDESIGN-PLAN §9, blocked on an owner decision because its palette and type system collide with doc 18 / ADR-011. Five instructions delivered: **rail opens on click not hover** (reverses D6, keeps D7 — the Phase 6 tab is now the only control); **the duplicate `/settings` icon under the user removed** — it was in the nav's System section as well; **every rail icon on one 32.5px axis**, where there had been three (32.5 / 38 / 28), which only shows when collapsed and collapsed is now the resting state; **Dashboard above My Work**; **search rebuilt as a real box in the bar** with results anchored under it instead of a full-screen palette over a dimmed backdrop. **Drag-and-drop taken off the native HTML5 API entirely** — it cannot do what was asked, at all: its drag image is an unstyleable browser snapshot (the "blur"), `dragover` fires on a coarse timer (the "flicker"), it has a drop target but no drop position, and nothing animates. Rebuilt on pointer events: full-opacity card in hand, a real gap element at the landing index so cards genuinely reflow, FLIP to make that smooth, a flight to the gap on release, horizontal auto-scroll, and a 220ms hold before touch drags. Verified in Chrome — a legal move landed at the chosen index and persisted; an illegal one opened no gap and flew home. **Not finished:** board order within a column does not survive a reload — there is no ordering column on `tasks`, and adding one is a migration that waits for permission (R1). | **🔴 Awaiting an owner decision on §9** |
 | 16 | 2026-08-08 | **REDESIGN-PLAN PHASE 2 COMPLETE — the sign-in address can be changed. All seven redesign phases now done.** Available to every role for their own account, under Profile → Security. Password + authenticator (the Step 5 step-up challenge, which replays the held submission rather than making somebody re-enter it), applied immediately, with an alert to the **old** address as the control. **No migration, no new permission, no new row in the doc 03 matrix** — the trigger already permitted it, RLS already scoped it, and `security_events.event_type` is free text by design. New pure module `lib/domain/email-address.ts` with 33 tests, one of which reads migration 001 off disk so the TypeScript pattern and the SQL constraint cannot drift apart silently. **The validator is deliberately stricter than the database in exactly one place:** the SQL pattern accepts `name@example.com,` off a pasted list — valid shape, undeliverable forever — so the domain's last label must now be letters; the test asserts only the safe direction (everything the app accepts, the database accepts). 11 integration tests, including the phase's premise proven rather than assumed: the **real** Super Admin's address is changed inside a transaction and rolled back, then re-read on a fresh connection so a rollback that did not take fails loudly, with FR-156 self-deactivation still refused alongside it. Verified in Chrome in both themes; the step-up dialog fires and a wrong password is refused. **Residual risk recorded, not hidden:** a typo still locks somebody out permanently — mitigated by asking twice with paste blocked on the second field, but only properly fixed by the verification link, which needs the Resend sending domain. | **Nothing queued — awaiting direction** |
