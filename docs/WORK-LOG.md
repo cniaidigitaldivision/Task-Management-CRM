@@ -21,8 +21,8 @@
 |---|---|
 | **Updated** | 2026-08-09 · Session 23 |
 | **Current batch** | **Batch 3 — Forms** ([CHANGE-PLAN §3](CHANGE-PLAN.md)) |
-| **Steps done in this batch** | none yet — batch just started |
-| **⏭️ NEXT ACTION** | Step 3.1a — migration 020, adding `start_time` / `due_time` to `tasks` |
+| **Steps done in this batch** | **3.1a** — migration 020 applied and proven |
+| **⏭️ NEXT ACTION** | Step 3.1b — read/write the new times through the query and view layers (`lib/db/queries/tasks.ts`, `projects.ts`, `lib/view/task-view.ts`), then the task form |
 | **Working tree** | clean, pushed |
 | **Blocked on** | nothing |
 
@@ -57,6 +57,7 @@ so anything not listed here has not been done.
 | # | Step | State | What changed | Proof |
 |:--:|---|:--:|---|---|
 | — | *batch started* | — | Found: `projects.type_fields` is **already `jsonb`**, so the migration predicted for per-type fields is **not needed**. But `tasks.start_date` / `due_date` are **`date`** columns, so adding a time **does** need one. | schema read |
+| 3.1a | **Migration 020** — `start_time` / `due_time` on `tasks`, `start_time` / `target_end_time` on `projects` | ✅ | Times are **additive `time` columns**, not a `date` → `timestamptz` change. Changing the type would have re-interpreted the partial index on `due_date`, both `dates_ordered` constraints, the whole UTC-calendar recurrence engine (already bitten once in Step 6), the calendar's day grouping and ADR-004's Mon–Sat workload window. `time` not `timetz`: one division, one timezone, so a wall-clock time is what is meant. New `tasks_times_ordered` / `projects_times_ordered` constraints cover the case dates cannot — same day, 17:00 → 09:00. | Applied. Probed in rolled-back transactions: same-day 09:00→17:00 **accepted**, same-day 17:00→09:00 **refused by `tasks_times_ordered`**, across-days 17:00→09:00 **accepted**, no times **accepted** |
 
 ---
 

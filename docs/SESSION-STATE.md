@@ -267,7 +267,7 @@ The new asset is a **transparent raster**, not vector. That changes what each fo
 
 > ### 📋 FOR A MID-BATCH RESUME, READ [`WORK-LOG.md`](WORK-LOG.md) FIRST
 > This file records where we are **between batches**. That is too coarse to
-> resume from if a session dies halfway through one.  §1 names the
+> resume from if a session dies halfway through one. `WORK-LOG.md` §1 names the
 > exact next action and §2 lists every finished step with its proof. Owner
 > instruction, Session 23.
 
