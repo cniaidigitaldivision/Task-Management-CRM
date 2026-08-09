@@ -106,7 +106,9 @@ export async function createProjectAction(
       statusReason: statusReason || null,
       ownerId: str(form, 'ownerId') || user.id,
       startDate: str(form, 'startDate') || null,
+      startTime: str(form, 'startTime') || null,
       targetEndDate: str(form, 'targetEndDate') || null,
+      targetEndTime: str(form, 'targetEndTime') || null,
       typeFields: collectTypeFields(form, type),
     });
 
@@ -166,7 +168,9 @@ export async function updateProjectAction(
       statusReason: statusReason || existing.statusReason,
       ownerId: str(form, 'ownerId') || existing.ownerId,
       startDate: str(form, 'startDate') || null,
+      startTime: str(form, 'startTime') || null,
       targetEndDate: str(form, 'targetEndDate') || null,
+      targetEndTime: str(form, 'targetEndTime') || null,
       typeFields: { ...existing.typeFields, ...collectTypeFields(form, existing.type) },
     });
 

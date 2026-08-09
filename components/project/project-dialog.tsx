@@ -113,6 +113,16 @@ export function ProjectDialog({
   project?: ProjectRow;
 }) {
   const isEdit = Boolean(project);
+
+  /* "Now", read on every render. Same reasoning as task-dialog.tsx: `Dialog`
+     renders `{open && …}`, so these inputs mount fresh each time it opens and
+     `defaultValue` is only read then — which also means a tab left open
+     overnight cannot pre-fill yesterday. LOCAL date parts, not `toISOString()`,
+     which returns UTC and hands back tomorrow east of Greenwich. */
+  const now = new Date();
+  const pad = (value: number) => String(value).padStart(2, '0');
+  const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  const nowTime = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
   const router = useRouter();
 
   const [state, formAction, pending] = React.useActionState(
@@ -261,9 +271,26 @@ export function ProjectDialog({
           </Field>
         )}
 
+        {/* Same rule as the task form (CHANGE-PLAN 3.1): start pre-filled with
+            now, end left empty. `type="time"` uses the browser's own picker, so
+            AM/PM appears on a 12-hour locale without the form choosing for
+            anybody, and it always posts 24-hour "HH:MM". */}
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Start date" htmlFor="startDate">
-            <Input id="startDate" name="startDate" type="date" defaultValue={project?.startDate ?? ''} />
+            <Input
+              id="startDate"
+              name="startDate"
+              type="date"
+              defaultValue={project?.startDate ?? (isEdit ? '' : today)}
+            />
+          </Field>
+          <Field label="Start time" htmlFor="startTime" hint="Optional.">
+            <Input
+              id="startTime"
+              name="startTime"
+              type="time"
+              defaultValue={project?.startTime ?? (isEdit ? '' : nowTime)}
+            />
           </Field>
           <Field label="Target end date" htmlFor="targetEndDate">
             <Input
@@ -271,6 +298,14 @@ export function ProjectDialog({
               name="targetEndDate"
               type="date"
               defaultValue={project?.targetEndDate ?? ''}
+            />
+          </Field>
+          <Field label="Target end time" htmlFor="targetEndTime" hint="Optional.">
+            <Input
+              id="targetEndTime"
+              name="targetEndTime"
+              type="time"
+              defaultValue={project?.targetEndTime ?? ''}
             />
           </Field>
         </div>

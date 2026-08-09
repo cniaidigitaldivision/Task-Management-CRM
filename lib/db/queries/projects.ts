@@ -105,7 +105,10 @@ export interface CreateProjectInput {
   readonly statusReason?: string | null;
   readonly ownerId: string;
   readonly startDate?: string | null;
+  /** 'HH:MM'. Optional companion to startDate — migration 020. */
+  readonly startTime?: string | null;
   readonly targetEndDate?: string | null;
+  readonly targetEndTime?: string | null;
   readonly typeFields?: Record<string, unknown>;
 }
 
@@ -116,7 +119,7 @@ export async function createProject(
   const rows = await withUser(actorId, (tx) => tx`
     insert into public.projects (
       name, type, code, description, status, status_reason, owner_id,
-      start_date, target_end_date, type_fields, created_by_id
+      start_date, start_time, target_end_date, target_end_time, type_fields, created_by_id
     ) values (
       ${input.name.trim()},
       ${input.type}::public.project_type,
@@ -126,7 +129,9 @@ export async function createProject(
       ${input.statusReason?.trim() || null},
       ${input.ownerId},
       ${input.startDate ?? null},
+      ${input.startTime ?? null}::time,
       ${input.targetEndDate ?? null},
+      ${input.targetEndTime ?? null}::time,
       ${tx.json((input.typeFields ?? {}) as never)},
       ${actorId}
     )
@@ -142,7 +147,10 @@ export interface UpdateProjectInput {
   readonly statusReason?: string | null;
   readonly ownerId?: string;
   readonly startDate?: string | null;
+  /** 'HH:MM'. Optional companion to startDate — migration 020. */
+  readonly startTime?: string | null;
   readonly targetEndDate?: string | null;
+  readonly targetEndTime?: string | null;
   readonly typeFields?: Record<string, unknown>;
 }
 
@@ -162,6 +170,8 @@ export async function updateProject(
       owner_id        = case when ${has('ownerId')} then ${input.ownerId ?? null}::uuid else owner_id end,
       start_date      = case when ${has('startDate')} then ${input.startDate ?? null}::date else start_date end,
       target_end_date = case when ${has('targetEndDate')} then ${input.targetEndDate ?? null}::date else target_end_date end,
+      start_time      = case when ${has('startTime')} then ${input.startTime ?? null}::time else start_time end,
+      target_end_time = case when ${has('targetEndTime')} then ${input.targetEndTime ?? null}::time else target_end_time end,
       type_fields     = case when ${has('typeFields')} then ${tx.json((input.typeFields ?? {}) as never)} else type_fields end
     where id = ${projectId}
   `);
