@@ -32,7 +32,10 @@ function toProject(row: Record<string, unknown>): ProjectRow {
     ownerId: row.owner_id as string,
     ownerName: (row.owner_name as string | null) ?? null,
     startDate: row.start_date ? String(row.start_date).slice(0, 10) : null,
+    /* `time` arrives as 'HH:MM:SS'; the forms want 'HH:MM'. Migration 020. */
+    startTime: row.start_time ? String(row.start_time).slice(0, 5) : null,
     targetEndDate: row.target_end_date ? String(row.target_end_date).slice(0, 10) : null,
+    targetEndTime: row.target_end_time ? String(row.target_end_time).slice(0, 5) : null,
     isPermanent: row.is_permanent as boolean,
     typeFields: (row.type_fields as Record<string, unknown>) ?? {},
     createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),

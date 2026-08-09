@@ -43,7 +43,7 @@ const TASK_SELECT = (tx: Tx) => tx`
     t.assignee_id, a.full_name as assignee_name, a.avatar_url as assignee_avatar_url,
     t.created_by_id, c.full_name as created_by_name,
     t.status, t.priority, t.effort_size, t.effort_points,
-    t.start_date, t.due_date, t.completed_at,
+    t.start_date, t.start_time, t.due_date, t.due_time, t.completed_at,
     t.blocked_reason, t.cancelled_reason, t.assignment_override_reason,
     t.time_limit_minutes, t.time_spent_minutes, t.timer_state, t.timer_started_at,
     t.extension_minutes_granted, t.recurrence_rule,
@@ -84,7 +84,9 @@ function toTask(row: Record<string, unknown>): TaskRow {
        converted exactly once, here. */
     effortPoints: Number(row.effort_points),
     startDate: dateOnly(row.start_date),
+    startTime: timeOnly(row.start_time),
     dueDate: dateOnly(row.due_date),
+    dueTime: timeOnly(row.due_time),
     completedAt: isoOrNull(row.completed_at),
     blockedReason: (row.blocked_reason as string | null) ?? null,
     cancelledReason: (row.cancelled_reason as string | null) ?? null,
@@ -109,6 +111,14 @@ function dateOnly(value: unknown): string | null {
   if (!value) return null;
   if (value instanceof Date) return value.toISOString().slice(0, 10);
   return String(value).slice(0, 10);
+}
+
+/** A Postgres `time` arrives as 'HH:MM:SS'. Every form wants 'HH:MM' and
+ *  nothing reads the seconds, so it is trimmed once here rather than in each
+ *  of the three components that render it. */
+function timeOnly(value: unknown): string | null {
+  if (!value) return null;
+  return String(value).slice(0, 5);
 }
 
 function isoOrNull(value: unknown): string | null {
@@ -277,7 +287,10 @@ export interface CreateTaskInput {
   readonly effortSize?: EffortSize | null;
   readonly effortPoints: number;
   readonly startDate?: string | null;
+  /** 'HH:MM'. Optional companion to startDate — migration 020. */
+  readonly startTime?: string | null;
   readonly dueDate?: string | null;
+  readonly dueTime?: string | null;
   readonly timeLimitMinutes?: number | null;
   readonly parentTaskId?: string | null;
   readonly assignmentOverrideReason?: string | null;
@@ -304,7 +317,7 @@ export async function createTask(actorId: string, input: CreateTaskInput): Promi
       insert into public.tasks (
         reference, title, description, project_id, other_description, parent_task_id,
         assignee_id, created_by_id, status, priority, effort_size, effort_points,
-        start_date, due_date, blocked_reason, time_limit_minutes,
+        start_date, start_time, due_date, due_time, blocked_reason, time_limit_minutes,
         assignment_override_reason, recurrence_rule
       ) values (
         ${ref[0].reference as string},
@@ -320,7 +333,9 @@ export async function createTask(actorId: string, input: CreateTaskInput): Promi
         ${input.effortSize ?? null}::public.effort_size,
         ${input.effortPoints},
         ${input.startDate ?? null},
+        ${input.startTime ?? null}::time,
         ${input.dueDate ?? null},
+        ${input.dueTime ?? null}::time,
         ${input.blockedReason?.trim() || null},
         ${input.timeLimitMinutes ?? null},
         ${input.assignmentOverrideReason?.trim() || null},
@@ -345,7 +360,10 @@ export interface UpdateTaskInput {
   readonly effortSize?: EffortSize | null;
   readonly effortPoints?: number;
   readonly startDate?: string | null;
+  /** 'HH:MM'. Optional companion to startDate — migration 020. */
+  readonly startTime?: string | null;
   readonly dueDate?: string | null;
+  readonly dueTime?: string | null;
   readonly timeLimitMinutes?: number | null;
   readonly recurrenceRule?: string | null;
 }
@@ -375,6 +393,8 @@ export async function updateTask(
         effort_points     = case when ${has('effortPoints')} then ${input.effortPoints ?? null} else effort_points end,
         start_date        = case when ${has('startDate')} then ${input.startDate ?? null}::date else start_date end,
         due_date          = case when ${has('dueDate')} then ${input.dueDate ?? null}::date else due_date end,
+        start_time        = case when ${has('startTime')} then ${input.startTime ?? null}::time else start_time end,
+        due_time          = case when ${has('dueTime')} then ${input.dueTime ?? null}::time else due_time end,
         time_limit_minutes = case when ${has('timeLimitMinutes')} then ${input.timeLimitMinutes ?? null}::integer else time_limit_minutes end,
         recurrence_rule   = case when ${has('recurrenceRule')} then ${input.recurrenceRule ?? null} else recurrence_rule end
       where id = ${taskId} and not is_deleted

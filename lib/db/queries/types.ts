@@ -32,7 +32,11 @@ export interface ProjectRow {
   readonly ownerId: string;
   readonly ownerName: string | null;
   readonly startDate: string | null;
+  /** 'HH:MM', or null for a day with no particular hour. Migration 020. */
+  readonly startTime: string | null;
   readonly targetEndDate: string | null;
+  /** 'HH:MM', or null. Migration 020. */
+  readonly targetEndTime: string | null;
   readonly isPermanent: boolean;
   readonly typeFields: Record<string, unknown>;
   readonly createdAt: string;
@@ -66,7 +70,11 @@ export interface TaskRow {
   readonly effortSize: EffortSize | null;
   readonly effortPoints: number;
   readonly startDate: string | null;
+  /** 'HH:MM', or null for a day with no particular hour. Migration 020. */
+  readonly startTime: string | null;
   readonly dueDate: string | null;
+  /** 'HH:MM', or null. Migration 020. */
+  readonly dueTime: string | null;
   readonly completedAt: string | null;
   readonly blockedReason: string | null;
   readonly cancelledReason: string | null;

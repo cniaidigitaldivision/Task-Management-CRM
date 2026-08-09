@@ -190,6 +190,27 @@ export function TaskDialog({
   const isEdit = Boolean(task);
   const router = useRouter();
 
+  /* ── "Now", read on every render, which is the simplest correct thing ──────
+     Not memoised. `Dialog` renders `{open && …}`, so these inputs are mounted
+     fresh each time it opens and `defaultValue` is only read at that moment —
+     an uncontrolled input keeps whatever has been typed regardless of what
+     re-renders compute afterwards.
+
+     That also fixes the case a memo would have to work around: a tab left open
+     overnight would otherwise pre-fill yesterday's date, and nobody re-reads a
+     field that already has a value in it.
+
+     Safe to read the clock in a client component here, because these fields do
+     not exist during the server render at all — there is nothing to hydrate
+     against and so nothing to mismatch.
+
+     Built from the LOCAL date parts, not `toISOString()`. That returns UTC, so
+     anywhere east of Greenwich late in the evening it hands back tomorrow. */
+  const now = new Date();
+  const pad = (value: number) => String(value).padStart(2, '0');
+  const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  const nowTime = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+
   const [state, formAction, pending] = React.useActionState(
     isEdit ? updateTaskAction : createTaskAction,
     EMPTY,
@@ -359,12 +380,45 @@ export function TaskDialog({
             </Select>
           </Field>
 
+          {/* ── DATE AND TIME, AND WHY ONLY ONE OF THEM IS PRE-FILLED ──────────
+              Owner instruction, CHANGE-PLAN 3.1: *"the start date should
+              auto-fill with the current time and date, and the due should only
+              be left empty to select."*
+
+              Start is pre-filled because work that is being created is, almost
+              always, work starting now — and a date somebody has to type every
+              time is a date most people leave blank. Due is deliberately empty:
+              a guessed deadline nobody chose is worse than no deadline, because
+              it looks like a commitment and drives the overdue count.
+
+              `type="time"` renders the browser's own picker, which follows the
+              operating system's clock format — so AM/PM appears for anybody set
+              to a 12-hour locale without the form hard-coding either. It always
+              POSTS 24-hour "HH:MM", which is what Postgres `time` wants. */}
           <Field label="Start date" htmlFor="startDate">
-            <Input id="startDate" name="startDate" type="date" defaultValue={task?.startDate ?? ''} />
+            <Input
+              id="startDate"
+              name="startDate"
+              type="date"
+              defaultValue={task?.startDate ?? (isEdit ? '' : today)}
+            />
+          </Field>
+
+          <Field label="Start time" htmlFor="startTime" hint="Optional.">
+            <Input
+              id="startTime"
+              name="startTime"
+              type="time"
+              defaultValue={task?.startTime ?? (isEdit ? '' : nowTime)}
+            />
           </Field>
 
           <Field label="Due date" htmlFor="dueDate">
             <Input id="dueDate" name="dueDate" type="date" defaultValue={task?.dueDate ?? ''} />
+          </Field>
+
+          <Field label="Due time" htmlFor="dueTime" hint="Optional — blank means end of that day.">
+            <Input id="dueTime" name="dueTime" type="time" defaultValue={task?.dueTime ?? ''} />
           </Field>
 
           {/* Paired deliberately: on create these two fill a row, and on edit
