@@ -49,7 +49,7 @@ That's all you ever need to type. Everything else is recorded in the files.
 
 | | |
 |---|---|
-| **Last updated** | 2026-08-09, Session 19 |
+| **Last updated** | 2026-08-09, Session 20 |
 | **Tests** | `npm run test` → **947** · `npm run test:auth` → **133** (real DB) · `npm run smoke` → **27/27** (every route, both roles) |
 | **⛔ Credential hygiene** | Three secrets were pasted into chat in Session 09 (Resend key, DB password ×2 — one echoed by my own script's error output). **All must be rotated.** Never paste a secret; `npm run check:db` redacts and is safe to share. |
 | **Current phase** | **Phase 1 — Foundation & Security** |
@@ -264,6 +264,37 @@ The new asset is a **transparent raster**, not vector. That changes what each fo
 ---
 
 ## 3. ⏭️ NEXT ACTION
+
+### 🔴 AWAITING APPROVAL — 26 changes, planned but not built (Session 20)
+
+The owner gave 26 separate changes in one instruction — **9 bugs and 17
+features** — with the explicit sequence *"ask me questions… confirm to me every
+single thing… and after I have confirmed, document them, then implement them."*
+
+**Nothing has been built.** The plan is [`CHANGE-PLAN.md`](CHANGE-PLAN.md), in
+seven batches, starting with the bugs by the owner's choice.
+
+Twelve decisions were taken before writing it, all recorded in that file. The
+three worth knowing without opening it, because each one **narrowed or reversed
+what was literally asked for**:
+
+1. *"Make the Clear button's functionality deleting the selected task"* →
+   **Clear stays Clear.** A separate **Cancel selected** is added instead, plus
+   **Purge** for the Super Admin behind step-up. A button that silently changed
+   from "deselect" to "destroy" is the worst possible reading of that sentence.
+2. *"Delete"* → **Cancel** (reversible) for everyone; **Purge** (irreversible)
+   Super Admin only. `task.purge` has been in the permission matrix since Step 3
+   and has never had a screen.
+3. *"Pagination after every 12 or 13 rows"* → **tables and lists only, 12 rows.**
+   Not the board: dragging a card to a task on another page is impossible, so
+   paging the board would break what Sessions 17–19 fixed.
+
+**Four things need the owner before those parts can be built:** a public Supabase
+bucket for avatars (`attachments` stays private — that was a deliberate Step 7
+fix), a migration for per-type project fields (rule R1), one new dependency for
+real `.xlsx` export, and the Resend sending domain.
+
+**Next action: the owner approves the plan, then Batch 1 (the nine bugs) begins.**
 
 ### ✅ Session 19 — the board's horizontal scrollbar follows you down the page
 

@@ -59,6 +59,30 @@ Honour every ✅ and 🔴 item in docs/OWNER-REQUESTS.md.
 | **D17** | *"For scrolling towards the left or right the scrollbar is literally at the bottom — I don't want to scroll down to the bottom just for moving to the right."* → six options offered; the owner chose **a floating bar pinned to the bottom of the viewport**. A scrollbar-height proxy mirrors the board's scroll, `position: sticky; bottom: 0` keeps it on screen until the board's real end appears, and the board's own bar is hidden so there is only ever one. [REDESIGN-PLAN §8.6](REDESIGN-PLAN.md). | ✅ |
 | **D16** | *"Whenever I drag one task to another column the other tasks just start flickering… they move up and down up and down… they start shivering."* → the first rebuild had **three** causes of exactly that, and proving the fix exposed a fourth that stopped the animation entirely. All four are documented in the header of `components/task/task-board.tsx` and in [REDESIGN-PLAN §8.5a](REDESIGN-PLAN.md). Measured, not eyeballed: 0 style writes across 25 moves with the gap stationary; 69 when it moves; gap index monotonic over a 64-step sweep. | ✅ |
 
+### 🔴 OPEN — twenty-six changes requested in Session 20
+
+One instruction covering 26 separate changes — 9 bugs and 17 features. Written up
+in full, with the owner's own words against each, in
+[**`CHANGE-PLAN.md`**](CHANGE-PLAN.md). **Nothing has been built yet**; the
+owner's instruction was *"ask me questions… confirm to me every single thing…
+and after I have confirmed, document them, then implement them."*
+
+Twelve decisions were taken before documenting, and each one is recorded in that
+file's second section. The three that reversed or narrowed what was literally
+asked for, so they are not silently lost:
+
+| Asked | Decided | Why |
+|---|---|---|
+| *"Make the Clear button's functionality deleting the selected task"* | **Clear stays Clear.** A separate **Cancel selected** is added, plus **Purge** for the Super Admin behind step-up | A button that silently changed from "deselect" to "destroy" is the worst possible reading of the request |
+| *"Delete"* | **Cancel** (reversible, keeps history) for everyone; **Purge** (irreversible) Super Admin only | `task.purge` already exists in the permission matrix and has never had a screen |
+| *"Pagination… after every 12 or 13 rows"* | **Tables and lists only, 12 rows.** Not the board | Dragging a card to a task on another page is impossible — paging the board would break what Sessions 17–19 fixed |
+
+Four things need the owner before they can be built: a **public Supabase bucket**
+for avatars, a **migration** for per-type project fields (rule R1), **one new
+dependency** for real `.xlsx` export, and the **Resend sending domain** — until
+that exists the password-reset status trail will honestly say *"not sent — no
+mail domain"* rather than imply an email arrived.
+
 ### 🔴 OPEN — the supplied task-board design has never been planned
 
 > *"The file I have told you to redesign is totally not there."* — Session 17
