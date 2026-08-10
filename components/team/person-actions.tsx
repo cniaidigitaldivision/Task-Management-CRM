@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import {
   AlertTriangle,
   KeyRound,
+  ListChecks,
   Loader2,
   MoreHorizontal,
   RotateCcw,
@@ -24,6 +25,8 @@ import {
 import { Button, IconButton } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
 import { Select } from '@/components/ui/select';
+
+import { ResetTrailDialog } from './reset-trail-dialog';
 import type { PersonRow } from '@/lib/db/queries/types';
 import { ROLE_LABEL, type Role } from '@/lib/domain/constants';
 import { cn } from '@/lib/utils';
@@ -64,6 +67,7 @@ export function PersonActions({
   const [busy, setBusy] = React.useState(false);
   const [result, setResult] = React.useState<TeamActionResult | null>(null);
   const [confirm, setConfirm] = React.useState<Pending>(null);
+  const [trailOpen, setTrailOpen] = React.useState(false);
   const [nextRole, setNextRole] = React.useState<Role>(person.role);
   const menuRef = React.useRef<HTMLDivElement>(null);
 
@@ -198,6 +202,24 @@ export function PersonActions({
               </button>
             )}
 
+            {/* Separate from forcing one, because reading the status is not an
+                action on the account — it is the answer to "did that work?",
+                which is the whole point of CHANGE-PLAN 4.1. */}
+            {!isPendingActivation && (
+              <button
+                type="button"
+                className={item}
+                disabled={busy}
+                onClick={() => {
+                  setTrailOpen(true);
+                  setOpen(false);
+                }}
+              >
+                <ListChecks className="h-3.5 w-3.5 shrink-0" strokeWidth={2} aria-hidden="true" />
+                Reset status, resend or revoke
+              </button>
+            )}
+
             <div className="my-1 h-px bg-border-subtle" aria-hidden="true" />
 
             {person.isActive ? (
@@ -287,8 +309,10 @@ export function PersonActions({
         {confirm?.kind === 'reset' && (
           <p className="text-caption text-text-secondary">
             They are signed out everywhere and must set a new password before getting back in.{' '}
-            <span className="font-semibold text-text-primary">No password is generated</span> — send
-            them to &ldquo;Forgot your password?&rdquo; and they choose their own, as always.
+            <span className="font-semibold text-text-primary">No password is generated</span> — a
+            single-use link is emailed to them and they choose their own, as always. You can see
+            whether it arrived, and resend or revoke it, under{' '}
+            <span className="font-semibold text-text-primary">Reset status</span> in this menu.
           </p>
         )}
 
@@ -345,7 +369,7 @@ export function PersonActions({
           )}
           <div className="space-y-2">
             <p className="text-caption text-text-primary">
-              {result?.error ?? result?.warning ?? 'Saved.'}
+              {result?.error ?? result?.warning ?? result?.message ?? 'Saved.'}
             </p>
             {result?.ok && result.activationUrl && (
               <>
@@ -358,6 +382,21 @@ export function PersonActions({
           </div>
         </div>
       </Dialog>
+
+      {/* Mounted on demand, not left mounted with `open` false: mounting is what
+          gives it fresh state each time, so a note left over from the last
+          Resend cannot reappear. Refreshes on close, because Resend and Revoke
+          both change what the Team row should say about the account. */}
+      {trailOpen && (
+        <ResetTrailDialog
+          open
+          onClose={() => {
+            setTrailOpen(false);
+            router.refresh();
+          }}
+          person={{ id: person.id, fullName: person.fullName }}
+        />
+      )}
     </>
   );
 }

@@ -69,6 +69,31 @@ export function hashToken(token: string): string {
   return createHash('sha256').update(token, 'utf8').digest('hex');
 }
 
+/**
+ * The opaque lookup key carried in a forced-reset link so the Super Admin's
+ * status trail can record that the link was opened (CHANGE-PLAN 4.1).
+ *
+ * ── THIS IS NOT A CREDENTIAL, AND THAT IS THE POINT ──────────────────────────
+ * It exists because the token hash is scoped — `hashScopedCode(purpose, email,
+ * code)` — and at `/reset-password?code=…` the email has not been typed yet, so
+ * the row cannot be found from the URL at all. Something else has to identify
+ * it, and this is that something.
+ *
+ * It grants nothing. Possessing one lets you stamp `link_opened_at` on a reset
+ * you were already sent, and nothing else: the six-digit code remains the only
+ * secret, is still stored only as a digest, and is still the only thing that can
+ * change a password. The worst a leaked value achieves is a false "opened",
+ * which is why it is stored in clear rather than hashed — a hash would make the
+ * lookup impossible for no gain.
+ *
+ * Still 256 bits, because a *guessable* one would let somebody mark other
+ * people's resets as opened, and that is noise in a security screen whose only
+ * value is signal.
+ */
+export function generateTrailRef(): string {
+  return randomBytes(32).toString('base64url');
+}
+
 /* ==========================================================================
  * Short codes — emailed one-time codes, FR-155
  * ========================================================================== */

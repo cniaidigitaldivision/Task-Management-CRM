@@ -179,12 +179,18 @@ export type Database = {
           consumed_at: string | null
           created_at: string
           created_by_id: string | null
+          email_attempted_at: string | null
+          email_detail: string | null
+          email_sandbox: boolean | null
+          email_state: string | null
           expires_at: string
           id: string
           invalidated_at: string | null
+          link_opened_at: string | null
           purpose: Database["public"]["Enums"]["invitation_purpose"]
           sent_to_email: string
           token_hash: string
+          trail_ref: string | null
           user_id: string
         }
         Insert: {
@@ -192,12 +198,18 @@ export type Database = {
           consumed_at?: string | null
           created_at?: string
           created_by_id?: string | null
+          email_attempted_at?: string | null
+          email_detail?: string | null
+          email_sandbox?: boolean | null
+          email_state?: string | null
           expires_at: string
           id?: string
           invalidated_at?: string | null
+          link_opened_at?: string | null
           purpose: Database["public"]["Enums"]["invitation_purpose"]
           sent_to_email: string
           token_hash: string
+          trail_ref?: string | null
           user_id: string
         }
         Update: {
@@ -205,12 +217,18 @@ export type Database = {
           consumed_at?: string | null
           created_at?: string
           created_by_id?: string | null
+          email_attempted_at?: string | null
+          email_detail?: string | null
+          email_sandbox?: boolean | null
+          email_state?: string | null
           expires_at?: string
           id?: string
           invalidated_at?: string | null
+          link_opened_at?: string | null
           purpose?: Database["public"]["Enums"]["invitation_purpose"]
           sent_to_email?: string
           token_hash?: string
+          trail_ref?: string | null
           user_id?: string
         }
         Relationships: [

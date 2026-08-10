@@ -272,6 +272,23 @@ The new asset is a **transparent raster**, not vector. That changes what each fo
 > instruction, Session 23.
 
 
+### 🔨 Session 24 — Batch 4 nearly done · **handed over mid-step, tree not compiling**
+
+`958 unit · migrations through 022 · 4 of 5 Batch 4 steps complete.`
+
+The owner switched accounts partway through step 4.1b, so this session ends on a
+**deliberate, documented handover rather than a clean tree**. Read
+[`WORK-LOG.md`](WORK-LOG.md) **§4**, which was written for exactly this: it names
+the one compile error and the three prop edits that close it, line by line.
+
+| | |
+|---|---|
+| **Done and pushed** | **4.3c** — pagination on Security (×4), Projects and the grouped Tasks list. Commit `f74740d`. **4.1a** — migration 022 written, probed with 17 rolled-back assertions, then **applied** and re-verified against the live schema. |
+| **Written but NOT committed** | **4.1b** — the forced reset now actually sends an email (it previously sent *nothing*), plus the status trail, Resend and Revoke link. 6 modified files and 1 new file. |
+| **⚠️ State** | `npx tsc --noEmit` reports **one** error: `person-actions.tsx:391` renders `<ResetTrailDialog>` without the `trail` and `onChanged` props it now requires. Nothing else is wrong, and nothing in 4.1b has been browser-tested or run against the suites. |
+| **Owner decisions this session** | Apply migration 022 ✅ · delivery status uses **honest labels, no Resend webhook** ✅ (decisions 13 and 14 in CHANGE-PLAN) |
+| **Not done, on purpose** | Reports pagination — it is a Server Component whose lists are bounded by headcount (9 people, 7 projects), and Batch 5 rebuilds that screen with export anyway |
+
 ### ✅ Session 23 — CHANGE-PLAN Batch 3 COMPLETE (forms)
 
 `958 unit · 141 integration · 27/27 smoke · migrations through 020.`

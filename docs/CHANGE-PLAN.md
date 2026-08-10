@@ -54,6 +54,8 @@ Recorded before anything else, because each one changes what gets built.
 | 10 | Dashboard by role | **As specified** — see Batch 7 |
 | 11 | Calendar | **Month + week views.** No drag-to-reschedule for now |
 | 12 | Password reset | **Force + full status trail** — sent, delivered, opened, completed |
+| 13 | Migration 022 | **Approved and applied 2026-08-10.** Additive columns on `invitations` plus three `app.auth_*` functions, for the trail |
+| 14 | What "delivered" may claim | **Honest labels, no webhook.** The panel says *accepted by the mail provider* and never *delivered*, because delivery needs Resend to call a webhook back and that is worth nothing before a verified sending domain. Revisit if and when the domain exists — see Batch 5's open question |
 
 ---
 

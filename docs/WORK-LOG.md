@@ -19,12 +19,12 @@
 
 | | |
 |---|---|
-| **Updated** | 2026-08-10 · Session 24 |
+| **Updated** | 2026-08-10 · Session 24 · **written for a handover to a new session** |
 | **Current batch** | **Batch 4 — People & access** ([CHANGE-PLAN §4](CHANGE-PLAN.md)) |
-| **Steps done in this batch** | **4.3a** pagination primitive · **4.2** Team switches · **4.3b** Team paginated · **4.z** migration 021 fixture purge · **4.3c** every remaining list paginated |
-| **⏭️ NEXT ACTION** | Step **4.1** — **blocked on the owner: permission to apply migration 022** (R1: no migration runs without it). The migration is **written and fully probed but NOT applied** — `lib/db/migrations/022_reset_status_trail.sql`. Once applied: make `forceResetAction` actually issue a token and send the email (today it sends **nothing**), then build the trail UI and the Resend / Revoke link buttons. |
-| **Working tree** | clean, pushed |
-| **Blocked on** | nothing |
+| **Steps done in this batch** | **4.3a** pagination primitive · **4.2** Team switches · **4.3b** Team paginated · **4.z** migration 021 fixture purge · **4.3c** every remaining list paginated · **4.1a** migration 022 written, probed **and applied** |
+| **⏭️ NEXT ACTION** | 🔴 **THE TREE DOES NOT COMPILE. Fix that first — it is three props.** `components/team/person-actions.tsx:391` renders `<ResetTrailDialog>` without the `trail` and `onChanged` props it now requires (`error TS2739`). See **§4 below** for the exact edits, which are written out line by line. Then finish 4.1: browser-verify the whole reset journey, run the suites, commit. |
+| **Working tree** | ⚠️ **DIRTY AND NOT COMPILING.** 6 modified files + 1 new file, all part of step 4.1b, none committed. `npx tsc --noEmit` reports **one** error, listed above. Nothing else is wrong. |
+| **Blocked on** | nothing — the owner approved both decisions this session (apply 022 ✅, honest delivery labels without a webhook ✅) |
 
 ### What is complete overall
 
@@ -32,9 +32,9 @@
 |---|---|
 | BUILD-PLAN | ✅ all 8 steps |
 | REDESIGN-PLAN | ✅ phases 1–8 · 🔴 phase 9 (the supplied task-board HTML) needs an owner decision |
-| CHANGE-PLAN | ✅ Batch 1 (9 bugs) · ✅ Batch 2 (impact dialog, Cancel, Purge, avatars) · ✅ **Batch 3 (forms)** · ⬜ Batches 4–7 |
-| Tests | 958 unit · 141 integration · 27/27 smoke |
-| Migrations applied | through **021** |
+| CHANGE-PLAN | ✅ Batch 1 (9 bugs) · ✅ Batch 2 (impact dialog, Cancel, Purge, avatars) · ✅ **Batch 3 (forms)** · 🔨 Batch 4 (4.2, 4.3a–c and 4.1a done; **4.1b unfinished**) · ⬜ Batches 5–7 |
+| Tests | 958 unit · 141 integration · 27/27 smoke — **all last run BEFORE step 4.1b, which is unverified** |
+| Migrations applied | through **022** |
 
 ### Still needing the owner, whenever we reach them
 
@@ -64,7 +64,8 @@ so anything not listed here has not been done.
 | 4.z | **Migration 021 — purged the 115 fixture accounts** (owner chose option 1) | ✅ | A **deliberate, documented BR-007 exception.** BR-007 exists so removing somebody preserves their tasks, comments and time logs — reasoning that does not apply to a row that never had any. Verified across all 115 before writing it: **0** comments, **0** tasks, **0** projects, **0** time entries, **0** attachments, **0** extensions, so every one of the eight `RESTRICT` foreign keys into `users` was unreferenced. Predicate is five conditions wide, including `.invalid` (RFC 2606 reserved — it can never be a real address). Uses the **documented break-glass path**, not a disabled trigger: `alter table … disable trigger` would have worked and left no trace, whereas break-glass makes each deleted row write its own `break_glass_used` CRITICAL event first. | 115 purged, then 5 more on a re-run. `users` 124 → 9. **116 critical security events** written (115 per-row + 1 `permanent_purge` summary). 958 unit · 141 integration · 27/27 smoke all green afterwards. |
 | 4.3c | Pagination applied to **every remaining list** — Security ×4, Projects, Tasks list view | ✅ | **Security** got four independent pagers (sessions, login attempts, audit log, security events) — independent because they are four separate questions on one screen and paging one must not move the others. **Projects** pages the filtered set, while the toolbar's "open · pts" totals deliberately keep counting the WHOLE filtered set: a total that described only the visible page would contradict the pager beneath it. **Tasks list view** was the interesting one — it is grouped and collapsible, so a single pager over the flattened list would cut a group in half (page 2 of "Blocked" opening with rows whose heading is on page 1), and paging the *groups* would hide whole statuses. Rows were extracted into `GroupRows` so each group legitimately owns its own `usePagination` — a hook cannot be called inside `groups.map`. Group headings still show the group's **full** count, not the page's. Collapsing a group resets it to page 1, deliberately: re-opening a group you left on page 3 should not hide its first rows. | Browser, Super Admin: Security showed `1–12 of 17 attempts`, `1–12 of 70 entries`, `1–12 of 40 events`, and **no pager on sessions** because sessions fit one page — correct. Audit page 4 → `37–48 of 70`. ⚠️ **Projects (7) and every task group (max 10) are under 12 today, so their pagers cannot appear on real data.** Rather than assume, page size was temporarily set to 3 and rebuilt twice to see them: Projects `1–3 of 7 projects` → page 3 → `7–7 of 7`; task groups `1–3 of 6`, `1–3 of 10`, `1–3 of 8` with **no pager** on the 2- and 3-row groups, and sending "To Do" to page 4 left Backlog and In Progress on page 1 — genuinely independent. Reverted to 12 and rebuilt; `grep` confirms no temporary page size survived. |
 | — | **Not paginated: the Reports tables** | ⬜ deferred to Batch 5 | Deliberate, not an oversight. `app/(app)/reports/page.tsx` is a **Server Component** and `usePagination` is a client hook, so paging it means extracting client components — and **Batch 5 rebuilds this screen entirely** (four report types plus export). Its two lists are also bounded by headcount and project count: **9 people, 7 projects** today, so a pager would render nothing either way. Doing it now would be work thrown away in the next batch. | Counted: 9 users, 7 projects, 38 tasks |
-| 4.1a | **Migration 022 written and probed — ⏸️ NOT APPLIED, waiting on the owner** | ⏸️ | Adds the two things `invitations` cannot already answer. It already answers four: `created_at` = sent, `expires_at` = expiry, `consumed_at` = completed, `invalidated_at` = revoked. **"Delivered" is not one of them and this deliberately does not pretend otherwise:** the column is `email_state` (`accepted` \| `refused` \| `unreachable` \| `not_configured`) — what the provider *said* — because real delivery needs Resend to call a webhook back, which is worth nothing until a sending domain exists. `email_sandbox` is stored **per row**, not read from the environment at render time, so a trail can never retroactively claim a silently-dropped message arrived. **Found while reading the flow, and it forced a design decision:** the token hash is `hashScopedCode(purpose, email, code)`, and on `/reset-password?code=…` the email has not been typed yet — so the row **cannot be found from the URL** and an open cannot be recorded at all without another key. Hence `trail_ref`: an opaque non-secret carried in the link that grants nothing (the six-digit code stays the only secret, still hash-only), whose worst case if leaked is a false "opened". Three `app.auth_*` SECURITY DEFINER functions, following the existing pre-auth write rule rather than inventing a second way in. | **17/17 probes passed inside a transaction that was rolled back — nothing persisted**, confirmed by re-reading the live schema (0 new columns). Refusals proven, each in its own SAVEPOINT: short `trail_ref`, a state with no timestamp, a timestamp with no state, the value `'delivered'`, a duplicate `trail_ref`. Behaviour proven: two rows may both have no `trail_ref`; the first open stamps and the second is ignored **with the time unchanged**; an unknown, consumed or expired token stamps nothing; revoke works once and **refuses a completed reset**; the migration is re-runnable. ⚠️ First probe run reported two false failures — one expected refusal aborts the whole transaction, so every later probe was meaningless. Re-run with SAVEPOINTs. |
+| 4.1a | **Migration 022 — written, probed, and APPLIED** (owner approved 2026-08-10) | ✅ | Adds the two things `invitations` cannot already answer. It already answers four: `created_at` = sent, `expires_at` = expiry, `consumed_at` = completed, `invalidated_at` = revoked. **"Delivered" is not one of them and this deliberately does not pretend otherwise:** the column is `email_state` (`accepted` \| `refused` \| `unreachable` \| `not_configured`) — what the provider *said* — because real delivery needs Resend to call a webhook back, which is worth nothing until a sending domain exists. `email_sandbox` is stored **per row**, not read from the environment at render time, so a trail can never retroactively claim a silently-dropped message arrived. **Found while reading the flow, and it forced a design decision:** the token hash is `hashScopedCode(purpose, email, code)`, and on `/reset-password?code=…` the email has not been typed yet — so the row **cannot be found from the URL** and an open cannot be recorded at all without another key. Hence `trail_ref`: an opaque non-secret carried in the link that grants nothing (the six-digit code stays the only secret, still hash-only), whose worst case if leaked is a false "opened". Three `app.auth_*` SECURITY DEFINER functions, following the existing pre-auth write rule rather than inventing a second way in. | **17/17 probes passed inside a transaction that was rolled back — nothing persisted**, confirmed by re-reading the live schema (0 new columns). Refusals proven, each in its own SAVEPOINT: short `trail_ref`, a state with no timestamp, a timestamp with no state, the value `'delivered'`, a duplicate `trail_ref`. Behaviour proven: two rows may both have no `trail_ref`; the first open stamps and the second is ignored **with the time unchanged**; an unknown, consumed or expired token stamps nothing; revoke works once and **refuses a completed reset**; the migration is re-runnable. ⚠️ First probe run reported two false failures — one expected refusal aborts the whole transaction, so every later probe was meaningless. Re-run with SAVEPOINTs. **Then applied for real** (`node scripts/migrate.mjs lib/db/migrations/022_reset_status_trail.sql` — note the path, a bare filename is not found) and re-verified against the live schema: 6 nullable columns, 3 constraints, 3 `app.auth_*` functions, the partial unique index, and **0 existing rows touched**. `types/database.ts` updated by hand for the `invitations` block only: the generator's full output differs from the committed file by **990 lines** of unrelated drift, so a wholesale replace would have buried this change in churn that is not ours. |
+| 4.1b | **The forced reset now actually sends, plus the trail, Resend and Revoke** | 🔨 **UNFINISHED — see §4** | The substance is written and typechecks except for one prop-threading edit. **What it fixes:** `forceResetAction` revoked sessions and then told the Admin to *"send them to Forgot your password?"* — it sent **no email at all**, so there was nothing for a status to be about. It now issues a scoped `password_reset` token and emails it. Forcing and Resend share one `issueReset()` so a resend cannot drift into a near-copy; FR-155 already invalidates the previous code, so resending **is** re-issuing rather than a second live code. `created_by_id` is what distinguishes a forced reset from a self-service one in the trail — nobody provisions their own. **Honesty decisions, per the owner's answer:** no webhook, so the panel never says "delivered" — it says *accepted by the mail provider*, and when `email_sandbox` is true it says outright that it **was not delivered and will not arrive**, because the sandbox sender takes mail for anybody with a 200 and drops all but the Resend account's own address. `/reset-password?…&t=<trail_ref>` stamps `link_opened_at` and **deliberately ignores the result**, so the page renders identically for a live, dead or fabricated token — otherwise that route becomes the code-enumeration oracle its own header comment exists to prevent. **A design change made late and worth keeping:** the panel first fetched its trail from the client, which needed an effect that could not satisfy `react-hooks/set-state-in-effect` (the rule is right — the fetch was avoidable). It is now presentational and the data comes down with the page via `getForcedResetTrails`, one `distinct on (user_id)` query for the whole team. That removed the loading state, the error state and the effect. | `tsc` and `eslint` were clean for every file **before** the switch to server-supplied data; the one remaining error is the unfinished threading, not a defect in the logic. ⚠️ **Nothing here has been exercised in a browser or against the suites yet** — no reset has been forced, sent, opened or completed end to end. Treat the whole step as unverified. |
 | ⚠️ | **The purge is a cleanup, NOT a fix — it came back within minutes** | 🔴 owner decision | The integration run used to VERIFY the purge immediately created **5 more**, all stamped 09:44. So it is ~5 per `npm run test:auth`, and 115 was roughly 23 runs. Migration 021 is idempotent and was re-run to clear them (0 again). Options for stopping it: **(a)** point the integration suite at a separate Supabase project — clean, biggest setup; **(b)** have the suite break-glass-delete its own fixtures in `afterAll` — cheap and permanent, but writes 5 CRITICAL security events per run into the Super Admin's alert feed, whose entire value is being signal; **(c)** leave it and re-run 021 occasionally. Not chosen. | 5 fixtures created at 09:44 by one test run |
 
 ### Batch 3 — Forms
@@ -89,3 +90,153 @@ so anything not listed here has not been done.
 3. `git log --oneline -5` — every step is committed as it lands, so the tree and
    this file agree.
 4. Continue from **⏭️ NEXT ACTION**. Do not restart the batch.
+
+---
+
+## 4. 🔧 HANDOVER — FINISHING STEP 4.1b EXACTLY
+
+> Written 2026-08-10 because the owner is moving to a new account mid-step. This
+> section is the only thing a new session needs in order to finish 4.1b. Delete
+> it once the step is committed and verified.
+
+### 4.1 · Why the tree does not compile
+
+`components/team/reset-trail-dialog.tsx` was changed from *fetches its own data*
+to *receives it*, so its props are now:
+
+```ts
+{ open, onClose, person, trail, onChanged }
+```
+
+`components/team/person-actions.tsx:391` still renders it with the first three.
+That is the whole error. **Three edits close it, and they were the tool call the
+owner interrupted — nothing else was in flight.**
+
+### 4.2 · The three edits, in order
+
+**a. `app/(app)/team/page.tsx`** — load the trails and pass them down. Only for a
+viewer allowed to see them: a reset trail says when an account was locked out of
+itself and where the link went, which is not general team information. `people`
+and `canProvision` are already in scope there.
+
+```ts
+import { getForcedResetTrails } from '@/lib/db/queries/auth';
+
+// Alongside the other queries. Admin and above only — a Coordinator or Member
+// gets an empty object and the panel simply reports nothing forced.
+const resetTrails = canProvision
+  ? Object.fromEntries(
+      [...(await getForcedResetTrails(user.id))].map(([id, t]) => [
+        id,
+        {
+          id: t.id,
+          sentToEmail: t.sentToEmail,
+          sentAt: t.createdAt.toISOString(),
+          expiresAt: t.expiresAt.toISOString(),
+          expired: t.expiresAt.getTime() <= nowMs(),
+          openedAt: t.linkOpenedAt?.toISOString() ?? null,
+          completedAt: t.consumedAt?.toISOString() ?? null,
+          revokedAt: t.invalidatedAt?.toISOString() ?? null,
+          attemptCount: t.attemptCount,
+          emailState: t.emailState,
+          emailDetail: t.emailDetail,
+          emailSandbox: t.emailSandbox,
+          forcedByName: t.forcedByName,
+        },
+      ]),
+    )
+  : {};
+```
+
+…then `resetTrails={resetTrails}` on `<TeamWorkspace>`.
+
+⚠️ That mapping duplicates the body of `getResetTrailAction` in
+`app/actions/team.ts`. **Do not leave both.** Export the mapper from
+`app/actions/team.ts` (or a small `lib/view/reset-trail.ts`) and call it from
+both places — two copies of a date-shaping function will drift, and this one
+decides whether a link reads as expired.
+
+**b. `components/team/team-workspace.tsx`** — accept and forward:
+
+- destructured prop `resetTrails`, typed
+  `resetTrails: Readonly<Record<string, ResetTrailView>>`
+  (`import type { ResetTrailView } from '@/app/actions/team';`)
+- on the `<PersonActions>` call at ~line 275, add
+  `resetTrail={resetTrails[person.id] ?? null}`
+
+**c. `components/team/person-actions.tsx`** — accept and use:
+
+- destructured prop `resetTrail`, typed `resetTrail: ResetTrailView | null`,
+  added to the same import block as `TeamActionResult`
+- on the `<ResetTrailDialog>` call at ~line 391, add
+  `trail={resetTrail}` and `onChanged={() => router.refresh()}`
+
+### 4.3 · Then decide the fate of `getResetTrailAction`
+
+It is exported from `app/actions/team.ts` and, after edit (a), **nothing calls
+it**. Either delete it, or keep it and have the page use it. Do not leave an
+unused, permission-gated server action exported — an unreferenced action is still
+a reachable endpoint.
+
+### 4.4 · Then verify, because none of this has been run
+
+Nothing in 4.1b has touched a browser or a test suite. In order:
+
+1. `npx tsc --noEmit` · `npx eslint .` · `npm run test` (expect **958**)
+2. `npm run build`
+3. **The end-to-end journey**, which is the only thing that actually proves it.
+   Mint a Super Admin session (see §4.6), then on `/team`:
+   - force a reset on a **demo** account — never on the Super Admin, and never on
+     the owner's own account
+   - open **Reset status, resend or revoke**. Expect: *Reset forced* ✅ ·
+     *Accepted by Resend — not delivered* with the sandbox caveat (there is still
+     no verified sending domain) · *Link not opened yet* · *Waiting for them to
+     set a password*
+   - read the code out of the database (`select trail_ref from public.invitations
+     order by created_at desc limit 1`, and the code itself is **not** stored —
+     only its hash, so take the code from the email or re-issue and capture it in
+     the action's return path if you need it)
+   - open `/reset-password?code=…&t=<trail_ref>` and confirm the panel flips to
+     **Link opened** with a time
+   - complete the reset and confirm **New password set**
+   - separately: press **Resend** and confirm the expiry moves and the old code
+     stops working; press **Revoke link** and confirm the row reads
+     *Link revoked — no password was set* and that Revoke then refuses
+4. `npm run test:auth` — **one run at a time.** Two concurrent runs share one
+   database and produce fake failures; read the pass count (**141**), never the
+   duration line. It also creates ~5 fixture accounts per run, so re-apply
+   migration 021 afterwards if the Team screen fills with `retired-…` rows.
+5. `npm run smoke` (27/27)
+6. Commit, push, and update §1 and §2 here.
+
+### 4.5 · Things that will bite
+
+- **No `.prettierrc` exists.** Never run `npx prettier --write` — it rewrote ~700
+  lines to double quotes once and had to be reverted with `git checkout`.
+- Backticks inside double-quoted bash get shell-expanded and mangle doc text. Use
+  the Edit tool or a `node - <<'NODE'` heredoc.
+- `router.replace()` and `router.refresh()` together leave the URL untouched. One
+  or the other.
+- `scripts/migrate.mjs` needs the **path**, not the bare filename.
+- The dev server on `:4310` in this session was **`next start`** (a production
+  build), so source edits need `npm run build` before they appear.
+
+### 4.6 · Verifying in the browser
+
+There is a throwaway session minter in the scratchpad, but it assumes
+`<prefix>@cni-demo.com` and the Super Admin is a real address, so mint by **role**
+instead. Whatever is minted, use `device_fingerprint = 'visual-check'` and revoke
+it afterwards — `sessions_revocation_has_reason` requires `revoked_reason` to be
+set in the same statement as `revoked_at`. Three such sessions were revoked at the
+end of this session; none are live.
+
+### 4.7 · Do not forget (unchanged, still outstanding)
+
+- **R5 — three secrets were pasted into chat in Session 09 and all still need
+  rotating**: the Resend key and the database password (twice). `npm run check:db`
+  redacts and is safe to share; the connection string is not.
+- `SUPABASE_STORAGE_KEY` may be read **only** in `lib/storage/bucket.ts`
+  (ESLint-enforced, with `scripts/check-storage.mjs` the single exemption). The
+  avatars bucket was provisioned from a script **outside the repo** rather than
+  weakening that rule. Do the same next time.
+- **R4 — sales management and workflow automation are NOT to be built.**

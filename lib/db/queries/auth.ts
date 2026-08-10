@@ -5,7 +5,10 @@ import type { LoginAttempt, LoginOutcome } from '@/lib/domain/lockout';
 import { isLegacyPlaintext, open, seal } from '@/lib/auth/secret-box';
 import type { InvitationPurpose } from '@/types/aliases';
 
-import { withAppRole } from '../client';
+/* `withUser` is used only by the forced-reset trail at the foot of this file,
+   where the caller IS a signed-in Admin and the row-level policy already permits
+   the write. Everything else here is pre-auth and must stay on `withAppRole`. */
+import { withAppRole, withUser } from '../client';
 
 /* ============================================================================
  * AUTH QUERIES — LAYER 1
@@ -349,6 +352,171 @@ export async function registerTokenAttempt(tokenHash: string): Promise<number> {
     (tx) => tx`select app.auth_register_token_attempt(${tokenHash}) as n`,
   );
   return Number(rows[0].n ?? 0);
+}
+
+/* ==========================================================================
+ * THE FORCED-RESET STATUS TRAIL — CHANGE-PLAN 4.1, migration 022
+ * ==========================================================================
+ * Only a forced reset carries a trail. A self-service reset does not need one:
+ * the person who asked is the person watching, and they already know.
+ * ========================================================================== */
+
+/**
+ * Attaches the link's lookup key to the token that was just issued.
+ *
+ * Runs as the Admin rather than through a SECURITY DEFINER function because
+ * `invitations_update` already permits it (`app.acting_at_least('admin')`), and
+ * adding a definer function for a write the policy allows would be a second way
+ * into the table for no gain.
+ *
+ * Non-fatal if it fails: the link still resets the password. All that is lost is
+ * the ability to notice it was opened — which is why this does not sit inside
+ * the same statement as issuance and does not need to.
+ */
+export async function setTokenTrailRef(
+  adminId: string,
+  invitationId: string,
+  trailRef: string,
+): Promise<void> {
+  await withUser(adminId, (tx) => tx`
+    update public.invitations set trail_ref = ${trailRef} where id = ${invitationId}
+  `);
+}
+
+/** What the mail provider said. `sandbox` is stored per row — see migration 022. */
+export async function recordTokenDelivery(
+  tokenHash: string,
+  state: 'accepted' | 'refused' | 'unreachable' | 'not_configured',
+  detail: string,
+  sandbox: boolean,
+): Promise<void> {
+  await withAppRole((tx) => tx`
+    select app.auth_record_token_delivery(${tokenHash}, ${state}, ${detail}, ${sandbox})
+  `);
+}
+
+/**
+ * Stamps the first load of the reset page. **Pre-auth** — nobody is signed in
+ * when a reset link is opened, so this is one of the writes that genuinely needs
+ * the definer function rather than a policy.
+ *
+ * Returns whether anything was stamped, so a caller can tell "recorded" from
+ * "that token is dead", and never throws: failing to note an open must not stop
+ * somebody resetting their password.
+ */
+export async function markLinkOpened(trailRef: string): Promise<boolean> {
+  try {
+    const rows = await withAppRole(
+      (tx) => tx`select app.auth_mark_link_opened(${trailRef}) as hit`,
+    );
+    return rows[0]?.hit === true;
+  } catch {
+    return false;
+  }
+}
+
+/** Kills a live token deliberately. Refuses to touch one already used. */
+export async function revokeToken(invitationId: string): Promise<boolean> {
+  const rows = await withAppRole(
+    (tx) => tx`select app.auth_revoke_token(${invitationId}::uuid) as hit`,
+  );
+  return rows[0]?.hit === true;
+}
+
+export interface ResetTrail {
+  readonly id: string;
+  readonly sentToEmail: string;
+  readonly createdAt: Date;
+  readonly expiresAt: Date;
+  readonly consumedAt: Date | null;
+  readonly invalidatedAt: Date | null;
+  readonly linkOpenedAt: Date | null;
+  readonly attemptCount: number;
+  readonly emailState: 'accepted' | 'refused' | 'unreachable' | 'not_configured' | null;
+  readonly emailDetail: string | null;
+  /** True if the sandbox sender was in use **when this was sent**. */
+  readonly emailSandbox: boolean | null;
+  readonly forcedByName: string | null;
+}
+
+/**
+ * The latest forced reset for every person who has one, keyed by user id.
+ *
+ * ── ONE QUERY, WITH THE PAGE, RATHER THAN A FETCH PER PANEL ──────────────────
+ * The first version of this loaded a trail from the client when the status panel
+ * opened. That needed an effect, a loading state and an error state, and the
+ * effect could not avoid `react-hooks/set-state-in-effect` — a rule which is
+ * right: cascading renders are a real cost and the fetch was avoidable.
+ *
+ * `distinct on` gives the newest row per user in a single pass, so the whole
+ * team's trails cost one query on a page that is already querying. The panel
+ * becomes presentational, and a `router.refresh()` after Resend updates it for
+ * free because the data comes down with the page.
+ */
+export async function getForcedResetTrails(
+  adminId: string,
+): Promise<ReadonlyMap<string, ResetTrail>> {
+  const rows = await withUser(adminId, (tx) => tx`
+    select distinct on (i.user_id)
+           i.user_id, i.id, i.sent_to_email, i.created_at, i.expires_at, i.consumed_at,
+           i.invalidated_at, i.link_opened_at, i.attempt_count,
+           i.email_state, i.email_detail, i.email_sandbox,
+           a.full_name as forced_by_name
+      from public.invitations i
+      left join public.users a on a.id = i.created_by_id
+     where i.purpose = 'password_reset'::public.invitation_purpose
+       and i.created_by_id is not null
+     order by i.user_id, i.created_at desc
+  `);
+
+  return new Map(rows.map((row) => [row.user_id as string, toTrail(row)]));
+}
+
+function toTrail(row: Record<string, unknown>): ResetTrail {
+  return {
+    id: row.id as string,
+    sentToEmail: row.sent_to_email as string,
+    createdAt: row.created_at as Date,
+    expiresAt: row.expires_at as Date,
+    consumedAt: (row.consumed_at as Date | null) ?? null,
+    invalidatedAt: (row.invalidated_at as Date | null) ?? null,
+    linkOpenedAt: (row.link_opened_at as Date | null) ?? null,
+    attemptCount: Number(row.attempt_count ?? 0),
+    emailState: (row.email_state as ResetTrail['emailState']) ?? null,
+    emailDetail: (row.email_detail as string | null) ?? null,
+    emailSandbox: (row.email_sandbox as boolean | null) ?? null,
+    forcedByName: (row.forced_by_name as string | null) ?? null,
+  };
+}
+
+/**
+ * The most recent forced reset for one person, or null.
+ *
+ * `created_by_id is not null` is what separates a forced reset from a
+ * self-service one — nobody provisions their own. Only the latest is returned
+ * because only the latest is live: FR-155 invalidates the previous code every
+ * time a new one is issued, so a history would be a list of dead rows.
+ */
+export async function getResetTrail(
+  adminId: string,
+  userId: string,
+): Promise<ResetTrail | null> {
+  const rows = await withUser(adminId, (tx) => tx`
+    select i.id, i.sent_to_email, i.created_at, i.expires_at, i.consumed_at,
+           i.invalidated_at, i.link_opened_at, i.attempt_count,
+           i.email_state, i.email_detail, i.email_sandbox,
+           a.full_name as forced_by_name
+      from public.invitations i
+      left join public.users a on a.id = i.created_by_id
+     where i.user_id = ${userId}
+       and i.purpose = 'password_reset'::public.invitation_purpose
+       and i.created_by_id is not null
+     order by i.created_at desc
+     limit 1
+  `);
+
+  const row = rows[0];
+  return row ? toTrail(row) : null;
 }
 
 /* ==========================================================================

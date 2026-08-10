@@ -3,14 +3,28 @@
 import { revalidatePath } from 'next/cache';
 
 import { requireUser } from '@/lib/auth/current-user';
-import { generateToken, hashToken } from '@/lib/auth/tokens';
+import {
+  expiresInMinutes,
+  generateNumericCode,
+  generateToken,
+  generateTrailRef,
+  hashScopedCode,
+  hashToken,
+} from '@/lib/auth/tokens';
 import { withUser } from '@/lib/db/client';
-import { issueToken, revokeAllSessions } from '@/lib/db/queries/auth';
+import {
+  getResetTrail,
+  issueToken,
+  recordTokenDelivery,
+  revokeAllSessions,
+  revokeToken,
+  setTokenTrailRef,
+} from '@/lib/db/queries/auth';
 import { audit } from '@/lib/db/queries/audit';
 import { record } from '@/lib/db/queries/feed';
 import * as P from '@/lib/db/queries/provisioning';
 import { describeSender, sendEmail } from '@/lib/email/send';
-import { invitationEmail } from '@/lib/email/templates';
+import { invitationEmail, passwordResetEmail } from '@/lib/email/templates';
 import {
   ROLES,
   ROLE_LABEL,
@@ -61,6 +75,8 @@ export interface TeamActionResult {
   readonly activationUrl?: string;
   readonly emailNote?: string;
   readonly warning?: string;
+  /** Plain confirmation, for when there is nothing to caveat. */
+  readonly message?: string;
 }
 
 const fail = (error: string): TeamActionResult => ({ ok: false, error });
@@ -451,6 +467,17 @@ export async function forceResetAction(userId: string): Promise<TeamActionResult
   await P.forcePasswordReset(user.id, userId);
   await revokeAllSessions(userId, 'admin_forced_password_reset');
 
+  /* Sends the reset itself (CHANGE-PLAN 4.1). Until now this action revoked the
+     sessions and told the Admin to point the person at "Forgot your password?",
+     which meant a forced reset was two manual steps and had nothing to show a
+     status for. `issueReset` is shared with the Resend button so a resend is
+     provably the same operation rather than a near-copy that drifts. */
+  const delivery = await issueReset(user.id, {
+    userId,
+    email: target.email,
+    fullName: target.fullName,
+  });
+
   await withUser(user.id, async (tx) => {
     await record(tx, user.id, {
       entityType: 'user',
@@ -462,13 +489,266 @@ export async function forceResetAction(userId: string): Promise<TeamActionResult
       entityType: 'user',
       entityId: userId,
       action: 'user.password_reset_forced',
-      after: { email: target.email, sessionsRevoked: true },
+      /* The outcome of the send is part of the record. "We forced a reset" and
+         "the email was refused" are different events to somebody reading this
+         back six months later. */
+      after: {
+        email: target.email,
+        sessionsRevoked: true,
+        emailState: delivery.state,
+        sandboxSender: delivery.sandbox,
+      },
     });
   });
 
   revalidatePath('/team');
   return {
     ok: true,
-    warning: `${target.fullName} is signed out everywhere and must set a new password. Send them to "Forgot your password?" — no password was generated, because none ever is.`,
+    ...(delivery.state === 'accepted' && !delivery.sandbox
+      ? {
+          message: `${target.fullName} is signed out everywhere. A reset link is on its way to ${target.email}, valid for ${delivery.ttlMinutes} minutes. No password was generated, because none ever is.`,
+        }
+      : {
+          warning: `${target.fullName} is signed out everywhere and must set a new password, but ${describeDelivery(delivery, target.email)} The Team screen shows the status, and you can resend from there.`,
+        }),
+  };
+}
+
+/* --------------------------------------------------------------------------
+ * ISSUING A RESET — used by forcing one and by resending it
+ * --------------------------------------------------------------------------
+ * One function for both so "Resend" cannot quietly become a slightly different
+ * operation. FR-155 already invalidates the previous code whenever a new one is
+ * issued, so resending is genuinely re-issuing and not a second live code.
+ * ------------------------------------------------------------------------ */
+
+interface Delivery {
+  readonly state: 'accepted' | 'refused' | 'unreachable' | 'not_configured';
+  readonly detail: string;
+  readonly sandbox: boolean;
+  readonly ttlMinutes: number;
+}
+
+async function issueReset(
+  adminId: string,
+  target: { userId: string; email: string; fullName: string },
+): Promise<Delivery> {
+  const code = generateNumericCode(6);
+  const trailRef = generateTrailRef();
+  const settings = await getSettings();
+  const ttlMinutes = Number(settings.recoveryCodeTtlMinutes);
+
+  /* Scoped exactly as the self-service path scopes it, so the code this email
+     carries is verifiable by the SAME `completeReset` and no second code path
+     exists to keep in step. */
+  const tokenHash = hashScopedCode('password_reset', target.email, code);
+
+  const invitationId = await issueToken({
+    userId: target.userId,
+    tokenHash,
+    purpose: 'password_reset',
+    sentToEmail: target.email,
+    expiresAt: expiresInMinutes(nowMs(), ttlMinutes),
+    /* This is what makes it a FORCED reset in the record: nobody provisions
+       their own, so `created_by_id` is how the trail tells the two apart. */
+    createdBy: adminId,
+  });
+
+  await setTokenTrailRef(adminId, invitationId, trailRef);
+
+  const message = passwordResetEmail({
+    fullName: target.fullName,
+    code,
+    resetUrl: `${await appUrl()}/reset-password?code=${code}&t=${trailRef}`,
+  });
+
+  const result = await sendEmail({
+    to: target.email,
+    subject: message.subject,
+    html: message.html,
+    text: message.text,
+  });
+
+  const sender = describeSender();
+  const delivery: Delivery = result.sent
+    ? { state: 'accepted', detail: `Resend id ${result.id}`, sandbox: sender.sandbox, ttlMinutes }
+    : {
+        state: result.configured ? 'refused' : 'not_configured',
+        detail: result.reason,
+        sandbox: sender.sandbox,
+        ttlMinutes,
+      };
+
+  await recordTokenDelivery(tokenHash, delivery.state, delivery.detail, delivery.sandbox);
+  return delivery;
+}
+
+/** The honest sentence for a send that is not simply fine. */
+function describeDelivery(delivery: Delivery, email: string): string {
+  if (delivery.state === 'not_configured') {
+    return 'no email was sent — RESEND_API_KEY is not set.';
+  }
+  if (delivery.state === 'refused' || delivery.state === 'unreachable') {
+    return `the email could not be sent: ${delivery.detail}`;
+  }
+  /* Accepted, but the sandbox sender only ever reaches the Resend account's own
+     address — everything else is taken with a 200 and silently dropped. Saying
+     "sent" here would be the single most misleading thing this screen could do. */
+  return `it was accepted by Resend and will NOT reach ${email}: there is still no verified sending domain, so only the Resend account's own address receives mail.`;
+}
+
+/* --------------------------------------------------------------------------
+ * READING THE TRAIL
+ * ------------------------------------------------------------------------ */
+
+/** Everything the status panel shows. Dates are ISO strings so the boundary is
+ *  explicit rather than relying on what a server action happens to serialise. */
+export interface ResetTrailView {
+  readonly id: string;
+  readonly sentToEmail: string;
+  readonly sentAt: string;
+  readonly expiresAt: string;
+  readonly expired: boolean;
+  readonly openedAt: string | null;
+  readonly completedAt: string | null;
+  readonly revokedAt: string | null;
+  readonly attemptCount: number;
+  readonly emailState: 'accepted' | 'refused' | 'unreachable' | 'not_configured' | null;
+  readonly emailDetail: string | null;
+  /** Whether the sandbox sender was in use **when it was sent**, not now. */
+  readonly emailSandbox: boolean | null;
+  readonly forcedByName: string | null;
+}
+
+export async function getResetTrailAction(
+  userId: string,
+): Promise<{ ok: true; trail: ResetTrailView | null } | { ok: false; error: string }> {
+  const user = await requireUser();
+  const target = await P.getAccountState(user.id, userId);
+  if (!target) return { ok: false, error: 'That person is no longer available.' };
+
+  /* Gated by the same permission as forcing one. A reset trail says when an
+     account was locked out of itself and where the link went — that is not
+     general team information. */
+  if (!can({ role: user.role, id: user.id }, 'user.force_password_reset', {
+    ownerId: userId,
+    ownerRole: target.role,
+  })) {
+    return { ok: false, error: 'Only an Admin can see reset status.' };
+  }
+
+  const trail = await getResetTrail(user.id, userId);
+  if (!trail) return { ok: true, trail: null };
+
+  return {
+    ok: true,
+    trail: {
+      id: trail.id,
+      sentToEmail: trail.sentToEmail,
+      sentAt: trail.createdAt.toISOString(),
+      expiresAt: trail.expiresAt.toISOString(),
+      /* Computed on the server, from the database's own clock via `nowMs()`,
+         rather than by comparing dates in the browser — a machine with a wrong
+         clock would otherwise report a live link as expired, or worse. */
+      expired: trail.expiresAt.getTime() <= nowMs(),
+      openedAt: trail.linkOpenedAt?.toISOString() ?? null,
+      completedAt: trail.consumedAt?.toISOString() ?? null,
+      revokedAt: trail.invalidatedAt?.toISOString() ?? null,
+      attemptCount: trail.attemptCount,
+      emailState: trail.emailState,
+      emailDetail: trail.emailDetail,
+      emailSandbox: trail.emailSandbox,
+      forcedByName: trail.forcedByName,
+    },
+  };
+}
+
+/**
+ * Resend — issue a fresh code and email it again.
+ *
+ * Gated by the same permission as forcing one, because it IS forcing one again:
+ * it invalidates the previous code (FR-155) and starts the expiry over. Anyone
+ * who may not force a reset must not be able to do it by pressing Resend.
+ */
+export async function resendResetAction(userId: string): Promise<TeamActionResult> {
+  const user = await requireUser();
+  const target = await P.getAccountState(user.id, userId);
+  if (!target) return fail('That person is no longer available.');
+
+  if (!can({ role: user.role, id: user.id }, 'user.force_password_reset', {
+    ownerId: userId,
+    ownerRole: target.role,
+  })) {
+    return fail('Only an Admin can send a password reset, and only to somebody below them.');
+  }
+
+  const delivery = await issueReset(user.id, {
+    userId,
+    email: target.email,
+    fullName: target.fullName,
+  });
+
+  await withUser(user.id, async (tx) => {
+    await audit(tx, user, {
+      entityType: 'user',
+      entityId: userId,
+      action: 'user.password_reset_resent',
+      after: { email: target.email, emailState: delivery.state, sandboxSender: delivery.sandbox },
+    });
+  });
+
+  revalidatePath('/team');
+  return delivery.state === 'accepted' && !delivery.sandbox
+    ? {
+        ok: true,
+        message: `A new link is on its way to ${target.email}, valid for ${delivery.ttlMinutes} minutes. The previous one no longer works.`,
+      }
+    : {
+        ok: true,
+        warning: `A new code was issued and the previous one no longer works, but ${describeDelivery(delivery, target.email)}`,
+      };
+}
+
+/**
+ * Revoke link — kill the outstanding code without issuing another.
+ *
+ * The person stays signed out and still cannot get in; they simply have no live
+ * link either. For a reset sent to the wrong address, or one forced by mistake,
+ * this is the correction — and it is why `invalidated_at` was already in the
+ * schema rather than something this needed to invent.
+ */
+export async function revokeResetLinkAction(userId: string): Promise<TeamActionResult> {
+  const user = await requireUser();
+  const target = await P.getAccountState(user.id, userId);
+  if (!target) return fail('That person is no longer available.');
+
+  if (!can({ role: user.role, id: user.id }, 'user.force_password_reset', {
+    ownerId: userId,
+    ownerRole: target.role,
+  })) {
+    return fail('Only an Admin can revoke a reset link, and only for somebody below them.');
+  }
+
+  const trail = await getResetTrail(user.id, userId);
+  if (!trail) return fail('There is no forced reset to revoke.');
+  if (trail.consumedAt) return fail('That reset was already completed, so there is nothing to revoke.');
+  if (trail.invalidatedAt) return fail('That link was already revoked.');
+
+  const killed = await revokeToken(trail.id);
+  if (!killed) return fail('That link is no longer live, so nothing was changed.');
+
+  await withUser(user.id, async (tx) => {
+    await audit(tx, user, {
+      entityType: 'user',
+      entityId: userId,
+      action: 'user.password_reset_link_revoked',
+      after: { email: trail.sentToEmail },
+    });
+  });
+
+  revalidatePath('/team');
+  return {
+    ok: true,
+    warning: `That link is dead. ${target.fullName} is still signed out and still has to set a new password — press Resend when you are ready to send them a working one.`,
   };
 }
