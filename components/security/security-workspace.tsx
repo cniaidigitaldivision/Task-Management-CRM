@@ -19,6 +19,7 @@ import {
 } from '@/app/actions/security';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Pagination, usePagination } from '@/components/ui/pagination';
 import { Card, CardBody, CardToolbar } from '@/components/ui/card';
 import type { AuditRow, LoginAttemptRow, SecurityEventRow, SessionRow } from '@/lib/db/queries/audit';
 import { cn } from '@/lib/utils';
@@ -102,6 +103,17 @@ export function SecurityWorkspace({
   const [note, setNote] = React.useState<SecurityActionResult | null>(null);
   const [expanded, setExpanded] = React.useState<string | null>(null);
 
+  /* ── Pagination on the four long lists (CHANGE-PLAN 4.3) ──────────────────
+     These are the screens the owner actually needs paged: the audit trail is
+     capped at 100 rows by its own query and the security feed at 40, and after
+     migration 021 the feed alone carries 116 critical entries. Sessions and
+     locked accounts are usually short — they get a pager too, and it renders
+     nothing at all while everything fits on one page. */
+  const sessionPager = usePagination(sessions);
+  const attemptPager = usePagination(attempts);
+  const auditPager = usePagination(auditLog);
+  const eventPager = usePagination(events);
+
   const run = async (fn: () => Promise<SecurityActionResult>) => {
     setBusy(true);
     const result = await fn();
@@ -183,7 +195,7 @@ export function SecurityWorkspace({
             {sessions.length === 0 && (
               <li className="px-5 py-6 text-caption text-text-tertiary">No active sessions.</li>
             )}
-            {sessions.map((session) => (
+            {sessionPager.visible.map((session) => (
               <li key={session.id} className="flex flex-wrap items-center gap-3 px-5 py-3.5">
                 <Monitor className="h-4 w-4 shrink-0 text-text-tertiary" strokeWidth={2} aria-hidden="true" />
                 <div className="min-w-[12rem] flex-1">
@@ -213,6 +225,17 @@ export function SecurityWorkspace({
               </li>
             ))}
           </ul>
+          <div className="px-5 pb-4">
+            <Pagination
+              page={sessionPager.page}
+              pageCount={sessionPager.pageCount}
+              onPage={sessionPager.setPage}
+              from={sessionPager.from}
+              to={sessionPager.to}
+              total={sessionPager.total}
+              label="sessions"
+            />
+          </div>
         </Card>
       </section>
 
@@ -283,7 +306,7 @@ export function SecurityWorkspace({
               {attempts.length === 0 && (
                 <li className="px-5 py-6 text-caption text-text-tertiary">Nothing recorded yet.</li>
               )}
-              {attempts.map((attempt) => (
+              {attemptPager.visible.map((attempt) => (
                 <li key={attempt.id} className="flex flex-wrap items-center gap-3 px-5 py-2.5">
                   <Badge token={OUTCOME_TOKEN[attempt.outcome] ?? 'neutral-500'} size="sm">
                     {attempt.outcome.replace(/_/g, ' ')}
@@ -300,6 +323,17 @@ export function SecurityWorkspace({
                 </li>
               ))}
             </ul>
+            <div className="px-5 pb-4">
+              <Pagination
+                page={attemptPager.page}
+                pageCount={attemptPager.pageCount}
+                onPage={attemptPager.setPage}
+                from={attemptPager.from}
+                to={attemptPager.to}
+                total={attemptPager.total}
+                label="attempts"
+              />
+            </div>
           </div>
         </Card>
       </section>
@@ -324,7 +358,7 @@ export function SecurityWorkspace({
                   land here.
                 </li>
               )}
-              {auditLog.map((entry) => {
+              {auditPager.visible.map((entry) => {
                 const open = expanded === entry.id;
                 const hasDetail = Boolean(entry.before || entry.after || entry.reason);
                 return (
@@ -394,6 +428,17 @@ export function SecurityWorkspace({
                 );
               })}
             </ul>
+            <div className="px-5 pb-4">
+              <Pagination
+                page={auditPager.page}
+                pageCount={auditPager.pageCount}
+                onPage={auditPager.setPage}
+                from={auditPager.from}
+                to={auditPager.to}
+                total={auditPager.total}
+                label="entries"
+              />
+            </div>
           </div>
         </Card>
       </section>
@@ -412,7 +457,7 @@ export function SecurityWorkspace({
           <Card>
             <CardToolbar title={`${events.length} most recent`} />
             <ul className="divide-y divide-border-subtle">
-              {events.map((event) => (
+              {eventPager.visible.map((event) => (
                 <li key={event.id} className="flex flex-wrap items-center gap-3 px-5 py-2.5">
                   <Badge
                     token={
@@ -438,6 +483,17 @@ export function SecurityWorkspace({
                 </li>
               ))}
             </ul>
+            <div className="px-5 pb-4">
+              <Pagination
+                page={eventPager.page}
+                pageCount={eventPager.pageCount}
+                onPage={eventPager.setPage}
+                from={eventPager.from}
+                to={eventPager.to}
+                total={eventPager.total}
+                label="events"
+              />
+            </div>
           </Card>
         </section>
       )}

@@ -5,6 +5,7 @@ import { ChevronDown, ChevronRight } from 'lucide-react';
 
 import { Avatar } from '@/components/ui/avatar';
 import { Badge, PriorityFlag } from '@/components/ui/badge';
+import { Pagination, usePagination } from '@/components/ui/pagination';
 import { ProgressBar } from '@/components/ui/progress';
 import {
   EFFORT_POINTS,
@@ -344,15 +345,66 @@ export function TaskList({
                   </th>
                 </tr>
 
-                {!isCollapsed &&
-                  group.tasks.map((task) => (
-                    <TaskRow key={task.id} task={task} onOpen={onOpen} />
-                  ))}
+                {!isCollapsed && <GroupRows group={group} onOpen={onOpen} />}
               </tbody>
             );
           })}
         </table>
       </div>
     </div>
+  );
+}
+
+/* ----------------------------------------------------------------------------
+ * ONE GROUP'S ROWS, PAGED
+ * ----------------------------------------------------------------------------
+ * This is a separate component for one reason: the pager is per-group, and a
+ * hook cannot be called inside `groups.map`. Extracting the rows gives each
+ * group its own `usePagination` instance legitimately.
+ *
+ * ── WHY PER-GROUP AND NOT ONE PAGER FOR THE TABLE ────────────────────────────
+ * A single pager over the flattened list would cut groups in half — page 2 of
+ * "Blocked" would open with rows whose heading is on page 1. Paging the GROUPS
+ * instead would hide whole statuses. Neither is what the owner asked for
+ * (CHANGE-PLAN 4.3, "after every 12 or 13 rows"), and both break grouping,
+ * which is the point of this view.
+ *
+ * ── MOST GROUPS WILL NEVER SHOW A PAGER ──────────────────────────────────────
+ * That is correct, not dead code: `Pagination` returns null at one page, and
+ * with 38 tasks over six statuses no group is near twelve today. It appears the
+ * moment one is — which is the whole reason to wire it before it is needed.
+ *
+ * The group heading keeps showing `group.tasks.length`, the total for the
+ * group, not the page — a heading that counted the page would contradict the
+ * "1–12 of 30" directly beneath it.
+ *
+ * Collapsing a group unmounts this and so resets it to page 1. Deliberate:
+ * re-opening a group you left on page 3 should not hide its first rows.
+ * ------------------------------------------------------------------------- */
+function GroupRows({ group, onOpen }: { group: TaskGroup; onOpen?: (id: string) => void }) {
+  const pager = usePagination(group.tasks);
+
+  return (
+    <>
+      {pager.visible.map((task) => (
+        <TaskRow key={task.id} task={task} onOpen={onOpen} />
+      ))}
+
+      {pager.pageCount > 1 && (
+        <tr>
+          <td colSpan={HEADINGS.length} className="px-4 pb-3">
+            <Pagination
+              page={pager.page}
+              pageCount={pager.pageCount}
+              onPage={pager.setPage}
+              from={pager.from}
+              to={pager.to}
+              total={pager.total}
+              label="tasks"
+            />
+          </td>
+        </tr>
+      )}
+    </>
   );
 }

@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button, IconButton } from '@/components/ui/button';
 import { Card, CardBody } from '@/components/ui/card';
 import { IconTile } from '@/components/ui/icon-tile';
+import { Pagination, usePagination } from '@/components/ui/pagination';
 import { ProgressBar } from '@/components/ui/progress';
 import { Select } from '@/components/ui/select';
 import { Toolbar, ToolbarGroup, ToolbarLabel, ToolbarSpacer } from '@/components/ui/toolbar';
@@ -72,8 +73,12 @@ export function ProjectsWorkspace({
     return true;
   });
 
+  /* The totals below count the whole filtered set, not the page — a footer that
+     said "18 open tasks" while showing page 2 of 3 would be describing nothing. */
   const totalOpen = visible.reduce((sum, p) => sum + p.openTaskCount, 0);
   const totalPoints = visible.reduce((sum, p) => sum + p.effortPoints, 0);
+
+  const pager = usePagination(visible);
 
   return (
     <div className="space-y-4">
@@ -133,7 +138,7 @@ export function ProjectsWorkspace({
         </Card>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {visible.map((project) => {
+          {pager.visible.map((project) => {
             const meta = PROJECT_TYPE_META[project.type];
             const donePct =
               project.taskCount > 0
@@ -273,6 +278,16 @@ export function ProjectsWorkspace({
           })}
         </div>
       )}
+
+      <Pagination
+        page={pager.page}
+        pageCount={pager.pageCount}
+        onPage={pager.setPage}
+        from={pager.from}
+        to={pager.to}
+        total={pager.total}
+        label="projects"
+      />
 
       <ProjectDialog open={creating} onClose={() => setCreating(false)} people={people} />
       {editing && (
