@@ -4,9 +4,14 @@
 > nine redesign phases. Twenty-six changes in one instruction, split here into
 > seven batches.
 >
-> **Nothing in this document has been built.** It exists to be approved first —
-> the owner's instruction was *"ask me questions… confirm to me every single
-> thing… and after I have confirmed, document them, then implement them."*
+> It was written to be approved before anything was built — the owner's
+> instruction was *"ask me questions… confirm to me every single thing… and after
+> I have confirmed, document them, then implement them."* **Batches 1–3 have
+> since been built**; each batch section records what was actually done and how
+> it was proved.
+>
+> For a **mid-batch** resume, read [`WORK-LOG.md`](WORK-LOG.md) — it records every
+> step as it finishes, which this document is deliberately too coarse to do.
 >
 > Sibling documents: [`REDESIGN-PLAN.md`](REDESIGN-PLAN.md) covers speed and
 > appearance; [`BUILD-PLAN.md`](BUILD-PLAN.md) covers the original eight steps.
@@ -22,9 +27,12 @@
 |---|---|
 | **Items** | 26 — **9 bugs**, 17 features |
 | **Batches** | 7. One at a time: implement → verify → commit → **stop and ask** (rule R1) |
-| **Progress** | ✅🔶⬜⬜⬜⬜⬜ Batch 1 complete · **Batch 2 part-done** |
-| **Batch 2** | ✅ **complete** — impact dialog · Cancel and Purge · avatars |
-| **Next** | Batch 3 — forms. **Awaiting the go-ahead.** |
+| **Progress** | ✅✅✅⬜⬜⬜⬜ Batches 1–3 complete |
+| **Batch 2** | ✅ impact dialog · Cancel and Purge (migration 019) · avatars |
+| **Batch 3** | ✅ migration 020 · dates + times on both forms · project form by type |
+| **Migrations** | applied through **020** |
+| **Tests** | 958 unit · 141 integration · 27/27 smoke |
+| **Next** | Batch 4 — people & access. **Awaiting the go-ahead.** |
 
 ---
 
@@ -400,11 +408,20 @@ Confirmed field set:
 - *Single day* → one date, with a start time and an end time
 - *Multiple days* → start date + time through to due date + time
 
-⚠️ **The per-type fields need somewhere to live.** Options at build time: a
-`details jsonb` column on `projects` (one migration, flexible, no new table per
-type) or typed columns. I will recommend `jsonb` and confirm before writing it —
-**this is the one part of this batch that needs a migration** and therefore the
-owner's go-ahead under rule R1.
+✅ **No migration was needed for these.** `projects.type_fields` has been `jsonb`
+since migration 012 — the migration predicted here did not exist as a problem.
+
+⚠️ **A different migration did: 020**, adding `start_time` / `due_time` to
+`tasks` and `start_time` / `target_end_time` to `projects`, because those date
+columns are `date` and cannot carry a time. Times are ADDITIVE columns rather
+than a `date` → `timestamptz` change, which would have re-interpreted the
+partial index on `due_date`, both ordering constraints, the UTC-calendar
+recurrence engine, the calendar's day grouping and ADR-004's workload window.
+
+⚠️ **`TYPE_FIELDS` in `app/actions/projects.ts` is a server-side allow-list** and
+must be updated with the form's list in the same commit. A field added to one and
+not the other renders, accepts input, and is silently dropped on save. That
+happened to `expected_attendance` and was caught by reading the saved row.
 
 ---
 

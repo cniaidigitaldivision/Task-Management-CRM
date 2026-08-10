@@ -20,9 +20,9 @@
 | | |
 |---|---|
 | **Updated** | 2026-08-09 · Session 23 |
-| **Current batch** | **Batch 3 — Forms** ([CHANGE-PLAN §3](CHANGE-PLAN.md)) |
+| **Current batch** | **Batch 3 — Forms: ✅ COMPLETE** ([CHANGE-PLAN §3](CHANGE-PLAN.md)) |
 | **Steps done in this batch** | **3.1a** migration 020 · **3.1b** task times · **3.1c** project times · **3.2** form by type · **3.2a** server allow-list · **3.2b** dialog keyboard bug |
-| **⏭️ NEXT ACTION** | **Batch 3 is complete.** Run the full chain (`npm run verify`, `test:auth`, `smoke`), update CHANGE-PLAN and SESSION-STATE, then **stop and ask** before Batch 4 (people & access: forced reset with status trail, active/inactive switches, pagination). |
+| **⏭️ NEXT ACTION** | **Batch 4 — people & access** — awaiting the owner's go-ahead. Covers: forced password reset with the sent → delivered → opened → completed status trail; Active / Inactive / Deactivated as switches on Team; pagination at 12 rows on tables and lists (not the board). |
 | **Working tree** | clean, pushed |
 | **Blocked on** | nothing |
 
@@ -32,9 +32,9 @@
 |---|---|
 | BUILD-PLAN | ✅ all 8 steps |
 | REDESIGN-PLAN | ✅ phases 1–8 · 🔴 phase 9 (the supplied task-board HTML) needs an owner decision |
-| CHANGE-PLAN | ✅ Batch 1 (9 bugs) · ✅ Batch 2 (impact dialog, Cancel, Purge, avatars) · 🔶 **Batch 3 in progress** · ⬜ Batches 4–7 |
+| CHANGE-PLAN | ✅ Batch 1 (9 bugs) · ✅ Batch 2 (impact dialog, Cancel, Purge, avatars) · ✅ **Batch 3 (forms)** · ⬜ Batches 4–7 |
 | Tests | 958 unit · 141 integration · 27/27 smoke |
-| Migrations applied | through **019** |
+| Migrations applied | through **020** |
 
 ### Still needing the owner, whenever we reach them
 
@@ -63,6 +63,7 @@ so anything not listed here has not been done.
 | 3.2 | **The project form changes by type** | ✅ | **Scale moved to every type** (`SHARED_TYPE_FIELDS`) — it was event-only, so a client retainer had no size recorded and nothing could compare them. Event gained a **duration toggle**: *One day* shows **Date / Starts at / Ends at** and submits the end date as the start date (one possible answer is not a question), *Several days* shows all four. `event_date` removed — it duplicated the real `start_date` column that the calendar and every report already read. Added: expected attendance · contract end · engagement as a **Retainer/One-off dropdown** (was free text placeholder'd "retainer or project") · internal sponsor. Existing client contact fields **kept** — the confirmed spec was a list to add, not a list to reduce to, and dropping `contact_email` would have been a regression nobody asked for. | Browser: Client shows 18 fields, Event 12, **Scale on both**. Toggle flips *Date/Starts at/Ends at* ↔ *Start date/Start time/Target end date/Target end time*. Saved a one-day event → `start 2026-09-12 09:00`, `end 2026-09-12 17:00`, `type_fields` held venue, duration, scale **and attendance**. Test project removed. |
 | 3.2a | 🐛 **The server allow-list silently dropped the new fields** | ✅ | `TYPE_FIELDS` in `app/actions/projects.ts` is a deliberate allow-list so a crafted POST cannot stuff the `type_fields` jsonb. New form fields not added to it **render, accept input and vanish on save**. Caught by checking the saved row rather than trusting the form closing: `expected_attendance` and `duration` were missing. Both lists now carry a warning that they must change together. | First save came back without `expected_attendance`; after the fix, present. |
 | 3.2b | 🐛 **Every dialog closed when a button was activated by keyboard** | ✅ | Found while testing the duration toggle: a programmatic `.click()` closed the whole form. The backdrop test hit-tested `clientX/clientY` against the panel — and a button activated with **Space or Enter fires a click at (0, 0)**, which is outside every panel. So **every keyboard user closed any dialog the moment they used any control inside it.** `event.target === dialog` alone would have fixed that and reintroduced the bug the original author had already hit (a native `<select>` option list reports the dialog as its target). Now requires **both halves of the gesture** — pointerdown *and* click on the dialog itself — which no keyboard activation and no select popup can satisfy. Dead `panelRef` removed. | Browser: the toggle click that previously closed the form now leaves it open, and a `<select>` type change does not close it either. |
+| 3.z | ⚠️ **Operational lesson: never run `test:auth` twice at once** | ✅ | A run reported **10 failed / 131 passed** and took over 600s instead of ~240s. Not a regression: a second suite was started while the first was still settling, and they share one database. `vitest.integration.mts` says exactly this — *"these share one database, and two suites creating fixtures concurrently would interfere"* — and `fileParallelism: false` only guards within a single process, not against two. A clean single run: **141 passed**. Nearly closed the batch on the bad number; always read the count, never the duration line. | 141/141 on a clean run |
 
 ---
 

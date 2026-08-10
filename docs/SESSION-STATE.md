@@ -49,7 +49,7 @@ That's all you ever need to type. Everything else is recorded in the files.
 
 | | |
 |---|---|
-| **Last updated** | 2026-08-09, Session 22 |
+| **Last updated** | 2026-08-09, Session 23 |
 | **Tests** | `npm run test` → **958** · `npm run test:auth` → **141** (real DB) · `npm run smoke` → **27/27** (every route, both roles) |
 | **⛔ Credential hygiene** | Three secrets were pasted into chat in Session 09 (Resend key, DB password ×2 — one echoed by my own script's error output). **All must be rotated.** Never paste a secret; `npm run check:db` redacts and is safe to share. |
 | **Current phase** | **Phase 1 — Foundation & Security** |
@@ -271,6 +271,58 @@ The new asset is a **transparent raster**, not vector. That changes what each fo
 > exact next action and §2 lists every finished step with its proof. Owner
 > instruction, Session 23.
 
+
+### ✅ Session 23 — CHANGE-PLAN Batch 3 COMPLETE (forms)
+
+`958 unit · 141 integration · 27/27 smoke · migrations through 020.`
+
+**Next: Batch 4 (people & access) — awaiting the go-ahead.**
+
+**A step-level work log now exists.** Owner instruction: record every step so a
+dead session resumes mid-batch rather than at the batch start.
+[`WORK-LOG.md`](WORK-LOG.md) §1 names the exact next action; §2 lists every
+finished step with its proof. Each step is its own commit.
+
+#### What changed
+
+**Migration 020** added `start_time` / `due_time` to `tasks` and `start_time` /
+`target_end_time` to `projects`. **Additive `time` columns, not a `date` →
+`timestamptz` change** — that conversion would have re-interpreted the partial
+index on `due_date`, both ordering constraints, the UTC-calendar recurrence
+engine, the calendar's day grouping and ADR-004's Mon–Sat workload window.
+
+Both forms now carry a date **and** a time. Start pre-filled with now, due left
+empty — a guessed deadline nobody chose looks like a commitment and drives the
+overdue count. Built from LOCAL date parts, not `toISOString()`, which returns
+UTC and hands back tomorrow east of Greenwich late in the evening.
+
+**The project form changes by type.** Scale moved to every type (it was
+event-only, so a client retainer had no size recorded). Event gained a duration
+toggle: *One day* shows Date / Starts at / Ends at and submits the end date as
+the start date; *Several days* shows all four. `event_date` removed — it
+duplicated the real `start_date` column.
+
+**The migration predicted for per-type fields was never needed** —
+`projects.type_fields` has been `jsonb` since 012.
+
+#### Two bugs the testing found
+
+1. **`TYPE_FIELDS` in `app/actions/projects.ts` is a server-side allow-list.** A
+   field added to the form and not to it renders, accepts input, and is
+   **silently dropped on save**. `expected_attendance` was. Caught by reading the
+   saved row rather than trusting the dialog closing.
+2. **Every dialog closed when a button was activated from the keyboard.** The
+   backdrop test hit-tested `clientX/clientY`, and Space or Enter fires a click
+   at (0, 0) — outside every panel. So every keyboard user closed any dialog the
+   moment they used any control in it. Now requires **both** pointerdown and
+   click on the dialog itself, which neither keyboard activation nor a native
+   `<select>` popup can satisfy.
+
+> ⚠️ **Never run `npm run test:auth` twice concurrently.** A run reported 10
+> failures and took 600s+; a clean single run passes 141/141. They share one
+> database and interfere — `vitest.integration.mts` says so, and
+> `fileParallelism: false` only guards within one process. Read the pass count,
+> never the duration line.
 
 ### ✅ Session 22 — CHANGE-PLAN Batch 2 COMPLETE
 
