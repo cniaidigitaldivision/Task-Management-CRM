@@ -20,9 +20,9 @@
 | | |
 |---|---|
 | **Updated** | 2026-08-09 · Session 23 |
-| **Current batch** | **Batch 3 — Forms: ✅ COMPLETE** ([CHANGE-PLAN §3](CHANGE-PLAN.md)) |
-| **Steps done in this batch** | **3.1a** migration 020 · **3.1b** task times · **3.1c** project times · **3.2** form by type · **3.2a** server allow-list · **3.2b** dialog keyboard bug |
-| **⏭️ NEXT ACTION** | **Batch 4 — people & access** — awaiting the owner's go-ahead. Covers: forced password reset with the sent → delivered → opened → completed status trail; Active / Inactive / Deactivated as switches on Team; pagination at 12 rows on tables and lists (not the board). |
+| **Current batch** | **Batch 4 — People & access** ([CHANGE-PLAN §4](CHANGE-PLAN.md)) |
+| **Steps done in this batch** | **4.3a** pagination primitive · **4.2** Team switches · **4.3b** Team paginated |
+| **⏭️ NEXT ACTION** | Step 4.3c — apply `usePagination` to the remaining lists: **Projects** list view · **Tasks** list view · **Audit log** · **Security events** · **Sessions** · **Reports** tables. Then 4.1, the forced-reset status trail. |
 | **Working tree** | clean, pushed |
 | **Blocked on** | nothing |
 
@@ -51,6 +51,16 @@
 
 Newest last. Each entry is written when the step is **finished and verified**,
 so anything not listed here has not been done.
+
+### Batch 4 — People & access
+
+| # | Step | State | What changed | Proof |
+|:--:|---|:--:|---|---|
+| — | *batch started* | — | Order within the batch: **4.3** pagination, **4.2** the Active/Inactive/Deactivated switches, then **4.1** the reset status trail. 4.1 last because it changes what forcing a reset does — today `forceResetAction` sets `account_state` and revokes sessions but **sends nothing**, so a status trail needs the email and the token to exist first. | — |
+| 4.3a | **Pagination primitive** — `components/ui/pagination.tsx` | ✅ | `usePagination` + `Pagination`, **12 rows** (owner said "12 or 13"; 12 divides evenly). Pages **in the browser, not in SQL**: every screen already holds its full list, the queries are bounded by RLS, and each of those screens also filters and sorts client-side — so server paging would add a round trip per page turn AND make the page counts disagree with the filters. Page resets when the list shrinks under it, done as a render-time state adjustment rather than an effect (an effect paints the empty page once before fixing itself). Footer renders nothing at one page — "Page 1 of 1" is furniture. | `tsc`, lint, 958 tests, build clean |
+| 4.2 | **Active / Inactive / Deactivated switches on Team** | ✅ | Three states because the schema holds **two independent facts**: `is_active = false` means the account was turned off (BR-007, never deleted), while `account_state <> 'active'` means it is on but unusable — awaiting activation, forced reset, MFA not set up, locked, suspended. Collapsing them would hide the difference between "gone" and "stuck", which an Admin acts on differently: one gets restored, the other unblocked. Counts on each switch; empty states name what is absent. | Browser: `Active · 8 · Inactive · 1 · Deactivated · 115`; switching filters the list and the pager follows |
+| 4.3b | Pagination applied to **Team** | ✅ | Pages the FILTERED list, so the footer count and the switch count always agree. | Browser: page 1 `1–12 of 115` with 12 rows, page 2 `13–24 of 115` with 12 rows, and the rows genuinely differ. |
+| ⚠️ | **Found: 115 deactivated accounts in the live database** | 🔴 noted | They are integration-test fixtures. `test/integration/provisioning.test.ts` cannot delete a user (BR-007 forbids it and a trigger enforces it), so it deactivates and renames them `retired-<uuid>@prov-test.invalid`. Correct behaviour for the test, but every run adds more, and they now outnumber real accounts 13:1 on the Team screen. **Owner decision needed** — see the report. Not touched. | Counted on the Team screen |
 
 ### Batch 3 — Forms
 

@@ -19,7 +19,9 @@ import { Card } from '@/components/ui/card';
 import { Dialog } from '@/components/ui/dialog';
 import { Field, Input, Textarea } from '@/components/ui/input';
 import { ProgressBar } from '@/components/ui/progress';
+import { Pagination, usePagination } from '@/components/ui/pagination';
 import { Select } from '@/components/ui/select';
+import { ToggleGroup, Toolbar, ToolbarGroup, ToolbarLabel } from '@/components/ui/toolbar';
 import { InviteDialog } from './invite-dialog';
 import { PersonActions } from './person-actions';
 import type { PersonWorkload } from '@/lib/db/queries/workload';
@@ -86,6 +88,38 @@ export function TeamWorkspace({
   const skillsOf = (id: string) => userSkills.filter((s) => s.userId === id);
   const leaveOf = (id: string) => availability.filter((a) => a.userId === id);
 
+  /* ── Active / Inactive / Deactivated as switches (CHANGE-PLAN 4.2) ──────────
+     Owner instruction: *"I can switch from active members, inactive members,
+     deactivated members — put those options in switches."*
+
+     Three states, and they are three because the schema has two independent
+     facts about an account, not one:
+
+       is_active = false          the account has been turned off (BR-007 —
+                                  deactivated, never deleted)
+       account_state <> 'active'  the account exists and is on, but cannot be
+                                  used yet or right now: awaiting activation,
+                                  a forced password reset, MFA not set up,
+                                  locked by failed attempts, suspended
+
+     Collapsing those two into one switch would hide the difference between
+     "gone" and "stuck", which are the two cases an Admin acts on differently —
+     one gets restored, the other gets unblocked. */
+  const [shown, setShown] = React.useState<'active' | 'inactive' | 'deactivated'>('active');
+
+  const groups = React.useMemo(() => {
+    const active = people.filter((p) => p.isActive && p.accountState === 'active');
+    const inactive = people.filter((p) => p.isActive && p.accountState !== 'active');
+    const deactivated = people.filter((p) => !p.isActive);
+    return { active, inactive, deactivated };
+  }, [people]);
+
+  const visiblePeople = groups[shown];
+
+  /* Pages the FILTERED list, so the count in the footer and the count on the
+     switch always agree. */
+  const pager = usePagination(visiblePeople);
+
   return (
     <div className="space-y-4">
       {canProvision && (
@@ -109,9 +143,36 @@ export function TeamWorkspace({
         </div>
       )}
 
+      <Toolbar aria-label="Which accounts to show">
+        <ToolbarGroup>
+          <ToolbarLabel>Showing</ToolbarLabel>
+          <ToggleGroup
+            label="Which accounts to show"
+            value={shown}
+            onChange={setShown}
+            options={[
+              { key: 'active' as const, label: `Active · ${groups.active.length}` },
+              { key: 'inactive' as const, label: `Inactive · ${groups.inactive.length}` },
+              { key: 'deactivated' as const, label: `Deactivated · ${groups.deactivated.length}` },
+            ]}
+          />
+        </ToolbarGroup>
+      </Toolbar>
+
+      {visiblePeople.length === 0 ? (
+        <Card>
+          <p className="px-5 py-8 text-center text-caption text-text-secondary">
+            {shown === 'active'
+              ? 'Nobody is fully active yet.'
+              : shown === 'inactive'
+                ? 'Nobody is waiting on activation, a reset, MFA setup, or a lock.'
+                : 'Nobody has been deactivated. Accounts are switched off, never deleted (BR-007).'}
+          </p>
+        </Card>
+      ) : (
       <Card>
         <ul className="divide-y divide-border-subtle">
-          {people.map((person) => {
+          {pager.visible.map((person) => {
             const load = loadOf(person.id);
             const band = load ? WORKLOAD_BAND_META[load.workload.band] : null;
             const theirSkills = skillsOf(person.id);
@@ -264,7 +325,20 @@ export function TeamWorkspace({
             );
           })}
         </ul>
+
+        <div className="px-5 pb-4">
+          <Pagination
+            page={pager.page}
+            pageCount={pager.pageCount}
+            onPage={pager.setPage}
+            from={pager.from}
+            to={pager.to}
+            total={pager.total}
+            label={pager.total === 1 ? 'person' : 'people'}
+          />
+        </div>
       </Card>
+      )}
 
       <InviteDialog
         open={inviting}
