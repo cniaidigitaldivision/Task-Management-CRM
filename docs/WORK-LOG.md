@@ -21,7 +21,7 @@
 |---|---|
 | **Updated** | 2026-08-09 · Session 23 |
 | **Current batch** | **Batch 4 — People & access** ([CHANGE-PLAN §4](CHANGE-PLAN.md)) |
-| **Steps done in this batch** | **4.3a** pagination primitive · **4.2** Team switches · **4.3b** Team paginated |
+| **Steps done in this batch** | **4.3a** pagination primitive · **4.2** Team switches · **4.3b** Team paginated · **4.z** migration 021 fixture purge |
 | **⏭️ NEXT ACTION** | Step 4.3c — apply `usePagination` to the remaining lists: **Projects** list view · **Tasks** list view · **Audit log** · **Security events** · **Sessions** · **Reports** tables. Then 4.1, the forced-reset status trail. |
 | **Working tree** | clean, pushed |
 | **Blocked on** | nothing |
@@ -34,7 +34,7 @@
 | REDESIGN-PLAN | ✅ phases 1–8 · 🔴 phase 9 (the supplied task-board HTML) needs an owner decision |
 | CHANGE-PLAN | ✅ Batch 1 (9 bugs) · ✅ Batch 2 (impact dialog, Cancel, Purge, avatars) · ✅ **Batch 3 (forms)** · ⬜ Batches 4–7 |
 | Tests | 958 unit · 141 integration · 27/27 smoke |
-| Migrations applied | through **020** |
+| Migrations applied | through **021** |
 
 ### Still needing the owner, whenever we reach them
 
@@ -61,6 +61,8 @@ so anything not listed here has not been done.
 | 4.2 | **Active / Inactive / Deactivated switches on Team** | ✅ | Three states because the schema holds **two independent facts**: `is_active = false` means the account was turned off (BR-007, never deleted), while `account_state <> 'active'` means it is on but unusable — awaiting activation, forced reset, MFA not set up, locked, suspended. Collapsing them would hide the difference between "gone" and "stuck", which an Admin acts on differently: one gets restored, the other unblocked. Counts on each switch; empty states name what is absent. | Browser: `Active · 8 · Inactive · 1 · Deactivated · 115`; switching filters the list and the pager follows |
 | 4.3b | Pagination applied to **Team** | ✅ | Pages the FILTERED list, so the footer count and the switch count always agree. | Browser: page 1 `1–12 of 115` with 12 rows, page 2 `13–24 of 115` with 12 rows, and the rows genuinely differ. |
 | ⚠️ | **Found: 115 deactivated accounts in the live database** | 🔴 noted | They are integration-test fixtures. `test/integration/provisioning.test.ts` cannot delete a user (BR-007 forbids it and a trigger enforces it), so it deactivates and renames them `retired-<uuid>@prov-test.invalid`. Correct behaviour for the test, but every run adds more, and they now outnumber real accounts 13:1 on the Team screen. **Owner decision needed** — see the report. Not touched. | Counted on the Team screen |
+| 4.z | **Migration 021 — purged the 115 fixture accounts** (owner chose option 1) | ✅ | A **deliberate, documented BR-007 exception.** BR-007 exists so removing somebody preserves their tasks, comments and time logs — reasoning that does not apply to a row that never had any. Verified across all 115 before writing it: **0** comments, **0** tasks, **0** projects, **0** time entries, **0** attachments, **0** extensions, so every one of the eight `RESTRICT` foreign keys into `users` was unreferenced. Predicate is five conditions wide, including `.invalid` (RFC 2606 reserved — it can never be a real address). Uses the **documented break-glass path**, not a disabled trigger: `alter table … disable trigger` would have worked and left no trace, whereas break-glass makes each deleted row write its own `break_glass_used` CRITICAL event first. | 115 purged, then 5 more on a re-run. `users` 124 → 9. **116 critical security events** written (115 per-row + 1 `permanent_purge` summary). 958 unit · 141 integration · 27/27 smoke all green afterwards. |
+| ⚠️ | **The purge is a cleanup, NOT a fix — it came back within minutes** | 🔴 owner decision | The integration run used to VERIFY the purge immediately created **5 more**, all stamped 09:44. So it is ~5 per `npm run test:auth`, and 115 was roughly 23 runs. Migration 021 is idempotent and was re-run to clear them (0 again). Options for stopping it: **(a)** point the integration suite at a separate Supabase project — clean, biggest setup; **(b)** have the suite break-glass-delete its own fixtures in `afterAll` — cheap and permanent, but writes 5 CRITICAL security events per run into the Super Admin's alert feed, whose entire value is being signal; **(c)** leave it and re-run 021 occasionally. Not chosen. | 5 fixtures created at 09:44 by one test run |
 
 ### Batch 3 — Forms
 
