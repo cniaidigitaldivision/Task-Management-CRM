@@ -1,7 +1,15 @@
 'use client';
 
 import * as React from 'react';
-import { AlertTriangle, Download, FileSpreadsheet, Loader2, Printer } from 'lucide-react';
+import {
+  AlertTriangle,
+  ChevronDown,
+  Download,
+  FileSpreadsheet,
+  FileText,
+  Loader2,
+  Printer,
+} from 'lucide-react';
 
 import {
   buildReportAction,
@@ -83,7 +91,23 @@ export function ReportWorkspace({
     }
   };
 
-  const download = async (format: 'csv' | 'xlsx') => {
+  /**
+   * One entry point for every way out, chosen from the dropdown.
+   *
+   * Print is handled here rather than being a separate control, because from the
+   * reader's point of view it is the same decision — *"how do I want this?"* —
+   * and it is the one format that is not a download, so it has to be visibly a
+   * peer rather than an afterthought beside two download buttons.
+   */
+  const exportAs = async (format: ExportFormat) => {
+    if (format === 'print') {
+      /* The print stylesheet does the work (globals.css). The browser's own
+         dialogue is also the PDF path, which is why there is no separate PDF
+         option pretending to be something different. */
+      window.print();
+      return;
+    }
+
     setDownloading(format);
     setError(null);
     try {
@@ -189,43 +213,7 @@ export function ReportWorkspace({
           </span>
         )}
 
-        <Button
-          variant="ghost"
-          size="md"
-          onClick={() => window.print()}
-          title="Your browser’s print dialogue also saves as PDF"
-        >
-          <Printer className="h-4 w-4" strokeWidth={2.25} aria-hidden="true" />
-          Print / PDF
-        </Button>
-
-        <Button
-          variant="ghost"
-          size="md"
-          disabled={downloading !== null}
-          onClick={() => void download('csv')}
-        >
-          {downloading === 'csv' ? (
-            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-          ) : (
-            <Download className="h-4 w-4" strokeWidth={2.25} aria-hidden="true" />
-          )}
-          CSV
-        </Button>
-
-        <Button
-          variant="primary"
-          size="md"
-          disabled={downloading !== null}
-          onClick={() => void download('xlsx')}
-        >
-          {downloading === 'xlsx' ? (
-            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-          ) : (
-            <FileSpreadsheet className="h-4 w-4" strokeWidth={2.25} aria-hidden="true" />
-          )}
-          Excel
-        </Button>
+        <ExportMenu busy={downloading} onChoose={(format) => void exportAs(format)} />
       </Toolbar>
 
       {error && (
@@ -259,6 +247,142 @@ export function ReportWorkspace({
 const dateField =
   'h-9 rounded-lg border border-border-default bg-bg-surface px-2.5 text-caption ' +
   'text-text-primary focus-visible:outline-none focus-visible:border-border-strong';
+
+/* ---- Export menu --------------------------------------------------------- */
+
+export type ExportFormat = 'print' | 'csv' | 'xlsx';
+
+const EXPORT_OPTIONS: ReadonlyArray<{
+  readonly format: ExportFormat;
+  readonly icon: typeof Printer;
+  readonly label: string;
+  readonly hint: string;
+}> = [
+  {
+    format: 'print',
+    icon: Printer,
+    label: 'Print or save as PDF',
+    /* Named as one thing because it IS one thing. Offering "Print" and "PDF"
+       separately would be two menu items that open the same dialogue, and the
+       reader would reasonably expect them to differ. */
+    hint: 'Opens your browser’s print dialogue',
+  },
+  {
+    format: 'xlsx',
+    icon: FileSpreadsheet,
+    label: 'Excel spreadsheet',
+    hint: '.xlsx — numbers you can sum and sort',
+  },
+  {
+    format: 'csv',
+    icon: FileText,
+    label: 'CSV',
+    hint: 'Plain text, opens anywhere',
+  },
+];
+
+/**
+ * How would you like this report?
+ *
+ * Owner instruction: *"the print options should be dropdown box selection of how
+ * I want to export the report."* Three buttons became one control.
+ *
+ * ── WHY A MENU RATHER THAN A `<select>` ──────────────────────────────────────
+ * A `<select>` holds a *value* — it says "this report is currently CSV", which is
+ * untrue: the format is not a property of the report, it is a one-off action.
+ * A menu of actions says what actually happens, and it has room for the one line
+ * of explanation each format needs (which format sums, which opens anywhere,
+ * which is really the print dialogue).
+ *
+ * Ordered by what people reach for most, not alphabetically: print first because
+ * it is the one that does not leave a file behind, then Excel, then CSV.
+ */
+function ExportMenu({
+  busy,
+  onChoose,
+}: {
+  busy: 'csv' | 'xlsx' | null;
+  onChoose: (format: ExportFormat) => void;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const onDown = (event: MouseEvent) => {
+      if (!ref.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative inline-flex">
+      <Button
+        variant="primary"
+        size="md"
+        aria-expanded={open}
+        aria-haspopup="menu"
+        disabled={busy !== null}
+        onClick={() => setOpen((v) => !v)}
+      >
+        {busy !== null ? (
+          <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+        ) : (
+          <Download className="h-4 w-4" strokeWidth={2.25} aria-hidden="true" />
+        )}
+        {busy === 'xlsx' ? 'Building…' : busy === 'csv' ? 'Building…' : 'Export'}
+        <ChevronDown
+          className={cn('h-3.5 w-3.5 transition-transform', open && 'rotate-180')}
+          strokeWidth={2.5}
+          aria-hidden="true"
+        />
+      </Button>
+
+      {open && (
+        <div
+          role="menu"
+          className="absolute top-[calc(100%+6px)] right-0 z-50 w-[17rem] overflow-hidden rounded-xl border border-border-default bg-bg-surface py-1 shadow-[var(--shadow-xl)]"
+        >
+          {EXPORT_OPTIONS.map((option) => {
+            const Icon = option.icon;
+            return (
+              <button
+                key={option.format}
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setOpen(false);
+                  onChoose(option.format);
+                }}
+                className="flex w-full items-start gap-2.5 px-3 py-2 text-left transition-colors hover:bg-bg-hover focus-visible:bg-bg-hover focus-visible:outline-none"
+              >
+                <Icon
+                  className="mt-0.5 h-4 w-4 shrink-0 text-text-tertiary"
+                  strokeWidth={2}
+                  aria-hidden="true"
+                />
+                <span className="min-w-0">
+                  <span className="block text-caption font-medium text-text-primary">
+                    {option.label}
+                  </span>
+                  <span className="block text-micro text-text-tertiary">{option.hint}</span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /* ---- Figures -------------------------------------------------------------- */
 

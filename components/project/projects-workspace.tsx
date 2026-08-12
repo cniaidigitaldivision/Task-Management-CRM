@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { FolderPlus, Package, Pencil } from 'lucide-react';
+import { FolderPlus, LayoutGrid, Package, Pencil, Rows3 } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button, IconButton } from '@/components/ui/button';
@@ -11,7 +11,13 @@ import { IconTile } from '@/components/ui/icon-tile';
 import { Pagination, usePagination } from '@/components/ui/pagination';
 import { ProgressBar } from '@/components/ui/progress';
 import { Select } from '@/components/ui/select';
-import { Toolbar, ToolbarGroup, ToolbarLabel, ToolbarSpacer } from '@/components/ui/toolbar';
+import {
+  ToggleGroup,
+  Toolbar,
+  ToolbarGroup,
+  ToolbarLabel,
+  ToolbarSpacer,
+} from '@/components/ui/toolbar';
 import type { ProjectRow } from '@/lib/db/queries/types';
 import {
   PROJECT_STATUSES,
@@ -20,6 +26,8 @@ import {
   type ProjectStatus,
   type ProjectType,
 } from '@/lib/domain/constants';
+
+import { cn } from '@/lib/utils';
 
 import { ProjectDialog } from './project-dialog';
 
@@ -66,6 +74,12 @@ export function ProjectsWorkspace({
   const [status, setStatus] = React.useState<ProjectStatus | 'all'>('all');
   const [creating, setCreating] = React.useState(false);
   const [editing, setEditing] = React.useState<ProjectRow | null>(null);
+
+  /* CHANGE-PLAN 6.3, owner: *"It should be the current projects in lists and
+     grids."* Cards default, because a project's shape — how much is done, how
+     much is late — reads better as a card than as a row of numbers. The list is
+     for comparing many projects on one figure, which cards are bad at. */
+  const [view, setView] = React.useState<'grid' | 'list'>('grid');
 
   const visible = projects.filter((project) => {
     if (type !== 'all' && project.type !== type) return false;
@@ -116,6 +130,16 @@ export function ProjectsWorkspace({
 
         <ToolbarSpacer />
 
+        <ToggleGroup
+          label="How to show projects"
+          value={view}
+          onChange={setView}
+          options={[
+            { key: 'grid', label: 'Grid', icon: LayoutGrid },
+            { key: 'list', label: 'List', icon: Rows3 },
+          ]}
+        />
+
         <span className="text-caption text-text-secondary">
           <span className="tabular font-semibold text-text-primary">{totalOpen}</span> open ·{' '}
           <span className="tabular font-semibold text-text-primary">{totalPoints}</span> pts
@@ -136,6 +160,12 @@ export function ProjectsWorkspace({
             <p className="mt-1 text-caption text-text-secondary">Clear a filter to see the rest.</p>
           </CardBody>
         </Card>
+      ) : view === 'list' ? (
+        <ProjectTable
+          projects={pager.visible}
+          canManage={canManage}
+          onEdit={setEditing}
+        />
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {pager.visible.map((project) => {
@@ -301,3 +331,171 @@ export function ProjectsWorkspace({
     </div>
   );
 }
+
+/* ============================================================================
+ * THE LIST VIEW — CHANGE-PLAN 6.3
+ * ----------------------------------------------------------------------------
+ * ── WHY THIS IS NOT THE SAME INFORMATION IN A NARROWER SHAPE ──────────────────
+ * A card answers *"how is this project doing?"* — one project at a time, with a
+ * progress bar and the type-specific line that only makes sense in context.
+ * A list answers a different question: *"which of these is furthest behind?"*
+ * That is a comparison, and comparison needs the numbers in aligned columns
+ * where the eye can run down one of them.
+ *
+ * So the list is not a squashed card. It drops the description, the status
+ * reason and the progress bar — none of which compare usefully — and shows the
+ * counts as right-aligned tabular figures instead.
+ *
+ * The toggle deliberately does not persist. A view is a momentary intent ("let
+ * me compare these"), not a preference, and coming back tomorrow to a list you
+ * chose once is a small surprise every time.
+ * ========================================================================= */
+
+function ProjectTable({
+  projects,
+  canManage,
+  onEdit,
+}: {
+  projects: readonly ProjectRow[];
+  canManage: boolean;
+  onEdit: (project: ProjectRow) => void;
+}) {
+  return (
+    <div className="overflow-hidden rounded-xl border border-border-default bg-bg-surface shadow-sm">
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[820px] border-collapse">
+          <thead>
+            <tr className="border-b border-border-default bg-bg-surface-sunken">
+              <th scope="col" className={thLeft}>Project</th>
+              <th scope="col" className={thLeft}>Type</th>
+              <th scope="col" className={thLeft}>Status</th>
+              <th scope="col" className={thRight}>Done</th>
+              <th scope="col" className={thRight}>Open</th>
+              <th scope="col" className={thRight}>Late</th>
+              <th scope="col" className={thRight}>Points</th>
+              <th scope="col" className={thRight}>Complete</th>
+              <th scope="col" className="w-px" />
+            </tr>
+          </thead>
+          <tbody>
+            {projects.map((project) => {
+              const meta = PROJECT_TYPE_META[project.type];
+              const donePct =
+                project.taskCount > 0
+                  ? Math.round((project.doneTaskCount / project.taskCount) * 100)
+                  : 0;
+              const isClosed = ['completed', 'archived', 'cancelled'].includes(project.status);
+
+              return (
+                <tr
+                  key={project.id}
+                  className={cn(
+                    'border-b border-border-subtle last:border-0 hover:bg-bg-hover',
+                    isClosed && 'opacity-70',
+                  )}
+                >
+                  <td className="px-3 py-2.5">
+                    <div className="flex items-center gap-2.5">
+                      <span
+                        aria-hidden="true"
+                        className="h-3.5 w-[3px] shrink-0 rounded-full"
+                        style={{ backgroundColor: `var(--${meta.token})` }}
+                      />
+                      <div className="min-w-0">
+                        <p className="truncate text-body-sm font-medium text-text-primary">
+                          {project.name}
+                        </p>
+                        <p className="tabular font-mono text-micro text-text-tertiary">
+                          {project.code}
+                        </p>
+                      </div>
+                    </div>
+                  </td>
+
+                  <td className="px-3 py-2.5">
+                    <Badge token={meta.token} size="sm" variant="outline">
+                      {meta.label}
+                    </Badge>
+                  </td>
+
+                  <td className="px-3 py-2.5">
+                    {project.status === 'active' ? (
+                      <span className="text-caption text-text-secondary">Active</span>
+                    ) : (
+                      <Badge
+                        token={project.status === 'on_hold' ? 'feedback-warning' : 'neutral-500'}
+                        size="sm"
+                        variant="outline"
+                      >
+                        {project.status.replace(/_/g, ' ')}
+                      </Badge>
+                    )}
+                  </td>
+
+                  <td className={tdNum}>
+                    {project.doneTaskCount}
+                    <span className="text-text-tertiary"> / {project.taskCount}</span>
+                  </td>
+                  <td className={tdNum}>{project.openTaskCount}</td>
+                  <td className={tdNum}>
+                    {project.overdueTaskCount > 0 ? (
+                      <span className="font-semibold" style={{ color: 'var(--feedback-error)' }}>
+                        {project.overdueTaskCount}
+                      </span>
+                    ) : (
+                      <span className="text-text-disabled">—</span>
+                    )}
+                  </td>
+                  <td className={tdNum}>{project.effortPoints}</td>
+
+                  {/* A bar this narrow cannot be read as a proportion, so the
+                      number leads and the bar is a hint beside it. */}
+                  <td className="px-3 py-2.5">
+                    <div className="flex items-center justify-end gap-2">
+                      <span className="tabular text-caption font-semibold text-text-primary">
+                        {donePct}%
+                      </span>
+                      <span className="w-16 shrink-0">
+                        <ProgressBar
+                          value={donePct}
+                          token="accent-primary"
+                          size="sm"
+                          label={`${project.name}: ${donePct}% complete`}
+                        />
+                      </span>
+                    </div>
+                  </td>
+
+                  <td className="px-3 py-2.5">
+                    <div className="flex items-center justify-end gap-1">
+                      <Link
+                        href={`/tasks?project=${project.id}`}
+                        className="inline-flex h-8 items-center rounded-md px-2.5 text-micro font-semibold text-text-brand hover:bg-bg-hover"
+                      >
+                        Tasks
+                      </Link>
+                      {canManage && (
+                        <IconButton
+                          label={`Edit ${project.name}`}
+                          icon={Pencil}
+                          size="sm"
+                          onClick={() => onEdit(project)}
+                        />
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+const thBase =
+  'py-2 text-micro font-semibold tracking-[0.07em] text-text-tertiary uppercase';
+const thLeft = `px-3 text-left ${thBase}`;
+const thRight = `px-3 text-right ${thBase}`;
+const tdNum = 'tabular px-3 py-2.5 text-right text-caption text-text-secondary';

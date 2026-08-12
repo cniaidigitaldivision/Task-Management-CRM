@@ -43,14 +43,24 @@ export function Topbar({
   title,
   subtitle,
   onOpenNav,
-  onNewTask,
+  primaryLabel,
+  onPrimary,
   notifications,
   unreadCount,
 }: {
   title: string;
   subtitle?: string;
   onOpenNav: () => void;
-  onNewTask: () => void;
+  /**
+   * What this page creates — "New task", "New project", "Add member" — or null
+   * where there is nothing to create (CHANGE-PLAN 6.1).
+   *
+   * Null renders **no button**, not a disabled one. A greyed-out control on the
+   * Settings screen implies the action exists and is unavailable to you, when in
+   * fact the page simply has nothing to make.
+   */
+  primaryLabel: string | null;
+  onPrimary?: () => void;
   notifications: readonly NotificationRow[];
   unreadCount: number;
 }) {
@@ -207,26 +217,32 @@ export function Topbar({
               somebody changes twice a year does not earn permanent space in the
               busiest strip of the interface, and having it in two places meant
               two things to keep in step. */}
-          <span aria-hidden="true" className="mx-1 h-5 w-px shrink-0 bg-border-default" />
+          {/* The divider belongs to the button, so it goes when the button does —
+              otherwise a page with no create action shows a stray rule. */}
+          {primaryLabel && onPrimary && (
+            <>
+              <span aria-hidden="true" className="mx-1 h-5 w-px shrink-0 bg-border-default" />
 
-          <Button
-            variant="primary"
-            size="md"
-            className="hidden sm:inline-flex"
-            onClick={onNewTask}
-            title="New task (N)"
-          >
-            <Plus className="h-4 w-4" strokeWidth={2.25} aria-hidden="true" />
-            New task
-          </Button>
-          <IconButton
-            label="New task"
-            icon={Plus}
-            variant="primary"
-            size="md"
-            className="sm:hidden"
-            onClick={onNewTask}
-          />
+              <Button
+                variant="primary"
+                size="md"
+                className="hidden sm:inline-flex"
+                onClick={onPrimary}
+                title={`${primaryLabel} (N)`}
+              >
+                <Plus className="h-4 w-4" strokeWidth={2.25} aria-hidden="true" />
+                {primaryLabel}
+              </Button>
+              <IconButton
+                label={primaryLabel}
+                icon={Plus}
+                variant="primary"
+                size="md"
+                className="sm:hidden"
+                onClick={onPrimary}
+              />
+            </>
+          )}
         </div>
       </div>
     </header>

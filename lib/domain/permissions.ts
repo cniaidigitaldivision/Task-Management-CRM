@@ -381,6 +381,30 @@ export function actionsFor(role: Role): Action[] {
   return ACTIONS.filter((action) => ruleFor(role, action) !== 'deny');
 }
 
+/**
+ * Which roles this actor may hand out — doc 03 §3.1, FR-141.
+ *
+ * ── WHY THIS MOVED HERE ──────────────────────────────────────────────────────
+ * It lived as a private function inside `app/actions/team.ts`, reachable only
+ * through an `async` wrapper. That made a **pure lookup** cost a server round
+ * trip, which is why CHANGE-PLAN 6.1 needed it: the app shell decides whether to
+ * offer "Add member" while rendering, and cannot await an action to do it.
+ *
+ * It is not the authorisation. `users_insert` refuses an out-of-rank insert at the
+ * database, and `users_single_super_admin_idx` makes a second Super Admin
+ * impossible for the lifetime of the database. This is what lets the interface
+ * say so in a sentence instead of letting somebody discover it from an error.
+ *
+ * **A Super Admin is never in the list.** There is exactly one, for the life of
+ * the system, created by first-run setup (BR-028) — so no role, including their
+ * own, can produce another.
+ */
+export function assignableRolesFor(actorRole: Role): Role[] {
+  if (actorRole === 'super_admin') return ['admin', 'team_coordinator', 'member'];
+  if (actorRole === 'admin') return ['team_coordinator', 'member'];
+  return [];
+}
+
 /* -------------------------------------------------------------------------- */
 
 function isSame(actorId: string, candidate: string | undefined): boolean {

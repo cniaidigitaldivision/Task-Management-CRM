@@ -31,7 +31,10 @@ import {
   SYSTEM_DEFAULTS,
   type Role,
 } from '@/lib/domain/constants';
-import { can } from '@/lib/domain/permissions';
+import {
+  assignableRolesFor as assignableRolesForRole,
+  can,
+} from '@/lib/domain/permissions';
 import { nowMs } from '@/lib/now';
 import { getSettings } from '@/lib/settings/current';
 import { appUrl } from '@/lib/app-url';
@@ -89,15 +92,13 @@ function str(form: FormData, key: string): string {
 /* `appUrl()` now lives in lib/app-url.ts and derives the origin from the
    request, so a link is never built against localhost. See that file. */
 
-/** Which roles this actor may hand out. doc 03 §3.1, and `users_insert` agrees. */
-function assignableRoles(actorRole: Role): Role[] {
-  if (actorRole === 'super_admin') return ['admin', 'team_coordinator', 'member'];
-  if (actorRole === 'admin') return ['team_coordinator', 'member'];
-  return [];
-}
+/* `assignableRolesFor` moved to lib/domain/permissions.ts for CHANGE-PLAN 6.1 —
+   the app shell needs it while rendering and cannot await an action for a pure
+   lookup. This wrapper stays because it is already a server action other code
+   calls. */
 
 export async function assignableRolesFor(actorRole: Role): Promise<Role[]> {
-  return assignableRoles(actorRole);
+  return assignableRolesForRole(actorRole);
 }
 
 /* ==========================================================================
@@ -131,7 +132,7 @@ export async function invitePersonAction(
       'A Super Admin cannot be created here. There is exactly one, for the life of the system, created by the first-run setup (BR-028).',
     );
   }
-  if (!assignableRoles(user.role).includes(role)) {
+  if (!assignableRolesForRole(user.role).includes(role)) {
     return fail(
       `A ${ROLE_LABEL[user.role]} cannot create a ${ROLE_LABEL[role]}. Only the Super Admin can appoint an Admin (FR-141).`,
     );

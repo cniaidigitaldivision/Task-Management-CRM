@@ -4,8 +4,11 @@ import * as React from 'react';
 import { usePathname } from 'next/navigation';
 import { ChevronLeft } from 'lucide-react';
 
+import { ProjectDialog } from '@/components/project/project-dialog';
 import { TaskDialog } from '@/components/task/task-dialog';
-import type { Role, Theme } from '@/lib/domain/constants';
+import { InviteDialog } from '@/components/team/invite-dialog';
+import { ROLE_LABEL, type Role, type Theme } from '@/lib/domain/constants';
+import { assignableRolesFor } from '@/lib/domain/permissions';
 import type { NotificationRow } from '@/lib/db/queries/types';
 import { cn } from '@/lib/utils';
 
@@ -116,6 +119,68 @@ function titleFor(pathname: string): { title: string; subtitle?: string } {
   return EXTRA_TITLES[pathname] ?? { title: 'CNI CRM' };
 }
 
+/* ============================================================================
+ * THE PRIMARY BUTTON FOLLOWS THE PAGE — CHANGE-PLAN 6.1
+ * ----------------------------------------------------------------------------
+ * Owner: *"When I'm in projects it should say New Project, not New Task."*
+ *
+ * ── WHY A TABLE RATHER THAN A CHAIN OF CONDITIONS ────────────────────────────
+ * Because the interesting cases are the ones with NO create action. Reports,
+ * Workload, Settings and Security have nothing to create, and a button that says
+ * "New task" on the Settings screen is worse than no button: it invites somebody
+ * to create a task while they are thinking about capacity thresholds, and the
+ * task lands in whatever project happens to be first.
+ *
+ * A table makes "this page has no primary action" a stated fact rather than the
+ * absence of a branch, and adding a page forces the question to be answered.
+ * ========================================================================= */
+
+type CreateKind = 'task' | 'project' | 'person';
+
+interface PrimaryAction {
+  readonly kind: CreateKind;
+  readonly label: string;
+  /** Roles that may perform it. The dialogs and the server re-check; this only
+   *  decides whether offering it would be a dead end. */
+  readonly roles: readonly Role[];
+}
+
+const LEAD_UP: readonly Role[] = ['super_admin', 'admin', 'team_coordinator'];
+const ADMIN_UP: readonly Role[] = ['super_admin', 'admin'];
+const EVERYONE: readonly Role[] = ['super_admin', 'admin', 'team_coordinator', 'member'];
+
+const PRIMARY_ACTIONS: Readonly<Record<string, PrimaryAction | null>> = {
+  '/dashboard': { kind: 'task', label: 'New task', roles: LEAD_UP },
+  '/my-work': { kind: 'task', label: 'New task', roles: EVERYONE },
+  '/tasks': { kind: 'task', label: 'New task', roles: EVERYONE },
+  '/calendar': { kind: 'task', label: 'New task', roles: EVERYONE },
+  '/projects': { kind: 'project', label: 'New project', roles: ADMIN_UP },
+  '/team': { kind: 'person', label: 'Add member', roles: ADMIN_UP },
+
+  /* Explicitly nothing. Written out rather than left to the fallback so that the
+     absence is a decision on the record, not an oversight. */
+  '/workload': null,
+  '/reports': null,
+  '/settings': null,
+  '/security': null,
+  '/profile': null,
+  '/design-system': null,
+};
+
+function primaryActionFor(pathname: string, role: Role): PrimaryAction | null {
+  /* Longest match first, so `/tasks/CNI-042` inherits `/tasks` rather than
+     falling through to the default. */
+  const key =
+    Object.keys(PRIMARY_ACTIONS)
+      .filter((path) => pathname === path || pathname.startsWith(`${path}/`))
+      .sort((a, b) => b.length - a.length)[0] ?? null;
+
+  if (key === null) return null;
+  const action = PRIMARY_ACTIONS[key];
+  if (!action) return null;
+  return action.roles.includes(role) ? action : null;
+}
+
 export function AppShell({
   user,
   notifications,
@@ -146,9 +211,24 @@ export function AppShell({
      it IS the open/closed state, and it is still remembered across tabs. */
   const pinned = React.useSyncExternalStore(subscribePin, readPin, readPinOnServer);
   const togglePin = React.useCallback(() => writePin(!pinned), [pinned]);
-  const [createOpen, setCreateOpen] = React.useState(false);
+  /* Which create dialog is open, or none. One piece of state rather than three
+     booleans: two create dialogs open at once is not a state that should be
+     representable, and three booleans make it representable. */
+  const [creating, setCreating] = React.useState<CreateKind | null>(null);
   const pathname = usePathname();
   const { title, subtitle } = titleFor(pathname);
+  const primary = primaryActionFor(pathname, user.role);
+
+  /* Read by the keyboard handler, which is bound once.
+     Written in an effect rather than during render: a ref assignment in the
+     render body runs on every attempt including ones React throws away, so the
+     value can end up describing a render that never committed. `react-hooks`
+     refuses it, correctly. Syncing after commit is both safe and sufficient — the
+     handler only ever reads it in response to a keypress, long after paint. */
+  const primaryRef = React.useRef(primary);
+  React.useEffect(() => {
+    primaryRef.current = primary;
+  }, [primary]);
 
   const closeNav = React.useCallback(() => setNavOpen(false), []);
   const openNav = React.useCallback(() => setNavOpen(true), []);
@@ -180,9 +260,17 @@ export function AppShell({
         document.querySelector<HTMLInputElement>('input[type="search"]')?.focus();
         return;
       }
+      /* N opens whatever THIS page creates, so the shortcut follows the button
+         (6.1). On a page with no create action it does nothing, rather than
+         opening a task form somebody did not ask for.
+         `primaryRef` rather than `primary` in the dependency list: re-binding a
+         window listener on every navigation is avoidable work, and a stale
+         closure here would silently open the wrong dialog. */
       if (!typing && event.key.toLowerCase() === 'n' && !event.metaKey && !event.ctrlKey) {
+        const action = primaryRef.current;
+        if (!action) return;
         event.preventDefault();
-        setCreateOpen(true);
+        setCreating(action.kind);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -264,7 +352,10 @@ export function AppShell({
           title={title}
           subtitle={subtitle}
           onOpenNav={openNav}
-          onNewTask={() => setCreateOpen(true)}
+          /* Null on a page with nothing to create, and the Topbar renders no
+             button at all rather than a disabled one — see 6.1. */
+          primaryLabel={primary?.label ?? null}
+          onPrimary={primary ? () => setCreating(primary.kind) : undefined}
           notifications={notifications}
           unreadCount={unreadCount}
         />
@@ -274,13 +365,36 @@ export function AppShell({
         <main className="page-ambience flex-1 px-4 py-5 sm:px-6 sm:py-7">{children}</main>
       </div>
 
-      <TaskDialog
-        open={createOpen}
-        onClose={() => setCreateOpen(false)}
-        projects={projects}
-        people={people}
-        currentUser={{ id: user.id, role: user.role }}
-      />
+      {/* All three creates live here rather than on their pages, so the topbar
+          button and the N shortcut behave identically wherever you are. Each is
+          MOUNTED on demand: leaving them mounted with `open` false would keep
+          three forms' worth of state alive on every page, and a half-filled form
+          would still be there on the way back. */}
+      {creating === 'task' && (
+        <TaskDialog
+          open
+          onClose={() => setCreating(null)}
+          projects={projects}
+          people={people}
+          currentUser={{ id: user.id, role: user.role }}
+        />
+      )}
+
+      {creating === 'project' && (
+        <ProjectDialog open onClose={() => setCreating(null)} people={people} />
+      )}
+
+      {creating === 'person' && (
+        <InviteDialog
+          open
+          onClose={() => setCreating(null)}
+          /* A pure lookup, so it is computed here rather than awaited from a
+             server action — see `assignableRolesFor` in lib/domain/permissions.ts.
+             The database refuses an out-of-rank insert regardless (FR-141). */
+          assignableRoles={assignableRolesFor(user.role)}
+          actorRoleLabel={ROLE_LABEL[user.role]}
+        />
+      )}
     </div>
   );
 }

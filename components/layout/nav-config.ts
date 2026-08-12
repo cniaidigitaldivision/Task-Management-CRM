@@ -62,12 +62,25 @@ export const NAV_SECTIONS: readonly NavSection[] = [
     label: 'Work',
     items: [
       { label: 'Tasks', href: '/tasks', icon: CalendarClock, roles: ALL },
-      { label: 'Projects', href: '/projects', icon: FolderKanban, roles: ALL },
       /* Open to everybody: RLS decides what is in it, so a Member sees their
          own due dates and a Coordinator sees the division's. */
       { label: 'Calendar', href: '/calendar', icon: CalendarDays, roles: ALL },
       { label: 'Workload', href: '/workload', icon: Gauge, roles: LEAD_UP },
     ],
+  },
+  {
+    /* CHANGE-PLAN 6.2, owner: *"Remove the projects from the Work thing… it
+       should be another subheading."*
+       Projects was under Work, which put it beside Tasks and Calendar as though it
+       were another view of the same thing. It is not — a project is the container
+       those views group BY, and treating it as a peer of Tasks is why it read as
+       just another list. Its own heading says what it is.
+       Decision 9: **regroup only.** No new screens and no Clients page, so this
+       section holds one item today and is still the right shape — a heading with
+       one thing under it is honest about the hierarchy, whereas folding it back in
+       would restate the confusion. */
+    label: 'Projects',
+    items: [{ label: 'Projects', href: '/projects', icon: FolderKanban, roles: ALL }],
   },
   {
     label: 'Team',
