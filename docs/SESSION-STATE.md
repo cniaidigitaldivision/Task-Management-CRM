@@ -49,17 +49,17 @@ That's all you ever need to type. Everything else is recorded in the files.
 
 | | |
 |---|---|
-| **Last updated** | 2026-08-09, Session 23 |
-| **Tests** | `npm run test` → **958** · `npm run test:auth` → **141** (real DB) · `npm run smoke` → **27/27** (every route, both roles) |
+| **Last updated** | 2026-08-12, Session 24 |
+| **Tests** | `npm run test` → **1044** · `npm run test:auth` → **141** (real DB) · `npm run smoke` → **27/27** (every route, both roles) |
 | **⛔ Credential hygiene** | Three secrets were pasted into chat in Session 09 (Resend key, DB password ×2 — one echoed by my own script's error output). **All must be rotated.** Never paste a secret; `npm run check:db` redacts and is safe to share. |
-| **Current phase** | **Phase 1 — Foundation & Security** |
+| **Current phase** | **CHANGE-PLAN Batch 6** — layout & navigation. All 8 build steps, all 9 redesign phases and CHANGE-PLAN Batches 1–5 are complete. |
 | **Phase 1 progress** | ▓▓▓▓▓▓▓▓░░ Steps 1–4 complete · **5.1 complete** · **Phase 2 work core pulled forward and operational** |
-| **Overall progress** | ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░ 72% |
+| **Overall progress** | ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░ 5 of the 7 CHANGE-PLAN batches complete |
 | **Code written** | ✅ Step 1 scaffold + tokens · shell + dashboard · **Step 1c redesign** · **Step 2 migrations 001–006, RLS, Super Admin trigger** · **Step 2b Tasks screen** · **Step 3 permission matrix** · **Step 4 authentication** · **Step 5.1 first-run setup** |
 | **✅ Deployed** | Live on Vercel, environment variables set, 25/25 signed-in route checks green against the real URL. Super Admin created and enrolled; `/setup` verified CLOSED in production. |
 | **✅ MFA enrolment** | Built (Session 12). QR code plus a copyable setup key, the code proven before anything is stored, and `requireEnrolledUser()` enforcing FR-145 at the application boundary rather than by redirect alone. |
 | **📋 THE PLAN** | [`docs/BUILD-PLAN.md`](BUILD-PLAN.md) — 8 steps to a complete system, owner approves each one. **Read it before doing anything.** |
-| **➡️ NEXT** | 🔴 **Waiting on the owner: what the supplied `CNI-AI-Digital-Task-Board.html` is meant to become** ([REDESIGN-PLAN §9](REDESIGN-PLAN.md)) — it was never in any plan, which is why nothing was ever built against it. Also unfinished and needing permission: **persisting board order** needs a migration ([§8.5](REDESIGN-PLAN.md)). All 8 build steps and redesign phases 1–8 are complete. 947 unit · 133 integration · 27 smoke. The owner has confirmed `SUPABASE_STORAGE_KEY` and `CRON_SECRET` are now set. |
+| **➡️ NEXT** | **CHANGE-PLAN Batch 6 — layout and navigation**, on the owner's go-ahead. No migration, no new dependency. ✅ **REDESIGN-PLAN §9 is closed**: the owner decided on 2026-08-12 to leave `CNI-AI-Digital-Task-Board.html` exactly as it is, so there is nothing to build against it. Still needing permission whenever it comes up: **persisting board order**, which needs a migration ([§8.5](REDESIGN-PLAN.md)) and has never actually been asked for. |
 | **🔑 MFA_ENCRYPTION_KEY is load-bearing** | Authenticator secrets are encrypted at rest as of Step 4. Lose that key and every enrolled authenticator stops working permanently, for everyone — recovery codes become the only way in. Back it up somewhere that is not this machine. | It is now the one thing standing between the demo and a system the team can actually be onboarded into. See §3 and [`DEMO-GUIDE.md`](DEMO-GUIDE.md). |
 
 ### What was completed in Session 08, part 2 — TASKS SCREEN + STEP 3
@@ -272,11 +272,27 @@ The new asset is a **transparent raster**, not vector. That changes what each fo
 > instruction, Session 23.
 
 
-### ✅ Session 24 — CHANGE-PLAN Batch 4 COMPLETE (people & access)
+### ✅ Session 24 — CHANGE-PLAN Batches 4 **and 5** COMPLETE
 
-`967 unit · 141 integration · 27/27 smoke · migrations through 022.`
+`1044 unit · 141 integration · 27/27 smoke · migrations through 022.`
 
-**Next: Batch 5 (reporting and export) — awaiting the go-ahead.**
+**Next: Batch 6 (layout & navigation) — awaiting the go-ahead.** No migration and
+no new dependency: the primary button following the page, the sidebar regrouped so
+Projects gets its own heading, a list/grid toggle on Projects, and Settings rebuilt
+with tabs down the left.
+
+#### Batch 5 — reporting & export
+
+| | |
+|---|---|
+| **The dependency** | `write-excel-file` 4.1.1 — MIT, **3.6 MB installed, one dependency** (`fflate`), no vulnerabilities. Owner approved on measured figures. `exceljs` rejected at ~22 MB and nine dependencies; `node-xlsx` rejected because it fetches its real dependency from a **CDN URL rather than npm**. |
+| **Four report types** | Completion · Workload & capacity · Project status · Time & overrun. Each for one person or everybody, over a period (this week through this year, or a custom range). |
+| **Three ways out** | **Print/PDF** via a real print stylesheet — the browser's own dialogue produces the PDF, so no server-side engine · **CSV** · **a real `.xlsx`** with numbers that can be summed. |
+| **The design that paid for itself** | A report is **typed cells**, not strings — `{kind:'percent', value:83}`, not `"83%"`. One definition, three outputs, so the paper cannot disagree with the screen. It is also the only reason the spreadsheet is worth having: text cannot be summed. |
+| 🐛 **Found by running it** | **"Overdue" was measured against the end of the period**, so August's report on the 12th called everything due later that month late. Caught by a unit test; now measured against today. |
+| 🐛 **Found by reading bytes** | **The UTF-8 BOM had never reached a downloaded file.** `csv.ts` prepends it and its test passes, but a server action strips the leading character — so every CSV ever exported went out without it, mangling accented names in Excel. Now written as bytes in the browser, which **also fixes the task and workload exports that already existed**. |
+
+#### Batch 4 — people & access
 
 | | |
 |---|---|

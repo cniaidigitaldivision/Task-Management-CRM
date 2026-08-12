@@ -7,7 +7,7 @@
 > It was written to be approved before anything was built — the owner's
 > instruction was *"ask me questions… confirm to me every single thing… and after
 > I have confirmed, document them, then implement them."* **Batches 1–3 have
-> since been built**; each batch section records what was actually done and how
+> since been built** (and 4 and 5 after them); each batch section records what was actually done and how
 > it was proved.
 >
 > For a **mid-batch** resume, read [`WORK-LOG.md`](WORK-LOG.md) — it records every
@@ -27,13 +27,14 @@
 |---|---|
 | **Items** | 26 — **9 bugs**, 17 features |
 | **Batches** | 7. One at a time: implement → verify → commit → **stop and ask** (rule R1) |
-| **Progress** | ✅✅✅✅⬜⬜⬜ Batches 1–4 complete |
+| **Progress** | ✅✅✅✅✅⬜⬜ Batches 1–5 complete |
 | **Batch 2** | ✅ impact dialog · Cancel and Purge (migration 019) · avatars |
 | **Batch 3** | ✅ migration 020 · dates + times on both forms · project form by type |
 | **Batch 4** | ✅ migration 022 · the reset now SENDS, with the status trail, Resend and Revoke · Active/Inactive/Deactivated switches · pagination everywhere |
+| **Batch 5** | ✅ four report types · print/PDF stylesheet · CSV and real .xlsx · fixed a UTF-8 BOM that had never reached a file |
 | **Migrations** | applied through **022** |
-| **Tests** | 967 unit · 141 integration · 27/27 smoke |
-| **Next** | Batch 5 — reporting & export. **Awaiting the go-ahead.** Name the `.xlsx` dependency and its size for approval first |
+| **Tests** | 1044 unit · 141 integration · 27/27 smoke |
+| **Next** | Batch 6 — layout & navigation. **Awaiting the go-ahead.** No migration, no new dependency |
 
 ---
 
@@ -478,9 +479,9 @@ break the thing we just spent two sessions making work.
 
 ---
 
-## 5️⃣ BATCH 5 — REPORTING AND EXPORT
+## 5️⃣ BATCH 5 — REPORTING AND EXPORT ✅ COMPLETE
 
-### 5.1 Report types
+### 5.1 Report types ✅
 > *"Reports should have types — I can select which kind of report I want."*
 
 All four, each for **one person or everybody**, over a chosen period:
@@ -495,7 +496,7 @@ All four, each for **one person or everybody**, over a chosen period:
 Each is **scoped by the reader's role** — a Coordinator's report covers their
 people, and a Member can only ever report on themselves (ADR-003).
 
-### 5.2 Export formats
+### 5.2 Export formats ✅
 > *"I want also a printable export option and Excel option and then also PDF."*
 
 | Format | How |
@@ -508,6 +509,43 @@ people, and a Member can only ever report on themselves (ADR-003).
 I will name the exact package and its size for approval before installing it.
 Every export stays audited: once a file is in Downloads no access control applies
 to it, which is why that rule exists.
+
+### What was actually built
+
+**The dependency is `write-excel-file` 4.1.1** — MIT, 3.6 MB installed, with
+exactly one dependency of its own (`fflate`, also MIT) and no vulnerabilities.
+Approved on measured figures. `exceljs` was rejected at ~22 MB and nine
+dependencies; `node-xlsx` because it pulls its real dependency from a **CDN URL
+rather than the npm registry**, which is a supply-chain risk rather than a size
+one.
+
+**The design that made three formats affordable:** a report is **typed cells**,
+not strings. `{kind:'percent', value:83}` rather than `"83%"`. The screen, the CSV
+and the spreadsheet each render the same definition their own way, so there is one
+implementation of the arithmetic and no chance of the paper disagreeing with the
+screen. It is also what makes the spreadsheet worth having — text cannot be summed,
+and a spreadsheet you cannot sum is a worse CSV.
+
+**Each report states what it counts.** The notes travel onto the screen, into both
+exports and onto the printed sheet. A figure without its definition is how two
+people read one number and disagree about what it says.
+
+**Two faults were found by running it rather than reading it:**
+
+1. **"Overdue" was measured against the end of the period**, so asking for
+   August's report on the 12th reported everything due later that month as already
+   late. Now measured against today. Caught by a unit test.
+2. **The UTF-8 BOM had never reached a downloaded file.** `lib/domain/csv.ts`
+   prepends it and has a passing test, but a server action's serialisation strips
+   the leading character — so every CSV this system has produced went out without
+   it, which is exactly the mangling of accented names that the BOM exists to
+   prevent. Now written as bytes in the browser, which also **fixes the task and
+   workload exports that already existed**.
+
+**Not built, deliberately:** no server-side PDF engine — the browser's print
+dialogue is the PDF path, which is what decision 6 chose — and no charts, per the
+session-09 rule that a chart is added only when a list stops answering the
+question.
 
 ---
 
