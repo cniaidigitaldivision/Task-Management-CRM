@@ -27,16 +27,17 @@
 |---|---|
 | **Items** | 26 — **9 bugs**, 17 features |
 | **Batches** | 7. One at a time: implement → verify → commit → **stop and ask** (rule R1) |
-| **Progress** | ✅✅✅⬜⬜⬜⬜ Batches 1–3 complete |
+| **Progress** | ✅✅✅✅⬜⬜⬜ Batches 1–4 complete |
 | **Batch 2** | ✅ impact dialog · Cancel and Purge (migration 019) · avatars |
 | **Batch 3** | ✅ migration 020 · dates + times on both forms · project form by type |
-| **Migrations** | applied through **020** |
-| **Tests** | 958 unit · 141 integration · 27/27 smoke |
-| **Next** | Batch 4 — people & access. **Awaiting the go-ahead.** |
+| **Batch 4** | ✅ migration 022 · the reset now SENDS, with the status trail, Resend and Revoke · Active/Inactive/Deactivated switches · pagination everywhere |
+| **Migrations** | applied through **022** |
+| **Tests** | 967 unit · 141 integration · 27/27 smoke |
+| **Next** | Batch 5 — reporting & export. **Awaiting the go-ahead.** Name the `.xlsx` dependency and its size for approval first |
 
 ---
 
-## ✅ THE TWELVE DECISIONS THE OWNER TOOK
+## ✅ THE DECISIONS THE OWNER TOOK
 
 Recorded before anything else, because each one changes what gets built.
 
@@ -427,9 +428,9 @@ happened to `expected_attendance` and was caught by reading the saved row.
 
 ---
 
-## 4️⃣ BATCH 4 — PEOPLE AND ACCESS
+## 4️⃣ BATCH 4 — PEOPLE AND ACCESS ✅ COMPLETE
 
-### 4.1 Forced password reset, with a status trail
+### 4.1 Forced password reset, with a status trail ✅
 > *"The page gets stuck… make it proper functioning… give me the status for the
 > Super Admin."*
 
@@ -442,19 +443,32 @@ Two separate things, and B2 (the freeze) is fixed first regardless.
   with the expiry, plus **Resend** and **Revoke link**.
 
 ⚠️ **"Delivered" and "opened" are honest only as far as the mail provider is.**
-With no verified sending domain, mail to anyone but the account owner is accepted
-and silently dropped — so this screen will say **"not sent — no mail domain"**
-rather than pretend. Open-tracking needs a tracking pixel and many clients block
-it; it will be shown as *"opened (if their mail client loads images)"* rather
-than stated as fact.
+This was the constraint the design had to respect, and **as built it goes further
+than planned in two ways**:
 
-### 4.2 Active / Inactive / Deactivated as switches
+1. **There is no "delivered" state at all.** Real delivery needs a Resend
+   webhook, which is worth nothing before a verified domain, so the panel reports
+   only what was observed: `accepted` · `refused` · `unreachable` ·
+   `not_configured`. "Accepted" is never presented as delivery.
+2. **"Opened" means the LINK was opened, not the email.** A tracking pixel was
+   ruled out — most clients block images, so a missing open would mean nothing
+   and a present one would be a guess. The reset page being loaded with a live
+   code is a stronger fact, recorded server-side, and needs no pixel.
+
+**One planned detail turned out to be factually wrong** (found 2026-08-12 by
+forcing a real reset): mail to a non-owner address is **not** "accepted and
+silently dropped". Resend **refuses it** — `403 validation_error`. That is better,
+because a refusal is a fact rather than a silence, so the panel says **"Not sent —
+no verified sending domain"** and states that the person received nothing.
+`lib/email/send.ts` had documented the wrong behaviour and was corrected.
+
+### 4.2 Active / Inactive / Deactivated as switches ✅
 > *"I can switch from active members, inactive members, deactivated members —
 > put those options in switches."*
 
 A segmented control on Team, replacing the current filter. Counts on each.
 
-### 4.3 Pagination
+### 4.3 Pagination ✅
 > *"After every 12 or 13 rows it should add another page."*
 
 **12 rows**, on tables and lists only (decision 3): Team, Reports, Projects list,

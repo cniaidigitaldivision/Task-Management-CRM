@@ -12,13 +12,10 @@ import {
   ShieldOff,
 } from 'lucide-react';
 
-import {
-  resendResetAction,
-  revokeResetLinkAction,
-  type ResetTrailView,
-} from '@/app/actions/team';
+import { resendResetAction, revokeResetLinkAction } from '@/app/actions/team';
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
+import { describeEmailFailure, type ResetTrailView } from '@/lib/view/reset-trail';
 import { cn } from '@/lib/utils';
 
 /* ============================================================================
@@ -43,12 +40,19 @@ import { cn } from '@/lib/utils';
  * present one would be a guess. The link being opened is a stronger fact than
  * either and needs no pixel, so it is what is shown.
  *
- * ── ⚠️ THE SANDBOX WARNING IS THE MOST IMPORTANT THING HERE ──────────────────
- * `onboarding@resend.dev` accepts mail for anybody with a 200 and delivers only
- * to the address that owns the Resend account. So "accepted" plus sandbox means
- * **it never arrived**, and this panel says exactly that. `emailSandbox` is read
- * from the row rather than from the environment, so a domain verified next month
- * cannot retroactively make an old dropped message look fine.
+ * ── ⚠️ THE UNVERIFIED-DOMAIN CASE IS THE MOST IMPORTANT THING HERE ───────────
+ * With no verified sending domain, Resend **refuses** mail to anybody but the
+ * address that owns the account — a `403 validation_error`, observed 2026-08-12.
+ * (An earlier comment here and in `lib/email/send.ts` claimed it accepts with a
+ * 200 and silently drops; it does not, and a refusal is the better outcome
+ * because it is a fact rather than a silence.) So that case shows as **"Not sent
+ * — no verified sending domain"**, says outright that the person received
+ * nothing, and names the fix.
+ *
+ * The silent-drop possibility is still guarded: `emailSandbox` is read from the
+ * ROW, not from the environment, so an `accepted` recorded while the sandbox
+ * sender was in use can never be re-described as delivered because a domain was
+ * verified some weeks later.
  * ========================================================================= */
 
 export function ResetTrailDialog({
@@ -69,6 +73,17 @@ export function ResetTrailDialog({
   const [busy, setBusy] = React.useState<null | 'resend' | 'revoke'>(null);
   const [note, setNote] = React.useState<{ tone: 'good' | 'warn'; text: string } | null>(null);
 
+  /* ── WHY A TRANSITION AND NOT JUST A CALL ──────────────────────────────────
+     `trail` comes down with the page, so after Resend or Revoke the panel only
+     changes once `router.refresh()` has re-run the Team page's queries. That
+     takes a second or two, and observed in testing: the confirmation said "a new
+     code was issued" while the four steps beneath it still described the OLD
+     one. Correct within a second, but for that second it reads as a
+     contradiction, and this panel's only job is to be trusted.
+     Wrapping the parent's refresh in a transition gives us `isRefreshing`, so
+     the stale trail can say plainly that it is being re-read. */
+  const [isRefreshing, startRefresh] = React.useTransition();
+
   const act = async (kind: 'resend' | 'revoke') => {
     setBusy(kind);
     try {
@@ -83,7 +98,7 @@ export function ResetTrailDialog({
 
       /* Refreshed either way: a REFUSED send still issued a new code and still
          moved the expiry, so the panel must not go on showing the old one. */
-      if (result.ok) onChanged();
+      if (result.ok) startRefresh(() => onChanged());
     } catch {
       setNote({
         tone: 'warn',
@@ -116,7 +131,7 @@ export function ResetTrailDialog({
               <Button
                 variant="ghost"
                 size="md"
-                disabled={busy !== null || !live}
+                disabled={busy !== null || isRefreshing || !live}
                 onClick={() => void act('revoke')}
                 title={live ? undefined : 'There is no live link to revoke.'}
               >
@@ -126,7 +141,7 @@ export function ResetTrailDialog({
               <Button
                 variant="primary"
                 size="md"
-                disabled={busy !== null}
+                disabled={busy !== null || isRefreshing}
                 onClick={() => void act('resend')}
               >
                 {busy === 'resend' ? (
@@ -162,7 +177,19 @@ export function ResetTrailDialog({
             </p>
           )}
 
-          <Trail trail={trail} />
+          {/* Dimmed rather than hidden while the page re-reads: removing the
+              steps would be a worse answer than showing last-known ones that
+              say so. */}
+          <div className={cn('transition-opacity', isRefreshing && 'opacity-45')}>
+            <Trail trail={trail} />
+          </div>
+
+          {isRefreshing && (
+            <p className="flex items-center gap-2 text-micro text-text-tertiary">
+              <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+              Re-reading the status — the steps above may be a moment behind.
+            </p>
+          )}
 
           <dl className="grid grid-cols-2 gap-x-4 gap-y-2 border-t border-border-subtle pt-3 text-caption">
             <Fact label="Sent to" value={trail.sentToEmail} />
@@ -196,7 +223,26 @@ export function ResetTrailDialog({
           )}
           {(trail.emailState === 'refused' || trail.emailState === 'unreachable') && (
             <Caveat>
-              The mail provider did not take it: {trail.emailDetail}
+              {describeEmailFailure(trail.emailDetail).summary}
+              {describeEmailFailure(trail.emailDetail).isSandboxLimit && (
+                <>
+                  {' '}
+                  <strong>{person.fullName} did not receive anything</strong> — give them the link
+                  another way, or verify a domain at resend.com/domains.
+                </>
+              )}
+              {/* The provider's exact words, kept reachable without leading with
+                  them. A summary that cannot be checked is worth less. */}
+              {trail.emailDetail && (
+                <details className="mt-1.5">
+                  <summary className="cursor-pointer text-micro text-text-tertiary">
+                    What the provider actually said
+                  </summary>
+                  <code className="mt-1 block font-mono text-micro break-all text-text-tertiary">
+                    {trail.emailDetail}
+                  </code>
+                </details>
+              )}
             </Caveat>
           )}
           {trail.emailState === 'accepted' && !trail.emailSandbox && !trail.openedAt && (
@@ -234,7 +280,9 @@ function Trail({ trail }: { trail: ResetTrailView }) {
             ? 'Not sent — no mail provider configured'
             : trail.emailState === null
               ? 'Sending not recorded'
-              : 'The mail provider refused it',
+              : describeEmailFailure(trail.emailDetail).isSandboxLimit
+                ? 'Not sent — no verified sending domain'
+                : 'The mail provider refused it',
       at: null,
       done: trail.emailState === 'accepted' && !trail.emailSandbox,
       note: trail.emailState === 'accepted' && trail.emailSandbox ? 'no verified domain' : null,

@@ -30,6 +30,15 @@ export default defineConfig({
        * The guard still protects the real build — `next build` resolves the real
        * package and still refuses a bad import. */
       'server-only': fileURLToPath(new URL('./test/server-only-stub.ts', import.meta.url)),
+
+      /* `@/…` — the same mapping as tsconfig's `paths` (`{"@/*": ["./*"]}`).
+       *
+       * Without it, a test could only import modules whose own imports were
+       * relative. `tsc` resolved `@/lib/domain/session-policy` happily, so the
+       * test typechecked and then failed at run time with "Cannot find package".
+       * That quietly put anything under `lib/auth/` and `lib/db/` out of reach —
+       * which the note above already assumed was solved. */
+      '@': fileURLToPath(new URL('./', import.meta.url)),
     },
   },
   test: {

@@ -24,10 +24,23 @@ import 'server-only';
  *
  * ── ⚠️ THE SANDBOX SENDER ONLY REACHES ONE ADDRESS ───────────────────────────
  * `onboarding@resend.dev` delivers ONLY to the address that owns the Resend
- * account. Mail to anyone else is accepted with a 200 and silently dropped. A
- * team cannot be onboarded until a real domain is verified — `describeSender()`
- * exists so the interface can say so rather than letting somebody discover it by
- * wondering why nobody replied.
+ * account. A team cannot be onboarded until a real domain is verified —
+ * `describeSender()` exists so the interface can say so rather than letting
+ * somebody discover it by wondering why nobody replied.
+ *
+ * **Correction, observed 2026-08-12.** This comment previously said mail to
+ * anybody else is "accepted with a 200 and silently dropped". That is NOT what
+ * happens. Resend **refuses it outright**:
+ *
+ *     403 validation_error — "You can only send testing emails to your own
+ *     email address (…). To send emails to other recipients, please verify a
+ *     domain at resend.com/domains…"
+ *
+ * Which is better, and it changes how the rest of the system should read: a
+ * refusal is a fact we are told, so `sendEmail` reports `sent: false` with the
+ * reason and nothing has to be inferred from a sender string. The silent-drop
+ * case is what `usingSandboxSender()` still guards against being *claimed* as
+ * delivery, but it is not the case that actually occurs on this path.
  * ========================================================================= */
 
 export type EmailResult =

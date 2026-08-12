@@ -35,6 +35,7 @@ import { can } from '@/lib/domain/permissions';
 import { nowMs } from '@/lib/now';
 import { getSettings } from '@/lib/settings/current';
 import { appUrl } from '@/lib/app-url';
+import { describeEmailFailure } from '@/lib/view/reset-trail';
 
 /* ============================================================================
  * TEAM PROVISIONING — LAYER 3, FR-141 to FR-144, doc 16 §3
@@ -589,7 +590,9 @@ function describeDelivery(delivery: Delivery, email: string): string {
     return 'no email was sent — RESEND_API_KEY is not set.';
   }
   if (delivery.state === 'refused' || delivery.state === 'unreachable') {
-    return `the email could not be sent: ${delivery.detail}`;
+    /* Summarised rather than dumped. The verbatim text is kept in `email_detail`
+       and shown in the status panel — this is the sentence somebody reads first. */
+    return `the email was not sent. ${describeEmailFailure(delivery.detail).summary}`;
   }
   /* Accepted, but the sandbox sender only ever reaches the Resend account's own
      address — everything else is taken with a 200 and silently dropped. Saying
@@ -599,69 +602,13 @@ function describeDelivery(delivery: Delivery, email: string): string {
 
 /* --------------------------------------------------------------------------
  * READING THE TRAIL
+ * --------------------------------------------------------------------------
+ * The shape and the mapping live in `lib/view/reset-trail.ts`, not here. The
+ * Team page reads the whole team's trails in one query and the panel is
+ * presentational, so there is no per-person action to fetch one — an earlier
+ * version had both, and two copies of the code that decides whether a link reads
+ * as expired is exactly the kind of thing that drifts silently.
  * ------------------------------------------------------------------------ */
-
-/** Everything the status panel shows. Dates are ISO strings so the boundary is
- *  explicit rather than relying on what a server action happens to serialise. */
-export interface ResetTrailView {
-  readonly id: string;
-  readonly sentToEmail: string;
-  readonly sentAt: string;
-  readonly expiresAt: string;
-  readonly expired: boolean;
-  readonly openedAt: string | null;
-  readonly completedAt: string | null;
-  readonly revokedAt: string | null;
-  readonly attemptCount: number;
-  readonly emailState: 'accepted' | 'refused' | 'unreachable' | 'not_configured' | null;
-  readonly emailDetail: string | null;
-  /** Whether the sandbox sender was in use **when it was sent**, not now. */
-  readonly emailSandbox: boolean | null;
-  readonly forcedByName: string | null;
-}
-
-export async function getResetTrailAction(
-  userId: string,
-): Promise<{ ok: true; trail: ResetTrailView | null } | { ok: false; error: string }> {
-  const user = await requireUser();
-  const target = await P.getAccountState(user.id, userId);
-  if (!target) return { ok: false, error: 'That person is no longer available.' };
-
-  /* Gated by the same permission as forcing one. A reset trail says when an
-     account was locked out of itself and where the link went — that is not
-     general team information. */
-  if (!can({ role: user.role, id: user.id }, 'user.force_password_reset', {
-    ownerId: userId,
-    ownerRole: target.role,
-  })) {
-    return { ok: false, error: 'Only an Admin can see reset status.' };
-  }
-
-  const trail = await getResetTrail(user.id, userId);
-  if (!trail) return { ok: true, trail: null };
-
-  return {
-    ok: true,
-    trail: {
-      id: trail.id,
-      sentToEmail: trail.sentToEmail,
-      sentAt: trail.createdAt.toISOString(),
-      expiresAt: trail.expiresAt.toISOString(),
-      /* Computed on the server, from the database's own clock via `nowMs()`,
-         rather than by comparing dates in the browser — a machine with a wrong
-         clock would otherwise report a live link as expired, or worse. */
-      expired: trail.expiresAt.getTime() <= nowMs(),
-      openedAt: trail.linkOpenedAt?.toISOString() ?? null,
-      completedAt: trail.consumedAt?.toISOString() ?? null,
-      revokedAt: trail.invalidatedAt?.toISOString() ?? null,
-      attemptCount: trail.attemptCount,
-      emailState: trail.emailState,
-      emailDetail: trail.emailDetail,
-      emailSandbox: trail.emailSandbox,
-      forcedByName: trail.forcedByName,
-    },
-  };
-}
 
 /**
  * Resend — issue a fresh code and email it again.

@@ -20,10 +20,56 @@ export const metadata: Metadata = {
  * The whole flow is now live: identity lookup, Argon2id verification, the
  * 3-attempt lockout with its 30-minute auto-clear, TOTP, and a device-bound
  * session with role-scoped lifetimes.
+ *
+ * ── WHY `?reason=` IS WORDED HERE ────────────────────────────────────────────
+ * `requireUser()` has always redirected here with a reason, and nothing ever
+ * displayed it. So being signed out mid-session dropped somebody on a sign-in
+ * page that looked identical whether their session had simply idled out or an
+ * Admin had locked their account until they change their password. That is the
+ * same complaint as B2 — *"I don't see what happens"* — and CHANGE-PLAN 4.1
+ * makes it common, because forcing a reset signs the person out everywhere.
+ *
+ * ── IT REVEALS NOTHING (FR-155e) ─────────────────────────────────────────────
+ * Every message here describes the session that has just ended, which the reader
+ * necessarily had. None of them says whether an account exists, so this cannot
+ * be used to enumerate anybody: an unknown address still gets nothing but the
+ * plain form, because there is no session to have a reason about.
  * ========================================================================= */
 
-export default async function LoginPage() {
-  const lockAfter = Number((await getSettings()).failedLoginsToLock);
+/** Only these are worded. Anything else falls through to no banner at all. */
+const REASONS: Readonly<Record<string, { title: string; detail: string }>> = {
+  inactive: {
+    title: 'Your account needs attention before you can sign in',
+    detail:
+      'It may be waiting for a new password, for an authenticator to be set up, or it may have been suspended. If an administrator asked you to reset your password, use “Forgot your password?” below and the code will let you set a new one.',
+  },
+  revoked: {
+    title: 'You were signed out',
+    detail:
+      'This can happen because your password changed, or because an administrator ended your sessions. Signing in again is all that is needed.',
+  },
+  expired: {
+    title: 'That session had expired',
+    detail: 'Sessions do not last indefinitely. Sign in again to carry on.',
+  },
+  idle: {
+    title: 'You were signed out after a period of inactivity',
+    detail: 'A session that goes unused is ended on purpose. Sign in again to carry on.',
+  },
+  unlocked: {
+    title: 'Your account is unlocked',
+    detail: 'Your password has not changed — sign in with the one you already had.',
+  },
+};
+
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ reason?: string }>;
+}) {
+  const [{ reason }, settings] = await Promise.all([searchParams, getSettings()]);
+  const lockAfter = Number(settings.failedLoginsToLock);
+  const notice = reason ? REASONS[reason] : undefined;
 
   return (
     <Card className="shadow-lg">
@@ -34,6 +80,16 @@ export default async function LoginPage() {
             Use the email address your administrator set your account up with.
           </p>
         </div>
+
+        {notice && (
+          <div
+            className="space-y-1 rounded-lg px-3 py-2.5"
+            style={{ backgroundColor: 'var(--bg-subtle)' }}
+          >
+            <p className="text-caption font-semibold text-text-primary">{notice.title}</p>
+            <p className="text-micro text-text-secondary">{notice.detail}</p>
+          </div>
+        )}
 
         <LoginForm />
 

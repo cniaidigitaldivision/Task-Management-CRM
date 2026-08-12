@@ -28,6 +28,7 @@ import { Select } from '@/components/ui/select';
 
 import { ResetTrailDialog } from './reset-trail-dialog';
 import type { PersonRow } from '@/lib/db/queries/types';
+import type { ResetTrailView } from '@/lib/view/reset-trail';
 import { ROLE_LABEL, type Role } from '@/lib/domain/constants';
 import { cn } from '@/lib/utils';
 
@@ -56,11 +57,15 @@ export function PersonActions({
   currentUser,
   assignableRoles,
   isPendingActivation,
+  resetTrail,
 }: {
   person: PersonRow;
   currentUser: { id: string; role: Role };
   assignableRoles: readonly Role[];
   isPendingActivation: boolean;
+  /** The latest forced reset for this person, or null. Comes down with the page
+   *  (see `getForcedResetTrails`), so the status panel needs no fetch of its own. */
+  resetTrail: ResetTrailView | null;
 }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
@@ -395,6 +400,8 @@ export function PersonActions({
             router.refresh();
           }}
           person={{ id: person.id, fullName: person.fullName }}
+          trail={resetTrail}
+          onChanged={() => router.refresh()}
         />
       )}
     </>

@@ -272,22 +272,32 @@ The new asset is a **transparent raster**, not vector. That changes what each fo
 > instruction, Session 23.
 
 
-### 🔨 Session 24 — Batch 4 nearly done · **handed over mid-step, tree not compiling**
+### ✅ Session 24 — CHANGE-PLAN Batch 4 COMPLETE (people & access)
 
-`958 unit · migrations through 022 · 4 of 5 Batch 4 steps complete.`
+`967 unit · 141 integration · 27/27 smoke · migrations through 022.`
 
-The owner switched accounts partway through step 4.1b, so this session ends on a
-**deliberate, documented handover rather than a clean tree**. Read
-[`WORK-LOG.md`](WORK-LOG.md) **§4**, which was written for exactly this: it names
-the one compile error and the three prop edits that close it, line by line.
+**Next: Batch 5 (reporting and export) — awaiting the go-ahead.**
 
 | | |
 |---|---|
-| **Done and pushed** | **4.3c** — pagination on Security (×4), Projects and the grouped Tasks list. Commit `f74740d`. **4.1a** — migration 022 written, probed with 17 rolled-back assertions, then **applied** and re-verified against the live schema. |
-| **Written but NOT committed** | **4.1b** — the forced reset now actually sends an email (it previously sent *nothing*), plus the status trail, Resend and Revoke link. 6 modified files and 1 new file. |
-| **⚠️ State** | `npx tsc --noEmit` reports **one** error: `person-actions.tsx:391` renders `<ResetTrailDialog>` without the `trail` and `onChanged` props it now requires. Nothing else is wrong, and nothing in 4.1b has been browser-tested or run against the suites. |
-| **Owner decisions this session** | Apply migration 022 ✅ · delivery status uses **honest labels, no Resend webhook** ✅ (decisions 13 and 14 in CHANGE-PLAN) |
-| **Not done, on purpose** | Reports pagination — it is a Server Component whose lists are bounded by headcount (9 people, 7 projects), and Batch 5 rebuilds that screen with export anyway |
+| **4.3c** | Pagination on the last lists: Security (×4 independent pagers), Projects, and the grouped Tasks list. The grouped table was the interesting one — one pager over the flattened rows would cut a group in half, and paging the *groups* would hide whole statuses, so each group owns its own pager. Projects and every task group are under twelve on real data, so page size was temporarily dropped to 3 to actually watch the pagers work rather than assume. |
+| **4.1a** | **Migration 022** — the status trail. `invitations` already answered four of the six states (`created_at`, `expires_at`, `consumed_at`, `invalidated_at`); this adds only the two it could not. Probed with 17 assertions inside a rolled-back transaction before being applied. |
+| **4.1b** | **The forced reset now actually sends an email.** It previously revoked sessions and told the Admin *"send them to Forgot your password?"* — no mail was sent at all, so there was nothing for a status to describe. Plus the trail panel, Resend and Revoke link. Verified end to end against the real database on a demo account. |
+| **4.1c** | 🐛 **`lib/email/send.ts` documented the sandbox wrongly.** It claimed mail to a non-owner address is "accepted with a 200 and silently dropped". Resend actually **refuses** it (`403 validation_error`) — better news, and it lets the panel name the cause. Corrected in two places that had repeated the claim. |
+| **Owner decisions** | Apply migration 022 ✅ · delivery status uses **honest labels, no Resend webhook** ✅ (CHANGE-PLAN decisions 13 and 14) · **REDESIGN-PLAN phase 9 CLOSED** — leave `CNI-AI-Digital-Task-Board.html` exactly as it is, nothing to build |
+| **Not done, on purpose** | Reports pagination. It is a Server Component whose two lists are bounded by headcount (9 people, 7 projects), and Batch 5 rebuilds that screen with export anyway — doing it now would be thrown away. |
+
+#### The one thing to know about the reset trail
+
+It will not say "delivered", and that is deliberate. Real delivery needs Resend to
+call a webhook back, which is worth nothing until a sending domain is verified. So
+it reports what was actually observed — and while there is no verified domain it
+says outright **"Not sent — no verified sending domain"** and that the person
+received nothing, rather than implying an email is on its way.
+
+`email_sandbox` is stored **per row**, not read from the environment when the
+screen renders, so verifying a domain next month cannot retroactively make an old
+undelivered message look as though it arrived.
 
 ### ✅ Session 23 — CHANGE-PLAN Batch 3 COMPLETE (forms)
 

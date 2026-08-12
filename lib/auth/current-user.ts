@@ -101,9 +101,16 @@ export async function sessionOutcome(): Promise<SessionOutcome> {
  * The guard. Use this at the top of every protected page and every server
  * action that changes anything.
  *
- * A dead cookie is cleared on the way out. Leaving it in place means the browser
- * keeps presenting a token that will never work again, and every future request
- * pays for a database lookup to be told so.
+ * A dead cookie is cleared on the way out where that is permitted. Leaving it in
+ * place means the browser keeps presenting a token that will never work again,
+ * and every future request pays for a database lookup to be told so.
+ *
+ * ⚠️ **The clear is best-effort and must stay that way.** A page render cannot
+ * write cookies in Next.js, so `clearSessionCookie()` fails here and reports it
+ * rather than throwing — see the note on that function. When it threw, this
+ * function returned **HTTP 500 on every protected page** instead of redirecting,
+ * for anybody whose account was in a non-active state. The redirect is the
+ * contract; the cookie is housekeeping.
  */
 export async function requireUser(): Promise<CurrentUser> {
   const user = await getCurrentUser();

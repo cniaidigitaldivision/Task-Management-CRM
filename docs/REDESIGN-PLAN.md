@@ -13,7 +13,7 @@
 |---|---|
 | **Phases 1–7** | ✅✅✅✅✅✅✅ complete |
 | **Phase 8** | ✅ Interaction fixes — rail, search, drag-and-drop (Session 17) |
-| **Phase 9** | 🔴 **The supplied task-board design — NOT STARTED, and it was never written down.** See §9. |
+| **Phase 9** | ✅ **CLOSED by the owner 2026-08-12 — leave the supplied task-board HTML exactly as it is.** Nothing to build. See §9. |
 | **Rule** | One phase at a time. Plan → implement → verify → commit → **ask before the next one.** |
 
 > ### ⚠️ A gap in this document, recorded rather than quietly fixed
@@ -224,7 +224,7 @@ The owner's words: *"too much green all over."*
 | **6** | Sidebar toggle | ✅ |
 | **7** | Login page | ✅ |
 | **8** | Interaction fixes — rail, search, drag-and-drop | ✅ except board order (§8.5) |
-| **9** | The supplied task-board design | 🔴 Not started — needs a decision, §9 |
+| **9** | The supplied task-board design | ✅ Closed — owner chose to leave the file untouched, §9 |
 
 Each phase: implement → typecheck, lint, build, tests, smoke → commit → **stop
 and ask**.
@@ -450,7 +450,23 @@ finished.**
 
 ---
 
-## 9. 🔴 THE SUPPLIED TASK-BOARD DESIGN — not started
+## 9. ✅ THE SUPPLIED TASK-BOARD DESIGN — CLOSED, leave the file alone
+
+> **Owner decision, 2026-08-12: *"leave the task board html file as it is, don't
+> do anything to it."*** Settled and closed. `CNI-AI-Digital-Task-Board.html`
+> stays in the repository exactly as supplied — not restyled, not adopted, not
+> rebuilt, and nothing in the CRM changes to match it. None of the four options
+> below is being taken.
+>
+> **Consequence, so it is not rediscovered as a bug later:** the palette in that
+> file (`--teal-deep:#0F3D3E`, `--gold:#B8912A`, `--paper:#EFF3F2`) does NOT
+> match doc 18's tokens and is not meant to. The CRM's palette stays as derived
+> from the logo and locked in ADR-011. The file is a reference artefact the owner
+> supplied, nothing more.
+>
+> The rest of this section is kept as the record of what was considered.
+
+### What it was, and the four readings that were open
 
 `CNI-AI-Digital-Task-Board.html` (repo root, commit `141669f`, 26 KB) is a
 standalone styled board the owner supplied: *"AI & Digital Division — Task
@@ -461,8 +477,8 @@ is **close to but not the same as** the tokens in doc 18.
 **It has never been referenced by any planning document, and no work has been
 done against it.** That is the gap named at the top of this file.
 
-**It is not started because the intent has to be settled first**, and guessing
-would be worse than asking. It could reasonably mean any of:
+It could reasonably have meant any of the following, which is why it was not
+guessed at:
 
 1. Restyle the CRM's `/tasks` board to match that HTML's look
 2. Adopt its type system and palette across the whole application, revising doc 18

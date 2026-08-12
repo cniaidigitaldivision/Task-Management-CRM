@@ -23,6 +23,8 @@ import { Pagination, usePagination } from '@/components/ui/pagination';
 import { Select } from '@/components/ui/select';
 import { ToggleGroup, Toolbar, ToolbarGroup, ToolbarLabel } from '@/components/ui/toolbar';
 import { InviteDialog } from './invite-dialog';
+import type { ResetTrailView } from '@/lib/view/reset-trail';
+
 import { PersonActions } from './person-actions';
 import type { PersonWorkload } from '@/lib/db/queries/workload';
 import type { AvailabilityRow, PersonRow, SkillRow, UserSkillRow } from '@/lib/db/queries/types';
@@ -65,6 +67,7 @@ export function TeamWorkspace({
   canProvision,
   assignableRoles,
   pendingUserIds,
+  resetTrails,
 }: {
   people: readonly PersonRow[];
   workload: readonly PersonWorkload[];
@@ -78,6 +81,10 @@ export function TeamWorkspace({
   assignableRoles: readonly Role[];
   /** Invited, not yet activated. They get a re-send option and no capacity edit. */
   pendingUserIds: readonly string[];
+  /** The latest forced password reset per person, keyed by user id. Empty for a
+   *  viewer who may not see them — the PAGE decides that, not this component, so
+   *  there is one place to look when asking who can read a reset trail. */
+  resetTrails: Readonly<Record<string, ResetTrailView>>;
 }) {
   const [editing, setEditing] = React.useState<PersonRow | null>(null);
   const [leaveFor, setLeaveFor] = React.useState<PersonRow | null>(null);
@@ -277,6 +284,7 @@ export function TeamWorkspace({
                         currentUser={currentUser}
                         assignableRoles={assignableRoles}
                         isPendingActivation={pendingUserIds.includes(person.id)}
+                        resetTrail={resetTrails[person.id] ?? null}
                       />
                     )}
                     <Link

@@ -14,6 +14,8 @@ import {
   listSkills,
   listUserSkills,
 } from '@/lib/db/queries/people';
+import { getForcedResetTrails, type ResetTrail } from '@/lib/db/queries/auth';
+import { toResetTrailView } from '@/lib/view/reset-trail';
 import { teamWorkload } from '@/lib/db/queries/workload';
 import { ROLE_LABEL } from '@/lib/domain/constants';
 import { listPendingInvitations } from '@/lib/db/queries/provisioning';
@@ -57,17 +59,39 @@ export default async function TeamPage() {
   const canProvision = can({ role: user.role, id: user.id }, 'user.create');
   const window = weekWindow(now);
 
-  const [people, { people: workload }, skills, userSkills, availability, pending, assignableRoles] =
-    await Promise.all([
-      listPeople(user.id, { includeInactive: true }),
-      teamWorkload(user.id, now),
-      listSkills(user.id),
-      listUserSkills(user.id),
-      listAvailability(user.id, window),
-      canProvision ? listPendingInvitations(user.id) : Promise.resolve([]),
-      assignableRolesFor(user.role),
-    ]);
+  const [
+    people,
+    { people: workload },
+    skills,
+    userSkills,
+    availability,
+    pending,
+    assignableRoles,
+    trails,
+  ] = await Promise.all([
+    listPeople(user.id, { includeInactive: true }),
+    teamWorkload(user.id, now),
+    listSkills(user.id),
+    listUserSkills(user.id),
+    listAvailability(user.id, window),
+    canProvision ? listPendingInvitations(user.id) : Promise.resolve([]),
+    assignableRolesFor(user.role),
+    /* Admin and above only. A reset trail records when an account was locked out
+       of itself and which address the link went to — that is not general team
+       information, so a Coordinator or Member gets nothing and the panel simply
+       reports that no reset has been forced. In the same `Promise.all` as
+       everything else so it costs no extra wait. */
+    canProvision
+      ? getForcedResetTrails(user.id)
+      : Promise.resolve(new Map<string, ResetTrail>()),
+  ]);
   const pendingUserIds = pending.map((p) => p.userId);
+
+  /* Mapped once, here, rather than per person in the client: `expired` has to be
+     decided against the server's clock (see lib/view/reset-trail.ts). */
+  const resetTrails = Object.fromEntries(
+    [...trails].map(([id, trail]) => [id, toResetTrailView(trail, now)]),
+  );
   const mail = describeSender();
 
   const canManage = can({ role: user.role, id: user.id }, 'user.set_capacity_and_skills');
@@ -205,6 +229,7 @@ export default async function TeamPage() {
           canProvision={canProvision}
           assignableRoles={assignableRoles}
           pendingUserIds={pendingUserIds}
+          resetTrails={resetTrails}
         />
       </PageSection>
     </div>

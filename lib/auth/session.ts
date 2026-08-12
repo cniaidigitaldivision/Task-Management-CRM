@@ -151,9 +151,41 @@ export async function readSessionTokenHash(): Promise<string | null> {
   return token ? hashToken(token) : null;
 }
 
-export async function clearSessionCookie(): Promise<void> {
-  const store = await cookies();
-  store.delete(COOKIE_NAME);
+/**
+ * Remove the cookie, if we are somewhere that is allowed to.
+ *
+ * ── WHY THIS SWALLOWS ITS OWN FAILURE ────────────────────────────────────────
+ * Next.js permits a cookie write only in a Server Action or a Route Handler.
+ * `requireUser()` calls this from **page renders too**, and there it throws:
+ *
+ *     Error: Cookies can only be modified in a Server Action or Route Handler
+ *
+ * Unhandled, that turned a redirect to the sign-in screen into an **HTTP 500 on
+ * every page** for anybody whose session had gone stale — found 2026-08-12 when
+ * `npm run smoke` reported eleven 500s for an account sitting in
+ * `password_reset_required`. That is not an edge case for this application: it is
+ * exactly the state a forced password reset puts somebody in (CHANGE-PLAN 4.1),
+ * so the feature built in this batch made the bug reachable on purpose.
+ *
+ * Clearing the cookie is a courtesy — it saves the browser presenting a token
+ * that will never work again. The **redirect** is the part that matters, and it
+ * must not be lost because the courtesy is unavailable. So the failure is
+ * swallowed rather than propagated, and the caller redirects either way.
+ *
+ * Returns whether it was actually removed, so a caller in a context that *can*
+ * write cookies (sign-out, which is a Server Action) can still tell.
+ */
+export async function clearSessionCookie(): Promise<boolean> {
+  try {
+    const store = await cookies();
+    store.delete(COOKIE_NAME);
+    return true;
+  } catch {
+    /* A read-only context. The session is already dead server-side, so the stale
+       cookie costs one rejected lookup per request until it expires on its own —
+       and it carries its own `expires` from `issueSession`, so it does. */
+    return false;
+  }
 }
 
 /** Exposed for tests — the encode/decode pair must round-trip and reject tampering. */
