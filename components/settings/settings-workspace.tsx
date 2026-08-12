@@ -103,6 +103,26 @@ export function SettingsWorkspace({
 
   const groups: SettingDefinition['group'][] = ['capacity', 'timers', 'security', 'scoring'];
 
+  /* ── TABS DOWN THE LEFT — CHANGE-PLAN 6.4, decision 8 ─────────────────────
+     Owner: *"It is totally dismantled. I want it more presentable, professional,
+     sleek."*
+
+     It was four cards stacked vertically, so every setting in the system was on
+     one page and reaching the scoring weights meant scrolling past twenty fields
+     about capacity and timers. Nothing was wrong with any individual row — the
+     problem was that the page had no shape, and a settings screen with no shape
+     reads as a dump.
+
+     One group at a time, chosen from a list on the left. The grouping is not
+     invented here: `SettingDefinition.group` has carried these exact four values
+     since the settings were defined, so the tabs are the data's own structure
+     finally being shown.
+
+     Which tab is open is deliberately NOT persisted. It is a place in a screen,
+     not a preference, and returning to Settings tomorrow on the Scoring tab
+     because you once looked at it is a small confusion each time. */
+  const [active, setActive] = React.useState<SettingDefinition['group']>('capacity');
+
   return (
     <div className="space-y-6">
       {note && (
@@ -142,14 +162,76 @@ export function SettingsWorkspace({
         </div>
       )}
 
-      {groups.map((group) => {
-        const definitions = SETTING_DEFINITIONS.filter((d) => d.group === group);
-        if (definitions.length === 0) return null;
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
+        {/* The tab list. A real `tablist`, so arrow keys and screen readers behave
+            as they would anywhere else — and horizontal on a narrow screen,
+            because a column of tabs beside nothing wastes the width. */}
+        <nav
+          role="tablist"
+          aria-label="Settings sections"
+          aria-orientation="vertical"
+          className="flex shrink-0 gap-1 overflow-x-auto lg:w-[13.5rem] lg:flex-col lg:overflow-visible"
+        >
+          {groups.map((group) => {
+            const count = SETTING_DEFINITIONS.filter((d) => d.group === group).length;
+            const isActive = group === active;
+            const editableHere = SETTING_DEFINITIONS.filter(
+              (d) => d.group === group && editableKeys.includes(d.key),
+            ).length;
 
-        return (
-          <Card key={group}>
-            <CardToolbar title={GROUP_TITLES[group]} />
-            <ul className="divide-y divide-border-subtle">
+            return (
+              <button
+                key={group}
+                type="button"
+                role="tab"
+                id={`settings-tab-${group}`}
+                aria-selected={isActive}
+                aria-controls={`settings-panel-${group}`}
+                onClick={() => setActive(group)}
+                className={cn(
+                  'flex shrink-0 items-center justify-between gap-2 rounded-lg px-3 py-2 text-left',
+                  'transition-colors duration-[120ms] focus-visible:outline-none',
+                  isActive
+                    ? 'bg-bg-selected text-text-brand'
+                    : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary',
+                )}
+              >
+                <span className="text-caption font-semibold">{GROUP_TITLES[group]}</span>
+                <span
+                  className={cn(
+                    'tabular text-micro',
+                    isActive ? 'text-text-brand' : 'text-text-tertiary',
+                  )}
+                  /* The count says how many fields are in there, and the title
+                     says how many you may actually change — a Coordinator seeing
+                     "6" and finding all six read-only would be a small lie. */
+                  title={
+                    editableHere === count
+                      ? `${count} settings`
+                      : `${count} settings, ${editableHere} editable by your role`
+                  }
+                >
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+        </nav>
+
+        <div className="min-w-0 flex-1">
+          {groups.map((group) => {
+            const definitions = SETTING_DEFINITIONS.filter((d) => d.group === group);
+            if (definitions.length === 0 || group !== active) return null;
+
+            return (
+              <Card
+                key={group}
+                role="tabpanel"
+                id={`settings-panel-${group}`}
+                aria-labelledby={`settings-tab-${group}`}
+              >
+                <CardToolbar title={GROUP_TITLES[group]} />
+                <ul className="divide-y divide-border-subtle">
               {definitions.map((definition) => (
                 <li key={definition.key} className="px-5 py-3.5">
                   {definition.kind === 'weights' ? (
@@ -173,12 +255,14 @@ export function SettingsWorkspace({
                       onReset={() => void reset(definition)}
                     />
                   )}
-                </li>
-              ))}
-            </ul>
-          </Card>
-        );
-      })}
+                    </li>
+                  ))}
+                </ul>
+              </Card>
+            );
+          })}
+        </div>
+      </div>
 
       <StepUpDialog
         open={stepUpFor !== null}

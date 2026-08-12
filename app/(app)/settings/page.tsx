@@ -99,8 +99,10 @@ export default async function SettingsPage() {
         }
       />
 
+      {/* CHANGE-PLAN 6.4: the numbered steps are gone. They implied an order —
+          "do 1, then 2, then 3" — which was never true of a settings screen you
+          dip into to change one threshold. Sections now say what they are. */}
       <PageSection
-        step={1}
         title="What the engine uses"
         description={
           readOnlyCount > 0
@@ -116,7 +118,6 @@ export default async function SettingsPage() {
       </PageSection>
 
       <PageSection
-        step={2}
         title="Skills library"
         description={`${skills.filter((s) => s.isActive).length} active. Retired rather than deleted — anybody already rated keeps their rating, and that history is what the matching engine reads (FR-017).`}
       >
@@ -124,7 +125,6 @@ export default async function SettingsPage() {
       </PageSection>
 
       <PageSection
-        step={3}
         title="Fixed by design"
         description="Shown because the arithmetic behind every capacity figure should be visible. Not editable, for the reason below."
       >
@@ -201,7 +201,7 @@ export default async function SettingsPage() {
         </Card>
       </PageSection>
 
-      <PageSection step={4} title="Working calendar">
+      <PageSection title="Working calendar">
         <Card>
           <Row label="Timezone" value={SYSTEM_DEFAULTS.teamTimezone} />
           <Row
