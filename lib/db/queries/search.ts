@@ -1,6 +1,8 @@
 import 'server-only';
 
-import type { Priority, TaskStatus } from '@/lib/domain/constants';
+import { dateOnly } from '../row-values';
+
+import type { Priority, ProjectType, TaskStatus } from '@/lib/domain/constants';
 
 import { withUser } from '../client';
 
@@ -162,10 +164,22 @@ export interface CalendarTask {
   readonly status: TaskStatus;
   readonly priority: Priority;
   readonly dueDate: string;
+  /**
+   * `HH:MM`, or null for a day with no particular hour (migration 020).
+   *
+   * Added for the owner's calendar request: the grid sorts by it and shows it, so
+   * a day reads in the order the work actually happens rather than by priority.
+   */
+  readonly dueTime: string | null;
   readonly startDate: string | null;
   readonly assigneeId: string | null;
   readonly assigneeName: string | null;
+  /** So a day shows faces rather than a column of identical initials. */
+  readonly assigneeAvatarUrl: string | null;
   readonly projectName: string;
+  readonly projectType: ProjectType;
+  /** Enough for the grid to say how big a piece of work it is. */
+  readonly effortPoints: number;
 }
 
 /**
@@ -181,8 +195,9 @@ export async function tasksInRange(
 ): Promise<CalendarTask[]> {
   const rows = await withUser(actorId, (tx) => tx`
     select t.id, t.reference, t.title, t.status, t.priority,
-           t.due_date, t.start_date, t.assignee_id,
-           u.full_name as assignee_name, p.name as project_name
+           t.due_date, t.due_time, t.start_date, t.assignee_id, t.effort_points,
+           u.full_name as assignee_name, u.avatar_url as assignee_avatar_url,
+           p.name as project_name, p.type as project_type
       from public.tasks t
       join public.projects p on p.id = t.project_id
       left join public.users u on u.id = t.assignee_id
@@ -190,7 +205,11 @@ export async function tasksInRange(
        and t.due_date is not null
        and t.due_date >= ${range.from}::date
        and t.due_date <= ${range.to}::date
-     order by t.due_date, t.priority desc
+     /* Time first, then priority. A day reads in the order the work happens; two
+        things at the same hour are ordered by which matters more. Tasks with no
+        time sort last within their day rather than first — an unscheduled task is
+        not the first thing you do. */
+     order by t.due_date, t.due_time asc nulls last, t.priority desc
   `);
 
   return rows.map((row) => ({
@@ -199,10 +218,16 @@ export async function tasksInRange(
     title: row.title as string,
     status: row.status as TaskStatus,
     priority: row.priority as Priority,
-    dueDate: String(row.due_date).slice(0, 10),
-    startDate: row.start_date ? String(row.start_date).slice(0, 10) : null,
+    dueDate: dateOnly(row.due_date) ?? '',
+    /* Postgres `time` arrives as `HH:MM:SS`; the grid wants `HH:MM`. Same
+       narrowing as `timeOnly()` in the task mapper. */
+    dueTime: row.due_time ? String(row.due_time).slice(0, 5) : null,
+    startDate: dateOnly(row.start_date),
     assigneeId: (row.assignee_id as string | null) ?? null,
     assigneeName: (row.assignee_name as string | null) ?? null,
+    assigneeAvatarUrl: (row.assignee_avatar_url as string | null) ?? null,
     projectName: row.project_name as string,
+    projectType: row.project_type as ProjectType,
+    effortPoints: Number(row.effort_points ?? 0),
   }));
 }

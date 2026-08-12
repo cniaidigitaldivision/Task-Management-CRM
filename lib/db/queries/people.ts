@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { dateOnly } from '../row-values';
+
 import type { AvailabilityType, Role, Theme } from '@/lib/domain/constants';
 
 import { withUser } from '../client';
@@ -192,8 +194,8 @@ export async function listAvailability(
   return rows.map((row) => ({
     id: row.id as string,
     userId: row.user_id as string,
-    startDate: String(row.start_date).slice(0, 10),
-    endDate: String(row.end_date).slice(0, 10),
+    startDate: dateOnly(row.start_date) ?? '',
+    endDate: dateOnly(row.end_date) ?? '',
     type: row.type as AvailabilityType,
     capacityMultiplier: Number(row.capacity_multiplier),
     note: (row.note as string | null) ?? null,

@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { dateOnly } from '../row-values';
+
 import { open, seal } from '@/lib/auth/secret-box';
 import { withUser } from '../client';
 
@@ -72,7 +74,7 @@ function toRow(row: Record<string, unknown>): CredentialRow {
     hasSecret: row.has_secret === true,
     url: (row.url as string | null) ?? null,
     notes: (row.notes as string | null) ?? null,
-    expiresAt: row.expires_at ? String(row.expires_at).slice(0, 10) : null,
+    expiresAt: dateOnly(row.expires_at),
     lastRotatedAt: row.last_rotated_at ? new Date(row.last_rotated_at as string).toISOString() : null,
     createdByName: (row.created_by_name as string | null) ?? null,
     updatedByName: (row.updated_by_name as string | null) ?? null,

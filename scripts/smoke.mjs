@@ -48,7 +48,10 @@ const APP_ROUTES = [
   ['/my-work', 'Your queue', 'member'],
   ['/tasks', 'effort points', 'member'],
   ['/projects', 'Ad-hoc work', 'member'],
-  ['/calendar', 'Every dated task', 'member'],
+  /* The description changed when the calendar gained per-task detail. Matching on
+     a weekday heading instead of on prose: the grid cannot render without it, so
+     this fails if the calendar breaks rather than merely if its wording changes. */
+  ['/calendar', 'Mon', 'member'],
   ['/workload', 'Person by person', 'team_coordinator'],
   ['/team', 'Everybody', 'admin'],
   /* CHANGE-PLAN 5.1 replaced the four fixed panels with selectable report types,

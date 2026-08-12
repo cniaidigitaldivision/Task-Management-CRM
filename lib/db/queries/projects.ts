@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { dateOnly } from '../row-values';
+
 import type { ProjectStatus, ProjectType } from '@/lib/domain/constants';
 
 import { withUser } from '../client';
@@ -31,10 +33,10 @@ function toProject(row: Record<string, unknown>): ProjectRow {
     statusReason: (row.status_reason as string | null) ?? null,
     ownerId: row.owner_id as string,
     ownerName: (row.owner_name as string | null) ?? null,
-    startDate: row.start_date ? String(row.start_date).slice(0, 10) : null,
+    startDate: dateOnly(row.start_date),
     /* `time` arrives as 'HH:MM:SS'; the forms want 'HH:MM'. Migration 020. */
     startTime: row.start_time ? String(row.start_time).slice(0, 5) : null,
-    targetEndDate: row.target_end_date ? String(row.target_end_date).slice(0, 10) : null,
+    targetEndDate: dateOnly(row.target_end_date),
     targetEndTime: row.target_end_time ? String(row.target_end_time).slice(0, 5) : null,
     isPermanent: row.is_permanent as boolean,
     typeFields: (row.type_fields as Record<string, unknown>) ?? {},

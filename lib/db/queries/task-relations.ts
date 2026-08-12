@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { dateOnly } from '../row-values';
+
 import type { Priority, TaskStatus } from '@/lib/domain/constants';
 import type { DependencyEdge, DependencyType } from '@/lib/domain/dependencies';
 import type { ExtensionStatus } from '@/lib/domain/extensions';
@@ -283,7 +285,7 @@ export async function listSubtasks(actorId: string, parentId: string): Promise<S
     effortPoints: Number(row.effort_points),
     assigneeId: (row.assignee_id as string | null) ?? null,
     assigneeName: (row.assignee_name as string | null) ?? null,
-    dueDate: row.due_date ? String(row.due_date).slice(0, 10) : null,
+    dueDate: dateOnly(row.due_date),
   }));
 }
 
@@ -360,7 +362,7 @@ function toExtension(row: Record<string, unknown>): ExtensionRow {
     decidedAt: isoOrNull(row.decided_at),
     taskLimitMinutes: row.task_limit_minutes == null ? null : Number(row.task_limit_minutes),
     taskSpentMinutes: Number(row.task_spent_minutes ?? 0),
-    taskDueDate: row.task_due_date ? String(row.task_due_date).slice(0, 10) : null,
+    taskDueDate: dateOnly(row.task_due_date),
     priorDecidedOnTask: Number(row.prior_decided_on_task ?? 0),
   };
 }

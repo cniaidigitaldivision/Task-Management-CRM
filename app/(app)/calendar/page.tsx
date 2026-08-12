@@ -45,7 +45,7 @@ export default async function CalendarPage() {
       <PageHeader
         eyebrow="Planning"
         title="Calendar"
-        description="Every dated task, by the day it is due. Click one to open it."
+        description="Your work by the day it is due, with the time, the project and how it is going. Click one to open it."
       />
       <CalendarView
         initialTasks={tasks}
@@ -53,6 +53,14 @@ export default async function CalendarPage() {
         initialMonth={month}
         todayIso={`${year}-${pad(month)}-${pad(now.getUTCDate())}`}
         people={people.map((p) => ({ id: p.id, name: p.fullName }))}
+        currentUserId={user.id}
+        /* Owner instruction: only a Super Admin and an Admin may look at somebody
+           else's calendar. Everybody else sees their own, which is what the view
+           defaults to for all four roles.
+           A narrowing of the interface, not of the query — RLS still decides what
+           `tasksInRange` returns, and a Coordinator still sees the division on the
+           Tasks screen. Offering less than is permitted is always safe. */
+        canSeeOthers={user.role === 'super_admin' || user.role === 'admin'}
       />
     </div>
   );

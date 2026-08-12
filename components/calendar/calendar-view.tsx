@@ -6,6 +6,7 @@ import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 
 import { calendarAction } from '@/app/actions/search';
 import { Button } from '@/components/ui/button';
+import { Avatar } from '@/components/ui/avatar';
 import type { CalendarTask } from '@/lib/db/queries/search';
 import { PRIORITY_LABEL, STATUS_META } from '@/lib/domain/constants';
 
@@ -47,6 +48,8 @@ export function CalendarView({
   initialMonth,
   todayIso,
   people,
+  currentUserId,
+  canSeeOthers,
 }: {
   initialTasks: readonly CalendarTask[];
   initialYear: number;
@@ -54,11 +57,29 @@ export function CalendarView({
   /** Passed from the server — reading the clock during render is impure. */
   todayIso: string;
   people: readonly { id: string; name: string }[];
+  currentUserId: string;
+  /**
+   * Whether the person dropdown is offered at all.
+   *
+   * Owner instruction: *"mine by default and then a dropdown lets the superadmin
+   * and admin see all other members work, others only see their own by default
+   * and cannot see other members tasks."* So Admin and above get the dropdown;
+   * everybody else sees their own work and no control.
+   *
+   * ⚠️ This is a UI narrowing, not a security boundary. Row-level security would
+   * permit a Coordinator to see the division's tasks — and still does on the
+   * Tasks screen. Narrower than permitted is always safe; the reverse would not
+   * be, which is why this decides what to *offer* and never what to *return*.
+   */
+  canSeeOthers: boolean;
 }) {
   const router = useRouter();
   const [year, setYear] = React.useState(initialYear);
   const [month, setMonth] = React.useState(initialMonth);
-  const [assignee, setAssignee] = React.useState('all');
+
+  /* Defaults to the reader's own work, so the calendar opens as their diary
+     rather than as the division's noticeboard. */
+  const [assignee, setAssignee] = React.useState(currentUserId);
 
   /* ── EVERY MONTH IS KEPT ONCE IT HAS BEEN SEEN ─────────────────────────────
      The first version refetched on every click, so paging back and forth cost a
@@ -174,18 +195,29 @@ export function CalendarView({
           <Loader2 className="h-4 w-4 animate-spin text-text-tertiary" aria-hidden="true" />
         )}
 
-        <select
-          value={assignee}
-          onChange={(event) => setAssignee(event.target.value)}
-          className="ml-auto rounded-lg border border-border-default bg-bg-surface px-2.5 py-1.5 text-caption text-text-primary"
-        >
-          <option value="all">Everybody</option>
-          {people.map((person) => (
-            <option key={person.id} value={person.id}>
-              {person.name}
-            </option>
-          ))}
-        </select>
+        {canSeeOthers ? (
+          <select
+            aria-label="Whose work to show"
+            value={assignee}
+            onChange={(event) => setAssignee(event.target.value)}
+            className="ml-auto rounded-lg border border-border-default bg-bg-surface px-2.5 py-1.5 text-caption text-text-primary"
+          >
+            <option value={currentUserId}>My work</option>
+            <option value="all">Everybody</option>
+            {people
+              .filter((person) => person.id !== currentUserId)
+              .map((person) => (
+                <option key={person.id} value={person.id}>
+                  {person.name}
+                </option>
+              ))}
+          </select>
+        ) : (
+          /* No control rather than a disabled one: there is nothing else this
+             person could choose, so a greyed-out select would only raise the
+             question of what they are missing. */
+          <span className="ml-auto text-caption text-text-secondary">Your work</span>
+        )}
 
         <span className="tabular text-micro text-text-tertiary">
           {visible.length} with a due date
@@ -238,24 +270,71 @@ export function CalendarView({
                     )}
                   </div>
 
+                  {/* ── WHAT A DAY SHOWS WITHOUT BEING CLICKED ─────────────────
+                      Owner: *"each task shall be displayed with a brief detail
+                      about the work and highlighted on the dates or times."*
+
+                      Time, title, project, assignee and a status colour — enough
+                      to read the day, and no more. The status colour is a left
+                      bar rather than a dot because a bar survives being three
+                      pixels wide on a narrow month grid, and because a row of
+                      dots at the start of each line reads as a bulleted list
+                      instead of as a schedule.
+
+                      Three per day, then a count. Not because more would not fit
+                      but because a cell that grows with its contents makes every
+                      OTHER row in the month taller, and a month where one busy
+                      Tuesday sets the height of six weeks is unreadable. */}
                   <ul className="space-y-1">
                     {dayTasks.slice(0, 3).map((task) => (
                       <li key={task.id}>
                         <button
                           type="button"
-                          title={`${task.reference} · ${task.title} · ${PRIORITY_LABEL[task.priority]} · ${task.assigneeName ?? 'Unassigned'}`}
+                          title={[
+                            `${task.reference} · ${task.title}`,
+                            task.projectName,
+                            task.dueTime ? `due ${task.dueTime}` : 'no set time',
+                            PRIORITY_LABEL[task.priority],
+                            `${task.effortPoints} pts`,
+                            STATUS_META[task.status].label,
+                            task.assigneeName ?? 'Unassigned',
+                          ].join(' · ')}
                           onClick={() => router.push(`/tasks?task=${task.id}` as never)}
-                          className="flex w-full items-center gap-1 rounded px-1 py-0.5 text-left hover:bg-bg-hover"
+                          className="flex w-full gap-1.5 rounded px-1 py-1 text-left hover:bg-bg-hover"
                         >
                           <span
                             aria-hidden="true"
-                            className="h-1.5 w-1.5 shrink-0 rounded-full"
+                            className="mt-0.5 w-[3px] shrink-0 self-stretch rounded-full"
                             style={{
                               backgroundColor: `var(--${STATUS_META[task.status].token})`,
                             }}
                           />
-                          <span className="min-w-0 flex-1 truncate text-micro text-text-primary">
-                            {task.title}
+                          <span className="min-w-0 flex-1">
+                            <span className="flex items-baseline gap-1">
+                              {task.dueTime && (
+                                <span className="tabular shrink-0 text-micro font-semibold text-text-secondary">
+                                  {task.dueTime}
+                                </span>
+                              )}
+                              <span className="min-w-0 flex-1 truncate text-micro font-medium text-text-primary">
+                                {task.title}
+                              </span>
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <span className="min-w-0 flex-1 truncate text-micro text-text-tertiary">
+                                {task.projectName}
+                              </span>
+                              {/* Only when looking at more than one person's work
+                                  — a face on every row of your own calendar is
+                                  your own face, repeated. */}
+                              {assignee === 'all' && (
+                                <Avatar
+                                  name={task.assigneeName ?? 'Unassigned'}
+                                  src={task.assigneeAvatarUrl}
+                                  size="xs"
+                                />
+                              )}
+                            </span>
                           </span>
                         </button>
                       </li>

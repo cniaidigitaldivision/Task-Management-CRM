@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { dateOnly, isoOrNull, timeOnly } from '../row-values';
+
 import type { EffortSize, Priority, TaskStatus } from '@/lib/domain/constants';
 
 import { withUser, type Tx } from '../client';
@@ -107,24 +109,12 @@ function toTask(row: Record<string, unknown>): TaskRow {
   };
 }
 
-function dateOnly(value: unknown): string | null {
-  if (!value) return null;
-  if (value instanceof Date) return value.toISOString().slice(0, 10);
-  return String(value).slice(0, 10);
-}
+/* `dateOnly`, `timeOnly` and `isoOrNull` moved to lib/db/row-values.ts.
 
-/** A Postgres `time` arrives as 'HH:MM:SS'. Every form wants 'HH:MM' and
- *  nothing reads the seconds, so it is trimmed once here rather than in each
- *  of the three components that render it. */
-function timeOnly(value: unknown): string | null {
-  if (!value) return null;
-  return String(value).slice(0, 5);
-}
-
-function isoOrNull(value: unknown): string | null {
-  if (!value) return null;
-  return value instanceof Date ? value.toISOString() : String(value);
-}
+   They were correct here and PRIVATE, which is exactly why eight other call sites
+   wrote the plausible broken one-liner instead — and why the calendar displayed
+   nothing at all until 2026-08-12. A right answer nobody can import is not
+   available. */
 
 /* ==========================================================================
  * READS
