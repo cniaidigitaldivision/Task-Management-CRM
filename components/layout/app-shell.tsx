@@ -163,6 +163,7 @@ const PRIMARY_ACTIONS: Readonly<Record<string, PrimaryAction | null>> = {
   '/reports': null,
   '/settings': null,
   '/security': null,
+  '/vault': null,
   '/profile': null,
   '/design-system': null,
 };

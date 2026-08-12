@@ -51,7 +51,8 @@ export interface AuditEntry {
     | 'setting'
     | 'session'
     | 'security'
-    | 'report';
+    | 'report'
+    | 'credential';
   readonly entityId: string | null;
   /** Dotted and stable — `user.role_changed`, not "changed role". */
   readonly action: string;

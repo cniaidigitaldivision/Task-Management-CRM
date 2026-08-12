@@ -4,6 +4,7 @@ import {
   CalendarDays,
   FolderKanban,
   Gauge,
+  KeyRound,
   LayoutDashboard,
   ListChecks,
   Settings,
@@ -92,6 +93,11 @@ export const NAV_SECTIONS: readonly NavSection[] = [
   {
     label: 'System',
     items: [
+      /* Open to every role, like the calendar: row-level security decides what is
+         in it (migration 023), so a Member sees only credentials issued to them —
+         usually none. Hiding it by role would be a second, weaker copy of the
+         real rule. */
+      { label: 'Vault', href: '/vault', icon: KeyRound, roles: ALL },
       { label: 'Settings', href: '/settings', icon: Settings, roles: ADMIN_UP },
       { label: 'Security', href: '/security', icon: ShieldCheck, roles: SUPER_ONLY },
     ],

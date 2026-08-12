@@ -267,6 +267,37 @@ export const PERMISSIONS = {
   'settings.security': M('allow', 'deny', 'deny', 'deny'),
   'data.export_all': M('allow', 'deny', 'deny', 'deny'),
   'sessions.view_and_revoke_own': M('allow', 'allow', 'allow', 'allow'),
+
+  /* ---- The credentials vault — owner request 2026-08-12 ------------------
+   * Third-party logins held for clients and projects. NOT user account
+   * passwords, which are one-way digests nothing can read.
+   *
+   * ── `view` AND `reveal` ARE 'allow' FOR EVERYBODY, AND THAT IS NOT A HOLE ──
+   * The real rule is relational — a project you own, or a login issued to you —
+   * and no `Rule` in this file can express that, because it depends on two joins
+   * rather than on the actor's role. **Row-level security enforces it**
+   * (migration 023, `app.can_read_credential`), exactly as it does for the
+   * calendar: a Member opening the vault sees only what was issued to them,
+   * which is usually nothing.
+   *
+   * Inventing a rule kind here would have put a second, weaker copy of that
+   * logic in front of the real one — and a permission matrix that looks like it
+   * decides row visibility, but does not, is worse than one that plainly says
+   * "the database decides".
+   *
+   * ── `reveal` IS SEPARATE FROM `view` ON PURPOSE ────────────────────────────
+   * Seeing that an account exists, who holds it and when it was last rotated is a
+   * different act from reading the password. Only the second needs step-up;
+   * merging them would mean re-authenticating to look at a list.
+   *
+   * `manage` and `delete` ARE role-decidable, so they say so: a Coordinator may
+   * maintain credentials (RLS narrows it to projects they own) and may not
+   * destroy the record of one.
+   */
+  'credential.view': M('allow', 'allow', 'allow', 'allow'),
+  'credential.reveal': M('allow', 'allow', 'allow', 'allow'),
+  'credential.manage': M('allow', 'allow', 'allow', 'deny'),
+  'credential.delete': M('allow', 'allow', 'deny', 'deny'),
 } as const satisfies Record<string, Readonly<Record<Role, Rule>>>;
 
 export type Action = keyof typeof PERMISSIONS;
@@ -301,6 +332,11 @@ export const STEP_UP_ACTIONS = [
   'settings.project_type_priority',
   'settings.security',
   'data.export_all',
+  /* Reading a stored credential is the one act in this system that hands over a
+     working secret. A valid session is not enough for that — the whole reason
+     step-up exists (FR-149) is that a hijacked session must not be able to do
+     what a stolen password could, and a vault is precisely where that matters. */
+  'credential.reveal',
 ] as const satisfies readonly Action[];
 
 const STEP_UP_SET: ReadonlySet<string> = new Set(STEP_UP_ACTIONS);

@@ -164,6 +164,16 @@ const EXPECTED: Readonly<Record<Action, Row>> = {
   'settings.security': ['allow', 'deny', 'deny', 'deny'],
   'data.export_all': ['allow', 'deny', 'deny', 'deny'],
   'sessions.view_and_revoke_own': ['allow', 'allow', 'allow', 'allow'],
+
+  /* The credentials vault. `view` and `reveal` are open to every role because the
+     real restriction is relational — a project you own, or a login issued to you
+     — and row-level security enforces it (migration 023). A Member opening the
+     vault sees only what was issued to them, usually nothing. Same shape as the
+     calendar. `manage` and `delete` ARE role-decidable, so they are stated. */
+  'credential.view': ['allow', 'allow', 'allow', 'allow'],
+  'credential.reveal': ['allow', 'allow', 'allow', 'allow'],
+  'credential.manage': ['allow', 'allow', 'allow', 'deny'],
+  'credential.delete': ['allow', 'allow', 'deny', 'deny'],
 };
 
 const ROLE_ORDER: readonly Role[] = ['super_admin', 'admin', 'team_coordinator', 'member'];
