@@ -5,6 +5,7 @@ import { Download, Loader2 } from 'lucide-react';
 
 import { exportTasksAction, exportWorkloadAction } from '@/app/actions/export';
 import { Button } from '@/components/ui/button';
+import { downloadCsv } from '@/lib/download';
 
 /* ============================================================================
  * CSV EXPORT BUTTON — FR-091
@@ -16,9 +17,10 @@ import { Button } from '@/components/ui/button';
  * live. The CSV comes back as a string and the browser saves it locally, so
  * nothing is ever written to a URL anybody could share.
  *
- * `URL.revokeObjectURL` matters more than it looks: without it every export
- * holds its blob in memory for the life of the tab, and somebody exporting
- * repeatedly through an afternoon leaks all of them.
+ * The saving itself now lives in `lib/download.ts`, shared with the report
+ * exports — including the `URL.revokeObjectURL` call, without which every export
+ * holds its blob for the life of the tab, and the UTF-8 BOM, which turned out not
+ * to survive the server-action boundary at all.
  * ========================================================================= */
 
 export function ExportButton({
@@ -43,15 +45,13 @@ export function ExportButton({
       return;
     }
 
-    const blob = new Blob([result.csv], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = result.fileName;
-    document.body.append(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
+    /* Was an inline Blob here. Moved to `lib/download.ts` when the report export
+       needed the same thing — and that turned out to matter beyond tidiness: the
+       UTF-8 BOM `toCsv` prepends does **not** survive being returned from a
+       server action, so this export had silently been shipping without it since
+       it was written. The shared helper writes the BOM as bytes, which is the
+       only place it cannot be stripped. See that file. */
+    downloadCsv(result.fileName, result.csv);
 
     setBusy(false);
   };

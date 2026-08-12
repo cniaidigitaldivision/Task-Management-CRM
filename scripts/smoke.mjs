@@ -51,7 +51,12 @@ const APP_ROUTES = [
   ['/calendar', 'Every dated task', 'member'],
   ['/workload', 'Person by person', 'team_coordinator'],
   ['/team', 'Everybody', 'admin'],
-  ['/reports', 'Where the effort is going', 'team_coordinator'],
+  /* CHANGE-PLAN 5.1 replaced the four fixed panels with selectable report types,
+     so the old marker text ("Where the effort is going") no longer exists. "How
+     to read this" is the better replacement rather than a weaker one: it is the
+     notes block, which only renders once a report has actually been built from
+     the database — so it still fails if the page renders but the report does not. */
+  ['/reports', 'How to read this', 'team_coordinator'],
   ['/settings', 'Capacity and thresholds', 'admin'],
   ['/profile', 'Your details', 'member'],
   ['/security', 'Security', 'super_admin'],

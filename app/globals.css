@@ -186,3 +186,146 @@
   font-weight: 500;
   letter-spacing: 0.02em;
 }
+
+/* ============================================================================
+ * PRINT — CHANGE-PLAN 5.2
+ * ----------------------------------------------------------------------------
+ * Owner: *"I want also a printable export option and Excel option and then also
+ * PDF."* This is two of those three. There is no server-side PDF engine and no
+ * new dependency for one: the browser's own print dialogue saves as PDF on every
+ * platform, so a real print stylesheet delivers printable **and** PDF at once.
+ * Decision 6.
+ *
+ * ── WHY THIS IS A STYLESHEET AND NOT A SEPARATE ROUTE ────────────────────────
+ * A `/reports/print` page would be a second renderer of the same figures, which
+ * is a second place for them to drift. Printing the page you are looking at means
+ * the paper cannot disagree with the screen.
+ *
+ * ── EVERY RULE HERE EXISTS BECAUSE THE DEFAULT IS WRONG ──────────────────────
+ * Left alone, a browser prints the sidebar, the topbar, the toolbar, the dark
+ * theme's near-black background, and cuts table rows in half across pages. Each
+ * block below fixes one of those.
+ * ========================================================================= */
+
+@media print {
+  /* 1 · Ink and paper. The dark theme prints as a solid black rectangle at
+     enormous cost in toner and is unreadable on top of that, so print is always
+     dark-on-white whatever the reader is using on screen. */
+  :root,
+  :root[data-theme='dark'] {
+    --bg-canvas: #ffffff;
+    --bg-surface: #ffffff;
+    --bg-surface-sunken: #ffffff;
+    --bg-subtle: #ffffff;
+    --bg-hover: transparent;
+    --bg-active: transparent;
+    --bg-selected: transparent;
+    --text-primary: #111111;
+    --text-secondary: #333333;
+    --text-tertiary: #555555;
+    --text-disabled: #888888;
+    --border-default: #cccccc;
+    --border-subtle: #dddddd;
+    --border-strong: #999999;
+  }
+
+  html,
+  body {
+    background: #ffffff !important;
+    color: #111111 !important;
+  }
+
+  /* 2 · The chrome goes. None of it means anything on paper, and the rail's
+     padding would otherwise leave a wide empty margin down the left. */
+  aside,
+  header,
+  [role='dialog'],
+  [aria-label='Pagination'] {
+    display: none !important;
+  }
+
+  main {
+    padding: 0 !important;
+  }
+
+  main > *,
+  body > div > div {
+    padding-left: 0 !important;
+  }
+
+  /* `page-ambience` paints two brand gradients over the content surface. On
+     screen it is a lit plane; on paper it is a grey wash across every sheet. */
+  .page-ambience {
+    background: none !important;
+  }
+
+  /* 3 · Cards stop being cards. A shadowed, rounded panel per figure wastes a
+     third of the sheet on decoration. */
+  .shadow-sm,
+  .shadow-lg,
+  [class*='shadow-'] {
+    box-shadow: none !important;
+  }
+
+  /* 4 · Tables. Repeating the header on each sheet is the single most useful
+     print rule there is — without it, page two of a long report is a grid of
+     unlabelled numbers. */
+  thead {
+    display: table-header-group;
+  }
+
+  tfoot {
+    display: table-footer-group;
+  }
+
+  tr,
+  td,
+  th {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  table {
+    width: 100% !important;
+    border-collapse: collapse;
+  }
+
+  th,
+  td {
+    /* Tighter than on screen: a report is usually a wide table and the columns
+       have to fit the sheet without the browser shrinking the text to nothing. */
+    padding: 3px 6px !important;
+    font-size: 9.5pt !important;
+    line-height: 1.25 !important;
+  }
+
+  th {
+    border-bottom: 1px solid #999999 !important;
+    text-align: left;
+  }
+
+  td {
+    border-bottom: 1px solid #e5e5e5 !important;
+  }
+
+  /* 5 · Keep a heading with what it introduces, and never end a sheet on one. */
+  h1,
+  h2,
+  h3 {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  /* 6 · Links. A URL in brackets after every link is right for an article and
+     wrong for a table of task references, which is what these are. */
+  a[href]::after {
+    content: none !important;
+  }
+
+  /* 7 · Landscape, because every report here is a wide table. Portrait fits the
+     columns only by shrinking them past reading size. */
+  @page {
+    size: A4 landscape;
+    margin: 12mm 10mm;
+  }
+}

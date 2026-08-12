@@ -20,6 +20,17 @@
  * with a UTF-8 byte-order mark. Without it, every name with an accent in it —
  * every `–` in a title — arrives mangled, and the person's first thought is
  * that the CRM stored it wrong.
+ *
+ * ⚠️ **The BOM this function adds does not reach the browser on its own.**
+ * Discovered 2026-08-12 by reading the bytes of a downloaded file: a leading
+ * U+FEFF is stripped when a server action serialises its result, so the string
+ * arriving in the browser begins at the first column heading. Every export had
+ * silently been shipping without it.
+ *
+ * It is kept here — this function's output is correct, and anything writing the
+ * file server-side gets it right — but the browser download path adds the BOM
+ * again **as bytes**, in `lib/download.ts`, which is the only place nothing can
+ * strip it. `downloadCsv` will not double it up.
  * ========================================================================= */
 
 const DANGEROUS_PREFIX = /^[=+\-@\t\r]/;

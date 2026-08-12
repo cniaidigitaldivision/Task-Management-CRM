@@ -36,7 +36,22 @@ import { withUser, type Tx } from '../client';
  * ========================================================================= */
 
 export interface AuditEntry {
-  readonly entityType: 'user' | 'project' | 'task' | 'setting' | 'session' | 'security';
+  /**
+   * `report` was added for CHANGE-PLAN 5.2. The database column is free text
+   * (migration 003), so this union is the only thing keeping the values
+   * consistent — which is why a report export is labelled as what it is rather
+   * than squeezed into `task` because that value already existed. A report spans
+   * tasks, projects and people; filing it under one of them would make the audit
+   * log harder to read later, which is the only reason it exists.
+   */
+  readonly entityType:
+    | 'user'
+    | 'project'
+    | 'task'
+    | 'setting'
+    | 'session'
+    | 'security'
+    | 'report';
   readonly entityId: string | null;
   /** Dotted and stable — `user.role_changed`, not "changed role". */
   readonly action: string;
