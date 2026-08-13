@@ -2,7 +2,6 @@
 
 import * as React from 'react';
 import { usePathname } from 'next/navigation';
-import { ChevronLeft } from 'lucide-react';
 
 import { ProjectDialog } from '@/components/project/project-dialog';
 import { TaskDialog } from '@/components/task/task-dialog';
@@ -308,50 +307,12 @@ export function AppShell({
         open={navOpen}
         onClose={closeNav}
         pinned={pinned}
+        onTogglePin={togglePin}
       />
 
-      {/* ── The pin tab ────────────────────────────────────────────────────
-          It lives HERE and not inside the rail, because the rail is
-          `overflow-hidden` — a tab sitting half outside it would simply be
-          clipped away.
-
-          `left: var(--rail)` puts its flat edge exactly on the rail's edge and
-          means it travels with the rail, on the same 240ms. Desktop only: on
-          mobile the rail is a drawer with its own close button.
-
-          Since Session 17 this is the ONLY way to open the rail, so it is sized
-          and lit to be found rather than discovered — it is a control now, not
-          an affordance on top of hover. */}
-      <button
-        type="button"
-        onClick={togglePin}
-        aria-expanded={pinned}
-        aria-controls="main-navigation"
-        aria-label={pinned ? 'Collapse the navigation' : 'Open the navigation'}
-        title={pinned ? 'Collapse to icons' : 'Open the navigation'}
-        className={cn(
-          'fixed top-1/2 z-[60] hidden -translate-y-1/2 items-center justify-center lg:flex',
-          'h-16 w-6 rounded-r-full border border-l-0',
-          'transition-[left,background-color,color] duration-[240ms] ease-out',
-          'hover:brightness-125 focus-visible:outline-none focus-visible:brightness-125',
-        )}
-        style={{
-          left: 'var(--rail)',
-          backgroundColor: 'var(--sidebar-bg)',
-          borderColor: 'var(--sidebar-border-strong)',
-          color: 'var(--sidebar-item)',
-          boxShadow: '2px 0 10px -4px rgb(0 0 0 / 0.5)',
-        }}
-      >
-        <ChevronLeft
-          className={cn(
-            'h-3.5 w-3.5 transition-transform duration-[240ms]',
-            !pinned && 'rotate-180',
-          )}
-          strokeWidth={2.5}
-          aria-hidden="true"
-        />
-      </button>
+      {/* The collapse arrow used to be a tab here, pinned to the rail's outer
+          edge and vertically centred, so it sat ON the page. Owner instruction
+          2026-08-13 moved it INSIDE the rail's own header — see sidebar.tsx. */}
 
       <div className="flex min-h-full flex-col pl-[var(--rail)] transition-[padding-left] duration-[240ms] ease-out">
         <Topbar

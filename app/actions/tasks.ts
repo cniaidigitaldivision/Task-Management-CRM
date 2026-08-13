@@ -1016,6 +1016,75 @@ export async function runningTimersAction(): Promise<RunningTimersResult> {
 }
 
 /**
+ * What this person could put a clock on, for the timer picker.
+ *
+ * ── WHY THIS EXISTS ──────────────────────────────────────────────────────────
+ * Owner, 2026-08-13: *"the timer option is not available on the dashboard. I
+ * can't see the timer option. Where is the timer option? The timer should be on
+ * the top right so I can select from it."*
+ *
+ * They were right and the reason was mine: the timer bar rendered nothing at all
+ * when no timer was running, so it only became visible AFTER somebody had already
+ * started one somewhere else. A control you cannot find until you have used it is
+ * not a control. The bar is now always present and this is what fills its picker.
+ *
+ * ── ONLY WHAT CAN ACTUALLY START ─────────────────────────────────────────────
+ * Their own open tasks, closed work excluded. A task in a status the timer does not
+ * run in is still offered, because `startTimerAction` moves it to In Progress
+ * through the state machine (FR-174) — so offering it is honest. What is NOT
+ * offered is a task that cannot legally get there at all; that would be a row
+ * whose only outcome is a refusal.
+ */
+export async function startableTasksAction(): Promise<{
+  readonly tasks: Array<{
+    taskId: string;
+    reference: string;
+    title: string;
+    projectName: string;
+    status: TaskStatus;
+    /** Already has a clock on it — shown as running rather than offered again. */
+    running: boolean;
+  }>;
+}> {
+  const user = await requireUser();
+
+  const rows = await T.listTasks(user.id, {
+    assigneeId: user.id,
+    includeClosed: false,
+    limit: 50,
+  });
+
+  return {
+    tasks: rows
+      .filter((task) => {
+        /* Backlog cannot reach In Progress directly (doc 05 §2), so starting one
+           is refused by the machine before the timer is ever consulted. Offering
+           it would be a menu row that only ever produces an error. */
+        if (task.timerState === 'running') return true;
+        /* Already there needs no transition — `evaluateTransition` reports
+           `same_status` for it, which is correct and not what we are asking. */
+        if (STATUS_META[task.status].timerRuns) return true;
+
+        const legal = evaluateTransition(task.status, 'in_progress', {
+          actorRole: user.role,
+          actorId: user.id,
+          assigneeId: task.assigneeId,
+          createdById: task.createdById,
+        });
+        return legal.ok;
+      })
+      .map((task) => ({
+        taskId: task.id,
+        reference: task.reference,
+        title: task.title,
+        projectName: task.projectName,
+        status: task.status,
+        running: task.timerState === 'running',
+      })),
+  };
+}
+
+/**
  * Record that a countdown alert was delivered, and write the notification.
  *
  * ── WHY THE BROWSER TELLS THE SERVER, RATHER THAN A CRON JOB ──────────────────
