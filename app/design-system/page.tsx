@@ -7,6 +7,7 @@ import { ThemeSetting } from '@/components/brand/theme-toggle';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/card';
 import { ControlGallery } from '@/components/ui/control-gallery';
+import { SkeletonGallery, TextureGallery } from '@/components/ui/texture-gallery';
 import {
   EFFORT_POINTS,
   EFFORT_SIZES,
@@ -117,6 +118,20 @@ export default function DesignSystemPage() {
           description="Every interactive element, at every size, over a ruled guide. Each row's controls must touch both dashed lines — a control that sets its own height instead of importing from components/ui/control.ts breaks the line here, where it is obvious, rather than on a product screen, where it merely looks untidy."
         >
           <ControlGallery />
+        </Section>
+
+        <Section
+          title="Texture, glass and skeletons"
+          description="From the reference folder, on our palette — teal and gold, never the references' purple. Glass is chrome only: blur behind small text costs legibility and every glass surface is another compositing layer a long board pays for on each scroll. Grain and the orbit ring must paint ABOVE their parent's background; the first version used a negative z-index inside an isolated stacking context and both were invisible on every opaque panel."
+        >
+          <TextureGallery />
+        </Section>
+
+        <Section
+          title="Structured loading"
+          description="Owner instruction: a page that is loading shows the shape of what is coming. Not a grey box — the same arrangement as the real screen, so the wait is spent orienting. Every composite matches its real component's padding, radius and height, because a skeleton a few pixels short makes the page jump at the moment somebody starts reading. The sweep stops under prefers-reduced-motion and the shape stays."
+        >
+          <SkeletonGallery />
         </Section>
 
         <Section

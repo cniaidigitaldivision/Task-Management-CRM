@@ -134,8 +134,15 @@ export async function requireUser(): Promise<CurrentUser> {
  * Until this existed, FR-145's "signed in only as far as the enrolment screen"
  * was a redirect and a convention. A convention is not a control: typing
  * /dashboard walked straight past it.
+ *
+ * ── WHY IT IS `cache()`d ─────────────────────────────────────────────────────
+ * The (app) layout calls this, and every rank-gated route now calls it twice more
+ * — once in its segment layout, once in its page. The factor count is a database
+ * round trip, and running it three times per navigation for every privileged
+ * account is three times the latency for one answer that cannot change mid-render.
+ * Deduplicating it also removed a duplicate that predates the segment layouts.
  */
-export async function requireEnrolledUser(): Promise<CurrentUser> {
+export const requireEnrolledUser = cache(async (): Promise<CurrentUser> => {
   const user = await requireUser();
   if (!MFA_REQUIRED_ROLES.includes(user.role)) return user;
 
@@ -145,7 +152,7 @@ export async function requireEnrolledUser(): Promise<CurrentUser> {
   if (Number(rows[0]?.n ?? 0) === 0) redirect('/mfa-setup');
 
   return user;
-}
+});
 
 /**
  * The guard, plus a rank floor.
@@ -164,6 +171,23 @@ export async function requireEnrolledUser(): Promise<CurrentUser> {
  *
  * Redirects rather than showing a 403: there is nothing useful the person can do
  * with a refusal, and their own starting screen is one navigation away.
+ *
+ * ── ⚠️ A RANK-GATED ROUTE MUST ALSO CALL THIS IN A SEGMENT `layout.tsx` ───────
+ * `loading.tsx` puts the page inside a Suspense boundary, and Next.js answers a
+ * suspended render by *streaming* — headers go out before the page body has run.
+ * A `redirect()` from inside that boundary therefore cannot be an HTTP 307; it is
+ * delivered inside the stream, so the response is **200 with a rendered skeleton
+ * of a screen the reader is not entitled to**, followed by a client-side bounce.
+ *
+ * Measured, not assumed: adding the skeletons turned all five rank-gated routes
+ * from 307 to 200 in the signed-in smoke test, and removing one `loading.tsx`
+ * turned that one back. A layout renders *outside* its own segment's boundary, so
+ * the same call there refuses before a single byte is sent.
+ *
+ * Both calls stay. The layout is what makes the refusal a real redirect; the page
+ * is the security boundary and the thing that returns the actor. Deleting either
+ * leaves something broken, and the page's copy is the one a future route will be
+ * written with, so it must remain sufficient on its own.
  */
 export async function requireRole(minimum: Role): Promise<CurrentUser> {
   // Inherits the enrolment check — a rank floor on top of an unenrolled session

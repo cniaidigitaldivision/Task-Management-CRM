@@ -64,8 +64,8 @@ the owner's instruction: *"I don't want errors and broken stuff built."*
 
 | # | Step | State |
 |:--:|---|:--:|
-| 1 | **Texture and motion tokens** — glass, grain, glow, dot-grid, elevation, the motion scale, and the view-transition keyframes | ⬜ |
-| 2 | **Skeletons** — a `Skeleton` primitive plus a `loading.tsx` for every route, each mirroring its real layout | ⬜ |
+| 1 | **Texture and motion tokens** — glass, grain, glow, dot-grid, elevation, the motion scale, and the view-transition keyframes | ✅ |
+| 2 | **Skeletons** — a `Skeleton` primitive plus a `loading.tsx` for every route, each mirroring its real layout | ✅ |
 | 3 | **The chart kit** — line/area with cursor tracking, donut with legend, gauge arc with knob, sparkline. Hand-built SVG | ⬜ |
 | 4 | **Motion** — the circular theme wipe, staggered reveals, counting numbers, and the login border | ⬜ |
 | 5 | **Dashboard** — three columns, KPI cards with sparklines, live charts, right rail | ⬜ |
@@ -94,6 +94,15 @@ Every one of these is already load-bearing somewhere in the codebase.
   `gold-800` for that reason. Glass must not drop text below AA.
 - **`components/ui/control.ts`** owns control heights. Nothing sets its own.
 - **No layout thrash on hover.** Transform and opacity, not width and margin.
+- **A `loading.tsx` on a rank-gated route breaks its HTTP redirect.** Found in
+  step 2, by the smoke test. The Suspense boundary makes Next.js stream, so the
+  200 is committed before `requireRole()` runs and the refusal is delivered
+  *inside* the stream — a Member received a rendered skeleton of Reports, Team,
+  Workload, Settings and Security. Every rank-gated route therefore also carries a
+  segment `layout.tsx` with the same `requireRole()` call, because a layout renders
+  outside its own segment's boundary. Any new gated route needs both files. The
+  canonical explanation is the ⚠️ note on `requireRole()` in
+  `lib/auth/current-user.ts`.
 
 ---
 
