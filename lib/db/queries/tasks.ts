@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { dateOnly, isoOrNull, timeOnly } from '../row-values';
+import { TIMER_ALERTS, type TimerAlert } from '@/lib/domain/timers';
 
 import type { EffortSize, Priority, TaskStatus } from '@/lib/domain/constants';
 
@@ -530,17 +531,95 @@ export async function deleteChecklistItem(actorId: string, itemId: string): Prom
 
 /* ---- Timer (doc 17) ---- */
 
-export async function startTimer(actorId: string, taskId: string): Promise<void> {
-  await withUser(
+/**
+ * Start the clock, subject to the three-concurrent cap.
+ *
+ * Goes through `app.timer_start` (migration 024) rather than an UPDATE here,
+ * because the cap has to hold whatever calls it — the application checks first so
+ * the refusal can name the three running tasks, and the function is the backstop
+ * that makes three a property of the system rather than of one code path.
+ *
+ * Returns what happened rather than throwing: `at_limit` is a normal answer to
+ * give somebody, not an exception.
+ */
+export async function startTimer(
+  actorId: string,
+  taskId: string,
+): Promise<'ok' | 'at_limit' | 'not_updated' | 'no_actor'> {
+  const rows = await withUser(
     actorId,
-    (tx) => tx`
-      update public.tasks
-         set timer_state = 'running'::public.timer_state,
-             timer_started_at = now(),
-             timer_pause_reason = null
-       where id = ${taskId} and not is_deleted and timer_state <> 'running'
-    `,
+    (tx) => tx`select app.timer_start(${taskId}::uuid) as result`,
   );
+  return (rows[0]?.result as 'ok' | 'at_limit' | 'not_updated' | 'no_actor') ?? 'not_updated';
+}
+
+/**
+ * Everything this person currently has running.
+ *
+ * Scoped by RLS like everything else, and additionally to their own assignments:
+ * the timer bar is about what THEY are doing, so an Admin who can see the whole
+ * division's timers should still not have thirty chips in their top bar.
+ */
+export async function runningTimers(actorId: string): Promise<
+  Array<{
+    taskId: string;
+    reference: string;
+    title: string;
+    projectName: string;
+    startedAt: string;
+    minutesBefore: number;
+    limitMinutes: number | null;
+    alertsSent: TimerAlert[];
+  }>
+> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select t.id, t.reference, t.title, t.timer_started_at, t.time_spent_minutes,
+           t.time_limit_minutes, t.extension_minutes_granted, t.timer_alerts_sent,
+           p.name as project_name
+      from public.tasks t
+      join public.projects p on p.id = t.project_id
+     where t.timer_state = 'running'::public.timer_state
+       and not t.is_deleted
+       and t.assignee_id = ${actorId}
+     order by t.timer_started_at asc
+  `);
+
+  return rows.map((row) => ({
+    taskId: row.id as string,
+    reference: row.reference as string,
+    title: row.title as string,
+    projectName: row.project_name as string,
+    startedAt: isoOrNull(row.timer_started_at) ?? new Date().toISOString(),
+    minutesBefore: Number(row.time_spent_minutes ?? 0),
+    /* The allowance INCLUDES any granted extension — the same rule the Time &
+       overrun report uses, so a task with an approved extension is not warned
+       about as though the extension had not been granted. */
+    limitMinutes:
+      row.time_limit_minutes === null
+        ? null
+        : Number(row.time_limit_minutes) + Number(row.extension_minutes_granted ?? 0),
+    /* Narrowed rather than cast. `tasks_timer_alerts_known` already guarantees
+       these three values, but that is a promise made by the database and this is
+       the boundary where an unknown value becomes a typed one — so an unexpected
+       string is dropped here instead of reaching a `switch` that has no case for
+       it. Filtering is also what makes the type honest without an assertion. */
+    alertsSent: ((row.timer_alerts_sent as string[] | null) ?? []).filter(
+      (value): value is TimerAlert => (TIMER_ALERTS as readonly string[]).includes(value),
+    ),
+  }));
+}
+
+/** Claims one countdown alert. True only for the caller that recorded it. */
+export async function markTimerAlert(
+  actorId: string,
+  taskId: string,
+  alert: string,
+): Promise<boolean> {
+  const rows = await withUser(
+    actorId,
+    (tx) => tx`select app.timer_mark_alert(${taskId}::uuid, ${alert}) as claimed`,
+  );
+  return rows[0]?.claimed === true;
 }
 
 /**

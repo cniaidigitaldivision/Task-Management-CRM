@@ -189,6 +189,7 @@ export function AppShell({
   unreadCount,
   projects,
   people,
+  timerBar,
   children,
 }: {
   user: ShellUser;
@@ -196,6 +197,8 @@ export function AppShell({
   unreadCount: number;
   projects: readonly ShellProject[];
   people: readonly ShellPerson[];
+  /** The running-timer chips, rendered by the layout. See Topbar. */
+  timerBar?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const [navOpen, setNavOpen] = React.useState(false);
@@ -360,6 +363,7 @@ export function AppShell({
           onPrimary={primary ? () => setCreating(primary.kind) : undefined}
           notifications={notifications}
           unreadCount={unreadCount}
+          timerBar={timerBar}
         />
         {/* `page-ambience` lays two very faint brand gradients over the content
             surface, so the page is a lit plane rather than a flat slab. It is a

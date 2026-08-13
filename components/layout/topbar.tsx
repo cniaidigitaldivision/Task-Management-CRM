@@ -47,6 +47,7 @@ export function Topbar({
   onPrimary,
   notifications,
   unreadCount,
+  timerBar,
 }: {
   title: string;
   subtitle?: string;
@@ -63,6 +64,15 @@ export function Topbar({
   onPrimary?: () => void;
   notifications: readonly NotificationRow[];
   unreadCount: number;
+  /**
+   * The running-timer chips, passed in rather than imported.
+   *
+   * The bar needs the server's list of running timers, and this component is a
+   * client component that has no way to fetch it during render. Handing the
+   * rendered element down keeps the data-loading in the layout, where a server
+   * component can do it, and keeps this file about the top bar's arrangement.
+   */
+  timerBar?: React.ReactNode;
 }) {
   const router = useRouter();
   const [bellOpen, setBellOpen] = React.useState(false);
@@ -122,6 +132,12 @@ export function Topbar({
         </div>
 
         <div className="flex shrink-0 items-center gap-1">
+          {/* ---- Running timers ----
+               Left of the bell, so the thing that is happening NOW sits before
+               the record of things that happened. Renders nothing when no timer
+               is running, which is most of the time. */}
+          {timerBar}
+
           {/* ---- Notifications ---- */}
           <div ref={bellRef} className="relative inline-flex">
             <IconButton

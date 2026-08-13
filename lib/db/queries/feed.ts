@@ -100,6 +100,41 @@ export async function notify(
   `;
 }
 
+/**
+ * Notify somebody about their own situation.
+ *
+ * ── WHY THIS EXISTS BESIDE `notify()` ────────────────────────────────────────
+ * `notify()` deliberately drops a notification whose recipient is the actor:
+ * being told "you moved this task" the instant you moved it is noise, and a feed
+ * that is mostly noise gets ignored.
+ *
+ * A timer alert is the exact opposite case. "Five minutes left on CLI-116" is
+ * addressed to the person running the clock, and they are the only person it is
+ * any use to — so the self-skip would silently discard every one of them.
+ *
+ * The recipient's PREFERENCES are still honoured. That is the part that must not
+ * be bypassed: somebody who has switched time-limit warnings off has decided
+ * something, and an alert about their own work is not a reason to overrule it.
+ *
+ * There is no `actorId` parameter on purpose. Adding one would invite passing a
+ * different actor to defeat the self-skip in `notify()`, which is a rule worth
+ * keeping rather than working around.
+ */
+export async function notifySelf(tx: Tx, input: NotifyInput): Promise<void> {
+  const [recipient] = await tx`
+    select app.notification_prefs_for(${input.userId}) as prefs
+  `;
+  if (!wantsInApp(mergePrefs(recipient?.prefs), input.kind)) return;
+
+  await tx`
+    insert into public.notifications (user_id, kind, title, body, link_to, entity_id)
+    values (
+      ${input.userId}, ${input.kind}::public.notification_kind, ${input.title},
+      ${input.body ?? null}, ${input.linkTo ?? null}, ${input.entityId ?? null}
+    )
+  `;
+}
+
 /* ==========================================================================
  * READS
  * ========================================================================== */

@@ -5,7 +5,7 @@ import { revalidatePath } from 'next/cache';
 import { requireUser, stepUpIsFresh } from '@/lib/auth/current-user';
 import { withUser } from '@/lib/db/client';
 import { audit } from '@/lib/db/queries/audit';
-import { notify, record } from '@/lib/db/queries/feed';
+import { notify, record, notifySelf } from '@/lib/db/queries/feed';
 import { listAvailability } from '@/lib/db/queries/people';
 import * as R from '@/lib/db/queries/task-relations';
 import * as T from '@/lib/db/queries/tasks';
@@ -35,6 +35,11 @@ import {
   parseRecurrence,
 } from '@/lib/domain/recurrence';
 import { evaluateTransition, taskLoad } from '@/lib/domain/task-machine';
+import {
+  MAX_CONCURRENT_TIMERS,
+  TIMER_ALERTS,
+  alertMessage,
+} from '@/lib/domain/timers';
 import { computeWorkload, evaluateAssignment, weekWindow } from '@/lib/domain/workload';
 import { getSettings } from '@/lib/settings/current';
 import { describeStorage, removeObject } from '@/lib/storage/bucket';
@@ -962,9 +967,109 @@ export async function startTimerAction(taskId: string): Promise<ActionResult> {
     }
   }
 
-  await T.startTimer(user.id, taskId);
+  const outcome = await T.startTimer(user.id, taskId);
+
+  /* ── THE FOURTH TIMER IS REFUSED BY NAME ─────────────────────────────────
+     Owner: *"they should definitely know that the three timers are still running.
+     You have to close one."* So the refusal lists them. "You already have three
+     running" is a dead end; naming them is the next action. */
+  if (outcome === 'at_limit') {
+    const running = await T.runningTimers(user.id);
+    const names = running.map((t) => `${t.reference} (${t.title})`).join(', ');
+    return fail(
+      `You already have ${MAX_CONCURRENT_TIMERS} timers running: ${names}. Pause one before starting another.`,
+    );
+  }
+
+  if (outcome !== 'ok') {
+    return fail('That timer could not be started. Reload and try again.');
+  }
+
   revalidatePath('/tasks');
   revalidatePath('/my-work');
+  return { ok: true };
+}
+
+/* ==========================================================================
+ * THE TIMER BAR — owner request 2026-08-13
+ * ==========================================================================
+ * A small always-visible bar showing what is running. These two actions are what
+ * feed it and what records its alerts.
+ * ========================================================================== */
+
+export interface RunningTimersResult {
+  readonly timers: Array<{
+    taskId: string;
+    reference: string;
+    title: string;
+    projectName: string;
+    startedAt: string;
+    minutesBefore: number;
+    limitMinutes: number | null;
+    alertsSent: string[];
+  }>;
+}
+
+export async function runningTimersAction(): Promise<RunningTimersResult> {
+  const user = await requireUser();
+  return { timers: await T.runningTimers(user.id) };
+}
+
+/**
+ * Record that a countdown alert was delivered, and write the notification.
+ *
+ * ── WHY THE BROWSER TELLS THE SERVER, RATHER THAN A CRON JOB ──────────────────
+ * The countdown is drawn in the browser every second from the run's start time, so
+ * the browser already knows the exact moment a threshold crosses. A minute-by-
+ * minute cron scanning every running timer would do the same work for the whole
+ * division to serve the handful of people actually looking at a screen.
+ *
+ * The dishonest version of this would trust the browser's *claim*. It does not:
+ * `app.timer_mark_alert` decides whether the alert is genuinely outstanding, and
+ * returns true only for the one caller that recorded it — so two open tabs, a
+ * retry, or a page reload cannot produce two notifications.
+ *
+ * ⚠️ The trade, stated: somebody with no CRM tab open gets these when they next
+ * open one, not while they are away. Real background delivery needs the digest
+ * cron, and email to somebody's phone needs the sending domain that is still
+ * outstanding.
+ */
+export async function recordTimerAlertAction(
+  taskId: string,
+  alert: string,
+): Promise<ActionResult> {
+  const user = await requireUser();
+
+  if (!TIMER_ALERTS.includes(alert as (typeof TIMER_ALERTS)[number])) {
+    return fail('Unknown timer alert.');
+  }
+
+  const claimed = await T.markTimerAlert(user.id, taskId, alert);
+  /* Not an error: another tab got there first, which is the whole point of the
+     claim. Reporting a failure would make a working de-duplication look broken. */
+  if (!claimed) return { ok: true };
+
+  const task = await T.getTask(user.id, taskId);
+  if (!task) return { ok: true };
+
+  const message = alertMessage(alert as (typeof TIMER_ALERTS)[number], {
+    reference: task.reference,
+    title: task.title,
+  });
+
+  await withUser(user.id, (tx) =>
+    notifySelf(tx, {
+      userId: user.id,
+      kind: 'time_limit_warning',
+      title: message.title,
+      body: message.body,
+      linkTo: `/tasks?task=${taskId}`,
+      entityId: taskId,
+    }),
+  ).catch(() => {
+    console.error('[timer] notification write failed', { taskId, alert });
+  });
+
   return { ok: true };
 }
 

@@ -5,6 +5,8 @@ import { requireEnrolledUser, touchSession } from '@/lib/auth/current-user';
 import { countUnread, listNotifications } from '@/lib/db/queries/feed';
 import { listAssignablepeople } from '@/lib/db/queries/people';
 import { listProjects } from '@/lib/db/queries/projects';
+import { runningTimers } from '@/lib/db/queries/tasks';
+import { TimerBar } from '@/components/timer/timer-bar';
 
 export const metadata: Metadata = {
   title: { default: 'CNI CRM', template: '%s · CNI CRM' },
@@ -40,11 +42,14 @@ export default async function AppGroupLayout({ children }: { children: React.Rea
 
   /* Independent reads, so they go together. Four sequential round trips to
      Supabase on every navigation is roughly 200ms of nothing happening. */
-  const [notifications, unread, projects, people] = await Promise.all([
+  const [notifications, unread, projects, people, timers] = await Promise.all([
     listNotifications(user.id, 12),
     countUnread(user.id),
     listProjects(user.id),
     listAssignablepeople(user.id),
+    /* In the same wave as everything else, so the timer bar costs no extra wait.
+       Usually returns nothing, which is why the bar renders nothing. */
+    runningTimers(user.id),
   ]);
 
   /* Slides the session window. Deliberately not awaited into the render path —
@@ -72,6 +77,7 @@ export default async function AppGroupLayout({ children }: { children: React.Rea
         code: p.code,
       }))}
       people={people.map((p) => ({ id: p.id, name: p.fullName, roleTitle: p.roleTitle }))}
+      timerBar={<TimerBar initialTimers={timers} />}
     >
       {children}
     </AppShell>
