@@ -729,3 +729,406 @@ body,
     scroll-behavior: auto !important;
   }
 }
+
+/* ==========================================================================
+   TEXTURE, GLASS AND MOTION — the reference folder, on our palette
+   ==========================================================================
+   Added 2026-08-13 after studying `crm model options ui/`. Owner instruction:
+   *"I want our color scheme applied here but I want the texture look to be like
+   that."* So every value below is teal, gold or a neutral — none of the
+   references' purple arrives.
+
+   ── WHY THESE ARE TOKENS AND NOT UTILITY CLASSES ──────────────────────────
+   Because both themes need different values for the same idea. "Glass" in dark
+   is a light film over darkness; in light it is a white film with a shadow,
+   since a blur with no shadow on a pale page has no edge at all. A single
+   utility class cannot hold both, and BR-025 keeps components from hard-coding
+   either.
+   ========================================================================== */
+
+:root,
+[data-theme='light'] {
+  /* ---- Glass · CHROME ONLY ---------------------------------------------
+     Owner decision: the top bar, dialogs, dropdowns and the timer bar — things
+     that float over content. NOT data panels: blur behind small text costs
+     legibility, and every glass surface is another compositing layer, which a
+     long board or a wide table pays for on every scroll. */
+  --glass-bg: rgb(255 255 255 / 0.72);
+  --glass-bg-strong: rgb(255 255 255 / 0.88);
+  --glass-border: rgb(6 35 42 / 0.08);
+  --glass-blur: 16px;
+  /* Light glass needs a shadow to have an edge at all. Dark glass does not —
+     there the border alone reads, because the surface is lighter than what is
+     behind it. */
+  --glass-shadow: 0 8px 32px -12px rgb(6 35 42 / 0.18);
+
+  /* ---- Grain -----------------------------------------------------------
+     A single tiled SVG turbulence, not an image file: it is ~200 bytes, scales
+     to any surface, and needs no network request. Barely visible by design —
+     the point is that a large flat panel stops looking like a flat panel. */
+  --grain-opacity: 0.035;
+  --grain-blend: multiply;
+
+  /* ---- Lit panels -------------------------------------------------------
+     A vertical gradient rather than a flat fill, the same reasoning the sidebar
+     already uses: a flat surface reads as a void, one that lightens toward the
+     top reads as a lit plane. */
+  --panel-lit: linear-gradient(180deg, rgb(255 255 255 / 0.6) 0%, transparent 46%);
+  --panel-lit-strong: linear-gradient(180deg, rgb(255 255 255 / 0.9) 0%, transparent 60%);
+
+  /* ---- Header glow ------------------------------------------------------
+     Brand light behind a page's title block. Two stops, teal and gold, matching
+     the aura already behind the logo. */
+  --glow-header:
+    radial-gradient(42rem 18rem at 8% -60%, rgb(14 92 99 / 0.09), transparent 68%),
+    radial-gradient(34rem 16rem at 82% -80%, rgb(212 166 60 / 0.08), transparent 64%);
+
+  /* ---- Dot grid · EMPTY STATES ONLY ------------------------------------
+     From the workflow reference. Behind an empty panel it reads as a surface
+     waiting to be filled; behind content it is visual noise competing with
+     text, so it is confined to emptiness. */
+  --dot-grid-colour: rgb(6 35 42 / 0.07);
+  --dot-grid-size: 18px;
+
+  /* ---- Chart surfaces ---------------------------------------------------
+     A gridline has to be visible enough to read a value against and quiet
+     enough that the data is what you see. Dashed, and barely there. */
+  --chart-grid: rgb(6 35 42 / 0.07);
+  --chart-axis: var(--text-tertiary);
+  --chart-area-from: rgb(14 92 99 / 0.22);
+  --chart-area-to: rgb(14 92 99 / 0);
+  --chart-cursor: rgb(14 92 99 / 0.4);
+  --chart-tooltip-bg: var(--glass-bg-strong);
+  --chart-tooltip-border: var(--border-default);
+
+  /* Skeletons. A sheen that travels across the placeholder rather than a pulse:
+     a pulse says "busy", a sweep says "arriving", and the second is true. */
+  --skeleton-base: rgb(6 35 42 / 0.06);
+  --skeleton-sheen: rgb(6 35 42 / 0.03);
+}
+
+[data-theme='dark'] {
+  --glass-bg: rgb(12 30 34 / 0.66);
+  --glass-bg-strong: rgb(12 30 34 / 0.86);
+  --glass-border: rgb(255 255 255 / 0.09);
+  --glass-blur: 18px;
+  /* Deeper and softer than light's: on a near-black page a tight shadow is
+     invisible, so the elevation has to come from spread. */
+  --glass-shadow: 0 12px 40px -12px rgb(0 0 0 / 0.55);
+
+  /* Grain is more visible on dark and does more work there — it is what stops a
+     large near-black panel looking like a hole in the screen. */
+  --grain-opacity: 0.055;
+  --grain-blend: overlay;
+
+  --panel-lit: linear-gradient(180deg, rgb(255 255 255 / 0.035) 0%, transparent 46%);
+  --panel-lit-strong: linear-gradient(180deg, rgb(255 255 255 / 0.06) 0%, transparent 60%);
+
+  --glow-header:
+    radial-gradient(42rem 18rem at 8% -60%, rgb(47 163 169 / 0.13), transparent 68%),
+    radial-gradient(34rem 16rem at 82% -80%, rgb(224 184 92 / 0.1), transparent 64%);
+
+  --dot-grid-colour: rgb(255 255 255 / 0.06);
+
+  --chart-grid: rgb(255 255 255 / 0.07);
+  --chart-area-from: rgb(47 163 169 / 0.3);
+  --chart-area-to: rgb(47 163 169 / 0);
+  --chart-cursor: rgb(95 192 195 / 0.45);
+
+  --skeleton-base: rgb(255 255 255 / 0.05);
+  --skeleton-sheen: rgb(255 255 255 / 0.04);
+}
+
+:root {
+  /* ---- Motion, extended ------------------------------------------------
+     The existing three durations cover interaction. Reveal and the theme wipe
+     are slower on purpose: a 120ms reveal is a flicker, and a wipe fast enough
+     to be "efficient" is one nobody sees happen. */
+  --duration-reveal: 420ms;
+  --duration-stagger: 55ms;
+  --duration-theme-wipe: 620ms;
+  --duration-count: 900ms;
+
+  /* Decelerating hard — everything arrives quickly and settles. */
+  --ease-reveal: cubic-bezier(0.16, 1, 0.3, 1);
+  /* The wipe: no overshoot. A bouncing theme change looks like a fault. */
+  --ease-wipe: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* The orbiting login border (video 2). Slow enough to be ambient rather than
+     a spinner demanding attention. */
+  --duration-orbit: 4.5s;
+}
+
+/* ==========================================================================
+   TEXTURE UTILITIES
+   ==========================================================================
+   Deliberately CSS classes rather than Tailwind arbitrary values: each is
+   several declarations that belong together, and a component spelling them out
+   inline is how two panels start disagreeing about what "glass" means.
+   ========================================================================== */
+
+/* Frosted chrome. `backdrop-filter` is the whole point, so there is a fallback:
+   without support the background is opaque instead of transparent-and-unblurred,
+   which would otherwise leave text over content. */
+.glass {
+  background-color: var(--glass-bg);
+  border-color: var(--glass-border);
+  box-shadow: var(--glass-shadow);
+}
+
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  .glass {
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+    backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+  }
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass {
+    background-color: var(--bg-surface);
+  }
+}
+
+.glass-strong {
+  background-color: var(--glass-bg-strong);
+}
+
+/* Grain. A pseudo-element so it can sit over the surface's own background
+   without either fighting for the `background` property. `inherit` on the
+   radius means it never spills past a rounded corner. */
+/* ⚠️ NO `isolation: isolate` and NO `z-index: -1` here, and that is the whole
+   trick. Both were in the first version and the grain was invisible on every
+   panel — an isolated stacking context plus a negative z-index puts the pseudo
+   element BEHIND its own parent's background, so an opaque card paints straight
+   over it. Found by screenshotting a probe, not by reading the CSS.
+
+   Painting above the background is also what film grain actually is: it sits over
+   the surface. At 3.5–5.5% opacity it is imperceptible on text, and
+   `pointer-events: none` keeps it from eating clicks. */
+.grain {
+  position: relative;
+}
+
+.grain::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: var(--grain-opacity);
+  mix-blend-mode: var(--grain-blend);
+  /* feTurbulence at a high baseFrequency is film grain. Inlined because a
+     200-byte data URI beats a network request for something on every panel. */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* A lit surface — see --panel-lit. */
+.panel-lit {
+  background-image: var(--panel-lit);
+}
+
+.panel-lit-strong {
+  background-image: var(--panel-lit-strong);
+}
+
+/* Brand light behind a page header. */
+.glow-header {
+  background-image: var(--glow-header);
+}
+
+/* Dot grid, for empty states only. */
+.dot-grid {
+  background-image: radial-gradient(var(--dot-grid-colour) 1px, transparent 1px);
+  background-size: var(--dot-grid-size) var(--dot-grid-size);
+}
+
+/* ==========================================================================
+   THE THEME WIPE
+   ==========================================================================
+   Video 1 is not a fade. A circular mask expands from the toggle itself and
+   sweeps across, with the new theme already fully rendered behind it.
+
+   That is exactly what the View Transitions API does: the browser snapshots
+   both states and we animate a `clip-path` between them. `--wipe-x` / `--wipe-y`
+   are written by the toggle at click time so the circle grows from the button
+   the person actually pressed, which is what makes it feel caused rather than
+   played.
+
+   Where the API is unsupported the swap is instant. That is a complete,
+   non-broken outcome — not a degraded one.
+   ========================================================================== */
+
+@supports (view-transition-name: none) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    /* Both snapshots are held still; only the clip moves. Without this the
+       browser cross-fades them as well and the edge turns to mud. */
+    animation: none;
+    mix-blend-mode: normal;
+  }
+
+  /* The outgoing theme sits underneath, untouched. The incoming one is clipped
+     to a circle that grows over it. */
+  ::view-transition-old(root) {
+    z-index: 0;
+  }
+
+  ::view-transition-new(root) {
+    z-index: 1;
+    animation: theme-wipe var(--duration-theme-wipe) var(--ease-wipe) forwards;
+  }
+}
+
+@keyframes theme-wipe {
+  from {
+    clip-path: circle(0% at var(--wipe-x, 50%) var(--wipe-y, 50%));
+  }
+  to {
+    /* 150% rather than 100%: the circle is measured from its centre, and a
+       centre near a corner needs more than half the viewport to cover the
+       opposite one. */
+    clip-path: circle(150% at var(--wipe-x, 50%) var(--wipe-y, 50%));
+  }
+}
+
+/* ==========================================================================
+   REVEAL, COUNT AND ORBIT
+   ========================================================================== */
+
+/* Staggered arrival (video 1). `--reveal-index` is set per child so a row of
+   cards lands left to right instead of all at once. */
+.reveal {
+  animation: reveal-in var(--duration-reveal) var(--ease-reveal) both;
+  animation-delay: calc(var(--reveal-index, 0) * var(--duration-stagger));
+}
+
+@keyframes reveal-in {
+  from {
+    opacity: 0;
+    /* Transform only — never height or margin, which would reflow the page
+       once per frame per card. */
+    transform: translateY(10px) scale(0.995);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* The orbiting border, video 2. Two arcs 180° apart in a conic gradient, the
+   whole thing rotated, and masked so only the border shows.
+
+   `@property` is what makes the angle animatable at all: a plain custom property
+   is a string to the compositor and jumps between keyframes rather than
+   interpolating. */
+@property --orbit-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+/* Same correction as `.grain`: no isolated context and no negative z-index, or
+   the ring is painted behind the card's own background and never seen. The mask
+   leaves only a 1px edge, so painting above the background covers nothing. */
+.orbit-border {
+  position: relative;
+}
+
+.orbit-border::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  pointer-events: none;
+  background: conic-gradient(
+    from var(--orbit-angle),
+    transparent 0deg,
+    var(--accent-primary) 26deg,
+    transparent 62deg,
+    transparent 180deg,
+    var(--accent-gold) 206deg,
+    transparent 242deg,
+    transparent 360deg
+  );
+  /* Two masks composited to leave only the 1px ring: the whole box minus its
+     own padding box. `-webkit-` first for Safari, which still needs it. */
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  animation: orbit var(--duration-orbit) linear infinite;
+}
+
+@keyframes orbit {
+  to {
+    --orbit-angle: 360deg;
+  }
+}
+
+/* Skeleton sheen — a highlight travelling across, not a pulse. See
+   --skeleton-sheen. */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background-color: var(--skeleton-base);
+}
+
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background-image: linear-gradient(
+    90deg,
+    transparent,
+    var(--skeleton-sheen) 50%,
+    transparent
+  );
+  animation: skeleton-sweep 1.4s var(--ease-in-out) infinite;
+}
+
+@keyframes skeleton-sweep {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+/* ==========================================================================
+   ⚠️ REDUCED MOTION — not optional
+   ==========================================================================
+   Somebody who has asked their operating system for less motion has asked for
+   it here too. Everything above becomes instant: the wipe, the reveals, the
+   orbit, the sheen. Content still arrives and the theme still changes — only the
+   movement goes, which is the distinction that matters.
+   ========================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none !important;
+  }
+
+  .reveal,
+  .orbit-border::before,
+  .skeleton::after {
+    animation: none !important;
+  }
+
+  /* The reveal's end state, applied directly — otherwise cancelling the
+     animation leaves every card at opacity 0. */
+  .reveal {
+    opacity: 1;
+    transform: none;
+  }
+
+  /* A still skeleton must still read as a placeholder, so the base tint stays
+     and only the travelling highlight goes. */
+  .skeleton::after {
+    display: none;
+  }
+}
