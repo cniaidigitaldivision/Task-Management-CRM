@@ -3,6 +3,7 @@ import {
   CalendarClock,
   CalendarDays,
   FolderKanban,
+  FolderOpen,
   Gauge,
   KeyRound,
   LayoutDashboard,
@@ -99,6 +100,10 @@ export const NAV_SECTIONS: readonly NavSection[] = [
          in it (migration 023), so a Member sees only credentials issued to them —
          usually none. Hiding it by role would be a second, weaker copy of the
          real rule. */
+      /* Open to every role: anybody may upload, and RLS decides what is on the
+         page. Owner: 'every time a user or anybody comes, they should have a place
+         where they can upload something.' */
+      { label: 'Documents', href: '/documents', icon: FolderOpen, roles: ALL },
       { label: 'Vault', href: '/vault', icon: KeyRound, roles: ALL },
       { label: 'Settings', href: '/settings', icon: Settings, roles: ADMIN_UP },
       { label: 'Security', href: '/security', icon: ShieldCheck, roles: SUPER_ONLY },

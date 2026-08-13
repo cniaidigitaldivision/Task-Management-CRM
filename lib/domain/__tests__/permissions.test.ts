@@ -174,6 +174,16 @@ const EXPECTED: Readonly<Record<Action, Row>> = {
   'credential.reveal': ['allow', 'allow', 'allow', 'allow'],
   'credential.manage': ['allow', 'allow', 'allow', 'deny'],
   'credential.delete': ['allow', 'allow', 'deny', 'deny'],
+
+  /* Drive documents. `request` is open to everybody because a pending upload is
+     not in Drive — the approval is the gate. `approve` stops at Admin, so a
+     Coordinator cannot wave through their own upload. `view` is open for the same
+     reason as the vault: the real rule is relational and RLS enforces it. */
+  'document.view': ['allow', 'allow', 'allow', 'allow'],
+  'document.request': ['allow', 'allow', 'allow', 'allow'],
+  'document.approve': ['allow', 'allow', 'deny', 'deny'],
+  'document.manage': ['allow', 'allow', 'allow', 'deny'],
+  'drive.configure': ['allow', 'allow', 'deny', 'deny'],
 };
 
 const ROLE_ORDER: readonly Role[] = ['super_admin', 'admin', 'team_coordinator', 'member'];

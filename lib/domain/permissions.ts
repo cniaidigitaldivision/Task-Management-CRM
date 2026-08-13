@@ -298,6 +298,31 @@ export const PERMISSIONS = {
   'credential.reveal': M('allow', 'allow', 'allow', 'allow'),
   'credential.manage': M('allow', 'allow', 'allow', 'deny'),
   'credential.delete': M('allow', 'allow', 'deny', 'deny'),
+
+  /* ---- Google Drive documents — owner request 2026-08-13 -----------------
+   * Owner: *"every time a user or anybody comes, they should have a place where
+   * they can upload something. Other than the team coordinator or admin, every
+   * approval will go to the admin… the added is only possible by the admin, super
+   * admin, and the coordinator."*
+   *
+   * `request` is open to everybody, and that is safe because a pending upload is
+   * NOT in Drive — it sits in the application's own storage until somebody with
+   * authority says yes. The approval is the gate, so the request need not be.
+   *
+   * `approve` stops at Admin. A Coordinator may add, edit and delete documents but
+   * cannot approve one — including their own — which is what keeps the queue
+   * meaningful rather than a formality.
+   *
+   * `view` is 'allow' for every role for the same reason as the vault: the real
+   * rule is relational (Admin+ sees the register, anybody sees their own uploads
+   * and their projects' documents) and row-level security enforces it, in
+   * `app.can_read_document`. No Rule here can express two joins.
+   */
+  'document.view': M('allow', 'allow', 'allow', 'allow'),
+  'document.request': M('allow', 'allow', 'allow', 'allow'),
+  'document.approve': M('allow', 'allow', 'deny', 'deny'),
+  'document.manage': M('allow', 'allow', 'allow', 'deny'),
+  'drive.configure': M('allow', 'allow', 'deny', 'deny'),
 } as const satisfies Record<string, Readonly<Record<Role, Rule>>>;
 
 export type Action = keyof typeof PERMISSIONS;
