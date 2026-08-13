@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { withUser } from '../client';
+import { sql, withUser } from '../client';
 import { isoOrNull } from '../row-values';
 
 /* ============================================================================
@@ -290,6 +290,39 @@ export async function createDraftProjectFromFolder(
     on conflict (drive_folder_id) where drive_folder_id is not null do nothing
     returning id
   `);
+  return (rows[0]?.id as string | undefined) ?? null;
+}
+
+/**
+ * The Super Admin's id, for work that has no signed-in actor.
+ *
+ * ── WHY THE CRON NEEDS THIS AT ALL ───────────────────────────────────────────
+ * A draft project needs a `created_by_id` and an `owner_id`, and a scheduled run
+ * has nobody. The alternatives were worse:
+ *
+ *   • run under `withAppRole` and bypass RLS — which would make the poll the one
+ *     code path in the application that can write outside the policy
+ *   • add a nullable "system" actor — which every foreign key and every audit
+ *     reader would then have to handle
+ *
+ * So it runs as a real identity, and the Super Admin is the only one guaranteed to
+ * exist: `users_single_super_admin_idx` makes exactly one of them a property of the
+ * database for its lifetime (BR-028). RLS therefore still applies to every write
+ * the poll makes — it is simply acting as the person who owns the system.
+ *
+ * Deliberately **not** the person who configured the watch: they may since have
+ * left, and a draft project owned by a deactivated account is a project nobody
+ * sees.
+ *
+ * Runs outside an identity because it is looking up WHO the identity is — the same
+ * bootstrap, and the same justification, as the digest route's recipient query.
+ */
+export async function superAdminId(): Promise<string | null> {
+  const rows = await sql`
+    select id from public.users
+     where role = 'super_admin' and is_active
+     limit 1
+  `;
   return (rows[0]?.id as string | undefined) ?? null;
 }
 

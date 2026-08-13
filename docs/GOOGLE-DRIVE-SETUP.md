@@ -101,20 +101,58 @@ On **Documents**, as Super Admin or Admin:
 | **A Coordinator** | Can add, edit and delete documents but **cannot approve** — including their own upload. That is what keeps the queue meaningful. |
 | **A new subfolder appears** | Becomes a **draft project**, marked as needing details. A folder name cannot say what type a project is, who owns it or when it is due, so it waits for you rather than entering reports and workload half-defined. |
 
-### The check is manual for now
+### The automatic check
 
-**Check now** reads the folder on demand. Automatic polling every few minutes —
-which is what you chose — needs the run to be triggered by something other than a
-person, and the honest options are:
+Wired. **`/api/drive-sync`** is a route a scheduler calls; `vercel.json` asks for it
 
-- **`vercel.json` cron** calling a route, like the existing digest. Simple, and
-  the interval is as coarse as the platform allows.
-- **A schedule in Supabase** hitting the same route.
+```
+*/15 4-12 * * 1-6      every 15 minutes, Mon–Sat, 04:00–12:00 UTC
+```
 
-Both need a shared secret so the route cannot be triggered by anybody who finds
-the URL — `CRON_SECRET` already exists for the digest and would be reused. Say the
-word and I will wire it; it is a small addition and I did not want to add a public
-endpoint without asking.
+which is 09:00–17:00 in Karachi — the working week from ADR-004. Nobody creates a
+project folder at 3am, and a job that runs 96 times a day to find nothing 95 times
+is cost with no benefit.
+
+**Check now** still works and runs exactly the same code (`lib/drive/sync.ts`), so
+the button and the schedule cannot drift apart. They are also safe to overlap,
+which they will: `projects.drive_folder_id` is unique and the insert is
+`on conflict do nothing`, so two runs at once produce one project rather than two.
+
+#### ⚠️ Two things to check on Vercel
+
+1. **`CRON_SECRET` must be set in the Vercel project.** Without it the endpoint
+   answers **503 and does nothing** — deliberately: an open URL that writes to your
+   database is not something to default to. Vercel sends the header to its own cron
+   invocations automatically once the variable is set. The same secret already
+   guards the digest.
+
+2. **A 15-minute schedule needs a Pro plan.** On the **Hobby** plan Vercel allows
+   only **daily** crons, and at most two of them — so this schedule will either be
+   rejected or silently run once a day. If you are on Hobby, either:
+   - change it to something daily, e.g. `0 4 * * 1-6`, and use **Check now** when
+     you have just added folders; or
+   - point an external scheduler at it instead — anything that can make an HTTPS
+     request works:
+     ```
+     curl -H "Authorization: Bearer $CRON_SECRET" https://cni-crm.vercel.app/api/drive-sync
+     ```
+     A Supabase scheduled function, GitHub Actions, or cron-job.org will all do it.
+
+**Locally** there is no scheduler at all. Use the button, or call it by hand:
+
+```
+curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:4310/api/drive-sync
+```
+
+#### Who the scheduled run acts as
+
+The **Super Admin**. A draft project needs an owner and a creator, and a scheduled
+request has nobody signed in — so rather than bypass row-level security, which
+would make this the one write path in the application outside the policy, it acts
+as the one account guaranteed to exist for the life of the database (BR-028).
+
+Not the person who set the watch: they may since have left, and a draft project
+owned by a deactivated account is a project nobody sees.
 
 ### If something is wrong
 

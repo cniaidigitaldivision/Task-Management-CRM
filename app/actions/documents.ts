@@ -9,6 +9,7 @@ import * as D from '@/lib/db/queries/documents';
 import { notify, notifySelf } from '@/lib/db/queries/feed';
 import { can } from '@/lib/domain/permissions';
 import * as Drive from '@/lib/drive/client';
+import { runDriveSync } from '@/lib/drive/sync';
 import { removeObject, signedUrl, uploadObject } from '@/lib/storage/bucket';
 
 /* ============================================================================
@@ -484,29 +485,19 @@ export async function syncDriveFoldersAction(): Promise<DocumentResult> {
     return fail('Only an Admin can run the Drive check.');
   }
 
-  const sync = await D.getDriveSync(user.id);
-  if (!sync?.watchedFolderId) {
-    return fail('No folder is being watched yet. Set one first.');
+  /* The work itself lives in `lib/drive/sync.ts`, shared with the cron route —
+     which cannot call this action at all, because an action starts with
+     `requireUser()` and a scheduled request has no session. */
+  const result = await runDriveSync(user.id);
+  if (!result.ok) {
+    return fail(
+      result.error === 'No folder is being watched.'
+        ? 'No folder is being watched yet. Set one first.'
+        : (result.error ?? 'The Drive check failed.'),
+    );
   }
 
-  const folders = await Drive.listSubfolders(sync.watchedFolderId);
-  if (!folders.ok) {
-    await D.recordSyncRun(user.id, { created: 0, error: folders.reason });
-    return fail(folders.reason);
-  }
-
-  let created = 0;
-  const names: string[] = [];
-
-  for (const folder of folders.value) {
-    const id = await D.createDraftProjectFromFolder(user.id, folder);
-    if (id) {
-      created += 1;
-      names.push(folder.name);
-    }
-  }
-
-  await D.recordSyncRun(user.id, { created, error: null });
+  const { created, names } = result;
 
   if (created > 0) {
     await withUser(user.id, async (tx) => {
@@ -533,7 +524,7 @@ export async function syncDriveFoldersAction(): Promise<DocumentResult> {
     ok: true,
     message:
       created === 0
-        ? `Checked ${folders.value.length} ${folders.value.length === 1 ? 'folder' : 'folders'}. Nothing new.`
+        ? `Checked ${result.examined} ${result.examined === 1 ? 'folder' : 'folders'}. Nothing new.`
         : `Created ${created} draft ${created === 1 ? 'project' : 'projects'}: ${names.join(', ')}. Set a type and owner to confirm each one.`,
   };
 }
