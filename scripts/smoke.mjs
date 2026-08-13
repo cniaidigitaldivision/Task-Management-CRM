@@ -44,7 +44,11 @@ const DOMAIN = 'cni-demo.com';
    /team and /workload by typing the URL, because the sidebar hiding a link is
    convenience and never security (NFR-006). */
 const APP_ROUTES = [
-  ['/dashboard', 'Where the work stands', 'team_coordinator'],
+  /* CHANGE-PLAN 7.1 opened the dashboard to every role — a Member now gets a
+     narrow shape rather than a redirect. Still asserts on a section heading that
+     both shapes render, so a broken dashboard fails this rather than a reworded
+     one. */
+  ['/dashboard', 'Where the work stands', 'member'],
   ['/my-work', 'Your queue', 'member'],
   ['/tasks', 'effort points', 'member'],
   ['/projects', 'Ad-hoc work', 'member'],

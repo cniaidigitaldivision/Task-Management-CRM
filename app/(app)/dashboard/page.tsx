@@ -16,7 +16,7 @@ import { IconTile } from '@/components/ui/icon-tile';
 import { StatCard } from '@/components/ui/metric';
 import { PageHeader, PageSection } from '@/components/ui/page-header';
 import { ProgressBar, SegmentLegend, SegmentedBar, type Segment } from '@/components/ui/progress';
-import { requireRole } from '@/lib/auth/current-user';
+import { requireUser } from '@/lib/auth/current-user';
 import { listActivity } from '@/lib/db/queries/feed';
 import { listProjects } from '@/lib/db/queries/projects';
 import { countTasksByStatus, listTasks } from '@/lib/db/queries/tasks';
@@ -67,9 +67,43 @@ function relative(iso: string, now: number): string {
   return `${Math.round(hours / 24)}d ago`;
 }
 
+/* ============================================================================
+ * SCOPE — CHANGE-PLAN 7.1
+ * ----------------------------------------------------------------------------
+ * Owner: *"The dashboard should be narrower or broader according to the role
+ * level."*
+ *
+ *   division  Super Admin, Admin      everything
+ *   team      Team Coordinator        their people and projects, approvals
+ *   self      Team Member             themselves only, no other person's data
+ *
+ * ── THIS CHANGES THE SHAPE, NOT THE SECURITY ─────────────────────────────────
+ * Row-level security already stopped a Member reading anybody else's row. What it
+ * could not do is stop the page ASKING — so a Member previously got a dashboard
+ * built around "who is carrying what", correctly returning a team of one, with a
+ * division utilisation figure computed from themselves. Every number was right and
+ * the page was answering a question they cannot ask.
+ *
+ * So this is presentation, and the comments below say which sections exist for
+ * whom. The queries are unchanged and still scoped by RLS: if this switch were
+ * wrong in the generous direction, the page would render an empty section rather
+ * than somebody else's data.
+ * ========================================================================= */
+
+type Scope = 'division' | 'team' | 'self';
+
+function scopeFor(role: string): Scope {
+  if (role === 'super_admin' || role === 'admin') return 'division';
+  if (role === 'team_coordinator') return 'team';
+  return 'self';
+}
+
 export default async function DashboardPage() {
-  // Dashboard is a whole-team view; a Member has /my-work. Hiding the nav item is convenience, not security (NFR-006).
-  const user = await requireRole('team_coordinator');
+  /* Open to every role now (7.1). A Member gets the narrow shape rather than the
+     redirect they used to get — /my-work is their task list, which is a different
+     thing from a summary of where they stand. */
+  const user = await requireUser();
+  const scope = scopeFor(user.role);
   const now = nowMs();
 
   /* ── ONE WAVE, NOT THREE ───────────────────────────────────────────────────
@@ -133,28 +167,59 @@ export default async function DashboardPage() {
 
   const atRisk = workload.people.filter((p) => p.workload.utilisationPct >= softPct);
 
+  /* The reader's own row. RLS gives a Member exactly one person here, but this is
+     found by id rather than taken as `people[0]` — a Coordinator or Admin gets
+     several, and "the first one" would silently be somebody else. */
+  const mine = workload.people.find((p) => p.userId === user.id) ?? null;
+
   return (
     <div className="mx-auto max-w-[var(--content-max)] space-y-8">
       <PageHeader
         eyebrow="AI & Digital Division"
         title={`Good to see you, ${user.fullName.split(' ')[0]}`}
         description={
-          <>
-            <span className="tabular font-semibold text-text-primary">{open.length}</span> open
-            tasks across {projects.length} projects. The division is at{' '}
-            <span className="tabular font-semibold text-text-primary">{team.utilisationPct}%</span>{' '}
-            of capacity this week
-            {atRisk.length > 0 && (
-              <>
-                {' — '}
-                <span className="font-semibold" style={{ color: 'var(--load-warning)' }}>
-                  {atRisk.length} {atRisk.length === 1 ? 'person is' : 'people are'} at or near
-                  their limit
-                </span>
-              </>
-            )}
-            .
-          </>
+          scope === 'self' ? (
+            /* A Member's own summary. No division figure and no "people are at
+               their limit" — there is nobody else in it, so a team sentence would
+               be describing them in the third person. */
+            <>
+              <span className="tabular font-semibold text-text-primary">{open.length}</span> open{' '}
+              {open.length === 1 ? 'task' : 'tasks'}
+              {overdue.length > 0 && (
+                <>
+                  {', '}
+                  <span className="font-semibold" style={{ color: 'var(--feedback-error)' }}>
+                    {overdue.length} already late
+                  </span>
+                </>
+              )}
+              . You are at{' '}
+              <span className="tabular font-semibold text-text-primary">
+                {mine?.workload.utilisationPct ?? 0}%
+              </span>{' '}
+              of your capacity this week.
+            </>
+          ) : (
+            <>
+              <span className="tabular font-semibold text-text-primary">{open.length}</span> open
+              tasks across {projects.length} projects.{' '}
+              {scope === 'division' ? 'The division is' : 'Your people are'} at{' '}
+              <span className="tabular font-semibold text-text-primary">
+                {team.utilisationPct}%
+              </span>{' '}
+              of capacity this week
+              {atRisk.length > 0 && (
+                <>
+                  {' — '}
+                  <span className="font-semibold" style={{ color: 'var(--load-warning)' }}>
+                    {atRisk.length} {atRisk.length === 1 ? 'person is' : 'people are'} at or near
+                    their limit
+                  </span>
+                </>
+              )}
+              .
+            </>
+          )
         }
       />
 
@@ -174,19 +239,42 @@ export default async function DashboardPage() {
           value={doneThisWeek}
           hint="Approved and closed in the last week"
         />
-        <StatCard
-          icon={Gauge}
-          token={
-            team.utilisationPct >= 100
-              ? 'load-over'
-              : team.utilisationPct >= softPct
-                ? 'load-warning'
-                : 'load-healthy'
-          }
-          label="Team utilisation"
-          value={`${team.utilisationPct}%`}
-          hint={`${team.loadPoints} of ${team.capacityPoints} points this week`}
-        />
+        {/* A Member sees their OWN capacity. The team figure would be their own
+            number relabelled as the division's, which is worse than useless — it
+            is a wrong impression built out of a right number. */}
+        {scope === 'self' ? (
+          <StatCard
+            icon={Gauge}
+            token={
+              (mine?.workload.utilisationPct ?? 0) >= 100
+                ? 'load-over'
+                : (mine?.workload.utilisationPct ?? 0) >= softPct
+                  ? 'load-warning'
+                  : 'load-healthy'
+            }
+            label="Your capacity"
+            value={`${mine?.workload.utilisationPct ?? 0}%`}
+            hint={
+              mine
+                ? `${mine.workload.loadPoints} of ${mine.workload.effectiveCapacityPoints} points this week`
+                : 'No capacity recorded yet'
+            }
+          />
+        ) : (
+          <StatCard
+            icon={Gauge}
+            token={
+              team.utilisationPct >= 100
+                ? 'load-over'
+                : team.utilisationPct >= softPct
+                  ? 'load-warning'
+                  : 'load-healthy'
+            }
+            label={scope === 'division' ? 'Division utilisation' : 'Your team’s utilisation'}
+            value={`${team.utilisationPct}%`}
+            hint={`${team.loadPoints} of ${team.capacityPoints} points this week`}
+          />
+        )}
         <StatCard
           icon={TimerReset}
           token={overLimit.length > 0 ? 'feedback-error' : 'feedback-success'}
@@ -202,7 +290,6 @@ export default async function DashboardPage() {
 
       {/* ── 2 · Where the work stands ────────────────────────────────────── */}
       <PageSection
-        step={1}
         title="Where the work stands"
         description="Every task by status, including closed work. The weights behind the capacity figures are on doc 05 §1 — Backlog counts at 25%, In Review at 50%."
       >
@@ -224,7 +311,6 @@ export default async function DashboardPage() {
 
       {/* ── 3 · Needs a decision ─────────────────────────────────────────── */}
       <PageSection
-        step={2}
         title="Needs a decision today"
         description="Blocked first — that work is stopped. Then overdue, then anything waiting on a review."
         actions={
@@ -367,9 +453,13 @@ export default async function DashboardPage() {
         </PageSection>
       )}
 
-      {/* ── 4 · Who is carrying what ─────────────────────────────────────── */}
+      {/* ── 4 · Who is carrying what ───────────────────────────────────────
+          Other people, by definition. A Member's version listed one person —
+          themselves — under a heading asking who is carrying the load, which is a
+          question about a team. Hidden rather than reduced: the honest narrow
+          version of this section is no section. */}
+      {scope !== 'self' && (
       <PageSection
-        step={3}
         title="Who is carrying what"
         description={`Load is effort × priority × status weight, against ${weeklyCapacity} points a week. Over ${hardPct}% a new assignment is blocked unless an Admin overrides it in writing.`}
         actions={
@@ -438,6 +528,7 @@ export default async function DashboardPage() {
           </ul>
         </Card>
       </PageSection>
+      )}
 
       {/* ── 5 · Detail ───────────────────────────────────────────────────── */}
       <PageSection step={4} title="Projects and recent activity">

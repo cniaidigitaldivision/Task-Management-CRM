@@ -145,12 +145,13 @@ interface PrimaryAction {
   readonly roles: readonly Role[];
 }
 
-const LEAD_UP: readonly Role[] = ['super_admin', 'admin', 'team_coordinator'];
+/* `LEAD_UP` was here for the Dashboard entry. CHANGE-PLAN 7.1 opened that page to
+   every role, so nothing needs the Coordinator-and-above set any more. */
 const ADMIN_UP: readonly Role[] = ['super_admin', 'admin'];
 const EVERYONE: readonly Role[] = ['super_admin', 'admin', 'team_coordinator', 'member'];
 
 const PRIMARY_ACTIONS: Readonly<Record<string, PrimaryAction | null>> = {
-  '/dashboard': { kind: 'task', label: 'New task', roles: LEAD_UP },
+  '/dashboard': { kind: 'task', label: 'New task', roles: EVERYONE },
   '/my-work': { kind: 'task', label: 'New task', roles: EVERYONE },
   '/tasks': { kind: 'task', label: 'New task', roles: EVERYONE },
   '/calendar': { kind: 'task', label: 'New task', roles: EVERYONE },
