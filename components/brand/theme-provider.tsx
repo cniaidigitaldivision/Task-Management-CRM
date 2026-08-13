@@ -27,6 +27,7 @@ import * as React from 'react';
 import type { ResolvedTheme, Theme } from '@/lib/domain/constants';
 import {
   DARK_MEDIA_QUERY,
+  type WipeOrigin,
   applyTheme,
   readStoredTheme,
   resolveTheme,
@@ -93,9 +94,10 @@ interface ThemeContextValue {
   preference: Theme | null;
   /** What is actually rendered right now. */
   resolved: ResolvedTheme;
-  setTheme: (next: Theme) => void;
+  /** `origin` is the control that was pressed — the wipe grows from it. */
+  setTheme: (next: Theme, origin?: WipeOrigin | null) => void;
   /** Flips light ↔ dark. */
-  cycleTheme: () => void;
+  cycleTheme: (origin?: WipeOrigin | null) => void;
   /** False until the client has read the stored preference. Controls that
    *  depend on the preference must not announce a value before this is true,
    *  or they will state the wrong one to a screen reader on first paint. */
@@ -183,18 +185,37 @@ export function ThemeProvider({
     applyTheme(resolved);
   }, [isHydrated, resolved]);
 
-  const setTheme = React.useCallback((next: Theme) => {
+  /* ── WHY THE DOM IS TOUCHED HERE AND NOT ONLY IN THE EFFECT ────────────────
+     A view transition has to be started in the same task as the click that
+     caused it: the browser captures the outgoing snapshot the moment
+     `startViewTransition` is called, and it will not run one at all for a change
+     it cannot attribute to user input. Waiting for the store to update and the
+     effect to run puts the swap a frame later, in a task the browser no longer
+     connects to the press.
+
+     So the concrete swap happens right here, with the origin, and the store write
+     follows. The effect above is not made redundant — it still handles the OS
+     preference changing and another tab writing — it simply finds the attribute
+     already correct and returns, which is the guard it has always had. */
+  const applyAndStore = React.useCallback((next: Theme, origin?: WipeOrigin | null) => {
+    applyTheme(next, origin);
     writeStoredTheme(next);
     emitPreferenceChange();
   }, []);
 
+  const setTheme = React.useCallback(
+    (next: Theme, origin?: WipeOrigin | null) => applyAndStore(next, origin),
+    [applyAndStore],
+  );
+
   /* Flips from what is RENDERED, not from what is stored. With no stored
      preference the two differ, and cycling from the stored null would jump to
      light for somebody currently looking at dark. */
-  const cycleTheme = React.useCallback(() => {
-    writeStoredTheme(resolved === 'dark' ? 'light' : 'dark');
-    emitPreferenceChange();
-  }, [resolved]);
+  const cycleTheme = React.useCallback(
+    (origin?: WipeOrigin | null) =>
+      applyAndStore(resolved === 'dark' ? 'light' : 'dark', origin),
+    [applyAndStore, resolved],
+  );
 
   const value = React.useMemo<ThemeContextValue>(
     () => ({ preference, resolved, setTheme, cycleTheme, isHydrated }),

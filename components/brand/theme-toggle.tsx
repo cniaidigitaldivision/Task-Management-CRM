@@ -15,9 +15,21 @@ import { Moon, Sun } from 'lucide-react';
 
 import { CONTROL_HEIGHT, CONTROL_RADIUS, CONTROL_SQUARE } from '@/components/ui/control';
 import type { Theme } from '@/lib/domain/constants';
+import { originOf } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 
 import { useTheme } from './theme-provider';
+
+/* ── WHERE THE WIPE COMES FROM ────────────────────────────────────────────────
+   Reference video 1: the circular mask grows out of the toggle itself. Every
+   control below therefore hands its own centre over, taken from the event's own
+   target rather than from a ref — the pressed control is exactly what the event
+   already knows, and a ref would have to be one per option on the two multi-
+   button presentations.
+
+   `currentTarget` and not `target`: a click lands on the icon inside the button,
+   whose centre is a few pixels off and, on the card presentation, badly off. */
+const pressOrigin = (event: React.MouseEvent<HTMLButtonElement>) => originOf(event.currentTarget);
 
 const OPTIONS: ReadonlyArray<{
   value: Theme;
@@ -52,7 +64,7 @@ export function ThemeToggle({ className }: { className?: string }) {
   return (
     <button
       type="button"
-      onClick={cycleTheme}
+      onClick={(event) => cycleTheme(pressOrigin(event))}
       // Until hydration the stored preference is unknown, so the label would
       // be a guess. The button stays inert rather than announcing the wrong
       // state to a screen reader.
@@ -106,7 +118,7 @@ export function ThemeSegmented({ className }: { className?: string }) {
             type="button"
             role="radio"
             aria-checked={isActive}
-            onClick={() => setTheme(option.value)}
+            onClick={(event) => setTheme(option.value, pressOrigin(event))}
             className={cn(
               'inline-flex h-full items-center gap-1.5 rounded-md px-2.5',
               'text-caption font-semibold',
@@ -156,7 +168,7 @@ export function ThemeSetting({ className }: { className?: string }) {
               type="button"
               role="radio"
               aria-checked={isActive}
-              onClick={() => setTheme(option.value)}
+              onClick={(event) => setTheme(option.value, pressOrigin(event))}
               className={cn(
                 'group flex flex-col items-start gap-3 rounded-xl border p-4 text-left',
                 'transition-colors duration-[120ms]',

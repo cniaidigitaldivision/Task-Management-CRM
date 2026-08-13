@@ -24,6 +24,15 @@ import { RefreshCw, WifiOff } from 'lucide-react';
  *    the honest answer is that nothing was lost, and saying so is worth more
  *    than any apology.
  *
+ * ── IT MUST NOT ASSERT A CAUSE IT CANNOT KNOW ────────────────────────────────
+ * The copy used to open with "Almost always a brief network interruption between
+ * the application and the database." This boundary catches *every* uncaught throw,
+ * and it read that line out over a React serialisation error — a function passed
+ * from a Server Component to a Client one — which sent the search for the fault to
+ * the database, where there was nothing wrong. Retry is still offered first, since
+ * it is still the most likely fix and it costs one click; the wording now says
+ * "usually" and points at the digest for the case where retrying does not help.
+ *
  * ── WHY NO ERROR DETAIL IS SHOWN ─────────────────────────────────────────────
  * Next.js already replaces server error messages with an opaque digest in
  * production — the raw text (which contained the database hostname) only appears
@@ -59,8 +68,9 @@ export default function GlobalError({
         <h1 className="mt-4 text-h2 text-text-primary">This page could not load</h1>
 
         <p className="mt-2 text-body-sm text-text-secondary">
-          Almost always a brief network interruption between the application and the database.
-          Trying again usually fixes it straight away.
+          Usually a brief network interruption between the application and the database, in which
+          case trying again fixes it straight away. If it comes back immediately, it is something
+          else and the reference below is what identifies it.
         </p>
 
         <p className="mt-3 text-caption text-text-secondary">

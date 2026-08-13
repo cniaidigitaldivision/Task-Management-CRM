@@ -3,6 +3,7 @@
 import * as React from 'react';
 
 import { cn } from '@/lib/utils';
+import { type NumberFormat, formatNumber } from '@/lib/view/number-format';
 import {
   arcPath,
   domainOf,
@@ -78,8 +79,6 @@ const tok = (name: string) => `var(--${name})`;
 const areaOf = (name: string) =>
   `color-mix(in oklab, ${tok(name)} var(--chart-area-strength), transparent)`;
 
-const DEFAULT_FORMAT = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
-
 /**
  * The hidden table every chart publishes.
  *
@@ -90,12 +89,13 @@ function DataTable({
   caption,
   labels,
   series,
-  format,
+  print,
 }: {
   caption: string;
   labels: readonly string[];
   series: readonly ChartSeries[];
-  format: (n: number) => string;
+  /** Already bound to a named format by the caller. */
+  print: (n: number) => string;
 }) {
   return (
     <table className="sr-only">
@@ -115,7 +115,7 @@ function DataTable({
           <tr key={label + i}>
             <th scope="row">{label}</th>
             {series.map((s) => (
-              <td key={s.label}>{s.points[i] === undefined ? '—' : format(s.points[i])}</td>
+              <td key={s.label}>{s.points[i] === undefined ? '—' : print(s.points[i])}</td>
             ))}
           </tr>
         ))}
@@ -132,7 +132,7 @@ export function TrendChart({
   series,
   labels,
   height = 220,
-  format = DEFAULT_FORMAT,
+  format = 'integer',
   includeZero = true,
   tickCount = 4,
   fill = true,
@@ -144,7 +144,8 @@ export function TrendChart({
   /** One label per point. Its length decides how many points are drawn. */
   labels: readonly string[];
   height?: number;
-  format?: (n: number) => string;
+  /** A NAMED format — a function cannot cross the server/client boundary. */
+  format?: NumberFormat;
   includeZero?: boolean;
   tickCount?: number;
   /** The wash under the line. Off for two or more series, where they would muddy. */
@@ -154,6 +155,10 @@ export function TrendChart({
   legend?: boolean;
   className?: string;
 }) {
+  /* Bound once. The prop is a name so it can arrive from a Server Component;
+     everything below wants a function. */
+  const print = (n: number) => formatNumber(n, format);
+
   const gradientId = React.useId();
   const [active, setActive] = React.useState<number | null>(null);
 
@@ -251,7 +256,7 @@ export function TrendChart({
         >
           {[...scale.ticks].reverse().map((tick) => (
             <span key={tick} className="tabular -translate-y-1/2 text-micro text-text-tertiary">
-              {format(tick)}
+              {print(tick)}
             </span>
           ))}
         </div>
@@ -399,7 +404,7 @@ export function TrendChart({
                     />
                     <span className="text-text-secondary">{s.label}</span>
                     <span className="tabular ml-auto font-semibold text-text-primary">
-                      {s.points[active] === undefined ? '—' : format(s.points[active])}
+                      {s.points[active] === undefined ? '—' : print(s.points[active])}
                     </span>
                   </li>
                 ))}
@@ -416,7 +421,7 @@ export function TrendChart({
         <div className="invisible shrink-0 text-right">
           {/* Occupies exactly the y-axis width so the row below lines up with the
               plot rather than with the figure. */}
-          <span className="text-micro">{format(scale.max)}</span>
+          <span className="text-micro">{print(scale.max)}</span>
         </div>
         <div className="relative min-w-0 flex-1">
           {labels.map((label, i) => {
@@ -439,7 +444,7 @@ export function TrendChart({
         </div>
       </div>
 
-      <DataTable caption={caption} labels={labels} series={drawable} format={format} />
+      <DataTable caption={caption} labels={labels} series={drawable} print={print} />
     </figure>
   );
 }
@@ -454,7 +459,7 @@ export function DonutChart({
   centreValue,
   size = 168,
   thickness = 14,
-  format = DEFAULT_FORMAT,
+  format = 'integer',
   caption,
   className,
 }: {
@@ -464,11 +469,14 @@ export function DonutChart({
   centreValue: string;
   size?: number;
   thickness?: number;
-  format?: (n: number) => string;
+  /** A NAMED format — a function cannot cross the server/client boundary. */
+  format?: NumberFormat;
   caption: string;
   className?: string;
 }) {
   const [active, setActive] = React.useState<number | null>(null);
+
+  const print = (n: number) => formatNumber(n, format);
 
   const geometry = donutSlices(slices.map((s) => s.value));
   const total = slices.reduce((a, s) => a + (Number.isFinite(s.value) ? s.value : 0), 0);
@@ -524,7 +532,7 @@ export function DonutChart({
         <div className="pointer-events-none absolute inset-0 grid place-items-center px-6 text-center">
           <div>
             <p className="tabular text-h3 leading-none font-semibold text-text-primary">
-              {shown ? format(shown.value) : centreValue}
+              {shown ? print(shown.value) : centreValue}
             </p>
             <p className="mt-1 line-clamp-2 text-micro text-text-tertiary">
               {shown ? shown.label : centreLabel}
@@ -560,7 +568,7 @@ export function DonutChart({
               {s.label}
             </span>
             <span className="tabular shrink-0 text-caption font-semibold text-text-primary">
-              {format(s.value)}
+              {print(s.value)}
             </span>
             <span className="tabular w-10 shrink-0 text-right text-micro text-text-tertiary">
               {total > 0 ? `${Math.round(geometry[i].share * 100)}%` : '—'}
@@ -573,7 +581,7 @@ export function DonutChart({
             {slices.map((s, i) => (
               <tr key={s.label}>
                 <th scope="row">{s.label}</th>
-                <td>{format(s.value)}</td>
+                <td>{print(s.value)}</td>
                 <td>{total > 0 ? `${Math.round(geometry[i].share * 100)}%` : '0%'}</td>
               </tr>
             ))}
@@ -596,7 +604,7 @@ export function GaugeArc({
   token = 'accent-primary',
   size = 148,
   thickness = 11,
-  format = DEFAULT_FORMAT,
+  format = 'integer',
   className,
 }: {
   value: number;
@@ -606,7 +614,8 @@ export function GaugeArc({
   token?: string;
   size?: number;
   thickness?: number;
-  format?: (n: number) => string;
+  /** A NAMED format — a function cannot cross the server/client boundary. */
+  format?: NumberFormat;
   className?: string;
 }) {
   /* 240° from the eight o'clock position, as in the reference: a full ring has
@@ -614,6 +623,8 @@ export function GaugeArc({
      alike. An open arc has a start and an end and cannot be misread. */
   const SWEEP = 240;
   const START = -120;
+
+  const print = (n: number) => formatNumber(n, format);
 
   const safe = Number.isFinite(value) ? value : 0;
   const ceiling = Number.isFinite(max) && max > 0 ? max : 1;
@@ -659,9 +670,9 @@ export function GaugeArc({
         <div className="absolute inset-0 grid place-items-center px-5 text-center">
           <div>
             <p className="tabular text-h2 leading-none font-semibold text-text-primary">
-              {format(safe)}
+              {print(safe)}
             </p>
-            <p className="mt-1 text-micro text-text-tertiary">of {format(ceiling)}</p>
+            <p className="mt-1 text-micro text-text-tertiary">of {print(ceiling)}</p>
           </div>
         </div>
       </div>
@@ -670,7 +681,7 @@ export function GaugeArc({
         <span className="block text-caption font-medium text-text-primary">{label}</span>
         {hint && <span className="block text-micro text-text-tertiary">{hint}</span>}
         <span className="sr-only">
-          {format(safe)} of {format(ceiling)}, {Math.round(fraction * 100)} per cent
+          {print(safe)} of {print(ceiling)}, {Math.round(fraction * 100)} per cent
         </span>
       </figcaption>
     </figure>

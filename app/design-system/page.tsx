@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/card';
 import { ControlGallery } from '@/components/ui/control-gallery';
 import { ChartGallery } from '@/components/ui/chart-gallery';
+import { MotionGallery } from '@/components/ui/motion-gallery';
 import { SkeletonGallery, TextureGallery } from '@/components/ui/texture-gallery';
 import {
   EFFORT_POINTS,
@@ -143,8 +144,15 @@ export default function DesignSystemPage() {
         </Section>
 
         <Section
+          title="Motion"
+          description="From the reference videos: panels land in sequence rather than all at once, and every figure counts up as its panel arrives. Transform and opacity only — animating height or margin would reflow the page once per frame per card, and a redesign that feels slower than what it replaced has failed whatever it looks like. prefers-reduced-motion cancels all of it in CSS and pins the end state, so nothing is ever left invisible."
+        >
+          <MotionGallery />
+        </Section>
+
+        <Section
           title="Theming"
-          description="FR-201 — every role can switch theme from their profile. Resolved before first paint, so a dark-theme user never sees a white flash."
+          description="FR-201 — every role can switch theme from their profile. Resolved before first paint, so a dark-theme user never sees a white flash. Press either card: the palette swaps under a circle that grows from the card you pressed, which is what makes the change read as caused rather than played. The swap is the transition's own callback, so an unsupported browser, a hidden tab or reduced motion changes the theme instantly instead of not at all."
         >
           <Card>
             <CardBody>

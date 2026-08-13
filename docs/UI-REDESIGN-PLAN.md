@@ -67,7 +67,7 @@ the owner's instruction: *"I don't want errors and broken stuff built."*
 | 1 | **Texture and motion tokens** — glass, grain, glow, dot-grid, elevation, the motion scale, and the view-transition keyframes | ✅ |
 | 2 | **Skeletons** — a `Skeleton` primitive plus a `loading.tsx` for every route, each mirroring its real layout | ✅ |
 | 3 | **The chart kit** — line/area with cursor tracking, donut with legend, gauge arc with knob, sparkline. Hand-built SVG | ✅ |
-| 4 | **Motion** — the circular theme wipe, staggered reveals, counting numbers, and the login border | ⬜ |
+| 4 | **Motion** — the circular theme wipe, staggered reveals, counting numbers. (The login border is wired in step 9, on the card it belongs to) | ✅ |
 | 5 | **Dashboard** — three columns, KPI cards with sparklines, live charts, right rail | ⬜ |
 | 6 | **Calendar** — tinted day cells, filled/outline event pills, agenda rail | ⬜ |
 | 7 | **Tasks, Projects, Team** — the same card, chip and table language | ⬜ |
@@ -94,6 +94,12 @@ Every one of these is already load-bearing somewhere in the codebase.
   `gold-800` for that reason. Glass must not drop text below AA.
 - **`components/ui/control.ts`** owns control heights. Nothing sets its own.
 - **No layout thrash on hover.** Transform and opacity, not width and margin.
+- **A `format` prop must be a NAME, never a function.** The charts and `CountUp`
+  are Client Components and almost every caller is a page — a Server Component —
+  and React refuses to serialise a function across that boundary. A callback prop
+  typecheck-passes, lint-passes, and then returns HTTP 500 on the page that uses
+  it. `lib/view/number-format.ts` holds the named formats. This applies to every
+  new client component built in steps 5–10.
 - **A smoothed line must not leave the range of its own data.** A spline overshoots
   at a turning point, and on a chart of counts that draws negative tasks. Low
   tension is not enough on its own — each control point is clamped to its own
