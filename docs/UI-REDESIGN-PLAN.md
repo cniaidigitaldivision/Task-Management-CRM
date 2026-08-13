@@ -66,7 +66,7 @@ the owner's instruction: *"I don't want errors and broken stuff built."*
 |:--:|---|:--:|
 | 1 | **Texture and motion tokens** — glass, grain, glow, dot-grid, elevation, the motion scale, and the view-transition keyframes | ✅ |
 | 2 | **Skeletons** — a `Skeleton` primitive plus a `loading.tsx` for every route, each mirroring its real layout | ✅ |
-| 3 | **The chart kit** — line/area with cursor tracking, donut with legend, gauge arc with knob, sparkline. Hand-built SVG | ⬜ |
+| 3 | **The chart kit** — line/area with cursor tracking, donut with legend, gauge arc with knob, sparkline. Hand-built SVG | ✅ |
 | 4 | **Motion** — the circular theme wipe, staggered reveals, counting numbers, and the login border | ⬜ |
 | 5 | **Dashboard** — three columns, KPI cards with sparklines, live charts, right rail | ⬜ |
 | 6 | **Calendar** — tinted day cells, filled/outline event pills, agenda rail | ⬜ |
@@ -94,6 +94,11 @@ Every one of these is already load-bearing somewhere in the codebase.
   `gold-800` for that reason. Glass must not drop text below AA.
 - **`components/ui/control.ts`** owns control heights. Nothing sets its own.
 - **No layout thrash on hover.** Transform and opacity, not width and margin.
+- **A smoothed line must not leave the range of its own data.** A spline overshoots
+  at a turning point, and on a chart of counts that draws negative tasks. Low
+  tension is not enough on its own — each control point is clamped to its own
+  segment's band in `smoothPath`. Found in a screenshot, not in a test: the first
+  overshoot test used a symmetric case where the control points cancel.
 - **A `loading.tsx` on a rank-gated route breaks its HTTP redirect.** Found in
   step 2, by the smoke test. The Suspense boundary makes Next.js stream, so the
   200 is committed before `requireRole()` runs and the refusal is delivered

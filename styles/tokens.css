@@ -795,8 +795,13 @@ body,
      enough that the data is what you see. Dashed, and barely there. */
   --chart-grid: rgb(6 35 42 / 0.07);
   --chart-axis: var(--text-tertiary);
-  --chart-area-from: rgb(14 92 99 / 0.22);
-  --chart-area-to: rgb(14 92 99 / 0);
+  /* A strength rather than a pair of colours. The area under a line is that
+     line's own colour faded out, and a chart may draw three series — two fixed
+     teal stops would only ever have suited the first of them. The chart mixes
+     this percentage of the series token with transparent, so one theme-tuned
+     number covers every series and every future one. Dark needs more of it: the
+     same 22% over a near-black surface is not visible. */
+  --chart-area-strength: 22%;
   --chart-cursor: rgb(14 92 99 / 0.4);
   --chart-tooltip-bg: var(--glass-bg-strong);
   --chart-tooltip-border: var(--border-default);
@@ -831,8 +836,7 @@ body,
   --dot-grid-colour: rgb(255 255 255 / 0.06);
 
   --chart-grid: rgb(255 255 255 / 0.07);
-  --chart-area-from: rgb(47 163 169 / 0.3);
-  --chart-area-to: rgb(47 163 169 / 0);
+  --chart-area-strength: 30%;
   --chart-cursor: rgb(95 192 195 / 0.45);
 
   --skeleton-base: rgb(255 255 255 / 0.05);

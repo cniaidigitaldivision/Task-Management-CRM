@@ -7,6 +7,7 @@ import { ThemeSetting } from '@/components/brand/theme-toggle';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/card';
 import { ControlGallery } from '@/components/ui/control-gallery';
+import { ChartGallery } from '@/components/ui/chart-gallery';
 import { SkeletonGallery, TextureGallery } from '@/components/ui/texture-gallery';
 import {
   EFFORT_POINTS,
@@ -132,6 +133,13 @@ export default function DesignSystemPage() {
           description="Owner instruction: a page that is loading shows the shape of what is coming. Not a grey box — the same arrangement as the real screen, so the wait is spent orienting. Every composite matches its real component's padding, radius and height, because a skeleton a few pixels short makes the page jump at the moment somebody starts reading. The sweep stops under prefers-reduced-motion and the shape stays."
         >
           <SkeletonGallery />
+        </Section>
+
+        <Section
+          title="Charts"
+          description="Hand-built SVG — no charting dependency, because Recharts is roughly 500 KB and four shapes are not worth it. Owner instruction: the chart follows the cursor and reads out the values under it. The reading snaps to the nearest real point rather than tracking the cursor freely, since a value halfway between two points is a number that does not exist. The arithmetic lives in lib/view/chart-geometry.ts and is unit-tested, because a chart with wrong maths still draws."
+        >
+          <ChartGallery />
         </Section>
 
         <Section
