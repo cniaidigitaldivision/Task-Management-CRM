@@ -137,7 +137,14 @@ export function StatCard({
   className,
 }: {
   label: string;
-  value: number | string;
+  /**
+   * A node rather than only a number or a string, so a caller can hand over
+   * `<CountUp value={n} />` and have the figure arrive instead of appear
+   * (UI redesign step 4). Passing a client element from a Server Component is
+   * fine — it is an element, not a function, so nothing has to cross the
+   * serialisation boundary that a `format` callback could not.
+   */
+  value: React.ReactNode;
   unit?: string;
   token?: string;
   icon?: React.ComponentType<{ className?: string; strokeWidth?: number }>;
@@ -182,12 +189,23 @@ export function StatCard({
         {icon && <IconTile icon={icon} token={token} size="md" />}
       </div>
 
-      <div className="relative mt-3 flex items-end justify-between gap-3">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
+      {/* ── THE HINT WRAPS, IT DOES NOT TRUNCATE ─────────────────────────────
+          It used to be `truncate`, which was invisible until a card gained a
+          sparkline: 96px of chart left about 180px for the hint, and "Approved and
+          closed in the last week" became "Approved and closed in t…". A hint
+          exists to explain the number, so a hint that has been cut off in the
+          middle of a word is worse than no hint at all — and quietly clipping
+          copy is not something a reader can even tell has happened.
+
+          Wraps to a second line instead, and the sparkline shrinks a little to
+          give it the room. All four cards are grid items, so one growing by a line
+          takes the whole row with it and none of them ends up a different height. */}
+      <div className="relative mt-3 flex items-end justify-between gap-2.5">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
           {trend && <TrendPill {...trend} />}
-          {hint && <span className="truncate text-micro text-text-tertiary">{hint}</span>}
+          {hint && <span className="text-micro text-balance text-text-tertiary">{hint}</span>}
         </div>
-        {spark && <Sparkline points={spark} token={token} />}
+        {spark && <Sparkline points={spark} token={token} width={72} />}
       </div>
     </div>
   );

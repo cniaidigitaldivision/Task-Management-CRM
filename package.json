@@ -18,6 +18,7 @@
     "seed:demo": "node scripts/seed-demo.mjs",
     "smoke": "node scripts/smoke.mjs",
     "demo:code": "node scripts/demo-code.mjs",
+    "demo:session": "node scripts/demo-session.mjs",
     "encrypt:mfa": "node scripts/encrypt-mfa-secrets.mjs",
     "storage:check": "node scripts/check-storage.mjs",
     "perf": "node scripts/perf.mjs"
