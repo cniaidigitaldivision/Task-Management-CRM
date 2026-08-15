@@ -525,11 +525,34 @@ export function TaskBoard({
                     ? 'border-border-brand bg-bg-selected'
                     : 'border-border-subtle bg-bg-subtle',
                 )}
-                style={
-                  isRefused
-                    ? { borderColor: 'color-mix(in oklab, var(--feedback-error) 45%, transparent)' }
-                    : undefined
-                }
+                /* ── STEP 7: THE BOARD JOINS THE TINT LANGUAGE ────────────────
+                   The calendar tints a day by its status and the KPI cards wash
+                   in their metric's colour; the board had only a 2px hairline,
+                   so the same idea was expressed three different ways across
+                   three screens.
+
+                   A gradient fading out over the first ~140px, so the colour is
+                   at the header where the eye lands when scanning sideways and
+                   gone by the time it reaches the cards — which keeps it off the
+                   dense text, per the plan's rule.
+
+                   Skipped entirely while this is a drop target: `bg-bg-selected`
+                   is the feedback that the card will land HERE, and a status wash
+                   layered over it would blunt the one signal that matters
+                   mid-drag. */
+                style={{
+                  ...(isDropTarget
+                    ? null
+                    : {
+                        backgroundImage: `linear-gradient(180deg, color-mix(in oklab, var(--${meta.token}) 8%, transparent), transparent 140px)`,
+                      }),
+                  ...(isRefused
+                    ? {
+                        borderColor:
+                          'color-mix(in oklab, var(--feedback-error) 45%, transparent)',
+                      }
+                    : null),
+                }}
                 title={isRefused ? refusal : undefined}
               >
                 {/* ---- Column header ---- */}
