@@ -121,9 +121,17 @@ export default async function ProjectsPage() {
           const meta = PROJECT_TYPE_META[type];
           const entry = byType.get(type);
           return (
-            <div
+            /* ── STEP 7: THE SAME CARD LANGUAGE EVERYWHERE ────────────────────
+               These were flat while the dashboard's KPI cards carried a wash of
+               their own metric's colour. Same idea, two appearances. `toneToken`
+               gives them the identical radial tint the StatCards use, keyed to
+               the project type's own token, so a row of five reads as five
+               categories before a single word is parsed — which is exactly what
+               the reference dashboards do with their KPI row. */
+            <Card
               key={type}
-              className="rounded-xl border border-border-subtle bg-bg-surface px-3.5 py-3"
+              toneToken={meta.token}
+              className="border-border-subtle px-3.5 py-3 shadow-none"
             >
               <div className="flex items-center gap-1.5">
                 <span
@@ -139,7 +147,7 @@ export default async function ProjectsPage() {
                 {entry?.count ?? 0}
               </p>
               <p className="tabular text-micro text-text-tertiary">{entry?.points ?? 0} pts open</p>
-            </div>
+            </Card>
           );
         })}
       </div>
