@@ -389,8 +389,18 @@ function ExportMenu({
 function Figures({ report }: { report: Report }) {
   return (
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 print:grid-cols-4">
+      {/* ── STEP 8: WHY ALL FOUR ARE THE SAME COLOUR ──────────────────────────
+          The dashboard's KPI cards each wash in their own metric's token, and
+          the project counters in their type's. A report figure has neither — it
+          is a label, a number and a hint, and which four appear changes with the
+          report type. Cycling hues across them would be exactly the decoration
+          §5 rules out for the calendar: colour that looks like it means
+          something and does not.
+
+          So one brand wash on all four. They read as a set, they match the
+          panel language, and nothing is claimed that isn't true. */}
       {report.figures.map((figure) => (
-        <Card key={figure.label}>
+        <Card key={figure.label} lit toneToken="accent-primary">
           <CardBody className="p-4">
             <p className="text-micro text-text-tertiary">{figure.label}</p>
             <p className="tabular mt-0.5 text-h3 font-semibold text-text-primary">
@@ -411,7 +421,7 @@ function ReportTable({ report }: { report: Report }) {
 
   if (report.rows.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed border-border-default bg-bg-surface px-6 py-14 text-center">
+      <div className="dot-grid rounded-xl border border-dashed border-border-default bg-bg-surface px-6 py-14 text-center">
         <p className="text-body-sm font-semibold text-text-primary">
           Nothing falls in this period
         </p>

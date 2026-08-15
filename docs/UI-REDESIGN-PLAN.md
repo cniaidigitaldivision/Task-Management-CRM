@@ -71,7 +71,7 @@ the owner's instruction: *"I don't want errors and broken stuff built."*
 | 5 | **Dashboard** — three columns, KPI cards with sparklines, live charts, right rail | ✅ |
 | 6 | **Calendar** — tinted day cells, filled/outline event pills, agenda rail | ✅ |
 | 7 | **Tasks, Projects, Team** — the same card, chip and table language | ✅ |
-| 8 | **Settings, Security, Documents, Vault, Reports** | ⬜ |
+| 8 | **Settings, Security, Documents, Vault, Reports** | ✅ |
 | 9 | **Login** — orbiting border, underline inputs, glass card | ⬜ |
 | 10 | **Realtime push** — Supabase subscriptions, last and on its own | ⬜ |
 | 11 | **Workflow — handoff chains on a node canvas** (R4a). Doc 12 E-004's behaviour, the workflow reference's look. CRM nodes only: task template, assignee rule, notification | ⬜ |

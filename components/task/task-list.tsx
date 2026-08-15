@@ -266,7 +266,7 @@ export function TaskList({
 
   if (groups.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed border-border-default bg-bg-surface px-6 py-14 text-center">
+      <div className="dot-grid rounded-xl border border-dashed border-border-default bg-bg-surface px-6 py-14 text-center">
         <p className="text-body-sm font-semibold text-text-primary">No tasks match these filters</p>
         <p className="mt-1 text-caption text-text-secondary">
           Clear a filter, or press N to create a task.

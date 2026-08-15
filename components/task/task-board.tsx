@@ -637,7 +637,7 @@ export function TaskBoard({
                   )}
 
                   {visible.length === 0 && !isDropTarget && (
-                    <p className="rounded-lg border border-dashed border-border-default px-3 py-6 text-center text-micro text-text-tertiary">
+                    <p className="dot-grid rounded-lg border border-dashed border-border-default px-3 py-6 text-center text-micro text-text-tertiary">
                       {isRefused ? refusal : 'Nothing here'}
                     </p>
                   )}

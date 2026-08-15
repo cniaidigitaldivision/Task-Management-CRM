@@ -207,7 +207,10 @@ export function VaultWorkspace({
 
       {visible.length === 0 ? (
         <Card>
-          <CardBody className="px-6 py-14 text-center">
+          {/* dot-grid: the plan reserves this texture for empty states, which is
+              exactly what this is. It goes on the body rather than the Card so it
+              stays inside the rounded border. */}
+          <CardBody className="dot-grid px-6 py-14 text-center">
             <p className="text-body-sm font-semibold text-text-primary">
               {credentials.length === 0 ? 'Nothing stored yet' : 'Nothing matches that filter'}
             </p>
