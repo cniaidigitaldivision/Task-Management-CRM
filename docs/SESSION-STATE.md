@@ -12,9 +12,10 @@
 Resume the CNI CRM project.
 
 Read these files first, in this order:
-  1. docs/SESSION-STATE.md                     (where we stopped)
-  1a. docs/BUILD-PLAN.md                       (the 8-step checklist — WHICH STEP IS NEXT)
-  2. docs/OWNER-REQUESTS.md                    (my standing requests, verbatim)
+  1. docs/SESSION-STATE.md §3 "Session 26"     (where we stopped — READ THIS ONE FIRST)
+  1a. docs/UI-REDESIGN-PLAN.md §3              (the current work — steps 1-9 done, 10 and 11 remain)
+  1b. docs/BUILD-PLAN.md                       (the 8-step checklist)
+  2. docs/OWNER-REQUESTS.md                    (my standing requests, verbatim — note R4a)
   3. docs/PROGRESS-TRACKER.md                  (done vs remaining)
   4. docs/19-MASTER-SPECIFICATION-REGISTRY.md  (settles any doc conflict)
   5. docs/20-IMPLEMENTATION-CONTRACTS.md §9    (build order)
@@ -22,6 +23,10 @@ Read these files first, in this order:
 Then continue from the "NEXT ACTION" in SESSION-STATE.md §3.
 Do not restart or re-plan anything already marked complete.
 Honour every ✅ and 🔴 item in docs/OWNER-REQUESTS.md.
+
+⚠️ The infrastructure moved on 2026-08-14 (Supabase, Vercel and GitHub all
+changed). Any entry in SESSION-STATE.md below "Session 26" describes the OLD
+setup. Session 26 wins wherever they disagree.
 ```
 
 That's all you ever need to type. Everything else is recorded in the files.
@@ -31,9 +36,14 @@ That's all you ever need to type. Everything else is recorded in the files.
 |---|---|
 | Run it | `npm run dev` → **http://localhost:4310** (not 3000 — a foreign service worker owns 3000) |
 | Verify | `npm run verify` = typecheck → lint → build |
-| **Live** | **Not deployed.** Moved 2026-08-14 to Vercel team `AI Digital Division`, project `task-management-crm` (`task-management-crm-ivory.vercel.app`) — no production deployment, no env vars set yet. The old `cni-crm.vercel.app` is superseded and points at the old database. |
-| Verify the live site | `npm run smoke -- https://<new-url>` — 25 checks, both roles |
-| Repo | https://github.com/habibaminhas989-blip/cni-crm (private, `main`) |
+| **Live** | **https://task-management-crm-ivory.vercel.app** — Vercel team `AI Digital Division`, project `task-management-crm`, region `sin1`. The old `cni-crm.vercel.app` is superseded, still running, and still points at the OLD database — the owner is taking it down themselves. |
+| Verify the live site | `npm run smoke -- https://task-management-crm-ivory.vercel.app` — 25 checks, both roles |
+| Repo | **https://github.com/cniaidigitaldivision/Task-Management-CRM** — ⚠️ **PUBLIC**, `main`. The old private `habibaminhas989-blip/cni-crm` is kept as the `old-origin` remote. |
+| ⚠️ **The repo is public** | `docs/DEMO-GUIDE.md` publishes the demo password, and those Admin-level demo accounts are live. Owner has this and is handling it. No real credential was ever committed — history checked, only `.env.example`. |
+| Deploying | `vercel --prod --yes`. Already linked; CLI signed in as `cniaidigitaldivision`. |
+| Local dev is slow, and it is not a bug | ~2–3s per page here vs ~0.5s in production. The database is in Singapore and this machine is in Pakistan: **102ms** per round trip, ~5 per `withUser()` transaction. Production runs in `sin1` beside the database. Measured, not assumed — do not go looking for a performance bug. |
+| ⚠️ `.env.local` must stay **LF** | Three scripts parse it with a regex where `.` cannot match `\r`. Write it from PowerShell and every key silently fails to parse, and the script reports "DATABASE_URL is not set" about a file that plainly sets it. |
+| ⚠️ Password encoding in `DATABASE_URL` | Percent-encode `$` as `%24` — Next runs `.env.local` through dotenv-expand, which eats `$anything` as a variable reference. Also `@ ? # / : %`. See `.env.example` item 3. |
 | **Owner requests** | [`docs/OWNER-REQUESTS.md`](OWNER-REQUESTS.md) — verbatim standing rules and design decisions. **Survives an account switch. Read it before any UI work.** |
 | Browser testing | Use `http://192.168.100.131:4310` — Chrome here cannot reach `localhost` |
 | After changing `public/brand/` | Delete `.next` and restart, or the image optimiser serves the stale asset |
@@ -49,7 +59,8 @@ That's all you ever need to type. Everything else is recorded in the files.
 
 | | |
 |---|---|
-| **Last updated** | 2026-08-12, Session 24 |
+| **Last updated** | **2026-08-15, Session 26** — infrastructure migration + UI redesign steps 5–9 |
+| **➡️ START HERE** | **§3 → "Session 26"**. Everything below this table predates the Supabase/Vercel/GitHub move and describes the OLD infrastructure. Where they disagree, Session 26 wins. |
 | **Tests** | `npm run test` → **1044** · `npm run test:auth` → **141** (real DB) · `npm run smoke` → **27/27** (every route, both roles) |
 | **⛔ Credential hygiene** | Three secrets were pasted into chat in Session 09 (Resend key, DB password ×2 — one echoed by my own script's error output). **All must be rotated.** Never paste a secret; `npm run check:db` redacts and is safe to share. |
 | **Current phase** | **CHANGE-PLAN Batch 6** — layout & navigation. All 8 build steps, all 9 redesign phases and CHANGE-PLAN Batches 1–5 are complete. |
@@ -270,6 +281,127 @@ The new asset is a **transparent raster**, not vector. That changes what each fo
 > resume from if a session dies halfway through one. `WORK-LOG.md` §1 names the
 > exact next action and §2 lists every finished step with its proof. Owner
 > instruction, Session 23.
+
+
+### ✅ Session 26 (2026-08-14 → 15) — NEW INFRASTRUCTURE + UI STEPS 5–9
+
+> **Everything below this entry predates the move.** Where an older entry
+> mentions Supabase `rxjqbtvlzxigfakbiktw`, `cni-crm.vercel.app` or the
+> `habibaminhas989-blip` repo, it is describing infrastructure that is no longer
+> ours. This entry is the current truth.
+
+**➡️ NEXT ACTION: UI redesign step 10 (Realtime push) or step 11 (Workflow).**
+Steps 1–9 are complete. Step 11 needs schema decisions first — see the questions
+at the foot of this entry.
+
+#### Part 1 — the whole system moved
+
+| | From | To |
+|---|---|---|
+| Supabase | `rxjqbtvlzxigfakbiktw` | **`xmqcmbbgbyuohpzywote`** (ap-southeast-1) |
+| Vercel | `cni-crm` (personal) | **`task-management-crm`**, team `AI Digital Division` (Hobby) |
+| GitHub | `habibaminhas989-blip/cni-crm` (private) | **`cniaidigitaldivision/Task-Management-CRM`** (⚠️ public) |
+
+**Database.** All 25 migrations applied to an empty project, then the full
+dataset cloned: **1,440 rows, every table matching, every foreign key verified
+orphan-free** from the catalog. The clone ran with `session_replication_role =
+replica` — the only way to carry self-referencing rows like `users.created_by_id`
+and `tasks.parent_task_id` — so afterwards **9/9 invariants were re-proved with
+real data**: triggers live, user delete refused, promotion refused, foreign
+Super-Admin write refused, audit append-only, second `super_admin` refused, and
+RLS returning 0 rows unidentified while the Super Admin sees all 38 tasks.
+
+Storage moved too: both buckets recreated, 3 objects copied, avatar URLs
+repointed, private bucket confirmed private.
+
+⚠️ **Migration 006 will fail on any fresh Supabase project.** It does a bare
+`revoke execute on function public.rls_auto_enable()`, a platform object that no
+longer ships. It was applied here with an existence guard; **the file on disk
+still has the unguarded version.**
+
+#### Part 2 — four bugs found by moving
+
+1. **`$` in a database password.** Next runs `.env.local` through dotenv-expand,
+   which reads `$anything` as a variable reference and substitutes it away. The
+   app got a mangled password (`28P01`) while `npm run check:db` **passed
+   throughout**, because it parses the file itself with no expansion. Encode
+   `%24`. Documented in `.env.example` item 3.
+2. **`redact()` leaked passwords containing `@`.** Six copies across `scripts/`
+   matched the password as `[^@]*`, stopping at the FIRST `@` and printing the
+   rest — while `migrate.mjs`'s header claimed "safe to share". All six now
+   anchor on the last `@`.
+3. **CRLF `.env.local` breaks three scripts.** `.split('\n')` leaves a trailing
+   `\r` that `.` cannot match, so every key fails and the script reports
+   "DATABASE_URL is not set". Now `/\r?\n/`.
+4. **Vercel env vars existed but were EMPTY.** Every authenticated page 500'd on
+   `SESSION_SECRET is not set` while public pages were fine. Only the four
+   variables written by CLI worked.
+
+#### Part 3 — UI redesign, steps 5–9 complete
+
+Step 5 was already built and the plan file simply still said ⬜. Steps 6–9 built
+and browser-verified in both themes:
+
+- **6 Calendar** — day cells tinted by their lead task's status, one filled pill
+  per day with the rest outlined, agenda rail (sibling of the grid, not a
+  popover, so the month stays visible).
+- **Texture pass** — the references are **not glass**; they are layered solid
+  surfaces. Plan §2's "glass sparingly, chrome only" was already correct. The
+  real gap: step 1's utilities were built and never applied — `.glow-header` in
+  **zero** screens, `.grain`/`.panel-lit` on the dashboard only, and the top bar
+  hand-rolling its own glass. `PageHeader` now carries the glow, so all ten
+  screens gained it from one change.
+- **7 Tasks/Projects/Team** — one tint vocabulary; board columns wash from the
+  header and fade out before the cards.
+- **8 Settings/Security/Documents/Vault/Reports** — less than expected, and
+  Settings deliberately stays flat (dense forms). ⚠️ `/security` is
+  **super_admin-only and could not be visually verified**: `demo-session.mjs`
+  correctly refuses any address outside `@cni-demo.com`.
+- **9 Login** — orbiting teal/gold border, `@property --orbit-angle`, frozen
+  under `prefers-reduced-motion`.
+
+**Two corrections to my own work, recorded rather than quietly fixed:** the logo
+fix feathered light pixels that were invisible on white and glowed on dark (only
+white was checked); and a claimed "4.34 MB → 0.19 MB" was wrong — `ls -la | awk
+'{print $5}'` misparses because this machine's account name contains a space.
+Use `stat -c %s`.
+
+#### Part 4 — R4 amended (R4a)
+
+The owner asked for the workflow editor. **R4 said the opposite in their own
+words** and was quoted back to them; they chose the narrow reading. Recorded as
+**R4a** in `OWNER-REQUESTS.md` and as **step 11** in the redesign plan: doc 12's
+**E-004 handoff chains** wearing the reference's node canvas. ⛔ The reference's
+nodes are Shell Script / HTTP Request / Web Hook — arbitrary code execution and
+SSRF. **Ours are task template, assignee rule, notification. That line does not
+move.**
+
+#### Open questions for step 11 (workflow)
+
+Not yet answered, and they decide the schema:
+1. Does a chain belong to a **project type**, a **project**, or the division?
+2. What triggers a step — status reaching `done` only, or any transition?
+3. Does the created task use the **smart assignment engine** (E-004's wording) or
+   a fixed assignee per node?
+4. Are chains **versioned**? A chain edited mid-flight otherwise changes work
+   already in progress.
+
+#### Still outstanding for the owner
+
+- **Rotate** the database password and the `service_role` key — both were exposed
+  this session and both are in Vercel.
+- **Repo is public** with the demo password in `DEMO-GUIDE.md`; demo accounts are
+  live and Admin-level.
+- **`EMAIL_FROM` is the Resend sandbox sender** — mail to anyone but the Resend
+  account owner is accepted and silently dropped, which blocks activating
+  `lareebkhan@gmail.com` and `arsalan3@gmail.com`.
+- **`GOOGLE_SERVICE_ACCOUNT_JSON` is empty**, so `/api/drive-sync` returns
+  `{"ok":true,"skipped":"Google Drive is not connected"}`. The 15-minute cron
+  runs from **GitHub Actions** (`.github/workflows/drive-sync.yml`), because
+  Hobby rejects any cron firing more than once a day — that rejection blocks the
+  whole deploy, it does not merely disable the cron.
+- **Old system still live**: `cni-crm.vercel.app` + the old Supabase project.
+  Owner is taking the deployment down themselves.
 
 
 ### ✅ Session 24 — CHANGE-PLAN Batches 4 **and 5** COMPLETE
