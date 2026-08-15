@@ -605,7 +605,10 @@ function AgendaRail({
   });
 
   return (
-    <aside className="w-full shrink-0 rounded-xl border border-border-subtle bg-bg-surface p-4 xl:w-[19rem]">
+    /* `panel-lit` + `grain`: a large panel, which is exactly what the plan
+       reserves those two for. Not on the month grid itself — that is dense text
+       in 42 cells, and the rule is "never behind a table or dense text". */
+    <aside className="panel-lit grain w-full shrink-0 rounded-xl border border-border-subtle bg-bg-surface p-4 xl:w-[19rem]">
       <div className="flex items-baseline justify-between gap-2">
         <h3 className="text-body-sm font-semibold text-text-primary">
           {isToday ? 'Today' : heading}

@@ -123,7 +123,15 @@ export function Topbar({
   }, [bellOpen]);
 
   return (
-    <header className="sticky top-0 z-30 border-b border-border-default bg-bg-surface/85 backdrop-blur-xl">
+    /* ── THE SHARED `.glass`, NOT A HAND-ROLLED ONE ────────────────────────────
+       This was `bg-bg-surface/85 backdrop-blur-xl` — its own private idea of
+       what glass means, which is precisely what the utility's comment in
+       tokens.css warns produces "two panels disagreeing". `.glass` carries the
+       tokenised background, border, blur, saturation AND the @supports fallback
+       that turns it opaque where backdrop-filter is unavailable, so text is
+       never left floating over scrolled content. The plan puts glass on chrome
+       exactly like this: top bar, dialogs, dropdowns, timer bar. */
+    <header className="glass sticky top-0 z-30 border-b">
       <div className="flex h-[var(--topbar-height)] items-center gap-3 px-4 sm:px-6">
         <IconButton
           label="Open navigation"

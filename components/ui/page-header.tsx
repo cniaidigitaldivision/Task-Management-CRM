@@ -41,7 +41,27 @@ export function PageHeader({
   children?: React.ReactNode;
 }) {
   return (
-    <div className={cn('space-y-4', className)}>
+    /* ── THE GLOW BEHIND THE HEADER (UI redesign, texture pass) ───────────────
+       Plan §2: "glows behind headers". `.glow-header` existed from step 1 and
+       was applied nowhere except its own gallery tile, so every page header was
+       sitting on flat surface. Putting it here rather than on each page means
+       ten screens gain it from one change and none of them can forget it.
+
+       ⚠️ `isolate` + `-z-10`, and it matters WHICH of those two is safe where.
+       The grain utility documents the trap: an isolated stacking context plus a
+       negative z-index puts the layer behind its own parent's background, so an
+       opaque parent paints straight over it. That is fatal on a Card. It is fine
+       here precisely because this container has NO background of its own — the
+       glow lands on the page surface and the heading sits above it.
+
+       Negative insets let the light bleed past the header's box, which is what
+       makes it read as light falling on the page rather than as a rectangle
+       somebody drew behind the title. */
+    <div className={cn('relative isolate space-y-4', className)}>
+      <span
+        aria-hidden="true"
+        className="glow-header pointer-events-none absolute -inset-x-8 -top-10 -bottom-4 -z-10"
+      />
       <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
         <div className="min-w-0">
           {eyebrow && (
