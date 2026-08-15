@@ -40,7 +40,7 @@ const DEMO_DOMAIN = 'cni-demo.com';
 const DEMO_PASSWORD = 'Marigold-Harbour-92';
 
 function redact(text) {
-  return String(text).replace(/:\/\/([^:@\s]+):([^@\s]*)@/g, '://$1:••••••••@');
+  return String(text).replace(/:\/\/([^:@\s]+):(.*)@([^@\s\/]+)/g, '://$1:••••••••@$3');
 }
 
 function readEnvLocal() {

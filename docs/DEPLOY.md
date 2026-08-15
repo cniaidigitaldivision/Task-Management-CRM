@@ -1,13 +1,21 @@
 # 🚀 DEPLOYING TO VERCEL
 
-> ✅ **Already done.** Live at **https://cni-crm.vercel.app**.
+> ⚠️ **Moved to a new Vercel account, 2026-08-14. Not yet deployed.**
 >
-> The GitHub repository is connected to the Vercel project, so **every push to
-> `main` deploys itself** — steps 1, 2 and 4 below are only needed if that link
-> is ever broken and the CLI has to be used instead.
+> | | |
+> |---|---|
+> | Team | **AI Digital Division** (Hobby) |
+> | Project | **`task-management-crm`** |
+> | Domain | `task-management-crm-ivory.vercel.app` |
+> | Production | **none yet** — the project has no production deployment |
 >
-> What still matters here: the environment-variable list (step 3), the
-> redeploy-after-changing-them rule, and the notes at the foot.
+> The previous project was `cni-crm` at `cni-crm.vercel.app`, backed by the old
+> Supabase project. Both are superseded; nothing on that deployment points at
+> the current database.
+>
+> **Every step below is live again**, because this project has never been
+> deployed and has no environment variables set. Step 3 is the one that decides
+> whether the first deploy works.
 
 > Everything here you run yourself. **No environment value should ever be sent to
 > me** — `vercel env add` reads from your terminal and the dashboard reads from
@@ -42,7 +50,7 @@ Answer:
 | Set up and deploy? | **no** — link only, we are not deploying yet |
 | Which scope? | your own account |
 | Link to existing project? | **no** |
-| Project name | `cni-crm` |
+| Project name | `task-management-crm` |
 | Directory | `./` |
 
 This writes a `.vercel/` folder, which is already git-ignored.
@@ -126,14 +134,26 @@ every screen a Member should not reach refuses them.
 
 ## Things to know before the URL is public
 
-**`/setup` is already closed.** A Super Admin exists, and the database permits
-exactly one, so the route refuses everybody — permanently. Had it still been
-open, whoever found the URL first would have become the owner of the system.
-Vercel URLs are not private; they appear in public certificate logs.
+**⚠️ `/setup` IS OPEN AGAIN — this changed on 2026-08-14.** The project moved to
+a fresh Supabase database (`xmqcmbbgbyuohpzywote`), which has **no Super Admin
+row**, so `app.setup_is_available()` returns true and the route will accept the
+first person who reaches it. Whoever that is becomes the owner of the system,
+permanently — the database permits exactly one Super Admin, ever.
 
-**The demo accounts still work,** and their password is in this repository and
-in `DEMO-GUIDE.md`. Anyone with the URL and that password signs in as an Admin.
-Fine while the address is unlisted; clear it before real work goes in:
+Vercel URLs are **not** private; they appear in public certificate transparency
+logs. So the order matters: **run `/setup` yourself, from localhost, before the
+new deployment is reachable.** Once it completes, the route refuses everybody
+again and this note goes back to being historical.
+
+The old project's setup codes — including the ones in
+`First-run setup · CNI CRM super admin codes.pdf` — belong to the old database
+and are dead. Setup issues a new Super Admin password and ten new recovery
+codes, shown exactly once.
+
+**The demo accounts do not exist yet** on the new database. `npm run seed:demo`
+recreates them; their password is in this repository and in `DEMO-GUIDE.md`, so
+anyone with the URL and that password signs in as an Admin. Fine while the
+address is unlisted; clear it before real work goes in:
 
 ```bash
 npm run seed:demo -- --wipe

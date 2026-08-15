@@ -51,7 +51,7 @@ const info = (m) => console.log(`    ${m}`);
 
 /** Never print a secret, even partially — a prefix still narrows a search. */
 function redact(url) {
-  return url.replace(/:\/\/([^:]+):([^@]*)@/, '://$1:••••••••@');
+  return url.replace(/:\/\/([^:@\s]+):(.*)@([^@\s\/]+)/, '://$1:••••••••@$3');
 }
 
 function readEnvLocal() {

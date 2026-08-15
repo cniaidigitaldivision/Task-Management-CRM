@@ -38,7 +38,7 @@ import postgres from 'postgres';
 const APPLY = process.argv.includes('--apply');
 
 function redact(text) {
-  return String(text).replace(/:\/\/([^:@\s]+):([^@\s]*)@/g, '://$1:••••••••@');
+  return String(text).replace(/:\/\/([^:@\s]+):(.*)@([^@\s\/]+)/g, '://$1:••••••••@$3');
 }
 
 function readEnvLocal() {

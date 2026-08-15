@@ -1,0 +1,88 @@
+name: Drive sync
+
+# ─────────────────────────────────────────────────────────────────────────────
+# WHY THIS EXISTS INSTEAD OF A VERCEL CRON
+#
+# vercel.json used to carry:
+#
+#     { "path": "/api/drive-sync", "schedule": "*/15 4-12 * * 1-6" }
+#
+# The Vercel Hobby plan refuses any cron that fires more than once a day, and
+# the deploy is rejected outright — not degraded, rejected:
+#
+#     "Hobby accounts are limited to daily cron jobs.
+#      This cron expression (*/15 4-12 * * 1-6) would run more than once per day."
+#
+# The daily /api/digest cron is still in vercel.json and still runs on Vercel;
+# only this one moved. Keeping the 15-minute cadence matters because migration
+# 025's whole point is that a new folder under the watched Drive folder becomes
+# a draft project promptly. Once a day would make it feel broken.
+#
+# ⚠️ GitHub's scheduler is best-effort. Under load, runs are delayed and
+# occasionally skipped — it is not a guaranteed timer. That is acceptable here:
+# the route is idempotent (`projects_drive_folder_key` is a unique index on
+# drive_folder_id, so a repeated poll cannot create the same project twice) and
+# a late sync is a late draft project, not a lost one.
+#
+# If this ever needs to be exact, the answer is Vercel Pro and moving the entry
+# back into vercel.json — not a tighter schedule here.
+# ─────────────────────────────────────────────────────────────────────────────
+
+on:
+  schedule:
+    # Every 15 minutes, 04:00–12:59 UTC, Monday–Saturday. Same expression the
+    # Vercel cron used; GitHub cron is UTC, as Vercel's was.
+    - cron: '*/15 4-12 * * 1-6'
+  # So it can be triggered by hand from the Actions tab without waiting.
+  workflow_dispatch:
+
+# No checkout, no dependencies, no repository write access. This job only makes
+# one authenticated HTTP request.
+permissions:
+  contents: read
+
+concurrency:
+  # A slow sync must not overlap the next scheduled run.
+  group: drive-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Trigger /api/drive-sync
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET is not set. Add it under Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          if [ -z "$APP_URL" ]; then
+            echo "::error::APP_URL is not set. Add it as an Actions *variable* (not a secret)."
+            exit 1
+          fi
+
+          # -sS keeps it quiet but still prints errors. The body is captured so a
+          # failure says what the route actually returned instead of just a code.
+          body=$(curl -sS -m 120 -w '\n%{http_code}' \
+                   -H "Authorization: Bearer $CRON_SECRET" \
+                   "$APP_URL/api/drive-sync")
+          code=$(printf '%s' "$body" | tail -n1)
+          payload=$(printf '%s' "$body" | sed '$d')
+
+          echo "HTTP $code"
+          echo "$payload"
+
+          # 401 is the interesting failure: it means the secret here and the one
+          # in Vercel have drifted apart, which is silent otherwise.
+          if [ "$code" = "401" ]; then
+            echo "::error::401 — CRON_SECRET here does not match the one in Vercel."
+            exit 1
+          fi
+          if [ "$code" -lt 200 ] || [ "$code" -ge 300 ]; then
+            echo "::error::drive-sync failed with HTTP $code"
+            exit 1
+          fi

@@ -18,7 +18,7 @@
 
 | | |
 |---|---|
-| **Live** | https://cni-crm.vercel.app — auto-deploys on push to `main` |
+| **Live** | Not deployed — moved 2026-08-14 to Vercel project `task-management-crm`. See [DEPLOY.md](DEPLOY.md). |
 | **Current step** | ✅ **All 8 steps complete.** Two owner actions outstanding — see below |
 | **Last updated** | 2026-08-07 |
 

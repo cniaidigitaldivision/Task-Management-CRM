@@ -32,7 +32,7 @@ import postgres from 'postgres';
 
 /** Never print a secret, even partially — a prefix still narrows a search. */
 function redact(text) {
-  return String(text).replace(/:\/\/([^:@\s]+):([^@\s]*)@/g, '://$1:••••••••@');
+  return String(text).replace(/:\/\/([^:@\s]+):(.*)@([^@\s\/]+)/g, '://$1:••••••••@$3');
 }
 
 function readEnvLocal() {

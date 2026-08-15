@@ -206,7 +206,7 @@ Stated plainly so nobody assumes coverage that is not there.
 generate_typescript_types   →   types/database.ts
 
 # or, with the Supabase CLI installed
-npx supabase gen types typescript --project-id rxjqbtvlzxigfakbiktw > types/database.ts
+npx supabase gen types typescript --project-id xmqcmbbgbyuohpzywote > types/database.ts
 ```
 
 ### Re-run the gate proof

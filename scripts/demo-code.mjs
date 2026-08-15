@@ -40,7 +40,7 @@ import { resolve } from 'node:path';
 import postgres from 'postgres';
 
 function redact(text) {
-  return String(text).replace(/:\/\/([^:@\s]+):([^@\s]*)@/g, '://$1:••••••••@');
+  return String(text).replace(/:\/\/([^:@\s]+):(.*)@([^@\s\/]+)/g, '://$1:••••••••@$3');
 }
 
 function readEnvLocal() {

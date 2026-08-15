@@ -31,15 +31,15 @@ That's all you ever need to type. Everything else is recorded in the files.
 |---|---|
 | Run it | `npm run dev` → **http://localhost:4310** (not 3000 — a foreign service worker owns 3000) |
 | Verify | `npm run verify` = typecheck → lint → build |
-| **Live** | **https://cni-crm.vercel.app** — Vercel project `cni-crm`, auto-deploys on every push to `main` |
-| Verify the live site | `npm run smoke -- https://cni-crm.vercel.app` — 25 checks, both roles |
+| **Live** | **Not deployed.** Moved 2026-08-14 to Vercel team `AI Digital Division`, project `task-management-crm` (`task-management-crm-ivory.vercel.app`) — no production deployment, no env vars set yet. The old `cni-crm.vercel.app` is superseded and points at the old database. |
+| Verify the live site | `npm run smoke -- https://<new-url>` — 25 checks, both roles |
 | Repo | https://github.com/habibaminhas989-blip/cni-crm (private, `main`) |
 | **Owner requests** | [`docs/OWNER-REQUESTS.md`](OWNER-REQUESTS.md) — verbatim standing rules and design decisions. **Survives an account switch. Read it before any UI work.** |
 | Browser testing | Use `http://192.168.100.131:4310` — Chrome here cannot reach `localhost` |
 | After changing `public/brand/` | Delete `.next` and restart, or the image optimiser serves the stale asset |
 | **After adding a route** | Run `npm run build` **first**. `tsc` cannot see a new page until the typed-route manifest regenerates, so `verify` fails on a route that exists. |
 | Control sizing | Never set a height on a control. Import from [`components/ui/control.ts`](../components/ui/control.ts) and check `/design-system` → **Controls**. |
-| Database | Supabase `rxjqbtvlzxigfakbiktw`. Schema lives in `lib/db/migrations/`; contract for using it in [`lib/db/README.md`](../lib/db/README.md) |
+| Database | Supabase `xmqcmbbgbyuohpzywote`. Schema lives in `lib/db/migrations/`; contract for using it in [`lib/db/README.md`](../lib/db/README.md) |
 | Re-prove the security gate | Paste `lib/db/verify/005_super_admin_immutability.sql` into the SQL editor or the MCP. Self-cleaning, safe against production. Every row must read PASS. |
 | After any migration | Regenerate `types/database.ts`, re-run the gate proof, and run `get_advisors(security)` |
 
@@ -172,7 +172,7 @@ Surfaces deepened, borders and shadows raised to visible values, `--page-ambienc
 | **Dev server** | `npm run dev` → http://localhost:4310 |
 | **Repository** | https://github.com/habibaminhas989-blip/cni-crm — **private**, branch `main` |
 | **GitHub account** | `habibaminhas989-blip` · `gh` CLI v2.97.0 authenticated |
-| **Supabase** | Project `rxjqbtvlzxigfakbiktw` — used from Step 2 |
+| **Supabase** | Project `xmqcmbbgbyuohpzywote` — migrated to a fresh project 2026-08-14; all 25 migrations re-applied, both storage buckets recreated. The previous project was `rxjqbtvlzxigfakbiktw`. |
 | **Supabase MCP** | Configured in **`.mcp.json`** (project scope). Was named `mcp.json` and therefore never loaded — Claude Code only reads `.mcp.json`. Requires a Claude Code restart, then approval, then OAuth via `/mcp`. |
 
 ### What was completed in Session 05 (2026-08-06) — PHASE 1, STEP 1
