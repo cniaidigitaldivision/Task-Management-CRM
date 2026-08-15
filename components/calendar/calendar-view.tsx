@@ -30,6 +30,40 @@ import { PRIORITY_LABEL, STATUS_META } from '@/lib/domain/constants';
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
+/* ── TINTING A DAY BY WHAT IS IN IT (step 6) ─────────────────────────────────
+ * The reference calendars tint a day cell to match its event. Ours cannot use
+ * their per-event rainbow — doc: "our status tokens already carry meaning, and
+ * recolouring events by hue for decoration would destroy the one thing the
+ * colour currently tells you". So the tint is the STATUS colour, which means
+ * the wash across the month is information: a red-ish week is a blocked week.
+ *
+ * `color-mix` rather than a second set of `--status-*-wash` tokens. One
+ * authored colour and one derived tint cannot drift apart, and it stays correct
+ * in both themes because both operands are already theme-aware. 7% is as far as
+ * it can go before the cell starts competing with the pills inside it.
+ *
+ * BR-025 is satisfied: no hex here, only tokens.
+ */
+function dayTint(token: string | null, isSunday: boolean): React.CSSProperties {
+  const base = isSunday ? 'var(--bg-surface-sunken)' : 'var(--bg-surface)';
+  if (!token) return { backgroundColor: base };
+  return { backgroundColor: `color-mix(in oklab, var(--${token}) 7%, ${base})` };
+}
+
+/** A filled pill for the day's first task, hairline outlines for the rest. */
+function pillStyle(token: string, filled: boolean): React.CSSProperties {
+  const colour = `var(--${token})`;
+  return filled
+    ? {
+        backgroundColor: `color-mix(in oklab, ${colour} 20%, var(--bg-surface))`,
+        borderColor: `color-mix(in oklab, ${colour} 45%, transparent)`,
+      }
+    : {
+        backgroundColor: 'transparent',
+        borderColor: `color-mix(in oklab, ${colour} 28%, transparent)`,
+      };
+}
+
 function iso(year: number, month: number, day: number): string {
   return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
@@ -109,6 +143,14 @@ export function CalendarView({
   /* Defaults to the reader's own work, so the calendar opens as their diary
      rather than as the division's noticeboard. */
   const [assignee, setAssignee] = React.useState(currentUserId);
+
+  /* ── THE AGENDA RAIL'S DAY (step 6) ────────────────────────────────────────
+     Starts on today, so the rail is answering a question before anybody has
+     clicked anything. Clicking a cell moves it. It is deliberately NOT reset
+     when the month changes: paging to September and back should not lose the
+     day you were reading, and a day outside the visible month simply shows
+     nothing rather than being an error state. */
+  const [selectedDay, setSelectedDay] = React.useState(todayIso);
 
   /* ── MONTH AND WEEK — CHANGE-PLAN 7.2, decision 11 ─────────────────────────
      Month answers "how busy is the rest of this month"; week answers "what am I
@@ -352,7 +394,8 @@ export function CalendarView({
           onOpen={(id) => router.push(`/tasks?task=${id}` as never)}
         />
       ) : (
-      <div className="overflow-x-auto">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-start">
+      <div className="min-w-0 flex-1 overflow-x-auto">
         <div className="min-w-[46rem]">
           <div className="grid grid-cols-7 gap-px rounded-t-xl bg-border-subtle">
             {WEEKDAYS.map((day) => (
@@ -377,11 +420,20 @@ export function CalendarView({
               const isToday = date === todayIso;
               const isSunday = index % 7 === 6;
               const dayTasks = byDay.get(date) ?? [];
+              const isSelected = date === selectedDay;
+              /* The cell's tint comes from the first task of the day — the one
+                 that is also drawn as the filled pill — so the wash and the
+                 pill agree rather than describing different tasks. */
+              const leadToken = dayTasks[0] ? STATUS_META[dayTasks[0].status].token : null;
 
               return (
                 <div
                   key={date}
-                  className={`min-h-[6.5rem] p-1.5 ${isSunday ? 'bg-bg-surface-sunken' : 'bg-bg-surface'}`}
+                  onClick={() => setSelectedDay(date)}
+                  className={`relative min-h-[6.5rem] cursor-pointer p-1.5 transition-shadow duration-[120ms] ${
+                    isSelected ? 'ring-2 ring-[var(--border-brand)] ring-inset' : ''
+                  }`}
+                  style={dayTint(leadToken, isSunday)}
                 >
                   <div className="mb-1 flex items-baseline justify-between">
                     <span
@@ -414,7 +466,7 @@ export function CalendarView({
                       OTHER row in the month taller, and a month where one busy
                       Tuesday sets the height of six weeks is unreadable. */}
                   <ul className="space-y-1">
-                    {dayTasks.slice(0, 3).map((task) => (
+                    {dayTasks.slice(0, 3).map((task, taskIndex) => (
                       <li key={task.id}>
                         <button
                           type="button"
@@ -427,8 +479,21 @@ export function CalendarView({
                             STATUS_META[task.status].label,
                             task.assigneeName ?? 'Unassigned',
                           ].join(' · ')}
-                          onClick={() => router.push(`/tasks?task=${task.id}` as never)}
-                          className="flex w-full gap-1.5 rounded px-1 py-1 text-left hover:bg-bg-hover"
+                          onClick={(event) => {
+                            /* The cell under this is a click target too — without
+                               this the row would select the day AND navigate. */
+                            event.stopPropagation();
+                            router.push(`/tasks?task=${task.id}` as never);
+                          }}
+                          /* ── FILLED FIRST, OUTLINED AFTER (step 6) ──────────
+                             The reference calendars draw one filled pill and
+                             outline the rest, which gives each day a single
+                             visual anchor instead of a stack of equal bars. The
+                             filled one is the first — the same task the cell's
+                             tint is taken from — so the day reads as "this, and
+                             two more" rather than as an undifferentiated list. */
+                          className="flex w-full gap-1.5 rounded-md border px-1 py-1 text-left transition-colors duration-[120ms] hover:brightness-[1.06]"
+                          style={pillStyle(STATUS_META[task.status].token, taskIndex === 0)}
                         >
                           <span
                             aria-hidden="true"
@@ -479,6 +544,15 @@ export function CalendarView({
           </div>
         </div>
       </div>
+
+        <AgendaRail
+          day={selectedDay}
+          tasks={byDay.get(selectedDay) ?? []}
+          isToday={selectedDay === todayIso}
+          showAvatars={assignee === 'all'}
+          onOpen={(id) => router.push(`/tasks?task=${id}` as never)}
+        />
+      </div>
       )}
 
       <p className="text-micro text-text-tertiary">
@@ -488,6 +562,115 @@ export function CalendarView({
           : ' Sunday is shaded because the working week runs Monday to Saturday (ADR-004).'}
       </p>
     </div>
+  );
+}
+
+/* ============================================================================
+ * AGENDA RAIL — UI redesign step 6
+ * ----------------------------------------------------------------------------
+ * The reference dashboards all park a narrow rail beside the grid holding the
+ * selected day in full. The month cell can only afford a truncated title; this
+ * is where the same task gets its reference, its time, its project, its status
+ * and its owner without any of it being clipped.
+ *
+ * ── WHY IT IS A SIBLING OF THE GRID AND NOT A POPOVER ────────────────────────
+ * A popover would cover the month it was opened from, so comparing Tuesday with
+ * Thursday would mean opening, reading, closing, opening. The rail stays put and
+ * the grid stays visible, which is the entire reason the reference layouts use
+ * one.
+ *
+ * Below `xl` it drops underneath the grid rather than disappearing: on a narrow
+ * screen a 7-column month is already scrolling horizontally, and a rail beside
+ * it would leave neither readable.
+ * ========================================================================= */
+
+function AgendaRail({
+  day,
+  tasks,
+  isToday,
+  showAvatars,
+  onOpen,
+}: {
+  day: string;
+  tasks: readonly CalendarTask[];
+  isToday: boolean;
+  showAvatars: boolean;
+  onOpen: (id: string) => void;
+}) {
+  const heading = new Date(`${day}T00:00:00Z`).toLocaleString('en-GB', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    timeZone: 'UTC',
+  });
+
+  return (
+    <aside className="w-full shrink-0 rounded-xl border border-border-subtle bg-bg-surface p-4 xl:w-[19rem]">
+      <div className="flex items-baseline justify-between gap-2">
+        <h3 className="text-body-sm font-semibold text-text-primary">
+          {isToday ? 'Today' : heading}
+        </h3>
+        <span className="tabular shrink-0 text-micro text-text-tertiary">
+          {tasks.length === 1 ? '1 task' : `${tasks.length} tasks`}
+        </span>
+      </div>
+      {isToday && <p className="mt-0.5 text-micro text-text-tertiary">{heading}</p>}
+
+      {tasks.length === 0 ? (
+        /* The dot-grid is the redesign's empty-state texture (step 1). It is used
+           here and never behind a populated list — texture behind data costs
+           contrast and buys nothing. */
+        <div className="dot-grid mt-3 rounded-lg px-3 py-6 text-center">
+          <p className="text-micro text-text-tertiary">Nothing is due on this day.</p>
+        </div>
+      ) : (
+        <ul className="mt-3 space-y-2">
+          {tasks.map((task) => (
+            <li key={task.id}>
+              <button
+                type="button"
+                onClick={() => onOpen(task.id)}
+                className="w-full rounded-lg border border-border-subtle bg-bg-surface-raised p-2.5 text-left transition-colors duration-[120ms] hover:border-border-strong hover:bg-bg-hover"
+              >
+                <span className="flex items-center gap-2">
+                  <span
+                    aria-hidden="true"
+                    className="h-2 w-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: `var(--${STATUS_META[task.status].token})` }}
+                  />
+                  <span className="tabular shrink-0 text-micro font-semibold text-text-secondary">
+                    {task.dueTime ?? '—'}
+                  </span>
+                  <span className="tabular ml-auto shrink-0 text-micro text-text-tertiary">
+                    {task.reference}
+                  </span>
+                </span>
+
+                <span className="mt-1 block text-body-sm font-medium text-text-primary">
+                  {task.title}
+                </span>
+
+                <span className="mt-1 flex items-center gap-2">
+                  <span className="min-w-0 flex-1 truncate text-micro text-text-tertiary">
+                    {task.projectName}
+                  </span>
+                  <span className="shrink-0 text-micro text-text-tertiary">
+                    {STATUS_META[task.status].label}
+                  </span>
+                  {showAvatars && (
+                    <Avatar
+                      name={task.assigneeName ?? 'Unassigned'}
+                      src={task.assigneeAvatarUrl}
+                      size="xs"
+                    />
+                  )}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </aside>
   );
 }
 
