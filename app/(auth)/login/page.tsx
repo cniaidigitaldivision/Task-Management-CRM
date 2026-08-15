@@ -72,7 +72,21 @@ export default async function LoginPage({
   const notice = reason ? REASONS[reason] : undefined;
 
   return (
-    <Card className="shadow-lg">
+    /* ── STEP 9: THE ORBITING BORDER ──────────────────────────────────────────
+       `video_3bf300fd145b` — two arcs travelling the perimeter 180° apart. Ours
+       are teal and gold rather than the video's cyan and magenta, per the
+       owner's standing constraint on the whole redesign.
+
+       Only the SIGN-IN card gets it. It is the one screen with a single thing to
+       do and nothing to read, which is exactly where a moving accent costs
+       nothing; the same border around a form somebody is trying to fill in would
+       be a distraction. Activation, reset and setup deliberately keep the plain
+       card.
+
+       `.glass` is right here for the same reason it is right on the top bar: this
+       is chrome, not a data panel, and the page behind it is the brand gradient
+       rather than text. */
+    <Card className="orbit-border glass shadow-lg">
       <CardBody className="space-y-5 p-6">
         <div className="space-y-1">
           <h1 className="text-h2 text-text-primary">Sign in</h1>

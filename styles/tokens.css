@@ -947,6 +947,85 @@ body,
 }
 
 /* ==========================================================================
+   THE ORBITING BORDER — UI redesign step 9
+   ==========================================================================
+   `video_3bf300fd145b`: two arcs travelling the card's perimeter, 180° apart,
+   continuously. The video ends on its own CSS, so the technique is confirmed
+   rather than guessed — a rotating conic gradient masked to the border ring.
+
+   ── OURS ARE TEAL AND GOLD, NOT CYAN AND MAGENTA ──────────────────────────
+   The owner's constraint on the whole redesign: "Do not apply those colors…
+   I want our color scheme". Both arcs are `--accent-*`, so they follow the
+   theme rather than being pinned to the video's palette.
+
+   ── WHY @property AND NOT A TRANSFORM ─────────────────────────────────────
+   A conic gradient's `from` angle is not animatable unless the custom property
+   holding it is registered with a type — an unregistered property animates as a
+   discrete string and the arcs would jump in steps. Rotating the element itself
+   was the alternative and it is worse: the card is a rectangle, so spinning the
+   layer sweeps its corners through the border and the arcs change length as
+   they travel.
+
+   ── THE MASK IS WHAT MAKES IT A BORDER RATHER THAN A BACKGROUND ───────────
+   Two masks composited with `exclude`: the whole box minus its content box,
+   leaving exactly the padding ring. `-webkit-` first for Safari, which still
+   needs the prefixed pair.
+   ========================================================================== */
+
+@property --orbit-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+.orbit-border {
+  position: relative;
+}
+
+.orbit-border::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: var(--orbit-width, 1.5px);
+  pointer-events: none;
+  background: conic-gradient(
+    from var(--orbit-angle),
+    transparent 0deg,
+    var(--accent-primary) 22deg,
+    transparent 58deg,
+    transparent 180deg,
+    var(--accent-gold) 202deg,
+    transparent 238deg,
+    transparent 360deg
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  animation: orbit-spin 7s linear infinite;
+}
+
+@keyframes orbit-spin {
+  to {
+    --orbit-angle: 360deg;
+  }
+}
+
+/* An animation somebody cannot turn off is an accessibility fault, not a
+   feature (plan §4). The arcs stay, frozen — the card keeps its lit edge and
+   stops moving. */
+@media (prefers-reduced-motion: reduce) {
+  .orbit-border::before {
+    animation: none;
+  }
+}
+
+/* ==========================================================================
    THE THEME WIPE
    ==========================================================================
    Video 1 is not a fade. A circular mask expands from the toggle itself and
