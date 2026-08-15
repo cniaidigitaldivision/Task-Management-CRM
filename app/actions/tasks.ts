@@ -16,6 +16,7 @@ import {
   TASK_STATUSES,
   type EffortSize,
   type Priority,
+  type ProjectType,
   type TaskStatus,
 } from '@/lib/domain/constants';
 import {
@@ -26,6 +27,10 @@ import {
   unfinishedBlockers,
 } from '@/lib/domain/dependencies';
 import { canDecideExtensions } from '@/lib/domain/extensions';
+import { activeChainForType } from '@/lib/db/queries/handoff';
+import { decideHandoff } from '@/lib/domain/handoff';
+import { gatherCandidates } from '@/lib/db/queries/recommendation';
+import { recommend } from '@/lib/domain/recommendation';
 import { PURGE_IS_AVAILABLE } from '@/lib/capabilities';
 import { can } from '@/lib/domain/permissions';
 import { nowMs } from '@/lib/now';
@@ -673,18 +678,31 @@ export async function changeStatusAction(
        old, which is the truth, rather than four tasks implying four separate
        pieces of work — and four tasks' worth of capacity load nobody owes. */
     let spawned: string | null = null;
-    if (to === 'done') spawned = await spawnNextOccurrence(user.id, taskId);
+    /* ── AND THE HANDOFF CHAIN (E-004 / R4a) ────────────────────────────────
+       Sequential, not `Promise.all`. Both write tasks, and a repeating task
+       that is ALSO a chain step would have the two racing to read and update
+       the same rows. At one completion per click the ordering costs nothing. */
+    let handed: string | null = null;
+    if (to === 'done') {
+      spawned = await spawnNextOccurrence(user.id, taskId);
+      handed = await spawnHandoff(user.id, taskId);
+    }
 
     revalidateWork();
+
+    /* Both can fire on one completion, so the message is assembled rather than
+       chosen — a task that both repeats and hands off would otherwise silently
+       report only one of the two things that just happened. */
+    const notes = [
+      advisory ?? null,
+      spawned ? `Next in the series created: ${spawned}.` : null,
+      handed ? `Handed off: ${handed} created and assigned.` : null,
+    ].filter((line): line is string => line !== null);
+
     return {
       ok: true,
       taskId,
-      warning:
-        spawned && advisory
-          ? `${advisory} The next one in the series is ${spawned}.`
-          : spawned
-            ? `Next in the series created: ${spawned}.`
-            : (advisory ?? undefined),
+      warning: notes.length > 0 ? notes.join(' ') : undefined,
     };
   } catch (error) {
     return fail(readableDbError(error));
@@ -745,6 +763,153 @@ async function spawnNextOccurrence(actorId: string, taskId: string): Promise<str
       update public.tasks set recurrence_rule = ${formatRecurrence(parsed.rule)}
        where id = ${created.id}
     `);
+
+    return created.reference;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Hand this completed task off to the next step of its project type's chain.
+ *
+ * doc 12 E-004, owner rule R4a. *"Kashif finishes the reel → the system creates
+ * 'Schedule reel across Meta + TikTok' and assigns it to Yusra using the smart
+ * engine."*
+ *
+ * ── BEST-EFFORT, EXACTLY LIKE spawnNextOccurrence ────────────────────────────
+ * The task the person just completed IS completed. A missing chain, a retired
+ * skill, a database hiccup — none of that may undo their completion or put an
+ * error in front of them about work they did not ask for. It returns null and
+ * the caller says nothing.
+ *
+ * ── THE ASSIGNEE COMES FROM THE REAL ENGINE, NOT A LOOKALIKE ─────────────────
+ * `gatherCandidates` + `recommend` is the same pair the recommendation panel
+ * uses, so a handoff respects capacity, availability, concurrency limits and
+ * proficiency in exactly the way a human assignment does. Writing a simpler
+ * "find someone with this skill" here would be a second scoring engine, and it
+ * would disagree with the first one the first time somebody was on leave.
+ *
+ * ⚠️ NO GOOD MATCH MEANS UNASSIGNED, NOT "PICK THE LEAST BAD".
+ * `noGoodMatch` is the engine saying nobody is a sensible fit — everybody is
+ * over capacity, or nobody has the skill. Assigning anyway would quietly break
+ * the capacity rules the whole system exists to enforce, so the task is created
+ * unassigned and lands in the backlog for a person to place.
+ */
+async function spawnHandoff(actorId: string, taskId: string): Promise<string | null> {
+  try {
+    const rows = await withUser(actorId, (tx) => tx`
+      select t.id, t.project_id, t.handoff_node_id, p.type as project_type,
+             coalesce(
+               (select array_agg(ts.skill_id) from public.task_skills ts
+                 where ts.task_id = t.id),
+               '{}'
+             ) as skill_ids
+        from public.tasks t
+        join public.projects p on p.id = t.project_id
+       where t.id = ${taskId}
+    `);
+    const row = rows[0];
+    if (!row) return null;
+
+    const projectType = row.project_type as ProjectType;
+    const chain = await activeChainForType(actorId, projectType);
+
+    const decision = decideHandoff(
+      {
+        id: row.id as string,
+        projectId: row.project_id as string,
+        projectType,
+        handoffNodeId: (row.handoff_node_id as string | null) ?? null,
+        skillIds: (row.skill_ids as string[] | null) ?? [],
+      },
+      chain,
+      new Date(nowMs()).toISOString().slice(0, 10),
+    );
+
+    if (decision.kind !== 'spawn') return null;
+    const { spawn } = decision;
+
+    /* Score the whole team against the step's required skill. Same call the
+       recommendation panel makes, including the Super Admin's own scoring
+       weights — the engine and the settings screen must not disagree about what
+       the team values. */
+    let assigneeId: string | undefined;
+    try {
+      const now = nowMs();
+      const [inputs, settings] = await Promise.all([
+        gatherCandidates(actorId, {
+          projectId: row.project_id as string,
+          dueDate: spawn.dueDate,
+          nowMs: now,
+        }),
+        getSettings(),
+      ]);
+
+      const today = new Date(now);
+      const daysToDue = spawn.dueDate
+        ? Math.round(
+            (Date.parse(`${spawn.dueDate}T00:00:00Z`) -
+              Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate())) /
+              86_400_000,
+          )
+        : null;
+
+      const result = recommend(
+        inputs.candidates,
+        {
+          requiredSkills: [{ skillId: spawn.skillId, label: spawn.title, weight: 3 }],
+          loadPoints: taskLoad({
+            effortPoints: spawn.effortPoints,
+            priority: spawn.priority,
+            status: 'todo',
+          }),
+          daysToDue,
+        },
+        {
+          totalRecentAssignments: inputs.totalRecentAssignments,
+          teamSize: inputs.teamSize,
+          softThresholdPct: Number(settings.softThresholdPct),
+          hardThresholdPct: Number(settings.hardThresholdPct),
+          weights: settings.scoringWeights as never,
+        },
+      );
+      if (!result.noGoodMatch) assigneeId = result.ranked[0]?.userId;
+    } catch {
+      /* Scoring failed. Create the task unassigned rather than not at all — the
+         handoff existing and needing a person beats the handoff being lost. */
+    }
+
+    const created = await T.createTask(actorId, {
+      title: spawn.title,
+      description: spawn.description ?? undefined,
+      projectId: row.project_id as string,
+      assigneeId,
+      priority: spawn.priority,
+      effortPoints: spawn.effortPoints,
+      dueDate: spawn.dueDate ?? undefined,
+      status: 'todo',
+    });
+
+    /* The pointer, plus the trail, in ONE transaction.
+       The pointer is written after creation rather than passed in: `createTask`
+       is the shared path every other caller uses, and widening its input for one
+       feature would put a handoff concept in front of everybody who makes a task.
+
+       The activity row matters as much as the pointer. Without it a task appears
+       in somebody's queue with no explanation, which is exactly the "where did
+       this come from" that makes people distrust automation. */
+    await withUser(actorId, async (tx) => {
+      await tx`
+        update public.tasks set handoff_node_id = ${spawn.nodeId} where id = ${created.id}
+      `;
+      await record(tx, actorId, {
+        entityType: 'task',
+        entityId: created.id,
+        action: 'task.handoff',
+        summary: `Created by the ${spawn.chainName} chain`,
+      });
+    });
 
     return created.reference;
   } catch {
