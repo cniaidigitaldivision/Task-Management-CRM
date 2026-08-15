@@ -10,6 +10,7 @@ import { ToggleGroup } from '@/components/ui/toolbar';
 import { Avatar } from '@/components/ui/avatar';
 import type { CalendarTask } from '@/lib/db/queries/search';
 import { PRIORITY_LABEL, STATUS_META } from '@/lib/domain/constants';
+import { cn } from '@/lib/utils';
 
 /* ============================================================================
  * CALENDAR — FR-088
@@ -47,20 +48,43 @@ const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 function dayTint(token: string | null, isSunday: boolean): React.CSSProperties {
   const base = isSunday ? 'var(--bg-surface-sunken)' : 'var(--bg-surface)';
   if (!token) return { backgroundColor: base };
-  return { backgroundColor: `color-mix(in oklab, var(--${token}) 7%, ${base})` };
+  /* ⚠️ 22%, not the 7% this started at. Owner, 2026-08-15: "the whole system is
+     still looking like a blank stale". Comparing side by side with the reference
+     calendars, they tint a day cell to roughly a fifth to a quarter of the event
+     colour and add a coloured border. At 7% the wash was invisible on a screen
+     and the discipline had become the defect. */
+  return {
+    backgroundColor: `color-mix(in oklab, var(--${token}) 22%, ${base})`,
+    boxShadow: `inset 0 0 0 1px color-mix(in oklab, var(--${token}) 34%, transparent)`,
+  };
 }
 
-/** A filled pill for the day's first task, hairline outlines for the rest. */
+/**
+ * A genuinely FILLED pill for the day's first task, outlines for the rest.
+ *
+ * ── WHY THE TEXT IS NEAR-BLACK AND NOT WHITE ─────────────────────────────────
+ * The references put white text on bright saturated chips, and it looks superb.
+ * Measured against our palette it also fails: white on `--emerald-l` (#10b981)
+ * is about 2.5:1 and on `--orange-l` (#f97316) about 2.9:1, against the 4.5:1
+ * AA needs. Those screenshots are mockups; this is a tool people read numbers in
+ * all day, and plan §4 says contrast is not negotiable.
+ *
+ * So the fill stays fully saturated — that is where the life comes from — and
+ * the text is the SAME hue mixed almost to black. It clears AA on every status
+ * token, and because it carries the chip's own colour it reads as designed
+ * rather than as a black label dropped on a coloured box.
+ */
 function pillStyle(token: string, filled: boolean): React.CSSProperties {
   const colour = `var(--${token})`;
   return filled
     ? {
-        backgroundColor: `color-mix(in oklab, ${colour} 20%, var(--bg-surface))`,
-        borderColor: `color-mix(in oklab, ${colour} 45%, transparent)`,
+        backgroundColor: colour,
+        borderColor: colour,
+        color: `color-mix(in oklab, ${colour} 12%, black)`,
       }
     : {
-        backgroundColor: 'transparent',
-        borderColor: `color-mix(in oklab, ${colour} 28%, transparent)`,
+        backgroundColor: `color-mix(in oklab, ${colour} 12%, transparent)`,
+        borderColor: `color-mix(in oklab, ${colour} 42%, transparent)`,
       };
 }
 
@@ -495,26 +519,55 @@ export function CalendarView({
                           className="flex w-full gap-1.5 rounded-md border px-1 py-1 text-left transition-colors duration-[120ms] hover:brightness-[1.06]"
                           style={pillStyle(STATUS_META[task.status].token, taskIndex === 0)}
                         >
-                          <span
-                            aria-hidden="true"
-                            className="mt-0.5 w-[3px] shrink-0 self-stretch rounded-full"
-                            style={{
-                              backgroundColor: `var(--${STATUS_META[task.status].token})`,
-                            }}
-                          />
+                          {/* The bar is what carries the status colour on an
+                              OUTLINED pill. On the filled one the whole chip is
+                              already that colour, so a bar of the same colour is
+                              invisible and a bar of any other colour would be a
+                              second signal saying the same thing. */}
+                          {taskIndex !== 0 && (
+                            <span
+                              aria-hidden="true"
+                              className="mt-0.5 w-[3px] shrink-0 self-stretch rounded-full"
+                              style={{
+                                backgroundColor: `var(--${STATUS_META[task.status].token})`,
+                              }}
+                            />
+                          )}
                           <span className="min-w-0 flex-1">
+                            {/* On the FILLED pill every line inherits the text
+                                colour computed in `pillStyle` — a hue-matched
+                                near-black that clears AA on the saturated fill.
+                                Leaving `text-text-primary` here would paint the
+                                theme's normal foreground onto a coloured chip,
+                                which is exactly the contrast failure the fill was
+                                designed around. */}
                             <span className="flex items-baseline gap-1">
                               {task.dueTime && (
-                                <span className="tabular shrink-0 text-micro font-semibold text-text-secondary">
+                                <span
+                                  className={cn(
+                                    'tabular shrink-0 text-micro font-semibold',
+                                    taskIndex === 0 ? 'opacity-80' : 'text-text-secondary',
+                                  )}
+                                >
                                   {task.dueTime}
                                 </span>
                               )}
-                              <span className="min-w-0 flex-1 truncate text-micro font-medium text-text-primary">
+                              <span
+                                className={cn(
+                                  'min-w-0 flex-1 truncate text-micro font-medium',
+                                  taskIndex === 0 ? 'font-semibold' : 'text-text-primary',
+                                )}
+                              >
                                 {task.title}
                               </span>
                             </span>
                             <span className="flex items-center gap-1">
-                              <span className="min-w-0 flex-1 truncate text-micro text-text-tertiary">
+                              <span
+                                className={cn(
+                                  'min-w-0 flex-1 truncate text-micro',
+                                  taskIndex === 0 ? 'opacity-75' : 'text-text-tertiary',
+                                )}
+                              >
                                 {task.projectName}
                               </span>
                               {/* Only when looking at more than one person's work

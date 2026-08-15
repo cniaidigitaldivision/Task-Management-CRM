@@ -541,10 +541,15 @@ export function TaskBoard({
                    layered over it would blunt the one signal that matters
                    mid-drag. */
                 style={{
+                  /* 20%, not the 8% this started at — owner, 2026-08-15, "still
+                     looking like a blank stale". The references tint a column
+                     header area to roughly a fifth of its colour. It still fades
+                     out by 150px so the cards themselves sit on a plain surface,
+                     which is what keeps texture off dense text. */
                   ...(isDropTarget
                     ? null
                     : {
-                        backgroundImage: `linear-gradient(180deg, color-mix(in oklab, var(--${meta.token}) 8%, transparent), transparent 140px)`,
+                        backgroundImage: `linear-gradient(180deg, color-mix(in oklab, var(--${meta.token}) 20%, transparent), transparent 150px)`,
                       }),
                   ...(isRefused
                     ? {

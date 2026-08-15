@@ -1098,6 +1098,39 @@ body,
   }
 }
 
+/* ==========================================================================
+   REVEAL WITHOUT TOUCHING THE MARKUP
+   ==========================================================================
+   Owner, 2026-08-15: "there are animations, those are also missing". They were.
+   `<Reveal>` was built in step 4 and applied to the DASHBOARD ONLY — eleven of
+   thirteen screens had no entrance motion at all, the same "built and never
+   applied" gap the textures had.
+
+   The obvious fix — wrapping every page's sections in `<Reveal>` — inserts a div
+   around each child, and on screens whose top level is a grid or a flex row that
+   silently breaks the layout. This does the same job from CSS: the page's own
+   top-level blocks animate in sequence, no new DOM, so nothing can reflow
+   differently than it does today.
+
+   `nth-child` rather than a custom property because there is no JSX to set one
+   from. Eight steps is enough for any screen here; everything after the eighth
+   shares the last delay rather than making a long page feel like it is loading
+   in slow motion.
+
+   Applied once, on <main> in app-shell.tsx, so every screen gains it — including
+   the seven that were never part of the redesign. */
+.reveal-children > * {
+  animation: reveal-in var(--duration-reveal) var(--ease-reveal) both;
+}
+.reveal-children > *:nth-child(1) { animation-delay: calc(0 * var(--duration-stagger)); }
+.reveal-children > *:nth-child(2) { animation-delay: calc(1 * var(--duration-stagger)); }
+.reveal-children > *:nth-child(3) { animation-delay: calc(2 * var(--duration-stagger)); }
+.reveal-children > *:nth-child(4) { animation-delay: calc(3 * var(--duration-stagger)); }
+.reveal-children > *:nth-child(5) { animation-delay: calc(4 * var(--duration-stagger)); }
+.reveal-children > *:nth-child(6) { animation-delay: calc(5 * var(--duration-stagger)); }
+.reveal-children > *:nth-child(7) { animation-delay: calc(6 * var(--duration-stagger)); }
+.reveal-children > *:nth-child(n + 8) { animation-delay: calc(7 * var(--duration-stagger)); }
+
 /* The orbiting border, video 2. Two arcs 180° apart in a conic gradient, the
    whole thing rotated, and masked so only the border shows.
 
@@ -1197,14 +1230,18 @@ body,
   }
 
   .reveal,
+  .reveal-children > *,
   .orbit-border::before,
   .skeleton::after {
     animation: none !important;
   }
 
   /* The reveal's end state, applied directly — otherwise cancelling the
-     animation leaves every card at opacity 0. */
-  .reveal {
+     animation leaves every card at opacity 0. `both` fill mode means the FROM
+     state is painted before the delay elapses, so without this the whole page
+     would be invisible for anybody who has asked for less motion. */
+  .reveal,
+  .reveal-children > * {
     opacity: 1;
     transform: none;
   }

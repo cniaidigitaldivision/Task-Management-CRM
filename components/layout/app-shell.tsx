@@ -338,7 +338,17 @@ export function AppShell({
         {/* `page-ambience` lays two very faint brand gradients over the content
             surface, so the page is a lit plane rather than a flat slab. It is a
             token-driven utility (styles/tokens.css) so no colour appears here. */}
-        <main className="page-ambience flex-1 px-4 py-5 sm:px-6 sm:py-7">{children}</main>
+        {/* `reveal-children` staggers the page's own top-level blocks in on
+            arrival. One class here rather than `<Reveal>` in thirteen pages: it
+            adds no DOM, so a screen whose top level is a grid keeps its layout,
+            and every route gains the motion — including the seven that were
+            never part of the redesign. See the note beside the utility. */}
+        <main
+          key={pathname}
+          className="page-ambience reveal-children flex-1 px-4 py-5 sm:px-6 sm:py-7"
+        >
+          {children}
+        </main>
       </div>
 
       {/* All three creates live here rather than on their pages, so the topbar

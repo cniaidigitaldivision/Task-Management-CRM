@@ -162,13 +162,19 @@ export function StatCard({
         className,
       )}
     >
-      {/* A very faint wash of the metric's own colour, so a row of cards is
-          readable as distinct categories before any text is parsed. */}
+      {/* A wash of the metric's own colour, so a row of cards is readable as
+          distinct categories before any text is parsed.
+
+          ⚠️ 24%, not the 9% this started at. Owner, 2026-08-15: the interface
+          read as "blank stale". The reference dashboards give each KPI card a
+          clearly coloured field, and at 9% ours was a rumour. It is a radial
+          falling off from the top-right corner, so the number and the hint sit
+          on the quietest part of the gradient and keep their contrast. */}
       <span
         aria-hidden="true"
         className="pointer-events-none absolute inset-0"
         style={{
-          background: `radial-gradient(22rem 12rem at 100% 0%, color-mix(in oklab, var(--${token}) 9%, transparent), transparent 70%)`,
+          background: `radial-gradient(24rem 13rem at 100% 0%, color-mix(in oklab, var(--${token}) 24%, transparent), transparent 72%)`,
         }}
       />
 

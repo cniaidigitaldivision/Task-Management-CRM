@@ -382,14 +382,26 @@ export default async function DashboardPage() {
             <RevealItem index={4}>
               <Card className="grain panel-lit">
                 <CardBody className="space-y-5 p-5">
-                  {/* Two lines and no fill. Completed against created is the one
-                      comparison that says whether the backlog is growing, and a
-                      wash under either of them would claim one is the total. */}
+                  {/* ── FILLED, AND THE OLD REASONING WAS NOT WRONG ───────────
+                      This was `fill={false}`, with a good argument: completed
+                      against created is a COMPARISON, and a solid wash under
+                      either line implies that one of them is a total.
+
+                      Owner, 2026-08-15, reported the interface reading as "blank
+                      stale", and two hairlines on a 210px panel were the
+                      emptiest thing on the page. So the fill is on, and the old
+                      concern is handled rather than dismissed: a multi-series
+                      chart draws its areas at 35% opacity, so they read as two
+                      translucent bands with a visible overlap rather than as one
+                      stacked solid. The lines stay at full weight and remain what
+                      you read the values off.
+
+                      If it ever does read as a total, `fill={false}` restores the
+                      previous behaviour exactly. */}
                   <TrendChart
                     caption="Tasks created and completed, by week"
                     labels={weekLabels}
                     height={210}
-                    fill={false}
                     series={[
                       { label: 'Completed', token: 'status-done', points: completedSeries },
                       { label: 'Created', token: 'accent-primary', points: createdSeries },

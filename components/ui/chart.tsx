@@ -324,11 +324,23 @@ export function TrendChart({
               const line = smoothPath(pts);
               return (
                 <g key={s.label}>
-                  {fill && drawable.length === 1 && (
+                  {/* ── AREA FILLS NOW DRAW FOR EVERY SERIES ─────────────────
+                      This was `drawable.length === 1`, so the dashboard's main
+                      chart — Completed AND Created — rendered as two bare lines
+                      on an empty field. That is a large part of why the owner
+                      reported the interface reading as "blank stale" on
+                      2026-08-15: the reference charts are all area-filled.
+
+                      Two stacked areas at full strength would muddy where they
+                      overlap, so a multi-series chart halves its opacity. The
+                      lines stay at full weight and are still what you read the
+                      values off; the fill is there to give the plot a body. */}
+                  {fill && (
                     <path
                       d={`${line} L 100 100 L 0 100 Z`}
                       fill={`url(#${gradientId}-${i})`}
                       stroke="none"
+                      opacity={drawable.length === 1 ? 1 : 0.35}
                     />
                   )}
                   <path

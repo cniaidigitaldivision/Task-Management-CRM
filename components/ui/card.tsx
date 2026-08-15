@@ -59,8 +59,11 @@ export function Card({
      competing utilities would have fought over the same property. */
   const layers: string[] = [];
   if (toneToken) {
+    /* Matches StatCard's wash exactly, including the 24% it was raised to on
+       2026-08-15 — a panel and a KPI card tinted with the same token must look
+       like the same idea, and they drift the moment these two numbers differ. */
     layers.push(
-      `radial-gradient(22rem 12rem at 100% 0%, color-mix(in oklab, var(--${toneToken}) 9%, transparent), transparent 70%)`,
+      `radial-gradient(24rem 13rem at 100% 0%, color-mix(in oklab, var(--${toneToken}) 24%, transparent), transparent 72%)`,
     );
   }
   if (lit) layers.push('var(--panel-lit)');

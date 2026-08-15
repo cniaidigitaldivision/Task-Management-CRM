@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 
 import { WorkflowWorkspace } from '@/components/workflow/workflow-workspace';
 import { PageHeader } from '@/components/ui/page-header';
-import { requireRole } from '@/lib/auth/current-user';
+import { requireUser } from '@/lib/auth/current-user';
 import { getChain, listChains } from '@/lib/db/queries/handoff';
 import { listSkills } from '@/lib/db/queries/people';
 
@@ -33,8 +33,13 @@ export default async function WorkflowPage({
 }: {
   searchParams: Promise<{ chain?: string }>;
 }) {
-  const user = await requireRole('admin');
+  const user = await requireUser();
   const { chain: selectedId } = await searchParams;
+
+  /* Read for everybody, write for Admin and above — the owner's split, and the
+     one migration 026's policies already encode. This only decides what to
+     OFFER; the actions re-check and RLS refuses regardless. */
+  const canEdit = user.role === 'super_admin' || user.role === 'admin';
 
   const [chains, skills] = await Promise.all([
     listChains(user.id),
@@ -57,6 +62,7 @@ export default async function WorkflowPage({
         chains={chains}
         skills={skills.map((s) => ({ id: s.id, label: s.label }))}
         openChain={open}
+        canEdit={canEdit}
       />
     </div>
   );

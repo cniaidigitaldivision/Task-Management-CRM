@@ -106,10 +106,12 @@ export const NAV_SECTIONS: readonly NavSection[] = [
          where they can upload something.' */
       { label: 'Documents', href: '/documents', icon: FolderOpen, roles: ALL },
       { label: 'Vault', href: '/vault', icon: KeyRound, roles: ALL },
-      /* Handoff chains (doc 12 E-004, rule R4a). Admin+ because it is automation
-         configuration — a chain creates real work for real people, so the floor
-         matches Settings rather than the screens RLS opens to everybody. */
-      { label: 'Workflow', href: '/workflow', icon: Workflow, roles: ADMIN_UP },
+      /* Handoff chains (doc 12 E-004, rule R4a). Open to every role, EDITABLE by
+         Admin+ (owner, 2026-08-15). A chain creates work that lands in somebody's
+         queue, and the person it lands on should be able to see why — a Member
+         who finds a task they did not create can read the chain that made it.
+         The write side is gated by the actions and by migration 026's policies. */
+      { label: 'Workflow', href: '/workflow', icon: Workflow, roles: ALL },
       { label: 'Settings', href: '/settings', icon: Settings, roles: ADMIN_UP },
       { label: 'Security', href: '/security', icon: ShieldCheck, roles: SUPER_ONLY },
     ],

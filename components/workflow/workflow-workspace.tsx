@@ -49,10 +49,22 @@ export function WorkflowWorkspace({
   chains,
   skills,
   openChain,
+  canEdit,
 }: {
   chains: readonly ChainSummary[];
   skills: readonly SkillOption[];
   openChain: HandoffChain | null;
+  /**
+   * Admin+ may change a chain; everybody else sees it read-only (owner,
+   * 2026-08-15).
+   *
+   * ⚠️ Hiding the controls is a COURTESY, not the enforcement. Every server
+   * action calls `requireRole('admin')` and migration 026's write policy refuses
+   * a Coordinator regardless — two independent layers, per doc 16 §7. If this
+   * prop were wrong the worst outcome is a button that returns a readable
+   * refusal, not an unauthorised write.
+   */
+  canEdit: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState(false);
@@ -96,6 +108,7 @@ export function WorkflowWorkspace({
           chain={openChain}
           skills={skills}
           busy={busy}
+          canEdit={canEdit}
           onBack={() => router.push('/workflow')}
           onSave={(drafts) => run(() => saveNodesAction(openChain.id, drafts))}
           /* ── SWITCHING ON SAVES FIRST, AND THAT IS NOT A CONVENIENCE ────────
@@ -122,6 +135,7 @@ export function WorkflowWorkspace({
         <ChainList
           chains={chains}
           busy={busy}
+          canEdit={canEdit}
           onOpen={(id) => router.push(`/workflow?chain=${id}`)}
           onCreate={(name, projectType) =>
             run(async () => {
@@ -142,12 +156,14 @@ export function WorkflowWorkspace({
 function ChainList({
   chains,
   busy,
+  canEdit,
   onOpen,
   onCreate,
   onDelete,
 }: {
   chains: readonly ChainSummary[];
   busy: boolean;
+  canEdit: boolean;
   onOpen: (id: string) => void;
   onCreate: (name: string, projectType: string) => void;
   onDelete: (id: string) => void;
@@ -157,7 +173,12 @@ function ChainList({
 
   return (
     <div className="space-y-4">
-      <Card lit>
+      {/* The create row is the one thing a reader who cannot edit should not see
+          at all — an input they can fill in and a button that then refuses them
+          is worse than no input. The per-chain Delete is hidden for the same
+          reason; Open stays, because looking is the whole point of opening it
+          to everybody. */}
+      <Card lit hidden={!canEdit}>
         <CardBody className="flex flex-wrap items-end gap-3 p-4">
           <Field label="New chain" htmlFor="chain-name" className="min-w-[16rem] flex-1">
             <Input
@@ -230,14 +251,16 @@ function ChainList({
                       <Button variant="secondary" size="sm" onClick={() => onOpen(chain.id)}>
                         Open
                       </Button>
-                      <IconButton
-                        label="Delete this chain"
-                        icon={Trash2}
-                        size="sm"
-                        disabled={busy}
-                        onClick={() => onDelete(chain.id)}
-                        className="ml-auto"
-                      />
+                      {canEdit && (
+                        <IconButton
+                          label="Delete this chain"
+                          icon={Trash2}
+                          size="sm"
+                          disabled={busy}
+                          onClick={() => onDelete(chain.id)}
+                          className="ml-auto"
+                        />
+                      )}
                     </div>
                   </CardBody>
                 </Card>
@@ -256,6 +279,7 @@ function ChainCanvas({
   chain,
   skills,
   busy,
+  canEdit,
   onBack,
   onSave,
   onToggleActive,
@@ -263,6 +287,7 @@ function ChainCanvas({
   chain: HandoffChain;
   skills: readonly SkillOption[];
   busy: boolean;
+  canEdit: boolean;
   onBack: () => void;
   onSave: (drafts: readonly NodeDraft[]) => void;
   onToggleActive: (drafts: readonly NodeDraft[]) => void;
@@ -357,20 +382,29 @@ function ChainCanvas({
           {chain.isActive ? 'Live' : 'Off'}
         </Badge>
 
-        <div className="ml-auto flex items-center gap-2">
-          <Button
-            variant="secondary"
-            size="md"
-            disabled={busy}
-            onClick={() => onToggleActive(drafts)}
-          >
-            <Power className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
-            {chain.isActive ? 'Switch off' : 'Save & switch on'}
-          </Button>
-          <Button variant="primary" size="md" disabled={busy} onClick={() => onSave(drafts)}>
-            Save steps
-          </Button>
-        </div>
+        {canEdit ? (
+          <div className="ml-auto flex items-center gap-2">
+            <Button
+              variant="secondary"
+              size="md"
+              disabled={busy}
+              onClick={() => onToggleActive(drafts)}
+            >
+              <Power className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
+              {chain.isActive ? 'Switch off' : 'Save & switch on'}
+            </Button>
+            <Button variant="primary" size="md" disabled={busy} onClick={() => onSave(drafts)}>
+              Save steps
+            </Button>
+          </div>
+        ) : (
+          /* Said plainly rather than leaving the controls absent with no
+             explanation — "why can I not change this" is the question an absent
+             button always raises. */
+          <span className="ml-auto text-micro text-text-tertiary">
+            Read-only · an Admin can change this
+          </span>
+        )}
       </div>
 
       {/* ── THE CANVAS ────────────────────────────────────────────────────────
@@ -391,18 +425,23 @@ function ChainCanvas({
                 draft={draft}
                 index={index}
                 skills={skills}
+                canEdit={canEdit}
                 onChange={(patch) => update(index, patch)}
-                onRemove={drafts.length > 1 ? () => removeStep(index) : undefined}
+                onRemove={
+                  canEdit && drafts.length > 1 ? () => removeStep(index) : undefined
+                }
               />
             </React.Fragment>
           ))}
 
-          <div className="flex shrink-0 items-center">
-            <Button variant="secondary" size="md" onClick={addStep} disabled={busy}>
-              <Plus className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
-              Add step
-            </Button>
-          </div>
+          {canEdit && (
+            <div className="flex shrink-0 items-center">
+              <Button variant="secondary" size="md" onClick={addStep} disabled={busy}>
+                <Plus className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
+                Add step
+              </Button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -422,12 +461,14 @@ function NodeCard({
   draft,
   index,
   skills,
+  canEdit,
   onChange,
   onRemove,
 }: {
   draft: NodeDraft;
   index: number;
   skills: readonly SkillOption[];
+  canEdit: boolean;
   onChange: (patch: Partial<NodeDraft>) => void;
   onRemove?: () => void;
 }) {
@@ -464,6 +505,7 @@ function NodeCard({
         <Field label="Skill" htmlFor={`skill-${index}`}>
           <Select
             id={`skill-${index}`}
+            disabled={!canEdit}
             label="Skill"
             value={draft.skillId}
             onChange={(event) => onChange({ skillId: event.target.value })}
@@ -478,6 +520,7 @@ function NodeCard({
                 id={`title-${index}`}
                 value={draft.title}
                 onChange={(event) => onChange({ title: event.target.value })}
+                disabled={!canEdit}
                 placeholder="Schedule across Meta + TikTok"
               />
             </Field>
@@ -488,6 +531,7 @@ function NodeCard({
                   value={draft.effortPoints}
                   inputMode="decimal"
                   onChange={(event) => onChange({ effortPoints: event.target.value })}
+                disabled={!canEdit}
                 />
               </Field>
               <Field label="Due in (days)" htmlFor={`due-${index}`} className="flex-1">
@@ -497,6 +541,7 @@ function NodeCard({
                   inputMode="numeric"
                   placeholder="—"
                   onChange={(event) => onChange({ dueOffsetDays: event.target.value })}
+                disabled={!canEdit}
                 />
               </Field>
             </div>
@@ -506,6 +551,7 @@ function NodeCard({
                 label="Priority"
                 value={draft.priority}
                 onChange={(event) => onChange({ priority: event.target.value })}
+                disabled={!canEdit}
                 options={PRIORITIES.map((p) => ({ value: p, label: p }))}
               />
             </Field>

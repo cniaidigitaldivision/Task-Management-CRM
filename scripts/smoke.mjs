@@ -65,16 +65,18 @@ const APP_ROUTES = [
      the database — so it still fails if the page renders but the report does not. */
   ['/reports', 'How to read this', 'team_coordinator'],
   ['/settings', 'Capacity and thresholds', 'admin'],
-  /* Handoff chains (E-004 / R4a). Admin+ — a Coordinator must be redirected,
-     which is the half of this check that matters, since a chain creates real work
-     for real people.
+  /* Handoff chains (E-004 / R4a). Readable by EVERY role since 2026-08-15 —
+     owner's decision: a chain creates work that lands in somebody's queue, and
+     the person it lands on should be able to see why. Editing stays Admin+,
+     enforced by the server actions and migration 026's write policy rather than
+     by this route, so there is no rank floor left here to assert.
 
      ⚠️ The marker is the page description, NOT the canvas explainer. The first
      attempt matched a sentence that only renders once a chain is OPEN, so it
      failed on an empty division — the screen was fine and the check was wrong.
      This string is in the header and renders in every state: no chains, a list
      of chains, or one open. */
-  ['/workflow', 'one chain per type can be live', 'admin'],
+  ['/workflow', 'one chain per type can be live', 'member'],
   ['/profile', 'Your details', 'member'],
   ['/security', 'Security', 'super_admin'],
 ];
