@@ -74,6 +74,7 @@ the owner's instruction: *"I don't want errors and broken stuff built."*
 | 8 | **Settings, Security, Documents, Vault, Reports** | ⬜ |
 | 9 | **Login** — orbiting border, underline inputs, glass card | ⬜ |
 | 10 | **Realtime push** — Supabase subscriptions, last and on its own | ⬜ |
+| 11 | **Workflow — handoff chains on a node canvas** (R4a). Doc 12 E-004's behaviour, the workflow reference's look. CRM nodes only: task template, assignee rule, notification | ⬜ |
 
 ---
 
@@ -123,7 +124,15 @@ Every one of these is already load-bearing somewhere in the codebase.
 - **The saturated per-event rainbow** in the calendar references. Our status
   tokens already carry meaning — recolouring events by hue for decoration would
   destroy the one thing the colour currently tells you.
-- **The node-graph canvas** from the workflow editor. Nothing in this CRM is a
-  node graph, and R4 rules out workflow automation.
+- ~~**The node-graph canvas** from the workflow editor. Nothing in this CRM is a
+  node graph, and R4 rules out workflow automation.~~
+  **REVERSED 2026-08-15 (R4a).** The owner asked for the workflow editor to be
+  built. Put to them with R4 quoted back, they chose the narrow reading: doc 12's
+  **E-004 handoff chains** wearing that editor's canvas. So the node graph IS
+  coming — as **step 11**, after 7–9 — and something in this CRM is now a node
+  graph: a chain of task templates.
+  ⛔ Still not copied: the reference's **nodes**. Shell Script, HTTP Request and
+  Web Hook are arbitrary code execution and outbound SSRF. Ours are task
+  template, assignee rule and notification, and that line does not move.
 - **Illustrated mascots and 3D planets.** They belong to those products' brands,
   not to a division's internal CRM.
