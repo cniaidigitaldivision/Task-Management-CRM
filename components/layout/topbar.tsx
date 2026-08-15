@@ -3,7 +3,15 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Bell, CheckCheck, ChevronRight, Menu, Plus } from 'lucide-react';
+import {
+  Bell,
+  CheckCheck,
+  ChevronRight,
+  Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Plus,
+} from 'lucide-react';
 
 import { markAllReadAction } from '@/app/actions/notifications';
 import { GlobalSearch } from '@/components/layout/global-search';
@@ -43,6 +51,8 @@ export function Topbar({
   title,
   subtitle,
   onOpenNav,
+  railOpen = false,
+  onToggleRail,
   primaryLabel,
   onPrimary,
   notifications,
@@ -52,6 +62,21 @@ export function Topbar({
   title: string;
   subtitle?: string;
   onOpenNav: () => void;
+  /**
+   * Whether the desktop rail is expanded, and how to change it.
+   *
+   * ── WHY THE CONTROL IS HERE AND NOT IN THE RAIL (owner, 2026-08-15) ─────────
+   * It was in the rail's brand block and, collapsed, overlapped the logo by
+   * about 9px. That block is a fixed 76px on purpose — a changing height dragged
+   * every nav item with it — and 76px will not hold a 25.6px logo above a 28px
+   * button with the padding the lockup needs.
+   *
+   * Out here the two can never collide whatever either becomes, and the toggle
+   * sits at the far left of the bar, immediately above the rail it controls,
+   * which is where people look for it.
+   */
+  railOpen?: boolean;
+  onToggleRail?: () => void;
   /**
    * What this page creates — "New task", "New project", "Add member" — or null
    * where there is nothing to create (CHANGE-PLAN 6.1).
@@ -107,6 +132,22 @@ export function Topbar({
           onClick={onOpenNav}
           className="-ml-1 lg:hidden"
         />
+
+        {/* Desktop rail toggle. Mirrors the mobile Menu button's position, so the
+            far-left slot means "the navigation" at every width. The icon states
+            what will happen rather than what is true — closing vs opening — which
+            is why it swaps rather than rotating a chevron. */}
+        {onToggleRail && (
+          <IconButton
+            label={railOpen ? 'Collapse the navigation' : 'Expand the navigation'}
+            icon={railOpen ? PanelLeftClose : PanelLeftOpen}
+            size="md"
+            onClick={onToggleRail}
+            aria-expanded={railOpen}
+            aria-controls="main-navigation"
+            className="-ml-1 hidden lg:inline-flex"
+          />
+        )}
 
         {/* ---- Breadcrumb: orientation, not decoration ---- */}
         <nav aria-label="Breadcrumb" className="min-w-0 flex-1">

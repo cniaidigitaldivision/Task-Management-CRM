@@ -27,7 +27,9 @@ const OFF = '[0m';
    whole project then carries. */
 function loadEnv() {
   try {
-    for (const line of readFileSync('.env.local', 'utf8').split('\n')) {
+    /* `/\r?\n/`, not '\n' — a CRLF file leaves a trailing \r that `.` cannot
+       match, so every key silently fails to parse. */
+    for (const line of readFileSync('.env.local', 'utf8').split(/\r?\n/)) {
       const trimmed = line.trim();
       if (!trimmed || trimmed.startsWith('#')) continue;
       const eq = trimmed.indexOf('=');

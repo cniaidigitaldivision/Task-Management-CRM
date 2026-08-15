@@ -41,7 +41,11 @@ if (!email.endsWith(`@${DOMAIN}`)) {
 }
 
 const env = {};
-for (const line of readFileSync(resolve(process.cwd(), '.env.local'), 'utf8').split('\n')) {
+/* `/\r?\n/`, not '\n'. On a CRLF file every line keeps a trailing \r, and in a
+   JavaScript regex `.` does not match \r — so `(.*)$` cannot reach the end of
+   the line and the match fails for EVERY key. The script then reports
+   "DATABASE_URL is not set in .env.local" about a file that plainly sets it. */
+for (const line of readFileSync(resolve(process.cwd(), '.env.local'), 'utf8').split(/\r?\n/)) {
   const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)$/);
   if (m) env[m[1]] = m[2].trim().replace(/^["']|["']$/g, '');
 }

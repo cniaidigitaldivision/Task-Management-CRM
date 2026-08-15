@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { ChevronRight, X } from 'lucide-react';
 
 import { LogoSidebar } from '@/components/brand/logo';
 import { Avatar } from '@/components/ui/avatar';
@@ -61,7 +61,6 @@ export function Sidebar({
   open,
   onClose,
   pinned = false,
-  onTogglePin,
 }: {
   role: Role;
   userName: string;
@@ -69,11 +68,20 @@ export function Sidebar({
   open: boolean;
   onClose: () => void;
   /** Open or collapsed. The rail does not react to the pointer at all (owner
-   *  instruction, Session 17) — only this button changes it. */
+   *  instruction, Session 17) — only the topbar's toggle changes it.
+   *
+   *  ── THE TOGGLE IS NOT IN HERE ANY MORE (owner instruction, 2026-08-15) ────
+   *  It lived in this rail's brand block, and collapsed it overlapped the logo
+   *  by about 9px — measured, not guessed: the block is a fixed 76px with
+   *  pt-5/pb-4, so the 25.6px mark sat at 27.2–52.8px while the absolutely
+   *  placed arrow sat at 44–72px.
+   *
+   *  The block's height cannot grow to make room: it is fixed precisely because
+   *  a changing height dragged every nav item with it ("when it closes the icons
+   *  jump up"). And 76px cannot hold a 25.6px mark above a 28px button with the
+   *  existing padding. So the control moved OUT, to the top bar, where overlap
+   *  is structurally impossible in either state. See components/layout/topbar.tsx. */
   pinned?: boolean;
-  /** Collapses and opens the rail. Rendered as an arrow in the rail's own header
-   *  (owner instruction, 2026-08-13) rather than as a tab overlapping the page. */
-  onTogglePin?: () => void;
 }) {
   const pathname = usePathname();
   const sections = sectionsForRole(role);
@@ -155,49 +163,9 @@ export function Sidebar({
               <X className="h-5 w-5" strokeWidth={1.75} />
             </button>
 
-            {/* ── THE COLLAPSE ARROW LIVES HERE NOW ────────────────────────
-                Owner instruction, 2026-08-13: *"put that button on top of the
-                sidebar. Inside the panel there is a small arrow so it closes and
-                opens from there… the one that already has this button is covering
-                the page a little bit."*
-
-                It was a tab pinned to the rail's outer edge, vertically centred,
-                sitting ON the page — which is exactly the overlap complained
-                about. Inside the panel it overlaps nothing.
-
-                The old comment said it could not live in the rail because the rail
-                is `overflow-hidden`. True for a tab sticking OUT of it; not true
-                for a button sitting inside. Desktop only: on mobile the rail is a
-                drawer and the X beside this is how it closes. */}
-            {onTogglePin && (
-              <button
-                type="button"
-                onClick={onTogglePin}
-                aria-expanded={pinned}
-                aria-controls="main-navigation"
-                aria-label={pinned ? 'Collapse the navigation' : 'Open the navigation'}
-                title={pinned ? 'Collapse to icons' : 'Open the navigation'}
-                className={cn(
-                  'hidden shrink-0 rounded-lg p-1.5 transition-colors duration-[120ms]',
-                  'hover:bg-[var(--sidebar-item-hover-bg)] focus-visible:outline-none lg:block',
-                  /* Collapsed, the logo is centred and there is no room beside it,
-                     so the arrow takes the whole row underneath instead of
-                     squeezing in — which is why it is absolutely placed rather
-                     than a flex sibling in that state. */
-                  !pinned && 'absolute right-0 bottom-1 left-0 mx-auto w-fit',
-                )}
-                style={{ color: 'var(--sidebar-item)' }}
-              >
-                <ChevronLeft
-                  className={cn(
-                    'h-4 w-4 transition-transform duration-[240ms]',
-                    !pinned && 'rotate-180',
-                  )}
-                  strokeWidth={2.25}
-                  aria-hidden="true"
-                />
-              </button>
-            )}
+            {/* The collapse toggle used to sit here and overlapped the logo when
+                collapsed. It now lives in the top bar — see the note on `pinned`
+                above for the measurements and the reasoning. */}
           </div>
 
           {/* Gradient hairline — fades out rather than stopping, so it reads as

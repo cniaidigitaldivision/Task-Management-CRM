@@ -307,18 +307,22 @@ export function AppShell({
         open={navOpen}
         onClose={closeNav}
         pinned={pinned}
-        onTogglePin={togglePin}
       />
 
-      {/* The collapse arrow used to be a tab here, pinned to the rail's outer
-          edge and vertically centred, so it sat ON the page. Owner instruction
-          2026-08-13 moved it INSIDE the rail's own header — see sidebar.tsx. */}
+      {/* Where the rail toggle has lived, in order: a tab on the rail's outer
+          edge overlapping the page (rejected 2026-08-13) → the rail's own brand
+          block, where it overlapped the logo by ~9px once collapsed became the
+          resting state → the top bar, below. Each move was the owner reporting
+          the same complaint about a different surface, and the top bar is the
+          first position where nothing can collide with it by construction. */}
 
       <div className="flex min-h-full flex-col pl-[var(--rail)] transition-[padding-left] duration-[240ms] ease-out">
         <Topbar
           title={title}
           subtitle={subtitle}
           onOpenNav={openNav}
+          railOpen={pinned}
+          onToggleRail={togglePin}
           /* Null on a page with nothing to create, and the Topbar renders no
              button at all rather than a disabled one — see 6.1. */
           primaryLabel={primary?.label ?? null}
