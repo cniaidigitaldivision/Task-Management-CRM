@@ -65,6 +65,16 @@ const APP_ROUTES = [
      the database — so it still fails if the page renders but the report does not. */
   ['/reports', 'How to read this', 'team_coordinator'],
   ['/settings', 'Capacity and thresholds', 'admin'],
+  /* Handoff chains (E-004 / R4a). Admin+ — a Coordinator must be redirected,
+     which is the half of this check that matters, since a chain creates real work
+     for real people.
+
+     ⚠️ The marker is the page description, NOT the canvas explainer. The first
+     attempt matched a sentence that only renders once a chain is OPEN, so it
+     failed on an empty division — the screen was fine and the check was wrong.
+     This string is in the header and renders in every state: no chains, a list
+     of chains, or one open. */
+  ['/workflow', 'one chain per type can be live', 'admin'],
   ['/profile', 'Your details', 'member'],
   ['/security', 'Security', 'super_admin'],
 ];

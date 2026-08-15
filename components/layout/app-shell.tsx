@@ -165,6 +165,10 @@ const PRIMARY_ACTIONS: Readonly<Record<string, PrimaryAction | null>> = {
   '/security': null,
   '/vault': null,
   '/documents': null,
+  /* Nothing to create from the top bar. The thing this page makes is a CHAIN,
+     and its own "Create" sits beside the name and type it needs — a generic
+     button up here could not supply either. */
+  '/workflow': null,
   '/profile': null,
   '/design-system': null,
 };

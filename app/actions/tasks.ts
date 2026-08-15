@@ -29,8 +29,8 @@ import {
 import { canDecideExtensions } from '@/lib/domain/extensions';
 import { activeChainForType } from '@/lib/db/queries/handoff';
 import { decideHandoff } from '@/lib/domain/handoff';
-import { gatherCandidates } from '@/lib/db/queries/recommendation';
-import { recommend } from '@/lib/domain/recommendation';
+import { gatherCandidates, skillKeywords } from '@/lib/db/queries/recommendation';
+import { inferSkills, recommend } from '@/lib/domain/recommendation';
 import { PURGE_IS_AVAILABLE } from '@/lib/capabilities';
 import { can } from '@/lib/domain/permissions';
 import { nowMs } from '@/lib/now';
@@ -799,7 +799,8 @@ async function spawnNextOccurrence(actorId: string, taskId: string): Promise<str
 async function spawnHandoff(actorId: string, taskId: string): Promise<string | null> {
   try {
     const rows = await withUser(actorId, (tx) => tx`
-      select t.id, t.project_id, t.handoff_node_id, p.type as project_type,
+      select t.id, t.title, t.description, t.project_id, t.handoff_node_id,
+             p.type as project_type,
              coalesce(
                (select array_agg(ts.skill_id) from public.task_skills ts
                  where ts.task_id = t.id),
@@ -815,13 +816,42 @@ async function spawnHandoff(actorId: string, taskId: string): Promise<string | n
     const projectType = row.project_type as ProjectType;
     const chain = await activeChainForType(actorId, projectType);
 
+    /* ── THE TRIGGER FALLS BACK TO KEYWORDS (FR-055) ────────────────────────
+       Measured against the real database: `task_skills` has ZERO rows across
+       every live task, while `user_skills` has 23. People have skills recorded;
+       tasks do not. A trigger that only matched TAGGED skills would therefore
+       never fire once, and the feature would look built and be inert.
+
+       So it falls back exactly as the assignment engine already does when a task
+       carries no tags — `inferSkills` reads the title and description against
+       each skill's keywords. E-004's own example lands on the nose: "Video
+       Editing" carries `video, reel, edit, premiere, footage, cut`, so Kashif
+       finishing a reel matches without anybody tagging anything.
+
+       ⚠️ Tags WIN when present. Inference never overrides a deliberate choice —
+       same rule as FR-055 — because a person who tagged a task has said what it
+       is, and guessing over the top of that would be worse than not guessing. */
+    let skillIds = (row.skill_ids as string[] | null) ?? [];
+    if (skillIds.length === 0) {
+      try {
+        const library = await skillKeywords(actorId);
+        skillIds = inferSkills(
+          `${row.title as string} ${(row.description as string | null) ?? ''}`,
+          library,
+        ).map((match) => match.skillId);
+      } catch {
+        /* Inference is a convenience. Without it the chain simply does not fire,
+           which is the same as today. */
+      }
+    }
+
     const decision = decideHandoff(
       {
         id: row.id as string,
         projectId: row.project_id as string,
         projectType,
         handoffNodeId: (row.handoff_node_id as string | null) ?? null,
-        skillIds: (row.skill_ids as string[] | null) ?? [],
+        skillIds,
       },
       chain,
       new Date(nowMs()).toISOString().slice(0, 10),

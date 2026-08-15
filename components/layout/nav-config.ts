@@ -11,6 +11,7 @@ import {
   Settings,
   ShieldCheck,
   Users,
+  Workflow,
 } from 'lucide-react';
 
 import type { Route } from 'next';
@@ -105,6 +106,10 @@ export const NAV_SECTIONS: readonly NavSection[] = [
          where they can upload something.' */
       { label: 'Documents', href: '/documents', icon: FolderOpen, roles: ALL },
       { label: 'Vault', href: '/vault', icon: KeyRound, roles: ALL },
+      /* Handoff chains (doc 12 E-004, rule R4a). Admin+ because it is automation
+         configuration — a chain creates real work for real people, so the floor
+         matches Settings rather than the screens RLS opens to everybody. */
+      { label: 'Workflow', href: '/workflow', icon: Workflow, roles: ADMIN_UP },
       { label: 'Settings', href: '/settings', icon: Settings, roles: ADMIN_UP },
       { label: 'Security', href: '/security', icon: ShieldCheck, roles: SUPER_ONLY },
     ],
