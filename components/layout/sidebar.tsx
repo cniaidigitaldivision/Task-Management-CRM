@@ -2,7 +2,9 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { ChevronRight, X } from 'lucide-react';
+import { ChevronRight, LogOut, X } from 'lucide-react';
+
+import { signOutAction } from '@/app/actions/auth';
 
 import { LogoSidebar } from '@/components/brand/logo';
 import { Avatar } from '@/components/ui/avatar';
@@ -316,6 +318,34 @@ export function Sidebar({
               <ChevronRight className="h-4 w-4" strokeWidth={2} />
             </span>
           </Link>
+
+          {/* ── SIGN OUT (owner, 2026-08-16: "there is no option to do that") ──
+              There was not. A signed-in person could not end their own session,
+              and a Member's lasts 7 days — so on a borrowed machine the only way
+              out was to wait a week or ask a Super Admin to revoke it.
+
+              It sits under the profile row because that is where people look for
+              it, and on the SAME 17px icon axis as every nav item and the avatar
+              above — the rail has one vertical line through it and this must not
+              be the thing that breaks it (see the note on that block).
+
+              A plain form posting to a Server Action, not an onClick: it works
+              before hydration and without JavaScript, which for the control that
+              ends a session is the right trade. */}
+          <form action={signOutAction}>
+            <button
+              type="submit"
+              className="group mt-0.5 flex w-full items-center gap-2.5 rounded-lg py-2 pr-2.5 pl-3 transition-colors duration-[120ms] hover:bg-[var(--sidebar-item-hover-bg)] focus-visible:outline-none"
+              style={{ color: 'var(--sidebar-item)' }}
+            >
+              <span className="flex w-[17px] shrink-0 justify-center">
+                <LogOut className="h-[17px] w-[17px]" strokeWidth={1.9} aria-hidden="true" />
+              </span>
+              <span className="min-w-0 flex-1 text-left text-body-sm transition-opacity duration-150 lg:opacity-0 lg:group-data-[pinned=true]/rail:opacity-100">
+                Sign out
+              </span>
+            </button>
+          </form>
         </div>
       </aside>
     </>

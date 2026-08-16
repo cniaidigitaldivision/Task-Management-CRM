@@ -48,6 +48,14 @@ const REASONS: Readonly<Record<string, { title: string; detail: string }>> = {
     detail:
       'This can happen because your password changed, or because an administrator ended your sessions. Signing in again is all that is needed.',
   },
+  /* Distinct from `revoked` on purpose. That one means something happened TO
+     you; this one means you asked. Reusing it would tell somebody who just
+     clicked Sign out that an administrator had ended their session. */
+  signed_out: {
+    title: 'You are signed out',
+    detail:
+      'Your session on this device has ended and the token it used will not work again. Sign in whenever you want to pick up where you left off.',
+  },
   expired: {
     title: 'That session had expired',
     detail: 'Sessions do not last indefinitely. Sign in again to carry on.',
