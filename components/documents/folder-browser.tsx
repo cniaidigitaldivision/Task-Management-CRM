@@ -13,6 +13,8 @@ import {
   Music,
   RefreshCw,
   Search,
+  Trash2,
+  Upload as FileUp,
   Users,
 } from 'lucide-react';
 
@@ -20,6 +22,8 @@ import {
   createFolderAction,
   listFolderFilesAction,
   syncFoldersAction,
+  trashFilesAction,
+  trashFolderAction,
   type FolderFile,
 } from '@/app/actions/folders';
 import { setWatchedFolderAction, type DocumentResult } from '@/app/actions/documents';
@@ -66,18 +70,22 @@ export function FolderBrowser({
   canShare,
   canConfigure,
   watchedDriveId,
+  onUploadHere,
   onDone,
 }: {
   folders: readonly DriveFolderRow[];
   canShare: boolean;
   canConfigure: boolean;
   watchedDriveId: string | null;
+  /** Opens the upload dialog with this folder already chosen. */
+  onUploadHere: (folder: DriveFolderRow) => void;
   onDone: (result: DocumentResult) => void;
 }) {
   const [query, setQuery] = React.useState('');
   const [openFolder, setOpenFolder] = React.useState<DriveFolderRow | null>(null);
   const [accessFor, setAccessFor] = React.useState<DriveFolderRow | null>(null);
   const [creating, setCreating] = React.useState(false);
+  const [trashingFolder, setTrashingFolder] = React.useState<DriveFolderRow | null>(null);
   const [busy, setBusy] = React.useState<string | null>(null);
 
   const shown = React.useMemo(() => {
@@ -96,6 +104,8 @@ export function FolderBrowser({
         canShare={canShare}
         onBack={() => setOpenFolder(null)}
         onManageAccess={() => setAccessFor(openFolder)}
+        onUploadHere={onUploadHere}
+        onDone={onDone}
         accessDialog={
           accessFor && (
             <FolderAccessDialog
@@ -228,15 +238,26 @@ export function FolderBrowser({
                   </Badge>
 
                   {canShare && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setAccessFor(folder)}
-                      title={`Choose who can see ${folder.name}`}
-                    >
-                      <Users className="h-4 w-4" strokeWidth={2.25} aria-hidden="true" />
-                      Access
-                    </Button>
+                    <>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setAccessFor(folder)}
+                        title={`Choose who can see ${folder.name}`}
+                      >
+                        <Users className="h-4 w-4" strokeWidth={2.25} aria-hidden="true" />
+                        Access
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={busy !== null}
+                        title={`Move ${folder.name} to the Drive bin`}
+                        onClick={() => setTrashingFolder(folder)}
+                      >
+                        <Trash2 className="h-4 w-4" strokeWidth={2.25} aria-hidden="true" />
+                      </Button>
+                    </>
                   )}
 
                   {canConfigure &&
@@ -299,6 +320,68 @@ export function FolderBrowser({
           }}
         />
       )}
+
+      {/* ── DELETING A FOLDER TAKES ITS CONTENTS, AND SAYS THE NUMBER ─────────
+          Drive trashes children with the parent. A confirmation that said only
+          "are you sure" would be hiding the part that matters, so the count is in
+          the sentence — and it is the Drive count, not the CRM one, because that
+          is what actually goes. */}
+      {trashingFolder && (
+        <Dialog
+          open
+          onClose={() => setTrashingFolder(null)}
+          size="sm"
+          title={`Move "${trashingFolder.name}" to the bin?`}
+          footer={
+            <>
+              <Button
+                variant="ghost"
+                size="md"
+                disabled={busy !== null}
+                onClick={() => setTrashingFolder(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                size="md"
+                disabled={busy !== null}
+                onClick={async () => {
+                  const target = trashingFolder;
+                  setBusy(target.id);
+                  try {
+                    onDone(await trashFolderAction(target.id));
+                  } finally {
+                    setBusy(null);
+                    setTrashingFolder(null);
+                  }
+                }}
+              >
+                {busy === trashingFolder.id && (
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                )}
+                Move to bin
+              </Button>
+            </>
+          }
+        >
+          <p className="text-body-sm text-text-primary">
+            {trashingFolder.driveFileCount === null
+              ? 'Everything inside it goes too.'
+              : trashingFolder.driveFileCount === 0
+                ? 'It looks empty, so nothing else goes with it.'
+                : `The ${trashingFolder.driveFileCount}${
+                    trashingFolder.fileCountPartial ? '+' : ''
+                  } ${
+                    trashingFolder.driveFileCount === 1 ? 'file' : 'files'
+                  } inside it go too, along with any subfolders.`}
+          </p>
+          <p className="mt-2 text-caption text-text-secondary">
+            It goes to the Google Drive bin and can be restored there for{' '}
+            <strong>30 days</strong>. Anyone named on this folder loses that access.
+          </p>
+        </Dialog>
+      )}
     </Card>
   );
 }
@@ -310,17 +393,33 @@ function FolderContents({
   canShare,
   onBack,
   onManageAccess,
+  onUploadHere,
+  onDone,
   accessDialog,
 }: {
   folder: DriveFolderRow;
   canShare: boolean;
   onBack: () => void;
   onManageAccess: () => void;
+  onUploadHere: (folder: DriveFolderRow) => void;
+  onDone: (result: DocumentResult) => void;
   accessDialog: React.ReactNode;
 }) {
   const [files, setFiles] = React.useState<FolderFile[] | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [viewing, setViewing] = React.useState<FolderFile | null>(null);
+  const [selected, setSelected] = React.useState<ReadonlySet<string>>(new Set());
+  const [confirmTrash, setConfirmTrash] = React.useState(false);
+  const [busy, setBusy] = React.useState(false);
+
+  const toggle = (id: string) => {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   /* ── NO SYNCHRONOUS RESET, BECAUSE THE PARENT KEYS THIS BY FOLDER ──────────
      Clearing `files` at the top of the effect is the obvious way to avoid showing
@@ -358,13 +457,53 @@ function FolderContents({
             </span>
           </div>
 
-          {canShare && (
-            <Button variant="ghost" size="sm" onClick={onManageAccess}>
-              <Users className="h-4 w-4" strokeWidth={2.25} aria-hidden="true" />
-              Access
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Uploading INTO the folder you are looking at. The button was only
+                on the register tab, so filing something into a specific folder
+                meant leaving, uploading, and choosing the folder from a dropdown
+                — having just been looking at it. */}
+            <Button variant="secondary" size="sm" onClick={() => onUploadHere(folder)}>
+              <FileUp className="h-4 w-4" strokeWidth={2.25} aria-hidden="true" />
+              Upload here
             </Button>
-          )}
+
+            {canShare && (
+              <Button variant="ghost" size="sm" onClick={onManageAccess}>
+                <Users className="h-4 w-4" strokeWidth={2.25} aria-hidden="true" />
+                Access
+              </Button>
+            )}
+          </div>
         </div>
+
+        {/* ── THE BULK BAR APPEARS ONLY WHEN SOMETHING IS SELECTED ────────────
+            A permanently visible "Delete selected" that is disabled most of the
+            time is noise; one that appears when it can act tells you the
+            selection registered. */}
+        {selected.size > 0 && (
+          <div
+            className="flex flex-wrap items-center justify-between gap-2 rounded-lg px-3 py-2"
+            style={{ backgroundColor: 'var(--bg-subtle)' }}
+          >
+            <p className="text-caption text-text-primary">
+              {selected.size} {selected.size === 1 ? 'file' : 'files'} selected
+            </p>
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
+                Clear
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={busy}
+                onClick={() => setConfirmTrash(true)}
+              >
+                <Trash2 className="h-4 w-4" strokeWidth={2.25} aria-hidden="true" />
+                Move to bin
+              </Button>
+            </div>
+          </div>
+        )}
 
         {files === null && !error && (
           <p className="flex items-center gap-2 py-4 text-caption text-text-secondary">
@@ -392,10 +531,20 @@ function FolderContents({
               const viewable = file.kind !== 'google' && file.kind !== 'other';
 
               return (
-                <li key={file.id}>
+                <li key={file.id} className="flex items-center gap-2">
+                  {/* A real checkbox, so shift-click, keyboard and screen readers
+                      all behave. It sits OUTSIDE the row button — nesting a
+                      checkbox inside a button makes both unusable. */}
+                  <input
+                    type="checkbox"
+                    checked={selected.has(file.id)}
+                    onChange={() => toggle(file.id)}
+                    aria-label={`Select ${file.name}`}
+                    className="h-4 w-4 shrink-0 accent-[var(--accent-primary)]"
+                  />
                   <button
                     type="button"
-                    className="flex w-full items-center gap-3 rounded-lg px-1 py-2 text-left hover:bg-bg-hover"
+                    className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-1 py-2 text-left hover:bg-bg-hover"
                     onClick={() => {
                       /* The owner's own split: a PDF gets the whole window and
                          the browser's native viewer; everything else stays in
@@ -432,6 +581,62 @@ function FolderContents({
 
       {viewing && <FileViewer file={viewing} onClose={() => setViewing(null)} />}
       {accessDialog}
+
+      {confirmTrash && (
+        <Dialog
+          open
+          onClose={() => setConfirmTrash(false)}
+          size="sm"
+          title={`Move ${selected.size} ${selected.size === 1 ? 'file' : 'files'} to the bin?`}
+          footer={
+            <>
+              <Button
+                variant="ghost"
+                size="md"
+                disabled={busy}
+                onClick={() => setConfirmTrash(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                size="md"
+                disabled={busy}
+                onClick={async () => {
+                  setBusy(true);
+                  try {
+                    const result = await trashFilesAction(folder.id, [...selected]);
+                    onDone(result);
+                    if (result.ok) {
+                      /* Removed from the list here rather than refetching: the
+                         files are gone from Drive and a second round trip would
+                         only confirm it more slowly. */
+                      setFiles((current) =>
+                        (current ?? []).filter((f) => !selected.has(f.id)),
+                      );
+                      setSelected(new Set());
+                    }
+                  } finally {
+                    setBusy(false);
+                    setConfirmTrash(false);
+                  }
+                }}
+              >
+                {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
+                Move to bin
+              </Button>
+            </>
+          }
+        >
+          <p className="text-body-sm text-text-primary">
+            They go to the Google Drive bin, not straight out of existence.
+          </p>
+          <p className="mt-2 text-caption text-text-secondary">
+            Anybody with the Drive can restore them for <strong>30 days</strong>. Nothing here can
+            delete a file permanently — that is deliberate.
+          </p>
+        </Dialog>
+      )}
     </Card>
   );
 }

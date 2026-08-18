@@ -57,8 +57,19 @@ function str(form: FormData, key: string): string {
   return String(form.get(key) ?? '').trim();
 }
 
-/** 25 MB. Well inside the table's 100 MB ceiling and Drive's own limits. */
-const MAX_BYTES = 25 * 1024 * 1024;
+/**
+ * 100 MB — the ceiling `documents_size_sane` already allows (migration 025).
+ *
+ * ⚠️ Was 25 MB, which was a number I invented and the schema never asked for. It
+ * meant a phone video was refused with "That file is 48 MB. The limit is 25 MB."
+ * while the database would have accepted it happily. Raised on 2026-08-18 after
+ * the owner reported uploads not working, having just asked for video playback.
+ *
+ * It cannot go higher without a migration, and should not: the bytes are held in
+ * server memory on the way through (`file.arrayBuffer()`), so this is also a
+ * ceiling on how much one request can allocate.
+ */
+const MAX_BYTES = 100 * 1024 * 1024;
 
 /* ==========================================================================
  * READ

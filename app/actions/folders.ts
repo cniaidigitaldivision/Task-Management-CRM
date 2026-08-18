@@ -261,6 +261,146 @@ export async function createFolderAction(
 }
 
 /* ==========================================================================
+ * DELETING — owner request 2026-08-18
+ * --------------------------------------------------------------------------
+ * *"there is no option to delete some file or folder or multiple"*
+ *
+ * ── EVERYTHING HERE TRASHES; NOTHING DELETES ─────────────────────────────────
+ * Drive's bin holds an item for thirty days and anybody with the account can
+ * restore it. `files.delete` would be permanent and immediate. On a shared
+ * company Drive one careless click must not be able to destroy the only copy of
+ * a client contract, so the permanent option is not offered at all — not as a
+ * confirmation, not behind a modifier key.
+ * ========================================================================== */
+
+/**
+ * Trash one or more files from a folder.
+ *
+ * ── ⚠️ AUTHORISED PER FOLDER AT `manage`, NOT PER FILE ───────────────────────
+ * `app.folder_grants(folder, 'manage')` — the same predicate that lets the
+ * `documents_delete` policy remove a register row. So a Member named for `manage`
+ * on one folder may clear that folder and no other, and a `view` or `upload` grant
+ * cannot delete anything.
+ *
+ * Each id is checked to actually BE in this folder before it is touched. Without
+ * that, somebody with `manage` on any folder could pass any file id in the Drive
+ * and have it trashed — the folder would authorise a file it does not contain.
+ */
+export async function trashFilesAction(
+  folderId: string,
+  fileIds: readonly string[],
+): Promise<DocumentResult> {
+  const user = await requireUser();
+
+  if (fileIds.length === 0) return fail('Nothing was selected.');
+  if (fileIds.length > 100) return fail('Too many at once. Select 100 or fewer.');
+
+  const folder = await F.getFolder(user.id, folderId);
+  if (!folder) return fail('That folder is not in the registry.');
+
+  const mayManage = await F.mayManageFolder(user.id, folderId);
+  if (!mayManage) {
+    return fail(`You do not have permission to delete from ${folder.name}.`);
+  }
+
+  /* The folder's real contents, so an id from somewhere else cannot ride along. */
+  const listed = await Drive.listFilesIn(folder.driveFolderId);
+  if (!listed.ok) return fail(listed.reason);
+  const here = new Set(listed.value.map((f) => f.id));
+
+  const wanted = fileIds.filter((id) => here.has(id));
+  if (wanted.length === 0) {
+    return fail('None of those files are in this folder. Refresh and try again.');
+  }
+
+  let trashed = 0;
+  const failures: string[] = [];
+  for (const id of wanted) {
+    const result = await Drive.trashItem(id);
+    if (result.ok) trashed += 1;
+    else failures.push(id);
+  }
+
+  /* The register rows for those Drive files go too, or the CRM would list
+     documents whose file is in the bin. Best-effort and non-fatal: a stale row is
+     recoverable, and failing here after the files have moved would misreport what
+     happened. */
+  await withUser(user.id, async (tx) => {
+    await tx`
+      delete from public.documents
+       where drive_file_id = any(${wanted}::text[])
+    `;
+    await audit(tx, user, {
+      entityType: 'drive_folder',
+      entityId: folderId,
+      action: 'folder.files_trashed',
+      before: { folder: folder.name, count: trashed, fileIds: wanted },
+    });
+  }).catch(() => console.error('[folders] register cleanup or audit failed after a trash'));
+
+  revalidatePath('/documents');
+
+  if (trashed === 0) return fail('Drive refused to move those files to the bin.');
+
+  return {
+    ok: true,
+    message: `${trashed} ${trashed === 1 ? 'file' : 'files'} moved to the Drive bin. They can be restored there for 30 days.`,
+    ...(failures.length > 0
+      ? { warning: `${failures.length} could not be moved and are still in the folder.` }
+      : {}),
+  };
+}
+
+/**
+ * Trash a whole folder.
+ *
+ * ⚠️ Drive trashes the CONTENTS with it. The caller must have said so — this
+ * cannot verify that a human understood, so the count goes in the message it
+ * returns as a record of what was actually affected.
+ *
+ * Coordinator+ only, via `document.share`. Deliberately NOT available to a Member
+ * with `manage`: that grant is "you run the files in this folder", not "you may
+ * remove the folder other people's access is defined against".
+ */
+export async function trashFolderAction(folderId: string): Promise<DocumentResult> {
+  const user = await requireUser();
+  const actor = { role: user.role, id: user.id };
+
+  if (!can(actor, 'document.share')) {
+    return fail('Only a Team Coordinator or above can delete a folder.');
+  }
+
+  const folder = await F.getFolder(user.id, folderId);
+  if (!folder) return fail('That folder is not in the registry.');
+
+  const trashedOk = await Drive.trashItem(folder.driveFolderId);
+  if (!trashedOk.ok) return fail(trashedOk.reason);
+
+  /* The registry row goes, which cascades its named grants (031). Done after
+     Drive succeeded, so a failed trash never leaves the CRM claiming a folder is
+     gone while it sits in Drive. */
+  await withUser(user.id, async (tx) => {
+    await tx`delete from public.drive_folders where id = ${folderId}`;
+    await audit(tx, user, {
+      entityType: 'drive_folder',
+      entityId: folderId,
+      action: 'folder.trashed',
+      before: {
+        name: folder.name,
+        driveFolderId: folder.driveFolderId,
+        filesInside: folder.driveFileCount,
+      },
+    });
+  }).catch(() => console.error('[folders] registry cleanup or audit failed after a folder trash'));
+
+  revalidatePath('/documents');
+  return {
+    ok: true,
+    message: `"${folder.name}" and everything in it moved to the Drive bin. Restorable there for 30 days.`,
+  };
+}
+
+/* ==========================================================================
  * NAMED-PERSON ACCESS — owner request 2026-08-18
  * ========================================================================== */
 

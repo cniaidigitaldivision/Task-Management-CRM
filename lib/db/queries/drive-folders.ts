@@ -301,6 +301,15 @@ export async function mayReadFolder(userId: string, folderId: string): Promise<b
   return Boolean(rows[0]?.allowed);
 }
 
+/** Whether the caller may delete inside this folder. Same predicate as the
+ *  `documents_delete` policy, so the file list and the register agree. */
+export async function mayManageFolder(userId: string, folderId: string): Promise<boolean> {
+  const rows = await withUser(userId, (tx) => tx`
+    select app.folder_grants(${folderId}::uuid, 'manage'::public.folder_access) as allowed
+  `);
+  return Boolean(rows[0]?.allowed);
+}
+
 /** How many people are named on each folder, so the list can say so without a
  *  query per row. */
 export async function grantCounts(userId: string): Promise<Map<string, number>> {

@@ -129,6 +129,8 @@ export function DocumentsWorkspace({
   );
   const [filter, setFilter] = React.useState<Filter>(pendingCount > 0 ? 'pending' : 'all');
   const [uploading, setUploading] = React.useState(false);
+  /** Pre-chosen folder when upload was started from inside one. */
+  const [uploadInto, setUploadInto] = React.useState<string | null>(null);
   const [rejecting, setRejecting] = React.useState<DocumentRow | null>(null);
   const [note, setNote] = React.useState<DocumentResult | null>(null);
   const [busy, setBusy] = React.useState<string | null>(null);
@@ -271,6 +273,12 @@ export function DocumentsWorkspace({
             canShare={canShare}
             canConfigure={canConfigure}
             watchedDriveId={drive.sync?.watchedFolderId ?? null}
+            /* Uploading from inside a folder pre-selects it, so the dialog does
+               not ask where to put something you were already looking at. */
+            onUploadHere={(folder) => {
+              setUploadInto(folder.id);
+              setUploading(true);
+            }}
             onDone={(r) => {
               setNote(r);
               router.refresh();
@@ -472,7 +480,8 @@ export function DocumentsWorkspace({
         <UploadDialog
           projects={projects}
           folders={uploadableFolders}
-          onClose={() => setUploading(false)}
+          initialFolderId={uploadInto}
+          onClose={() => { setUploading(false); setUploadInto(null); }}
           onDone={(result) => {
             setUploading(false);
             setNote(result);
@@ -738,6 +747,7 @@ function DrivePanel({
 function UploadDialog({
   projects,
   folders,
+  initialFolderId,
   onClose,
   onDone,
 }: {
@@ -746,12 +756,14 @@ function UploadDialog({
    *  The server checks it again — this only keeps the list honest. `direct` means
    *  choosing it sends the file to Drive immediately, with no approval. */
   folders: ReadonlyArray<{ id: string; name: string; direct: boolean }>;
+  /** Pre-chosen when the upload was started from inside a folder. */
+  initialFolderId: string | null;
   onClose: () => void;
   onDone: (result: DocumentResult) => void;
 }) {
   const [state, formAction, pending] = React.useActionState(requestDocumentAction, EMPTY);
   const seen = React.useRef(false);
-  const [folderId, setFolderId] = React.useState('');
+  const [folderId, setFolderId] = React.useState(initialFolderId ?? '');
   const chosenGoesDirect = folders.some((f) => f.id === folderId && f.direct);
 
   React.useEffect(() => {

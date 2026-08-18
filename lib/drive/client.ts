@@ -445,6 +445,36 @@ export async function fileContentResponse(
 }
 
 /**
+ * Move a file or folder to Drive's trash.
+ *
+ * ── ⚠️ TRASH, NOT DELETE, AND THAT IS NOT A COMPROMISE ───────────────────────
+ * `DELETE /files/{id}` is permanent and immediate — no trash, no undo, gone from
+ * Google's side entirely. `PATCH {trashed: true}` puts it in the Drive bin, where
+ * it sits for thirty days and can be restored by anybody with the account.
+ *
+ * For a shared company Drive that is the only defensible choice. A Coordinator
+ * clearing out a folder should not be able to destroy the only copy of a client
+ * contract with one click, and "it is in the bin" is a recoverable mistake where
+ * "it is deleted" is not.
+ *
+ * ⚠️ Trashing a FOLDER trashes everything inside it. Drive does that, not us, and
+ * a caller must say so before asking.
+ */
+export async function trashItem(itemId: string): Promise<DriveResult<{ id: string }>> {
+  return driveFetch<{ id: string }>(
+    `${DRIVE_API}/files/${encodeURIComponent(itemId)}?${new URLSearchParams({
+      fields: 'id',
+      supportsAllDrives: 'true',
+    })}`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ trashed: true }),
+    },
+  );
+}
+
+/**
  * Google's own formats have no bytes to download — a Doc is not a file.
  * They must be EXPORTED to something, or opened in Google's editor.
  */
