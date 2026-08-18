@@ -57,19 +57,43 @@ function str(form: FormData, key: string): string {
   return String(form.get(key) ?? '').trim();
 }
 
-/**
- * 100 MB — the ceiling `documents_size_sane` already allows (migration 025).
+/* ============================================================================
+ * ⚠️ THE SIZE LIMIT IS NOT ONE NUMBER, AND PRETENDING IT WAS CAUSED THE BUG
+ * ----------------------------------------------------------------------------
+ * On 2026-08-18 the owner reported uploads failing. There were FOUR limits in
+ * play, none of them agreeing, and the app's was neither the smallest nor
+ * derived from anything:
  *
- * ⚠️ Was 25 MB, which was a number I invented and the schema never asked for. It
- * meant a phone video was refused with "That file is 48 MB. The limit is 25 MB."
- * while the database would have accepted it happily. Raised on 2026-08-18 after
- * the owner reported uploads not working, having just asked for video playback.
+ *   app `MAX_BYTES`               25 MB   a number I invented
+ *   Supabase bucket               25 MB   and no video mime type at all
+ *   Supabase project ceiling      50 MB   the real platform cap
+ *   `documents_size_sane`        100 MB   what the table permits
  *
- * It cannot go higher without a migration, and should not: the bytes are held in
- * server memory on the way through (`file.arrayBuffer()`), so this is also a
- * ceiling on how much one request can allocate.
- */
-const MAX_BYTES = 100 * 1024 * 1024;
+ * The actual failure was not size at all — the bucket's mime allow-list had no
+ * `video/*` in it, so a video was refused with `415 invalid_mime_type`. Fixed on
+ * the bucket. But raising the app limit to 100 MB, as I first did, would only
+ * have moved the wall: the platform refuses at 50 MB with a different message.
+ *
+ * ── SO THE TWO PATHS HAVE DIFFERENT, HONEST CEILINGS ─────────────────────────
+ * They pass through different systems, so one number cannot be right for both:
+ *
+ *   queued for approval   bytes land in Supabase Storage first → 50 MB, the
+ *                         project ceiling. Raising it needs a paid plan, not a
+ *                         code change.
+ *   straight to Drive     never touches Supabase → bounded instead by what one
+ *                         request may carry and hold in memory.
+ *
+ * ⚠️ NEITHER SUITS RAW VIDEO. Both buffer the whole file server-side, so real
+ * footage needs a resumable upload sent from the browser DIRECTLY to Drive, with
+ * the server only minting the session. That is not built yet; until it is, the
+ * message below says so rather than just refusing.
+ * ========================================================================= */
+
+/** Supabase project ceiling. Not ours to raise from here. */
+const MAX_BYTES_QUEUED = 50 * 1024 * 1024;
+
+/** Straight to Drive: no Supabase involved, so the limit is the request itself. */
+const MAX_BYTES_DIRECT = 100 * 1024 * 1024;
 
 /* ==========================================================================
  * READ
@@ -125,9 +149,6 @@ export async function requestDocumentAction(
 
   const file = form.get('file');
   if (!(file instanceof File) || file.size === 0) return fail('Choose a file to upload.');
-  if (file.size > MAX_BYTES) {
-    return fail(`That file is ${Math.round(file.size / 1_048_576)} MB. The limit is 25 MB.`);
-  }
 
   /* The typed name wins, falling back to the file's own. Somebody who has taken
      the trouble to name it meant that name. */
@@ -162,8 +183,6 @@ export async function requestDocumentAction(
     }
   }
 
-  const bytes = new Uint8Array(await file.arrayBuffer());
-
   /* Coordinator+ still uses the approval queue when they file into a folder —
      their own upload is exactly the one that most needs a second pair of eyes,
      and `upload` access describes what MEMBERS were granted, not a bypass for
@@ -171,6 +190,22 @@ export async function requestDocumentAction(
      asymmetry the owner asked for. */
   const straightToDrive =
     folder !== null && !canManageFolders && accessAtLeast(folder.memberAccess, 'upload');
+
+  /* ── SIZE IS CHECKED AFTER THE PATH IS KNOWN, BECAUSE IT DEPENDS ON IT ─────
+     See the note at the top. Checked before the bytes are read, so an oversized
+     file is refused without being pulled into memory first. */
+  const limit = straightToDrive ? MAX_BYTES_DIRECT : MAX_BYTES_QUEUED;
+  if (file.size > limit) {
+    const mb = Math.round(file.size / 1_048_576);
+    const limitMb = Math.round(limit / 1_048_576);
+    return fail(
+      straightToDrive
+        ? `That file is ${mb} MB and the limit is ${limitMb} MB. For anything larger it has to go into Google Drive directly for now.`
+        : `That file is ${mb} MB. Files waiting for approval are held here first, and that storage caps at ${limitMb} MB. A video this size has to go into Google Drive directly for now.`,
+    );
+  }
+
+  const bytes = new Uint8Array(await file.arrayBuffer());
 
   if (straightToDrive && folder) {
     return uploadStraightToDrive({
@@ -192,7 +227,35 @@ export async function requestDocumentAction(
     body: bytes,
     contentType: file.type || 'application/octet-stream',
   });
-  if (!stored.ok) return fail(`That file could not be stored: ${stored.message}`);
+  if (!stored.ok) {
+    /* ── ⚠️ THE RAW MESSAGE IS A JSON BLOB, AND THE OWNER SAW IT ──────────────
+       This used to interpolate Supabase's response verbatim, which produced:
+
+         That file could not be stored: The upload was rejected.
+         ({"statusCode":"415","error":"invalid_mime_type","message":"mime type
+         video/mp4 is not supported","code":"InvalidMimeType"})
+
+       Every fact needed to diagnose it was in there and none of it told the
+       person what to do. The two failures worth naming are named; anything else
+       still shows the original, because an unrecognised error is better read than
+       paraphrased into something vague. */
+    const raw = stored.message;
+
+    if (/invalid_mime_type|InvalidMimeType/.test(raw)) {
+      return fail(
+        `Files of this type (${file.type || 'unknown'}) are not accepted by the CRM's own storage, so it cannot be held for approval. An Admin can allow the type, or put the file into Google Drive directly.`,
+      );
+    }
+    if (/Payload too large|exceeded the maximum allowed size|413/.test(raw)) {
+      return fail(
+        `That file is larger than the CRM's storage accepts. Anything over ${Math.round(
+          MAX_BYTES_QUEUED / 1_048_576,
+        )} MB has to go into Google Drive directly for now.`,
+      );
+    }
+
+    return fail(`That file could not be stored: ${raw}`);
+  }
 
   let documentId: string;
   try {

@@ -802,7 +802,19 @@ function UploadDialog({
           </p>
         )}
 
-        <Field label="File" htmlFor="file" hint="Up to 25 MB.">
+        {/* The hint follows the chosen folder, because the limit genuinely
+            differs: a file going straight to Drive skips the CRM's own storage
+            and its 50 MB project cap. Saying "up to 25 MB" was wrong on both
+            counts and was what the owner hit. */}
+        <Field
+          label="File"
+          htmlFor="file"
+          hint={
+            chosenGoesDirect
+              ? 'Up to 100 MB, straight into Drive.'
+              : 'Up to 50 MB while it waits for approval. Larger files have to go into Drive directly for now.'
+          }
+        >
           <input
             id="file"
             name="file"
