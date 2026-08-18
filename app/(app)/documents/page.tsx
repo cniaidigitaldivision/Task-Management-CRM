@@ -135,6 +135,21 @@ export default async function DocumentsPage({
           /* Likewise the last failure: it can quote Google verbatim, and Google
              is not careful about what it puts in an error string. */
           lastError: canConfigure ? connection.lastError : null,
+          /* ── FORMATTED HERE, IN A SERVER COMPONENT, ON PURPOSE ─────────────
+             `lib/now.ts` states the rule: date labels are computed on the server
+             and shipped as strings. The client component used to call
+             `toLocaleString()` itself, which Node rendered as "17:12:09" and the
+             browser as "5:12:09 pm" — a hydration mismatch, and a visible error.
+
+             The locale is pinned rather than left to the runtime, so the string
+             does not change with whatever ICU data the host happens to carry. */
+          lastCheckedLabel: sync?.lastCheckedAt
+            ? `Last checked ${new Date(sync.lastCheckedAt).toLocaleString('en-GB', {
+                dateStyle: 'medium',
+                timeStyle: 'short',
+                timeZone: 'Asia/Karachi',
+              })} — ${sync.lastCreated} new.`
+            : null,
           sync,
           drafts,
         }}

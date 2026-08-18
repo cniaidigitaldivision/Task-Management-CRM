@@ -66,21 +66,27 @@ const nothing = (error: string | null): FolderScanOutcome => ({
 export async function scanDriveFolders(actorId: string): Promise<FolderScanOutcome> {
   const sync = await D.getDriveSync(actorId);
 
-  /* ── NO WATCHED FOLDER MEANS "SHOW ME EVERYTHING", NOT "DO NOTHING" ────────
-     This used to refuse outright, which was the wrong instinct and produced the
-     worst possible first experience: Drive says connected, the folder list says
-     "No folders recorded yet", and the only way forward is to paste an opaque id
-     you have to go and dig out of a Drive URL. Owner, 2026-08-18: *"the list of
-     folders which is present in Google Drive is not visible… if I type some
-     folder name, it's not visible."*
+  /* ── ⚠️ THE REGISTRY IS NOT SCOPED TO THE WATCHED FOLDER ───────────────────
+     It was, and that was a conflation of two unrelated jobs:
 
-     `'root'` is Drive's own alias for My Drive. So with nothing configured, this
-     reads the account's actual folders and the registry fills up — and the
-     watched folder becomes a CHOICE FROM THAT LIST rather than a prerequisite
-     for seeing it. */
-  const rootId = sync?.watchedFolderId ?? 'root';
+       the watched folder   where NEW subfolders become draft projects. One
+                            folder, chosen deliberately, used by "Check now".
+       the registry         which folders exist in this Drive at all, so a
+                            document can be filed and a level granted.
 
-  const root = await getFolder(rootId);
+     Scoping the registry to the watched folder meant that the moment one was
+     set, every folder outside its subtree stopped being visited — so the 32
+     folders recorded by an earlier scan of My Drive kept "not counted yet"
+     forever, however many times the button was pressed. Owner, 2026-08-18:
+     *"Why is it saying that it is not counted yet?"*
+
+     So the walk starts at My Drive AND at the watched folder. Both, because
+     neither alone is enough: `'root'` misses a folder shared into the account
+     from outside, and the watched folder misses everything beside it. */
+  const roots: string[] = ['root'];
+  if (sync?.watchedFolderId) roots.push(sync.watchedFolderId);
+
+  const root = await getFolder(roots[0]);
   if (!root.ok) return nothing(root.reason);
 
   /* Keyed by Drive id so a folder discovered as a CHILD (name and parent known,
@@ -115,6 +121,24 @@ export async function scanDriveFolders(actorId: string): Promise<FolderScanOutco
      arbitrary branch. Losing "the bottom of the tree" is explainable; losing
      "everything under the third project" is not. */
   let frontier: string[] = [root.value.id];
+
+  /* The watched folder joins the frontier if it is not already My Drive or a
+     child of it that this walk would reach anyway. Adding it unconditionally is
+     harmless — `seen` stops it being walked twice. */
+  for (const extra of roots.slice(1)) {
+    const folder = await getFolder(extra);
+    if (!folder.ok) continue; // Unreachable watched folder is not fatal to a scan.
+    if (seen.has(folder.value.id)) continue;
+    seen.add(folder.value.id);
+    found.set(folder.value.id, {
+      driveFolderId: folder.value.id,
+      name: folder.value.name,
+      parentDriveId: null,
+      fileCount: null,
+      filePartial: false,
+    });
+    frontier.push(folder.value.id);
+  }
 
   for (let depth = 0; depth < MAX_DEPTH && frontier.length > 0; depth += 1) {
     const next: string[] = [];

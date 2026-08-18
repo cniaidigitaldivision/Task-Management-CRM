@@ -92,6 +92,8 @@ export function DocumentsWorkspace({
     connected: boolean;
     account: string | null;
     lastError: string | null;
+    /** Formatted on the SERVER — see lib/now.ts. Null when never checked. */
+    lastCheckedLabel: string | null;
     sync: DriveSyncRow | null;
     drafts: Array<{ id: string; name: string; driveFolderId: string | null }>;
   };
@@ -402,6 +404,8 @@ function DrivePanel({
     connected: boolean;
     account: string | null;
     lastError: string | null;
+    /** Formatted on the SERVER — see lib/now.ts. Null when never checked. */
+    lastCheckedLabel: string | null;
     sync: DriveSyncRow | null;
     drafts: Array<{ id: string; name: string; driveFolderId: string | null }>;
   };
@@ -563,12 +567,18 @@ function DrivePanel({
           folder list below still works either way.
         </p>
 
+        {/* ── ⚠️ THE LABEL IS FORMATTED ON THE SERVER, NOT HERE ───────────────
+            This called `new Date(...).toLocaleString()` with no locale, in a
+            client component. Node formatted it "17:12:09" and the browser
+            "5:12:09 pm", so React reported a hydration mismatch — the visible
+            error the owner hit on 2026-08-18.
+
+            `lib/now.ts` already states the rule this broke: date labels are
+            computed on the server and shipped as strings, because a component
+            that formats its own is free to disagree with the HTML it is
+            hydrating. So the finished sentence arrives as a prop. */}
         <p className="text-micro text-text-tertiary">
-          {drive.sync?.lastCheckedAt
-            ? `Last checked ${new Date(drive.sync.lastCheckedAt).toLocaleString()} — ${
-                drive.sync.lastCreated
-              } new.`
-            : 'Not checked yet.'}
+          {drive.lastCheckedLabel ?? 'Not checked yet.'}
           {drive.sync?.lastError && (
             <span style={{ color: 'var(--feedback-error)' }}> {drive.sync.lastError}</span>
           )}
