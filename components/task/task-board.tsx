@@ -94,10 +94,63 @@ const TOUCH_HOLD_MS = 220;
 const MOTION_MS = 190;
 const EASE = 'cubic-bezier(0.2, 0, 0, 1)';
 
-/** `space-y-2` between cards and `p-2.5` around the list, in pixels. Read by the
- *  settled-layout model below; change them together with the classes. */
-const CARD_GAP = 8;
-const LIST_PAD = 10;
+/* ── ⚠️ THE SPACING IS MEASURED, NOT ASSUMED ─────────────────────────────────
+   These were `const CARD_GAP = 8` and `const LIST_PAD = 10`, hardcoded to mirror
+   `space-y-2` (0.5rem) and `p-2.5` (0.625rem). Correct at the browser default
+   root of 16px, and wrong for everybody else.
+
+   The owner's Chrome runs at 20px — Chrome's "Large" font setting — so the real
+   values are 10px and 12.5px. The settled-layout model below walks DOWN a column
+   adding `height + CARD_GAP` per card, so a 2px error compounds: by the tenth
+   card the model believes the midpoints are 20px higher than they are. The index
+   it picks then disagrees with what is on screen, the gap flips between
+   neighbours, and that restarts the FLIP animation every frame.
+
+   Which is trap 3 from this file's header, reintroduced through a unit mismatch
+   rather than through measuring an animating element. Owner, 2026-08-18: *"it is
+   very jittery and it's very buggy."*
+
+   So the numbers now come from the container's own computed style. `rowGap` and
+   `paddingTop` resolve rem to pixels at whatever the root size actually is, and
+   both are read from a SETTLED element at drag start — never mid-animation, which
+   is the rule this file exists to enforce. */
+interface ListSpacing {
+  readonly gap: number;
+  readonly padTop: number;
+}
+
+/** Fallbacks match the classes at a 16px root, used only if the element is gone. */
+const SPACING_FALLBACK: ListSpacing = { gap: 8, padTop: 10 };
+
+function readSpacing(list: HTMLElement | null): ListSpacing {
+  if (!list) return SPACING_FALLBACK;
+  const style = getComputedStyle(list);
+
+  /* `space-y-2` is implemented by Tailwind as a margin on the children, not as
+     `gap`, so `rowGap` reads "normal" and parses to NaN. The child margin is the
+     real answer; `rowGap` is checked first so this keeps working if the class is
+     ever changed to a flex/grid gap. */
+  const rowGap = Number.parseFloat(style.rowGap);
+  const fromGap = Number.isFinite(rowGap) ? rowGap : NaN;
+
+  const second = list.children[1] as HTMLElement | undefined;
+  const fromMargin = second
+    ? Number.parseFloat(getComputedStyle(second).marginTop)
+    : NaN;
+
+  const gap = Number.isFinite(fromGap)
+    ? fromGap
+    : Number.isFinite(fromMargin)
+      ? fromMargin
+      : SPACING_FALLBACK.gap;
+
+  const padTop = Number.parseFloat(style.paddingTop);
+
+  return {
+    gap,
+    padTop: Number.isFinite(padTop) ? padTop : SPACING_FALLBACK.padTop,
+  };
+}
 
 interface DragState {
   readonly taskId: string;
@@ -164,6 +217,8 @@ export function TaskBoard({
   /** Card heights, measured once per drag. A translate cannot change a height,
    *  so these stay valid for the whole gesture — that is the point (trap 3). */
   const heights = React.useRef(new Map<string, number>());
+  /** Each column's real gap and top padding, measured at drag start. */
+  const spacing = React.useRef(new Map<TaskStatus, ListSpacing>());
   /** Latest pointer position. Not state: it drives one element, imperatively. */
   const pointer = React.useRef({ x: 0, y: 0 });
 
@@ -253,11 +308,14 @@ export function TaskBoard({
 
         const siblings = tasks.filter((t) => t.status === status && t.id !== state.taskId);
 
-        let top = list.getBoundingClientRect().top + LIST_PAD;
+        /* Measured at drag start, from settled elements. See `readSpacing`. */
+        const { gap, padTop } = spacing.current.get(status) ?? SPACING_FALLBACK;
+
+        let top = list.getBoundingClientRect().top + padTop;
         for (let i = 0; i < siblings.length; i += 1) {
           const height = heights.current.get(siblings[i].id) ?? 0;
           if (clientY < top + height / 2) return { status, index: i };
-          top += height + CARD_GAP;
+          top += height + gap;
         }
         return { status, index: siblings.length };
       }
@@ -391,6 +449,15 @@ export function TaskBoard({
         heights.current.clear();
         for (const [id, node] of cardRefs.current) {
           heights.current.set(id, node.getBoundingClientRect().height);
+        }
+
+        /* Column spacing, once, at the same moment and for the same reason: read
+           now while every list is settled, so `resolveTarget` never consults a
+           computed style mid-animation. Per column, because a column with one
+           card has no sibling margin to read. */
+        spacing.current.clear();
+        for (const [status, list] of listRefs.current) {
+          spacing.current.set(status, readSpacing(list));
         }
 
         pointer.current = { x: atX, y: atY };
@@ -587,9 +654,10 @@ export function TaskBoard({
                 />
 
                 {/* ---- Cards ----
-                    `p-2.5` and `space-y-2` are mirrored by LIST_PAD and CARD_GAP,
-                    which the settled-layout model above measures with. Change
-                    them together. */}
+                    `p-2.5` and `space-y-2` are READ from this element by
+                    `readSpacing` at drag start, not mirrored as constants — so
+                    changing them here needs no matching change above, and the
+                    model stays correct at any browser root font size. */}
                 <div
                   ref={(element) => {
                     if (element) listRefs.current.set(status, element);

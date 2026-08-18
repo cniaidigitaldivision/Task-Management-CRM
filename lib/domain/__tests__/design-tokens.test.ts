@@ -226,6 +226,58 @@ describe('destructive actions are red everywhere', () => {
   });
 });
 
+/* ============================================================================
+ * ⚠️ THE BOARD MUST NOT ASSUME A 16px ROOT
+ * ----------------------------------------------------------------------------
+ * `task-board.tsx` walks down a column adding `height + gap` per card to decide
+ * where a dragged card lands. That arithmetic had `CARD_GAP = 8` and
+ * `LIST_PAD = 10` hardcoded to mirror `space-y-2` and `p-2.5` — rem classes, so
+ * correct only at the browser's default root size.
+ *
+ * The owner's Chrome runs at 20px, where the real values are 10 and 12.5. The
+ * error compounds down the column, the chosen index stops matching the screen,
+ * and the insertion gap flips between neighbours — which is trap 3 in that
+ * file's header, reintroduced as a unit mismatch. Reported as *"very jittery and
+ * very buggy"* on 2026-08-18.
+ *
+ * There is no jsdom in this suite by design (see vitest.config.ts), so this
+ * cannot test the measurement itself. It pins the thing that actually broke:
+ * spacing must be READ from the element, never written as a pixel constant.
+ * ========================================================================= */
+
+describe('the task board measures its spacing instead of assuming it', () => {
+  const board = () =>
+    readFileSync(join(ROOT, 'components', 'task', 'task-board.tsx'), 'utf8');
+
+  it('reads the real gap and padding from the list element', () => {
+    const source = board();
+    expect(source).toContain('readSpacing');
+    /* Both come from computed style, not from arithmetic on a guessed root. */
+    expect(source).toContain('getComputedStyle');
+  });
+
+  it('declares no hardcoded pixel constant for card spacing', () => {
+    const source = board();
+
+    /* Only DECLARATIONS are rejected. The header comment names the old constants
+       while explaining the bug, and that prose must stay readable. */
+    const declarations = [
+      ...source.matchAll(/^\s*const\s+([A-Z_]*(?:GAP|PAD|PADDING)[A-Z_]*)\s*=\s*(-?\d+(?:\.\d+)?)\s*;/gm),
+    ];
+
+    expect(
+      declarations.map((m) => `${m[1]} = ${m[2]}`),
+      'spacing must be measured from the element (readSpacing), not hardcoded — a px constant mirroring a rem class is wrong at any root font size but 16px',
+    ).toEqual([]);
+  });
+
+  it('still has a fallback, so a missing element cannot produce NaN geometry', () => {
+    /* NaN would propagate through `top += height + gap` and make every
+       comparison false, silently sending the card to the end of the column. */
+    expect(board()).toContain('SPACING_FALLBACK');
+  });
+});
+
 describe('the typography utilities the control scale depends on', () => {
   it('are all defined in globals.css', () => {
     const css = readFileSync(join(ROOT, 'app', 'globals.css'), 'utf8');
