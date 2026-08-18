@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache';
 import { requireUser } from '@/lib/auth/current-user';
 import { withUser } from '@/lib/db/client';
 import { audit } from '@/lib/db/queries/audit';
+import { connectionStatus } from '@/lib/db/queries/drive';
 import * as F from '@/lib/db/queries/drive-folders';
 import { ACCESS_MEANS, accessAtLeast, isFolderAccess } from '@/lib/domain/folder-access';
 import { can } from '@/lib/domain/permissions';
@@ -121,6 +122,14 @@ export async function syncFoldersAction(): Promise<DocumentResult> {
 
   if (!can(actor, 'document.share')) {
     return fail('Only a Team Coordinator or above can read the folder tree.');
+  }
+
+  /* Drive has to be connected before there is a tree to read. Said plainly here,
+     because the alternative is Google's own 401 arriving as an unexplained
+     "Drive refused the request". */
+  const connection = await connectionStatus();
+  if (!connection.connected) {
+    return fail('Google Drive is not connected yet, so there are no folders to read.');
   }
 
   const outcome = await scanDriveFolders(user.id);

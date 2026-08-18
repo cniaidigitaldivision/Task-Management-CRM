@@ -647,22 +647,66 @@ export async function disconnectDriveAction(): Promise<DocumentResult> {
   };
 }
 
+/**
+ * The Drive folder id out of whatever a person actually pasted.
+ *
+ * ── ⚠️ NOBODY KNOWS THEIR FOLDER ID, AND THE FIELD USED TO DEMAND ONE ────────
+ * Owner, 2026-08-18: *"if I type some folder name, it's not visible."* Quite —
+ * the field wanted `1AbC…`, an opaque string you can only get by opening the
+ * folder in Drive and reading the address bar. What people naturally do is paste
+ * the whole URL, or type the folder's name.
+ *
+ * A URL we can handle, and do. A NAME we cannot — two folders may share one, and
+ * guessing which was meant is the kind of helpfulness that files documents
+ * somewhere nobody expects. So a name is refused, and the message points at the
+ * folder list, where picking by name is exactly what happens.
+ */
+function driveFolderIdFrom(input: string): string {
+  const trimmed = input.trim();
+  if (!trimmed) return '';
+
+  /* .../folders/<id>  ·  ...?id=<id>  ·  .../d/<id>/...  — the three shapes
+     Drive puts in an address bar. */
+  const fromUrl =
+    /\/folders\/([a-zA-Z0-9_-]{10,})/.exec(trimmed) ??
+    /[?&]id=([a-zA-Z0-9_-]{10,})/.exec(trimmed) ??
+    /\/d\/([a-zA-Z0-9_-]{10,})/.exec(trimmed);
+  if (fromUrl) return fromUrl[1];
+
+  return trimmed;
+}
+
+/** What a Drive id looks like: no spaces, and long. `root` is Drive's own alias
+ *  for My Drive and is deliberately allowed through. */
+function looksLikeDriveId(value: string): boolean {
+  return value === 'root' || /^[a-zA-Z0-9_-]{10,}$/.test(value);
+}
+
 export async function setWatchedFolderAction(folderId: string): Promise<DocumentResult> {
   const user = await requireUser();
   if (!can({ role: user.role, id: user.id }, 'drive.configure')) {
     return fail('Only an Admin can choose the watched folder.');
   }
 
-  const trimmed = folderId.trim();
+  const trimmed = driveFolderIdFrom(folderId);
   if (!trimmed) {
     await D.setWatchedFolder(user.id, null);
     revalidatePath('/documents');
     return { ok: true, message: 'Folder watching is off. No projects will be created.' };
   }
 
+  /* Caught here rather than sent to Google, because Drive answers a folder NAME
+     with the same 404 it gives a deleted folder — and "that folder may not
+     exist" is a useless thing to read when you typed "Client Work" and it does. */
+  if (!looksLikeDriveId(trimmed)) {
+    return fail(
+      `"${trimmed}" is a folder name, not a folder id. Press "Read folders from Drive" below and pick it from the list — or paste the folder's full URL from Drive and this will take the id out of it.`,
+    );
+  }
+
   /* Confirmed before it is saved. Saving an unreachable id would mean the poll
-     failing silently every few minutes, and the reason ("Drive was never shared
-     with the service account") would only appear in a log. */
+     failing silently every few minutes, with the reason only ever appearing in
+     a log. */
   const folder = await Drive.getFolder(trimmed);
   if (!folder.ok) return fail(folder.reason);
 

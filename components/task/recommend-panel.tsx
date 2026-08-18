@@ -225,7 +225,11 @@ export function RecommendPanel({
                             <dd className="flex flex-1 items-center gap-2">
                               <ProgressBar
                                 value={person.dimensions[dimension.key]}
-                                token="accent-secondary"
+                                /* Was `accent-secondary`, which has never
+                                   existed — so these bars rendered colourless.
+                                   Caught 2026-08-18 by the token guard in
+                                   lib/domain/__tests__/design-tokens.test.ts. */
+                                token="accent-gold"
                                 size="sm"
                               />
                               <span className="tabular w-8 shrink-0 text-right text-micro text-text-secondary">

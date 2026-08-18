@@ -65,11 +65,22 @@ const nothing = (error: string | null): FolderScanOutcome => ({
  */
 export async function scanDriveFolders(actorId: string): Promise<FolderScanOutcome> {
   const sync = await D.getDriveSync(actorId);
-  if (!sync?.watchedFolderId) {
-    return nothing('No watched folder is set, so there is no tree to read.');
-  }
 
-  const root = await getFolder(sync.watchedFolderId);
+  /* ── NO WATCHED FOLDER MEANS "SHOW ME EVERYTHING", NOT "DO NOTHING" ────────
+     This used to refuse outright, which was the wrong instinct and produced the
+     worst possible first experience: Drive says connected, the folder list says
+     "No folders recorded yet", and the only way forward is to paste an opaque id
+     you have to go and dig out of a Drive URL. Owner, 2026-08-18: *"the list of
+     folders which is present in Google Drive is not visible… if I type some
+     folder name, it's not visible."*
+
+     `'root'` is Drive's own alias for My Drive. So with nothing configured, this
+     reads the account's actual folders and the registry fills up — and the
+     watched folder becomes a CHOICE FROM THAT LIST rather than a prerequisite
+     for seeing it. */
+  const rootId = sync?.watchedFolderId ?? 'root';
+
+  const root = await getFolder(rootId);
   if (!root.ok) return nothing(root.reason);
 
   const found: Array<{ driveFolderId: string; name: string; parentDriveId: string | null }> = [

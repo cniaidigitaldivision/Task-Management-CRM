@@ -166,6 +166,8 @@ export function DocumentsWorkspace({
         <FolderPanel
           folders={folders}
           canShare={canShare}
+          canConfigure={canConfigure}
+          watchedDriveId={drive.sync?.watchedFolderId ?? null}
           onDone={(r) => { setNote(r); router.refresh(); }}
         />
       )}
@@ -486,20 +488,31 @@ function DrivePanel({
           </p>
         )}
 
-        <div className="flex flex-wrap items-end gap-2">
-          <Field
-            label="Watched folder id"
-            htmlFor="watchedFolder"
-            hint="A new subfolder here becomes a draft project. Leave empty to turn it off."
-            className="min-w-[18rem] flex-1"
-          >
-            <Input
-              id="watchedFolder"
-              value={folderId}
-              onChange={(event) => setFolderId(event.target.value)}
-              placeholder="1AbC…  (from the folder's URL in Drive)"
-            />
-          </Field>
+        {/* ── LABEL ABOVE, HINT BELOW, CONTROLS IN ONE ROW ────────────────────
+            This was a `Field` (label + input + hint) sitting in a row with the
+            buttons under `items-end`. `items-end` aligns the bottom of the whole
+            Field — hint included — with the bottom of the buttons, so the buttons
+            sat a line lower than the input they belong to. Owner, 2026-08-18:
+            *"the input box is above and the Save and Check Now button is below."*
+
+            The hint is now outside the row, so the row contains only things of
+            the same height and they line up by construction rather than by
+            alignment tricks. */}
+        <label htmlFor="watchedFolder" className="block text-caption font-medium text-text-primary">
+          Watched folder
+        </label>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {/* `basis-64 grow` rather than a min-width: at a larger browser font
+              size the old `min-w-[18rem]` could not shrink, so the buttons were
+              pushed onto their own line. This shrinks instead of wrapping. */}
+          <Input
+            id="watchedFolder"
+            value={folderId}
+            onChange={(event) => setFolderId(event.target.value)}
+            placeholder="Paste the folder's URL from Drive, or pick one below"
+            className="w-full basis-64 grow"
+          />
 
           <Button
             variant="secondary"
@@ -544,6 +557,11 @@ function DrivePanel({
             Check now
           </Button>
         </div>
+
+        <p className="text-micro text-text-tertiary">
+          A new subfolder here becomes a draft project. Leave it empty to turn that off — the
+          folder list below still works either way.
+        </p>
 
         <p className="text-micro text-text-tertiary">
           {drive.sync?.lastCheckedAt
@@ -614,10 +632,15 @@ function DrivePanel({
 function FolderPanel({
   folders,
   canShare,
+  canConfigure,
+  watchedDriveId,
   onDone,
 }: {
   folders: readonly DriveFolderRow[];
   canShare: boolean;
+  /** Admin+: may also choose which folder is watched for new projects. */
+  canConfigure: boolean;
+  watchedDriveId: string | null;
   onDone: (result: DocumentResult) => void;
 }) {
   const [busy, setBusy] = React.useState<string | null>(null);
@@ -663,7 +686,7 @@ function FolderPanel({
         {folders.length === 0 ? (
           <p className="text-caption text-text-secondary">
             {canShare
-              ? 'No folders recorded yet. Set a watched folder above, then read the tree from Drive.'
+              ? 'No folders recorded yet. Press "Read folders from Drive" — with no watched folder set it reads My Drive, so you do not need an id to get started.'
               : 'No folders have been opened to members yet.'}
           </p>
         ) : (
@@ -695,7 +718,34 @@ function FolderPanel({
                     </p>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {/* Picking the watched folder BY NAME, which is the whole
+                        point — the id field above exists for the case where the
+                        folder is not in this list yet. */}
+                    {canConfigure &&
+                      (folder.driveFolderId === watchedDriveId ? (
+                        <Badge token="accent-primary" size="sm" variant="outline">
+                          Watched
+                        </Badge>
+                      ) : (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={busy !== null}
+                          title="Watch this folder — new subfolders in it become draft projects"
+                          onClick={async () => {
+                            setBusy(folder.id);
+                            try {
+                              onDone(await setWatchedFolderAction(folder.driveFolderId));
+                            } finally {
+                              setBusy(null);
+                            }
+                          }}
+                        >
+                          Watch
+                        </Button>
+                      ))}
+
                     {canShare ? (
                       /* ── THE LEVEL IS THE CONTROL, NOT A TOGGLE ────────────
                          Owner, 2026-08-16: the options are chosen at the moment
