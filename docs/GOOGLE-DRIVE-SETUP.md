@@ -177,14 +177,25 @@ Sign in to the CRM as an **Admin or the Super Admin**, go to **Documents**, and
 press **Connect Google Drive**. Approve the consent screen as
 cniaidigitaldivision@gmail.com.
 
-Google will warn that the app is unverified. **Expected, and permanent** — an app
-in Testing is never verified. Press **Advanced → Go to CNI CRM (unsafe)**. It says
-unsafe because Google cannot vouch for the app; you wrote it, and the only account
-it can reach is the one granting access.
+Google shows **"Google hasn't verified this app"** with *Continue* and *Back to
+safety*. Press **Continue**. (Older accounts get an **Advanced → Go to CNI CRM**
+link instead — same thing.)
 
-⚠️ If instead you get a hard **"Access blocked… Error 403: access_denied"**, the
-address is not in **Test users**. Go back to step 3.5 — this is the single most
-common way this fails.
+**Expected, and permanent** — an app in Testing is never verified. Google cannot
+vouch for it; you wrote it, and the only Drive it can reach is the one granting
+access.
+
+⚠️ Read the right-hand text, because it tells you which of the two screens you are
+on:
+
+| It says | Meaning |
+|---|---|
+| *"You've been **given access** to an app that's currently being tested"* | ✅ You are a test user. Press Continue. |
+| *"can **only be accessed by** developer-approved testers"* + `403 access_denied` | ❌ You are not on the list. Step 3.5. |
+
+They look almost identical and mean opposite things.
+
+Then **Allow** on the Drive consent screen.
 
 You come back to Documents with *"Google Drive is connected"* and the account
 address shown.
@@ -298,7 +309,7 @@ being tolerable.
 | *"That sign-in could not be verified as one started here"* | The state cookie expired (ten minutes) or the callback did not come from a flow started in the CRM. Press Connect again. |
 | 403 on every Drive call | The Drive API is not enabled. Step 2. |
 | *"The Google connection has expired or was revoked"* | The seven-day Testing-mode token. Press Connect again — expected, not a bug. |
-| Google warns the app is **unverified** | Expected and permanent in Testing. **Advanced → Go to CNI CRM**. Different from *Access blocked* above: a warning you can click past, not a refusal. |
+| **"Google hasn't verified this app"** with a *Continue* button | Expected and permanent in Testing. Press **Continue**. Different from *Access blocked* above: a warning you click past, not a refusal — check the right-hand wording, step 6. |
 | A Member says *"I can see the folder but it won't let me add anything"* | The folder is at **view**. Raise it to **Members can upload**. |
 | A Member's upload appeared in Drive with no approval | Working as intended — that folder is at `upload` or above. Lower it if that was not what you meant. |
 | Approval says *"Drive refused the request (404)"* | The folder id in **Watched folder** does not exist in this account's Drive. |
