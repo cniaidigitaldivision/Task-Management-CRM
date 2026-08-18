@@ -708,10 +708,24 @@ function FolderPanel({
                       />
                       {folder.name}
                     </p>
+                    {/* ── TWO NUMBERS, AND THEY ARE NOT THE SAME NUMBER ─────
+                        Owner, 2026-08-18: *"showing a zero document… every folder
+                        has some documents."* It was showing only the CRM register
+                        count, which is 0 for a folder filled by hand in Drive.
+                        Drive's own count leads now, because that is what somebody
+                        looking at a folder means; the register count follows, and
+                        only when there is one, because it means something
+                        different — uploaded through here, approved, auditable. */}
                     <p className="text-micro text-text-tertiary">
                       {folder.projectName ? `${folder.projectName} · ` : ''}
-                      {folder.documentCount}{' '}
-                      {folder.documentCount === 1 ? 'document' : 'documents'}
+                      {folder.driveFileCount === null
+                        ? 'not counted yet'
+                        : `${folder.driveFileCount}${folder.fileCountPartial ? '+' : ''} ${
+                            folder.driveFileCount === 1 && !folder.fileCountPartial
+                              ? 'file'
+                              : 'files'
+                          } in Drive`}
+                      {folder.documentCount > 0 && ` · ${folder.documentCount} via the CRM`}
                       {folder.memberAccess !== 'none' && folder.sharedByName
                         ? ` · granted by ${folder.sharedByName}`
                         : ''}

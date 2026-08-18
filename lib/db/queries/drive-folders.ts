@@ -42,8 +42,15 @@ export interface DriveFolderRow {
   readonly memberAccess: FolderAccess;
   readonly sharedByName: string | null;
   readonly sharedAt: string | null;
-  /** How many documents are filed here. Shown so "share this" has a size. */
+  /** Documents the CRM knows about here — uploaded through it and auditable.
+   *  NOT the same as what is in Drive, which is the next three fields. */
   readonly documentCount: number;
+  /** Files actually in the Drive folder as of `filesCountedAt`. Null when never
+   *  counted, which must not render the same as counted-and-empty. */
+  readonly driveFileCount: number | null;
+  readonly filesCountedAt: string | null;
+  /** `driveFileCount` is a floor — the folder has more children than one page. */
+  readonly fileCountPartial: boolean;
 }
 
 function toRow(row: Record<string, unknown>): DriveFolderRow {
@@ -58,6 +65,12 @@ function toRow(row: Record<string, unknown>): DriveFolderRow {
     sharedByName: (row.shared_by_name as string | null) ?? null,
     sharedAt: isoOrNull(row.shared_at),
     documentCount: Number(row.document_count ?? 0),
+    driveFileCount:
+      row.drive_file_count === null || row.drive_file_count === undefined
+        ? null
+        : Number(row.drive_file_count),
+    filesCountedAt: isoOrNull(row.files_counted_at),
+    fileCountPartial: Boolean(row.file_count_partial),
   };
 }
 
@@ -76,6 +89,7 @@ export async function listFolders(userId: string): Promise<DriveFolderRow[]> {
   const rows = await withUser(userId, (tx) => tx`
     select f.id, f.drive_folder_id, f.name, f.parent_drive_id, f.project_id,
            f.member_access, f.shared_at,
+           f.drive_file_count, f.files_counted_at, f.file_count_partial,
            p.name as project_name,
            u.full_name as shared_by_name,
            (select count(*) from public.documents d where d.folder_id = f.id)
@@ -96,6 +110,7 @@ export async function getFolder(
   const rows = await withUser(userId, (tx) => tx`
     select f.id, f.drive_folder_id, f.name, f.parent_drive_id, f.project_id,
            f.member_access, f.shared_at,
+           f.drive_file_count, f.files_counted_at, f.file_count_partial,
            p.name as project_name,
            u.full_name as shared_by_name,
            0 as document_count
@@ -127,6 +142,10 @@ export async function recordFolders(
     driveFolderId: string;
     name: string;
     parentDriveId: string | null;
+    /** Files seen directly in this folder. Null when the walk did not look —
+     *  a folder found as a child but never descended into. */
+    fileCount: number | null;
+    filePartial: boolean;
   }>,
 ): Promise<number> {
   if (folders.length === 0) return 0;
@@ -134,8 +153,14 @@ export async function recordFolders(
   return withUser(userId, async (tx) => {
     let created = 0;
     for (const folder of folders) {
+      /* Paired, because migration 030 refuses a count with no timestamp: a number
+         nobody can judge the age of is worse than no number. */
+      const countedAt = folder.fileCount === null ? null : new Date().toISOString();
+
       const rows = await tx`
-        insert into public.drive_folders (drive_folder_id, name, parent_drive_id, project_id)
+        insert into public.drive_folders
+          (drive_folder_id, name, parent_drive_id, project_id,
+           drive_file_count, files_counted_at, file_count_partial)
         values (
           ${folder.driveFolderId},
           ${folder.name},
@@ -144,12 +169,28 @@ export async function recordFolders(
              if there is one. Looked up rather than passed in, so the link is
              made by the database that owns both sides of it. */
           (select id from public.projects
-            where drive_folder_id = ${folder.driveFolderId} limit 1)
+            where drive_folder_id = ${folder.driveFolderId} limit 1),
+          ${folder.fileCount},
+          ${countedAt},
+          ${folder.filePartial}
         )
         on conflict (drive_folder_id) do update
            set name           = excluded.name,
                parent_drive_id = excluded.parent_drive_id,
-               project_id     = coalesce(public.drive_folders.project_id, excluded.project_id)
+               project_id     = coalesce(public.drive_folders.project_id, excluded.project_id),
+               /* ⚠️ A fresh count replaces the old one; a null does NOT. The walk
+                  is depth-bounded, so the deepest folders are recorded without
+                  being looked inside — and overwriting last week's real count
+                  with "unknown" would make the display worse on every sync. */
+               drive_file_count   = coalesce(excluded.drive_file_count,
+                                             public.drive_folders.drive_file_count),
+               files_counted_at   = coalesce(excluded.files_counted_at,
+                                             public.drive_folders.files_counted_at),
+               file_count_partial = case
+                 when excluded.drive_file_count is null
+                   then public.drive_folders.file_count_partial
+                 else excluded.file_count_partial
+               end
         returning (xmax = 0) as inserted
       `;
       if (rows[0]?.inserted) created += 1;

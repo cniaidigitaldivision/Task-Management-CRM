@@ -3,7 +3,7 @@ import 'server-only';
 import * as F from '@/lib/db/queries/drive-folders';
 import * as D from '@/lib/db/queries/documents';
 
-import { getFolder, listSubfolders } from './client';
+import { getFolder, listChildren } from './client';
 
 /* ============================================================================
  * WALKING THE DRIVE TREE INTO THE REGISTRY — owner request 2026-08-16
@@ -83,9 +83,30 @@ export async function scanDriveFolders(actorId: string): Promise<FolderScanOutco
   const root = await getFolder(rootId);
   if (!root.ok) return nothing(root.reason);
 
-  const found: Array<{ driveFolderId: string; name: string; parentDriveId: string | null }> = [
-    { driveFolderId: root.value.id, name: root.value.name, parentDriveId: null },
-  ];
+  /* Keyed by Drive id so a folder discovered as a CHILD (name and parent known,
+     contents not yet) can be upgraded in place when the walk reaches it and
+     counts its files. An array would mean scanning it to find the entry. */
+  const found = new Map<
+    string,
+    {
+      driveFolderId: string;
+      name: string;
+      parentDriveId: string | null;
+      fileCount: number | null;
+      filePartial: boolean;
+    }
+  >([
+    [
+      root.value.id,
+      {
+        driveFolderId: root.value.id,
+        name: root.value.name,
+        parentDriveId: null,
+        fileCount: null,
+        filePartial: false,
+      },
+    ],
+  ]);
 
   const seen = new Set<string>([root.value.id]);
   let truncated = false;
@@ -99,12 +120,15 @@ export async function scanDriveFolders(actorId: string): Promise<FolderScanOutco
     const next: string[] = [];
 
     for (const parent of frontier) {
-      if (found.length >= MAX_FOLDERS) {
+      if (found.size >= MAX_FOLDERS) {
         truncated = true;
         break;
       }
 
-      const children = await listSubfolders(parent);
+      /* `listChildren`, not `listSubfolders` — same one request, but it returns
+         the file count as well. Owner, 2026-08-18: every folder showed "0
+         documents" because nothing had ever counted what is in Drive. */
+      const children = await listChildren(parent);
       if (!children.ok) {
         /* One unreadable branch — a folder whose sharing changed mid-walk — must
            not discard the folders already found. The walk continues and the run
@@ -113,19 +137,34 @@ export async function scanDriveFolders(actorId: string): Promise<FolderScanOutco
         continue;
       }
 
-      for (const child of children.value) {
+      /* This folder has now been looked inside, so its count is known. */
+      const entry = found.get(parent);
+      if (entry) {
+        entry.fileCount = children.value.fileCount;
+        entry.filePartial = children.value.truncated;
+      }
+
+      for (const child of children.value.folders) {
         if (seen.has(child.id)) continue;
-        if (found.length >= MAX_FOLDERS) {
+        if (found.size >= MAX_FOLDERS) {
           truncated = true;
           break;
         }
         seen.add(child.id);
-        found.push({ driveFolderId: child.id, name: child.name, parentDriveId: parent });
+        /* Recorded with a null count: known to exist, not yet looked inside. If
+           the walk reaches it, the block above fills the count in. */
+        found.set(child.id, {
+          driveFolderId: child.id,
+          name: child.name,
+          parentDriveId: parent,
+          fileCount: null,
+          filePartial: false,
+        });
         next.push(child.id);
       }
     }
 
-    if (found.length >= MAX_FOLDERS) {
+    if (found.size >= MAX_FOLDERS) {
       truncated = true;
       break;
     }
@@ -138,8 +177,8 @@ export async function scanDriveFolders(actorId: string): Promise<FolderScanOutco
   if (frontier.length > 0 && !truncated) truncated = true;
 
   try {
-    const created = await F.recordFolders(actorId, found);
-    return { ok: true, created, examined: found.length, truncated, error: null };
+    const created = await F.recordFolders(actorId, [...found.values()]);
+    return { ok: true, created, examined: found.size, truncated, error: null };
   } catch {
     return nothing('The folders were read from Drive but could not be recorded.');
   }

@@ -43,6 +43,9 @@ import { accessTokenFromRefresh, oauthConfig } from './oauth';
  * ========================================================================= */
 
 const DRIVE_API = 'https://www.googleapis.com/drive/v3';
+
+/** Drive's own mime type for a folder. A folder is a file with this type. */
+const FOLDER_MIME = 'application/vnd.google-apps.folder';
 const DRIVE_UPLOAD = 'https://www.googleapis.com/upload/drive/v3';
 
 
@@ -155,7 +158,7 @@ export async function listSubfolders(
 ): Promise<DriveResult<DriveFolder[]>> {
   const query = [
     `'${parentFolderId.replace(/'/g, "\\'")}' in parents`,
-    `mimeType = 'application/vnd.google-apps.folder'`,
+    `mimeType = '${FOLDER_MIME}'`,
     'trashed = false',
   ].join(' and ');
 
@@ -174,6 +177,84 @@ export async function listSubfolders(
   const result = await driveFetch<{ files?: DriveFolder[] }>(url, { method: 'GET' });
   if (!result.ok) return result;
   return { ok: true, value: result.value.files ?? [] };
+}
+
+export interface DriveChildren {
+  /** Subfolders, newest first — the same list `listSubfolders` returns. */
+  readonly folders: DriveFolder[];
+  /** How many non-folder files sit directly in this folder. */
+  readonly fileCount: number;
+  /** True when the folder holds more children than one page can report, so
+   *  `fileCount` is a floor rather than the true number. */
+  readonly truncated: boolean;
+}
+
+/**
+ * The children of one folder, split into subfolders and a file count.
+ *
+ * ── ONE CALL WHERE `listSubfolders` MADE ONE, AND ANSWERS TWICE AS MUCH ───────
+ * `listSubfolders` asks Drive for `mimeType = folder` and throws the rest away.
+ * The folder registry needed a file count too (owner, 2026-08-18: *"showing a
+ * zero document… every folder has some documents"*), and the obvious way to get
+ * one is a second request per folder. There is no need: dropping the mimeType
+ * filter returns everything, and partitioning it here costs nothing. Same number
+ * of round trips as before, both answers instead of one.
+ *
+ * ⚠️ `fileCount` IS A FLOOR, NOT A TOTAL. One page is 1000 children, and a folder
+ * with more is reported as `truncated` rather than silently undercounted. Paging
+ * through every folder of a large Drive to make a display number exact would turn
+ * one sync into thousands of requests; a number the screen marks as "1000+" is
+ * more honest and far cheaper than one that is quietly wrong.
+ */
+export async function listChildren(
+  parentFolderId: string,
+): Promise<DriveResult<DriveChildren>> {
+  const query = [
+    `'${parentFolderId.replace(/'/g, "\\'")}' in parents`,
+    'trashed = false',
+  ].join(' and ');
+
+  const url = `${DRIVE_API}/files?${new URLSearchParams({
+    q: query,
+    /* `mimeType` is now part of the projection rather than the filter, because
+       the partition happens here. */
+    fields: 'nextPageToken, files(id,name,mimeType,createdTime,webViewLink)',
+    orderBy: 'folder,createdTime desc',
+    pageSize: '1000',
+    supportsAllDrives: 'true',
+    includeItemsFromAllDrives: 'true',
+  })}`;
+
+  const result = await driveFetch<{
+    files?: Array<DriveFolder & { mimeType?: string }>;
+    nextPageToken?: string;
+  }>(url, { method: 'GET' });
+  if (!result.ok) return result;
+
+  const children = result.value.files ?? [];
+  const folders: DriveFolder[] = [];
+  let fileCount = 0;
+
+  for (const child of children) {
+    if (child.mimeType === FOLDER_MIME) {
+      folders.push({
+        id: child.id,
+        name: child.name,
+        createdTime: child.createdTime,
+        webViewLink: child.webViewLink,
+      });
+    } else {
+      /* Google Docs, Sheets and Slides have their own mime types and are files
+         as far as anybody looking at the folder is concerned. Anything that is
+         not a folder counts. */
+      fileCount += 1;
+    }
+  }
+
+  return {
+    ok: true,
+    value: { folders, fileCount, truncated: Boolean(result.value.nextPageToken) },
+  };
 }
 
 /** One folder's metadata, to confirm a configured id is real and reachable. */
