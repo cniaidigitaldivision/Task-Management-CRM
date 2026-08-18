@@ -106,12 +106,20 @@ Without this, the connection succeeds and every Drive call returns 403.
    ```
    http://localhost:4310/api/drive/callback
    https://task-management-crm-ivory.vercel.app/api/drive/callback
+   https://taskly.aidigitaldivision.com/api/drive/callback
    ```
 
-   A missing one shows as `redirect_uri_mismatch` on Google's own screen, before
-   the CRM is ever reached. The URI is built from the request's own origin, so
-   there is no third environment variable to keep in step — but Google has to know
-   about each host in advance.
+   ⚠️ **All lowercase.** The CRM builds the URI from the request's own origin, and
+   a browser lowercases the host — so it will always send
+   `taskly.…`, never `Taskly.…`. Registering it capitalised risks a
+   `redirect_uri_mismatch` that only appears on the custom domain and works fine
+   on the Vercel URL, which is a miserable thing to diagnose. Lowercase is correct
+   on every host, so there is no reason to chance it.
+
+   A missing URI shows as `redirect_uri_mismatch` on Google's own screen, before
+   the CRM is ever reached. Because the URI comes from the request, there is no
+   environment variable to keep in step — but Google has to know each host in
+   advance.
 
 5. Copy the **Client ID** and **Client secret**.
 
@@ -126,6 +134,18 @@ GOOGLE_OAUTH_CLIENT_SECRET=…
 
 And in Vercel → Project → Settings → Environment Variables, the same two, for
 Production. Redeploy afterwards — environment variables are read at boot.
+
+> ✅ **Done on 2026-08-16.** Both are in Vercel Production, marked Sensitive.
+>
+> ⚠️ **`.env.example` is committed to git and this repo is PUBLIC.** The values
+> were first pasted there by mistake and moved to `.env.local` before anything was
+> committed or pushed — `git show HEAD:.env.example` had both lines empty, so
+> nothing was exposed. Real values go in `.env.local` only; it is git-ignored,
+> `.env.example` is not.
+>
+> ⚠️ **`GOOGLE_SERVICE_ACCOUNT_JSON` is still in Vercel** (Production + Preview)
+> and is now dead — no code reads it. Harmless, but it is a stale credential and
+> worth deleting.
 
 ## Step 6 · Press the button
 
