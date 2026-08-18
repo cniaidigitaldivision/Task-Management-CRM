@@ -56,6 +56,7 @@ That's all you ever need to type. Everything else is recorded in the files.
 | Database | Supabase `xmqcmbbgbyuohpzywote`. Schema lives in `lib/db/migrations/`; contract for using it in [`lib/db/README.md`](../lib/db/README.md) |
 | Re-prove the security gate | Paste `lib/db/verify/005_super_admin_immutability.sql` into the SQL editor or the MCP. Self-cleaning, safe against production. Every row must read PASS. |
 | After any migration | Regenerate `types/database.ts`, re-run the gate proof, and run `get_advisors(security)` |
+| ⚠️ **The MCP runs as `postgres`, which bypasses table GRANTs** | So does the SQL editor. A query verified there can still fail in the app with `42501 permission denied` — this happened on 2026-08-16 and surfaced as *"it signs me out again and again"*, because a throwing page redirects to sign-in. **Any check touching a table with revoked privileges must `set local role cni_app` first.** Note that `set local role` covers RLS *and* grants; verifying only the policies is not enough. |
 
 ---
 

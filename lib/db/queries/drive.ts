@@ -36,9 +36,17 @@ export interface DriveConnectionStatus {
 
 /** Safe for any screen: says whether Drive works and whose account it uses. */
 export async function connectionStatus(): Promise<DriveConnectionStatus> {
+  /* ⚠️ THROUGH THE FUNCTION, NEVER THE TABLE. Migration 027 revoked every
+     privilege on `drive_connection` from `cni_app`, so a direct select here
+     fails with `42501 permission denied` — which it did, on every load of the
+     Documents screen, and surfaced as the page bouncing to sign-in. A permission
+     error two layers down is a convincing impression of a session problem.
+
+     `drive_connection_status()` (029) returns the three harmless columns and
+     cannot return the token; `drive_connection_read()` is the one that can, and
+     it has exactly one caller. */
   const rows = await withAppRole((tx) => tx`
-    select account_email, connected_at, last_error
-      from public.drive_connection where id = 1
+    select * from app.drive_connection_status()
   `);
   const row = rows[0];
   return {
