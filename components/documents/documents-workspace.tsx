@@ -12,6 +12,7 @@ import {
   Folder as FolderIcon,
   Loader2,
   RefreshCw,
+  Settings,
   Trash2,
   XCircle,
 } from 'lucide-react';
@@ -27,11 +28,10 @@ import {
   syncDriveFoldersAction,
   type DocumentResult,
 } from '@/app/actions/documents';
-import { setFolderAccessAction, syncFoldersAction } from '@/app/actions/folders';
 import type { DocumentRow } from '@/lib/db/queries/documents';
 import type { DriveSyncRow } from '@/lib/db/queries/documents';
 import type { DriveFolderRow } from '@/lib/db/queries/drive-folders';
-import { ACCESS_META, FOLDER_ACCESS, accessAtLeast } from '@/lib/domain/folder-access';
+import { ACCESS_META, accessAtLeast } from '@/lib/domain/folder-access';
 import { Badge } from '@/components/ui/badge';
 import { Button, IconButton } from '@/components/ui/button';
 import { Card, CardBody } from '@/components/ui/card';
@@ -41,6 +41,8 @@ import { Pagination, usePagination } from '@/components/ui/pagination';
 import { Select } from '@/components/ui/select';
 import { ToggleGroup, Toolbar, ToolbarGroup, ToolbarLabel, ToolbarSpacer } from '@/components/ui/toolbar';
 import { cn } from '@/lib/utils';
+
+import { FolderBrowser } from './folder-browser';
 
 /* ============================================================================
  * DOCUMENTS — owner request 2026-08-13
@@ -67,6 +69,23 @@ const FILTER_LABEL: Record<Filter, string> = {
   rejected: 'Refused',
   all: 'Everything',
 };
+
+type Tab = 'folders' | 'approvals' | 'settings';
+
+/* ⚠️ ORDER IS THE ORDER OF USE, not of importance. Browsing folders is the daily
+   job, so it is first and is the default; approvals are frequent but occasional;
+   the connection is set up once and then never touched, so it is last and
+   Admin-only. */
+const TABS: ReadonlyArray<{
+  key: Tab;
+  label: string;
+  icon: typeof FolderIcon;
+  adminOnly?: boolean;
+}> = [
+  { key: 'folders', label: 'Folders & files', icon: FolderIcon },
+  { key: 'approvals', label: 'Register & approvals', icon: CheckCircle2 },
+  { key: 'settings', label: 'Drive settings', icon: Settings, adminOnly: true },
+];
 
 export function DocumentsWorkspace({
   documents,
@@ -101,8 +120,13 @@ export function DocumentsWorkspace({
   const router = useRouter();
   const pendingCount = documents.filter((d) => d.state === 'pending').length;
 
-  /* Opens on the queue when there is one. A screen that opens on "everything"
-     when four things are waiting has buried its own purpose. */
+  /* Opens on the approvals tab when something is actually waiting, and on folders
+     otherwise. The old layout's failure was that a waiting approval was below
+     thirty-two folders; landing on it when it exists is the fix, not just moving
+     it into a tab somebody has to remember to check. */
+  const [activeTab, setActiveTab] = React.useState<Tab>(
+    pendingCount > 0 ? 'approvals' : 'folders',
+  );
   const [filter, setFilter] = React.useState<Filter>(pendingCount > 0 ? 'pending' : 'all');
   const [uploading, setUploading] = React.useState(false);
   const [rejecting, setRejecting] = React.useState<DocumentRow | null>(null);
@@ -160,44 +184,65 @@ export function DocumentsWorkspace({
 
   return (
     <div className="space-y-4">
-      {/* ---- Drive connection, and the folder watch ---------------------- */}
-      {canConfigure && <DrivePanel drive={drive} onDone={(r) => { setNote(r); router.refresh(); }} />}
+      {/* ══ THE TAB BAR ═══════════════════════════════════════════════════════
+          Owner, 2026-08-18: *"connector, the list of folders in the same flow,
+          upload in the same flow, approval — it's not looking good and proper,
+          professional, easily organized."*
 
-      {/* ---- The folders, and who may see them --------------------------- */}
-      {(canShare || folders.length > 0) && (
-        <FolderPanel
-          folders={folders}
-          canShare={canShare}
-          canConfigure={canConfigure}
-          watchedDriveId={drive.sync?.watchedFolderId ?? null}
-          onDone={(r) => { setNote(r); router.refresh(); }}
-        />
-      )}
+          Quite right: four unrelated jobs were stacked down one page, so the
+          approval queue — the thing with a number on it — was below thirty-two
+          folders and off the bottom of the screen. Tabs put each job in one place
+          and give the page a fixed height regardless of how much Drive holds.
 
-      <Toolbar aria-label="Document filters">
-        <ToolbarGroup>
-          <ToolbarLabel>Show</ToolbarLabel>
-          <ToggleGroup
-            label="Which documents"
-            value={filter}
-            onChange={setFilter}
-            options={(['pending', 'approved', 'rejected', 'all'] as Filter[]).map((key) => ({
-              key,
-              label:
-                key === 'pending' && pendingCount > 0
-                  ? `${FILTER_LABEL[key]} · ${pendingCount}`
-                  : FILTER_LABEL[key],
-            }))}
-          />
-        </ToolbarGroup>
+          A real `tablist` with `aria-selected`, matching Settings, so arrow keys
+          and screen readers behave. Which tab is open is NOT persisted: it is a
+          place in a screen, not a preference. */}
+      <nav
+        role="tablist"
+        aria-label="Documents sections"
+        className="flex flex-wrap items-center gap-1 border-b border-border-subtle pb-1"
+      >
+        {TABS.filter((tab) => !tab.adminOnly || canConfigure).map((tab) => {
+          const isActive = tab.key === activeTab;
+          /* The queue count lives on the tab, because the whole reason the old
+             layout failed is that a waiting approval was invisible from the top
+             of the page. */
+          const badge = tab.key === 'approvals' && pendingCount > 0 ? pendingCount : null;
 
-        <ToolbarSpacer />
-
-        <Button variant="primary" size="md" onClick={() => setUploading(true)}>
-          <FileUp className="h-4 w-4" strokeWidth={2.25} aria-hidden="true" />
-          Upload a document
-        </Button>
-      </Toolbar>
+          return (
+            <button
+              key={tab.key}
+              type="button"
+              role="tab"
+              id={`documents-tab-${tab.key}`}
+              aria-selected={isActive}
+              aria-controls={`documents-panel-${tab.key}`}
+              onClick={() => setActiveTab(tab.key)}
+              className={cn(
+                'flex items-center gap-2 rounded-t-lg px-3.5 py-2 text-body-sm font-semibold',
+                'transition-colors duration-[120ms] focus-visible:outline-none',
+                isActive
+                  ? 'bg-bg-selected text-text-brand'
+                  : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary',
+              )}
+            >
+              <tab.icon className="h-4 w-4" strokeWidth={2.25} aria-hidden="true" />
+              {tab.label}
+              {badge !== null && (
+                <span
+                  className="tabular rounded-full px-1.5 text-micro font-bold"
+                  style={{
+                    backgroundColor: 'var(--feedback-warning)',
+                    color: 'var(--text-on-brand)',
+                  }}
+                >
+                  {badge}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </nav>
 
       {note && (
         <p
@@ -218,7 +263,69 @@ export function DocumentsWorkspace({
         </p>
       )}
 
-      {visible.length === 0 ? (
+      {/* ---- FOLDERS ------------------------------------------------------ */}
+      {activeTab === 'folders' && (
+        <div role="tabpanel" id="documents-panel-folders" aria-labelledby="documents-tab-folders">
+          <FolderBrowser
+            folders={folders}
+            canShare={canShare}
+            canConfigure={canConfigure}
+            watchedDriveId={drive.sync?.watchedFolderId ?? null}
+            onDone={(r) => {
+              setNote(r);
+              router.refresh();
+            }}
+          />
+        </div>
+      )}
+
+      {/* ---- SETTINGS ------------------------------------------------------ */}
+      {activeTab === 'settings' && canConfigure && (
+        <div role="tabpanel" id="documents-panel-settings" aria-labelledby="documents-tab-settings">
+          <DrivePanel
+            drive={drive}
+            onDone={(r) => {
+              setNote(r);
+              router.refresh();
+            }}
+          />
+        </div>
+      )}
+
+      {/* ---- APPROVALS / THE REGISTER -------------------------------------- */}
+      {activeTab === 'approvals' && (
+        <div
+          role="tabpanel"
+          id="documents-panel-approvals"
+          aria-labelledby="documents-tab-approvals"
+          className="space-y-4"
+        >
+          <Toolbar aria-label="Document filters">
+            <ToolbarGroup>
+              <ToolbarLabel>Show</ToolbarLabel>
+              <ToggleGroup
+                label="Which documents"
+                value={filter}
+                onChange={setFilter}
+                options={(['pending', 'approved', 'rejected', 'all'] as Filter[]).map((key) => ({
+                  key,
+                  label:
+                    key === 'pending' && pendingCount > 0
+                      ? `${FILTER_LABEL[key]} · ${pendingCount}`
+                      : FILTER_LABEL[key],
+                }))}
+              />
+            </ToolbarGroup>
+
+            <ToolbarSpacer />
+
+            <Button variant="primary" size="md" onClick={() => setUploading(true)}>
+              <FileUp className="h-4 w-4" strokeWidth={2.25} aria-hidden="true" />
+              Upload a document
+            </Button>
+          </Toolbar>
+
+          {visible.length === 0 ? (
         <Card>
           <CardBody className="px-6 py-14 text-center">
             <p className="text-body-sm font-semibold text-text-primary">
@@ -356,6 +463,8 @@ export function DocumentsWorkspace({
             total={pager.total}
             label="documents"
           />
+        </div>
+          )}
         </div>
       )}
 
@@ -623,206 +732,6 @@ function DrivePanel({
   );
 }
 
-/* ---- Folders, and who may see them --------------------------------------- */
-
-/* `ACCESS_META` lives in `lib/domain/folder-access.ts` — the labels and the level
-   order have to match what the server enforces, so they are defined once. */
-
-/* ── ONE ROW, ONE SWITCH, ONE SENTENCE ───────────────────────────────────────
-   Owner, 2026-08-16: Coordinator+ *"can make the documents viewable for members
-   to see for any project they want."* The switch is per folder and does NOT
-   inherit to child folders (migration 027), which is the whole reason this is a
-   flat list rather than a tree: a tree draws lines that suggest sharing flows
-   down them, and it does not.
-
-   Visibility is spelled out — "Members can see this" / "Coordinators and above
-   only" — rather than shown as a checkbox labelled `visible_to_members`, because
-   the consequence of getting it wrong is somebody reading a document they should
-   not have. */
-function FolderPanel({
-  folders,
-  canShare,
-  canConfigure,
-  watchedDriveId,
-  onDone,
-}: {
-  folders: readonly DriveFolderRow[];
-  canShare: boolean;
-  /** Admin+: may also choose which folder is watched for new projects. */
-  canConfigure: boolean;
-  watchedDriveId: string | null;
-  onDone: (result: DocumentResult) => void;
-}) {
-  const [busy, setBusy] = React.useState<string | null>(null);
-  const shared = folders.filter((f) => f.memberAccess !== 'none').length;
-
-  return (
-    <Card>
-      <CardBody className="space-y-3 p-4">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <p className="text-body-sm font-semibold text-text-primary">
-            Folders
-            {folders.length > 0 && (
-              <span className="ml-2 font-normal text-text-tertiary">
-                {shared} of {folders.length} open to members
-              </span>
-            )}
-          </p>
-
-          {canShare && (
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={busy !== null}
-              onClick={async () => {
-                setBusy('sync');
-                try {
-                  onDone(await syncFoldersAction());
-                } finally {
-                  setBusy(null);
-                }
-              }}
-            >
-              {busy === 'sync' ? (
-                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-              ) : (
-                <RefreshCw className="h-4 w-4" strokeWidth={2.25} aria-hidden="true" />
-              )}
-              Read folders from Drive
-            </Button>
-          )}
-        </div>
-
-        {folders.length === 0 ? (
-          <p className="text-caption text-text-secondary">
-            {canShare
-              ? 'No folders recorded yet. Press "Read folders from Drive" — with no watched folder set it reads My Drive, so you do not need an id to get started.'
-              : 'No folders have been opened to members yet.'}
-          </p>
-        ) : (
-          <ul className="divide-y divide-border-subtle">
-            {folders.map((folder) => {
-              const meta = ACCESS_META[folder.memberAccess];
-              return (
-                <li
-                  key={folder.id}
-                  className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2"
-                >
-                  <div className="min-w-0">
-                    <p className="flex items-center gap-2 truncate text-body-sm text-text-primary">
-                      <FolderIcon
-                        className="h-4 w-4 shrink-0"
-                        strokeWidth={2.25}
-                        aria-hidden="true"
-                        style={{ color: `var(--${meta.token})` }}
-                      />
-                      {folder.name}
-                    </p>
-                    {/* ── TWO NUMBERS, AND THEY ARE NOT THE SAME NUMBER ─────
-                        Owner, 2026-08-18: *"showing a zero document… every folder
-                        has some documents."* It was showing only the CRM register
-                        count, which is 0 for a folder filled by hand in Drive.
-                        Drive's own count leads now, because that is what somebody
-                        looking at a folder means; the register count follows, and
-                        only when there is one, because it means something
-                        different — uploaded through here, approved, auditable. */}
-                    <p className="text-micro text-text-tertiary">
-                      {folder.projectName ? `${folder.projectName} · ` : ''}
-                      {folder.driveFileCount === null
-                        ? 'not counted yet'
-                        : `${folder.driveFileCount}${folder.fileCountPartial ? '+' : ''} ${
-                            folder.driveFileCount === 1 && !folder.fileCountPartial
-                              ? 'file'
-                              : 'files'
-                          } in Drive`}
-                      {folder.documentCount > 0 && ` · ${folder.documentCount} via the CRM`}
-                      {folder.memberAccess !== 'none' && folder.sharedByName
-                        ? ` · granted by ${folder.sharedByName}`
-                        : ''}
-                    </p>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-2">
-                    {/* Picking the watched folder BY NAME, which is the whole
-                        point — the id field above exists for the case where the
-                        folder is not in this list yet. */}
-                    {canConfigure &&
-                      (folder.driveFolderId === watchedDriveId ? (
-                        <Badge token="accent-primary" size="sm" variant="outline">
-                          Watched
-                        </Badge>
-                      ) : (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          disabled={busy !== null}
-                          title="Watch this folder — new subfolders in it become draft projects"
-                          onClick={async () => {
-                            setBusy(folder.id);
-                            try {
-                              onDone(await setWatchedFolderAction(folder.driveFolderId));
-                            } finally {
-                              setBusy(null);
-                            }
-                          }}
-                        >
-                          Watch
-                        </Button>
-                      ))}
-
-                    {canShare ? (
-                      /* ── THE LEVEL IS THE CONTROL, NOT A TOGGLE ────────────
-                         Owner, 2026-08-16: the options are chosen at the moment
-                         access is given. A select shows all four at once, so the
-                         person granting reads what they are about to allow rather
-                         than discovering it from a button label. */
-                      <>
-                        <Select
-                          aria-label={`Member access to ${folder.name}`}
-                          value={folder.memberAccess}
-                          disabled={busy !== null}
-                          options={FOLDER_ACCESS.map((level) => ({
-                            value: level,
-                            label: ACCESS_META[level].label,
-                          }))}
-                          onChange={async (event) => {
-                            const next = event.target.value;
-                            setBusy(folder.id);
-                            try {
-                              onDone(await setFolderAccessAction(folder.id, next));
-                            } finally {
-                              setBusy(null);
-                            }
-                          }}
-                        />
-                        {busy === folder.id && (
-                          <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-                        )}
-                      </>
-                    ) : (
-                      <Badge token={meta.token} size="sm" variant="outline">
-                        {meta.label}
-                      </Badge>
-                    )}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-
-        {canShare && folders.length > 0 && (
-          <p className="text-micro text-text-tertiary">
-            <span className="font-semibold text-text-secondary">Can upload</span> and above mean a
-            member&rsquo;s file goes straight to Drive without waiting for approval — granting the
-            access is the approval. A level applies to this folder only and does not reach the
-            folders inside it.
-          </p>
-        )}
-      </CardBody>
-    </Card>
-  );
-}
 
 /* ---- Upload -------------------------------------------------------------- */
 

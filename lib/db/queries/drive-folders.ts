@@ -199,6 +199,119 @@ export async function recordFolders(
   });
 }
 
+/* ==========================================================================
+ * NAMED-PERSON GRANTS — migration 031
+ * --------------------------------------------------------------------------
+ * Owner, 2026-08-18: *"when I want that specifically I can select any team
+ * member. For example Yusra, I want this access, for example Rafi, I want some
+ * other access."*
+ *
+ * Grants only ADD. Effective access is the greater of the folder's everyone
+ * level and any grant naming the person — `app.folder_grants` decides that, and
+ * these functions only maintain the rows.
+ * ========================================================================== */
+
+export interface FolderGrantRow {
+  readonly userId: string;
+  readonly fullName: string;
+  readonly email: string;
+  readonly role: string;
+  readonly access: FolderAccess;
+  readonly grantedByName: string | null;
+  readonly grantedAt: string | null;
+}
+
+/** Who is named on one folder. Coordinator+ sees all; a Member sees only their
+ *  own row, by the `drive_folder_grants_select` policy. */
+export async function listGrants(
+  userId: string,
+  folderId: string,
+): Promise<FolderGrantRow[]> {
+  const rows = await withUser(userId, (tx) => tx`
+    select g.user_id, g.access, g.granted_at,
+           u.full_name, u.email, u.role,
+           b.full_name as granted_by_name
+      from public.drive_folder_grants g
+      join public.users u on u.id = g.user_id
+      left join public.users b on b.id = g.granted_by_id
+     where g.folder_id = ${folderId}
+     order by lower(u.full_name)
+  `);
+  return rows.map((r) => ({
+    userId: r.user_id as string,
+    fullName: (r.full_name as string | null) ?? 'Unknown',
+    email: (r.email as string | null) ?? '',
+    role: r.role as string,
+    access: r.access as FolderAccess,
+    grantedByName: (r.granted_by_name as string | null) ?? null,
+    grantedAt: isoOrNull(r.granted_at),
+  }));
+}
+
+/**
+ * Name a person, or change what they were named for.
+ *
+ * Upserted rather than insert-or-fail: the unique index on (folder, user) exists
+ * so "what can Yusra do here" has one answer, and raising her level is the same
+ * intent as granting it in the first place.
+ */
+export async function grantAccess(
+  userId: string,
+  input: { folderId: string; personId: string; access: FolderAccess },
+): Promise<void> {
+  await withUser(userId, (tx) => tx`
+    insert into public.drive_folder_grants
+      (folder_id, user_id, access, granted_by_id, granted_at)
+    values (${input.folderId}, ${input.personId},
+            ${input.access}::public.folder_access, ${userId}, now())
+    on conflict (folder_id, user_id) do update
+       set access = excluded.access,
+           /* Re-attributed: whoever last changed it is who is answerable for the
+              level that is now in force. */
+           granted_by_id = excluded.granted_by_id,
+           granted_at    = excluded.granted_at
+  `);
+}
+
+/** Remove a person's grant. They fall back to the folder's everyone level. */
+export async function revokeAccess(
+  userId: string,
+  folderId: string,
+  personId: string,
+): Promise<boolean> {
+  const rows = await withUser(userId, (tx) => tx`
+    delete from public.drive_folder_grants
+     where folder_id = ${folderId} and user_id = ${personId}
+     returning user_id
+  `);
+  return rows.length > 0;
+}
+
+/**
+ * Whether the caller may read inside this folder.
+ *
+ * ⚠️ Asks `app.folder_grants` — the SAME predicate the `documents` policies and
+ * the file-streaming route use. Reimplementing the rule in TypeScript is how a
+ * file list and a file download come to disagree about who may see what.
+ */
+export async function mayReadFolder(userId: string, folderId: string): Promise<boolean> {
+  const rows = await withUser(userId, (tx) => tx`
+    select app.folder_grants(${folderId}::uuid, 'view'::public.folder_access) as allowed
+  `);
+  return Boolean(rows[0]?.allowed);
+}
+
+/** How many people are named on each folder, so the list can say so without a
+ *  query per row. */
+export async function grantCounts(userId: string): Promise<Map<string, number>> {
+  const rows = await withUser(userId, (tx) => tx`
+    select folder_id, count(*)::int as n
+      from public.drive_folder_grants
+     group by folder_id
+  `);
+  return new Map(rows.map((r) => [r.folder_id as string, Number(r.n)]));
+}
+
 /**
  * Set what Members may do in a folder.
  *

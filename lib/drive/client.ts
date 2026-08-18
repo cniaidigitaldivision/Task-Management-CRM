@@ -272,6 +272,186 @@ export interface DriveFile {
   readonly webViewLink: string | null;
 }
 
+export interface DriveFileEntry {
+  readonly id: string;
+  readonly name: string;
+  readonly mimeType: string;
+  /** Bytes. Null for Google's own formats (Docs, Sheets), which have no size. */
+  readonly size: number | null;
+  readonly modifiedTime: string | null;
+  readonly webViewLink: string | null;
+}
+
+/**
+ * The files — not folders — sitting directly in one folder.
+ *
+ * Owner, 2026-08-18: *"when I click on some folder it should open and show all the
+ * files which are present in that folder."* This is that list.
+ *
+ * ⚠️ Folders are excluded here, unlike `listChildren`, because this answers a
+ * different question: `listChildren` walks the tree, this fills a file list.
+ */
+export async function listFilesIn(
+  folderId: string,
+): Promise<DriveResult<DriveFileEntry[]>> {
+  const query = [
+    `'${folderId.replace(/'/g, "\\'")}' in parents`,
+    `mimeType != '${FOLDER_MIME}'`,
+    'trashed = false',
+  ].join(' and ');
+
+  const url = `${DRIVE_API}/files?${new URLSearchParams({
+    q: query,
+    fields: 'files(id,name,mimeType,size,modifiedTime,webViewLink)',
+    orderBy: 'name',
+    pageSize: '200',
+    supportsAllDrives: 'true',
+    includeItemsFromAllDrives: 'true',
+  })}`;
+
+  const result = await driveFetch<{
+    files?: Array<{
+      id: string;
+      name: string;
+      mimeType: string;
+      size?: string;
+      modifiedTime?: string;
+      webViewLink?: string;
+    }>;
+  }>(url, { method: 'GET' });
+  if (!result.ok) return result;
+
+  return {
+    ok: true,
+    value: (result.value.files ?? []).map((f) => ({
+      id: f.id,
+      name: f.name,
+      mimeType: f.mimeType,
+      /* Drive returns size as a STRING, and omits it entirely for its own
+         formats. `Number(undefined)` is NaN, which would render as "NaN bytes". */
+      size: f.size === undefined ? null : Number(f.size),
+      modifiedTime: f.modifiedTime ?? null,
+      webViewLink: f.webViewLink ?? null,
+    })),
+  };
+}
+
+/**
+ * One file's metadata plus the ids of the folders holding it.
+ *
+ * ── ⚠️ `parents` IS THE PERMISSION CHECK, AND THE ONLY ONE AVAILABLE ─────────
+ * A file id in a URL is a request to read somebody's file. Access in this system
+ * is decided per FOLDER, so the only way to authorise a file is to ask Drive
+ * which folder it is in and check that. Without this, anybody signed in could
+ * stream any file in the division's Drive by guessing or sharing an id — and
+ * Drive ids appear in URLs, so they leak.
+ */
+export async function getFileMeta(
+  fileId: string,
+): Promise<DriveResult<DriveFileEntry & { parents: string[] }>> {
+  const url = `${DRIVE_API}/files/${encodeURIComponent(fileId)}?${new URLSearchParams({
+    fields: 'id,name,mimeType,size,modifiedTime,webViewLink,parents',
+    supportsAllDrives: 'true',
+  })}`;
+
+  const result = await driveFetch<{
+    id: string;
+    name: string;
+    mimeType: string;
+    size?: string;
+    modifiedTime?: string;
+    webViewLink?: string;
+    parents?: string[];
+  }>(url, { method: 'GET' });
+  if (!result.ok) return result;
+
+  const f = result.value;
+  return {
+    ok: true,
+    value: {
+      id: f.id,
+      name: f.name,
+      mimeType: f.mimeType,
+      size: f.size === undefined ? null : Number(f.size),
+      modifiedTime: f.modifiedTime ?? null,
+      webViewLink: f.webViewLink ?? null,
+      parents: f.parents ?? [],
+    },
+  };
+}
+
+/**
+ * The bytes of a file, as a streaming response from Drive.
+ *
+ * ── WHY THIS PROXIES INSTEAD OF REDIRECTING ──────────────────────────────────
+ * The obvious cheap alternative is to send the browser to `webViewLink`. It does
+ * not work here: the division's team members have **no Google account on this
+ * Drive**, so Drive would refuse every one of them. The CRM holds the only
+ * credential, so the CRM has to be the one that fetches — which has the side
+ * benefit that folder access is enforced on every single byte rather than once.
+ *
+ * ── ⚠️ RANGE IS FORWARDED, NOT SWALLOWED ─────────────────────────────────────
+ * Owner asked for video that plays and seeks. A `<video>` element seeks by
+ * sending `Range: bytes=…` and requires a `206 Partial Content` back. If this
+ * function dropped the header, the browser would have to download the whole file
+ * before playing and could not scrub at all. So the header goes straight through
+ * and Drive's own 206 — status, `Content-Range`, `Content-Length` — is returned
+ * untouched.
+ *
+ * Returns the raw `Response` rather than a buffer: buffering a 200 MB video in
+ * server memory to hand it on would be the one thing worse than not streaming.
+ */
+export async function fileContentResponse(
+  fileId: string,
+  range: string | null,
+): Promise<DriveResult<Response>> {
+  const token = await accessToken();
+  if (!token.ok) return token;
+
+  const url = `${DRIVE_API}/files/${encodeURIComponent(fileId)}?${new URLSearchParams({
+    alt: 'media',
+    supportsAllDrives: 'true',
+  })}`;
+
+  try {
+    const upstream = await fetch(url, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token.value}`,
+        ...(range ? { Range: range } : {}),
+      },
+      /* No AbortSignal.timeout here, deliberately: the others use thirty seconds,
+         and a large video legitimately takes longer than that to stream. A
+         timeout measured from the first byte would cut off long downloads. */
+    });
+
+    if (!upstream.ok && upstream.status !== 206) {
+      return {
+        ok: false,
+        configured: true,
+        reason: `Drive refused the file (${upstream.status}).`,
+      };
+    }
+    return { ok: true, value: upstream };
+  } catch (error) {
+    return {
+      ok: false,
+      configured: true,
+      reason: `Could not read the file from Drive: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    };
+  }
+}
+
+/**
+ * Google's own formats have no bytes to download — a Doc is not a file.
+ * They must be EXPORTED to something, or opened in Google's editor.
+ */
+export function isGoogleNativeType(mimeType: string): boolean {
+  return mimeType.startsWith('application/vnd.google-apps.');
+}
+
 /**
  * Upload bytes to Drive.
  *

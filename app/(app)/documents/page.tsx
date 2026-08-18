@@ -40,6 +40,36 @@ const DRIVE_OUTCOME: Record<string, { tone: 'ok' | 'warn'; text: string }> = {
   failed: { tone: 'warn', text: 'Google refused the connection. Try again, and check the redirect URI is registered.' },
 };
 
+/**
+ * Green when Drive is connected, red when it is not.
+ *
+ * A pill rather than a button: pressing it would have to mean either "connect" or
+ * "disconnect" depending on state, and a control that does opposite things in the
+ * same place is how somebody disconnects the division's Drive by muscle memory.
+ * Connecting lives in Drive settings, one tab away, where the consequence is
+ * spelled out.
+ */
+function DriveStatusPill({ connected }: { connected: boolean }) {
+  const token = connected ? 'feedback-success' : 'feedback-error';
+  return (
+    <span
+      className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-caption font-semibold"
+      style={{
+        borderColor: `color-mix(in oklab, var(--${token}) 45%, transparent)`,
+        backgroundColor: `color-mix(in oklab, var(--${token}) 12%, transparent)`,
+        color: `var(--${token})`,
+      }}
+    >
+      <span
+        aria-hidden="true"
+        className="h-2 w-2 rounded-full"
+        style={{ backgroundColor: `var(--${token})` }}
+      />
+      {connected ? 'Google Drive connected' : 'Google Drive not connected'}
+    </span>
+  );
+}
+
 export default async function DocumentsPage({
   searchParams,
 }: {
@@ -81,6 +111,19 @@ export default async function DocumentsPage({
       <PageHeader
         eyebrow="AI & Digital Division"
         title="Documents"
+        /* ── THE CONNECTION STATE BELONGS BESIDE THE TITLE ───────────────────
+           Owner, 2026-08-18: *"the connector button should be at the top with the
+           documentation heading on the right side… green when it is connected to a
+           drive, and turn to red when it's not."*
+
+           Right, and it was buried in a card halfway down the page. It is the one
+           fact that decides whether anything else on this screen can work, so it
+           reads at a glance now.
+
+           ⚠️ Colour is not the only signal: the text says "connected" or "not
+           connected" too. Red-versus-green alone fails for the ~8% of men with
+           red-green colour blindness, and this is the status they most need. */
+        actions={<DriveStatusPill connected={drive.configured && connection.connected} />}
         description={
           <>
             Anybody can upload; an{' '}
