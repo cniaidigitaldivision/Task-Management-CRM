@@ -84,17 +84,41 @@ Without this, the connection succeeds and every Drive call returns 403.
 2. User type: **External** (a consumer Gmail account has no Internal option)
 3. App name: `CNI CRM`, support email: the same Gmail
 4. Scopes: add **`https://www.googleapis.com/auth/drive`**
-5. Test users: add **cniaidigitaldivision@gmail.com**
-6. **Publish app** — your decision, 2026-08-16.
+5. **Test users → + ADD USERS → `cniaidigitaldivision@gmail.com` → Save**
+6. **Leave the app in Testing.** Do not press *Publish app*.
 
-> **Why publish rather than leave it in Testing.** A client in Testing mode issues
-> refresh tokens that **expire after seven days**, so somebody would have to press
-> Connect again roughly weekly, forever. Publishing removes that.
+> ### ⚠️ Step 5 is not optional, and owning the project does not replace it
 >
-> Google will ask for verification. For an app with one internal user and no
-> public users this is usually a formality, but it is a form and there may be a
-> wait. **You can start using Drive immediately while it is pending** — Testing
-> mode still works, you just get the seven-day reconnect until the review clears.
+> Skipping it produces, on Google's own screen:
+>
+> > **Access blocked: CNI CRM has not completed the Google verification process.**
+> > The app is currently being tested and can only be accessed by
+> > developer-approved testers. · `Error 403: access_denied`
+>
+> This happened on 2026-08-18. The account being blocked was the project's own
+> owner — Google does not infer tester status from ownership. Add the address to
+> **Test users** and the same Connect attempt succeeds immediately.
+>
+> ### ⚠️ Do NOT publish this consent screen
+>
+> **Corrected 2026-08-18.** An earlier version of this document recommended
+> publishing, to escape the seven-day token expiry. That advice was wrong, and
+> pressing *Publish app* is what leaves the client in a pending state where nobody
+> but a listed tester can sign in.
+>
+> `https://www.googleapis.com/auth/drive` is a **restricted** scope — Google's
+> highest tier, because it reaches a person's whole Drive. Publishing an app that
+> uses one requires a **third-party security assessment (CASA)**, which costs money
+> and takes weeks. For a seven-person internal tool with a single user, that is
+> wildly disproportionate.
+>
+> **Testing mode is the correct setting here.** Its one cost is at the end of this
+> document: refresh tokens expire every seven days, so somebody presses Connect
+> again. Ten seconds, and nothing is lost — files in Drive are owned by the
+> account and are untouched.
+>
+> If Publish has already been pressed: **OAuth consent screen → Back to testing**,
+> then add the test user.
 
 ## Step 4 · Create the OAuth client
 
@@ -153,9 +177,14 @@ Sign in to the CRM as an **Admin or the Super Admin**, go to **Documents**, and
 press **Connect Google Drive**. Approve the consent screen as
 cniaidigitaldivision@gmail.com.
 
-While verification is pending, Google will warn that the app is unverified.
-Expected — press **Advanced → Go to CNI CRM**. Once the review clears, the warning
-goes away.
+Google will warn that the app is unverified. **Expected, and permanent** — an app
+in Testing is never verified. Press **Advanced → Go to CNI CRM (unsafe)**. It says
+unsafe because Google cannot vouch for the app; you wrote it, and the only account
+it can reach is the one granting access.
+
+⚠️ If instead you get a hard **"Access blocked… Error 403: access_denied"**, the
+address is not in **Test users**. Go back to step 3.5 — this is the single most
+common way this fails.
 
 You come back to Documents with *"Google Drive is connected"* and the account
 address shown.
@@ -235,20 +264,27 @@ revoking the level closed all of it again.
 
 ---
 
-## ⚠️ Until verification clears: the seven-day reconnect
+## ⚠️ The seven-day reconnect — the accepted cost of Testing mode
 
-You chose to publish (step 3), which removes this once Google's review is done.
-**While it is pending**, the client is still effectively in Testing, so refresh
-tokens **expire after seven days**. When one does, approving a document fails and
-the Documents screen shows:
+A client in Testing issues refresh tokens that **expire after seven days**. When
+one does, approving a document fails and the Documents screen shows:
 
 > The Google connection has expired or was revoked.
 
 **The fix is to press Connect Google Drive again.** About ten seconds, and nothing
 is lost — files already in Drive are owned by the account and are untouched.
 
-Nothing in the CRM needs changing when the review clears; the same client just
-stops expiring.
+This is deliberate, not an outstanding bug. The alternative is a CASA security
+assessment for the restricted `drive` scope — see step 3. A weekly button press
+is the cheaper side of that trade by a wide margin.
+
+**If it becomes genuinely annoying**, the escape is not to publish but to narrow
+the scope. `drive.file` is *sensitive* rather than *restricted*, so it needs no
+security assessment — but it only reaches files the app itself created or the user
+explicitly picked, which would break the folder watch and the folder-tree scan.
+Making that work means adding the Google Picker so folders are chosen through
+Google's own UI. A real piece of work, worth doing only if the reconnect stops
+being tolerable.
 
 ---
 
@@ -256,11 +292,13 @@ stops expiring.
 
 | What you see | What it means |
 |---|---|
+| **"Access blocked: … has not completed the Google verification process"**, `403 access_denied` | The address is not in **Test users**. Owning the Google Cloud project does *not* make you a tester. Step 3.5. **The most common failure.** |
 | *"Google Drive is not set up yet"* | The env vars are missing or empty. Step 5. |
 | `redirect_uri_mismatch` on Google's screen | The URI in step 4 does not match exactly — check `http` vs `https`, the port, and the trailing path. |
 | *"That sign-in could not be verified as one started here"* | The state cookie expired (ten minutes) or the callback did not come from a flow started in the CRM. Press Connect again. |
 | 403 on every Drive call | The Drive API is not enabled. Step 2. |
-| *"The Google connection has expired or was revoked"* | Almost always the seven-day token, until verification clears. Press Connect again — see above. |
+| *"The Google connection has expired or was revoked"* | The seven-day Testing-mode token. Press Connect again — expected, not a bug. |
+| Google warns the app is **unverified** | Expected and permanent in Testing. **Advanced → Go to CNI CRM**. Different from *Access blocked* above: a warning you can click past, not a refusal. |
 | A Member says *"I can see the folder but it won't let me add anything"* | The folder is at **view**. Raise it to **Members can upload**. |
 | A Member's upload appeared in Drive with no approval | Working as intended — that folder is at `upload` or above. Lower it if that was not what you meant. |
 | Approval says *"Drive refused the request (404)"* | The folder id in **Watched folder** does not exist in this account's Drive. |
