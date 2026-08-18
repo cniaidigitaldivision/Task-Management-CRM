@@ -53,7 +53,11 @@ export interface AuditEntry {
     | 'security'
     | 'report'
     | 'credential'
-    | 'document';
+    | 'document'
+    /* Separate from 'document' because sharing a FOLDER is a different act from
+       approving a file, and an audit reader filtering on one must not be handed
+       the other. */
+    | 'drive_folder';
   readonly entityId: string | null;
   /** Dotted and stable — `user.role_changed`, not "changed role". */
   readonly action: string;

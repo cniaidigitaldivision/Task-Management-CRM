@@ -183,6 +183,9 @@ const EXPECTED: Readonly<Record<Action, Row>> = {
   'document.request': ['allow', 'allow', 'allow', 'allow'],
   'document.approve': ['allow', 'allow', 'deny', 'deny'],
   'document.manage': ['allow', 'allow', 'allow', 'deny'],
+  /* Owner, 2026-08-16. One rung lower than `approve` on purpose: a Coordinator
+     may decide who reads a folder without being able to wave a file into Drive. */
+  'document.share': ['allow', 'allow', 'allow', 'deny'],
   'drive.configure': ['allow', 'allow', 'deny', 'deny'],
 };
 

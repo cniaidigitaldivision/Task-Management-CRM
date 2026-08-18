@@ -12,7 +12,7 @@
 Resume the CNI CRM project.
 
 Read these files first, in this order:
-  1. docs/SESSION-STATE.md §3 "Session 26"     (where we stopped — READ THIS ONE FIRST)
+  1. docs/SESSION-STATE.md §3 "Session 27"     (where we stopped — READ THIS ONE FIRST)
   1a. docs/UI-REDESIGN-PLAN.md §3              (the current work — steps 1-9 done, 10 and 11 remain)
   1b. docs/BUILD-PLAN.md                       (the 8-step checklist)
   2. docs/OWNER-REQUESTS.md                    (my standing requests, verbatim — note R4a)
@@ -27,6 +27,10 @@ Honour every ✅ and 🔴 item in docs/OWNER-REQUESTS.md.
 ⚠️ The infrastructure moved on 2026-08-14 (Supabase, Vercel and GitHub all
 changed). Any entry in SESSION-STATE.md below "Session 26" describes the OLD
 setup. Session 26 wins wherever they disagree.
+
+⚠️ Google Drive is OAuth, not a service account (changed 2026-08-16, Session 27).
+Any doc mentioning GOOGLE_SERVICE_ACCOUNT_JSON is out of date — see
+docs/GOOGLE-DRIVE-SETUP.md, which explains why the first design could not work.
 ```
 
 That's all you ever need to type. Everything else is recorded in the files.
@@ -59,9 +63,9 @@ That's all you ever need to type. Everything else is recorded in the files.
 
 | | |
 |---|---|
-| **Last updated** | **2026-08-15, Session 26** — infrastructure migration + UI redesign steps 5–9 |
-| **➡️ START HERE** | **§3 → "Session 26"**. Everything below this table predates the Supabase/Vercel/GitHub move and describes the OLD infrastructure. Where they disagree, Session 26 wins. |
-| **Tests** | `npm run test` → **1044** · `npm run test:auth` → **141** (real DB) · `npm run smoke` → **27/27** (every route, both roles) |
+| **Last updated** | **2026-08-16, Session 27** — Google Drive over OAuth, folder registry and per-folder member visibility |
+| **➡️ START HERE** | **§3 → "Session 27"**, then "Session 26". Everything below this table predates the Supabase/Vercel/GitHub move and describes the OLD infrastructure. Where they disagree, the newest entry wins. |
+| **Tests** | `npm run test` → **1188** · `npm run test:auth` → **141** (real DB) · `npm run smoke` → **27/27** (every route, both roles) |
 | **⛔ Credential hygiene** | Three secrets were pasted into chat in Session 09 (Resend key, DB password ×2 — one echoed by my own script's error output). **All must be rotated.** Never paste a secret; `npm run check:db` redacts and is safe to share. |
 | **Current phase** | **CHANGE-PLAN Batch 6** — layout & navigation. All 8 build steps, all 9 redesign phases and CHANGE-PLAN Batches 1–5 are complete. |
 | **Phase 1 progress** | ▓▓▓▓▓▓▓▓░░ Steps 1–4 complete · **5.1 complete** · **Phase 2 work core pulled forward and operational** |
@@ -283,6 +287,82 @@ The new asset is a **transparent raster**, not vector. That changes what each fo
 > instruction, Session 23.
 
 
+### ✅ Session 27 (2026-08-16) — GOOGLE DRIVE, FOR REAL THIS TIME
+
+**➡️ NEXT ACTION: the owner creates the Google OAuth client.** Everything on the
+code side is built, tested against the live database and deployed-ready. The one
+remaining step is not mine to do — see `docs/GOOGLE-DRIVE-SETUP.md`, which is
+rewritten and current. Then press **Connect Google Drive** on `/documents`.
+
+#### ⚠️ The service-account design was wrong, and would have failed late
+
+Migration 025 and `lib/drive/client.ts` were built around a **service account**
+(owner's decision, 2026-08-13). That cannot work for this division:
+
+> `Service Accounts do not have storage quota. Leverage shared drives or use
+> OAuth delegation instead.`
+
+A service account has no Drive storage of its own, so a file it uploads is owned
+by it and Google refuses. Both escapes — a **Shared Drive** or **domain-wide
+delegation** — require Google Workspace, and `cniaidigitaldivision@gmail.com` is
+a consumer account.
+
+**The failure mode is what makes this worth recording.** Listing folders works
+perfectly with a service account. The watch would have run, folders would have
+become draft projects, and everything would have looked correct — until the first
+approval, which is the entire point. It would have been diagnosed as a permission
+problem on a folder.
+
+So the CRM now **acts as the division's own account** over OAuth. Files are owned
+by it and land in its My Drive; no quota question arises.
+
+#### What was built
+
+| | |
+|---|---|
+| **Migration 027** | `drive_connection` (singleton, sealed refresh token, **zero RLS policies**, all privileges revoked — the second table after `break_glass` with no client read path at all) · `drive_folders` + `documents.folder_id` · `app.can_read_document` widened to three arguments |
+| `lib/db/queries/drive.ts` | The only code that touches the refresh token. `readRefreshToken()` has exactly one caller and says so. |
+| `lib/drive/oauth.ts` | `authorizeUrl` / `exchangeCode` / `accessTokenFromRefresh`, `invalid_grant` turned into a sentence |
+| `lib/drive/client.ts` | Auth swapped at the `accessToken()` seam; the four Drive operations are **byte-identical**. Dead service-account code (JWT signing, `base64url`, the token cache) deleted rather than left. |
+| `/api/drive/auth` + `/api/drive/callback` | Admin+, random state in an httpOnly cookie compared with `timingSafeEqual`, consumed whether it matches or not |
+| `lib/db/queries/drive-folders.ts`, `lib/drive/folders.ts` | The folder registry and the bounded tree walk (depth 6, 500 folders, a `seen` set for Drive shortcuts; a limit is reported as `truncated`, not an error) |
+| `app/actions/folders.ts` | Share / unshare, audited both ways; folder sync |
+| UI | Connect / Disconnect on `/documents`, a Folders panel with a per-folder switch, a folder picker on upload, and the `?drive=…` outcomes spelled out rather than echoed from the URL |
+
+#### Access levels, as asked for on 2026-08-16
+
+Owner: *"super admin, admin and team coordinator can see the whole documents and
+they can make the documents viewable for members to see for any project they want,
+and members can upload documents to the folders they are viewing."*
+
+- **Coordinator+ sees the whole register** — `app.can_read_document`, widened.
+- **Sharing stops at Coordinator; approving still stops at Admin.** A Coordinator
+  decides who reads a folder but still cannot wave a file into Drive, including
+  their own. New permission `document.share`.
+- **A Member may file into a shared folder and no other.**
+- **Visibility does NOT inherit to child folders.** Inheritance would mean sharing
+  one top-level folder silently exposes everything ever nested under it, including
+  folders created in Drive months later by somebody who never saw the screen.
+
+Proved against the live database, not asserted: a Member could not read a document
+in a private folder; the folder was shared; the same Member could then read it.
+Also proved — a Member's `update` on `drive_folders` matches zero rows, the
+attribution check constraint refuses a share with no sharer, and the `xmax = 0`
+upsert detection reports insert-vs-update correctly. All test rows removed.
+
+`typecheck · lint · build · 1188 tests` all green.
+
+#### Still outstanding for the owner
+
+Everything in Session 26's list below still stands, **except** that
+`GOOGLE_SERVICE_ACCOUNT_JSON` is gone — it is replaced by
+`GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET`.
+
+⚠️ One consequence to know about: an OAuth client left in Google's **Testing**
+mode issues refresh tokens that **expire after seven days**. The fix is to press
+Connect again; publishing the consent screen removes the limit. Documented.
+
+
 ### ✅ Session 26 (2026-08-14 → 15) — NEW INFRASTRUCTURE + UI STEPS 5–9
 
 > **Everything below this entry predates the move.** Where an older entry
@@ -395,7 +475,9 @@ Not yet answered, and they decide the schema:
 - **`EMAIL_FROM` is the Resend sandbox sender** — mail to anyone but the Resend
   account owner is accepted and silently dropped, which blocks activating
   `lareebkhan@gmail.com` and `arsalan3@gmail.com`.
-- **`GOOGLE_SERVICE_ACCOUNT_JSON` is empty**, so `/api/drive-sync` returns
+- ~~**`GOOGLE_SERVICE_ACCOUNT_JSON` is empty**~~ — **superseded by Session 27.**
+  The variable no longer exists; Drive is connected over OAuth. The rest of this
+  item still holds: `/api/drive-sync` returns
   `{"ok":true,"skipped":"Google Drive is not connected"}`. The 15-minute cron
   runs from **GitHub Actions** (`.github/workflows/drive-sync.yml`), because
   Hobby rejects any cron firing more than once a day — that rejection blocks the

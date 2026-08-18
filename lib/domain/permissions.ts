@@ -322,6 +322,13 @@ export const PERMISSIONS = {
   'document.request': M('allow', 'allow', 'allow', 'allow'),
   'document.approve': M('allow', 'allow', 'deny', 'deny'),
   'document.manage': M('allow', 'allow', 'allow', 'deny'),
+  /* Owner, 2026-08-16: *"super admin, admin and team coordinator … can make the
+     documents viewable for members to see for any project they want."* So sharing
+     a folder stops at Coordinator, one rung LOWER than approving — a Coordinator
+     runs the projects whose folders these are, and deciding who may read a folder
+     is part of running it. Mirrored by the `drive_folders_write` policy in
+     migration 027, which is the enforcement; this is the sentence. */
+  'document.share': M('allow', 'allow', 'allow', 'deny'),
   'drive.configure': M('allow', 'allow', 'deny', 'deny'),
 } as const satisfies Record<string, Readonly<Record<Role, Rule>>>;
 

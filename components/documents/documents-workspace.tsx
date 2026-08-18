@@ -9,6 +9,7 @@ import {
   ExternalLink,
   Eye,
   FileUp,
+  Folder as FolderIcon,
   Loader2,
   RefreshCw,
   Trash2,
@@ -18,6 +19,7 @@ import {
 import {
   approveDocumentAction,
   deleteDocumentAction,
+  disconnectDriveAction,
   pendingFileUrlAction,
   rejectDocumentAction,
   requestDocumentAction,
@@ -25,8 +27,10 @@ import {
   syncDriveFoldersAction,
   type DocumentResult,
 } from '@/app/actions/documents';
+import { setFolderVisibilityAction, syncFoldersAction } from '@/app/actions/folders';
 import type { DocumentRow } from '@/lib/db/queries/documents';
 import type { DriveSyncRow } from '@/lib/db/queries/documents';
+import type { DriveFolderRow } from '@/lib/db/queries/drive-folders';
 import { Badge } from '@/components/ui/badge';
 import { Button, IconButton } from '@/components/ui/button';
 import { Card, CardBody } from '@/components/ui/card';
@@ -69,6 +73,8 @@ export function DocumentsWorkspace({
   canApprove,
   canManage,
   canConfigure,
+  canShare,
+  folders,
   drive,
 }: {
   documents: readonly DocumentRow[];
@@ -76,9 +82,15 @@ export function DocumentsWorkspace({
   canApprove: boolean;
   canManage: boolean;
   canConfigure: boolean;
+  /** Coordinator and above: may share a folder with members, and may file into
+   *  any folder rather than only the shared ones. */
+  canShare: boolean;
+  folders: readonly DriveFolderRow[];
   drive: {
     configured: boolean;
+    connected: boolean;
     account: string | null;
+    lastError: string | null;
     sync: DriveSyncRow | null;
     drafts: Array<{ id: string; name: string; driveFolderId: string | null }>;
   };
@@ -96,6 +108,18 @@ export function DocumentsWorkspace({
 
   const visible = documents.filter((d) => filter === 'all' || d.state === filter);
   const pager = usePagination(visible);
+
+  /* Coordinator+ files anywhere; everybody else only into folders that have been
+     shared with members. Mirrors the check in `requestDocumentAction`, which is
+     the one that actually decides — this just stops the picker from offering
+     something the server will refuse. */
+  const uploadableFolders = React.useMemo(
+    () =>
+      folders
+        .filter((f) => canShare || f.visibleToMembers)
+        .map((f) => ({ id: f.id, name: f.name })),
+    [folders, canShare],
+  );
 
   const run = async (id: string, fn: () => Promise<DocumentResult>) => {
     setBusy(id);
@@ -128,6 +152,15 @@ export function DocumentsWorkspace({
     <div className="space-y-4">
       {/* ---- Drive connection, and the folder watch ---------------------- */}
       {canConfigure && <DrivePanel drive={drive} onDone={(r) => { setNote(r); router.refresh(); }} />}
+
+      {/* ---- The folders, and who may see them --------------------------- */}
+      {(canShare || folders.length > 0) && (
+        <FolderPanel
+          folders={folders}
+          canShare={canShare}
+          onDone={(r) => { setNote(r); router.refresh(); }}
+        />
+      )}
 
       <Toolbar aria-label="Document filters">
         <ToolbarGroup>
@@ -303,6 +336,7 @@ export function DocumentsWorkspace({
       {uploading && (
         <UploadDialog
           projects={projects}
+          folders={uploadableFolders}
           onClose={() => setUploading(false)}
           onDone={(result) => {
             setUploading(false);
@@ -341,15 +375,22 @@ function DrivePanel({
 }: {
   drive: {
     configured: boolean;
+    connected: boolean;
     account: string | null;
+    lastError: string | null;
     sync: DriveSyncRow | null;
     drafts: Array<{ id: string; name: string; driveFolderId: string | null }>;
   };
   onDone: (result: DocumentResult) => void;
 }) {
   const [folderId, setFolderId] = React.useState(drive.sync?.watchedFolderId ?? '');
-  const [busy, setBusy] = React.useState<null | 'save' | 'sync'>(null);
+  const [busy, setBusy] = React.useState<null | 'save' | 'sync' | 'disconnect'>(null);
 
+  /* ── TWO DIFFERENT "NOT WORKING" STATES, TWO DIFFERENT FIXES ───────────────
+     `configured` is whether the OAuth client exists — only the owner can create
+     that, in Google Cloud. `connected` is whether somebody has since granted
+     access. Showing one message for both is how a screen tells you it is broken
+     without telling you what to do. */
   if (!drive.configured) {
     return (
       <Card>
@@ -361,18 +402,44 @@ function DrivePanel({
               aria-hidden="true"
               style={{ color: 'var(--feedback-warning)' }}
             />
-            Google Drive is not connected
+            Google Drive is not set up yet
           </p>
           <p className="text-caption text-text-secondary">
             Uploads still work and still queue for approval — they simply cannot be sent anywhere
-            yet. To connect it: create a Google Cloud service account, download its JSON key, put
-            the whole thing in <code className="font-mono">GOOGLE_SERVICE_ACCOUNT_JSON</code> in{' '}
-            <code className="font-mono">.env.local</code>, then{' '}
-            <span className="font-semibold text-text-primary">
-              share your Drive folder with the service account&rsquo;s email address
-            </span>{' '}
-            — it can see nothing until you do.
+            yet. Someone needs to create an OAuth client in Google Cloud and put{' '}
+            <code className="font-mono">GOOGLE_OAUTH_CLIENT_ID</code> and{' '}
+            <code className="font-mono">GOOGLE_OAUTH_CLIENT_SECRET</code> in{' '}
+            <code className="font-mono">.env.local</code>. The steps are in{' '}
+            <span className="font-semibold text-text-primary">docs/GOOGLE-DRIVE-SETUP.md</span>.
           </p>
+        </CardBody>
+      </Card>
+    );
+  }
+
+  if (!drive.connected) {
+    return (
+      <Card lit>
+        <CardBody className="space-y-3 p-4">
+          <p className="text-body-sm font-semibold text-text-primary">Connect Google Drive</p>
+          <p className="text-caption text-text-secondary">
+            You will be sent to Google to grant access, once. Approved documents are then filed
+            into that account&rsquo;s Drive, owned by it — so nothing depends on one person&rsquo;s
+            laptop or on a folder being shared with a robot.
+          </p>
+          {drive.lastError && (
+            <p className="text-caption" style={{ color: 'var(--feedback-warning)' }}>
+              {drive.lastError}
+            </p>
+          )}
+          {/* A plain link, not a fetch: this is a full-page redirect to Google
+              and back, and the state cookie has to survive both legs. */}
+          <a
+            href="/api/drive/auth"
+            className="inline-flex w-fit items-center gap-2 rounded-lg bg-[image:var(--gradient-brand)] px-3.5 py-2 text-body-sm font-semibold text-text-on-brand shadow-[var(--shadow-brand-glow)]"
+          >
+            Connect Google Drive
+          </a>
         </CardBody>
       </Card>
     );
@@ -385,11 +452,17 @@ function DrivePanel({
           <p className="text-body-sm font-semibold text-text-primary">Google Drive is connected</p>
           {drive.account && (
             <p className="text-micro text-text-tertiary">
-              Share folders with{' '}
+              Acting as{' '}
               <code className="font-mono text-text-secondary">{drive.account}</code>
             </p>
           )}
         </div>
+
+        {drive.lastError && (
+          <p className="text-caption" style={{ color: 'var(--feedback-warning)' }}>
+            {drive.lastError}
+          </p>
+        )}
 
         <div className="flex flex-wrap items-end gap-2">
           <Field
@@ -467,6 +540,181 @@ function DrivePanel({
             type and an owner before they count anywhere: {drive.drafts.map((d) => d.name).join(', ')}.
           </p>
         )}
+
+        {/* ── DISCONNECTING IS NOT DESTRUCTIVE, AND SAYS SO ──────────────────
+            It forgets the token. Files already in Drive stay in Drive, owned by
+            the account — the whole reason for using OAuth rather than a service
+            account. Saying that here stops it reading as "delete everything". */}
+        <div className="flex flex-wrap items-center gap-3 border-t border-border-subtle pt-3">
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={busy !== null}
+            onClick={async () => {
+              setBusy('disconnect');
+              try {
+                onDone(await disconnectDriveAction());
+              } finally {
+                setBusy(null);
+              }
+            }}
+          >
+            {busy === 'disconnect' && (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+            )}
+            Disconnect
+          </Button>
+          <span className="text-micro text-text-tertiary">
+            Forgets the stored access. Documents already filed into Drive are untouched.
+          </span>
+        </div>
+      </CardBody>
+    </Card>
+  );
+}
+
+/* ---- Folders, and who may see them --------------------------------------- */
+
+/* ── ONE ROW, ONE SWITCH, ONE SENTENCE ───────────────────────────────────────
+   Owner, 2026-08-16: Coordinator+ *"can make the documents viewable for members
+   to see for any project they want."* The switch is per folder and does NOT
+   inherit to child folders (migration 027), which is the whole reason this is a
+   flat list rather than a tree: a tree draws lines that suggest sharing flows
+   down them, and it does not.
+
+   Visibility is spelled out — "Members can see this" / "Coordinators and above
+   only" — rather than shown as a checkbox labelled `visible_to_members`, because
+   the consequence of getting it wrong is somebody reading a document they should
+   not have. */
+function FolderPanel({
+  folders,
+  canShare,
+  onDone,
+}: {
+  folders: readonly DriveFolderRow[];
+  canShare: boolean;
+  onDone: (result: DocumentResult) => void;
+}) {
+  const [busy, setBusy] = React.useState<string | null>(null);
+  const shared = folders.filter((f) => f.visibleToMembers).length;
+
+  return (
+    <Card>
+      <CardBody className="space-y-3 p-4">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <p className="text-body-sm font-semibold text-text-primary">
+            Folders
+            {folders.length > 0 && (
+              <span className="ml-2 font-normal text-text-tertiary">
+                {shared} of {folders.length} shared with members
+              </span>
+            )}
+          </p>
+
+          {canShare && (
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={busy !== null}
+              onClick={async () => {
+                setBusy('sync');
+                try {
+                  onDone(await syncFoldersAction());
+                } finally {
+                  setBusy(null);
+                }
+              }}
+            >
+              {busy === 'sync' ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <RefreshCw className="h-4 w-4" strokeWidth={2.25} aria-hidden="true" />
+              )}
+              Read folders from Drive
+            </Button>
+          )}
+        </div>
+
+        {folders.length === 0 ? (
+          <p className="text-caption text-text-secondary">
+            {canShare
+              ? 'No folders recorded yet. Set a watched folder above, then read the tree from Drive.'
+              : 'No folders have been shared with members yet.'}
+          </p>
+        ) : (
+          <ul className="divide-y divide-border-subtle">
+            {folders.map((folder) => (
+              <li
+                key={folder.id}
+                className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2"
+              >
+                <div className="min-w-0">
+                  <p className="flex items-center gap-2 truncate text-body-sm text-text-primary">
+                    <FolderIcon
+                      className="h-4 w-4 shrink-0"
+                      strokeWidth={2.25}
+                      aria-hidden="true"
+                      style={{
+                        color: folder.visibleToMembers
+                          ? 'var(--feedback-success)'
+                          : 'var(--text-tertiary)',
+                      }}
+                    />
+                    {folder.name}
+                  </p>
+                  <p className="text-micro text-text-tertiary">
+                    {folder.projectName ? `${folder.projectName} · ` : ''}
+                    {folder.documentCount}{' '}
+                    {folder.documentCount === 1 ? 'document' : 'documents'}
+                    {folder.visibleToMembers && folder.sharedByName
+                      ? ` · shared by ${folder.sharedByName}`
+                      : ''}
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Badge
+                    token={folder.visibleToMembers ? 'feedback-success' : 'text-tertiary'}
+                    size="sm"
+                    variant="outline"
+                  >
+                    {folder.visibleToMembers ? 'Members can see this' : 'Coordinators and above'}
+                  </Badge>
+
+                  {canShare && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={busy !== null}
+                      onClick={async () => {
+                        setBusy(folder.id);
+                        try {
+                          onDone(
+                            await setFolderVisibilityAction(folder.id, !folder.visibleToMembers),
+                          );
+                        } finally {
+                          setBusy(null);
+                        }
+                      }}
+                    >
+                      {busy === folder.id && (
+                        <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                      )}
+                      {folder.visibleToMembers ? 'Make private' : 'Share with members'}
+                    </Button>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {canShare && folders.length > 0 && (
+          <p className="text-micro text-text-tertiary">
+            Sharing a folder does not share the folders inside it — each one is turned on by
+            somebody who looked at it. Members can also upload into a folder they can see.
+          </p>
+        )}
       </CardBody>
     </Card>
   );
@@ -476,10 +724,14 @@ function DrivePanel({
 
 function UploadDialog({
   projects,
+  folders,
   onClose,
   onDone,
 }: {
   projects: ReadonlyArray<{ id: string; name: string }>;
+  /** Already narrowed by the caller to the folders this person may file into.
+   *  The server checks it again — this only keeps the list honest. */
+  folders: ReadonlyArray<{ id: string; name: string }>;
   onClose: () => void;
   onDone: (result: DocumentResult) => void;
 }) {
@@ -554,6 +806,23 @@ function UploadDialog({
             ]}
           />
         </Field>
+
+        {folders.length > 0 && (
+          <Field
+            label="Drive folder"
+            htmlFor="folderId"
+            hint="Where it goes once approved. Leave empty and it lands in the division's main folder."
+          >
+            <Select
+              id="folderId"
+              name="folderId"
+              options={[
+                { value: '', label: 'Wherever the project goes' },
+                ...folders.map((f) => ({ value: f.id, label: f.name })),
+              ]}
+            />
+          </Field>
+        )}
 
         <Field label="Note" htmlFor="description" hint="Anything the approver should know.">
           <Input id="description" name="description" />

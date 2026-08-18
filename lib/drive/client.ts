@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { createSign } from 'node:crypto';
+import { accessTokenFromRefresh, oauthConfig } from './oauth';
 
 /* ============================================================================
  * GOOGLE DRIVE — the only file in the application that talks to Google
@@ -9,24 +9,31 @@ import { createSign } from 'node:crypto';
  *
  * ── NO SDK, FOR THE SAME REASON AS RESEND ────────────────────────────────────
  * `googleapis` is roughly 20 MB and pulls in a generated client for every Google
- * product. What is used here is four REST calls and one signed JWT. The auth is
- * the only non-obvious part and it is thirty lines of `node:crypto`, so the SDK
- * would be a large dependency wrapping a small amount of code — and the failure
- * modes would be further away.
+ * product. What is used here is four REST calls. The SDK would be a large
+ * dependency wrapping a small amount of code, with its failure modes further
+ * away.
  *
- * ── A SERVICE ACCOUNT, NOT OAUTH ─────────────────────────────────────────────
- * The owner chose one company account connected once. That means a service
- * account: it has no interactive login, no refresh token to expire, and nothing
- * breaks when a person leaves. The trade is that Drive must be **shared with the
- * service account's email** — it cannot see anything by default, which is the
- * correct default and the step people forget.
+ * ── ⚠️ OAUTH, NOT A SERVICE ACCOUNT (changed 2026-08-16) ─────────────────────
+ * This file used to sign a service-account JWT. That was the right shape for a
+ * Google Workspace domain and the WRONG one for this division, whose account is
+ * a consumer @gmail.com: a service account has no Drive storage of its own, so a
+ * file it uploads is owned by it and Google refuses with "Service Accounts do
+ * not have storage quota". A Shared Drive or domain-wide delegation would fix
+ * it, and both require Workspace.
  *
- * ── ⚠️ THE KEY IS NEVER HANDLED HERE, ONLY READ ───────────────────────────────
- * `GOOGLE_SERVICE_ACCOUNT_JSON` is read from the environment and nothing in this
- * file logs it, returns it, or includes it in an error. Standing rule R5 — the
- * owner creates it and puts it in `.env.local` themselves; it does not pass
- * through a conversation. `describeDrive()` exists so a screen can say whether it
- * is configured without going anywhere near its contents.
+ * The failure would also have been late and confusing — listing folders works
+ * fine, and only the approval-into-Drive step breaks.
+ *
+ * So the CRM acts AS the division's own account. Auth lives in `./oauth.ts`;
+ * `accessToken()` below is the seam, and every operation in this file is
+ * unchanged by the swap.
+ *
+ * ── ⚠️ NO CREDENTIAL IS HANDLED HERE ─────────────────────────────────────────
+ * The client id and secret are read from the environment by `./oauth.ts`, and
+ * the refresh token lives sealed in the database with no client read path
+ * (migration 027). Nothing in this file logs, returns or embeds any of them.
+ * Standing rule R5: the owner creates them and puts them in `.env.local`
+ * themselves; they do not pass through a conversation.
  *
  * ── EVERY FUNCTION REPORTS RATHER THAN THROWS ────────────────────────────────
  * Same decision as `lib/email/send.ts`, for the same reason. A document row is
@@ -35,162 +42,48 @@ import { createSign } from 'node:crypto';
  * find. So the outcome is a value, and the caller decides.
  * ========================================================================= */
 
-const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const DRIVE_API = 'https://www.googleapis.com/drive/v3';
 const DRIVE_UPLOAD = 'https://www.googleapis.com/upload/drive/v3';
 
-/** Read-write on Drive files. Not the `.readonly` scope — approving uploads. */
-const SCOPE = 'https://www.googleapis.com/auth/drive';
 
 export type DriveResult<T> =
   | { readonly ok: true; readonly value: T }
   | { readonly ok: false; readonly reason: string; readonly configured: boolean };
 
-interface ServiceAccount {
-  readonly client_email: string;
-  readonly private_key: string;
-}
-
-/**
- * The service-account credentials, or null.
- *
- * A malformed value is treated as absent rather than thrown: an unparseable
- * environment variable is a configuration problem to be reported on a screen, not
- * a crash on whatever page happened to touch Drive first.
- */
-function credentials(): ServiceAccount | null {
-  const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON?.trim();
-  if (!raw) return null;
-
-  try {
-    const parsed = JSON.parse(raw) as Partial<ServiceAccount>;
-    if (!parsed.client_email || !parsed.private_key) return null;
-    return {
-      client_email: parsed.client_email,
-      /* A key pasted into a .env file usually arrives with literal `\n` rather
-         than real newlines, and PEM parsing fails cryptically on that. Fixing it
-         here is the difference between "it works" and an hour lost to a message
-         about an unsupported key format. */
-      private_key: parsed.private_key.replace(/\\n/g, '\n'),
-    };
-  } catch {
-    return null;
-  }
-}
-
 /** Whether Drive is usable, without revealing anything about the key. */
 export function describeDrive(): {
+  /** Whether the OAuth CLIENT exists. Not whether anybody has connected yet —
+   *  those are different problems with different fixes, and conflating them is
+   *  how "Drive is not working" becomes unactionable. */
   readonly configured: boolean;
-  /** The service account's address — the one Drive must be shared WITH. */
+  /** Kept for callers; the connected ACCOUNT now comes from the database via
+   *  `connectionStatus()`, because it is a property of the connection rather
+   *  than of the environment. */
   readonly account: string | null;
 } {
-  const creds = credentials();
-  return { configured: creds !== null, account: creds?.client_email ?? null };
+  return { configured: oauthConfig() !== null, account: null };
 }
 
-/* ==========================================================================
- * AUTH — a signed JWT exchanged for an access token
- * ==========================================================================
- * Google's service-account flow: sign a claim set with the account's private key,
- * POST it, receive a bearer token. The token lasts an hour and is cached in the
- * module for slightly less than that — re-signing on every call would add an RSA
- * signature and a round trip to Google before each Drive request.
- *
- * The cache is per-process, so several instances hold their own. That is fine:
- * tokens are independent, and a cold start costs one extra request.
- * ========================================================================== */
 
-let cachedToken: { value: string; expiresAtMs: number } | null = null;
+/* ── AUTH IS NOW OAUTH, ACTING AS THE DIVISION'S OWN ACCOUNT ─────────────────
+   This module used to sign a service-account JWT here. That cannot work for a
+   consumer @gmail.com account: a service account has no Drive storage of its
+   own, so a file it uploads is owned by it and Google refuses with "Service
+   Accounts do not have storage quota". The escapes — a Shared Drive or
+   domain-wide delegation — both require Google Workspace.
 
-function base64url(input: string | Buffer): string {
-  return Buffer.from(input).toString('base64url');
-}
+   Listing folders would have worked. Approving a document INTO Drive, which is
+   the entire point, would not. So the CRM acts AS the account: files are owned
+   by it and land in its My Drive, and no quota question arises.
 
+   ⚠️ EVERYTHING BELOW THIS FUNCTION IS UNCHANGED. `accessToken()` was already
+   the single place a token was obtained, so swapping its implementation leaves
+   `listSubfolders`, `getFolder`, `uploadFile`, `createFolder` and `driveFetch`
+   exactly as they were — including `supportsAllDrives` on every call. */
 async function accessToken(): Promise<DriveResult<string>> {
-  const creds = credentials();
-  if (!creds) {
-    return {
-      ok: false,
-      configured: false,
-      reason: 'GOOGLE_SERVICE_ACCOUNT_JSON is not set, so Drive is not connected.',
-    };
-  }
-
-  /* Renewed a minute early, so a request cannot set off with a token that
-     expires while it is in flight. */
-  if (cachedToken && cachedToken.expiresAtMs > Date.now() + 60_000) {
-    return { ok: true, value: cachedToken.value };
-  }
-
-  const issuedAt = Math.floor(Date.now() / 1000);
-  const claims = {
-    iss: creds.client_email,
-    scope: SCOPE,
-    aud: TOKEN_URL,
-    iat: issuedAt,
-    exp: issuedAt + 3600,
-  };
-
-  const unsigned = `${base64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }))}.${base64url(
-    JSON.stringify(claims),
-  )}`;
-
-  let assertion: string;
-  try {
-    const signer = createSign('RSA-SHA256');
-    signer.update(unsigned);
-    assertion = `${unsigned}.${signer.sign(creds.private_key, 'base64url')}`;
-  } catch {
-    /* Deliberately says nothing about the key itself beyond that it did not
-       work — an error message is a place secrets leak. */
-    return {
-      ok: false,
-      configured: true,
-      reason:
-        'The service-account private key could not be used to sign a request. Check it was copied whole, including the BEGIN and END lines.',
-    };
-  }
-
-  try {
-    const response = await fetch(TOKEN_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-        assertion,
-      }),
-      signal: AbortSignal.timeout(10_000),
-    });
-
-    if (!response.ok) {
-      const body = await response.text().catch(() => '');
-      return {
-        ok: false,
-        configured: true,
-        reason: `Google refused the credentials (${response.status}). ${body.slice(0, 200)}`,
-      };
-    }
-
-    const body = (await response.json()) as { access_token?: string; expires_in?: number };
-    if (!body.access_token) {
-      return { ok: false, configured: true, reason: 'Google returned no access token.' };
-    }
-
-    cachedToken = {
-      value: body.access_token,
-      expiresAtMs: Date.now() + (body.expires_in ?? 3600) * 1000,
-    };
-    return { ok: true, value: cachedToken.value };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return {
-      ok: false,
-      configured: true,
-      reason: message.includes('timeout')
-        ? 'Google did not respond within ten seconds.'
-        : `Could not reach Google: ${message}`,
-    };
-  }
+  const result = await accessTokenFromRefresh();
+  if (result.ok) return { ok: true, value: result.value };
+  return { ok: false, configured: result.configured, reason: result.reason };
 }
 
 /** One authenticated Drive request. Shared so error handling exists once. */
@@ -214,7 +107,7 @@ async function driveFetch<T>(
          people miss — so it is named rather than left as a status code. */
       const hint =
         response.status === 404
-          ? ' The folder may not exist, or the Drive folder has not been shared with the service account.'
+          ? ' The folder may not exist, or the connected Google account cannot see it.'
           : '';
       return {
         ok: false,

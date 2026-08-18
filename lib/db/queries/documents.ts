@@ -20,6 +20,12 @@ export interface DocumentRow {
   readonly description: string | null;
   readonly projectId: string | null;
   readonly projectName: string | null;
+  readonly folderId: string | null;
+  readonly folderName: string | null;
+  /** Whether the folder it is filed in is shared with Members. Carried on the
+   *  row so the register can say WHY a document is visible, rather than leaving
+   *  somebody to infer it. */
+  readonly folderVisibleToMembers: boolean;
   readonly state: DocumentState;
   readonly storagePath: string | null;
   readonly mimeType: string | null;
@@ -35,14 +41,18 @@ export interface DocumentRow {
 }
 
 const SELECT = `
-  select d.id, d.name, d.description, d.project_id, d.state, d.storage_path,
-         d.mime_type, d.size_bytes, d.drive_file_id, d.drive_web_link,
-         d.uploaded_by_id, d.decided_at, d.decision_reason, d.created_at,
+  select d.id, d.name, d.description, d.project_id, d.folder_id, d.state,
+         d.storage_path, d.mime_type, d.size_bytes, d.drive_file_id,
+         d.drive_web_link, d.uploaded_by_id, d.decided_at, d.decision_reason,
+         d.created_at,
          p.name as project_name,
+         f.name as folder_name,
+         coalesce(f.visible_to_members, false) as folder_visible_to_members,
          u.full_name as uploaded_by_name,
          dc.full_name as decided_by_name
     from public.documents d
     left join public.projects p  on p.id = d.project_id
+    left join public.drive_folders f on f.id = d.folder_id
     left join public.users    u  on u.id = d.uploaded_by_id
     left join public.users    dc on dc.id = d.decided_by_id
 `;
@@ -54,6 +64,9 @@ function toRow(row: Record<string, unknown>): DocumentRow {
     description: (row.description as string | null) ?? null,
     projectId: (row.project_id as string | null) ?? null,
     projectName: (row.project_name as string | null) ?? null,
+    folderId: (row.folder_id as string | null) ?? null,
+    folderName: (row.folder_name as string | null) ?? null,
+    folderVisibleToMembers: Boolean(row.folder_visible_to_members),
     state: row.state as DocumentState,
     storagePath: (row.storage_path as string | null) ?? null,
     mimeType: (row.mime_type as string | null) ?? null,
@@ -104,6 +117,9 @@ export async function createDocumentRequest(
     name: string;
     description: string | null;
     projectId: string | null;
+    /** The registry folder to file it in. Null means unfiled — Admin+ only by
+     *  `app.can_read_document`, which is why the upload form offers a folder. */
+    folderId: string | null;
     storagePath: string;
     mimeType: string;
     sizeBytes: number;
@@ -111,10 +127,11 @@ export async function createDocumentRequest(
 ): Promise<string> {
   const rows = await withUser(actorId, (tx) => tx`
     insert into public.documents
-      (name, description, project_id, storage_path, mime_type, size_bytes, uploaded_by_id)
+      (name, description, project_id, folder_id, storage_path, mime_type,
+       size_bytes, uploaded_by_id)
     values
-      (${input.name}, ${input.description}, ${input.projectId}, ${input.storagePath},
-       ${input.mimeType}, ${input.sizeBytes}, ${actorId})
+      (${input.name}, ${input.description}, ${input.projectId}, ${input.folderId},
+       ${input.storagePath}, ${input.mimeType}, ${input.sizeBytes}, ${actorId})
     returning id
   `);
   return rows[0].id as string;

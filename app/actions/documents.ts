@@ -6,9 +6,12 @@ import { requireUser } from '@/lib/auth/current-user';
 import { withUser } from '@/lib/db/client';
 import { audit } from '@/lib/db/queries/audit';
 import * as D from '@/lib/db/queries/documents';
+import * as F from '@/lib/db/queries/drive-folders';
 import { notify, notifySelf } from '@/lib/db/queries/feed';
 import { can } from '@/lib/domain/permissions';
 import * as Drive from '@/lib/drive/client';
+import { clearConnection, connectionStatus } from '@/lib/db/queries/drive';
+import { forgetAccessToken } from '@/lib/drive/oauth';
 import { runDriveSync } from '@/lib/drive/sync';
 import { removeObject, signedUrl, uploadObject } from '@/lib/storage/bucket';
 
@@ -119,6 +122,23 @@ export async function requestDocumentAction(
   const name = str(form, 'name') || file.name;
   if (!name) return fail('Give the document a name.');
 
+  /* ── WHICH FOLDER A MEMBER MAY FILE INTO ──────────────────────────────────
+     Owner, 2026-08-16: *"members can upload documents to the folders they are
+     viewing."* A Member is viewing exactly the folders that have been shared with
+     members, so that is the test. Coordinator+ sees the whole register and may
+     file anywhere.
+
+     Checked BEFORE the bytes are stored. Refusing after the upload would leave an
+     orphaned object to clean up for a mistake we could have caught first. */
+  const folderId = str(form, 'folderId') || null;
+  if (folderId) {
+    const folder = await F.getFolder(user.id, folderId);
+    if (!folder) return fail('That folder is not in the registry.');
+    if (!can(actor, 'document.share') && !folder.visibleToMembers) {
+      return fail(`${folder.name} is not shared with members, so you cannot file into it.`);
+    }
+  }
+
   const bytes = new Uint8Array(await file.arrayBuffer());
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, '-').slice(-80);
   const path = `documents/${user.id}/${Date.now()}-${safeName}`;
@@ -136,6 +156,7 @@ export async function requestDocumentAction(
       name,
       description: str(form, 'description') || null,
       projectId: str(form, 'projectId') || null,
+      folderId,
       storagePath: path,
       mimeType: file.type || 'application/octet-stream',
       sizeBytes: file.size,
@@ -208,8 +229,16 @@ export async function approveDocumentAction(id: string): Promise<DocumentResult>
   const drive = Drive.describeDrive();
   if (!drive.configured) {
     return fail(
-      'Google Drive is not connected yet, so nothing can be approved into it. Add GOOGLE_SERVICE_ACCOUNT_JSON and share the Drive folder with the service account.',
+      'No Google OAuth client is configured, so nothing can be approved into Drive. See docs/GOOGLE-DRIVE-SETUP.md.',
     );
+  }
+
+  /* Configured but nobody has consented is a different problem with a different
+     fix, and saying "not configured" for both is how an approver ends up editing
+     environment variables that were already correct. */
+  const connection = await connectionStatus();
+  if (!connection.connected) {
+    return fail('Google Drive is not connected yet. Connect it on this screen, then approve again.');
   }
 
   /* Read it back out of our own storage. A signed URL rather than a direct read
@@ -227,10 +256,19 @@ export async function approveDocumentAction(id: string): Promise<DocumentResult>
     return fail('The stored file could not be read back.');
   }
 
-  /* Into the project's own Drive folder when it has one, otherwise the watched
-     parent, otherwise the Drive root. Falling back rather than refusing: a
-     document with no project still has to go somewhere. */
+  /* ── WHERE IT LANDS, MOST SPECIFIC FIRST ──────────────────────────────────
+       the folder the uploader chose  — they said where it belongs
+       the project's own Drive folder — the project says where it belongs
+       the watched parent             — the division says where things go
+       the Drive root                 — nowhere left to fall
+
+     Falling back rather than refusing: a document with no folder and no project
+     still has to go somewhere, and an approval that fails because nobody picked a
+     folder would strand a file that is already accepted. */
   const sync = await D.getDriveSync(user.id);
+  const chosenFolder = document.folderId
+    ? await F.getFolder(user.id, document.folderId)
+    : null;
   const projectFolder = document.projectId
     ? await projectDriveFolder(user.id, document.projectId)
     : null;
@@ -239,7 +277,8 @@ export async function approveDocumentAction(id: string): Promise<DocumentResult>
     name: document.name,
     mimeType: document.mimeType ?? 'application/octet-stream',
     bytes,
-    parentFolderId: projectFolder ?? sync?.watchedFolderId ?? null,
+    parentFolderId:
+      chosenFolder?.driveFolderId ?? projectFolder ?? sync?.watchedFolderId ?? null,
   });
 
   if (!uploaded.ok) return fail(uploaded.reason);
@@ -413,23 +452,69 @@ export async function deleteDocumentAction(id: string): Promise<DocumentResult> 
  * ========================================================================== */
 
 export async function driveStatusAction(): Promise<{
+  /** The OAuth CLIENT exists (env vars set). */
   configured: boolean;
+  /** Somebody has completed consent and a refresh token is stored. */
+  connected: boolean;
   account: string | null;
+  lastError: string | null;
   sync: D.DriveSyncRow | null;
   drafts: Array<{ id: string; name: string; driveFolderId: string | null }>;
 }> {
   const user = await requireUser();
   const drive = Drive.describeDrive();
 
+  /* ── CONFIGURED AND CONNECTED ARE DIFFERENT PROBLEMS ───────────────────────
+     `configured` means the OAuth client id and secret exist, which only the
+     owner can create in Google Cloud. `connected` means somebody has since
+     clicked Connect and granted access. Collapsing the two into one boolean is
+     how "Drive is not working" becomes a message nobody can act on — the fixes
+     are completely different. */
+  const connection = await connectionStatus();
+
   if (!can({ role: user.role, id: user.id }, 'drive.configure')) {
-    return { configured: drive.configured, account: null, sync: null, drafts: [] };
+    /* A non-Admin still learns WHETHER Drive works, because that explains why an
+       upload queues rather than lands. They do not learn whose account it is. */
+    return {
+      configured: drive.configured,
+      connected: connection.connected,
+      account: null,
+      lastError: null,
+      sync: null,
+      drafts: [],
+    };
   }
 
   return {
     configured: drive.configured,
-    account: drive.account,
+    connected: connection.connected,
+    account: connection.accountEmail,
+    lastError: connection.lastError,
     sync: await D.getDriveSync(user.id),
     drafts: await D.listDraftProjects(user.id),
+  };
+}
+
+/**
+ * Forget the Google connection.
+ *
+ * The stored refresh token is dropped. It is NOT revoked at Google — that is
+ * done from myaccount.google.com, and pretending otherwise would leave somebody
+ * believing access had been withdrawn when the token still works. The screen
+ * says so.
+ */
+export async function disconnectDriveAction(): Promise<DocumentResult> {
+  const user = await requireUser();
+  if (!can({ role: user.role, id: user.id }, 'drive.configure')) {
+    return fail('Only an Admin can disconnect Google Drive.');
+  }
+
+  await clearConnection();
+  forgetAccessToken();
+  revalidatePath('/documents');
+  return {
+    ok: true,
+    message: 'Google Drive disconnected. Files already filed there are untouched.',
   };
 }
 
