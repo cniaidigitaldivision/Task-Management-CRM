@@ -242,6 +242,7 @@ export function AttachmentsPanel({
                       <IconButton
                         label={`Remove ${attachment.fileName}`}
                         icon={Trash2}
+                        variant="deleteGhost"
                         size="sm"
                         disabled={busy}
                         onClick={() => void remove(attachment)}

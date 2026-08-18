@@ -266,12 +266,11 @@ export function FolderBrowser({
                       {/* Red, because it destroys. The owner asked for the colour
                           language and this is the one place it is unambiguous. */}
                       <IconButton
-                        variant="ghost"
+                        variant="deleteGhost"
                         size="sm"
                         label={`Move ${folder.name} to the Drive bin`}
                         icon={Trash2}
                         disabled={busy !== null}
-                        className="text-[color:var(--feedback-error)] hover:bg-[color-mix(in_oklab,var(--feedback-error)_12%,transparent)]"
                         onClick={() => setTrashingFolder(folder)}
                       />
                     </>

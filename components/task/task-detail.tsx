@@ -561,6 +561,7 @@ export function TaskDetail({
                     <IconButton
                       label={`Remove ${item.text}`}
                       icon={Trash2}
+                      variant="deleteGhost"
                       size="sm"
                       onClick={() => void run(() => deleteChecklistItemAction(item.id))}
                       className="opacity-0 transition-opacity group-hover:opacity-100"

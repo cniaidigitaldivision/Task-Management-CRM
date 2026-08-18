@@ -321,6 +321,7 @@ export function VaultWorkspace({
                             <IconButton
                               label={`Delete ${row.label}`}
                               icon={Trash2}
+                              variant="deleteGhost"
                               size="sm"
                               onClick={() => setConfirmDelete(row)}
                             />

@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Filter, Flag, Plus, Trash2, User } from 'lucide-react';
+import { CheckCircle2, Filter, Flag, Plus, Trash2, User, XCircle } from 'lucide-react';
 
 import { Button, ButtonGroup, IconButton } from './button';
 import { CONTROL_HEIGHT, type ControlSize } from './control';
@@ -88,7 +88,12 @@ export function ControlGallery() {
             <Button variant="danger" size={size}>
               Danger
             </Button>
-            <IconButton label="Delete" icon={Trash2} size={size} variant="secondary" />
+            {/* The three semantic ghosts, shown together because their whole
+                purpose is that they are used consistently: green approves,
+                orange refuses, red deletes, everywhere in the application. */}
+            <IconButton label="Approve" icon={CheckCircle2} size={size} variant="approveGhost" />
+            <IconButton label="Refuse" icon={XCircle} size={size} variant="refuseGhost" />
+            <IconButton label="Delete" icon={Trash2} size={size} variant="deleteGhost" />
             <Select
               label="Example select"
               size={size}

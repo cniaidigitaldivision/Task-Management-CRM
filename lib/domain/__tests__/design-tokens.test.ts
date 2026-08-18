@@ -160,6 +160,72 @@ describe('cn() and the named type scale', () => {
   });
 });
 
+/* ============================================================================
+ * THE COLOUR LANGUAGE IS THE SAME ON EVERY TABLE
+ * ----------------------------------------------------------------------------
+ * Owner, 2026-08-18: *"this delete button icon should be in a red color… in all
+ * of this whole project… Please make sure that everything should be in a proper
+ * color."*
+ *
+ * The colours live in the `VARIANTS` map so they are defined once. This is what
+ * stops the NEXT table being built with a plain grey bin icon, or with a
+ * hand-written `className="text-red-500"` that drifts from the token.
+ * ========================================================================= */
+
+describe('destructive actions are red everywhere', () => {
+  it('gives every Trash2 IconButton the deleteGhost variant', () => {
+    const offenders: string[] = [];
+
+    for (const file of filesUnder(join(ROOT, 'components'), ['.tsx'])) {
+      /* The gallery deliberately shows several variants side by side; it is a
+         demonstration of the scale, not a delete control. */
+      if (file.endsWith('control-gallery.tsx')) continue;
+
+      const source = readFileSync(file, 'utf8');
+      /* Each <IconButton …/> element, so a variant on a DIFFERENT button in the
+         same file cannot make a missing one look present. */
+      for (const element of source.matchAll(/<IconButton\b[\s\S]*?\/>/g)) {
+        const jsx = element[0];
+        if (!/icon=\{Trash2\}/.test(jsx)) continue;
+        if (!/variant="deleteGhost"/.test(jsx)) {
+          offenders.push(file.slice(ROOT.length + 1));
+        }
+      }
+    }
+
+    expect(
+      offenders,
+      'these delete buttons are not red — use variant="deleteGhost" from components/ui/button.tsx',
+    ).toEqual([]);
+  });
+
+  it('defines the three semantic variants against feedback tokens, not raw colours', () => {
+    const button = readFileSync(join(ROOT, 'components', 'ui', 'button.tsx'), 'utf8');
+
+    /** One variant's declaration, stopping at the next one — a fixed-length
+     *  window overruns into the following entry and reads its token as this
+     *  one's, which is exactly the false pass this test exists to avoid. */
+    const declarationOf = (variant: string): string =>
+      new RegExp(`\\n  ${variant}:[\\s\\S]*?,\\n(?=  [a-zA-Z]+:|\\})`).exec(button)?.[0] ?? '';
+
+    for (const [variant, token] of [
+      ['approveGhost', 'feedback-success'],
+      ['refuseGhost', 'feedback-warning'],
+      ['deleteGhost', 'feedback-error'],
+    ] as const) {
+      const declaration = declarationOf(variant);
+      expect(declaration, `${variant} was not found in the VARIANTS map`).not.toBe('');
+      expect(declaration, `${variant} should be built from var(--${token})`).toContain(
+        `var(--${token})`,
+      );
+    }
+
+    /* Refusing must NOT share delete's colour: a refusal is reversible and a
+       deletion is not, and one colour for both erases the distinction. */
+    expect(declarationOf('refuseGhost')).not.toContain('feedback-error');
+  });
+});
+
 describe('the typography utilities the control scale depends on', () => {
   it('are all defined in globals.css', () => {
     const css = readFileSync(join(ROOT, 'app', 'globals.css'), 'utf8');

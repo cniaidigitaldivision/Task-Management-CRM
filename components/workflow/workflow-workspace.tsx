@@ -255,6 +255,7 @@ function ChainList({
                         <IconButton
                           label="Delete this chain"
                           icon={Trash2}
+                          variant="deleteGhost"
                           size="sm"
                           disabled={busy}
                           onClick={() => onDelete(chain.id)}
@@ -494,6 +495,7 @@ function NodeCard({
           <IconButton
             label={`Remove step ${index}`}
             icon={Trash2}
+            variant="deleteGhost"
             size="sm"
             onClick={onRemove}
             className="ml-auto"

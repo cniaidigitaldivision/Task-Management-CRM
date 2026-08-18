@@ -396,17 +396,28 @@ export function DocumentsWorkspace({
                       )}
                     </div>
 
-                    <div className="flex shrink-0 items-center gap-1">
+                    {/* ── ICONS ONLY, AND THE COLOUR IS THE LABEL ────────────
+                        Owner, 2026-08-18: *"Don't use extra words where the icon
+                        is… just the icon itself is enough."*
+
+                        Every one carries `label`, which IconButton puts on both
+                        `title` (hover) and `aria-label` (screen reader), so
+                        removing the visible word removes nothing but the clutter.
+
+                        Colour comes from the shared variants in
+                        components/ui/button.tsx — green approves, orange refuses,
+                        red deletes — so these three mean the same thing on every
+                        table in the application. */}
+                    <div className="flex shrink-0 items-center gap-0.5">
                       {doc.state === 'pending' && (
-                        <Button
+                        <IconButton
                           variant="ghost"
                           size="sm"
+                          label={`Look at ${doc.name} before deciding`}
+                          icon={Eye}
                           disabled={busy !== null}
                           onClick={() => void preview(doc.id)}
-                        >
-                          <Eye className="h-3.5 w-3.5" strokeWidth={2.25} aria-hidden="true" />
-                          Look
-                        </Button>
+                        />
                       )}
 
                       {doc.state === 'approved' && doc.driveWebLink && (
@@ -414,44 +425,46 @@ export function DocumentsWorkspace({
                           href={doc.driveWebLink}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex h-8 items-center gap-1 rounded-md px-2.5 text-micro font-semibold text-text-brand hover:bg-bg-hover"
+                          title={`Open ${doc.name} in Google Drive`}
+                          aria-label={`Open ${doc.name} in Google Drive`}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-text-brand hover:bg-bg-hover"
                         >
-                          <ExternalLink className="h-3.5 w-3.5" strokeWidth={2.25} aria-hidden="true" />
-                          Open in Drive
+                          <ExternalLink className="h-4 w-4" strokeWidth={1.9} aria-hidden="true" />
                         </a>
                       )}
 
                       {doc.state === 'pending' && canApprove && (
                         <>
-                          <Button
-                            variant="ghost"
+                          {/* Orange, not red: a refusal is reversible — the file
+                              is still here and can be approved afterwards. Red is
+                              kept for deleting alone. */}
+                          <IconButton
+                            variant="refuseGhost"
                             size="sm"
+                            label={`Refuse ${doc.name}`}
+                            icon={XCircle}
                             disabled={busy !== null}
                             onClick={() => setRejecting(doc)}
-                          >
-                            Refuse
-                          </Button>
-                          <Button
-                            variant="primary"
+                          />
+                          <IconButton
+                            variant="approveGhost"
                             size="sm"
+                            label={`Approve ${doc.name} into Google Drive`}
+                            icon={busy === doc.id ? Loader2 : CheckCircle2}
+                            className={busy === doc.id ? '[&_svg]:animate-spin' : undefined}
                             disabled={busy !== null}
                             onClick={() => void run(doc.id, () => approveDocumentAction(doc.id))}
-                          >
-                            {busy === doc.id ? (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-                            ) : (
-                              <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={2.25} aria-hidden="true" />
-                            )}
-                            Approve into Drive
-                          </Button>
+                          />
                         </>
                       )}
 
                       {canManage && (
                         <IconButton
-                          label={`Remove ${doc.name} from the list`}
+                          variant="deleteGhost"
+                          label={`Remove ${doc.name} from the register`}
                           icon={Trash2}
                           size="sm"
+                          disabled={busy !== null}
                           onClick={() => void run(doc.id, () => deleteDocumentAction(doc.id))}
                         />
                       )}

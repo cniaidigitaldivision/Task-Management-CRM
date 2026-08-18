@@ -28,7 +28,38 @@ import {
  * or urgency (BR-024).
  * ========================================================================= */
 
-type Variant = 'primary' | 'secondary' | 'ghost' | 'gold' | 'danger' | 'subtle';
+/* ── THE THREE SEMANTIC GHOSTS ────────────────────────────────────────────────
+ * Owner, 2026-08-18: *"this delete button icon should be in a red color. This
+ * approve should be in a green color… Please make sure that everything should be
+ * in a proper color."* — and, importantly, *"in all of this whole project"*.
+ *
+ * So the colour lives HERE, in the variant map, and not at each call site. A row
+ * that hand-writes `className="text-[var(--feedback-error)]"` is a row that will
+ * be forgotten when the next table is built; there are already several tables and
+ * the point of the request is that they agree.
+ *
+ *   approveGhost   green   it succeeds, it completes, it says yes
+ *   refuseGhost    orange  it says no. NOT red: refusing a document is
+ *                          reversible — the file is still there and can be
+ *                          approved later — and using the same colour as delete
+ *                          would flatten that difference away.
+ *   deleteGhost    red     it destroys. Red is reserved for this alone, so red
+ *                          always means the same thing.
+ *
+ * Ghost rather than filled: three saturated buttons in one table row is a
+ * fairground. The icon carries the colour, and the tint appears on hover, at
+ * which point the intent is worth confirming loudly.
+ */
+type Variant =
+  | 'primary'
+  | 'secondary'
+  | 'ghost'
+  | 'gold'
+  | 'danger'
+  | 'subtle'
+  | 'approveGhost'
+  | 'refuseGhost'
+  | 'deleteGhost';
 
 const VARIANTS: Readonly<Record<Variant, string>> = {
   primary:
@@ -39,6 +70,16 @@ const VARIANTS: Readonly<Record<Variant, string>> = {
   ghost: 'text-text-secondary hover:bg-bg-hover hover:text-text-primary',
   gold: 'text-text-on-gold bg-[image:var(--gradient-gold)] shadow-sm hover:brightness-105 active:translate-y-px',
   danger: 'bg-feedback-error text-neutral-0 shadow-sm hover:brightness-110 active:translate-y-px',
+
+  approveGhost:
+    'text-[color:var(--feedback-success)] ' +
+    'hover:bg-[color-mix(in_oklab,var(--feedback-success)_14%,transparent)]',
+  refuseGhost:
+    'text-[color:var(--feedback-warning)] ' +
+    'hover:bg-[color-mix(in_oklab,var(--feedback-warning)_14%,transparent)]',
+  deleteGhost:
+    'text-[color:var(--feedback-error)] ' +
+    'hover:bg-[color-mix(in_oklab,var(--feedback-error)_14%,transparent)]',
 };
 
 const SHARED =
