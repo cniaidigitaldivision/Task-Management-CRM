@@ -8,6 +8,7 @@ import { audit } from '@/lib/db/queries/audit';
 import * as D from '@/lib/db/queries/documents';
 import * as F from '@/lib/db/queries/drive-folders';
 import { notify, notifySelf } from '@/lib/db/queries/feed';
+import { accessAtLeast } from '@/lib/domain/folder-access';
 import { can } from '@/lib/domain/permissions';
 import * as Drive from '@/lib/drive/client';
 import { clearConnection, connectionStatus } from '@/lib/db/queries/drive';
@@ -122,24 +123,56 @@ export async function requestDocumentAction(
   const name = str(form, 'name') || file.name;
   if (!name) return fail('Give the document a name.');
 
-  /* ── WHICH FOLDER A MEMBER MAY FILE INTO ──────────────────────────────────
-     Owner, 2026-08-16: *"members can upload documents to the folders they are
-     viewing."* A Member is viewing exactly the folders that have been shared with
-     members, so that is the test. Coordinator+ sees the whole register and may
-     file anywhere.
+  /* ── WHICH FOLDER, AND WHETHER THIS NEEDS APPROVING AT ALL ────────────────
+     Owner, 2026-08-16: *"it shouldn't be required approval because an admin is
+     assigning access to some folder… the access level is defined at the time of
+     giving."* So the folder's level decides the whole shape of what follows:
 
-     Checked BEFORE the bytes are stored. Refusing after the upload would leave an
+       none / view   cannot file here at all
+       upload +      goes STRAIGHT to Drive — the grant was the approval
+       no folder     the old path: our storage, then the approval queue
+
+     Checked BEFORE the bytes go anywhere. Refusing afterwards would leave an
      orphaned object to clean up for a mistake we could have caught first. */
   const folderId = str(form, 'folderId') || null;
+  const canManageFolders = can(actor, 'document.share');
+
+  let folder: F.DriveFolderRow | null = null;
   if (folderId) {
-    const folder = await F.getFolder(user.id, folderId);
+    folder = await F.getFolder(user.id, folderId);
     if (!folder) return fail('That folder is not in the registry.');
-    if (!can(actor, 'document.share') && !folder.visibleToMembers) {
-      return fail(`${folder.name} is not shared with members, so you cannot file into it.`);
+    if (!canManageFolders && folder.memberAccess === 'none') {
+      return fail(`You do not have access to ${folder.name}, so you cannot file into it.`);
+    }
+    if (!canManageFolders && !accessAtLeast(folder.memberAccess, 'upload')) {
+      return fail(
+        `You can view ${folder.name} but not add to it. Ask a Team Coordinator for upload access.`,
+      );
     }
   }
 
   const bytes = new Uint8Array(await file.arrayBuffer());
+
+  /* Coordinator+ still uses the approval queue when they file into a folder —
+     their own upload is exactly the one that most needs a second pair of eyes,
+     and `upload` access describes what MEMBERS were granted, not a bypass for
+     whoever granted it. A Member with `upload` skips the queue; that is the
+     asymmetry the owner asked for. */
+  const straightToDrive =
+    folder !== null && !canManageFolders && accessAtLeast(folder.memberAccess, 'upload');
+
+  if (straightToDrive && folder) {
+    return uploadStraightToDrive({
+      user,
+      folder,
+      name,
+      description: str(form, 'description') || null,
+      projectId: str(form, 'projectId') || null,
+      mimeType: file.type || 'application/octet-stream',
+      sizeBytes: file.size,
+      bytes,
+    });
+  }
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, '-').slice(-80);
   const path = `documents/${user.id}/${Date.now()}-${safeName}`;
 
@@ -181,10 +214,18 @@ export async function requestDocumentAction(
        all the team."* Read as: the request must not sit unseen. The notification
        stays unread until somebody acts, and the queue on the Documents screen
        shows a count — so it persists rather than being a moment that can be
-       missed. Sent to Admin and above, because they are who can approve. */
+       missed. Sent to whoever can approve — Coordinator and above since
+       2026-08-16, so this list moved with the permission rather than being left
+       behind to notify a set of people who are no longer the whole set.
+
+       ⚠️ The uploader is excluded. A Coordinator can now approve their own
+       upload, and telling somebody their own file is waiting for them is noise
+       that trains people to ignore the notification. */
     const approvers = await tx`
       select id from public.users
-       where is_active and role in ('super_admin', 'admin')
+       where is_active
+         and role in ('super_admin', 'admin', 'team_coordinator')
+         and id <> ${user.id}
     `;
     for (const approver of approvers) {
       await notify(tx, user.id, {
@@ -207,8 +248,96 @@ export async function requestDocumentAction(
   };
 }
 
+/**
+ * The no-queue path: bytes go to Drive, then a row is written already approved.
+ *
+ * ── THE ORDER IS THE OPPOSITE WAY ROUND FROM THE QUEUE, FOR THE SAME REASON ──
+ * The queued path stores locally first because the file must NOT reach Drive
+ * until somebody says yes. Here somebody already has, so the file goes to Drive
+ * first and the row is written only once Google confirms it. Both orders exist
+ * to make the same guarantee: a row never claims a file that is not there.
+ *
+ * Nothing is written to our own storage at all. A local copy would have to be
+ * deleted immediately, and a delete that fails leaves rubbish behind for no gain.
+ */
+async function uploadStraightToDrive(input: {
+  /* The whole current user, because `audit` wants the actor's role and email as
+     they were at the time — not a lookup that would report today's values. */
+  user: Awaited<ReturnType<typeof requireUser>>;
+  folder: F.DriveFolderRow;
+  name: string;
+  description: string | null;
+  projectId: string | null;
+  mimeType: string;
+  sizeBytes: number;
+  bytes: Uint8Array;
+}): Promise<DocumentResult> {
+  const { user, folder } = input;
+
+  const connection = await connectionStatus();
+  if (!connection.connected) {
+    return fail(
+      `${folder.name} is set to accept uploads directly, but Google Drive is not connected — so there is nowhere to put it. Ask an Admin to connect Drive.`,
+    );
+  }
+
+  const uploaded = await Drive.uploadFile({
+    name: input.name,
+    mimeType: input.mimeType,
+    bytes: input.bytes,
+    parentFolderId: folder.driveFolderId,
+  });
+  if (!uploaded.ok) return fail(uploaded.reason);
+
+  let documentId: string;
+  try {
+    documentId = await D.createApprovedDocument(user.id, {
+      name: input.name,
+      description: input.description,
+      projectId: input.projectId,
+      folderId: folder.id,
+      mimeType: input.mimeType,
+      sizeBytes: input.sizeBytes,
+      driveFileId: uploaded.value.id,
+      driveWebLink: uploaded.value.webViewLink ?? null,
+    });
+  } catch {
+    /* ⚠️ The file IS in Drive and the register does not know about it. Not
+       silently swallowed and not retried: deleting it again could destroy
+       somebody's only copy, and claiming success would hide a real
+       inconsistency. The person is told exactly what to do about it. */
+    console.error('[documents] a direct Drive upload succeeded but its row failed');
+    return fail(
+      `${input.name} reached Drive but could not be recorded here. It is in ${folder.name} — tell an Admin so the register can be corrected.`,
+    );
+  }
+
+  await withUser(user.id, async (tx) => {
+    await audit(tx, user, {
+      entityType: 'document',
+      entityId: documentId,
+      action: 'document.uploaded_directly',
+      /* The folder and its level are recorded, because "why did this skip the
+         queue" has to be answerable a year later, when whoever granted the
+         access has forgotten. */
+      after: {
+        name: input.name,
+        folder: folder.name,
+        folderAccess: folder.memberAccess,
+        driveFileId: uploaded.value.id,
+      },
+    });
+  }).catch(() => console.error('[documents] audit write failed for a direct upload'));
+
+  revalidatePath('/documents');
+  return {
+    ok: true,
+    message: `${input.name} is in ${folder.name} in Google Drive. No approval was needed — you have upload access to that folder.`,
+  };
+}
+
 /* ==========================================================================
- * APPROVE — Admin and above only
+ * APPROVE — Coordinator and above
  * ========================================================================== */
 
 export async function approveDocumentAction(id: string): Promise<DocumentResult> {
@@ -218,7 +347,7 @@ export async function approveDocumentAction(id: string): Promise<DocumentResult>
   /* A Coordinator may edit and delete documents but not approve one — including
      their own. That is what keeps the queue meaningful. */
   if (!can(actor, 'document.approve')) {
-    return fail('Only an Admin or the Super Admin can approve a document into Drive.');
+    return fail('Only a Team Coordinator or above can approve a document into Drive.');
   }
 
   const document = await D.getDocument(user.id, id);

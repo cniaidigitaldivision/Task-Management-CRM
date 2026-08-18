@@ -2,6 +2,7 @@ import 'server-only';
 
 import { sql, withUser } from '../client';
 import { isoOrNull } from '../row-values';
+import type { FolderAccess } from '@/lib/domain/folder-access';
 
 /* ============================================================================
  * THE DOCUMENT REGISTER — migration 025
@@ -22,10 +23,10 @@ export interface DocumentRow {
   readonly projectName: string | null;
   readonly folderId: string | null;
   readonly folderName: string | null;
-  /** Whether the folder it is filed in is shared with Members. Carried on the
-   *  row so the register can say WHY a document is visible, rather than leaving
-   *  somebody to infer it. */
-  readonly folderVisibleToMembers: boolean;
+  /** What Members may do in the folder it is filed in. Carried on the row so the
+   *  register can say WHY a document is visible, rather than leaving somebody to
+   *  infer it. `'none'` when it is unfiled. */
+  readonly folderAccess: FolderAccess;
   readonly state: DocumentState;
   readonly storagePath: string | null;
   readonly mimeType: string | null;
@@ -47,7 +48,7 @@ const SELECT = `
          d.created_at,
          p.name as project_name,
          f.name as folder_name,
-         coalesce(f.visible_to_members, false) as folder_visible_to_members,
+         coalesce(f.member_access, 'none'::public.folder_access) as folder_access,
          u.full_name as uploaded_by_name,
          dc.full_name as decided_by_name
     from public.documents d
@@ -66,7 +67,7 @@ function toRow(row: Record<string, unknown>): DocumentRow {
     projectName: (row.project_name as string | null) ?? null,
     folderId: (row.folder_id as string | null) ?? null,
     folderName: (row.folder_name as string | null) ?? null,
-    folderVisibleToMembers: Boolean(row.folder_visible_to_members),
+    folderAccess: (row.folder_access as FolderAccess) ?? 'none',
     state: row.state as DocumentState,
     storagePath: (row.storage_path as string | null) ?? null,
     mimeType: (row.mime_type as string | null) ?? null,
@@ -132,6 +133,50 @@ export async function createDocumentRequest(
     values
       (${input.name}, ${input.description}, ${input.projectId}, ${input.folderId},
        ${input.storagePath}, ${input.mimeType}, ${input.sizeBytes}, ${actorId})
+    returning id
+  `);
+  return rows[0].id as string;
+}
+
+/**
+ * Record a document that went STRAIGHT to Drive — no approval queue.
+ *
+ * ── ⚠️ THE DECIDER IS THE UPLOADER, AND THAT IS HONEST ───────────────────────
+ * `documents_state_is_coherent` requires an approved row to name who decided.
+ * Here that is the uploader, because the decision was genuinely theirs to make:
+ * somebody senior enough to grant `upload` on this folder had already decided
+ * that anyone with access may file into it (owner, 2026-08-16 — *"it shouldn't
+ * be required approval because an admin is assigning access"*). Naming the
+ * granting Coordinator instead would be a lie about who pressed the button; a
+ * null would break the state machine. The audit trail carries the folder and its
+ * level, so "why was this allowed" is answerable.
+ *
+ * `storage_path` is never set: the bytes went to Drive, not to our bucket, so
+ * there is nothing to clean up afterwards.
+ */
+export async function createApprovedDocument(
+  actorId: string,
+  input: {
+    name: string;
+    description: string | null;
+    projectId: string | null;
+    folderId: string;
+    mimeType: string;
+    sizeBytes: number;
+    driveFileId: string;
+    driveWebLink: string | null;
+  },
+): Promise<string> {
+  const rows = await withUser(actorId, (tx) => tx`
+    insert into public.documents
+      (name, description, project_id, folder_id, mime_type, size_bytes,
+       uploaded_by_id, state, drive_file_id, drive_web_link,
+       decided_by_id, decided_at)
+    values
+      (${input.name}, ${input.description}, ${input.projectId}, ${input.folderId},
+       ${input.mimeType}, ${input.sizeBytes}, ${actorId},
+       'approved'::public.document_state, ${input.driveFileId}, ${input.driveWebLink},
+       ${actorId}, now())
     returning id
   `);
   return rows[0].id as string;

@@ -6,6 +6,7 @@ import { requireUser } from '@/lib/auth/current-user';
 import { withUser } from '@/lib/db/client';
 import { audit } from '@/lib/db/queries/audit';
 import * as F from '@/lib/db/queries/drive-folders';
+import { ACCESS_MEANS, accessAtLeast, isFolderAccess } from '@/lib/domain/folder-access';
 import { can } from '@/lib/domain/permissions';
 import { scanDriveFolders } from '@/lib/drive/folders';
 
@@ -20,18 +21,24 @@ import type { DocumentResult } from './documents';
  *
  * Read as three rules, and implemented as three:
  *
- *   1. Coordinator+ sees every document.        → `app.can_read_document`, 027
- *   2. Coordinator+ shares a folder to Members. → `setFolderVisibilityAction`
- *   3. A Member may upload into a shared folder.→ `app/actions/documents.ts`
+ *   1. Coordinator+ sees every document.        → `app.can_read_document`, 028
+ *   2. Coordinator+ sets a folder's level.      → `setFolderAccessAction`
+ *   3. A Member may upload where the level says.→ `app/actions/documents.ts`
  *
  * Only (2) lives here. (1) is in the database because a rule about who can read
  * rows belongs where the rows are, and (3) is part of uploading.
  *
- * ── SHARING IS ATTRIBUTED AND AUDITED ────────────────────────────────────────
- * Exposing a folder to everybody in the company is the one action on this screen
+ * ── THE LEVEL IS CHOSEN WHEN ACCESS IS GIVEN ─────────────────────────────────
+ * Owner, 2026-08-16, correcting an earlier boolean design: *"These options of
+ * access should be provided at the time of giving access… the access level is
+ * defined at the time of giving, right?"* Right. `none` / `view` / `upload` /
+ * `manage`, per folder — migration 028.
+ *
+ * ── GRANTING IS ATTRIBUTED AND AUDITED ───────────────────────────────────────
+ * Opening a folder to everybody in the company is the one action on this screen
  * nobody can undo the consequences of — a Member who has read a document has read
- * it. So the row records who shared it and when, and the audit log records the
- * change either way, including turning it back off.
+ * it, and at `manage` they can delete one. So the row records who granted it and
+ * when, and the audit log records every change, including closing it again.
  * ========================================================================= */
 
 const fail = (error: string): DocumentResult => ({ ok: false, error });
@@ -51,9 +58,9 @@ export async function listFoldersAction(): Promise<
  * SHARE — Coordinator and above
  * ========================================================================== */
 
-export async function setFolderVisibilityAction(
+export async function setFolderAccessAction(
   id: string,
-  visible: boolean,
+  level: string,
 ): Promise<DocumentResult> {
   const user = await requireUser();
   const actor = { role: user.role, id: user.id };
@@ -63,35 +70,45 @@ export async function setFolderVisibilityAction(
      and if the two ever disagree, the database wins, which is the correct way
      round. */
   if (!can(actor, 'document.share')) {
-    return fail('Only a Team Coordinator or above can share a folder with members.');
+    return fail('Only a Team Coordinator or above can change who may see a folder.');
   }
+
+  /* Validated against the list rather than cast. The value arrives from a form
+     and Postgres would refuse an unknown enum member anyway — but as `22P02`,
+     which is not a sentence anybody can act on. */
+  if (!isFolderAccess(level)) return fail('That is not an access level.');
+  const next = level;
 
   const before = await F.getFolder(user.id, id);
   if (!before) return fail('That folder is not in the registry.');
-  if (before.visibleToMembers === visible) {
-    return { ok: true, message: `${before.name} is already ${visible ? 'shared' : 'private'}.` };
+  if (before.memberAccess === next) {
+    return { ok: true, message: `${before.name} ${ACCESS_MEANS[next]}` };
   }
 
-  const after = await F.setVisibility(user.id, id, visible);
+  const after = await F.setAccess(user.id, id, next);
   if (!after) return fail('That folder could not be updated.');
 
   await withUser(user.id, (tx) =>
     audit(tx, user, {
       entityType: 'drive_folder',
       entityId: id,
-      action: visible ? 'folder.shared' : 'folder.unshared',
-      before: { name: before.name, visibleToMembers: before.visibleToMembers },
-      after: { name: after.name, visibleToMembers: after.visibleToMembers },
+      /* Two actions rather than one `folder.access_changed`, because "somebody
+         opened a folder up" and "somebody closed one" are the two things an audit
+         reader searches for, and a single action name would make them grep the
+         payload to tell which happened. */
+      action:
+        accessAtLeast(next, 'view') && !accessAtLeast(before.memberAccess, 'view')
+          ? 'folder.shared'
+          : next === 'none'
+            ? 'folder.unshared'
+            : 'folder.access_changed',
+      before: { name: before.name, memberAccess: before.memberAccess },
+      after: { name: after.name, memberAccess: after.memberAccess },
     }),
-  ).catch(() => console.error('[folders] audit write failed for a visibility change'));
+  ).catch(() => console.error('[folders] audit write failed for an access change'));
 
   revalidatePath('/documents');
-  return {
-    ok: true,
-    message: visible
-      ? `Members can now see the documents in ${after.name}, and upload into it.`
-      : `${after.name} is private again. Members keep no access to what is in it.`,
-  };
+  return { ok: true, message: `${after.name} ${ACCESS_MEANS[next]}` };
 }
 
 /* ==========================================================================

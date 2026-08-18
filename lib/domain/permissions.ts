@@ -309,9 +309,13 @@ export const PERMISSIONS = {
    * NOT in Drive — it sits in the application's own storage until somebody with
    * authority says yes. The approval is the gate, so the request need not be.
    *
-   * `approve` stops at Admin. A Coordinator may add, edit and delete documents but
-   * cannot approve one — including their own — which is what keeps the queue
-   * meaningful rather than a formality.
+   * ⚠️ `approve` REACHED COORDINATOR ON 2026-08-16, by the owner's decision when
+   * asked directly. It previously stopped at Admin, on the reasoning that a
+   * Coordinator approving their own upload makes the queue a formality. The owner
+   * chose fewer bottlenecks: a Coordinator running a project can push its
+   * documents through. **They can therefore approve their own upload.** That is
+   * the accepted trade, not an oversight — and the audit log records who approved
+   * what, so it is visible rather than merely permitted.
    *
    * `view` is 'allow' for every role for the same reason as the vault: the real
    * rule is relational (Admin+ sees the register, anybody sees their own uploads
@@ -320,7 +324,7 @@ export const PERMISSIONS = {
    */
   'document.view': M('allow', 'allow', 'allow', 'allow'),
   'document.request': M('allow', 'allow', 'allow', 'allow'),
-  'document.approve': M('allow', 'allow', 'deny', 'deny'),
+  'document.approve': M('allow', 'allow', 'allow', 'deny'),
   'document.manage': M('allow', 'allow', 'allow', 'deny'),
   /* Owner, 2026-08-16: *"super admin, admin and team coordinator … can make the
      documents viewable for members to see for any project they want."* So sharing

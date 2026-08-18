@@ -65,7 +65,7 @@ That's all you ever need to type. Everything else is recorded in the files.
 |---|---|
 | **Last updated** | **2026-08-16, Session 27** — Google Drive over OAuth, folder registry and per-folder member visibility |
 | **➡️ START HERE** | **§3 → "Session 27"**, then "Session 26". Everything below this table predates the Supabase/Vercel/GitHub move and describes the OLD infrastructure. Where they disagree, the newest entry wins. |
-| **Tests** | `npm run test` → **1188** · `npm run test:auth` → **141** (real DB) · `npm run smoke` → **27/27** (every route, both roles) |
+| **Tests** | `npm run test` → **1202** · `npm run test:auth` → **141** (real DB) · `npm run smoke` → **27/27** (every route, both roles) |
 | **⛔ Credential hygiene** | Three secrets were pasted into chat in Session 09 (Resend key, DB password ×2 — one echoed by my own script's error output). **All must be rotated.** Never paste a secret; `npm run check:db` redacts and is safe to share. |
 | **Current phase** | **CHANGE-PLAN Batch 6** — layout & navigation. All 8 build steps, all 9 redesign phases and CHANGE-PLAN Batches 1–5 are complete. |
 | **Phase 1 progress** | ▓▓▓▓▓▓▓▓░░ Steps 1–4 complete · **5.1 complete** · **Phase 2 work core pulled forward and operational** |
@@ -321,6 +321,8 @@ by it and land in its My Drive; no quota question arises.
 | | |
 |---|---|
 | **Migration 027** | `drive_connection` (singleton, sealed refresh token, **zero RLS policies**, all privileges revoked — the second table after `break_glass` with no client read path at all) · `drive_folders` + `documents.folder_id` · `app.can_read_document` widened to three arguments |
+| **Migration 028** | `public.folder_access` enum, `drive_folders.member_access`, `app.folder_grants(uuid, folder_access)`, and the `documents` insert/delete policies rewritten around it. See the correction below. |
+| `lib/domain/folder-access.ts` | The level vocabulary, shared by client and server. **Not** in the query module — that is `server-only` and the folder panel is a client component. |
 | `lib/db/queries/drive.ts` | The only code that touches the refresh token. `readRefreshToken()` has exactly one caller and says so. |
 | `lib/drive/oauth.ts` | `authorizeUrl` / `exchangeCode` / `accessTokenFromRefresh`, `invalid_grant` turned into a sentence |
 | `lib/drive/client.ts` | Auth swapped at the `accessToken()` seam; the four Drive operations are **byte-identical**. Dead service-account code (JWT signing, `base64url`, the token cache) deleted rather than left. |
@@ -329,28 +331,62 @@ by it and land in its My Drive; no quota question arises.
 | `app/actions/folders.ts` | Share / unshare, audited both ways; folder sync |
 | UI | Connect / Disconnect on `/documents`, a Folders panel with a per-folder switch, a folder picker on upload, and the `?drive=…` outcomes spelled out rather than echoed from the URL |
 
-#### Access levels, as asked for on 2026-08-16
+#### ⚠️ Access was a BOOLEAN for about an hour, and the owner corrected it
 
-Owner: *"super admin, admin and team coordinator can see the whole documents and
-they can make the documents viewable for members to see for any project they want,
-and members can upload documents to the folders they are viewing."*
+Migration 027 made sharing a folder a yes/no. Asked whether a Member's upload into
+a shared folder should still need approval, the owner said:
 
-- **Coordinator+ sees the whole register** — `app.can_read_document`, widened.
-- **Sharing stops at Coordinator; approving still stops at Admin.** A Coordinator
-  decides who reads a folder but still cannot wave a file into Drive, including
-  their own. New permission `document.share`.
-- **A Member may file into a shared folder and no other.**
-- **Visibility does NOT inherit to child folders.** Inheritance would mean sharing
-  one top-level folder silently exposes everything ever nested under it, including
-  folders created in Drive months later by somebody who never saw the screen.
+> *"It shouldn't be required approval because an admin is assigning access to some
+> folder of a Google Drive to some team member. It will give access like: it can
+> read only files, it can view, it can add it, it can upload, it can delete. These
+> options of access should be provided at the time of giving access… the access
+> level is defined at the time of giving, right?"*
 
-Proved against the live database, not asserted: a Member could not read a document
-in a private folder; the folder was shared; the same Member could then read it.
-Also proved — a Member's `update` on `drive_folders` matches zero rows, the
-attribution check constraint refuses a share with no sharer, and the `xmax = 0`
-upsert detection reports insert-vs-update correctly. All test rows removed.
+Right — and the boolean could not express it. **Migration 028** replaced it with
+`public.folder_access`: `none` / `view` / `upload` / `manage`, per folder.
 
-`typecheck · lint · build · 1188 tests` all green.
+⚠️ **The enum's declaration order is load-bearing.** Postgres orders an enum by
+declaration and every policy compares with `>=`. `lib/domain/folder-access.ts`
+holds the same list in the same order and `accessAtLeast` is that comparison on the
+TypeScript side. A new level goes on the **end** of both — never
+`add value … before/after`. 14 tests pin this, including that an unknown level
+fails **closed**.
+
+**`upload` means the file goes straight to Drive.** Granting the level IS the
+approval, which was the owner's whole point. `lib/db/queries/documents.ts` gained
+`createApprovedDocument`, and the `documents_insert` policy now permits an
+already-approved row when the folder grants it — commented as only being safe
+because `cni_app` is unreachable from a browser.
+
+#### Access levels, as they now stand
+
+- **Coordinator+ sees the whole register** — `app.can_read_document`.
+- **Coordinator+ sets a folder's level** — new permission `document.share`.
+- **Coordinator+ can now APPROVE**, owner's decision when asked directly. It used
+  to stop at Admin. They can therefore approve their own upload; the owner chose
+  fewer bottlenecks over the second pair of eyes, and the audit log makes it
+  visible. The upload notification now excludes the uploader and goes to
+  Coordinator+ rather than Admin+, so the recipients moved with the permission.
+- **Coordinator+ still uses the queue for their own files.** `upload` describes
+  what MEMBERS were granted, not a bypass for whoever granted it.
+- **Access does not inherit to child folders.**
+
+Proved against the live database, not asserted, across two rounds:
+
+| | |
+|---|---|
+| `none` | a Member read nothing in the folder |
+| `view` | read yes; DELETE refused; inserting an approved row refused |
+| `upload` | approved insert accepted; DELETE still refused |
+| `manage` | DELETE accepted |
+| revoked | the approved insert refused again |
+
+Also proved: a Member's `update` on `drive_folders` matches zero rows, the
+attribution constraint refuses a grant with no granter, and `xmax = 0` reports
+insert-vs-update correctly. All test rows removed; migration 028's own self-check
+re-proves the `view`/`manage` boundary on every run.
+
+`typecheck · lint · build · 1202 tests` all green.
 
 #### Still outstanding for the owner
 

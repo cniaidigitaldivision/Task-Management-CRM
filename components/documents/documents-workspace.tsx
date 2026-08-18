@@ -27,10 +27,11 @@ import {
   syncDriveFoldersAction,
   type DocumentResult,
 } from '@/app/actions/documents';
-import { setFolderVisibilityAction, syncFoldersAction } from '@/app/actions/folders';
+import { setFolderAccessAction, syncFoldersAction } from '@/app/actions/folders';
 import type { DocumentRow } from '@/lib/db/queries/documents';
 import type { DriveSyncRow } from '@/lib/db/queries/documents';
 import type { DriveFolderRow } from '@/lib/db/queries/drive-folders';
+import { ACCESS_META, FOLDER_ACCESS, accessAtLeast } from '@/lib/domain/folder-access';
 import { Badge } from '@/components/ui/badge';
 import { Button, IconButton } from '@/components/ui/button';
 import { Card, CardBody } from '@/components/ui/card';
@@ -109,15 +110,22 @@ export function DocumentsWorkspace({
   const visible = documents.filter((d) => filter === 'all' || d.state === filter);
   const pager = usePagination(visible);
 
-  /* Coordinator+ files anywhere; everybody else only into folders that have been
-     shared with members. Mirrors the check in `requestDocumentAction`, which is
-     the one that actually decides — this just stops the picker from offering
-     something the server will refuse. */
+  /* Coordinator+ files anywhere; everybody else only where they have `upload` or
+     better. `view` is deliberately excluded — a folder a Member can read but not
+     add to must not appear in the picker at all, or they choose it and are told no
+     after selecting the file. Mirrors the check in `requestDocumentAction`, which
+     is the one that actually decides. */
   const uploadableFolders = React.useMemo(
     () =>
       folders
-        .filter((f) => canShare || f.visibleToMembers)
-        .map((f) => ({ id: f.id, name: f.name })),
+        .filter((f) => canShare || accessAtLeast(f.memberAccess, 'upload'))
+        .map((f) => ({
+          id: f.id,
+          name: f.name,
+          /* Said in the picker, because "no approval needed" changes what pressing
+             the button does and the label is the only warning. */
+          direct: !canShare && accessAtLeast(f.memberAccess, 'upload'),
+        })),
     [folders, canShare],
   );
 
@@ -235,12 +243,26 @@ export function DocumentsWorkspace({
                       <p className="text-micro text-text-tertiary">
                         {doc.uploadedByName ?? 'Unknown'}
                         {doc.projectName && <> · {doc.projectName}</>}
+                        {doc.folderName && <> · {doc.folderName}</>}
                         {doc.sizeBytes !== null && <> · {formatBytes(doc.sizeBytes)}</>}
                         {doc.state === 'pending' && (
                           <>
                             {' · '}
                             <span style={{ color: 'var(--feedback-warning)' }}>
                               not in Drive yet
+                            </span>
+                          </>
+                        )}
+                        {/* ── WHY THIS ONE IS VISIBLE TO EVERYBODY ──────────
+                            A Coordinator looking down the register cannot
+                            otherwise tell which of these the whole team can
+                            read. Shown only to whoever can change it, because
+                            to a Member it is not information, just noise. */}
+                        {canShare && doc.folderAccess !== 'none' && (
+                          <>
+                            {' · '}
+                            <span style={{ color: `var(--${ACCESS_META[doc.folderAccess].token})` }}>
+                              {ACCESS_META[doc.folderAccess].label.toLowerCase()}
                             </span>
                           </>
                         )}
@@ -575,6 +597,9 @@ function DrivePanel({
 
 /* ---- Folders, and who may see them --------------------------------------- */
 
+/* `ACCESS_META` lives in `lib/domain/folder-access.ts` — the labels and the level
+   order have to match what the server enforces, so they are defined once. */
+
 /* ── ONE ROW, ONE SWITCH, ONE SENTENCE ───────────────────────────────────────
    Owner, 2026-08-16: Coordinator+ *"can make the documents viewable for members
    to see for any project they want."* The switch is per folder and does NOT
@@ -596,7 +621,7 @@ function FolderPanel({
   onDone: (result: DocumentResult) => void;
 }) {
   const [busy, setBusy] = React.useState<string | null>(null);
-  const shared = folders.filter((f) => f.visibleToMembers).length;
+  const shared = folders.filter((f) => f.memberAccess !== 'none').length;
 
   return (
     <Card>
@@ -606,7 +631,7 @@ function FolderPanel({
             Folders
             {folders.length > 0 && (
               <span className="ml-2 font-normal text-text-tertiary">
-                {shared} of {folders.length} shared with members
+                {shared} of {folders.length} open to members
               </span>
             )}
           </p>
@@ -639,80 +664,85 @@ function FolderPanel({
           <p className="text-caption text-text-secondary">
             {canShare
               ? 'No folders recorded yet. Set a watched folder above, then read the tree from Drive.'
-              : 'No folders have been shared with members yet.'}
+              : 'No folders have been opened to members yet.'}
           </p>
         ) : (
           <ul className="divide-y divide-border-subtle">
-            {folders.map((folder) => (
-              <li
-                key={folder.id}
-                className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2"
-              >
-                <div className="min-w-0">
-                  <p className="flex items-center gap-2 truncate text-body-sm text-text-primary">
-                    <FolderIcon
-                      className="h-4 w-4 shrink-0"
-                      strokeWidth={2.25}
-                      aria-hidden="true"
-                      style={{
-                        color: folder.visibleToMembers
-                          ? 'var(--feedback-success)'
-                          : 'var(--text-tertiary)',
-                      }}
-                    />
-                    {folder.name}
-                  </p>
-                  <p className="text-micro text-text-tertiary">
-                    {folder.projectName ? `${folder.projectName} · ` : ''}
-                    {folder.documentCount}{' '}
-                    {folder.documentCount === 1 ? 'document' : 'documents'}
-                    {folder.visibleToMembers && folder.sharedByName
-                      ? ` · shared by ${folder.sharedByName}`
-                      : ''}
-                  </p>
-                </div>
+            {folders.map((folder) => {
+              const meta = ACCESS_META[folder.memberAccess];
+              return (
+                <li
+                  key={folder.id}
+                  className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2"
+                >
+                  <div className="min-w-0">
+                    <p className="flex items-center gap-2 truncate text-body-sm text-text-primary">
+                      <FolderIcon
+                        className="h-4 w-4 shrink-0"
+                        strokeWidth={2.25}
+                        aria-hidden="true"
+                        style={{ color: `var(--${meta.token})` }}
+                      />
+                      {folder.name}
+                    </p>
+                    <p className="text-micro text-text-tertiary">
+                      {folder.projectName ? `${folder.projectName} · ` : ''}
+                      {folder.documentCount}{' '}
+                      {folder.documentCount === 1 ? 'document' : 'documents'}
+                      {folder.memberAccess !== 'none' && folder.sharedByName
+                        ? ` · granted by ${folder.sharedByName}`
+                        : ''}
+                    </p>
+                  </div>
 
-                <div className="flex items-center gap-2">
-                  <Badge
-                    token={folder.visibleToMembers ? 'feedback-success' : 'text-tertiary'}
-                    size="sm"
-                    variant="outline"
-                  >
-                    {folder.visibleToMembers ? 'Members can see this' : 'Coordinators and above'}
-                  </Badge>
-
-                  {canShare && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={busy !== null}
-                      onClick={async () => {
-                        setBusy(folder.id);
-                        try {
-                          onDone(
-                            await setFolderVisibilityAction(folder.id, !folder.visibleToMembers),
-                          );
-                        } finally {
-                          setBusy(null);
-                        }
-                      }}
-                    >
-                      {busy === folder.id && (
-                        <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-                      )}
-                      {folder.visibleToMembers ? 'Make private' : 'Share with members'}
-                    </Button>
-                  )}
-                </div>
-              </li>
-            ))}
+                  <div className="flex items-center gap-2">
+                    {canShare ? (
+                      /* ── THE LEVEL IS THE CONTROL, NOT A TOGGLE ────────────
+                         Owner, 2026-08-16: the options are chosen at the moment
+                         access is given. A select shows all four at once, so the
+                         person granting reads what they are about to allow rather
+                         than discovering it from a button label. */
+                      <>
+                        <Select
+                          aria-label={`Member access to ${folder.name}`}
+                          value={folder.memberAccess}
+                          disabled={busy !== null}
+                          options={FOLDER_ACCESS.map((level) => ({
+                            value: level,
+                            label: ACCESS_META[level].label,
+                          }))}
+                          onChange={async (event) => {
+                            const next = event.target.value;
+                            setBusy(folder.id);
+                            try {
+                              onDone(await setFolderAccessAction(folder.id, next));
+                            } finally {
+                              setBusy(null);
+                            }
+                          }}
+                        />
+                        {busy === folder.id && (
+                          <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                        )}
+                      </>
+                    ) : (
+                      <Badge token={meta.token} size="sm" variant="outline">
+                        {meta.label}
+                      </Badge>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         )}
 
         {canShare && folders.length > 0 && (
           <p className="text-micro text-text-tertiary">
-            Sharing a folder does not share the folders inside it — each one is turned on by
-            somebody who looked at it. Members can also upload into a folder they can see.
+            <span className="font-semibold text-text-secondary">Can upload</span> and above mean a
+            member&rsquo;s file goes straight to Drive without waiting for approval — granting the
+            access is the approval. A level applies to this folder only and does not reach the
+            folders inside it.
           </p>
         )}
       </CardBody>
@@ -730,13 +760,16 @@ function UploadDialog({
 }: {
   projects: ReadonlyArray<{ id: string; name: string }>;
   /** Already narrowed by the caller to the folders this person may file into.
-   *  The server checks it again — this only keeps the list honest. */
-  folders: ReadonlyArray<{ id: string; name: string }>;
+   *  The server checks it again — this only keeps the list honest. `direct` means
+   *  choosing it sends the file to Drive immediately, with no approval. */
+  folders: ReadonlyArray<{ id: string; name: string; direct: boolean }>;
   onClose: () => void;
   onDone: (result: DocumentResult) => void;
 }) {
   const [state, formAction, pending] = React.useActionState(requestDocumentAction, EMPTY);
   const seen = React.useRef(false);
+  const [folderId, setFolderId] = React.useState('');
+  const chosenGoesDirect = folders.some((f) => f.id === folderId && f.direct);
 
   React.useEffect(() => {
     if (state.ok && !seen.current) {
@@ -811,14 +844,19 @@ function UploadDialog({
           <Field
             label="Drive folder"
             htmlFor="folderId"
-            hint="Where it goes once approved. Leave empty and it lands in the division's main folder."
+            hint="Where it goes. Leave empty and it lands wherever the project does, after approval."
           >
             <Select
               id="folderId"
               name="folderId"
+              value={folderId}
+              onChange={(event) => setFolderId(event.target.value)}
               options={[
                 { value: '', label: 'Wherever the project goes' },
-                ...folders.map((f) => ({ value: f.id, label: f.name })),
+                ...folders.map((f) => ({
+                  value: f.id,
+                  label: f.direct ? `${f.name} — goes straight to Drive` : f.name,
+                })),
               ]}
             />
           </Field>
@@ -828,8 +866,14 @@ function UploadDialog({
           <Input id="description" name="description" />
         </Field>
 
+        {/* ── THE FOOTNOTE HAS TO FOLLOW THE CHOICE ─────────────────────────
+            "Nothing reaches Google Drive before approval" was true when every
+            upload queued. Now it depends on the folder, so the sentence changes
+            with the picker rather than being a promise the form breaks. */}
         <p className="text-micro text-text-tertiary">
-          It is held here until an Admin approves it. Nothing reaches Google Drive before that.
+          {chosenGoesDirect
+            ? 'You have upload access to that folder, so this goes into Google Drive immediately. There is no approval step and no undo here.'
+            : 'It is held here until a Team Coordinator or Admin approves it. Nothing reaches Google Drive before that.'}
         </p>
       </form>
     </Dialog>

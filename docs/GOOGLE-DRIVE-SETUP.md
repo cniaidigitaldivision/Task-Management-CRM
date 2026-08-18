@@ -85,10 +85,16 @@ Without this, the connection succeeds and every Drive call returns 403.
 3. App name: `CNI CRM`, support email: the same Gmail
 4. Scopes: add **`https://www.googleapis.com/auth/drive`**
 5. Test users: add **cniaidigitaldivision@gmail.com**
+6. **Publish app** — your decision, 2026-08-16.
 
-> **Leave it in Testing mode.** Publishing would trigger Google's verification
-> review, which this does not need — the only user is you. The one consequence of
-> Testing mode is at the end of this document; read it.
+> **Why publish rather than leave it in Testing.** A client in Testing mode issues
+> refresh tokens that **expire after seven days**, so somebody would have to press
+> Connect again roughly weekly, forever. Publishing removes that.
+>
+> Google will ask for verification. For an app with one internal user and no
+> public users this is usually a formality, but it is a form and there may be a
+> wait. **You can start using Drive immediately while it is pending** — Testing
+> mode still works, you just get the seven-day reconnect until the review clears.
 
 ## Step 4 · Create the OAuth client
 
@@ -127,7 +133,9 @@ Sign in to the CRM as an **Admin or the Super Admin**, go to **Documents**, and
 press **Connect Google Drive**. Approve the consent screen as
 cniaidigitaldivision@gmail.com.
 
-Google will warn that the app is unverified. Expected — see step 3. Continue.
+While verification is pending, Google will warn that the app is unverified.
+Expected — press **Advanced → Go to CNI CRM**. Once the review clears, the warning
+goes away.
 
 You come back to Documents with *"Google Drive is connected"* and the account
 address shown.
@@ -136,57 +144,91 @@ address shown.
 
 ## Who can do what, once it is connected
 
-Your instruction, 2026-08-16: *"super admin, admin and team coordinator can see
-the whole documents and they can make the documents viewable for members to see
-for any project they want, and members can upload documents to the folders they
-are viewing."* Implemented as:
+### The four access levels
+
+Your instruction, 2026-08-16: *"These options of access should be provided at the
+time of giving access… the access level is defined at the time of giving, right?"*
+
+Right. Every folder carries **one level**, chosen on the Documents screen by a Team
+Coordinator or above. It says what **Members** may do in that folder:
+
+| Level | A Member can | Approval? |
+|---|---|---|
+| **Coordinators and above** (default) | nothing — the folder is invisible to them | — |
+| **Members can view** | read the documents filed here | — |
+| **Members can upload** | read, and add files | **None.** Granting the level *is* the approval |
+| **Members can upload and delete** | read, add, and delete anything in the folder | **None** |
+
+`upload` is the level that answers your question directly: a Member filing into
+such a folder goes **straight to Drive**, with no queue, because you already
+decided when you granted the access. The screen says so on the level itself, on
+the upload form, and in the confirmation after the file lands.
+
+**A new folder starts at "Coordinators and above."** A folder that appears from a
+Drive sync is never open to anybody the moment it is created.
+
+### Who can do what
 
 | | Super Admin | Admin | Team Coordinator | Member |
 |---|---|---|---|---|
 | See the whole document register | ✅ | ✅ | ✅ | — |
 | See their own uploads | ✅ | ✅ | ✅ | ✅ |
 | See documents on a project they can see | ✅ | ✅ | ✅ | ✅ |
-| See documents in a **shared folder** | ✅ | ✅ | ✅ | ✅ |
+| See documents in a folder they have `view`+ on | ✅ | ✅ | ✅ | ✅ |
 | Upload (queues for approval) | ✅ | ✅ | ✅ | ✅ |
+| Upload **straight to Drive** | — | — | — | ✅ with `upload`+ |
+| Delete a document | ✅ | ✅ | ✅ | ✅ with `manage` |
 | File into **any** folder | ✅ | ✅ | ✅ | — |
-| File into a **shared** folder | ✅ | ✅ | ✅ | ✅ |
-| **Share a folder with members** | ✅ | ✅ | ✅ | — |
-| **Approve into Drive** | ✅ | ✅ | — | — |
+| **Set a folder's access level** | ✅ | ✅ | ✅ | — |
+| **Approve into Drive** | ✅ | ✅ | ✅ | — |
 | Connect / disconnect Drive | ✅ | ✅ | — | — |
 
-Two lines in that table are worth stating out loud:
+Four lines are worth stating out loud:
 
-- **Sharing stops at Coordinator, approving stops at Admin.** A Coordinator runs
-  the projects whose folders these are, so deciding who reads a folder is part of
-  running it — but they still cannot wave a file into the company Drive, including
-  their own. That is what keeps the approval queue meaningful.
-- **Visibility does not inherit.** Sharing a folder does not share the folders
-  inside it. Inheritance would mean sharing one top-level folder silently exposes
-  everything ever nested under it — including folders created in Drive months
-  later by somebody who never saw this screen. Each folder is turned on by a
-  person who looked at it.
+- **Coordinators can now approve** (your decision, 2026-08-16 — previously Admin+).
+  Fewer bottlenecks: a Coordinator running a project can push its documents
+  through. The trade you accepted is that **they can approve their own upload**, so
+  the queue no longer guarantees a second pair of eyes for them. The audit log
+  records who approved what, so it is visible rather than merely permitted.
+- **Coordinator+ still uses the queue.** `upload` describes what *Members* were
+  granted, not a bypass for whoever granted it — so a Coordinator's own file goes
+  through the normal approval, which is exactly the one that most needs it.
+- **Access does not inherit.** A level applies to that folder only. Inheritance
+  would mean opening one top-level folder silently exposes everything ever nested
+  under it — including folders created in Drive months later by somebody who never
+  saw this screen. At `manage` it would hand out delete rights the same way.
+- **`upload` widens what the database permits, and that is deliberate.** The
+  insert policy now allows a row to arrive already approved when the folder grants
+  it. That is safe only because `cni_app` is unreachable from a browser — every
+  insert comes through a server action that has already put the bytes in Drive.
+  It is commented as such in migration 028.
 
-The enforcement is in the database, not the screen: `app.can_read_document` and the
-`drive_folders_write` policy, both in migration 027. The checks in the server
-actions exist so a Member gets a sentence instead of a stack trace. If the two ever
-disagree, the database wins.
+The enforcement is in the database, not the screen: `app.can_read_document`,
+`app.folder_grants` and the policies on `documents`, all in **migration 028**. The
+checks in the server actions exist so a Member gets a sentence instead of a stack
+trace. If the two ever disagree, the database wins.
+
+Proved against the live database rather than asserted — a Member with `view` could
+read a document but neither delete it nor insert an approved row; the same Member
+at `upload` could insert but still not delete; at `manage` they could delete;
+revoking the level closed all of it again.
 
 ---
 
-## ⚠️ The one consequence of Testing mode
+## ⚠️ Until verification clears: the seven-day reconnect
 
-An OAuth client left in **Testing** issues refresh tokens that **expire after
-seven days**. When that happens, approving a document fails and the Documents
-screen shows *"The Google connection has expired or was revoked."*
+You chose to publish (step 3), which removes this once Google's review is done.
+**While it is pending**, the client is still effectively in Testing, so refresh
+tokens **expire after seven days**. When one does, approving a document fails and
+the Documents screen shows:
 
-**The fix is to press Connect Google Drive again.** It takes about ten seconds and
-nothing is lost — files already in Drive are owned by the account and are
-untouched.
+> The Google connection has expired or was revoked.
 
-If seven days becomes annoying, publish the consent screen (**OAuth consent
-screen → Publish app**). For an app with one internal user Google's review is
-usually a formality, and refresh tokens then last until they are revoked. That is
-your call, not a technical requirement.
+**The fix is to press Connect Google Drive again.** About ten seconds, and nothing
+is lost — files already in Drive are owned by the account and are untouched.
+
+Nothing in the CRM needs changing when the review clears; the same client just
+stops expiring.
 
 ---
 
@@ -198,7 +240,9 @@ your call, not a technical requirement.
 | `redirect_uri_mismatch` on Google's screen | The URI in step 4 does not match exactly — check `http` vs `https`, the port, and the trailing path. |
 | *"That sign-in could not be verified as one started here"* | The state cookie expired (ten minutes) or the callback did not come from a flow started in the CRM. Press Connect again. |
 | 403 on every Drive call | The Drive API is not enabled. Step 2. |
-| *"The Google connection has expired or was revoked"* | Almost always the seven-day Testing-mode token. Press Connect again — see above. |
+| *"The Google connection has expired or was revoked"* | Almost always the seven-day token, until verification clears. Press Connect again — see above. |
+| A Member says *"I can see the folder but it won't let me add anything"* | The folder is at **view**. Raise it to **Members can upload**. |
+| A Member's upload appeared in Drive with no approval | Working as intended — that folder is at `upload` or above. Lower it if that was not what you meant. |
 | Approval says *"Drive refused the request (404)"* | The folder id in **Watched folder** does not exist in this account's Drive. |
 
 ---

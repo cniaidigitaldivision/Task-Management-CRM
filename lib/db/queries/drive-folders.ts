@@ -1,5 +1,7 @@
 import 'server-only';
 
+import type { FolderAccess } from '@/lib/domain/folder-access';
+
 import { withUser } from '../client';
 import { isoOrNull } from '../row-values';
 
@@ -11,15 +13,22 @@ import { isoOrNull } from '../row-values';
  * project they want, and members can upload documents to the folders they are
  * viewing."*
  *
- * A row here is a folder the CRM has seen in Drive, plus one switch:
- * `visible_to_members`. That switch is what turns "Coordinator+ sees everything"
- * into "and Members see this bit too".
+ * A row here is a folder the CRM has seen in Drive, plus the level of access
+ * Members have been given in it. Migration 027 made that a boolean and migration
+ * 028 replaced it, because the owner's actual request was Drive's own model:
+ *
+ *   *"It will give access like: it can read only files, it can view, it can add
+ *   it, it can upload, it can delete… the access level is defined at the time of
+ *   giving, right?"*
+ *
+ * Right. `upload` and above also mean the file goes STRAIGHT TO DRIVE — granting
+ * the level is the approval.
  *
  * ── EVERY QUERY RUNS AS THE CALLER ───────────────────────────────────────────
  * `withUser` and no `where` clause about roles. The select policy lets anybody
  * signed in read the registry — a Member needs to see the folder to understand
  * why a document is visible to them — and the write policy is Coordinator+. If
- * a Member calls `setVisibility`, Postgres refuses it. The check in the action
+ * a Member calls `setAccess`, Postgres refuses it. The check in the action
  * exists to produce a sentence rather than a stack trace, not to be the defence.
  * ========================================================================= */
 
@@ -30,7 +39,7 @@ export interface DriveFolderRow {
   readonly parentDriveId: string | null;
   readonly projectId: string | null;
   readonly projectName: string | null;
-  readonly visibleToMembers: boolean;
+  readonly memberAccess: FolderAccess;
   readonly sharedByName: string | null;
   readonly sharedAt: string | null;
   /** How many documents are filed here. Shown so "share this" has a size. */
@@ -45,7 +54,7 @@ function toRow(row: Record<string, unknown>): DriveFolderRow {
     parentDriveId: (row.parent_drive_id as string | null) ?? null,
     projectId: (row.project_id as string | null) ?? null,
     projectName: (row.project_name as string | null) ?? null,
-    visibleToMembers: Boolean(row.visible_to_members),
+    memberAccess: (row.member_access as FolderAccess) ?? 'none',
     sharedByName: (row.shared_by_name as string | null) ?? null,
     sharedAt: isoOrNull(row.shared_at),
     documentCount: Number(row.document_count ?? 0),
@@ -66,7 +75,7 @@ function toRow(row: Record<string, unknown>): DriveFolderRow {
 export async function listFolders(userId: string): Promise<DriveFolderRow[]> {
   const rows = await withUser(userId, (tx) => tx`
     select f.id, f.drive_folder_id, f.name, f.parent_drive_id, f.project_id,
-           f.visible_to_members, f.shared_at,
+           f.member_access, f.shared_at,
            p.name as project_name,
            u.full_name as shared_by_name,
            (select count(*) from public.documents d where d.folder_id = f.id)
@@ -74,7 +83,7 @@ export async function listFolders(userId: string): Promise<DriveFolderRow[]> {
       from public.drive_folders f
       left join public.projects p on p.id = f.project_id
       left join public.users    u on u.id = f.shared_by_id
-     order by f.visible_to_members desc, lower(f.name)
+     order by f.member_access desc, lower(f.name)
   `);
   return rows.map((r) => toRow(r as Record<string, unknown>));
 }
@@ -86,7 +95,7 @@ export async function getFolder(
 ): Promise<DriveFolderRow | null> {
   const rows = await withUser(userId, (tx) => tx`
     select f.id, f.drive_folder_id, f.name, f.parent_drive_id, f.project_id,
-           f.visible_to_members, f.shared_at,
+           f.member_access, f.shared_at,
            p.name as project_name,
            u.full_name as shared_by_name,
            0 as document_count
@@ -102,12 +111,12 @@ export async function getFolder(
 /**
  * Record folders seen in Drive.
  *
- * ── ⚠️ `visible_to_members` IS NEVER TOUCHED HERE ────────────────────────────
+ * ── ⚠️ `member_access` IS NEVER TOUCHED HERE ────────────────────────────
  * `do update` sets the name, the parent and the project and nothing else. A
  * re-sync must not un-share a folder somebody deliberately shared, and — far
  * worse in the other direction — must not carry a share forward onto a folder
- * that has been renamed into a different job. Sharing is only ever changed by a
- * person, in `setVisibility`.
+ * that has been renamed into a different job. Access is only ever changed by a
+ * person, in `setAccess`.
  *
  * Returns how many rows were new, so the caller can say something true about
  * what a sync did.
@@ -150,25 +159,27 @@ export async function recordFolders(
 }
 
 /**
- * Turn a folder's member visibility on or off.
+ * Set what Members may do in a folder.
  *
- * The attribution columns are written in the same statement as the switch, because
- * migration 027 has a check constraint refusing a visible folder with no sharer:
- * half a record of who exposed a folder is worse than none.
+ * The attribution columns are written in the same statement as the level, because
+ * migration 028 has a check constraint refusing an opened folder with no sharer:
+ * half a record of who opened one up is worse than none. Dropping back to `none`
+ * clears both, so the row does not keep claiming a grant that no longer exists.
  */
-export async function setVisibility(
+export async function setAccess(
   userId: string,
   id: string,
-  visible: boolean,
+  level: FolderAccess,
 ): Promise<DriveFolderRow | null> {
+  const granting = level !== 'none';
   const rows = await withUser(userId, (tx) => tx`
     update public.drive_folders
-       set visible_to_members = ${visible},
-           shared_by_id = ${visible ? userId : null},
-           shared_at    = ${visible ? new Date().toISOString() : null}
+       set member_access = ${level}::public.folder_access,
+           shared_by_id  = ${granting ? userId : null},
+           shared_at     = ${granting ? new Date().toISOString() : null}
      where id = ${id}
      returning id, drive_folder_id, name, parent_drive_id, project_id,
-               visible_to_members, shared_at
+               member_access, shared_at
   `);
   const row = rows[0];
   if (!row) return null;

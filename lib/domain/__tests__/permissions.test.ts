@@ -181,7 +181,10 @@ const EXPECTED: Readonly<Record<Action, Row>> = {
      reason as the vault: the real rule is relational and RLS enforces it. */
   'document.view': ['allow', 'allow', 'allow', 'allow'],
   'document.request': ['allow', 'allow', 'allow', 'allow'],
-  'document.approve': ['allow', 'allow', 'deny', 'deny'],
+  /* Reached Coordinator on 2026-08-16, by the owner's decision when asked. They
+     can therefore approve their own upload — the accepted trade for fewer
+     bottlenecks, recorded here so a future reader does not "fix" it. */
+  'document.approve': ['allow', 'allow', 'allow', 'deny'],
   'document.manage': ['allow', 'allow', 'allow', 'deny'],
   /* Owner, 2026-08-16. One rung lower than `approve` on purpose: a Coordinator
      may decide who reads a folder without being able to wave a file into Drive. */
