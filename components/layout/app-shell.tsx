@@ -343,9 +343,25 @@ export function AppShell({
             adds no DOM, so a screen whose top level is a grid keeps its layout,
             and every route gains the motion — including the seven that were
             never part of the redesign. See the note beside the utility. */}
+        {/* ── ⚠️ `overflow-x-clip`: THE PAGE NEVER SCROLLS SIDEWAYS ────────────
+            Owner, 2026-08-18: *"is it bcz of the 2 bottom scrollers?"* — yes,
+            partly, and the second one was the PAGE.
+
+            The Tasks board bleeds full-width with `-mx-4 / sm:-mx-6` and scrolls
+            horizontally inside itself, with its own bar hidden because
+            FloatingScrollbar draws one at the bottom of the viewport. Nothing
+            clipped that bleed, so on a narrow viewport the body overflowed and
+            grew a SECOND horizontal bar directly beneath the first. Two bars for
+            what looks like one scroller, which is what made the board feel
+            unpredictable to drag in.
+
+            `clip`, not `hidden`: `overflow-x: hidden` makes this element a scroll
+            container, which breaks `position: sticky` on descendants — the column
+            headers and the rail rely on it. `clip` cuts the overflow without
+            creating one. */}
         <main
           key={pathname}
-          className="page-ambience reveal-children flex-1 px-4 py-5 sm:px-6 sm:py-7"
+          className="page-ambience reveal-children flex-1 overflow-x-clip px-4 py-5 sm:px-6 sm:py-7"
         >
           {children}
         </main>

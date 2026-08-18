@@ -122,33 +122,56 @@ interface ListSpacing {
 /** Fallbacks match the classes at a 16px root, used only if the element is gone. */
 const SPACING_FALLBACK: ListSpacing = { gap: 8, padTop: 10 };
 
+/**
+ * ── ⚠️ MEASURED FROM POSITIONS, NOT FROM COMPUTED STYLE ──────────────────────
+ * The first attempt at this read `getComputedStyle(child).marginTop`, and it
+ * silently returned 0 — making the gap zero, which was WORSE than the hardcoded
+ * 8 it replaced. Tailwind v4 compiles `space-y-2` to
+ *
+ *     :where(& > :not(:last-child)) {
+ *       margin-block-start: 0;         ← what I read
+ *       margin-block-end:   <the gap>; ← where it actually is
+ *     }
+ *
+ * so the spacing lives on the BOTTOM of every child but the last. I could just
+ * read the other side, but that is still a bet on how a utility class happens to
+ * be implemented today — the exact class of assumption that produced the original
+ * bug.
+ *
+ * So the gap is now the real distance between two settled cards, and the padding
+ * the real distance from the container's top to the first card. Whatever CSS
+ * produces them, this reads what actually happened. Every element involved is
+ * settled at drag start — measuring those is allowed; measuring animating ones is
+ * the trap in this file's header.
+ */
 function readSpacing(list: HTMLElement | null): ListSpacing {
   if (!list) return SPACING_FALLBACK;
-  const style = getComputedStyle(list);
 
-  /* `space-y-2` is implemented by Tailwind as a margin on the children, not as
-     `gap`, so `rowGap` reads "normal" and parses to NaN. The child margin is the
-     real answer; `rowGap` is checked first so this keeps working if the class is
-     ever changed to a flex/grid gap. */
-  const rowGap = Number.parseFloat(style.rowGap);
-  const fromGap = Number.isFinite(rowGap) ? rowGap : NaN;
+  const cards = Array.from(list.children) as HTMLElement[];
+  const listTop = list.getBoundingClientRect().top;
 
-  const second = list.children[1] as HTMLElement | undefined;
-  const fromMargin = second
-    ? Number.parseFloat(getComputedStyle(second).marginTop)
-    : NaN;
+  if (cards.length === 0) return SPACING_FALLBACK;
 
-  const gap = Number.isFinite(fromGap)
-    ? fromGap
-    : Number.isFinite(fromMargin)
-      ? fromMargin
-      : SPACING_FALLBACK.gap;
+  const first = cards[0].getBoundingClientRect();
+  const padTop = first.top - listTop;
 
-  const padTop = Number.parseFloat(style.paddingTop);
+  /* One card cannot show a gap. It also cannot need one: with a single sibling
+     the accumulator never adds a gap, so the fallback is never consulted. */
+  let gap = SPACING_FALLBACK.gap;
+  if (cards.length >= 2) {
+    const second = cards[1].getBoundingClientRect();
+    gap = second.top - first.bottom;
+  }
 
+  /* A negative or absurd value means something was mid-transform after all;
+     the constant is a safer answer than poisoned geometry. NaN especially —
+     it propagates through `top += height + gap` and makes every comparison
+     false, silently dropping the card at the end of the column. */
   return {
-    gap,
-    padTop: Number.isFinite(padTop) ? padTop : SPACING_FALLBACK.padTop,
+    gap: Number.isFinite(gap) && gap >= 0 && gap < 200 ? gap : SPACING_FALLBACK.gap,
+    padTop: Number.isFinite(padTop) && padTop >= 0 && padTop < 200
+      ? padTop
+      : SPACING_FALLBACK.padTop,
   };
 }
 

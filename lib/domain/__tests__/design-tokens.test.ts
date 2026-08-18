@@ -249,11 +249,23 @@ describe('the task board measures its spacing instead of assuming it', () => {
   const board = () =>
     readFileSync(join(ROOT, 'components', 'task', 'task-board.tsx'), 'utf8');
 
-  it('reads the real gap and padding from the list element', () => {
+  it('derives the gap from real card positions, not from computed style', () => {
     const source = board();
     expect(source).toContain('readSpacing');
-    /* Both come from computed style, not from arithmetic on a guessed root. */
-    expect(source).toContain('getComputedStyle');
+
+    /* ⚠️ Positions, not styles. The first fix read
+       `getComputedStyle(child).marginTop`, which Tailwind v4 sets to 0 —
+       `space-y-*` puts the spacing on `margin-block-end` of every child but the
+       last. That produced gap = 0, worse than the constant it replaced.
+       Measuring the distance between two settled cards does not care how the
+       spacing was produced. */
+    const fn = /function readSpacing[\s\S]*?\n\}/.exec(source)?.[0] ?? '';
+    expect(fn, 'readSpacing was not found').not.toBe('');
+    expect(fn).toContain('getBoundingClientRect');
+    expect(
+      fn,
+      'readSpacing must not read computed styles — Tailwind decides which margin side carries the gap, and that is not ours to assume',
+    ).not.toContain('getComputedStyle');
   });
 
   it('declares no hardcoded pixel constant for card spacing', () => {
