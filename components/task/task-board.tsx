@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { createPortal } from 'react-dom';
 import { Plus } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
@@ -779,7 +780,6 @@ export function TaskBoard({
       <FloatingScrollbar targetRef={scrollerRef} className="-mx-4 sm:-mx-6" />
 
       {/* ---- The card in the air ----
-          Rendered last so it stacks above every column without a z-index race.
           `pointer-events-none` is essential: it sits under the cursor, and if it
           took hits, `resolveTarget` would be measuring the card being dragged
           rather than the column behind it.
@@ -788,23 +788,46 @@ export function TaskBoard({
           whenever the gap moves, and a transform declared here would be reset to
           the lift position on every one of those renders — a visible snap
           backwards. The ref callback seeds it and `positionFloat` maintains it;
-          React never touches a property it was not given. */}
-      {drag && dragged && (
-        <div
-          aria-hidden="true"
-          ref={(element) => {
-            floatRef.current = element;
-            if (element) {
-              element.style.transform =
-                `translate3d(${pointer.current.x - drag.grabX}px, ${pointer.current.y - drag.grabY}px, 0)`;
-            }
-          }}
-          className="pointer-events-none fixed top-0 left-0 z-[70] will-change-transform"
-          style={{ width: drag.width }}
-        >
-          <TaskCard task={dragged} dragging />
-        </div>
-      )}
+          React never touches a property it was not given.
+
+          ── ⚠️ PORTALLED TO <body>, AND THAT IS LOAD-BEARING ──────────────────
+          It is `position: fixed` at 0,0 moved by a translate in VIEWPORT
+          coordinates. That arithmetic is only correct while the viewport is its
+          containing block — and any ancestor with a `transform`, `filter`,
+          `perspective`, `backdrop-filter`, `contain` or (in Chromium)
+          `overflow: clip` takes that job instead, at which point 0,0 means the
+          corner of THAT element and the card is drawn offset by however far the
+          shell is from the corner of the screen.
+
+          Which is exactly what happened: `overflow-x-clip` was added to <main>
+          in the previous commit to stop the page scrolling sideways, and the card
+          began appearing about a sidebar's width to the right of the cursor.
+          Owner, 2026-08-18: *"as soon as I click it moves right away from where my
+          mouse is… it should be under the mouse."*
+
+          Reading the offset back out of the ancestor chain is possible and is the
+          wrong fix — it would need redoing the next time anyone adds a filter or
+          a containment hint anywhere above this component. A portal to <body>
+          removes the ancestor chain from the question permanently. */}
+      {drag &&
+        dragged &&
+        createPortal(
+          <div
+            aria-hidden="true"
+            ref={(element) => {
+              floatRef.current = element;
+              if (element) {
+                element.style.transform =
+                  `translate3d(${pointer.current.x - drag.grabX}px, ${pointer.current.y - drag.grabY}px, 0)`;
+              }
+            }}
+            className="pointer-events-none fixed top-0 left-0 z-[70] will-change-transform"
+            style={{ width: drag.width }}
+          >
+            <TaskCard task={dragged} dragging />
+          </div>,
+          document.body,
+        )}
 
       {/* Legend — the board is wide, and colour alone must never be the signal */}
       <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5">
