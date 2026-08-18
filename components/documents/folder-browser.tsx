@@ -26,14 +26,15 @@ import {
   trashFolderAction,
   type FolderFile,
 } from '@/app/actions/folders';
-import { setWatchedFolderAction, type DocumentResult } from '@/app/actions/documents';
+import type { DocumentResult } from '@/app/actions/documents';
 import type { DriveFolderRow } from '@/lib/db/queries/drive-folders';
 import { ACCESS_META } from '@/lib/domain/folder-access';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { Button, IconButton } from '@/components/ui/button';
 import { Card, CardBody } from '@/components/ui/card';
 import { Dialog } from '@/components/ui/dialog';
 import { Field, Input } from '@/components/ui/input';
+import { cn } from '@/lib/utils';
 
 import { FileViewer, formatFileSize, openPdf } from './file-viewer';
 import { FolderAccessDialog } from './folder-access-dialog';
@@ -237,55 +238,52 @@ export function FolderBrowser({
                     {meta.label}
                   </Badge>
 
+                  {/* ── ICONS, NOT WORDS ──────────────────────────────────────
+                      Owner, 2026-08-18: *"if you can use something like icons,
+                      they are enough. The text is not looking good."* Right —
+                      "Access" and "Auto-project" repeated down thirty-two rows
+                      was most of the visual noise. `title` and `aria-label` carry
+                      the meaning for a mouse and a screen reader respectively, so
+                      nothing is lost but the clutter.
+
+                      ⚠️ AUTO-PROJECT IS GONE ENTIRELY. Owner: *"I accidentally
+                      clicked on Auto project and it created a new subfolder
+                      project so I don't know why it created it."* It set the
+                      watched folder, and the scheduled Drive sync then turned
+                      that folder's subfolders into draft projects — a
+                      consequential, non-obvious action sitting one stray click
+                      away on every row. It belongs in Drive settings, once, not
+                      thirty-two times. */}
                   {canShare && (
                     <>
-                      <Button
+                      <IconButton
                         variant="ghost"
                         size="sm"
+                        label={`Who can see ${folder.name}`}
+                        icon={Users}
                         onClick={() => setAccessFor(folder)}
-                        title={`Choose who can see ${folder.name}`}
-                      >
-                        <Users className="h-4 w-4" strokeWidth={2.25} aria-hidden="true" />
-                        Access
-                      </Button>
-                      <Button
+                      />
+                      {/* Red, because it destroys. The owner asked for the colour
+                          language and this is the one place it is unambiguous. */}
+                      <IconButton
                         variant="ghost"
                         size="sm"
+                        label={`Move ${folder.name} to the Drive bin`}
+                        icon={Trash2}
                         disabled={busy !== null}
-                        title={`Move ${folder.name} to the Drive bin`}
+                        className="text-[color:var(--feedback-error)] hover:bg-[color-mix(in_oklab,var(--feedback-error)_12%,transparent)]"
                         onClick={() => setTrashingFolder(folder)}
-                      >
-                        <Trash2 className="h-4 w-4" strokeWidth={2.25} aria-hidden="true" />
-                      </Button>
+                      />
                     </>
                   )}
 
-                  {canConfigure &&
-                    (folder.driveFolderId === watchedDriveId ? (
-                      <Badge token="accent-primary" size="sm" variant="outline">
-                        New subfolders → projects
-                      </Badge>
-                    ) : (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled={busy !== null}
-                        title="Make new subfolders of this folder become draft projects"
-                        onClick={async () => {
-                          setBusy(folder.id);
-                          try {
-                            onDone(await setWatchedFolderAction(folder.driveFolderId));
-                          } finally {
-                            setBusy(null);
-                          }
-                        }}
-                      >
-                        {busy === folder.id && (
-                          <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-                        )}
-                        Auto-project
-                      </Button>
-                    ))}
+                  {/* Only a marker now — never a control. Choosing the watched
+                      folder happens in Drive settings, deliberately once. */}
+                  {canConfigure && folder.driveFolderId === watchedDriveId && (
+                    <Badge token="accent-primary" size="sm" variant="outline">
+                      Auto-projects
+                    </Badge>
+                  )}
                 </li>
               );
             })}
@@ -412,6 +410,10 @@ function FolderContents({
   const [confirmTrash, setConfirmTrash] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
 
+  const anySelected = selected.size > 0;
+  const allSelected = files !== null && files.length > 0 && selected.size === files.length;
+  const someSelected = anySelected && !allSelected;
+
   const toggle = (id: string) => {
     setSelected((current) => {
       const next = new Set(current);
@@ -480,20 +482,39 @@ function FolderContents({
             A permanently visible "Delete selected" that is disabled most of the
             time is noise; one that appears when it can act tells you the
             selection registered. */}
-        {selected.size > 0 && (
+        {anySelected && (
           <div
             className="flex flex-wrap items-center justify-between gap-2 rounded-lg px-3 py-2"
-            style={{ backgroundColor: 'var(--bg-subtle)' }}
+            style={{
+              backgroundColor: 'color-mix(in oklab, var(--accent-primary) 10%, transparent)',
+            }}
           >
-            <p className="text-caption text-text-primary">
-              {selected.size} {selected.size === 1 ? 'file' : 'files'} selected
-            </p>
+            <label className="flex cursor-pointer items-center gap-2 text-caption text-text-primary">
+              {/* Select-all, as asked. `indeterminate` is set through a ref
+                  because it is a DOM property with no HTML attribute — React
+                  cannot express it as a prop. Without it, "3 of 12 selected"
+                  would show an unchecked box, which reads as "nothing selected". */}
+              <input
+                type="checkbox"
+                ref={(node) => {
+                  if (node) node.indeterminate = someSelected && !allSelected;
+                }}
+                checked={allSelected}
+                onChange={() =>
+                  setSelected(allSelected ? new Set() : new Set((files ?? []).map((f) => f.id)))
+                }
+                aria-label={allSelected ? 'Clear selection' : 'Select every file'}
+                className="h-4 w-4 cursor-pointer accent-[var(--accent-primary)]"
+              />
+              {selected.size} of {files?.length ?? 0} selected
+            </label>
+
             <div className="flex items-center gap-2">
               <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
                 Clear
               </Button>
               <Button
-                variant="secondary"
+                variant="danger"
                 size="sm"
                 disabled={busy}
                 onClick={() => setConfirmTrash(true)}
@@ -531,16 +552,32 @@ function FolderContents({
               const viewable = file.kind !== 'google' && file.kind !== 'other';
 
               return (
-                <li key={file.id} className="flex items-center gap-2">
-                  {/* A real checkbox, so shift-click, keyboard and screen readers
-                      all behave. It sits OUTSIDE the row button — nesting a
-                      checkbox inside a button makes both unusable. */}
+                <li key={file.id} className="group/row flex items-center gap-2">
+                  {/* ── THE CHECKBOX IS INVISIBLE UNTIL IT IS WANTED ───────────
+                      Owner, 2026-08-18: *"Don't show checkboxes without
+                      selection. When I hold some row, the checkboxes start
+                      appearing."*
+
+                      A column of empty boxes down a file list is noise for the
+                      99% of visits that are "let me look at that video". So it
+                      fades in on hover, on keyboard focus, and stays put once
+                      anything is selected.
+
+                      ⚠️ `opacity`, NOT `hidden` or conditional rendering. The
+                      input must stay in the DOM and in the tab order, or a
+                      keyboard user could never reach it — you cannot focus what
+                      does not exist, and hover is not available to them. */}
                   <input
                     type="checkbox"
                     checked={selected.has(file.id)}
                     onChange={() => toggle(file.id)}
                     aria-label={`Select ${file.name}`}
-                    className="h-4 w-4 shrink-0 accent-[var(--accent-primary)]"
+                    className={cn(
+                      'h-4 w-4 shrink-0 cursor-pointer accent-[var(--accent-primary)]',
+                      'transition-opacity duration-[120ms]',
+                      'group-hover/row:opacity-100 focus-visible:opacity-100',
+                      anySelected ? 'opacity-100' : 'opacity-0',
+                    )}
                   />
                   <button
                     type="button"
