@@ -85,9 +85,43 @@ Without this, the connection succeeds and every Drive call returns 403.
 3. App name: `CNI CRM`, support email: the same Gmail
 4. Scopes: add **`https://www.googleapis.com/auth/drive`**
 5. **Test users → + ADD USERS → `cniaidigitaldivision@gmail.com` → Save**
-6. **Leave the app in Testing.** Do not press *Publish app*.
+6. **Audience → Publish app.** Owner's decision, 2026-08-18.
 
-> ### ⚠️ Step 5 is not optional, and owning the project does not replace it
+> ### ⚠️ PUBLISHING AND VERIFICATION ARE NOT THE SAME STEP
+>
+> Confusing them is what made this section wrong twice. They are independent:
+>
+> | | Publish | Verify |
+> |---|---|---|
+> | What it is | status Testing → In production | Google reviews the app |
+> | Cost | **free, instant** | CASA assessment, for a restricted scope |
+> | Stops refresh tokens expiring after 7 days | **✅ yes** | not what controls it |
+> | Removes the "unverified" warning | ❌ no | ✅ yes |
+>
+> **The seven-day expiry is triggered by publishing status being `Testing`** — not
+> by being unverified. So publishing alone removes it, immediately, with no review
+> and no fee. An app can sit published-and-unverified indefinitely.
+>
+> `https://www.googleapis.com/auth/drive` IS a **restricted** scope, and completing
+> *verification* on one does require a third-party security assessment (CASA) —
+> real money, several weeks. That cost is real, and it is the cost of verifying,
+> not of publishing. It is why this app is published but not verified.
+>
+> ### Publishing does not expose this Drive
+>
+> The natural worry, and the answer is no. Each person who authorises grants the
+> app access to **their own** Drive. Somebody who found the client id and
+> authorised would be handing over their Drive, not reaching into this one. Only
+> the division's account will ever connect, so publishing changes nothing about
+> what is exposed.
+>
+> **The one real uncertainty:** Google expects production apps on restricted scopes
+> to complete verification, and unverified ones carry a 100-user cap and may face
+> enforcement later. With a single user the cap is irrelevant. If enforcement ever
+> lands, the symptom is the same `invalid_grant` as the weekly expiry, and the
+> options then are to verify or drop back to Testing.
+>
+> ### ⚠️ Step 5 is still not optional while in Testing
 >
 > Skipping it produces, on Google's own screen:
 >
@@ -95,30 +129,9 @@ Without this, the connection succeeds and every Drive call returns 403.
 > > The app is currently being tested and can only be accessed by
 > > developer-approved testers. · `Error 403: access_denied`
 >
-> This happened on 2026-08-18. The account being blocked was the project's own
-> owner — Google does not infer tester status from ownership. Add the address to
-> **Test users** and the same Connect attempt succeeds immediately.
->
-> ### ⚠️ Do NOT publish this consent screen
->
-> **Corrected 2026-08-18.** An earlier version of this document recommended
-> publishing, to escape the seven-day token expiry. That advice was wrong, and
-> pressing *Publish app* is what leaves the client in a pending state where nobody
-> but a listed tester can sign in.
->
-> `https://www.googleapis.com/auth/drive` is a **restricted** scope — Google's
-> highest tier, because it reaches a person's whole Drive. Publishing an app that
-> uses one requires a **third-party security assessment (CASA)**, which costs money
-> and takes weeks. For a seven-person internal tool with a single user, that is
-> wildly disproportionate.
->
-> **Testing mode is the correct setting here.** Its one cost is at the end of this
-> document: refresh tokens expire every seven days, so somebody presses Connect
-> again. Ten seconds, and nothing is lost — files in Drive are owned by the
-> account and are untouched.
->
-> If Publish has already been pressed: **OAuth consent screen → Back to testing**,
-> then add the test user.
+> This happened on 2026-08-18, to the project's own owner — Google does not infer
+> tester status from ownership. Once published this stops mattering, but the list
+> is worth keeping populated in case the app is ever set back to Testing.
 
 ## Step 4 · Create the OAuth client
 
@@ -275,27 +288,25 @@ revoking the level closed all of it again.
 
 ---
 
-## ⚠️ The seven-day reconnect — the accepted cost of Testing mode
+## The seven-day reconnect — and why it no longer applies
 
-A client in Testing issues refresh tokens that **expire after seven days**. When
-one does, approving a document fails and the Documents screen shows:
+A client whose publishing status is **Testing** issues refresh tokens that expire
+after seven days. When one does, approving a document fails and the Documents
+screen shows:
 
 > The Google connection has expired or was revoked.
 
 **The fix is to press Connect Google Drive again.** About ten seconds, and nothing
 is lost — files already in Drive are owned by the account and are untouched.
 
-This is deliberate, not an outstanding bug. The alternative is a CASA security
-assessment for the restricted `drive` scope — see step 3. A weekly button press
-is the cheaper side of that trade by a wide margin.
+**This app is published, so it should not happen.** The owner published on
+2026-08-18 precisely to be rid of it. The message is kept because the condition it
+reports is real and has other causes: the grant revoked at
+<https://myaccount.google.com/permissions>, the account's password changed, or the
+app set back to Testing.
 
-**If it becomes genuinely annoying**, the escape is not to publish but to narrow
-the scope. `drive.file` is *sensitive* rather than *restricted*, so it needs no
-security assessment — but it only reaches files the app itself created or the user
-explicitly picked, which would break the folder watch and the folder-tree scan.
-Making that work means adding the Google Picker so folders are chosen through
-Google's own UI. A real piece of work, worth doing only if the reconnect stops
-being tolerable.
+If it starts happening weekly again, check the publishing status first — something
+has reverted it.
 
 ---
 
@@ -303,13 +314,13 @@ being tolerable.
 
 | What you see | What it means |
 |---|---|
-| **"Access blocked: … has not completed the Google verification process"**, `403 access_denied` | The address is not in **Test users**. Owning the Google Cloud project does *not* make you a tester. Step 3.5. **The most common failure.** |
+| **"Access blocked: … has not completed the Google verification process"**, `403 access_denied` | Only possible while in **Testing**: the address is not in Test users. Owning the Cloud project does *not* make you a tester. Step 3.5. |
 | *"Google Drive is not set up yet"* | The env vars are missing or empty. Step 5. |
 | `redirect_uri_mismatch` on Google's screen | The URI in step 4 does not match exactly — check `http` vs `https`, the port, and the trailing path. |
 | *"That sign-in could not be verified as one started here"* | The state cookie expired (ten minutes) or the callback did not come from a flow started in the CRM. Press Connect again. |
 | 403 on every Drive call | The Drive API is not enabled. Step 2. |
-| *"The Google connection has expired or was revoked"* | The seven-day Testing-mode token. Press Connect again — expected, not a bug. |
-| **"Google hasn't verified this app"** with a *Continue* button | Expected and permanent in Testing. Press **Continue**. Different from *Access blocked* above: a warning you click past, not a refusal — check the right-hand wording, step 6. |
+| *"The Google connection has expired or was revoked"* | The grant was revoked, or the app has been set back to **Testing** (7-day tokens). Press Connect again, then check publishing status. |
+| **"Google hasn't verified this app"** with a *Continue* button | Expected — published but not verified, which is deliberate. Press **Continue**. Different from *Access blocked* above: a warning you click past, not a refusal — check the right-hand wording, step 6. |
 | A Member says *"I can see the folder but it won't let me add anything"* | The folder is at **view**. Raise it to **Members can upload**. |
 | A Member's upload appeared in Drive with no approval | Working as intended — that folder is at `upload` or above. Lower it if that was not what you meant. |
 | Approval says *"Drive refused the request (404)"* | The folder id in **Watched folder** does not exist in this account's Drive. |
