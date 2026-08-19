@@ -29,6 +29,7 @@ import {
 } from '@/app/actions/tasks';
 import type { ShellPerson, ShellProject } from '@/components/layout/app-shell';
 import { AttachmentsPanel } from '@/components/task/attachments-panel';
+import { PlacementsPanel } from '@/components/task/placements-panel';
 import { RecommendPanel } from '@/components/task/recommend-panel';
 import { TaskRelationsPanel } from '@/components/task/task-relations-panel';
 import { Avatar } from '@/components/ui/avatar';
@@ -525,6 +526,12 @@ export function TaskDetail({
               busy={busy}
               onChanged={load}
             />
+
+            {/* ---- Where it was published (owner request 2026-08-19) ----
+                Shown only for tasks that ARE a deliverable. A coordinator's
+                admin task has nowhere to be published to, and offering the
+                panel anyway would invite rows that mean nothing. */}
+            {task.contentKind && <PlacementsPanel taskId={task.id} />}
 
             {/* ---- Checklist (FR-027) ---- */}
             <section className="space-y-2">
