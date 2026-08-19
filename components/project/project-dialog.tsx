@@ -15,6 +15,8 @@ import { Field, Input, Textarea } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { ToggleGroup } from '@/components/ui/toolbar';
 import type { ProjectRow } from '@/lib/db/queries/types';
+
+import { PackageFields } from './package-fields';
 import {
   PROJECT_STATUSES,
   PROJECT_STATUS_REQUIRES_REASON,
@@ -72,58 +74,40 @@ const TYPE_FIELD_FORMS: Record<
   ],
   client: [
     { name: 'client_name', label: 'Client name', placeholder: 'ABC Traders' },
-    /* Was a free-text box whose placeholder read "retainer or project", so the
-       same two ideas were recorded a dozen ways and nothing could count them. */
-    { name: 'engagement_type', label: 'Engagement', options: ['Retainer', 'One-off'] },
     { name: 'contract_end', label: 'Contract end', type: 'date' },
     { name: 'contact_person', label: 'Contact person' },
     { name: 'contact_email', label: 'Contact email', type: 'email' },
     { name: 'contact_phone', label: 'Contact phone' },
-    {
-      name: 'retainer_hours_per_month',
-      label: 'Retainer hours a month',
-      type: 'number',
-      hint: 'Leave blank for one-off work.',
-    },
-    { name: 'priority_tier', label: 'Priority tier', placeholder: 'A' },
   ],
-  business: [
-    { name: 'objective', label: 'Objective', placeholder: 'Convert more inbound enquiries' },
-    { name: 'area', label: 'Business area', placeholder: 'Marketing' },
-    {
-      name: 'internal_sponsor',
-      label: 'Internal sponsor',
-      hint: 'Who inside CNI is asking for this and will sign it off.',
-    },
-    { name: 'target_completion', label: 'Target completion', type: 'date' },
-  ],
+  business: [{ name: 'target_completion', label: 'Target completion', type: 'date' }],
   self_promotion: [
-    { name: 'channel', label: 'Channel', placeholder: 'Instagram + YouTube' },
-    { name: 'campaign_goal', label: 'Goal', placeholder: 'Reach and credibility' },
     { name: 'target_publish_date', label: 'Target publish date', type: 'date' },
   ],
-  other: [
-    { name: 'requested_by', label: 'Who asked for this?' },
-    {
-      name: 'reason_not_a_project',
-      label: 'Why is this not a project?',
-      hint: 'Surfaced in the Other audit, so ad-hoc work stays measurable (doc 15 §6).',
-    },
-  ],
+  other: [{ name: 'requested_by', label: 'Who asked for this?' }],
 };
 
-/* ── Asked of EVERY type ──────────────────────────────────────────────────────
-   Scale used to sit under `event` alone, which meant a client retainer and a
-   business initiative had no size recorded at all — so nothing could compare
-   them, and "how much of this quarter is large work" had no answer.
+/* ── ⚠️ NINE FIELDS REMOVED, 2026-08-19 ──────────────────────────────────────
+   Owner: *"some are very extra things you have added in a project page."*
+   Audited in docs/PROJECTS-REDESIGN.md §6. Gone from here and from `TYPE_FIELDS`
+   in app/actions/projects.ts in the same change, because a field in one list and
+   not the other either renders-and-is-dropped or is-stored-and-never-shown.
 
-   Owner instruction, Session 20: *"the scale should become a dropdown — I
-   should not write what the scale is."* It was a free-text box whose
-   placeholder was the word `large`, so the same three ideas were recorded in a
-   dozen spellings. */
-const SHARED_TYPE_FIELDS: (typeof TYPE_FIELD_FORMS)[ProjectType] = [
-  { name: 'expected_scale', label: 'Scale', options: ['Small', 'Medium', 'Large'] },
-];
+     priority_tier · expected_scale · retainer_hours_per_month ·
+     internal_sponsor · reason_not_a_project · objective · area ·
+     campaign_goal · channel · engagement_type
+
+   Two are worth their own note:
+
+   `channel` was the actively harmful one — "Instagram + YouTube" as prose, which
+   is why no report could ever count platforms. It is now `project_platforms`
+   rows, ticked in `PackageFields`.
+
+   `engagement_type` (Retainer / One-off) is superseded by the package: a project
+   with a package IS a retainer, and one with only services is not.
+
+   `SHARED_TYPE_FIELDS` is gone entirely — it existed solely to ask every type
+   for `expected_scale`, which no report ever read. The package now says how big
+   the work is, in assets and money. */
 
 /* ── The event duration, which decides what the date fields mean ──────────────
    Owner instruction: *"there should be an option of event length — if it is one
@@ -172,7 +156,7 @@ export function ProjectDialog({
 
   const needsReason = PROJECT_STATUS_REQUIRES_REASON.includes(status);
   /* Scale is asked of everything, then the type's own questions. */
-  const fields = [...SHARED_TYPE_FIELDS, ...TYPE_FIELD_FORMS[type]];
+  const fields = TYPE_FIELD_FORMS[type];
 
   const [duration, setDuration] = React.useState<EventDuration>(
     (project?.typeFields?.duration as EventDuration) ?? 'single',
@@ -407,6 +391,23 @@ export function ProjectDialog({
             defaultValue={project?.description ?? ''}
           />
         </Field>
+
+        {/* ---- What we sold them (owner request 2026-08-19) ----
+            The commercial shape: internal/external, client, package, and the
+            targets the package suggests and the owner then adjusts. */}
+        <PackageFields
+          initial={{
+            clientKind: project?.clientKind ?? null,
+            clientId: project?.clientId ?? null,
+            packageId: project?.packageId ?? null,
+            monthlyFeePkr: project?.monthlyFeePkr ?? null,
+            assetsTargetMin: project?.assetsTargetMin ?? null,
+            assetsTargetMax: project?.assetsTargetMax ?? null,
+            reelsTargetMin: project?.reelsTargetMin ?? null,
+            renewsOn: project?.renewsOn ?? null,
+            platformIds: project?.platforms.map((p) => p.id) ?? [],
+          }}
+        />
 
         {/* ---- The type-specific half of the form (doc 15 §3) ---- */}
         <fieldset className="space-y-4 rounded-xl border border-border-subtle bg-bg-surface-sunken p-4">

@@ -5,7 +5,20 @@ import { revalidatePath } from 'next/cache';
 import { requireUser } from '@/lib/auth/current-user';
 import { withUser } from '@/lib/db/client';
 import { record } from '@/lib/db/queries/feed';
-import { createProject, getProject, updateProject } from '@/lib/db/queries/projects';
+import {
+  listClients,
+  listPackages,
+  listPlatforms,
+  type ClientRow,
+  type PackageRow,
+  type PlatformRow,
+} from '@/lib/db/queries/catalogue';
+import {
+  createProject,
+  getProject,
+  setProjectPlatforms,
+  updateProject,
+} from '@/lib/db/queries/projects';
 import {
   PROJECT_STATUSES,
   PROJECT_STATUS_REQUIRES_REASON,
@@ -55,30 +68,81 @@ const fail = (error: string): ProjectActionResult => ({ ok: false, error });
  *  business importing — and this one is a security boundary that must not be
  *  derived from anything a client component can change. Two lists, one rule:
  *  add to both, in the same commit. */
+/* ── ⚠️ NINE KEYS REMOVED, 2026-08-19 ────────────────────────────────────────
+   Owner: *"some are very extra things you have added in a project page."* Audited
+   in docs/PROJECTS-REDESIGN.md §6 and removed here, with the reason each earned
+   nothing:
+
+     priority_tier             free text, placeholder "A". Nothing read it.
+     expected_scale            asked of every type, used by no report.
+     retainer_hours_per_month  an hours retainer they do not sell — the packages
+                               sell DELIVERABLES, now real columns.
+     internal_sponsor          duplicated owner_id, a real FK.
+     engagement_type           superseded by `package_id`.
+     campaign_goal/objective/  three prose boxes for "why are we doing this".
+       area                    `description` covers it.
+     channel                   ⚠️ the harmful one: the platform list written as a
+                               SENTENCE, which is why nothing could be counted.
+                               Replaced by `project_platforms` rows.
+
+   Existing values stay in the jsonb harmlessly — this list controls what is
+   WRITTEN, and the form has stopped asking. A later migration clears them.
+
+   ⚠️ STILL MUST MATCH `TYPE_FIELD_FORMS` in project-dialog.tsx. A field in the
+   form and not here renders, accepts input and is silently dropped on save. */
 const TYPE_FIELDS: Readonly<Record<ProjectType, readonly string[]>> = {
   /* `duration` is a form control rather than a field, but it is stored: it is
      the only record of whether a one-day event was MEANT to be one day, as
      opposed to one whose end date has not been filled in yet. */
-  event: ['venue', 'expected_scale', 'expected_attendance', 'duration'],
+  event: ['venue', 'expected_attendance', 'duration'],
   client: [
     'client_name',
     'contact_person',
     'contact_email',
     'contact_phone',
-    'engagement_type',
     'contract_end',
-    'retainer_hours_per_month',
     'is_billable',
-    'priority_tier',
-    'expected_scale',
   ],
-  business: ['objective', 'area', 'internal_sponsor', 'target_completion', 'expected_scale'],
-  self_promotion: ['channel', 'campaign_goal', 'target_publish_date', 'expected_scale'],
-  other: ['requested_by', 'reason_not_a_project', 'expected_scale'],
+  business: ['target_completion'],
+  self_promotion: ['target_publish_date'],
+  other: ['requested_by'],
 };
 
 function str(form: FormData, key: string): string {
   return String(form.get(key) ?? '').trim();
+}
+
+/* ── THE COMMERCIAL SHAPE — migration 033 ────────────────────────────────────
+   Package, client, agreed fee and the agreed targets.
+
+   ⚠️ EVERY TARGET IS READ AS "null OR A NUMBER", never as `Number(x) || null`.
+   `Number('') === 0` and `0 || null === null`, so the reflexive version turns a
+   deliberate zero into "no target" and an empty box into zero depending on which
+   way you write it. Both are wrong: null means "nothing was agreed" and 0 means
+   "agreed to publish nothing", and a report has to be able to tell them apart.
+
+   ⚠️ These are the AGREED numbers, snapshotted. The form seeds them from the
+   package; from then on they belong to the project. Editing SPARK next year must
+   not rewrite what this client was promised. See migration 033's header. */
+function intOrNull(form: FormData, key: string): number | null {
+  const raw = str(form, key);
+  if (raw === '') return null;
+  const value = Number(raw);
+  return Number.isFinite(value) && value >= 0 ? Math.round(value) : null;
+}
+
+function commercialFrom(form: FormData) {
+  const kind = str(form, 'clientKind');
+  return {
+    clientKind: kind === 'internal' || kind === 'external' ? kind : null,
+    clientId: str(form, 'clientId') || null,
+    packageId: str(form, 'packageId') || null,
+    monthlyFeePkr: intOrNull(form, 'monthlyFeePkr'),
+    assetsTargetMin: intOrNull(form, 'assetsTargetMin'),
+    assetsTargetMax: intOrNull(form, 'assetsTargetMax'),
+    reelsTargetMin: intOrNull(form, 'reelsTargetMin'),
+    renewsOn: str(form, 'renewsOn') || null,
+  } as const;
 }
 
 function collectTypeFields(form: FormData, type: ProjectType): Record<string, unknown> {
@@ -88,6 +152,32 @@ function collectTypeFields(form: FormData, type: ProjectType): Record<string, un
     if (value !== '') out[key] = value;
   }
   return out;
+}
+
+/**
+ * The catalogue the project form needs: packages, platforms, clients.
+ *
+ * ── ⚠️ FETCHED BY THE FORM, NOT PASSED DOWN THROUGH PROPS ────────────────────
+ * The obvious wiring is to load it in the Projects page and thread it into the
+ * dialog. That breaks down because `AppShell` also opens this dialog — the global
+ * "new project" action — so the data would have to be fetched in the LAYOUT and
+ * every page in the application would pay for a catalogue only one dialog reads.
+ *
+ * It is small (eight packages, eleven platforms, a handful of clients) and only
+ * wanted when the form opens, so the form asks for it then.
+ */
+export async function projectCatalogueAction(): Promise<{
+  packages: PackageRow[];
+  platforms: PlatformRow[];
+  clients: ClientRow[];
+}> {
+  const user = await requireUser();
+  const [packages, platforms, clients] = await Promise.all([
+    listPackages(user.id),
+    listPlatforms(user.id),
+    listClients(user.id),
+  ]);
+  return { packages, platforms, clients };
 }
 
 export async function createProjectAction(
@@ -128,7 +218,19 @@ export async function createProjectAction(
       targetEndDate: str(form, 'targetEndDate') || null,
       targetEndTime: str(form, 'targetEndTime') || null,
       typeFields: collectTypeFields(form, type),
+      ...commercialFrom(form),
     });
+
+    /* Platforms after the insert, because they need the project's id. Failing
+       here would leave a project with no platforms rather than no project, which
+       is the better of the two — the platforms are editable, a lost project is
+       retyped. */
+    const platformIds = form.getAll('platformIds').map(String).filter(Boolean);
+    if (platformIds.length > 0) {
+      await setProjectPlatforms(user.id, projectId, platformIds).catch(() =>
+        console.error('[projects] the project was created but its platforms were not'),
+      );
+    }
 
     await withUser(user.id, (tx) =>
       record(tx, user.id, {
@@ -190,7 +292,21 @@ export async function updateProjectAction(
       targetEndDate: str(form, 'targetEndDate') || null,
       targetEndTime: str(form, 'targetEndTime') || null,
       typeFields: { ...existing.typeFields, ...collectTypeFields(form, existing.type) },
+      ...commercialFrom(form),
     });
+
+    /* ⚠️ Only touched when the form actually submitted the field. An edit form
+       that does not include the platform ticks — a status change from elsewhere,
+       say — must not be read as "no platforms", which would silently wipe the
+       set and every per-platform target with it. `has` on the FormData is the
+       difference between "none chosen" and "not asked". */
+    if (form.has('platformsSubmitted')) {
+      await setProjectPlatforms(
+        user.id,
+        projectId,
+        form.getAll('platformIds').map(String).filter(Boolean),
+      ).catch(() => console.error('[projects] platforms were not updated'));
+    }
 
     await withUser(user.id, (tx) =>
       record(tx, user.id, {

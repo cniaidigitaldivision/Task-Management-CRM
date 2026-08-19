@@ -176,6 +176,19 @@ export interface CreateProjectInput {
   readonly targetEndDate?: string | null;
   readonly targetEndTime?: string | null;
   readonly typeFields?: Record<string, unknown>;
+
+  /* ── The commercial shape — migration 033 ─────────────────────────────────
+     ⚠️ These are the AGREED numbers, copied from the package by the form and
+     editable there. They are NOT a reference to the package's current values:
+     editing SPARK next year must not change what this client was promised. */
+  readonly clientKind?: 'internal' | 'external' | null;
+  readonly clientId?: string | null;
+  readonly packageId?: string | null;
+  readonly monthlyFeePkr?: number | null;
+  readonly assetsTargetMin?: number | null;
+  readonly assetsTargetMax?: number | null;
+  readonly reelsTargetMin?: number | null;
+  readonly renewsOn?: string | null;
 }
 
 export async function createProject(
@@ -185,7 +198,9 @@ export async function createProject(
   const rows = await withUser(actorId, (tx) => tx`
     insert into public.projects (
       name, type, code, description, status, status_reason, owner_id,
-      start_date, start_time, target_end_date, target_end_time, type_fields, created_by_id
+      start_date, start_time, target_end_date, target_end_time, type_fields, created_by_id,
+      client_kind, client_id, package_id, monthly_fee_pkr,
+      assets_target_min, assets_target_max, reels_target_min, renews_on
     ) values (
       ${input.name.trim()},
       ${input.type}::public.project_type,
@@ -199,11 +214,104 @@ export async function createProject(
       ${input.targetEndDate ?? null},
       ${input.targetEndTime ?? null}::time,
       ${tx.json((input.typeFields ?? {}) as never)},
-      ${actorId}
+      ${actorId},
+      ${input.clientKind ?? null}::public.client_kind,
+      ${input.clientId ?? null},
+      ${input.packageId ?? null},
+      ${input.monthlyFeePkr ?? null},
+      ${input.assetsTargetMin ?? null},
+      ${input.assetsTargetMax ?? null},
+      ${input.reelsTargetMin ?? null},
+      ${input.renewsOn ?? null}
     )
     returning id
   `);
   return rows[0].id as string;
+}
+
+/**
+ * Replace the set of platforms a project manages.
+ *
+ * ── ⚠️ DELETE-THEN-INSERT, AND ONLY THE DIFFERENCE IS DELETED ────────────────
+ * The naive version wipes every row and re-inserts, which would throw away each
+ * platform's own `assets_target` and `reels_target` every time somebody edited
+ * the project — Instagram's "3 reels a week" would silently become null because
+ * the name was changed. So rows that should remain are left alone.
+ */
+export async function setProjectPlatforms(
+  actorId: string,
+  projectId: string,
+  platformIds: readonly string[],
+): Promise<void> {
+  await withUser(actorId, async (tx) => {
+    await tx`
+      delete from public.project_platforms
+       where project_id = ${projectId}
+         and platform_id <> all(${platformIds as string[]}::uuid[])
+    `;
+    if (platformIds.length > 0) {
+      await tx`
+        insert into public.project_platforms (project_id, platform_id)
+        select ${projectId}, unnest(${platformIds as string[]}::uuid[])
+        on conflict (project_id, platform_id) do nothing
+      `;
+    }
+  });
+}
+
+export interface ProjectMemberRow {
+  readonly userId: string;
+  readonly fullName: string;
+  readonly role: string;
+  readonly projectRole: string;
+  readonly addedByName: string | null;
+}
+
+export async function listProjectMembers(
+  actorId: string,
+  projectId: string,
+): Promise<ProjectMemberRow[]> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select m.user_id, m.role as project_role,
+           u.full_name, u.role,
+           b.full_name as added_by_name
+      from public.project_members m
+      join public.users u on u.id = m.user_id
+      left join public.users b on b.id = m.added_by_id
+     where m.project_id = ${projectId}
+     order by m.role, lower(u.full_name)
+  `);
+  return rows.map((r) => ({
+    userId: r.user_id as string,
+    fullName: (r.full_name as string | null) ?? 'Unknown',
+    role: r.role as string,
+    projectRole: r.project_role as string,
+    addedByName: (r.added_by_name as string | null) ?? null,
+  }));
+}
+
+export async function addProjectMember(
+  actorId: string,
+  input: { projectId: string; userId: string; role: string },
+): Promise<void> {
+  await withUser(actorId, (tx) => tx`
+    insert into public.project_members (project_id, user_id, role, added_by_id)
+    values (${input.projectId}, ${input.userId}, ${input.role}::public.project_role, ${actorId})
+    on conflict (project_id, user_id) do update set role = excluded.role
+  `);
+}
+
+export async function removeProjectMember(
+  actorId: string,
+  projectId: string,
+  userId: string,
+): Promise<boolean> {
+  const rows = await withUser(actorId, (tx) => tx`
+    delete from public.project_members
+     where project_id = ${projectId} and user_id = ${userId}
+     returning user_id
+  `);
+  return rows.length > 0;
 }
 
 export interface UpdateProjectInput {
@@ -218,6 +326,19 @@ export interface UpdateProjectInput {
   readonly targetEndDate?: string | null;
   readonly targetEndTime?: string | null;
   readonly typeFields?: Record<string, unknown>;
+
+  /* ── The commercial shape — migration 033 ─────────────────────────────────
+     ⚠️ These are the AGREED numbers, copied from the package by the form and
+     editable there. They are NOT a reference to the package's current values:
+     editing SPARK next year must not change what this client was promised. */
+  readonly clientKind?: 'internal' | 'external' | null;
+  readonly clientId?: string | null;
+  readonly packageId?: string | null;
+  readonly monthlyFeePkr?: number | null;
+  readonly assetsTargetMin?: number | null;
+  readonly assetsTargetMax?: number | null;
+  readonly reelsTargetMin?: number | null;
+  readonly renewsOn?: string | null;
 }
 
 export async function updateProject(
@@ -238,7 +359,15 @@ export async function updateProject(
       target_end_date = case when ${has('targetEndDate')} then ${input.targetEndDate ?? null}::date else target_end_date end,
       start_time      = case when ${has('startTime')} then ${input.startTime ?? null}::time else start_time end,
       target_end_time = case when ${has('targetEndTime')} then ${input.targetEndTime ?? null}::time else target_end_time end,
-      type_fields     = case when ${has('typeFields')} then ${tx.json((input.typeFields ?? {}) as never)} else type_fields end
+      type_fields     = case when ${has('typeFields')} then ${tx.json((input.typeFields ?? {}) as never)} else type_fields end,
+      client_kind     = case when ${has('clientKind')} then ${input.clientKind ?? null}::public.client_kind else client_kind end,
+      client_id       = case when ${has('clientId')} then ${input.clientId ?? null}::uuid else client_id end,
+      package_id      = case when ${has('packageId')} then ${input.packageId ?? null}::uuid else package_id end,
+      monthly_fee_pkr = case when ${has('monthlyFeePkr')} then ${input.monthlyFeePkr ?? null} else monthly_fee_pkr end,
+      assets_target_min = case when ${has('assetsTargetMin')} then ${input.assetsTargetMin ?? null} else assets_target_min end,
+      assets_target_max = case when ${has('assetsTargetMax')} then ${input.assetsTargetMax ?? null} else assets_target_max end,
+      reels_target_min  = case when ${has('reelsTargetMin')} then ${input.reelsTargetMin ?? null} else reels_target_min end,
+      renews_on         = case when ${has('renewsOn')} then ${input.renewsOn ?? null}::date else renews_on end
     where id = ${projectId}
   `);
 }
