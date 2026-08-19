@@ -46,56 +46,120 @@ function toProject(row: Record<string, unknown>): ProjectRow {
     doneTaskCount: Number(row.done_task_count ?? 0),
     overdueTaskCount: Number(row.overdue_task_count ?? 0),
     effortPoints: Number(row.effort_points ?? 0),
+
+    clientKind: (row.client_kind as 'internal' | 'external' | null) ?? null,
+    clientId: (row.client_id as string | null) ?? null,
+    clientName: (row.client_name as string | null) ?? null,
+    packageId: (row.package_id as string | null) ?? null,
+    packageName: (row.package_name as string | null) ?? null,
+    monthlyFeePkr: row.monthly_fee_pkr === null || row.monthly_fee_pkr === undefined
+      ? null
+      : Number(row.monthly_fee_pkr),
+    assetsTargetMin: nullableInt(row.assets_target_min),
+    assetsTargetMax: nullableInt(row.assets_target_max),
+    reelsTargetMin: nullableInt(row.reels_target_min),
+    renewsOn: dateOnly(row.renews_on),
+
+    platforms: (row.platforms as { id: string; name: string }[] | null) ?? [],
+    memberCount: Number(row.member_count ?? 0),
+
+    assetsPublishedThisMonth: Number(row.assets_published_this_month ?? 0),
+    reelsPublishedThisMonth: Number(row.reels_published_this_month ?? 0),
   };
 }
+
+/** `0` and `null` mean different things in every target on this row, so the
+ *  usual `Number(x ?? 0)` would turn "no target agreed" into "target of zero". */
+function nullableInt(value: unknown): number | null {
+  return value === null || value === undefined ? null : Number(value);
+}
+
+/* ── The commercial columns and the progress counts ──────────────────────────
+   Shared by `listProjects` and `getProject` so the two cannot drift — the list
+   and the detail page must agree about how far along a project is.
+
+   ⚠️ Progress is counted on `published_on`, not `completed_at`. A reel finished
+   on Monday and posted on Friday counts against Friday, which is what the
+   client was promised and what the month's report has to reflect. */
+const COMMERCIAL_SELECT = `
+      c.name as client_name,
+      pk.name as package_name,
+      (select count(*) from public.project_members m where m.project_id = p.id)
+        as member_count,
+      coalesce((
+        select jsonb_agg(jsonb_build_object('id', pl.id, 'name', pl.name)
+                         order by pl.sort_order)
+          from public.project_platforms ppl
+          join public.platforms pl on pl.id = ppl.platform_id
+         where ppl.project_id = p.id
+      ), '[]'::jsonb) as platforms,
+      (select count(*) from public.tasks t
+        where t.project_id = p.id and not t.is_deleted
+          and t.content_kind is not null
+          and t.published_on >= date_trunc('month', current_date)::date
+          and t.published_on <  (date_trunc('month', current_date) + interval '1 month')::date
+      ) as assets_published_this_month,
+      (select count(*) from public.tasks t
+        where t.project_id = p.id and not t.is_deleted
+          and t.content_kind = 'reel'
+          and t.published_on >= date_trunc('month', current_date)::date
+          and t.published_on <  (date_trunc('month', current_date) + interval '1 month')::date
+      ) as reels_published_this_month`;
+
+const COMMERCIAL_JOINS = `
+    left join public.clients  c  on c.id  = p.client_id
+    left join public.packages pk on pk.id = p.package_id`;
+
+/* ⚠️ ONE SELECT, USED BY BOTH READERS. The list and the detail page must agree
+   about how far along a project is — two copies of this arithmetic would
+   eventually disagree, and the disagreement would show as a card saying one
+   thing and the page it opens saying another.
+
+   `tx.unsafe` rather than a tagged template because a template parameterises an
+   interpolated string as a VALUE, so a shared SQL fragment cannot be spliced in.
+   Every actual value still travels as a positional parameter. */
+const PROJECT_SELECT = `
+    select
+      p.*, u.full_name as owner_name,
+      (select count(*) from public.tasks t where t.project_id = p.id and not t.is_deleted) as task_count,
+      (select count(*) from public.tasks t where t.project_id = p.id and not t.is_deleted
+         and t.status not in ('done','cancelled')) as open_task_count,
+      (select count(*) from public.tasks t where t.project_id = p.id and not t.is_deleted
+         and t.status = 'done') as done_task_count,
+      (select count(*) from public.tasks t where t.project_id = p.id and not t.is_deleted
+         and t.status not in ('done','cancelled') and t.due_date < current_date) as overdue_task_count,
+      (select coalesce(sum(t.effort_points), 0) from public.tasks t
+        where t.project_id = p.id and not t.is_deleted
+          and t.status not in ('done','cancelled')) as effort_points,
+${COMMERCIAL_SELECT}
+    from public.projects p
+    left join public.users u on u.id = p.owner_id
+${COMMERCIAL_JOINS}`;
 
 export async function listProjects(
   actorId: string,
   options: { includeArchived?: boolean } = {},
 ): Promise<ProjectRow[]> {
-  const rows = await withUser(actorId, (tx) => tx`
-    select
-      p.*, u.full_name as owner_name,
-      (select count(*) from public.tasks t where t.project_id = p.id and not t.is_deleted) as task_count,
-      (select count(*) from public.tasks t where t.project_id = p.id and not t.is_deleted
-         and t.status not in ('done','cancelled')) as open_task_count,
-      (select count(*) from public.tasks t where t.project_id = p.id and not t.is_deleted
-         and t.status = 'done') as done_task_count,
-      (select count(*) from public.tasks t where t.project_id = p.id and not t.is_deleted
-         and t.status not in ('done','cancelled') and t.due_date < current_date) as overdue_task_count,
-      (select coalesce(sum(t.effort_points), 0) from public.tasks t
-        where t.project_id = p.id and not t.is_deleted
-          and t.status not in ('done','cancelled')) as effort_points
-    from public.projects p
-    left join public.users u on u.id = p.owner_id
-    where ${options.includeArchived ? tx`true` : tx`p.status <> 'archived'`}
+  /* A boolean chosen in code, not a value from a request, so it cannot carry
+     anything. Every user-supplied value in this module is still positional. */
+  const where = options.includeArchived ? 'true' : `p.status <> 'archived'`;
+
+  const rows = await withUser(actorId, (tx) =>
+    tx.unsafe(`${PROJECT_SELECT}
+    where ${where}
     order by
       p.is_permanent,              -- the catch-all sits last; it is not a project anyone plans
       case p.status when 'active' then 0 when 'planning' then 1 when 'on_hold' then 2 else 3 end,
-      p.name
-  `);
-  return rows.map(toProject);
+      p.name`),
+  );
+  return rows.map((r) => toProject(r as Record<string, unknown>));
 }
 
 export async function getProject(actorId: string, projectId: string): Promise<ProjectRow | null> {
-  const rows = await withUser(actorId, (tx) => tx`
-    select
-      p.*, u.full_name as owner_name,
-      (select count(*) from public.tasks t where t.project_id = p.id and not t.is_deleted) as task_count,
-      (select count(*) from public.tasks t where t.project_id = p.id and not t.is_deleted
-         and t.status not in ('done','cancelled')) as open_task_count,
-      (select count(*) from public.tasks t where t.project_id = p.id and not t.is_deleted
-         and t.status = 'done') as done_task_count,
-      (select count(*) from public.tasks t where t.project_id = p.id and not t.is_deleted
-         and t.status not in ('done','cancelled') and t.due_date < current_date) as overdue_task_count,
-      (select coalesce(sum(t.effort_points), 0) from public.tasks t
-        where t.project_id = p.id and not t.is_deleted
-          and t.status not in ('done','cancelled')) as effort_points
-    from public.projects p
-    left join public.users u on u.id = p.owner_id
-    where p.id = ${projectId}
-  `);
-  return rows[0] ? toProject(rows[0]) : null;
+  const rows = await withUser(actorId, (tx) =>
+    tx.unsafe(`${PROJECT_SELECT} where p.id = $1`, [projectId]),
+  );
+  return rows[0] ? toProject(rows[0] as Record<string, unknown>) : null;
 }
 
 export interface CreateProjectInput {

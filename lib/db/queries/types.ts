@@ -46,6 +46,32 @@ export interface ProjectRow {
   readonly doneTaskCount: number;
   readonly overdueTaskCount: number;
   readonly effortPoints: number;
+
+  /* ── The commercial shape — migration 033 ─────────────────────────────────
+     ⚠️ `assetsTargetMin` and friends are the project's OWN columns, copied from
+     the package when it was created and editable since. They are NOT the
+     package's current numbers, deliberately: editing a package must never
+     change what an existing client was promised. */
+  readonly clientKind: 'internal' | 'external' | null;
+  readonly clientId: string | null;
+  readonly clientName: string | null;
+  readonly packageId: string | null;
+  readonly packageName: string | null;
+  readonly monthlyFeePkr: number | null;
+  readonly assetsTargetMin: number | null;
+  readonly assetsTargetMax: number | null;
+  readonly reelsTargetMin: number | null;
+  readonly renewsOn: string | null;
+
+  /** Platforms this project manages, for the card and the detail header. */
+  readonly platforms: readonly { readonly id: string; readonly name: string }[];
+  readonly memberCount: number;
+
+  /* ── Progress: what actually went out THIS calendar month ─────────────────
+     Counted on `published_on`, not on completion — a reel finished Monday and
+     posted Friday belongs to Friday's month. */
+  readonly assetsPublishedThisMonth: number;
+  readonly reelsPublishedThisMonth: number;
 }
 
 export interface TaskRow {
