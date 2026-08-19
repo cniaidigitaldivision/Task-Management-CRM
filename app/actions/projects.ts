@@ -14,8 +14,10 @@ import {
   type PlatformRow,
 } from '@/lib/db/queries/catalogue';
 import {
+  addProjectMember,
   createProject,
   getProject,
+  removeProjectMember,
   setProjectPlatforms,
   updateProject,
 } from '@/lib/db/queries/projects';
@@ -178,6 +180,108 @@ export async function projectCatalogueAction(): Promise<{
     listClients(user.id),
   ]);
   return { packages, platforms, clients };
+}
+
+/* ============================================================================
+ * WHO IS ACCOUNTABLE — owner request 2026-08-19
+ * ----------------------------------------------------------------------------
+ * *"who is managing this project, who is responsible for any blunder, who is
+ * responsible for delaying the project."*
+ *
+ * ── ⚠️ NAMING SOMEBODY ALSO GRANTS THEM SIGHT OF THE PROJECT ─────────────────
+ * `app.project_is_visible` consults `project_members` (migration 033), so this is
+ * not merely a label — it is an access grant. That is the point: before it,
+ * somebody assigned to a project with no task on it could not see the project
+ * they were accountable for. It also means removing a member REMOVES access, so
+ * both directions are audited.
+ * ========================================================================= */
+
+const PROJECT_ROLES = [
+  'manager',
+  'content',
+  'design',
+  'development',
+  'ads',
+  'video',
+  'other',
+] as const;
+
+export async function addProjectMemberAction(
+  projectId: string,
+  userId: string,
+  role: string,
+): Promise<ProjectActionResult> {
+  const user = await requireUser();
+
+  /* Coordinator+ — the same floor as `projects_update` and the RLS policy on
+     `project_members`. The database refuses it either way; this exists so the
+     answer is a sentence rather than a caught exception. */
+  if (!can({ role: user.role, id: user.id }, 'project.edit')) {
+    return fail('Only a Team Coordinator or above can change who is on a project.');
+  }
+  if (!projectId || !userId) return fail('Choose somebody to add.');
+
+  /* Validated against the list rather than cast: the value comes from a form and
+     Postgres would refuse an unknown enum member as `22P02`, which is not a
+     sentence anybody can act on. */
+  const chosen = (PROJECT_ROLES as readonly string[]).includes(role) ? role : 'other';
+
+  const project = await getProject(user.id, projectId);
+  if (!project) return fail('That project is not available.');
+
+  try {
+    await addProjectMember(user.id, { projectId, userId, role: chosen });
+  } catch {
+    return fail('That person could not be added.');
+  }
+
+  await withUser(user.id, (tx) =>
+    record(tx, user.id, {
+      entityType: 'project',
+      entityId: projectId,
+      action: 'member_added',
+      summary: `added somebody to ${project.name}`,
+      after: { userId, role: chosen },
+    }),
+  ).catch(() => console.error('[projects] member add was not recorded in the activity log'));
+
+  revalidatePath(`/projects/${projectId}`);
+  revalidatePath('/projects');
+  return { ok: true, projectId };
+}
+
+export async function removeProjectMemberAction(
+  projectId: string,
+  userId: string,
+): Promise<ProjectActionResult> {
+  const user = await requireUser();
+
+  if (!can({ role: user.role, id: user.id }, 'project.edit')) {
+    return fail('Only a Team Coordinator or above can change who is on a project.');
+  }
+
+  const project = await getProject(user.id, projectId);
+  if (!project) return fail('That project is not available.');
+
+  const removed = await removeProjectMember(user.id, projectId, userId);
+  if (!removed) return fail('They were not on this project.');
+
+  await withUser(user.id, (tx) =>
+    record(tx, user.id, {
+      entityType: 'project',
+      entityId: projectId,
+      action: 'member_removed',
+      summary: `removed somebody from ${project.name}`,
+      /* ⚠️ Recorded because this REVOKES access as well as accountability — see
+         the note above. A silent removal would take away someone's sight of a
+         project with no trace of who did it. */
+      before: { userId },
+    }),
+  ).catch(() => console.error('[projects] member removal was not recorded'));
+
+  revalidatePath(`/projects/${projectId}`);
+  revalidatePath('/projects');
+  return { ok: true, projectId };
 }
 
 export async function createProjectAction(

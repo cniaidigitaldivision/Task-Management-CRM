@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   ArrowLeft,
   ExternalLink,
@@ -10,7 +11,10 @@ import {
   KeyRound,
   LayoutDashboard,
   Share2,
+  Trash2,
+  UserPlus,
   Users,
+  Loader2,
 } from 'lucide-react';
 
 import type { CredentialRow } from '@/lib/db/queries/credentials';
@@ -23,7 +27,14 @@ import {
   VERDICT_TOKEN,
   projectProgress,
 } from '@/lib/domain/project-progress';
+import {
+  addProjectMemberAction,
+  removeProjectMemberAction,
+} from '@/app/actions/projects';
 import { Badge } from '@/components/ui/badge';
+import { Button, IconButton } from '@/components/ui/button';
+import { Field } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 import { Card, CardBody } from '@/components/ui/card';
 import { ProgressBar } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
@@ -104,6 +115,29 @@ export function ProjectDetailWorkspace({
   canManage: boolean;
 }) {
   const [tab, setTab] = React.useState<Tab>('overview');
+  const router = useRouter();
+
+  /* Team editing state. `busy` holds the id being changed so only that row's
+     control shows a spinner, rather than the whole list freezing. */
+  const [busy, setBusy] = React.useState<string | null>(null);
+  const [note, setNote] = React.useState<string | null>(null);
+  const [adding, setAdding] = React.useState('');
+  const [addingRole, setAddingRole] = React.useState('content');
+
+  /** Run a member change, surface any refusal, and refresh the server data.
+   *  `router.refresh()` rather than local state: membership changes VISIBILITY,
+   *  so the whole page's data can legitimately differ afterwards. */
+  const run = async (id: string, fn: () => Promise<{ ok: boolean; error?: string }>) => {
+    setBusy(id);
+    setNote(null);
+    try {
+      const result = await fn();
+      if (!result.ok) setNote(result.error ?? 'That could not be saved.');
+      else router.refresh();
+    } finally {
+      setBusy(null);
+    }
+  };
 
   const progress = projectProgress({
     assetsPublished: project.assetsPublishedThisMonth,
@@ -348,11 +382,19 @@ export function ProjectDetailWorkspace({
           <CardBody className="space-y-3 p-4">
             <p className="text-body-sm font-semibold text-text-primary">Who is accountable</p>
 
+            {/* ⚠️ Naming somebody here also GRANTS THEM SIGHT of the project —
+                `app.project_is_visible` consults this table (migration 033). So
+                the copy says so, because a control that silently changes access
+                is one people use without realising what they did. */}
+            <p className="text-micro text-text-tertiary">
+              Anyone named here can see this project even before they hold a task on it, and is
+              who a report names when it is late.
+            </p>
+
             {members.length === 0 ? (
               <p className="text-caption text-text-secondary">
                 Nobody named yet. Until somebody is, &ldquo;who is responsible for this
                 project&rdquo; can only be guessed from who happens to hold a task on it.
-                {canManage && ' Naming people here also lets them see the project before they have a task.'}
               </p>
             ) : (
               <ul className="divide-y divide-border-subtle">
@@ -361,23 +403,109 @@ export function ProjectDetailWorkspace({
                     <span className="min-w-0 flex-1 truncate text-body-sm text-text-primary">
                       {m.fullName}
                     </span>
-                    <Badge token="accent-primary" size="sm" variant="outline">
-                      {PROJECT_ROLE_LABEL[m.projectRole] ?? m.projectRole}
-                    </Badge>
+
+                    {canManage ? (
+                      <Select
+                        aria-label={`${m.fullName}'s role on this project`}
+                        value={m.projectRole}
+                        disabled={busy !== null}
+                        options={Object.entries(PROJECT_ROLE_LABEL).map(([value, label]) => ({
+                          value,
+                          label,
+                        }))}
+                        onChange={(event) =>
+                          void run(m.userId, () =>
+                            addProjectMemberAction(project.id, m.userId, event.target.value),
+                          )
+                        }
+                      />
+                    ) : (
+                      <Badge token="accent-primary" size="sm" variant="outline">
+                        {PROJECT_ROLE_LABEL[m.projectRole] ?? m.projectRole}
+                      </Badge>
+                    )}
+
                     {m.addedByName && (
                       <span className="text-micro text-text-tertiary">
                         added by {m.addedByName}
                       </span>
+                    )}
+
+                    {canManage && (
+                      <IconButton
+                        variant="deleteGhost"
+                        size="sm"
+                        label={`Remove ${m.fullName} from this project`}
+                        icon={Trash2}
+                        disabled={busy !== null}
+                        onClick={() =>
+                          void run(m.userId, () =>
+                            removeProjectMemberAction(project.id, m.userId),
+                          )
+                        }
+                      />
                     )}
                   </li>
                 ))}
               </ul>
             )}
 
-            {canManage && people.length > 0 && (
-              <p className="text-micro text-text-tertiary">
-                Adding and removing people is not wired to this screen yet — the table and the
-                access rules exist, the control does not.
+            {canManage && (
+              <div className="flex flex-wrap items-end gap-2 border-t border-border-subtle pt-3">
+                <Field label="Add somebody" htmlFor="addMember" className="basis-56 grow">
+                  <Select
+                    id="addMember"
+                    value={adding}
+                    disabled={busy !== null}
+                    options={[
+                      { value: '', label: 'Choose a person…' },
+                      /* Already-named people are excluded: changing their role is
+                         what the row's own dropdown is for, and offering them
+                         here would look like a way to add them twice. */
+                      ...people
+                        .filter((p) => !members.some((m) => m.userId === p.id))
+                        .map((p) => ({ value: p.id, label: p.name })),
+                    ]}
+                    onChange={(event) => setAdding(event.target.value)}
+                  />
+                </Field>
+
+                <Field label="As" htmlFor="addMemberRole" className="basis-40">
+                  <Select
+                    id="addMemberRole"
+                    value={addingRole}
+                    disabled={busy !== null}
+                    options={Object.entries(PROJECT_ROLE_LABEL).map(([value, label]) => ({
+                      value,
+                      label,
+                    }))}
+                    onChange={(event) => setAddingRole(event.target.value)}
+                  />
+                </Field>
+
+                <Button
+                  variant="secondary"
+                  size="md"
+                  disabled={busy !== null || !adding}
+                  onClick={() => {
+                    const id = adding;
+                    setAdding('');
+                    void run(id, () => addProjectMemberAction(project.id, id, addingRole));
+                  }}
+                >
+                  {busy === adding && adding ? (
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                  ) : (
+                    <UserPlus className="h-4 w-4" strokeWidth={2.25} aria-hidden="true" />
+                  )}
+                  Add
+                </Button>
+              </div>
+            )}
+
+            {note && (
+              <p className="text-caption" style={{ color: 'var(--feedback-error)' }}>
+                {note}
               </p>
             )}
           </CardBody>
