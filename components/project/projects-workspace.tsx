@@ -186,8 +186,18 @@ export function ProjectsWorkspace({
                       size="lg"
                     />
                     <div className="min-w-0 flex-1">
+                      {/* ⚠️ THE NAME IS NOW A LINK. Owner, 2026-08-19: clicking a
+                          project did nothing at all, because there was no page to
+                          go to. A `Link` rather than an onClick so it opens in a new
+                          tab with a middle-click and can be copied — a project page
+                          is a destination somebody sends to a colleague. */}
                       <h3 className="truncate text-body font-semibold text-text-primary">
-                        {project.name}
+                        <Link
+                          href={`/projects/${project.id}`}
+                          className="hover:text-text-brand hover:underline focus-visible:outline-none"
+                        >
+                          {project.name}
+                        </Link>
                       </h3>
                       <div className="mt-1 flex flex-wrap items-center gap-1.5">
                         <Badge token={meta.token} size="sm">
