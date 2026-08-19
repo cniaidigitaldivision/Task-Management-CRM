@@ -6,6 +6,7 @@ import { requireUser } from '@/lib/auth/current-user';
 import { getDriveSync, listDocuments, listDraftProjects } from '@/lib/db/queries/documents';
 import { connectionStatus } from '@/lib/db/queries/drive';
 import { listFolders } from '@/lib/db/queries/drive-folders';
+import { listLibraryDocuments } from '@/lib/db/queries/library';
 import { listProjects } from '@/lib/db/queries/projects';
 import { can } from '@/lib/domain/permissions';
 import { describeDrive } from '@/lib/drive/client';
@@ -85,7 +86,7 @@ export default async function DocumentsPage({
   const canShare = can(actor, 'document.share');
   const drive = describeDrive();
 
-  const [documents, projects, sync, drafts, connection, folders] = await Promise.all([
+  const [documents, projects, sync, drafts, connection, folders, library] = await Promise.all([
     listDocuments(user.id),
     listProjects(user.id),
     /* Both are Admin+ by policy, so they are only read for somebody who may see
@@ -102,6 +103,9 @@ export default async function DocumentsPage({
        a document is visible to them, and to pick one to upload into. What a
        Member may DO with it is decided by `canShare` below. */
     listFolders(user.id),
+    /* The company's own material. Read for every role — the whole point is that
+       anybody can find the rate card. */
+    listLibraryDocuments(user.id),
   ]);
 
   const pending = documents.filter((d) => d.state === 'pending').length;
@@ -168,6 +172,7 @@ export default async function DocumentsPage({
         canConfigure={canConfigure}
         canShare={canShare}
         folders={folders}
+        library={library}
         drive={{
           configured: drive.configured,
           connected: connection.connected,

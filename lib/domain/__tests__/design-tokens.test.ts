@@ -290,6 +290,96 @@ describe('the task board measures its spacing instead of assuming it', () => {
   });
 });
 
+/* ============================================================================
+ * ⚠️ NO CLIENT COMPONENT MAY IMPORT A VALUE FROM A `server-only` MODULE
+ * ----------------------------------------------------------------------------
+ * `lib/db/queries/*` begins with `import 'server-only'`, whose entry point throws
+ * if it reaches a client bundle. A `import type` is erased and harmless; a VALUE
+ * import is not, and it fails at PRODUCTION BUILD time with:
+ *
+ *     You're importing a module that depends on "server-only"
+ *
+ * — which means `npm run dev` and `tsc` both pass and the break appears only when
+ * you build. It has now happened twice: `lib/domain/folder-access.ts` and
+ * `lib/domain/library.ts` both exist because of it.
+ *
+ * This catches it in a second rather than in a build.
+ * ========================================================================= */
+
+describe('client components never import values from server-only modules', () => {
+  /** Every `import … from '@/lib/db/queries/…'` inside a `use client` file. */
+  const queryImports = () => {
+    const found: { file: string; clause: string }[] = [];
+    for (const file of filesUnder(join(ROOT, 'components'), ['.tsx'])) {
+      const source = readFileSync(file, 'utf8');
+      if (!/^\s*['"]use client['"]/m.test(source)) continue;
+      for (const statement of source.match(/^import\b[\s\S]*?;/gm) ?? []) {
+        if (!/from\s*['"]@\/lib\/db\/queries\//.test(statement)) continue;
+        found.push({
+          file: file.slice(ROOT.length + 1),
+          clause: statement
+            .replace(/^import\s+/, '')
+            .replace(/\s+from\s*['"][^'"]+['"];$/, '')
+            .trim(),
+        });
+      }
+    }
+    return found;
+  };
+
+  it('actually finds the imports it is meant to police', () => {
+    /* ⚠️ Guards against a VACUOUS PASS. If the statement regex ever stops
+       matching — a formatting change, a missing semicolon — the real test below
+       would report zero offenders out of zero imports and look like success. */
+    expect(queryImports().length).toBeGreaterThan(0);
+  });
+
+  it('has no value import from lib/db/queries in a "use client" file', () => {
+    const offenders: string[] = [];
+
+    for (const file of filesUnder(join(ROOT, 'components'), ['.tsx'])) {
+      const source = readFileSync(file, 'utf8');
+      /* Only files that actually run in the browser. */
+      if (!/^\s*['"]use client['"]/m.test(source)) continue;
+
+      /* ⚠️ ONE STATEMENT AT A TIME. The first attempt matched
+         `import\s+([\s\S]*?)from ['"]@/lib/db/queries/…` and reported 22 files —
+         every one a false positive, because the lazy `[\s\S]*?` happily spanned
+         from an earlier `import * as React` all the way to the queries import
+         several statements later. Statements are isolated first, then examined. */
+      for (const statement of source.match(/^import\b[\s\S]*?;/gm) ?? []) {
+        if (!/from\s*['"]@\/lib\/db\/queries\//.test(statement)) continue;
+
+        const clause = statement
+          .replace(/^import\s+/, '')
+          .replace(/\s+from\s*['"][^'"]+['"];$/, '')
+          .trim();
+
+        /* `import type { … }` — erased at compile time, always safe. */
+        if (/^type\b/.test(clause)) continue;
+
+        /* `import { type A, type B }` — every named binding is a type, so the
+           whole import is erased too. Anything without `type` is a value. */
+        const inner = /\{([\s\S]*)\}/.exec(clause)?.[1];
+        if (inner) {
+          const names = inner
+            .split(',')
+            .map((n) => n.trim())
+            .filter(Boolean);
+          if (names.length > 0 && names.every((n) => /^type\b/.test(n))) continue;
+        }
+
+        offenders.push(`${file.slice(ROOT.length + 1)} — ${clause.replace(/\s+/g, ' ')}`);
+      }
+    }
+
+    expect(
+      offenders,
+      'these client components import VALUES from a server-only query module, which breaks the production build. Move the value into lib/domain/ (see lib/domain/library.ts)',
+    ).toEqual([]);
+  });
+});
+
 describe('the typography utilities the control scale depends on', () => {
   it('are all defined in globals.css', () => {
     const css = readFileSync(join(ROOT, 'app', 'globals.css'), 'utf8');

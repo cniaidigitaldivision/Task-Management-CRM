@@ -9,6 +9,7 @@ import {
   ExternalLink,
   Eye,
   FileUp,
+  BookOpen,
   Folder as FolderIcon,
   Loader2,
   RefreshCw,
@@ -31,6 +32,7 @@ import {
 import type { DocumentRow } from '@/lib/db/queries/documents';
 import type { DriveSyncRow } from '@/lib/db/queries/documents';
 import type { DriveFolderRow } from '@/lib/db/queries/drive-folders';
+import type { LibraryDocumentRow } from '@/lib/db/queries/library';
 import { ACCESS_META, accessAtLeast } from '@/lib/domain/folder-access';
 import { Badge } from '@/components/ui/badge';
 import { Button, IconButton } from '@/components/ui/button';
@@ -43,6 +45,7 @@ import { ToggleGroup, Toolbar, ToolbarGroup, ToolbarLabel, ToolbarSpacer } from 
 import { cn } from '@/lib/utils';
 
 import { FolderBrowser } from './folder-browser';
+import { LibraryPanel } from './library-panel';
 
 /* ============================================================================
  * DOCUMENTS — owner request 2026-08-13
@@ -70,7 +73,7 @@ const FILTER_LABEL: Record<Filter, string> = {
   all: 'Everything',
 };
 
-type Tab = 'folders' | 'approvals' | 'settings';
+type Tab = 'folders' | 'approvals' | 'library' | 'settings';
 
 /* ⚠️ ORDER IS THE ORDER OF USE, not of importance. Browsing folders is the daily
    job, so it is first and is the default; approvals are frequent but occasional;
@@ -84,6 +87,7 @@ const TABS: ReadonlyArray<{
 }> = [
   { key: 'folders', label: 'Folders & files', icon: FolderIcon },
   { key: 'approvals', label: 'Register & approvals', icon: CheckCircle2 },
+  { key: 'library', label: 'Company library', icon: BookOpen },
   { key: 'settings', label: 'Drive settings', icon: Settings, adminOnly: true },
 ];
 
@@ -95,6 +99,7 @@ export function DocumentsWorkspace({
   canConfigure,
   canShare,
   folders,
+  library,
   drive,
 }: {
   documents: readonly DocumentRow[];
@@ -106,6 +111,8 @@ export function DocumentsWorkspace({
    *  any folder rather than only the shared ones. */
   canShare: boolean;
   folders: readonly DriveFolderRow[];
+  /** The agency's own reference material — migration 035. */
+  library: readonly LibraryDocumentRow[];
   drive: {
     configured: boolean;
     connected: boolean;
@@ -284,6 +291,13 @@ export function DocumentsWorkspace({
               router.refresh();
             }}
           />
+        </div>
+      )}
+
+      {/* ---- COMPANY LIBRARY ----------------------------------------------- */}
+      {activeTab === 'library' && (
+        <div role="tabpanel" id="documents-panel-library" aria-labelledby="documents-tab-library">
+          <LibraryPanel documents={library} />
         </div>
       )}
 
