@@ -2,7 +2,17 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { AlertTriangle, Loader2 } from 'lucide-react';
+import {
+  AlertTriangle,
+  Building,
+  CalendarRange,
+  FileText,
+  Handshake,
+  Loader2,
+  Megaphone,
+  Package,
+  Tent,
+} from 'lucide-react';
 
 import {
   createProjectAction,
@@ -10,10 +20,12 @@ import {
   type ProjectActionResult,
 } from '@/app/actions/projects';
 import { Button } from '@/components/ui/button';
+import { ChoiceCards } from '@/components/ui/choice-card';
 import { Dialog } from '@/components/ui/dialog';
 import { Field, Input, Textarea } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { ToggleGroup } from '@/components/ui/toolbar';
+import { cn } from '@/lib/utils';
 import type { ProjectRow } from '@/lib/db/queries/types';
 
 import { PackageFields } from './package-fields';
@@ -121,6 +133,101 @@ const TYPE_FIELD_FORMS: Record<
    the `projects_dates_ordered` constraint carry on reading two dates. */
 type EventDuration = 'single' | 'multi';
 
+/* ── The type cards (owner request 2026-08-19) ────────────────────────────────
+   *"The form just looks like plain blank paper… make it something very intriguing
+   and very interesting to fill out."*
+
+   The type was a `<select>`, which is the wrong control for the most consequential
+   answer on the form: it decides which questions get asked AND the reference prefix
+   every task in the project carries for ever. Hiding four of five options behind a
+   click made a permanent decision feel like a formality.
+
+   `PROJECT_TYPE_META` already names an icon and a colour token per type — they were
+   being used by the board and the badges and not here. These map its icon NAMES to
+   the real components, because the meta lives in `lib/domain/` and may not import
+   React (doc 20 §1). */
+const TYPE_ICONS: Record<ProjectType, React.ComponentType<{ className?: string; strokeWidth?: number }>> = {
+  client: Handshake,
+  event: Tent,
+  business: Building,
+  self_promotion: Megaphone,
+  other: Package,
+};
+
+/** One line each, so the cards answer "which one is mine?" without a manual. */
+const TYPE_HINTS: Record<ProjectType, string> = {
+  client: 'Paid work for somebody outside the division',
+  event: 'Has a date it must be ready for',
+  business: 'Internal build — a site, a system, a deck',
+  self_promotion: "The division's own marketing",
+  other: 'Anything that is not really a project',
+};
+
+/* ----------------------------------------------------------------------------
+ * A SECTION PLATE
+ * ----------------------------------------------------------------------------
+ * The form was one flat column of twenty fields in a single scroll — the "blank
+ * paper" the owner described. It is the same twenty fields; what changed is that
+ * they are now grouped, numbered and led by an icon, so the reader always knows
+ * which of four questions they are answering and how much is left.
+ *
+ * Numbered rather than merely titled: a count is what turns a wall into a sequence,
+ * and it is the cheapest possible progress indicator. A real wizard was considered
+ * and rejected — hiding step 1 while step 3 is open unmounts its inputs, so either
+ * they vanish from the submitted FormData or `required` fires on a field the browser
+ * cannot scroll to ("not focusable"). One form, four plates, no traps.
+ * ------------------------------------------------------------------------- */
+function Section({
+  step,
+  total,
+  title,
+  hint,
+  icon: Icon,
+  children,
+  className,
+}: {
+  step: number;
+  total: number;
+  title: string;
+  hint?: string;
+  icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <section className={cn('space-y-3', className)}>
+      <div className="flex items-start gap-2.5">
+        <span
+          aria-hidden="true"
+          className="grid h-7 w-7 shrink-0 place-items-center rounded-lg"
+          style={{
+            backgroundColor:
+              'color-mix(in oklab, var(--accent-primary) var(--tint-medium), var(--bg-surface))',
+            color: 'var(--accent-primary)',
+          }}
+        >
+          <Icon className="h-4 w-4" strokeWidth={2} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h3 className="flex flex-wrap items-baseline gap-x-2 text-body-sm font-semibold text-text-primary">
+            {title}
+            <span className="text-micro font-medium tabular-nums text-text-tertiary">
+              {step} of {total}
+            </span>
+          </h3>
+          {hint && <p className="mt-0.5 text-micro text-text-secondary">{hint}</p>}
+        </div>
+      </div>
+      {/* The rail runs down the centre of the 28px icon tile (14px in) and the
+          content resumes at 38px — the icon's width plus the 10px gap above — so
+          the fields line up with the heading rather than with the number. */}
+      <div className="ml-[14px] space-y-3 border-l border-border-subtle pl-[24px]">
+        {children}
+      </div>
+    </section>
+  );
+}
+
 export function ProjectDialog({
   open,
   onClose,
@@ -171,6 +278,12 @@ export function ProjectDialog({
     project?.startDate ?? (isEdit ? '' : today),
   );
 
+  /* The live reference preview needs the name as it is typed, so this one field is
+     controlled where the rest are `defaultValue`. Worth the exception: watching
+     "CLI-101 · ABC Traders" assemble itself is the difference between filling in a
+     form and building something. */
+  const [name, setName] = React.useState(project?.name ?? '');
+
   React.useEffect(() => {
     if (state.ok) {
       router.refresh();
@@ -185,9 +298,13 @@ export function ProjectDialog({
       title={isEdit ? `Edit ${project?.name}` : 'New project'}
       description={
         isEdit
-          ? 'The type is fixed once tasks carry its reference prefix.'
-          : 'The type decides what the form asks for, and the reference prefix every task in it will carry.'
+          ? 'Four sections. The type is fixed once tasks carry its reference prefix.'
+          : 'Four short sections. Only the name is required — everything else can be filled in later.'
       }
+      /* `lg`, up from the default `md`. The type and package pickers are
+         three-column card grids; at max-w-2xl the cards wrapped to one per row and
+         lost the side-by-side comparison that is the whole reason they are cards. */
+      size="lg"
       footer={
         <>
           <Button type="button" variant="ghost" size="md" onClick={onClose} disabled={pending}>
@@ -200,7 +317,10 @@ export function ProjectDialog({
         </>
       }
     >
-      <form id="project-form" action={formAction} className="space-y-4">
+      {/* `space-y-6` between plates and `space-y-3` inside them — the sections have
+          to read as separate questions rather than as one continuous list, which is
+          what the flat `space-y-4` produced. */}
+      <form id="project-form" action={formAction} className="space-y-6">
         {isEdit && <input type="hidden" name="projectId" value={project?.id} />}
         {isEdit && <input type="hidden" name="type" value={project?.type} />}
 
@@ -224,88 +344,139 @@ export function ProjectDialog({
           </div>
         )}
 
-        <Field label="Project name" htmlFor="name">
-          <Input
-            id="name"
-            name="name"
-            defaultValue={project?.name ?? ''}
-            placeholder="Expo Karachi — Oct 2026"
-            required
-            autoFocus
-          />
-        </Field>
+        {/* ── The masthead ─────────────────────────────────────────────────────
+            A brand-tinted strip carrying the reference that is being created. It
+            exists because the reference prefix is permanent and was previously only
+            described in a hint nobody reads — here it assembles as you choose, so
+            the consequence of the type is visible at the moment you pick it. */}
+        <div
+          className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl px-3.5 py-3"
+          style={{
+            backgroundColor:
+              'color-mix(in oklab, var(--accent-primary) var(--tint-soft), var(--bg-surface))',
+            border: '1px solid color-mix(in oklab, var(--accent-primary) 20%, transparent)',
+          }}
+        >
+          <span
+            className="rounded-md px-2 py-1 text-caption font-semibold tracking-[0.04em] tabular-nums"
+            style={{
+              backgroundColor: `var(--${PROJECT_TYPE_META[type].token})`,
+              color: 'var(--text-on-brand)',
+            }}
+          >
+            {PROJECT_TYPE_META[type].code}-101
+          </span>
+          <span className="min-w-0 flex-1 truncate text-body-sm font-semibold text-text-primary">
+            {name.trim() || (
+              <span className="font-normal text-text-tertiary">Name it below…</span>
+            )}
+          </span>
+          <span className="text-micro text-text-tertiary">
+            every task here will carry {PROJECT_TYPE_META[type].code}-
+          </span>
+        </div>
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          {!isEdit && (
-            <Field
-              label="Type"
-              htmlFor="type"
-              hint={`References will read ${PROJECT_TYPE_META[type].code}-101, ${PROJECT_TYPE_META[type].code}-102…`}
-            >
-              <Select
-                size="md"
-                id="type"
-                name="type"
-                value={type}
-                onChange={(event) => setType(event.target.value as ProjectType)}
-                required
-              >
-                {PROJECT_TYPES.map((option) => (
-                  <option key={option} value={option}>
-                    {PROJECT_TYPE_META[option].label} ({PROJECT_TYPE_META[option].code})
+        <Section
+          step={1}
+          total={4}
+          title="What kind of work is this?"
+          hint={
+            isEdit
+              ? 'The type is fixed once tasks carry its reference prefix.'
+              : 'This decides what the rest of the form asks — and the prefix every task keeps for ever.'
+          }
+          icon={TYPE_ICONS[type]}
+        >
+          {!isEdit ? (
+            <ChoiceCards
+              ariaLabel="Project type"
+              name="type"
+              value={type}
+              onChange={(next) => setType(next as ProjectType)}
+              columns={3}
+              choices={PROJECT_TYPES.map((option) => ({
+                value: option,
+                label: PROJECT_TYPE_META[option].label,
+                meta: PROJECT_TYPE_META[option].code,
+                hint: TYPE_HINTS[option],
+                icon: TYPE_ICONS[option],
+                token: PROJECT_TYPE_META[option].token,
+              }))}
+            />
+          ) : (
+            <p className="text-caption text-text-secondary">
+              {PROJECT_TYPE_META[type].label} · references read {PROJECT_TYPE_META[type].code}-101
+            </p>
+          )}
+
+          <Field label="Project name" htmlFor="name">
+            <Input
+              id="name"
+              name="name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="Expo Karachi — Oct 2026"
+              required
+              autoFocus
+            />
+          </Field>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            {/* "Lead", not "Owner" — owner instruction, Session 20: *"so it is
+                easily understandable who is leading the project."* Label only; the
+                column stays `owner_id` and nothing downstream changes. */}
+            <Field label="Lead" htmlFor="ownerId" hint="Who is leading this project.">
+              <Select size="md" id="ownerId" name="ownerId" defaultValue={project?.ownerId ?? ''}>
+                <option value="">You</option>
+                {people.map((person) => (
+                  <option key={person.id} value={person.id}>
+                    {person.name}
                   </option>
                 ))}
               </Select>
             </Field>
-          )}
 
-          <Field label="Status" htmlFor="status">
-            <Select
-              size="md"
-              id="status"
-              name="status"
-              value={status}
-              onChange={(event) => setStatus(event.target.value as ProjectStatus)}
+            <Field label="Status" htmlFor="status">
+              <Select
+                size="md"
+                id="status"
+                name="status"
+                value={status}
+                onChange={(event) => setStatus(event.target.value as ProjectStatus)}
+              >
+                {PROJECT_STATUSES.map((option) => (
+                  <option key={option} value={option}>
+                    {option.replace('_', ' ').replace(/^./, (c) => c.toUpperCase())}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          </div>
+
+          {needsReason && (
+            <Field
+              label={status === 'on_hold' ? 'Why is it on hold?' : 'Why was it cancelled?'}
+              htmlFor="statusReason"
+              hint="Required. The database refuses the row without it — work does not stop silently."
             >
-              {PROJECT_STATUSES.map((option) => (
-                <option key={option} value={option}>
-                  {option.replace('_', ' ').replace(/^./, (c) => c.toUpperCase())}
-                </option>
-              ))}
-            </Select>
-          </Field>
+              <Textarea
+                id="statusReason"
+                name="statusReason"
+                rows={2}
+                defaultValue={project?.statusReason ?? ''}
+                required
+              />
+            </Field>
+          )}
+        </Section>
 
-          {/* "Lead", not "Owner" — owner instruction, Session 20: *"so it is
-              easily understandable who is leading the project."* Label only; the
-              column stays `owner_id` and nothing downstream changes. */}
-          <Field label="Lead" htmlFor="ownerId" hint="Who is leading this project.">
-            <Select size="md" id="ownerId" name="ownerId" defaultValue={project?.ownerId ?? ''}>
-              <option value="">You</option>
-              {people.map((person) => (
-                <option key={person.id} value={person.id}>
-                  {person.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        </div>
-
-        {needsReason && (
-          <Field
-            label={status === 'on_hold' ? 'Why is it on hold?' : 'Why was it cancelled?'}
-            htmlFor="statusReason"
-            hint="Required. The database refuses the row without it — work does not stop silently."
-          >
-            <Textarea
-              id="statusReason"
-              name="statusReason"
-              rows={2}
-              defaultValue={project?.statusReason ?? ''}
-              required
-            />
-          </Field>
-        )}
-
+        <Section
+          step={2}
+          total={4}
+          title="When does it run?"
+          hint="All optional — but the calendar and the workload window both read these."
+          icon={CalendarRange}
+        >
         {/* Same rule as the task form (CHANGE-PLAN 3.1): start pre-filled with
             now, end left empty. `type="time"` uses the browser's own picker, so
             AM/PM appears on a 12-hour locale without the form choosing for
@@ -383,39 +554,42 @@ export function ProjectDialog({
           </Field>
         </div>
 
-        <Field label="Description" htmlFor="description">
-          <Textarea
-            id="description"
-            name="description"
-            rows={2}
-            defaultValue={project?.description ?? ''}
-          />
-        </Field>
+        </Section>
 
         {/* ---- What we sold them (owner request 2026-08-19) ----
             The commercial shape: internal/external, client, package, and the
             targets the package suggests and the owner then adjusts. */}
-        <PackageFields
-          initial={{
-            clientKind: project?.clientKind ?? null,
-            clientId: project?.clientId ?? null,
-            packageId: project?.packageId ?? null,
-            monthlyFeePkr: project?.monthlyFeePkr ?? null,
-            assetsTargetMin: project?.assetsTargetMin ?? null,
-            assetsTargetMax: project?.assetsTargetMax ?? null,
-            reelsTargetMin: project?.reelsTargetMin ?? null,
-            renewsOn: project?.renewsOn ?? null,
-            platformIds: project?.platforms.map((p) => p.id) ?? [],
-          }}
-        />
+        <Section
+          step={3}
+          total={4}
+          title="What was sold"
+          hint="The package fills these in; what you save is what this client was promised."
+          icon={Handshake}
+        >
+          <PackageFields
+            initial={{
+              clientKind: project?.clientKind ?? null,
+              clientId: project?.clientId ?? null,
+              packageId: project?.packageId ?? null,
+              monthlyFeePkr: project?.monthlyFeePkr ?? null,
+              assetsTargetMin: project?.assetsTargetMin ?? null,
+              assetsTargetMax: project?.assetsTargetMax ?? null,
+              reelsTargetMin: project?.reelsTargetMin ?? null,
+              renewsOn: project?.renewsOn ?? null,
+              platformIds: project?.platforms.map((p) => p.id) ?? [],
+            }}
+          />
+        </Section>
 
         {/* ---- The type-specific half of the form (doc 15 §3) ---- */}
-        <fieldset className="space-y-4 rounded-xl border border-border-subtle bg-bg-surface-sunken p-4">
-          <legend className="px-1 text-micro font-semibold tracking-[0.08em] text-text-tertiary uppercase">
-            {PROJECT_TYPE_META[type].label} details
-          </legend>
-
-          <div className="grid gap-4 sm:grid-cols-2">
+        <Section
+          step={4}
+          total={4}
+          title={`${PROJECT_TYPE_META[type].label} details`}
+          hint={`The questions only a ${PROJECT_TYPE_META[type].label.toLowerCase()} project needs.`}
+          icon={FileText}
+        >
+          <div className="grid gap-3 sm:grid-cols-2">
             {fields.map((field) => (
               <Field key={field.name} label={field.label} htmlFor={field.name} hint={field.hint}>
                 {field.options ? (
@@ -444,7 +618,21 @@ export function ProjectDialog({
               </Field>
             ))}
           </div>
-        </fieldset>
+
+          <Field
+            label="Description"
+            htmlFor="description"
+            hint="Optional. What it is for, in a sentence."
+          >
+            <Textarea
+              id="description"
+              name="description"
+              rows={2}
+              placeholder="Monthly social retainer — two platforms, reels weekly."
+              defaultValue={project?.description ?? ''}
+            />
+          </Field>
+        </Section>
       </form>
     </Dialog>
   );
