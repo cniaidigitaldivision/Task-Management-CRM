@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { FolderPlus, LayoutGrid, Package, Pencil, Rows3 } from 'lucide-react';
+import { ChevronRight, FolderPlus, LayoutGrid, Package, Pencil, Rows3 } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button, IconButton } from '@/components/ui/button';
@@ -177,7 +177,17 @@ export function ProjectsWorkspace({
             const isClosed = ['completed', 'archived', 'cancelled'].includes(project.status);
 
             return (
-              <Card key={project.id} className={isClosed ? 'opacity-75' : undefined}>
+              <Card
+                key={project.id}
+                /* `group/card` + `relative` so the stretched link below can cover the
+                   whole card and the hover state can respond to it. */
+                className={cn(
+                  'group/card relative transition-[border-color,box-shadow,transform] duration-[160ms]',
+                  'hover:-translate-y-px hover:border-border-strong hover:shadow-md',
+                  'focus-within:border-border-strong',
+                  isClosed && 'opacity-75',
+                )}
+              >
                 <CardBody className="space-y-3.5 p-4">
                   <div className="flex items-start gap-3">
                     <IconTile
@@ -186,15 +196,30 @@ export function ProjectsWorkspace({
                       size="lg"
                     />
                     <div className="min-w-0 flex-1">
-                      {/* ⚠️ THE NAME IS NOW A LINK. Owner, 2026-08-19: clicking a
-                          project did nothing at all, because there was no page to
-                          go to. A `Link` rather than an onClick so it opens in a new
-                          tab with a middle-click and can be copied — a project page
-                          is a destination somebody sends to a colleague. */}
+                      {/* ── ⚠️ THE WHOLE CARD IS THE TARGET, VIA ONE REAL LINK ─────
+                          Owner, 2026-08-19 (second report): *"the project detail is
+                          still not clickable… How can I view their details?"*
+
+                          The name alone was already a link, and that was the bug: a
+                          14px run of text is not a discoverable target, and the only
+                          PROMINENT link on the card said "Open tasks" and went to the
+                          task list — so clicking a project reliably landed somewhere
+                          that was not the project.
+
+                          `after:absolute after:inset-0` stretches this one anchor over
+                          the entire card. Not a wrapping <a> and not an onClick on the
+                          Card: one anchor keeps middle-click, ⌘-click and "copy link"
+                          working, keeps the accessible name as the project's name
+                          rather than the whole card's text, and leaves exactly one
+                          tab stop. Controls that must stay clickable sit above it on
+                          `relative z-10` — see the edit button and the footer links. */}
                       <h3 className="truncate text-body font-semibold text-text-primary">
                         <Link
                           href={`/projects/${project.id}`}
-                          className="hover:text-text-brand hover:underline focus-visible:outline-none"
+                          className={cn(
+                            'after:absolute after:inset-0 after:rounded-[inherit] after:content-[""]',
+                            'group-hover/card:text-text-brand focus-visible:outline-none',
+                          )}
                         >
                           {project.name}
                         </Link>
@@ -217,13 +242,16 @@ export function ProjectsWorkspace({
                         )}
                       </div>
                     </div>
+                    {/* Above the stretched link, or the card swallows the click. */}
                     {canManage && (
-                      <IconButton
-                        label={`Edit ${project.name}`}
-                        icon={Pencil}
-                        size="sm"
-                        onClick={() => setEditing(project)}
-                      />
+                      <span className="relative z-10 shrink-0">
+                        <IconButton
+                          label={`Edit ${project.name}`}
+                          icon={Pencil}
+                          size="sm"
+                          onClick={() => setEditing(project)}
+                        />
+                      </span>
                     )}
                   </div>
 
@@ -305,12 +333,32 @@ export function ProjectsWorkspace({
                         {project.overdueTaskCount} late
                       </span>
                     )}
-                    <Link
-                      href={`/tasks?project=${project.id}`}
-                      className="ml-auto text-micro font-semibold text-text-brand hover:underline"
-                    >
-                      Open tasks
-                    </Link>
+                    {/* ⚠️ "Open tasks" used to sit here alone, on `ml-auto`, as the
+                        only prominent link on the card — so the obvious thing to
+                        click took you to the task list and never to the project.
+                        It stays, because jumping straight to a project's tasks is
+                        genuinely useful, but it is now clearly the SECOND action and
+                        the primary one names its destination. Both need `z-10` to
+                        sit above the card's stretched link. */}
+                    <span className="relative z-10 ml-auto flex items-center gap-3">
+                      <Link
+                        href={`/tasks?project=${project.id}`}
+                        className="text-micro font-medium text-text-secondary hover:text-text-primary hover:underline"
+                      >
+                        Tasks
+                      </Link>
+                      <Link
+                        href={`/projects/${project.id}`}
+                        className="inline-flex items-center gap-0.5 text-micro font-semibold text-text-brand hover:underline"
+                      >
+                        View details
+                        <ChevronRight
+                          className="h-3.5 w-3.5 transition-transform duration-150 group-hover/card:translate-x-0.5"
+                          strokeWidth={2.5}
+                          aria-hidden="true"
+                        />
+                      </Link>
+                    </span>
                   </div>
                 </CardBody>
               </Card>
@@ -412,8 +460,23 @@ function ProjectTable({
                         style={{ backgroundColor: `var(--${meta.token})` }}
                       />
                       <div className="min-w-0">
-                        <p className="truncate text-body-sm font-medium text-text-primary">
-                          {project.name}
+                        {/* ⚠️ The list view had NO link to the project at all — the
+                            name was a plain <p>. Owner, 2026-08-19: *"In Project
+                            Blogs or a project card, it is not clickable."* The grid
+                            at least linked the name; this did not, so switching to
+                            List made a project unreachable.
+
+                            A link on the name rather than a stretched overlay across
+                            the row: `position: relative` on a <tr> is unreliable
+                            across browsers, and the trailing chevron below gives the
+                            row a second, larger target without betting on it. */}
+                        <p className="truncate text-body-sm font-medium">
+                          <Link
+                            href={`/projects/${project.id}`}
+                            className="text-text-primary hover:text-text-brand hover:underline"
+                          >
+                            {project.name}
+                          </Link>
                         </p>
                         <p className="tabular font-mono text-micro text-text-tertiary">
                           {project.code}
@@ -480,7 +543,7 @@ function ProjectTable({
                     <div className="flex items-center justify-end gap-1">
                       <Link
                         href={`/tasks?project=${project.id}`}
-                        className="inline-flex h-8 items-center rounded-md px-2.5 text-micro font-semibold text-text-brand hover:bg-bg-hover"
+                        className="inline-flex h-8 items-center rounded-md px-2.5 text-micro font-medium text-text-secondary hover:bg-bg-hover hover:text-text-primary"
                       >
                         Tasks
                       </Link>
@@ -492,6 +555,16 @@ function ProjectTable({
                           onClick={() => onEdit(project)}
                         />
                       )}
+                      {/* The row's own way in. An icon-sized target at a predictable
+                          position beats hoping the reader finds the name. */}
+                      <Link
+                        href={`/projects/${project.id}`}
+                        aria-label={`Open ${project.name}`}
+                        title={`Open ${project.name}`}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md text-text-secondary hover:bg-bg-hover hover:text-text-brand"
+                      >
+                        <ChevronRight className="h-4 w-4" strokeWidth={2.25} aria-hidden="true" />
+                      </Link>
                     </div>
                   </td>
                 </tr>
