@@ -99,6 +99,12 @@ const EXPECTED: Readonly<Record<Action, Row>> = {
   'project.soft_delete': ['allow', 'allow', 'deny', 'deny'],
   'project.purge': ['allow', 'deny', 'deny', 'deny'],
   'project.view_all': ['allow', 'allow', 'allow', 'deny'],
+  /* Owner, 2026-08-19: *"this monthly fee or any financial thing should only be
+     visible to super admin and admin only. It will not be visible to any coordinator
+     or anyone else on the team."* Note the Coordinator is DENIED here while being
+     allowed `project.view_all` on the line above — seeing the project is not seeing
+     what it bills. */
+  'project.view_finance': ['allow', 'allow', 'deny', 'deny'],
   'project.view_member_of': ['allow', 'allow', 'allow', 'in_project'],
   'task.create_in_project': ['allow', 'allow', 'allow', 'in_project'],
   'task.promote_other_to_project': ['allow', 'allow', 'deny', 'deny'],

@@ -60,6 +60,14 @@ function toProject(row: Record<string, unknown>): ProjectRow {
     reelsTargetMin: nullableInt(row.reels_target_min),
     renewsOn: dateOnly(row.renews_on),
 
+    staticPostsPerDay: nullableInt(row.static_posts_per_day),
+    reelsPerWeek: nullableInt(row.reels_per_week),
+    /* ⚠️ `?? []` and never `?? null`. A missing weekday array means "none chosen",
+       and every consumer maps over it — a null would be a crash on a project saved
+       before migration 036 backfilled `posting_days`. */
+    reelDays: (row.reel_days as number[] | null)?.map(Number) ?? [],
+    postingDays: (row.posting_days as number[] | null)?.map(Number) ?? [],
+
     platforms: (row.platforms as { id: string; name: string }[] | null) ?? [],
     memberCount: Number(row.member_count ?? 0),
 
@@ -189,6 +197,14 @@ export interface CreateProjectInput {
   readonly assetsTargetMax?: number | null;
   readonly reelsTargetMin?: number | null;
   readonly renewsOn?: string | null;
+
+  /* ── The posting rhythm — migration 036 ───────────────────────────────────
+     What a human actually agrees; the three target figures above are computed
+     from it by `contractTargets()`. ISO weekdays, 1 = Monday … 7 = Sunday. */
+  readonly staticPostsPerDay?: number | null;
+  readonly reelsPerWeek?: number | null;
+  readonly reelDays?: readonly number[];
+  readonly postingDays?: readonly number[];
 }
 
 export async function createProject(
@@ -200,7 +216,8 @@ export async function createProject(
       name, type, code, description, status, status_reason, owner_id,
       start_date, start_time, target_end_date, target_end_time, type_fields, created_by_id,
       client_kind, client_id, package_id, monthly_fee_pkr,
-      assets_target_min, assets_target_max, reels_target_min, renews_on
+      assets_target_min, assets_target_max, reels_target_min, renews_on,
+      static_posts_per_day, reels_per_week, reel_days, posting_days
     ) values (
       ${input.name.trim()},
       ${input.type}::public.project_type,
@@ -222,7 +239,16 @@ export async function createProject(
       ${input.assetsTargetMin ?? null},
       ${input.assetsTargetMax ?? null},
       ${input.reelsTargetMin ?? null},
-      ${input.renewsOn ?? null}
+      ${input.renewsOn ?? null},
+      ${input.staticPostsPerDay ?? null},
+      ${input.reelsPerWeek ?? null},
+      /* ⚠️ Cast explicitly. postgres.js sends a JS array as an untyped parameter
+         and Postgres cannot infer smallint[] from context inside a multi-column
+         VALUES list — it errors with "column reel_days is of type smallint[] but
+         expression is of type text[]". An empty array must also be an empty array
+         and not null: null means "no reel days recorded", [] means "none". */
+      ${input.reelDays ?? null}::smallint[],
+      ${input.postingDays ?? null}::smallint[]
     )
     returning id
   `);
@@ -339,6 +365,14 @@ export interface UpdateProjectInput {
   readonly assetsTargetMax?: number | null;
   readonly reelsTargetMin?: number | null;
   readonly renewsOn?: string | null;
+
+  /* ── The posting rhythm — migration 036 ───────────────────────────────────
+     ISO weekdays, 1 = Monday … 7 = Sunday. The three target figures above are
+     computed from these by `contractTargets()`. */
+  readonly staticPostsPerDay?: number | null;
+  readonly reelsPerWeek?: number | null;
+  readonly reelDays?: readonly number[];
+  readonly postingDays?: readonly number[];
 }
 
 export async function updateProject(
@@ -367,7 +401,13 @@ export async function updateProject(
       assets_target_min = case when ${has('assetsTargetMin')} then ${input.assetsTargetMin ?? null} else assets_target_min end,
       assets_target_max = case when ${has('assetsTargetMax')} then ${input.assetsTargetMax ?? null} else assets_target_max end,
       reels_target_min  = case when ${has('reelsTargetMin')} then ${input.reelsTargetMin ?? null} else reels_target_min end,
-      renews_on         = case when ${has('renewsOn')} then ${input.renewsOn ?? null}::date else renews_on end
+      renews_on         = case when ${has('renewsOn')} then ${input.renewsOn ?? null}::date else renews_on end,
+      static_posts_per_day = case when ${has('staticPostsPerDay')} then ${input.staticPostsPerDay ?? null} else static_posts_per_day end,
+      reels_per_week       = case when ${has('reelsPerWeek')} then ${input.reelsPerWeek ?? null} else reels_per_week end,
+      /* Cast for the same reason as the insert: postgres.js sends a JS array
+         untyped and Postgres will not infer smallint[] here. */
+      reel_days            = case when ${has('reelDays')} then ${input.reelDays ?? null}::smallint[] else reel_days end,
+      posting_days         = case when ${has('postingDays')} then ${input.postingDays ?? null}::smallint[] else posting_days end
     where id = ${projectId}
   `);
 }

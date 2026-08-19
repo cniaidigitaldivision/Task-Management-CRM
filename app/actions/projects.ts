@@ -29,6 +29,7 @@ import {
   type ProjectStatus,
   type ProjectType,
 } from '@/lib/domain/constants';
+import { cadenceProblem, contractTargets, type Cadence } from '@/lib/domain/cadence';
 import { can } from '@/lib/domain/permissions';
 
 /* ============================================================================
@@ -133,19 +134,110 @@ function intOrNull(form: FormData, key: string): number | null {
   return Number.isFinite(value) && value >= 0 ? Math.round(value) : null;
 }
 
+/**
+ * The weekdays ticked under one field name, as ISO numbers.
+ *
+ * ⚠️ Filtered against 1–7 rather than trusted. These arrive from a form and end up
+ * in a `smallint[]` guarded by `app.weekdays_ok`, so a stray value would surface as
+ * a constraint violation the reader cannot interpret. Deduplicated for the same
+ * reason: the constraint refuses repeats, because two reels on one date is not what
+ * "two reels a week" means.
+ */
+function weekdaysFrom(form: FormData, key: string): number[] {
+  const seen = new Set<number>();
+  for (const raw of form.getAll(key)) {
+    const value = Number(String(raw));
+    if (Number.isInteger(value) && value >= 1 && value <= 7) seen.add(value);
+  }
+  return [...seen].sort((a, b) => a - b);
+}
+
+/* ── ⚠️ THE CADENCE IS ENTERED; THE MONTHLY TARGETS ARE COMPUTED ──────────────
+   Owner decision 2026-08-19: a rhythm is agreed — "one static post a day, two reels
+   a week on Monday and Wednesday, Sundays off" — and the monthly figures follow.
+
+   So the form no longer posts `assetsTargetMin` / `assetsTargetMax` /
+   `reelsTargetMin` at all. They are derived here by `contractTargets()` and stored,
+   which keeps every existing report reading exactly the column it already reads
+   while leaving one place for a human to edit.
+
+   Computed at write time rather than on read, deliberately: the monthly total
+   depends on the length of the month as well as the rhythm, and a *contract* figure
+   that shifted with the calendar would mean a client was promised less in February.
+   Migration 036's header carries the full reasoning. */
 function commercialFrom(form: FormData) {
   const kind = str(form, 'clientKind');
+
+  const cadence: Cadence = {
+    staticPostsPerDay: intOrNull(form, 'staticPostsPerDay'),
+    reelsPerWeek: intOrNull(form, 'reelsPerWeek'),
+    reelDays: weekdaysFrom(form, 'reelDays') as Cadence['reelDays'],
+    postingDays: weekdaysFrom(form, 'postingDays') as Cadence['postingDays'],
+  };
+
+  const targets = contractTargets(cadence);
+
   return {
     clientKind: kind === 'internal' || kind === 'external' ? kind : null,
     clientId: str(form, 'clientId') || null,
     packageId: str(form, 'packageId') || null,
     monthlyFeePkr: intOrNull(form, 'monthlyFeePkr'),
-    assetsTargetMin: intOrNull(form, 'assetsTargetMin'),
-    assetsTargetMax: intOrNull(form, 'assetsTargetMax'),
-    reelsTargetMin: intOrNull(form, 'reelsTargetMin'),
-    renewsOn: str(form, 'renewsOn') || null,
+
+    staticPostsPerDay: cadence.staticPostsPerDay,
+    reelsPerWeek: cadence.reelsPerWeek,
+    reelDays: cadence.reelDays,
+    postingDays: cadence.postingDays,
+
+    assetsTargetMin: targets.assetsMin,
+    assetsTargetMax: targets.assetsMax,
+    reelsTargetMin: targets.reelsMin,
+
+    /* `renews_on` is no longer asked for — owner, 2026-08-19: *"Remove this field.
+       We don't need it."* The column stays (dropping it would need a migration for
+       no gain) and is simply never written from the form again. */
   } as const;
 }
+
+/** The same rules the form shows and migration 036 enforces. Checked here because a
+ *  server action is reachable without the form. */
+function cadenceRefusal(form: FormData): string | null {
+  return cadenceProblem({
+    staticPostsPerDay: intOrNull(form, 'staticPostsPerDay'),
+    reelsPerWeek: intOrNull(form, 'reelsPerWeek'),
+    reelDays: weekdaysFrom(form, 'reelDays') as Cadence['reelDays'],
+    postingDays: weekdaysFrom(form, 'postingDays') as Cadence['postingDays'],
+  });
+}
+
+/* ── What the form asks for per type, and must therefore receive ──────────────
+   Owner, 2026-08-19: *"Every field should be compulsory."*
+
+   ⚠️ MUST MATCH `TYPE_FIELD_FORMS` in project-dialog.tsx. A key here that the form
+   does not render makes the form permanently unsubmittable — which is exactly what
+   happened when this was first written against `TYPE_FIELDS` instead, whose
+   `is_billable` and `duration` have no text input.
+
+   The labels are duplicated from the form on purpose: the message a person reads
+   after a refusal has to name the box they are looking at, and importing a client
+   component's constant into a server action is not possible. */
+const REQUIRED_TYPE_FIELDS: Readonly<
+  Record<ProjectType, ReadonlyArray<readonly [string, string]>>
+> = {
+  event: [
+    ['venue', 'Venue'],
+    ['expected_attendance', 'Expected attendance'],
+  ],
+  client: [
+    ['client_name', 'Client name'],
+    ['contract_end', 'Contract end'],
+    ['contact_person', 'Contact person'],
+    ['contact_email', 'Contact email'],
+    ['contact_phone', 'Contact phone'],
+  ],
+  business: [['target_completion', 'Target completion']],
+  self_promotion: [['target_publish_date', 'Target publish date']],
+  other: [['requested_by', 'Who asked for this']],
+};
 
 function collectTypeFields(form: FormData, type: ProjectType): Record<string, unknown> {
   const out: Record<string, unknown> = {};
@@ -307,6 +399,55 @@ export async function createProjectAction(
     return fail('Putting a project on hold or cancelling it requires a written reason.');
   }
 
+  /* ── ⚠️ WHAT IS COMPULSORY, AND WHY THE END IS NOT ─────────────────────────
+     Owner, 2026-08-19: *"the optional end date and time should be optional… Every
+     field should be compulsory. Make it compulsory. Otherwise Create New Project
+     will not be according to our requirement. We should put proper checks and
+     proper validations on the form."*
+
+     Checked HERE and not only in the form: a server action is a public endpoint
+     reachable without the browser, so a `required` attribute is a courtesy to the
+     person typing, never a guarantee about what arrives.
+
+     The end date and time stay genuinely optional because a retainer has no end —
+     that is what `is_permanent` is for — and demanding one would force somebody to
+     invent a date the client never agreed to. */
+  const required: ReadonlyArray<readonly [string, string]> = [
+    ['startDate', 'Give the project a start date.'],
+    ['startTime', 'Give the project a start time.'],
+    ['clientKind', 'Say whether this is internal or for an external client.'],
+    ['description', 'Write one line describing what this project is for.'],
+  ];
+  for (const [key, message] of required) {
+    if (!str(form, key)) return fail(message);
+  }
+
+  /* The rhythm is the commitment now, so a project without one has agreed to
+     nothing — which the monthly report would show as untargeted for ever. */
+  if (!str(form, 'staticPostsPerDay') && !str(form, 'reelsPerWeek')) {
+    return fail('Set the posting rhythm — static posts a day, reels a week, or both.');
+  }
+  if (form.getAll('postingDays').length === 0) {
+    return fail('Pick at least one day of the week the project posts on.');
+  }
+
+  const cadenceError = cadenceRefusal(form);
+  if (cadenceError) return fail(cadenceError);
+
+  /* The type's own questions are compulsory too — they are what the type exists to
+     ask, and a Client project with no client name is the shape being complained
+     about.
+
+     ⚠️ NOT `TYPE_FIELDS[type]`, which is the list of what may be STORED. That
+     includes `is_billable` and `duration`, neither of which the form renders as a
+     text field — requiring them would make the form impossible to submit. This list
+     is deliberately the narrower "what the form asks for". */
+  for (const [key, label] of REQUIRED_TYPE_FIELDS[type]) {
+    if (!str(form, key)) {
+      return fail(`${label} is required for a ${PROJECT_TYPE_META[type].label} project.`);
+    }
+  }
+
   try {
     const projectId = await createProject(user.id, {
       name,
@@ -383,6 +524,11 @@ export async function updateProjectAction(
       'The Misc / Ad-hoc project cannot be archived — ad-hoc work has to have somewhere to land (Q-024).',
     );
   }
+
+  /* The same rhythm rules as on create. An edit that broke the cadence would
+     otherwise surface as a raw constraint violation from migration 036. */
+  const cadenceError = cadenceRefusal(form);
+  if (cadenceError) return fail(cadenceError);
 
   try {
     await updateProject(user.id, projectId, {

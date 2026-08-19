@@ -384,7 +384,16 @@ export function AppShell({
       )}
 
       {creating === 'project' && (
-        <ProjectDialog open onClose={() => setCreating(null)} people={people} />
+        <ProjectDialog
+          open
+          onClose={() => setCreating(null)}
+          people={people}
+          /* Owner, 2026-08-19: the monthly fee is Admin-and-above only. The shell's
+             "New project" action is already gated to ADMIN_UP by `PRIMARY_ACTIONS`,
+             so this can only be an Admin — but it is asked rather than assumed,
+             because the two gates are independent and one of them will move. */
+          canSeeFinance={ADMIN_UP.includes(user.role)}
+        />
       )}
 
       {creating === 'person' && (

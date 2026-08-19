@@ -53,6 +53,9 @@ export default async function ProjectsPage() {
   const otherHigh = otherPct > otherWarningPct;
 
   const canManage = can({ role: user.role, id: user.id }, 'project.create');
+  /* Owner, 2026-08-19: money is Admin-and-above only. Asked as its own question so a
+     future change to who may EDIT a project cannot quietly expose every fee. */
+  const canSeeFinance = can({ role: user.role, id: user.id }, 'project.view_finance');
 
   return (
     <div className="mx-auto max-w-[var(--content-max)] space-y-8">
@@ -161,6 +164,7 @@ export default async function ProjectsPage() {
           projects={projects}
           people={people.map((p) => ({ id: p.id, name: p.fullName }))}
           canManage={canManage}
+          canSeeFinance={canSeeFinance}
         />
       </PageSection>
     </div>

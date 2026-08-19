@@ -1,14 +1,16 @@
 'use client';
 
 import * as React from 'react';
-import { Building2, Handshake, HelpCircle, Info, Sparkles } from 'lucide-react';
+import { Building2, Check, Globe, Handshake, HelpCircle, LayoutDashboard, X } from 'lucide-react';
 
 import { projectCatalogueAction } from '@/app/actions/projects';
 import type { PackageRow, PlatformRow } from '@/lib/db/queries/catalogue';
+import { suggestCadence, type Cadence } from '@/lib/domain/cadence';
 import { ChoiceCards, type Choice } from '@/components/ui/choice-card';
-import { Field, Input } from '@/components/ui/input';
+import { Field } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 
+import { CadenceFields } from './cadence-fields';
 import { PlatformPicker } from './platform-picker';
 
 /* ============================================================================
@@ -65,8 +67,15 @@ function assetsLine(pkg: PackageRow): string | null {
 
 export function PackageFields({
   initial,
+  canSeeFinance,
 }: {
+  /** `project.view_finance` — Admin and above. Owner: money is theirs only. */
+  canSeeFinance: boolean;
   initial: {
+    staticPostsPerDay: number | null;
+    reelsPerWeek: number | null;
+    reelDays: readonly number[];
+    postingDays: readonly number[];
     clientKind: 'internal' | 'external' | null;
     clientId: string | null;
     packageId: string | null;
@@ -80,10 +89,6 @@ export function PackageFields({
 }) {
   const [clientKind, setClientKind] = React.useState(initial.clientKind ?? '');
   const [packageId, setPackageId] = React.useState(initial.packageId ?? '');
-  const [feeValue, setFeeValue] = React.useState(initial.monthlyFeePkr?.toString() ?? '');
-  const [assetsMin, setAssetsMin] = React.useState(initial.assetsTargetMin?.toString() ?? '');
-  const [assetsMax, setAssetsMax] = React.useState(initial.assetsTargetMax?.toString() ?? '');
-  const [reelsMin, setReelsMin] = React.useState(initial.reelsTargetMin?.toString() ?? '');
   const [chosen, setChosen] = React.useState<readonly string[]>(initial.platformIds);
 
   /* ── The catalogue, fetched when the form opens ────────────────────────────
@@ -111,25 +116,54 @@ export function PackageFields({
 
   const chosenPackage = packages.find((p) => p.id === packageId) ?? null;
 
+  /**
+   * The rhythm the cadence block starts from.
+   *
+   * ⚠️ On an EDIT this is what the project already agreed, never the package's
+   * suggestion — migration 033's rule, and the reason `initial.staticPostsPerDay`
+   * wins. On a new project with a package chosen it is `suggestCadence`, which is a
+   * starting point rather than a translation: the packages were written as monthly
+   * quantities and a month does not divide into whole weeks. See that function's
+   * header — the derived figures are shown beside the package's own so any gap is
+   * the reader's decision rather than a silent rounding.
+   */
+  const cadenceSeed: Cadence = React.useMemo(() => {
+    const agreed =
+      initial.staticPostsPerDay !== null ||
+      initial.reelsPerWeek !== null ||
+      initial.reelDays.length > 0;
+
+    if (agreed) {
+      return {
+        staticPostsPerDay: initial.staticPostsPerDay,
+        reelsPerWeek: initial.reelsPerWeek,
+        reelDays: initial.reelDays as Cadence['reelDays'],
+        postingDays: initial.postingDays as Cadence['postingDays'],
+      };
+    }
+
+    if (chosenPackage) {
+      return suggestCadence({
+        assetsMin: chosenPackage.assetsMin,
+        reelsMin: chosenPackage.reelsMin,
+      });
+    }
+
+    return {
+      staticPostsPerDay: null,
+      reelsPerWeek: null,
+      reelDays: [],
+      postingDays: (initial.postingDays.length > 0
+        ? initial.postingDays
+        : [1, 2, 3, 4, 5, 6]) as Cadence['postingDays'],
+    };
+  }, [chosenPackage, initial]);
+
   /** Applied on a real change only — see the header. */
   const applyPackage = (nextId: string) => {
     setPackageId(nextId);
     const next = packages.find((p) => p.id === nextId);
-
-    /* "No package — services only" clears the suggestion rather than leaving the
-       previous package's numbers behind as though they were agreed. */
-    if (!next) {
-      setFeeValue('');
-      setAssetsMin('');
-      setAssetsMax('');
-      setReelsMin('');
-      return;
-    }
-
-    setFeeValue(next.monthlyFeePkr?.toString() ?? '');
-    setAssetsMin(next.assetsMin?.toString() ?? '');
-    setAssetsMax(next.assetsMax?.toString() ?? '');
-    setReelsMin(next.reelsMin?.toString() ?? '');
+    if (!next) return;
 
     /* The package's own named platforms, where it names them. SPARK says Facebook
        and Instagram; GROWTH upward give a count and leave the choice open, so the
@@ -139,10 +173,16 @@ export function PackageFields({
 
   const packageChoices: readonly Choice[] = [
     {
+      /* ⚠️ "Customized package", not "No package". Owner, 2026-08-19: *"Instead of
+         No Package say Customize Package. Definitely everyone has some customized
+         package, especially the internal businesses have some customized package."*
+         The stored value is still an empty `package_id` — this is about what the
+         choice MEANS. "No package" read as an absence of any agreement, when in fact
+         a bespoke arrangement is the normal case for internal work. */
       value: '',
-      label: 'No package',
-      hint: 'Services only, or nothing sold yet',
-      token: 'text-tertiary',
+      label: 'Customized package',
+      hint: 'Bespoke — set the rhythm and fee yourself',
+      token: 'accent-gold',
     },
     ...packages.map((p) => ({
       value: p.id,
@@ -250,129 +290,65 @@ export function PackageFields({
           />
         )}
 
+        {/* ── What the package includes, as ticks ────────────────────────────
+            Owner, 2026-08-19: *"for website, also maintain or add a checkbox for
+            website auto-check. This will be auto-checked. For CRM, that should be a
+            name but the auto checkbox will be auto-checked because you have selected
+            a package in which all the things are mentioned."*
+
+            ⚠️ These are INDICATORS, not inputs — `includes_website` and
+            `includes_crm` belong to the package, and a tick a human could change
+            here would be a second, contradicting copy of a fact the catalogue
+            already owns. So they show the package's answer, and they change when the
+            package does. Choosing a different package is how you change them, which
+            is what "auto-checked" has to mean if the figure is to stay true.
+            Rendered as a real disabled checkbox rather than a ✓/✗ glyph so the
+            distinction reads as "decided for you", not "you forgot to tick it". */}
         {chosenPackage && (
-          <p className="flex items-start gap-2 text-micro text-text-secondary">
-            <Info
-              className="mt-px h-3.5 w-3.5 shrink-0"
-              strokeWidth={2.25}
-              aria-hidden="true"
-              style={{ color: 'var(--feedback-info)' }}
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 pt-0.5">
+            <Included
+              on={chosenPackage.includesWebsite}
+              icon={Globe}
+              label={
+                chosenPackage.includesWebsite
+                  ? (chosenPackage.websiteNote ?? 'Website')
+                  : 'No website'
+              }
             />
-            <span>
-              {chosenPackage.includesWebsite
-                ? (chosenPackage.websiteNote ?? 'Website included')
-                : 'No website'}{' '}
-              ·{' '}
-              {chosenPackage.includesCrm ? (chosenPackage.crmNote ?? 'CRM included') : 'No CRM'}
-              {chosenPackage.reportingCadence && ` · ${chosenPackage.reportingCadence} reporting`}
-              {chosenPackage.freeBenefit && ` · ${chosenPackage.freeBenefit}`}
-            </span>
-          </p>
+            <Included
+              on={chosenPackage.includesCrm}
+              icon={LayoutDashboard}
+              label={chosenPackage.includesCrm ? (chosenPackage.crmNote ?? 'CRM') : 'No CRM'}
+            />
+            {chosenPackage.reportingCadence && (
+              <span className="text-micro text-text-tertiary">
+                {chosenPackage.reportingCadence} reporting
+              </span>
+            )}
+            {chosenPackage.freeBenefit && (
+              <span className="text-micro text-text-tertiary">{chosenPackage.freeBenefit}</span>
+            )}
+          </div>
         )}
       </div>
 
-      {/* ---- What was actually agreed ----
-          Tinted, because these four numbers are the ones every report and every
-          progress bar is judged against. They arrive suggested and leave agreed. */}
-      <div
-        className="space-y-3 rounded-xl p-3.5"
-        style={{
-          backgroundColor:
-            'color-mix(in oklab, var(--accent-primary) var(--tint-soft), var(--bg-surface))',
-          border: '1px solid color-mix(in oklab, var(--accent-primary) 22%, transparent)',
-        }}
-      >
-        <p className="flex items-center gap-1.5 text-caption font-semibold text-text-primary">
-          <Sparkles
-            className="h-3.5 w-3.5"
-            strokeWidth={2.25}
-            aria-hidden="true"
-            style={{ color: 'var(--accent-primary)' }}
-          />
-          What we promised them
-          {chosenPackage && (
-            <span className="font-normal text-text-tertiary">
-              — suggested by {chosenPackage.name}, adjust freely
-            </span>
-          )}
-        </p>
+      {/* ---- The posting rhythm, and what it promises ----
+          ⚠️ This replaced three monthly boxes — "assets a month minimum", "…and
+          the ceiling" and "reels a month" — plus the fee and a "renews on" date.
+          Owner, 2026-08-19: nobody agrees a month, they agree a rhythm; and
+          *"Remove this field. We don't need it"* for the renewal date.
 
-        <div className="grid gap-3 sm:grid-cols-3">
-          <Field
-            label="Assets a month"
-            htmlFor="assetsTargetMin"
-            hint="The minimum. Hitting it is the target met."
-          >
-            <Input
-              id="assetsTargetMin"
-              name="assetsTargetMin"
-              type="number"
-              min="0"
-              inputMode="numeric"
-              placeholder="14"
-              value={assetsMin}
-              onChange={(event) => setAssetsMin(event.target.value)}
-            />
-          </Field>
-
-          <Field label="…up to" htmlFor="assetsTargetMax" hint="Above the minimum is bonus.">
-            <Input
-              id="assetsTargetMax"
-              name="assetsTargetMax"
-              type="number"
-              min="0"
-              inputMode="numeric"
-              placeholder="16"
-              value={assetsMax}
-              onChange={(event) => setAssetsMax(event.target.value)}
-            />
-          </Field>
-
-          <Field
-            label="Reels a month"
-            htmlFor="reelsTargetMin"
-            hint="Counted inside the asset total, not on top."
-          >
-            <Input
-              id="reelsTargetMin"
-              name="reelsTargetMin"
-              type="number"
-              min="0"
-              inputMode="numeric"
-              placeholder="2"
-              value={reelsMin}
-              onChange={(event) => setReelsMin(event.target.value)}
-            />
-          </Field>
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field
-            label="Monthly fee (PKR)"
-            htmlFor="monthlyFeePkr"
-            hint="What was agreed, not the list price."
-          >
-            <Input
-              id="monthlyFeePkr"
-              name="monthlyFeePkr"
-              type="number"
-              min="0"
-              inputMode="numeric"
-              value={feeValue}
-              onChange={(event) => setFeeValue(event.target.value)}
-            />
-          </Field>
-
-          <Field label="Renews on" htmlFor="renewsOn" hint="For a retainer that rolls forward.">
-            <Input
-              id="renewsOn"
-              name="renewsOn"
-              type="date"
-              defaultValue={initial.renewsOn ?? ''}
-            />
-          </Field>
-        </div>
-      </div>
+          The `key` on the package deliberately REMOUNTS the whole block when the
+          package changes, which is what applies its suggested rhythm. That is the
+          same "copy once per real change" rule the old prefill followed, and it is
+          why the numbers can then be edited without a re-render reverting them.
+          Editing SPARK next year still must not rewrite this project. */}
+      <CadenceFields
+        key={packageId || 'custom'}
+        initial={cadenceSeed}
+        canSeeFinance={canSeeFinance}
+        monthlyFeePkr={initial.monthlyFeePkr}
+      />
 
       {/* ---- Platforms, with their real app icons ---- */}
       <PlatformPicker
@@ -383,5 +359,48 @@ export function PackageFields({
         packageName={chosenPackage?.name ?? null}
       />
     </div>
+  );
+}
+
+/* ----------------------------------------------------------------------------
+ * A PACKAGE INCLUSION
+ * ----------------------------------------------------------------------------
+ * `disabled` and `readOnly`, because it reports the catalogue's answer rather than
+ * collecting one — and no `name`, so it cannot post a value that would compete with
+ * `package_id` as the record of what was sold.
+ * ------------------------------------------------------------------------- */
+function Included({
+  on,
+  icon: Icon,
+  label,
+}: {
+  on: boolean;
+  icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
+  label: string;
+}) {
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 text-micro"
+      style={{ color: on ? 'var(--text-secondary)' : 'var(--text-tertiary)' }}
+      title={on ? `${label} — included in this package` : label}
+    >
+      <span
+        aria-hidden="true"
+        className="grid h-[15px] w-[15px] shrink-0 place-items-center rounded-[4px] border"
+        style={
+          on
+            ? { backgroundColor: 'var(--feedback-success)', borderColor: 'transparent' }
+            : { borderColor: 'var(--border-strong)' }
+        }
+      >
+        {on ? (
+          <Check className="h-[11px] w-[11px]" strokeWidth={3.5} style={{ color: '#fff' }} />
+        ) : (
+          <X className="h-[11px] w-[11px]" strokeWidth={3} style={{ color: 'var(--text-tertiary)' }} />
+        )}
+      </span>
+      <Icon className="h-3.5 w-3.5 shrink-0" strokeWidth={2} aria-hidden="true" />
+      {label}
+    </span>
   );
 }

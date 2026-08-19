@@ -156,6 +156,26 @@ export const PERMISSIONS = {
   'project.soft_delete': M('allow', 'allow', 'deny', 'deny'),
   'project.purge': M('allow', 'deny', 'deny', 'deny'),
   'project.view_all': M('allow', 'allow', 'allow', 'deny'),
+  /**
+   * See money: the monthly fee, and any total derived from it.
+   *
+   * Owner, 2026-08-19: *"this monthly fee or any financial thing should only be
+   * visible to super admin and admin only. It will not be visible to any
+   * coordinator or anyone else on the team."*
+   *
+   * ── ⚠️ WHY THIS IS ITS OWN ACTION AND NOT `project.edit` ─────────────────────
+   * The two happen to have the same answer today, and reusing `project.edit` would
+   * work — right up until somebody gives a Coordinator edit rights on their own
+   * projects, at which point every fee on the system becomes visible as a side
+   * effect of an unrelated decision. Asking the question this screen actually means
+   * keeps that from happening silently.
+   *
+   * Note this is a DISPLAY gate, not a confidentiality boundary: a Coordinator can
+   * still reach `projects.monthly_fee_pkr` through any query RLS lets them run. Not
+   * rendering it is what the owner asked for; making it unreadable would need a
+   * column-level grant and is a separate piece of work.
+   */
+  'project.view_finance': M('allow', 'allow', 'deny', 'deny'),
   /** BR-016. A Member sees a project only once they have work in it. */
   'project.view_member_of': M('allow', 'allow', 'allow', 'in_project'),
   /**

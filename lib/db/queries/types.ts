@@ -64,6 +64,17 @@ export interface ProjectRow {
   readonly reelsTargetMin: number | null;
   readonly renewsOn: string | null;
 
+  /* ── The posting rhythm — migration 036 ───────────────────────────────────
+     ⚠️ THESE ARE THE SOURCE; the three target figures above are DERIVED from
+     them at write time. A screen that wants to show or edit the commitment should
+     read these — the targets are the stored consequence, kept because every report
+     reads them and because a contract must not shift with the length of a month.
+     ISO weekdays: 1 = Monday … 7 = Sunday. */
+  readonly staticPostsPerDay: number | null;
+  readonly reelsPerWeek: number | null;
+  readonly reelDays: readonly number[];
+  readonly postingDays: readonly number[];
+
   /** Platforms this project manages, for the card and the detail header. */
   readonly platforms: readonly { readonly id: string; readonly name: string }[];
   readonly memberCount: number;

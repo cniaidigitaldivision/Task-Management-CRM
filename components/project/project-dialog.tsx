@@ -233,12 +233,22 @@ export function ProjectDialog({
   onClose,
   people,
   project,
+  canSeeFinance = false,
 }: {
   open: boolean;
   onClose: () => void;
   people: ReadonlyArray<{ id: string; name: string }>;
   /** Present when editing. */
   project?: ProjectRow;
+  /**
+   * `project.view_finance` — Admin and above. Owner, 2026-08-19: *"this monthly fee
+   * or any financial thing should only be visible to super admin and admin only."*
+   *
+   * ⚠️ Defaults to FALSE. A money field that appears because somebody forgot to
+   * pass a prop is the failure that matters here; one that is missing until wired is
+   * merely inconvenient.
+   */
+  canSeeFinance?: boolean;
 }) {
   const isEdit = Boolean(project);
 
@@ -371,9 +381,16 @@ export function ProjectDialog({
               <span className="font-normal text-text-tertiary">Name it below…</span>
             )}
           </span>
-          <span className="text-micro text-text-tertiary">
-            every task here will carry {PROJECT_TYPE_META[type].code}-
-          </span>
+          {/* ⚠️ REMOVED, 2026-08-19: a trailing "every task here will carry CLI-".
+              Owner: *"the CLI 101 name is below every task here. Will it carry CLI?
+              This notification is appearing in the form. I don't want it, I don't
+              know what it is so remove it."*
+
+              It was explaining the reference prefix to somebody who had not asked,
+              at the exact moment they were trying to name a project — and it read as
+              a system notice rather than as a caption. The badge alone is enough:
+              the code appears, and the projects list and every task reference show
+              the same shape, which teaches it in context. */}
         </div>
 
         <Section
@@ -567,7 +584,12 @@ export function ProjectDialog({
           icon={Handshake}
         >
           <PackageFields
+            canSeeFinance={canSeeFinance}
             initial={{
+              staticPostsPerDay: project?.staticPostsPerDay ?? null,
+              reelsPerWeek: project?.reelsPerWeek ?? null,
+              reelDays: project?.reelDays ?? [],
+              postingDays: project?.postingDays ?? [],
               clientKind: project?.clientKind ?? null,
               clientId: project?.clientId ?? null,
               packageId: project?.packageId ?? null,

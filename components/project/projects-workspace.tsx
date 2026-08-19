@@ -64,11 +64,14 @@ export function ProjectsWorkspace({
   projects,
   people,
   canManage,
+  canSeeFinance,
 }: {
   projects: readonly ProjectRow[];
   people: ReadonlyArray<{ id: string; name: string }>;
   /** Admin and above — doc 03 §3.2. */
   canManage: boolean;
+  /** `project.view_finance`. Owner: the monthly fee is Admin-and-above only. */
+  canSeeFinance: boolean;
 }) {
   const [type, setType] = React.useState<ProjectType | 'all'>('all');
   const [status, setStatus] = React.useState<ProjectStatus | 'all'>('all');
@@ -377,13 +380,19 @@ export function ProjectsWorkspace({
         label="projects"
       />
 
-      <ProjectDialog open={creating} onClose={() => setCreating(false)} people={people} />
+      <ProjectDialog
+        open={creating}
+        onClose={() => setCreating(false)}
+        people={people}
+        canSeeFinance={canSeeFinance}
+      />
       {editing && (
         <ProjectDialog
           open
           onClose={() => setEditing(null)}
           people={people}
           project={editing}
+          canSeeFinance={canSeeFinance}
         />
       )}
     </div>
