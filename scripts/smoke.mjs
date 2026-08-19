@@ -50,7 +50,15 @@ const APP_ROUTES = [
      one. */
   ['/dashboard', 'Where the work stands', 'member'],
   ['/my-work', 'Your queue', 'member'],
-  ['/tasks', 'effort points', 'member'],
+  /* ⚠️ NOT "effort points". That string sits behind `points > 0` in
+     tasks-workspace, so the moment the division has no open tasks it disappears and
+     this row fails on a screen that is working perfectly — which is exactly what
+     happened after the projects and tasks were wiped on 2026-08-19. Third time this
+     script has been caught matching something conditional; see /workflow and
+     /monthly-report below for the other two.
+     This sentence is in the page description and renders in every state, and it
+     still only appears once `listTasks` and `listProjects` have both returned. */
+  ['/tasks', 'Drag a card between columns', 'member'],
   ['/projects', 'Ad-hoc work', 'member'],
   /* The description changed when the calendar gained per-task detail. Matching on
      a weekday heading instead of on prose: the grid cannot render without it, so
