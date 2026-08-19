@@ -201,6 +201,54 @@ export const STATUS_REQUIRES_APPROVAL_TO_EXIT: readonly TaskStatus[] = ['in_revi
 export const PRIORITIES = ['urgent', 'high', 'medium', 'low'] as const;
 export type Priority = (typeof PRIORITIES)[number];
 
+/* ============================================================================
+ * WHAT A TASK PRODUCES — migration 033's `content_kind`
+ * ----------------------------------------------------------------------------
+ * ⚠️ ORDER AND MEMBERSHIP MIRROR `public.content_kind`. Add a value here and it
+ * must be added to the enum in the same commit, or the form will offer something
+ * the database refuses.
+ *
+ * This is the field that makes a task COUNTABLE. A task without a content kind is
+ * work that happened; a task with one is a deliverable that can be measured
+ * against what the package promised. `static`, `reel` and `carousel` are the
+ * three the packages actually name (STARTER: "static posts, reels and carousel
+ * content mix"); the rest exist so non-content work is not forced to lie.
+ * ========================================================================= */
+export const CONTENT_KINDS = [
+  'static',
+  'reel',
+  'carousel',
+  'story',
+  'video',
+  'website',
+  'ad',
+  'report',
+  'other',
+] as const;
+export type ContentKind = (typeof CONTENT_KINDS)[number];
+
+export const CONTENT_KIND_LABEL: Readonly<Record<ContentKind, string>> = {
+  static: 'Static post',
+  reel: 'Reel / short video',
+  carousel: 'Carousel',
+  story: 'Story',
+  video: 'Long video',
+  website: 'Website work',
+  ad: 'Ad creative',
+  report: 'Report',
+  other: 'Other',
+};
+
+/** The kinds that count toward a package's monthly asset target. Website work
+ *  and internal reports are real work but were never part of "14–16 assets". */
+export const COUNTS_AS_ASSET: readonly ContentKind[] = [
+  'static',
+  'reel',
+  'carousel',
+  'story',
+  'video',
+];
+
 export const PRIORITY_LABEL: Readonly<Record<Priority, string>> = {
   urgent: 'Urgent',
   high: 'High',

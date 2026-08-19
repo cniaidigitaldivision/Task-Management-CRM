@@ -10,10 +10,12 @@ import { listAvailability } from '@/lib/db/queries/people';
 import * as R from '@/lib/db/queries/task-relations';
 import * as T from '@/lib/db/queries/tasks';
 import {
+  CONTENT_KINDS,
   EFFORT_POINTS,
   PRIORITIES,
   STATUS_META,
   TASK_STATUSES,
+  type ContentKind,
   type EffortSize,
   type Priority,
   type ProjectType,
@@ -95,6 +97,34 @@ function str(form: FormData, key: string): string {
 function optional(form: FormData, key: string): string | null {
   const value = str(form, key);
   return value === '' ? null : value;
+}
+
+/* ── WHAT THIS TASK PRODUCES — migrations 033/034 ────────────────────────────
+   The coordinator's sheet, in three fields: what kind of thing this is, where
+   the raw material lives, and where the finished file lives. `contentKind` is
+   the one that matters — it is what makes the task countable against the
+   package's monthly asset target.
+
+   ⚠️ An unrecognised `contentKind` becomes NULL rather than being passed
+   through. The database would refuse it anyway (it is an enum), but a 500 from a
+   bad select value is a worse answer than an unclassified task, and this field
+   is optional by design: a coordinator's admin task was never part of "14–16
+   assets" and must not be forced to claim it is. */
+function deliverableFrom(form: FormData): {
+  contentKind: ContentKind | null;
+  sourceDriveUrl: string | null;
+  assetDriveUrl: string | null;
+  publishedOn: string | null;
+} {
+  const raw = str(form, 'contentKind');
+  return {
+    contentKind: (CONTENT_KINDS as readonly string[]).includes(raw)
+      ? (raw as ContentKind)
+      : null,
+    sourceDriveUrl: optional(form, 'sourceDriveUrl'),
+    assetDriveUrl: optional(form, 'assetDriveUrl'),
+    publishedOn: optional(form, 'publishedOn'),
+  };
 }
 
 /** Read before validation, so the permission check can distinguish
@@ -420,6 +450,7 @@ export async function createTaskAction(_prev: ActionResult, form: FormData): Pro
       timeLimitMinutes: minutesFrom(form),
       assignmentOverrideReason: overrideReason,
       recurrenceRule: repeat.rule,
+      ...deliverableFrom(form),
     });
 
     await withUser(user.id, async (tx) => {
@@ -543,6 +574,7 @@ export async function updateTaskAction(_prev: ActionResult, form: FormData): Pro
       dueTime: optional(form, 'dueTime'),
       timeLimitMinutes: minutesFrom(form),
       recurrenceRule: repeat.rule,
+      ...deliverableFrom(form),
     });
 
     await withUser(user.id, (tx) =>

@@ -1,5 +1,6 @@
 import type {
   AvailabilityType,
+  ContentKind,
   EffortSize,
   Priority,
   ProjectStatus,
@@ -112,6 +113,20 @@ export interface TaskRow {
   readonly extensionMinutesGranted: number;
   /** An RFC 5545 subset — see lib/domain/recurrence.ts. Null for a one-off. */
   readonly recurrenceRule: string | null;
+
+  /* ── The deliverable — migrations 033/034 ─────────────────────────────────
+     `contentKind` is what makes this task countable against a package target.
+     Null means it is work rather than a deliverable, which is legitimate — a
+     coordinator's admin task was never part of "14–16 assets". */
+  readonly contentKind: ContentKind | null;
+  readonly sourceDriveUrl: string | null;
+  readonly assetDriveUrl: string | null;
+  /** When it went live. NOT completedAt: a reel finished Monday and posted
+   *  Friday counts against Friday. See migration 033. */
+  readonly publishedOn: string | null;
+  /** Where it was published, and how many of those are actually live. */
+  readonly placementCount: number;
+  readonly placementLiveCount: number;
   readonly commentCount: number;
   readonly attachmentCount: number;
   readonly checklistDone: number;

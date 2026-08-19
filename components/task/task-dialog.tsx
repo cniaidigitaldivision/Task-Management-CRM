@@ -15,6 +15,8 @@ import {
   parseRecurrence,
 } from '@/lib/domain/recurrence';
 import {
+  CONTENT_KINDS,
+  CONTENT_KIND_LABEL,
   EFFORT_LABEL,
   EFFORT_POINTS,
   EFFORT_SIZES,
@@ -169,6 +171,7 @@ export function TaskDialog({
   people,
   currentUser,
   task,
+  driveFolders = [],
   defaultStatus,
   defaultAssigneeId,
 }: {
@@ -179,6 +182,9 @@ export function TaskDialog({
   currentUser: { id: string; role: Role };
   /** Present when editing. Absent when creating. */
   task?: TaskRow;
+  /** Known Drive folders, to suggest in the link fields. Empty is fine — the
+   *  fields still accept any URL. */
+  driveFolders?: readonly { id: string; name: string; driveFolderId: string }[];
   /** Pre-selects the starting status. Set by a board column's "Add task", so a
    *  card created from the Blocked column does not arrive in To Do. */
   defaultStatus?: TaskStatus;
@@ -464,6 +470,103 @@ export function TaskDialog({
         </div>
 
         <RepeatField initial={task?.recurrenceRule ?? null} />
+
+        {/* ══ THE DELIVERABLE ═══════════════════════════════════════════════════
+            The coordinator's Google Sheet, in fields. Owner, 2026-08-19: a row
+            per video, with the raw material's Drive link, the finished asset's
+            Drive link, and then a link per platform once it goes live.
+
+            The per-platform links are NOT here. They are added on the task's own
+            page as each one goes out, which is days after the task is created —
+            asking for six URLs in a create form would mean six empty boxes every
+            time. `content kind` is here because it has to be decided up front:
+            it is what makes this task countable against the package target. */}
+        <fieldset className="space-y-4 rounded-lg border border-border-subtle p-3">
+          <legend className="px-1 text-micro font-semibold tracking-[0.06em] text-text-tertiary uppercase">
+            Deliverable
+          </legend>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field
+              label="What is being produced?"
+              htmlFor="contentKind"
+              hint="Leave blank for work that is not a client deliverable."
+            >
+              <Select
+                size="md"
+                id="contentKind"
+                name="contentKind"
+                defaultValue={task?.contentKind ?? ''}
+                options={[
+                  { value: '', label: 'Not a deliverable' },
+                  ...CONTENT_KINDS.map((k) => ({
+                    value: k,
+                    label: CONTENT_KIND_LABEL[k],
+                  })),
+                ]}
+              />
+            </Field>
+
+            <Field
+              label="Published on"
+              htmlFor="publishedOn"
+              hint="The date it went live. Counted in that month's target — not the date it was finished."
+            >
+              <Input
+                id="publishedOn"
+                name="publishedOn"
+                type="date"
+                defaultValue={task?.publishedOn ?? ''}
+              />
+            </Field>
+          </div>
+
+          <Field
+            label="Raw material"
+            htmlFor="sourceDriveUrl"
+            hint="The Drive folder or file with the clips, photos and brief."
+          >
+            <Input
+              id="sourceDriveUrl"
+              name="sourceDriveUrl"
+              type="url"
+              placeholder="https://drive.google.com/…"
+              defaultValue={task?.sourceDriveUrl ?? ''}
+              list="drive-folder-urls"
+            />
+          </Field>
+
+          <Field
+            label="Finished file"
+            htmlFor="assetDriveUrl"
+            hint="Where the edited reel or graphic ended up."
+          >
+            <Input
+              id="assetDriveUrl"
+              name="assetDriveUrl"
+              type="url"
+              placeholder="https://drive.google.com/…"
+              defaultValue={task?.assetDriveUrl ?? ''}
+              list="drive-folder-urls"
+            />
+          </Field>
+
+          {/* ⚠️ A `datalist`, not a `select`. Owner asked that "all the Google
+              Drive folders should appear" — but the link is often to a FILE
+              inside a folder, or to something not in the registry at all. A
+              select would make the registry the only permitted answer and force
+              people back to pasting into the wrong field. This suggests the known
+              folders while still accepting any URL. */}
+          {driveFolders.length > 0 && (
+            <datalist id="drive-folder-urls">
+              {driveFolders.map((f) => (
+                <option key={f.id} value={`https://drive.google.com/drive/folders/${f.driveFolderId}`}>
+                  {f.name}
+                </option>
+              ))}
+            </datalist>
+          )}
+        </fieldset>
 
         <Field label="Detail" htmlFor="description" hint="Brief, links, references — anything the person needs.">
           <Textarea

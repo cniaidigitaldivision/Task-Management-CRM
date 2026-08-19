@@ -3,7 +3,7 @@ import 'server-only';
 import { dateOnly, isoOrNull, timeOnly } from '../row-values';
 import { TIMER_ALERTS, type TimerAlert } from '@/lib/domain/timers';
 
-import type { EffortSize, Priority, TaskStatus } from '@/lib/domain/constants';
+import type { ContentKind, EffortSize, Priority, TaskStatus } from '@/lib/domain/constants';
 
 import { withUser, type Tx } from '../client';
 import type { ChecklistRow, CommentRow, TaskRow } from './types';
@@ -50,7 +50,14 @@ const TASK_SELECT = (tx: Tx) => tx`
     t.blocked_reason, t.cancelled_reason, t.assignment_override_reason,
     t.time_limit_minutes, t.time_spent_minutes, t.timer_state, t.timer_started_at,
     t.extension_minutes_granted, t.recurrence_rule,
+    t.content_kind, t.source_drive_url, t.asset_drive_url, t.published_on,
     t.created_at, t.updated_at,
+    /* How many places this deliverable went, and how many of those are live.
+       Both on the row so a task card can show "3 of 4 posted" without a second
+       query per card — the same reasoning as the project aggregates. */
+    (select count(*) from public.task_placements tp where tp.task_id = t.id) as placement_count,
+    (select count(*) from public.task_placements tp
+      where tp.task_id = t.id and tp.url is not null) as placement_live_count,
     (select count(*) from public.comments        cm where cm.task_id = t.id) as comment_count,
     (select count(*) from public.attachments     at where at.task_id = t.id) as attachment_count,
     (select count(*) from public.checklist_items ci where ci.task_id = t.id) as checklist_total,
@@ -100,6 +107,12 @@ function toTask(row: Record<string, unknown>): TaskRow {
     timerStartedAt: isoOrNull(row.timer_started_at),
     extensionMinutesGranted: Number(row.extension_minutes_granted ?? 0),
     recurrenceRule: (row.recurrence_rule as string | null) ?? null,
+    contentKind: (row.content_kind as ContentKind | null) ?? null,
+    sourceDriveUrl: (row.source_drive_url as string | null) ?? null,
+    assetDriveUrl: (row.asset_drive_url as string | null) ?? null,
+    publishedOn: dateOnly(row.published_on),
+    placementCount: Number(row.placement_count ?? 0),
+    placementLiveCount: Number(row.placement_live_count ?? 0),
     commentCount: Number(row.comment_count ?? 0),
     attachmentCount: Number(row.attachment_count ?? 0),
     checklistDone: Number(row.checklist_done ?? 0),
@@ -287,6 +300,18 @@ export interface CreateTaskInput {
   readonly assignmentOverrideReason?: string | null;
   readonly blockedReason?: string | null;
   readonly recurrenceRule?: string | null;
+
+  /* ── The deliverable — migrations 033/034 ─────────────────────────────────
+     What this task produces, and where the files live. `contentKind` is what
+     makes a task countable against a package target; without it a task is work
+     that happened, not a deliverable that was promised. */
+  readonly contentKind?: ContentKind | null;
+  /** Raw material — the coordinator's sheet calls it the "Google Drive link". */
+  readonly sourceDriveUrl?: string | null;
+  /** The finished file — the sheet's "Reels Drive link". */
+  readonly assetDriveUrl?: string | null;
+  /** The date it actually went live. NOT completed_at — see migration 033. */
+  readonly publishedOn?: string | null;
 }
 
 /**
@@ -309,7 +334,8 @@ export async function createTask(actorId: string, input: CreateTaskInput): Promi
         reference, title, description, project_id, other_description, parent_task_id,
         assignee_id, created_by_id, status, priority, effort_size, effort_points,
         start_date, start_time, due_date, due_time, blocked_reason, time_limit_minutes,
-        assignment_override_reason, recurrence_rule
+        assignment_override_reason, recurrence_rule,
+        content_kind, source_drive_url, asset_drive_url, published_on
       ) values (
         ${ref[0].reference as string},
         ${input.title.trim()},
@@ -330,7 +356,11 @@ export async function createTask(actorId: string, input: CreateTaskInput): Promi
         ${input.blockedReason?.trim() || null},
         ${input.timeLimitMinutes ?? null},
         ${input.assignmentOverrideReason?.trim() || null},
-        ${input.recurrenceRule ?? null}
+        ${input.recurrenceRule ?? null},
+        ${input.contentKind ?? null}::public.content_kind,
+        ${input.sourceDriveUrl?.trim() || null},
+        ${input.assetDriveUrl?.trim() || null},
+        ${input.publishedOn ?? null}
       )
       returning id
     `;
@@ -357,6 +387,10 @@ export interface UpdateTaskInput {
   readonly dueTime?: string | null;
   readonly timeLimitMinutes?: number | null;
   readonly recurrenceRule?: string | null;
+  readonly contentKind?: ContentKind | null;
+  readonly sourceDriveUrl?: string | null;
+  readonly assetDriveUrl?: string | null;
+  readonly publishedOn?: string | null;
 }
 
 /**
@@ -387,7 +421,11 @@ export async function updateTask(
         start_time        = case when ${has('startTime')} then ${input.startTime ?? null}::time else start_time end,
         due_time          = case when ${has('dueTime')} then ${input.dueTime ?? null}::time else due_time end,
         time_limit_minutes = case when ${has('timeLimitMinutes')} then ${input.timeLimitMinutes ?? null}::integer else time_limit_minutes end,
-        recurrence_rule   = case when ${has('recurrenceRule')} then ${input.recurrenceRule ?? null} else recurrence_rule end
+        recurrence_rule   = case when ${has('recurrenceRule')} then ${input.recurrenceRule ?? null} else recurrence_rule end,
+        content_kind      = case when ${has('contentKind')} then ${input.contentKind ?? null}::public.content_kind else content_kind end,
+        source_drive_url  = case when ${has('sourceDriveUrl')} then ${input.sourceDriveUrl ?? null} else source_drive_url end,
+        asset_drive_url   = case when ${has('assetDriveUrl')} then ${input.assetDriveUrl ?? null} else asset_drive_url end,
+        published_on      = case when ${has('publishedOn')} then ${input.publishedOn ?? null}::date else published_on end
       where id = ${taskId} and not is_deleted
     `,
   );
