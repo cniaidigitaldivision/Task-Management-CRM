@@ -64,6 +64,25 @@ const APP_ROUTES = [
      notes block, which only renders once a report has actually been built from
      the database — so it still fails if the page renders but the report does not. */
   ['/reports', 'How to read this', 'team_coordinator'],
+  /* The monthly CEO report. `admin`, a rank above `/reports`, because it totals
+     recurring fees across every client.
+
+     ⚠️ This script runs as an Admin and a Member only, so this row proves the
+     Member refusal — NOT the Coordinator one. A Coordinator is the interesting
+     case: they clear `/reports` and must still be refused here. That was measured
+     by hand and is why this is a top-level segment rather than `/reports/ceo`,
+     where a Coordinator got a 200 — see the ⚠️ note in the route's layout. If this
+     segment is ever restructured, re-check the Coordinator by hand; this row will
+     not catch it.
+
+     ⚠️ The marker is the report's masthead, NOT the provenance block or any table.
+     Those only render when the month HAS projects, so matching one of them would
+     fail on a quiet month — the same mistake the /workflow row above records. The
+     masthead renders in both the empty and the populated shape, and it still
+     proves more than the page header does: it lives inside the workspace, which is
+     only reached once `ceoReportAction` has returned a real report, so a page that
+     renders its header and then fails to compute the figures fails this check. */
+  ['/monthly-report', 'Monthly performance report', 'admin'],
   ['/settings', 'Capacity and thresholds', 'admin'],
   /* Handoff chains (E-004 / R4a). Readable by EVERY role since 2026-08-15 —
      owner's decision: a chain creates work that lands in somebody's queue, and

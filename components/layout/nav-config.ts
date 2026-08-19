@@ -1,5 +1,6 @@
 import {
   BarChart3,
+  FileBarChart,
   CalendarClock,
   CalendarDays,
   FolderKanban,
@@ -92,6 +93,11 @@ export const NAV_SECTIONS: readonly NavSection[] = [
     items: [
       { label: 'Team', href: '/team', icon: Users, roles: ADMIN_UP },
       { label: 'Reports', href: '/reports', icon: BarChart3, roles: LEAD_UP },
+      /* The monthly board report. Admin+, one rank above the Reports screen above
+         it, because it totals recurring fees across every client — the floor is
+         enforced by `requireRole` in the route's own layout and page, and this
+         list only decides whether the link is offered (NFR-006). */
+      { label: 'Monthly report', href: '/monthly-report', icon: FileBarChart, roles: ADMIN_UP },
     ],
   },
   {
@@ -123,4 +129,11 @@ export function sectionsForRole(role: Role): NavSection[] {
     ...section,
     items: section.items.filter((item) => item.roles.includes(role)),
   })).filter((section) => section.items.length > 0);
+}
+
+/** Every href a role is offered, for the "which item is current" rule. Flattened
+ *  here so the rule itself stays free of the nav's React types — see
+ *  `lib/view/nav-active.ts`. */
+export function hrefsForRole(role: Role): string[] {
+  return sectionsForRole(role).flatMap((section) => section.items.map((item) => item.href));
 }

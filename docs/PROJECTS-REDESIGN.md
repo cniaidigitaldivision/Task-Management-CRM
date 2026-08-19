@@ -206,19 +206,73 @@ named so the right one is findable.
 - ⚠️ Owner asked that each document be **read before filing** so it is named for
   what it contains. `pdftoppm` is missing, so that cannot be automated here yet.
 
-## 10 · The report pipeline
+## 10 · The report pipeline — BUILT, at `/monthly-report`
 
 `CHATGPT_API_KEY` is in `.env.local` (confirmed present, server-side, absent from
 the committed template).
 
-**⚠️ The figures must never come from the model.** They are computed from the
-database — assets published vs package minimum, per project, per platform — and
-passed in. An LLM asked to total a column will occasionally be wrong and will
-always sound certain, and a board report is the last place for that. The model
-composes and presents; it does not calculate.
+**⚠️ The figures never come from the model.** They are computed from the database —
+assets published vs package minimum, per project, per platform, per person — and
+passed in already totalled. An LLM asked to total a column will occasionally be
+wrong and will always sound certain, and a board report is the last place for that.
+The model composes; it does not calculate.
 
-Flow: query → figures → prompt → generated graphic → embedded in a PDF →
-viewable and downloadable.
+### What was built, and where the plan changed
+
+| Layer | File |
+|---|---|
+| Figures (3 queries, under RLS as the reader) | `lib/db/queries/ceo-report.ts` |
+| Arithmetic, verdicts, the fact sheet | `lib/domain/ceo-report.ts` |
+| The model call and the figure check | `lib/ai/narrative.ts` |
+| Actions — figures, and separately the prose | `app/actions/ceo-report.ts` |
+| The page | `app/(app)/monthly-report/` |
+| The screen | `components/report/ceo-report-workspace.tsx` |
+
+Three things turned out differently from the sketch above, each for a measured
+reason:
+
+**1 · No generated graphic.** "Rendered as a presentable graphic" was the original
+plan and it is the wrong shape. Image models render digits unreliably, so a
+generated dashboard would look finished and be wrong in the one way nobody thinks to
+check — which contradicts the ⚠️ rule directly above it. The charts and tables are
+ours, driven by the real values; the model writes the **commentary**, which is what
+language models are actually good at. The page labels which is which, because it
+will be forwarded and the reader has to be able to tell arithmetic from opinion.
+
+**2 · No PDF engine.** The browser's own print dialogue saves as PDF on every
+platform, and `globals.css §PRINT` already turns the page into ink-on-white with
+repeating table headers and unbroken rows. A second renderer would be a second place
+for the figures to drift. Same decision as CHANGE-PLAN 5.2 for `/reports`.
+
+**3 · gpt-4o, not gpt-5.** Measured: gpt-5 spent its whole budget reasoning and
+never returned on a real fact sheet — Node gave up at its 300s header timeout, which
+is also where a Vercel function dies, so it would have failed in production rather
+than merely been slow. The same sheet takes gpt-4o about 4 seconds with every rule
+obeyed. The reasoning buys nothing because the judgements are already made before
+the model is called.
+
+### The guard that makes it trustworthy
+
+A prompt is a request, not a guarantee. `verifyFigures()` reads the returned prose
+back and reports any number that is not in the fact sheet; the page shows those to
+the reader rather than hiding them in a log. On real data the check comes back clean
+— asserted by `test/integration/ceo-report.test.ts`, which runs the whole chain
+against the live database and OpenAI.
+
+Two bugs it caught, both worth remembering:
+
+- The checker first asked whether the fact sheet *contained* the string `"25"`. It
+  does — inside `PKR 1,250,000` — so any invented figure could hide inside a larger
+  one. Number tokens are now compared whole.
+- The fact sheet labelled every project `internal` or `external`, defaulting `null`
+  to external. Six unclassified projects were therefore described to the model as
+  external client engagements. `null` is now its own case, everywhere — the same
+  rule as the target columns in §13.
+
+### Not built
+
+Storing the prose. It is regenerated on demand; keeping a copy would be a second
+record of the same figures, free to drift from the first.
 
 ---
 

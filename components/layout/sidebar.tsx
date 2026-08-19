@@ -11,6 +11,8 @@ import { Avatar } from '@/components/ui/avatar';
 import { ORGANISATION_NAME, ROLE_LABEL, type Role } from '@/lib/domain/constants';
 import { cn } from '@/lib/utils';
 
+import { activeHref } from '@/lib/view/nav-active';
+
 import { sectionsForRole } from './nav-config';
 
 /* ============================================================================
@@ -87,6 +89,14 @@ export function Sidebar({
 }) {
   const pathname = usePathname();
   const sections = sectionsForRole(role);
+
+  /* Exactly one item is current, even where one nav item's route is nested inside
+     another's. The rule and its reasoning live in lib/view/nav-active.ts, with
+     tests — a plain prefix test lights two items in that case. */
+  const currentHref = activeHref(
+    sections.flatMap((section) => section.items.map((item) => item.href)),
+    pathname,
+  );
 
   return (
     <>
@@ -200,7 +210,7 @@ export function Sidebar({
 
               {section.items.map((item) => {
                 const Icon = item.icon;
-                const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
+                const isActive = item.href === currentHref;
                 const badge = item.badgeKey ? BADGE_COUNTS[item.badgeKey] : undefined;
 
                 return (

@@ -161,6 +161,7 @@ const PRIMARY_ACTIONS: Readonly<Record<string, PrimaryAction | null>> = {
      absence is a decision on the record, not an oversight. */
   '/workload': null,
   '/reports': null,
+  '/monthly-report': null,
   '/settings': null,
   '/security': null,
   '/vault': null,
