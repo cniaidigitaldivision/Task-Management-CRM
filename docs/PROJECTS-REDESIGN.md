@@ -39,50 +39,67 @@ project *is* published-versus-promised.
 
 ---
 
-## 2 · The eight growth packages
+## 2 · The eight growth packages — the seed data
 
-From *CNI Digital Growth Packages & Rate Card 2026* and the per-package booklet.
+Read from **page 3 of `CNI_AI_Digital_Packages_2026_Final_Expanded.pdf`**, the
+"Package Comparison & Add-Ons" matrix. This page is the authority: it states all
+eight packages in one table, so it cannot disagree with itself the way the rate
+card and the booklet do.
 
-| # | Package | Monthly fee (PKR) | Positioning |
-|---|---|---|---|
-| 1 | **SPARK** | 50,000 | Starter presence |
-| 2 | **STARTER** | 85,000 | Active local business |
-| 3 | **GROWTH** | 125,000 | Consistent growth |
-| 4 | **MOMENTUM** | 175,000 | Stronger engagement |
-| 5 | **PERFORMANCE** | 250,000 | Lead generation |
-| 6 | **SCALE** | 350,000 | Scaling brands |
-| 7 | **PLATINUM** | 500,000 | Full digital growth system |
-| 8 | **ENTERPRISE** | 750,000+ | Dedicated growth department |
+Poppler is now installed (`winget install oschwartz10612.Poppler`), so the PDF was
+read directly. ⚠️ It is an **image-based** PDF — `pdftotext` returns 31 bytes —
+so pages must be rendered with `pdftoppm` and read visually. Text extraction is
+not an option for these documents.
 
-**SPARK, in full**, because it shows the shape every package shares:
+| | SPARK | STARTER | GROWTH | MOMENTUM | PERFORMANCE | SCALE | PLATINUM | ENTERPRISE |
+|---|---|---|---|---|---|---|---|---|
+| **Retainer (PKR/mo)** | 50,000 | 85,000 | 125,000 | 175,000 | 250,000 | 350,000 | 500,000 | 750,000+ |
+| **Platforms** | 2 | 3 | 4 | 5 | 5 | Multi-location | Multi-market | Custom |
+| **Monthly assets** | **14–16** | **22–25** | **30–32** | **40** | **up to 75** | **up to 120** | High-volume | Enterprise capacity |
+| Paid ads | 1 basic Meta | 2 Meta | Meta + Google | Multi-channel | Lead-gen | Advanced perf. | Multi-market | Enterprise |
+| Website | none | 1 landing page | 1 landing + optimisation | 5-page site | 10-page corporate | Advanced / redesign | Custom portal | Full SaaS |
+| CRM | none | Basic lead tracking | Light CRM | Intermediate | Advanced | Advanced + BI | ERP/CRM integration | Custom CRM |
+| Automation / AI | WhatsApp auto-reply | Follow-up sequence | WhatsApp follow-up | CRM automation + AI-UGC | AI Sales Agent | AI Voice Agent | Videography + multilingual | Executive + governance |
+| Reporting | Monthly | Bi-weekly | Weekly + dashboard | Advanced dashboard | Executive dashboard | BI dashboard | Board-level | Custom executive |
+| Free benefit | Visibility Consultation | Growth Guidance | Performance Audit | Expo Promotion | Growth Workshop | Brand Authority Film | Leadership Brand Film | Executive Documentary |
 
-- 2 managed platforms — **Facebook and Instagram**, named
-- **14–16 monthly content assets**
-- **2 reels / short videos**, *included within* that count
-- monthly content calendar and post scheduling
-- basic page management and community handling
-- Google Business Profile setup or optimisation
-- one basic Meta advertising campaign
-- monthly performance report and review call
-- *explicitly no CRM or website*
+**Named platforms** (only the lower tiers name them; the rest give a count):
 
-**PERFORMANCE**, for contrast: up to 75 monthly assets, AI Sales Agent, advanced
-WhatsApp automation, 10-page website, up to 4 landing pages, advanced CRM,
-monthly content shoot, SEO/AEO/GEO, up to 2 blogs, weekly strategy call.
+- SPARK — Facebook, Instagram
+- STARTER — Facebook, Instagram, TikTok
 
-⚠️ **Two things to resolve against the source documents before seeding:**
+So the schema must allow **both**: platforms fixed by the package, and platforms
+chosen per project up to a limit.
 
-1. **The rate card and the booklet disagree.** The card labels package 5
-   *"Scaling Domination Package"*; the booklet titles it *"Lead Generation
-   Package"*. Similar drift on SPARK's asset count.
-2. **Lower tiers name their platforms; higher tiers do not.** SPARK says
-   "Facebook and Instagram"; PERFORMANCE gives a count and capabilities. So
-   platform *identity* is fixed for small packages and chosen per project for
-   large ones — the schema has to allow both.
+**Popular add-ons** (page 3): Extra Reel Pack from 25,000 · Shoot Day from
+40,000 · Landing Page Design from 35,000 · CRM Setup from 60,000 · WhatsApp
+Automation from 75,000 · Meta/Google Ad Creative Pack from 30,000 · Brand
+Identity Mini Refresh from 50,000 · Website Design/Revamp quoted separately.
 
-I could not read the PDFs directly: **`pdftoppm` is not installed**, so PDF
-rendering fails in this environment. Everything above came from the images. Before
-seeding real package rows, either install poppler or confirm the numbers.
+### ⚠️ The reel minimum is not stated for most packages
+
+This matters, because the agreed model is "reels are inside the asset total, with
+a reel minimum".
+
+- **SPARK** states it: *"2 reels / short videos included"*
+- **STARTER** does not. It says *"static posts, reels and carousel content mix"* —
+  a mix, with no number
+- the comparison matrix has no reel row at all
+
+So a reel minimum can only be enforced where the document gives one. See the open
+question in §13.
+
+**Content kinds are confirmed** by STARTER's wording: **static post, reel,
+carousel**.
+
+### On the earlier "conflict"
+
+Owner, 2026-08-19: *"the assets that are provided in each package must be the
+same"* — correct. The comparison matrix agrees with the per-package booklet
+(SPARK 14–16 in both). What differs between documents is **pricing and package
+subtitles**, not deliverables. My earlier reading of "1–8 assets" came from a
+low-resolution phone image of the rate card and was simply wrong. **Assets are
+consistent; treat them as authoritative.**
 
 ---
 
@@ -218,6 +235,26 @@ viewable and downloadable.
 Reports come last on purpose: a report can only be as good as the structure
 beneath it, and the AI layer makes a good report beautiful — it cannot make a
 missing one exist.
+
+## 13 · Open — the reel minimum
+
+The agreed model is "reels sit inside the asset total, with a minimum". Only
+SPARK states one (2). STARTER says "static posts, reels and carousel content mix"
+with no number, and the comparison matrix has no reel row.
+
+Three ways to handle it, and this needs the owner's answer:
+
+1. **Reel minimum is a field on the package that the owner fills in.** Nothing is
+   invented; SPARK starts at 2 and the rest are set once, in the app.
+2. **No reel minimum except where printed.** SPARK enforces 2; every other package
+   reports reels published without judging them against a promise.
+3. **Set per project, not per package**, because a restaurant and a law firm on the
+   same package want a different mix.
+
+Option 1 is the least work and the most honest — the number exists, it simply
+lives in the owner's head rather than in the PDF.
+
+---
 
 ## 12 · Deliberately not building
 
