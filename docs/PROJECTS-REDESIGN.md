@@ -236,7 +236,44 @@ Reports come last on purpose: a report can only be as good as the structure
 beneath it, and the AI layer makes a good report beautiful — it cannot make a
 missing one exist.
 
-## 13 · Open — the reel minimum
+## 13 · ⚠️ RESOLVED — the package is a template, the project holds the truth
+
+Owner, 2026-08-19: *"the package should appear in the field. Definitely by
+default the package has that value but we can adjust those values at the time of
+creation of a project. We can put how many reels, how many static posts."*
+
+So: pick SPARK, the form fills in 14–16 assets and 2 reels, and any of it can be
+edited before the project is saved.
+
+### The consequence, which decides the schema
+
+**The agreed targets are COPIED onto the project, not looked up from the package
+at report time.** This is the single most important decision in the model, and
+getting it the other way round would quietly corrupt every historical report.
+
+If a project merely pointed at `packages.assets_min`, then editing the SPARK
+package next year — raising it from 14 to 18 — would retroactively change what
+every existing SPARK client had been promised. Reports run over last quarter
+would suddenly show projects missing a target nobody had agreed to at the time.
+History would rewrite itself every time the offering changed.
+
+The same reasoning as writing the price onto an order line rather than reading it
+from the product: **you record what was agreed, not what is currently on the
+shelf.**
+
+So `packages` supplies defaults for the form, and the project stores
+`assets_target_min`, `assets_target_max`, `reels_target_min` and the agreed fee
+as its own columns. Change a package tomorrow and every existing project is
+untouched.
+
+It also disposes of the reel-minimum gap entirely: SPARK seeds 2 because the PDF
+says so, the other seven seed null, and the owner sets each one the first time
+they create a project on that package — or edits the package once and every
+future project inherits it.
+
+---
+
+## 14 · Superseded — the reel minimum
 
 The agreed model is "reels sit inside the asset total, with a minimum". Only
 SPARK states one (2). STARTER says "static posts, reels and carousel content mix"
