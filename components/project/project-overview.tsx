@@ -519,15 +519,23 @@ export function ProjectOverview({
             </Link>
           </div>
 
-          <div className="mt-2.5 shrink-0 overflow-x-auto">
-            <div className="grid min-w-[38rem] grid-cols-6 gap-1.5">
+          {/* ⚠️ NO SCROLLER HERE EITHER. Owner, 2026-08-20: *"in this week or calendar
+              card you have again added a scrollbar. I don't want that scrollbar."*
+
+              I removed it from the pipeline and left the identical mistake here —
+              `overflow-x-auto` over a `min-w-[38rem]` grid inside a 5-of-12 card, which
+              always overflows. Six columns now size to the card; `min-w-0` on each is
+              what lets them shrink rather than being propped open by their own chips,
+              and the chips lost their padding to suit. */}
+          <div className="mt-2.5 shrink-0">
+            <div className="grid grid-cols-6 gap-1">
               {week.map((day) => {
                 const isPostingDay = project.postingDays.includes(day.weekday);
                 return (
                   <div key={day.date} className="min-w-0">
                     <div
                       className={cn(
-                        'flex items-baseline justify-center gap-1 rounded-md py-1 text-micro font-semibold',
+                        'flex items-baseline justify-center gap-0.5 rounded-md py-1 text-micro font-semibold',
                         day.isToday ? 'text-text-primary' : 'text-text-secondary',
                       )}
                       style={
@@ -547,7 +555,7 @@ export function ProjectOverview({
                       {day.tasks.map((task) => (
                         <div
                           key={task.id}
-                          className="rounded-md p-1.5"
+                          className="rounded-md px-1 py-1"
                           title={task.title}
                           style={{
                             backgroundColor:
@@ -667,6 +675,7 @@ export function ProjectOverview({
           reelsTargetMin: project.reelsTargetMin,
           staticPostsPerDay: project.staticPostsPerDay,
           reelsPerWeek: project.reelsPerWeek,
+          postingDays: project.postingDays,
           startDate: project.startDate,
         }}
         platforms={project.platforms}

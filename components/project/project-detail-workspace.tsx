@@ -49,6 +49,7 @@ import { ProjectCredentials } from './project-credentials';
 import { ProjectDialog } from './project-dialog';
 import { PlatformLinksDialog } from './platform-links-dialog';
 import { ProjectOverview } from './project-overview';
+import { ReportMenu } from './report-menu';
 import { PlatformStrip } from './project-delivery';
 import { IncludesPills, KindPill, PackagePill, StatusPill } from './project-pills';
 
@@ -109,7 +110,13 @@ const PROJECT_ROLE_LABEL: Record<string, string> = {
 /** The secondary action buttons on the tab row. One string so the three of them
  *  cannot drift apart by a pixel. */
 const ACTION =
-  'inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-border-default px-2.5 py-1.5 text-caption font-semibold text-text-secondary hover:bg-bg-hover hover:text-text-primary';
+  'inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-border-default px-2 py-1.5 text-caption font-semibold text-text-secondary hover:bg-bg-hover hover:text-text-primary';
+
+/** The label inside an action button. Hidden below `xl`, so a zoomed-in viewport gets
+ *  four icons instead of four crowded buttons. `title` on the button keeps them
+ *  identifiable when the text is gone — an icon-only control with no tooltip is a
+ *  guessing game. */
+const ACTION_LABEL = 'hidden xl:inline';
 
 /** Shared table cell classes, so the Tasks and Content tables line up. */
 const TH =
@@ -290,11 +297,24 @@ export function ProjectDetailWorkspace({
 
           The buttons keep their own `shrink-0` so a long tab list steals space from
           the tabs, never from the actions. */}
-      <div className="flex flex-nowrap items-end justify-between gap-x-3 border-b border-border-subtle">
+      {/* ⚠️ THE GAP IS `gap-x-6` AND THE TABS GET `pr-2`, BOTH DELIBERATE.
+          Owner, 2026-08-20 at 100% zoom: *"the left button and the right button are
+          very close to each other, with no space between them."* They were: the tab
+          scroller is `flex-1`, so it expanded to fill every pixel up to the buttons and
+          the last tab butted against the first button. A gap on the parent is what the
+          scroller cannot eat.
+
+          ⚠️ RESPONSIVE BY COLLAPSING LABELS, NOT BY WRAPPING. Owner: *"when I zoom in
+          make them responsive. Don't make them overlap."* Zooming shrinks the effective
+          viewport, so below `xl` the four action buttons drop their text and keep their
+          icons — which frees roughly 260px in one step. `flex-nowrap` means the two
+          groups can never stack, and flex layout cannot overlap, so the failure mode is
+          the tab strip scrolling: recoverable, and visibly so. */}
+      <div className="flex flex-nowrap items-end justify-between gap-x-6 border-b border-border-subtle">
       <nav
         role="tablist"
         aria-label="Project sections"
-        className="chrome-scroll -mb-px flex min-w-0 items-center gap-0.5 overflow-x-auto pb-0"
+        className="chrome-scroll -mb-px flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto pr-2 pb-0"
       >
         {TABS.map((entry) => {
           const active = entry.key === tab;
@@ -353,14 +373,15 @@ export function ProjectDetailWorkspace({
               button. */}
           <Link
             href={`/tasks?project=${project.id}`}
+            title="Create content for this project"
             className={cn(
-              'inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-caption font-semibold',
+              'inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg px-2 py-1.5 text-caption font-semibold',
               'bg-[image:var(--gradient-brand)] text-text-on-brand shadow-[var(--shadow-brand-glow)]',
               'hover:bg-[image:var(--gradient-brand-hover)] active:translate-y-px',
             )}
           >
-            <Plus className="h-3.5 w-3.5" strokeWidth={2.5} aria-hidden="true" />
-            Create Content
+            <Plus className="h-3.5 w-3.5 shrink-0" strokeWidth={2.5} aria-hidden="true" />
+            <span className={ACTION_LABEL}>Create Content</span>
           </Link>
 
           {/* ⚠️ Owner, 2026-08-20: *"the Add Task button is missing."* It was in the
@@ -368,20 +389,31 @@ export function ProjectDetailWorkspace({
               Both this and Create Content go to the task board filtered to this
               project — the difference is that Create Content is the primary and this
               is not, which is what the mockup shows. */}
-          <Link href={`/tasks?project=${project.id}`} className={ACTION}>
-            <Plus className="h-3.5 w-3.5" strokeWidth={2.5} aria-hidden="true" />
-            Add Task
+          <Link
+            href={`/tasks?project=${project.id}`}
+            className={ACTION}
+            title="Add a task to this project"
+          >
+            <Plus className="h-3.5 w-3.5 shrink-0" strokeWidth={2.5} aria-hidden="true" />
+            <span className={ACTION_LABEL}>Add Task</span>
           </Link>
 
-          <button type="button" onClick={() => setTab('files')} className={ACTION}>
-            <Upload className="h-3.5 w-3.5" strokeWidth={2.25} aria-hidden="true" />
-            Upload Asset
+          <button
+            type="button"
+            onClick={() => setTab('files')}
+            className={ACTION}
+            title="Upload an asset"
+          >
+            <Upload className="h-3.5 w-3.5 shrink-0" strokeWidth={2.25} aria-hidden="true" />
+            <span className={ACTION_LABEL}>Upload Asset</span>
           </button>
 
-          <Link href="/monthly-report" className={ACTION}>
-            <FileText className="h-3.5 w-3.5" strokeWidth={2.25} aria-hidden="true" />
-            Generate Report
-          </Link>
+          {/* ⚠️ THIS PROJECT'S REPORTS, NOT THE DIVISION'S. Owner, 2026-08-20:
+              *"Generate Report is for reports related to this project."* It pointed at
+              /monthly-report, which is the division-wide CEO report — the right report
+              for the Reports page and the wrong one here. The menu below opens periods
+              scoped to this project. */}
+          <ReportMenu projectId={project.id} projectName={project.name} today={today} />
         </div>
       </div>
 
