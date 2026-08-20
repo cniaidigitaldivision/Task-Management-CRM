@@ -5,6 +5,12 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   ArrowLeft,
+  BarChart3,
+  CalendarDays,
+  ListChecks,
+  MoreVertical,
+  Sparkles,
+  Upload,
   ExternalLink,
   FileText,
   Folder,
@@ -19,15 +25,10 @@ import {
 
 import type { CredentialRow } from '@/lib/db/queries/credentials';
 import type { DocumentRow } from '@/lib/db/queries/documents';
+import type { ActivityRow } from '@/lib/db/queries/types';
 import type { ProjectMemberRow } from '@/lib/db/queries/projects';
 import type { ProjectRow, TaskRow } from '@/lib/db/queries/types';
 import { CONTENT_KIND_LABEL } from '@/lib/domain/constants';
-import { WEEKDAY_LABEL } from '@/lib/domain/cadence';
-import {
-  VERDICT_LABEL,
-  VERDICT_TOKEN,
-  projectProgress,
-} from '@/lib/domain/project-progress';
 import {
   addProjectMemberAction,
   removeProjectMemberAction,
@@ -36,13 +37,12 @@ import { Badge } from '@/components/ui/badge';
 import { Button, IconButton } from '@/components/ui/button';
 import { Field } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
-import { Avatar } from '@/components/ui/avatar';
 import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/card';
-import { ProgressBar } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
 
 import { MonthRhythm } from './month-rhythm';
 import { ProjectCredentials } from './project-credentials';
+import { ProjectOverview } from './project-overview';
 import { PlatformStrip } from './project-delivery';
 import { IncludesPills, KindPill, PackagePill, StatusPill } from './project-pills';
 
@@ -65,14 +65,25 @@ import { IncludesPills, KindPill, PackagePill, StatusPill } from './project-pill
  * them in a component is how a bar and a report come to disagree.
  * ========================================================================= */
 
-type Tab = 'overview' | 'content' | 'team' | 'credentials' | 'documents';
+type Tab = 'overview' | 'content' | 'calendar' | 'tasks' | 'analytics' | 'team' | 'files' | 'access';
 
+/* ── ⚠️ EIGHT TABS, FROM THE OWNER'S MOCKUP (2026-08-20) ──────────────────────
+   Three are new (Calendar, Tasks, Analytics) and two were renamed: Credentials →
+   Access and Documents → Files, matching the picture.
+
+   The rename is only a label — the panels behind them are unchanged, and the tab KEYS
+   changed with them so nothing reads a stale string. Worth stating because "Access"
+   sounds like a permissions screen and is not: it is where a project's logins live,
+   which is what the mockup means by it. */
 const TABS: ReadonlyArray<{ key: Tab; label: string; icon: typeof Users }> = [
   { key: 'overview', label: 'Overview', icon: LayoutDashboard },
-  { key: 'content', label: 'Content & posts', icon: Share2 },
+  { key: 'content', label: 'Content', icon: Share2 },
+  { key: 'calendar', label: 'Calendar', icon: CalendarDays },
+  { key: 'tasks', label: 'Tasks', icon: ListChecks },
+  { key: 'analytics', label: 'Analytics', icon: BarChart3 },
   { key: 'team', label: 'Team', icon: Users },
-  { key: 'credentials', label: 'Credentials', icon: KeyRound },
-  { key: 'documents', label: 'Documents', icon: FileText },
+  { key: 'files', label: 'Files', icon: FileText },
+  { key: 'access', label: 'Access', icon: KeyRound },
 ];
 
 /* ⚠️ The project-status meta that used to live here is gone — StatusPill in
@@ -89,34 +100,10 @@ const PROJECT_ROLE_LABEL: Record<string, string> = {
   other: 'Other',
 };
 
-function money(pkr: number | null): string {
-  if (pkr === null) return '—';
-  /* Locale passed explicitly — an argless `toLocaleString()` formats differently on
-     the server and in the browser and React reports it as a hydration mismatch. */
-  return `PKR ${pkr.toLocaleString('en-PK')}`;
-}
-
-/**
- * "1 a day, 2 reels a week" — the commitment in the words somebody agreed it in.
- *
- * ⚠️ Distinguishes null from 0. "No rhythm agreed" and "agreed to post nothing" are
- * different statements, and the second one is a real thing a paused retainer might
- * say. The same rule the schema and every report follow.
- */
-function rhythmSentence(staticPerDay: number | null, reelsPerWeek: number | null): string {
-  const parts: string[] = [];
-  if (staticPerDay !== null) {
-    parts.push(staticPerDay === 0 ? 'no daily posts' : `${staticPerDay} a day`);
-  }
-  if (reelsPerWeek !== null) {
-    parts.push(
-      reelsPerWeek === 0
-        ? 'no reels'
-        : `${reelsPerWeek} reel${reelsPerWeek === 1 ? '' : 's'} a week`,
-    );
-  }
-  return parts.length > 0 ? parts.join(', ') : 'Nothing agreed';
-}
+/** Shared table cell classes, so the Tasks and Content tables line up. */
+const TH =
+  'px-3 py-2 text-left text-micro font-semibold uppercase tracking-[0.06em] text-text-tertiary';
+const TD = 'px-3 py-2 align-top text-caption text-text-secondary';
 
 export function ProjectDetailWorkspace({
   project,
@@ -128,7 +115,9 @@ export function ProjectDetailWorkspace({
   canManage,
   canSeeFinance,
   monthStart,
+  monthLabel,
   today,
+  activity,
 }: {
   project: ProjectRow;
   members: readonly ProjectMemberRow[];
@@ -147,7 +136,11 @@ export function ProjectDetailWorkspace({
    *  can disagree about the date across midnight or a timezone — which would put the
    *  month grid on the wrong month. Same rule as lib/now.ts. */
   monthStart: string;
+  /** "August 2026" — formatted on the server for the same reason the dates are. */
+  monthLabel: string;
   today: string;
+  /** This project's and its tasks' history, newest first. */
+  activity: readonly ActivityRow[];
 }) {
   const [tab, setTab] = React.useState<Tab>('overview');
   const router = useRouter();
@@ -173,14 +166,6 @@ export function ProjectDetailWorkspace({
       setBusy(null);
     }
   };
-
-  const progress = projectProgress({
-    assetsPublished: project.assetsPublishedThisMonth,
-    reelsPublished: project.reelsPublishedThisMonth,
-    assetsTargetMin: project.assetsTargetMin,
-    assetsTargetMax: project.assetsTargetMax,
-    reelsTargetMin: project.reelsTargetMin,
-  });
 
   /* Deliverables only — a coordinator's admin task is real work but was never
      part of what the client was promised, so it does not belong in a list headed
@@ -242,24 +227,35 @@ export function ProjectDetailWorkspace({
         </div>
       </div>
 
-      {/* ---- Tabs ---- */}
+      {/* ── Tabs, and the actions beside them ──────────────────────────────────
+          The owner's mockup puts four buttons on the tab row: Create Content, Add
+          Task, Upload Asset, Generate Report.
+
+          ⚠️ Every one of them GOES somewhere real. A row that looks like the picture
+          and does nothing is worse than four that work — so Create Content and Add
+          Task open the task dialog, Upload Asset switches to the Files tab where the
+          uploader lives, and Generate Report links to /monthly-report, which is
+          already built. Nothing here is a placeholder. */}
+      <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2 border-b border-border-subtle">
       <nav
         role="tablist"
         aria-label="Project sections"
-        className="flex flex-wrap items-center gap-1 border-b border-border-subtle pb-1"
+        className="-mb-px flex flex-wrap items-center gap-1 pb-1"
       >
         {TABS.map((entry) => {
           const active = entry.key === tab;
           const count =
             entry.key === 'content'
               ? deliverables.length
-              : entry.key === 'team'
-                ? members.length
-                : entry.key === 'credentials'
-                  ? credentials.length
-                  : entry.key === 'documents'
-                    ? documents.length
-                    : null;
+              : entry.key === 'tasks'
+                ? tasks.length
+                : entry.key === 'team'
+                  ? members.length + 1 // + the owner, who is on the team but not a member row
+                  : entry.key === 'access'
+                    ? credentials.length
+                    : entry.key === 'files'
+                      ? documents.length
+                      : null;
 
           return (
             <button
@@ -286,217 +282,67 @@ export function ProjectDetailWorkspace({
         })}
       </nav>
 
+        <div className="flex flex-wrap items-center gap-1.5 pb-1.5">
+          {/* ⚠️ LINKS, not buttons that open a dialog here. `TaskDialog` needs the
+              shell's project list, person list and current user — none of which this
+              component has, and threading them in only to duplicate the New-task flow
+              that /tasks already owns would be a second place for that form to drift.
+              So these navigate to the task board filtered to this project, where the
+              real control lives. One extra click, no duplicated form, no dead
+              button. */}
+          <Link
+            href={`/tasks?project=${project.id}`}
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-caption font-semibold',
+              'bg-[image:var(--gradient-brand)] text-text-on-brand shadow-[var(--shadow-brand-glow)]',
+              'hover:bg-[image:var(--gradient-brand-hover)] active:translate-y-px',
+            )}
+          >
+            <Sparkles className="h-4 w-4" strokeWidth={2.25} aria-hidden="true" />
+            Create content
+          </Link>
+
+          <button
+            type="button"
+            onClick={() => setTab('files')}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border-default px-3 py-1.5 text-caption font-semibold text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+          >
+            <Upload className="h-4 w-4" strokeWidth={2.25} aria-hidden="true" />
+            Upload asset
+          </button>
+
+          <Link
+            href="/monthly-report"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border-default px-3 py-1.5 text-caption font-semibold text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+          >
+            <FileText className="h-4 w-4" strokeWidth={2.25} aria-hidden="true" />
+            Generate report
+          </Link>
+
+          {canManage && (
+            <IconButton
+              label="More project actions"
+              icon={MoreVertical}
+              size="sm"
+              onClick={() => setTab('access')}
+            />
+          )}
+        </div>
+      </div>
+
       {/* ══ OVERVIEW ═══════════════════════════════════════════════════════════ */}
       {tab === 'overview' && (
-        <div className="space-y-4">
-          {/* THE QUESTION THE PAGE EXISTS TO ANSWER, FIRST. */}
-          <Card lit>
-            <CardBody className="space-y-3 p-4">
-              <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <h2 className="text-body-sm font-semibold text-text-primary">This month</h2>
-                <Badge token={VERDICT_TOKEN[progress.verdict]} size="sm" variant="outline">
-                  {VERDICT_LABEL[progress.verdict]}
-                </Badge>
-              </div>
-
-              <p className="text-caption text-text-secondary">{progress.summary}</p>
-
-              <div className="space-y-2.5">
-                <div className="space-y-1">
-                  <div className="flex items-baseline justify-between text-micro">
-                    <span className="text-text-secondary">Assets published</span>
-                    <span className="tabular text-text-primary">
-                      {project.assetsPublishedThisMonth}
-                      {project.assetsTargetMin !== null && ` / ${project.assetsTargetMin}`}
-                      {project.assetsTargetMax !== null &&
-                        project.assetsTargetMax !== project.assetsTargetMin &&
-                        ` (up to ${project.assetsTargetMax})`}
-                    </span>
-                  </div>
-                  {/* ⚠️ A bar is only drawn when there is a target. A full bar
-                      against no target would read as success; an empty one as
-                      failure. Neither is true, so neither is shown. */}
-                  {progress.assetsPercent !== null ? (
-                    <ProgressBar
-                      value={progress.assetsPercent}
-                      token={VERDICT_TOKEN[progress.verdict]}
-                    />
-                  ) : (
-                    <p className="text-micro text-text-tertiary">
-                      No monthly minimum agreed, so there is nothing to measure against.
-                    </p>
-                  )}
-                </div>
-
-                {project.reelsTargetMin !== null && (
-                  <div className="space-y-1">
-                    <div className="flex items-baseline justify-between text-micro">
-                      <span className="text-text-secondary">
-                        Reels{' '}
-                        <span className="text-text-tertiary">— counted inside the total</span>
-                      </span>
-                      <span className="tabular text-text-primary">
-                        {project.reelsPublishedThisMonth} / {project.reelsTargetMin}
-                      </span>
-                    </div>
-                    <ProgressBar
-                      value={progress.reelsPercent ?? 0}
-                      token={
-                        progress.reelsRemaining > 0 ? 'feedback-warning' : 'feedback-success'
-                      }
-                    />
-                  </div>
-                )}
-              </div>
-            </CardBody>
-          </Card>
-
-          {/* ── ⚠️ THE RHYTHM, AS A MONTH ────────────────────────────────────────
-              Owner: *"This one, it's a monthly chart. This one is very interactive,
-              very sleek and beautifully represented overall, graphically."* and
-              *"make it empty, like a Sunday… mention that this is Sunday."*
-
-              This replaced nothing — the old Overview had no picture of the month at
-              all, which is why it read as a pile of labels. */}
-          <Card>
-            <CardHeader>
-              <CardTitle>The month</CardTitle>
-            </CardHeader>
-            <CardBody className="p-4 pt-0">
-              <MonthRhythm
-                cadence={{
-                  staticPostsPerDay: project.staticPostsPerDay,
-                  reelsPerWeek: project.reelsPerWeek,
-                  reelDays: project.reelDays as never,
-                  postingDays: project.postingDays as never,
-                }}
-                monthStart={monthStart}
-                today={today}
-              />
-            </CardBody>
-          </Card>
-
-          {/* ── ⚠️ ACCOUNTABILITY: OWNER IS NOT "ASSIGNED TO" ────────────────────
-              Owner, 2026-08-19: *"Who is the project owner? Who is on this project or
-              assigned to Kashif Ahmad? He is not the owner; he is assigned, assigned
-              by Kashif Ahmad or someone like that."*
-
-              The old Overview had a single `Fact` labelled "Owner" showing
-              `ownerName`, which is genuinely ambiguous — it could mean the person
-              accountable for the project or the person the work landed on. They are
-              different people and the distinction is the whole point of the Team tab.
-
-              So this says ACCOUNTABLE, in words, and names the members separately
-              underneath. The column is still `owner_id`; only the label changed. */}
-          <div className="grid gap-4 lg:grid-cols-2">
-            <Card>
-              <CardHeader>
-                <CardTitle>Accountable</CardTitle>
-              </CardHeader>
-              <CardBody className="space-y-3 p-4 pt-0">
-                <div className="flex items-center gap-2.5">
-                  <Avatar name={project.ownerName ?? 'Unassigned'} size="md" />
-                  <div className="min-w-0">
-                    <p className="truncate text-body-sm font-semibold text-text-primary">
-                      {project.ownerName ?? 'Nobody yet'}
-                    </p>
-                    <p className="text-micro text-text-tertiary">
-                      owns this project — answers for it
-                    </p>
-                  </div>
-                </div>
-
-                <div className="border-t border-border-subtle pt-2.5">
-                  <p className="text-micro font-semibold uppercase tracking-[0.06em] text-text-tertiary">
-                    Also working on it
-                  </p>
-                  {members.length === 0 ? (
-                    <p className="mt-1 text-micro text-text-secondary">
-                      Nobody else added. Use the Team tab.
-                    </p>
-                  ) : (
-                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                      {members.map((member) => (
-                        <span
-                          key={member.userId}
-                          className="inline-flex items-center gap-1.5 rounded-full bg-bg-subtle py-0.5 pl-0.5 pr-2"
-                          /* ⚠️ `projectRole` (Content, Design, Ads…), not `role` —
-                             `role` is the person's SYSTEM role and would label a
-                             designer "member" on a card about who does what here.
-
-                             `addedByName` answers the owner's other question directly:
-                             *"he is not the owner; he is assigned, assigned by Kashif
-                             Ahmad."* Who put somebody on a project is a different fact
-                             from who is accountable for it. */
-                          title={
-                            `${member.fullName} — ${PROJECT_ROLE_LABEL[member.projectRole] ?? member.projectRole}` +
-                            (member.addedByName ? ` · added by ${member.addedByName}` : '')
-                          }
-                        >
-                          <Avatar name={member.fullName} size="xs" />
-                          <span className="text-micro font-medium text-text-secondary">
-                            {member.fullName}
-                          </span>
-                          <span className="text-micro text-text-tertiary">
-                            {PROJECT_ROLE_LABEL[member.projectRole] ?? member.projectRole}
-                          </span>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </CardBody>
-            </Card>
-
-            {/* ---- What was sold ----
-                ⚠️ The fee is gated on `project.view_finance`, and the value is also
-                stripped server-side before it reaches this component — see
-                lib/view/project-finance.ts. Two gates because not rendering a field
-                is not the same as not sending it, which a check of the real HTML on
-                /projects proved the hard way. */}
-            <Card>
-              <CardHeader>
-                <CardTitle>What was sold</CardTitle>
-              </CardHeader>
-              <CardBody className="grid gap-x-5 gap-y-3 p-4 pt-0 sm:grid-cols-2">
-                <Fact label="Package" value={project.packageName ?? 'Customized'} />
-                {canSeeFinance && <Fact label="Monthly fee" value={money(project.monthlyFeePkr)} />}
-                <Fact
-                  label="Rhythm"
-                  value={rhythmSentence(project.staticPostsPerDay, project.reelsPerWeek)}
-                />
-                <Fact
-                  label="Promised a month"
-                  value={
-                    project.assetsTargetMin === null
-                      ? 'Nothing agreed'
-                      : `${project.assetsTargetMin} assets${
-                          project.reelsTargetMin ? `, ${project.reelsTargetMin} reels` : ''
-                        }`
-                  }
-                />
-                <Fact label="Started" value={project.startDate ?? '—'} />
-                <Fact
-                  label="Posting days"
-                  value={
-                    project.postingDays.length === 0
-                      ? 'None'
-                      : project.postingDays
-                          .map((d) => WEEKDAY_LABEL[d as 1 | 2 | 3 | 4 | 5 | 6 | 7])
-                          .join(' ')
-                  }
-                />
-              </CardBody>
-            </Card>
-          </div>
-
-          {/* ⚠️ The description card is gone from here. Owner: *"Try to use less
-              text. You are adding a lot of text. It's not text; it's a dashboard, a
-              CRM."* A paragraph nobody edits, sitting under the figures, was the
-              clearest example of that. It is still on the project and still editable
-              in the dialog; it simply does not get a card of its own on the screen
-              whose job is to show numbers. */}
-        </div>
+        <ProjectOverview
+          project={project}
+          members={members}
+          tasks={tasks}
+          activity={activity}
+          monthStart={monthStart}
+          monthLabel={monthLabel}
+          today={today}
+          canSeeFinance={canSeeFinance}
+          onAddContent={() => setTab('tasks')}
+        />
       )}
 
       {/* ══ CONTENT & POSTS ════════════════════════════════════════════════════ */}
@@ -545,6 +391,108 @@ export function ProjectDetailWorkspace({
                 ))}
               </ul>
             )}
+          </CardBody>
+        </Card>
+      )}
+
+      {/* ══ CALENDAR ═══════════════════════════════════════════════════════════
+          The month grid, on its own tab as the mockup has it. Same component the
+          Overview used to embed — one renderer, so the two cannot disagree. */}
+      {tab === 'calendar' && (
+        <Card>
+          <CardHeader>
+            <CardTitle>The posting month</CardTitle>
+          </CardHeader>
+          <CardBody className="p-4 pt-0">
+            <MonthRhythm
+              cadence={{
+                staticPostsPerDay: project.staticPostsPerDay,
+                reelsPerWeek: project.reelsPerWeek,
+                reelDays: project.reelDays as never,
+                postingDays: project.postingDays as never,
+              }}
+              monthStart={monthStart}
+              today={today}
+            />
+          </CardBody>
+        </Card>
+      )}
+
+      {/* ══ TASKS ══════════════════════════════════════════════════════════════
+          EVERY task, not only the deliverables the Content tab lists. A
+          coordinator's admin work is real and belongs somewhere — it is simply not
+          countable against a package target, which is why the two tabs differ. */}
+      {tab === 'tasks' && (
+        <Card>
+          <CardBody className="p-0">
+            {tasks.length === 0 ? (
+              <p className="px-4 py-10 text-center text-caption text-text-secondary">
+                No tasks in this project yet.
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[42rem] border-collapse">
+                  <thead>
+                    <tr className="border-b border-border-default">
+                      <th scope="col" className={TH}>Reference</th>
+                      <th scope="col" className={TH}>Task</th>
+                      <th scope="col" className={TH}>Status</th>
+                      <th scope="col" className={TH}>Assignee</th>
+                      <th scope="col" className={TH}>Due</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tasks.map((task) => (
+                      <tr key={task.id} className="border-b border-border-subtle last:border-0">
+                        <td className={cn(TD, 'whitespace-nowrap font-mono text-micro')}>
+                          {task.reference}
+                        </td>
+                        <td className={cn(TD, 'font-medium text-text-primary')}>{task.title}</td>
+                        <td className={TD}>{task.status.replace(/_/g, ' ')}</td>
+                        <td className={TD}>{task.assigneeName ?? '—'}</td>
+                        <td className={cn(TD, 'whitespace-nowrap')}>{task.dueDate ?? '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardBody>
+        </Card>
+      )}
+
+      {/* ══ ANALYTICS ══════════════════════════════════════════════════════════
+          ⚠️ DELIBERATELY NOT FAKED. The mockup shows the tab but not its contents, and
+          the honest answer is that per-platform reach and engagement are not in this
+          database — nothing reads Meta's or TikTok's APIs yet. Charts drawn from
+          invented numbers on a page the owner forwards to a client is the one outcome
+          worse than an empty tab, so this says what it needs and what it would take.
+
+          What IS available is stated, because it is not nothing: the placement links
+          per platform, which is the seed a real analytics tab would grow from. */}
+      {tab === 'analytics' && (
+        <Card>
+          <CardBody className="space-y-3 px-6 py-10 text-center">
+            <BarChart3
+              className="mx-auto h-6 w-6 text-text-tertiary"
+              strokeWidth={1.9}
+              aria-hidden="true"
+            />
+            <p className="text-body-sm font-semibold text-text-primary">
+              Nothing to chart yet
+            </p>
+            <p className="mx-auto max-w-[40rem] text-caption text-text-secondary">
+              Reach, impressions and engagement live inside Meta, TikTok and YouTube — this
+              CRM does not read them yet, so there is nothing here that would be true. What it
+              does hold is every published post and its live link, which is what the{' '}
+              <Link href="/monthly-report" className="font-semibold text-text-brand hover:underline">
+                monthly report
+              </Link>{' '}
+              is built from.
+            </p>
+            <p className="text-micro text-text-tertiary">
+              Connecting a platform&rsquo;s insights API is its own piece of work — say the word.
+            </p>
           </CardBody>
         </Card>
       )}
@@ -686,7 +634,7 @@ export function ProjectDetailWorkspace({
       )}
 
       {/* ══ CREDENTIALS ════════════════════════════════════════════════════════ */}
-      {tab === 'credentials' && (
+      {tab === 'access' && (
         <ProjectCredentials
           credentials={credentials}
           projectId={project.id}
@@ -697,7 +645,7 @@ export function ProjectDetailWorkspace({
       )}
 
       {/* ══ DOCUMENTS ══════════════════════════════════════════════════════════ */}
-      {tab === 'documents' && (
+      {tab === 'files' && (
         <Card>
           <CardBody className="space-y-3 p-4">
             <p className="text-body-sm font-semibold text-text-primary">Documents</p>
@@ -757,13 +705,3 @@ export function ProjectDetailWorkspace({
   );
 }
 
-function Fact({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="space-y-0.5">
-      <p className="text-micro font-semibold tracking-[0.06em] text-text-tertiary uppercase">
-        {label}
-      </p>
-      <p className="text-body-sm text-text-primary">{value}</p>
-    </div>
-  );
-}

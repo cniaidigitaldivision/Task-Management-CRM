@@ -8,9 +8,11 @@ import { listDocuments } from '@/lib/db/queries/documents';
 import { getProject, listProjectMembers } from '@/lib/db/queries/projects';
 import { listTasks } from '@/lib/db/queries/tasks';
 import { listPeople } from '@/lib/db/queries/people';
+import { listProjectActivity } from '@/lib/db/queries/feed';
 import { can } from '@/lib/domain/permissions';
 import { redactOne } from '@/lib/view/project-finance';
 import { nowMs } from '@/lib/now';
+import { monthLabel as cadenceMonthLabel } from '@/lib/domain/ceo-report';
 
 export const metadata: Metadata = { title: 'Project' };
 
@@ -52,12 +54,14 @@ export default async function ProjectPage({
      the two would tell somebody that a project they may not see exists. */
   if (!project) notFound();
 
-  const [members, tasks, credentials, documents, people] = await Promise.all([
+  const [members, tasks, credentials, documents, people, activity] = await Promise.all([
     listProjectMembers(user.id, id),
     listTasks(user.id, { projectId: id, includeClosed: true }),
     listCredentials(user.id),
     listDocuments(user.id),
     can(actor, 'project.edit') ? listPeople(user.id, {}) : Promise.resolve([]),
+    /* Seven reads, still one round of latency — see the header. */
+    listProjectActivity(user.id, id, 8),
   ]);
 
   const canSeeFinance = can(actor, 'project.view_finance');
@@ -71,6 +75,10 @@ export default async function ProjectPage({
   const pad = (n: number) => String(n).padStart(2, '0');
   const monthStart = `${now.getUTCFullYear()}-${pad(now.getUTCMonth() + 1)}-01`;
   const today = `${now.getUTCFullYear()}-${pad(now.getUTCMonth() + 1)}-${pad(now.getUTCDate())}`;
+  /* Formatted here, not in the component: `toLocaleString` in a client component
+     renders differently on the server and in the browser and React reports it as a
+     hydration mismatch. `monthLabel` already solves this for the CEO report. */
+  const monthLabel = cadenceMonthLabel(monthStart);
 
   return (
     <div className="mx-auto max-w-[var(--content-max)] space-y-5">
@@ -80,7 +88,9 @@ export default async function ProjectPage({
         project={redactOne(project, canSeeFinance)}
         canSeeFinance={canSeeFinance}
         monthStart={monthStart}
+        monthLabel={monthLabel}
         today={today}
+        activity={activity}
         members={members}
         tasks={tasks}
         /* Filtered here rather than in SQL because both lists are already scoped

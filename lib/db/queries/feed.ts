@@ -160,6 +160,51 @@ export async function listActivity(actorId: string, limit = 25): Promise<Activit
   }));
 }
 
+/**
+ * Everything that has happened to ONE project — the "Recent Activity" panel.
+ *
+ * ── ⚠️ WHY THIS IS NOT `listActivity` WITH A FILTER ───────────────────────────
+ * A project's history is not only the rows filed against the project itself. Almost
+ * everything a reader cares about — an asset uploaded, a post approved, a story moved
+ * to review — is logged against a TASK, with the task's id as `entity_id`. Filtering
+ * `entity_type = 'project'` returns "created the project" and nothing else, which is
+ * exactly as empty as the panel it would feed.
+ *
+ * So this unions the project's own rows with the rows of every task in it. The join to
+ * `tasks` is what scopes it, and because that join runs under the caller's RLS a
+ * reader can only ever see activity for tasks they could already open.
+ */
+export async function listProjectActivity(
+  actorId: string,
+  projectId: string,
+  limit = 12,
+): Promise<ActivityRow[]> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select a.id, a.actor_id, u.full_name as actor_name, a.entity_type, a.entity_id,
+           a.action, a.summary, a.created_at
+      from public.activity_log a
+      left join public.users u on u.id = a.actor_id
+     where (a.entity_type = 'project' and a.entity_id = ${projectId})
+        or (a.entity_type = 'task' and a.entity_id in (
+              select t.id from public.tasks t
+               where t.project_id = ${projectId} and not t.is_deleted
+            ))
+     order by a.created_at desc
+     limit ${limit}
+  `);
+  return rows.map((row) => ({
+    id: row.id as string,
+    actorId: (row.actor_id as string | null) ?? null,
+    actorName: (row.actor_name as string | null) ?? null,
+    entityType: row.entity_type as string,
+    entityId: row.entity_id as string,
+    action: row.action as string,
+    summary: (row.summary as string | null) ?? null,
+    createdAt:
+      row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
+  }));
+}
+
 export async function listNotifications(
   actorId: string,
   limit = 30,
