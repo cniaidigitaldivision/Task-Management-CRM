@@ -18,6 +18,7 @@ import {
   createProject,
   getProject,
   removeProjectMember,
+  setPlatformLinks,
   setProjectPlatforms,
   updateProject,
 } from '@/lib/db/queries/projects';
@@ -493,6 +494,76 @@ export async function createProjectAction(
   } catch (error) {
     return fail(readable(error));
   }
+}
+
+/**
+ * Record the client's page URL and handle for each platform — migration 037.
+ *
+ * ── ⚠️ THREE PARALLEL ARRAYS, ALIGNED BY INDEX ────────────────────────────────
+ * The form posts `platformIds`, `pageUrls` and `handles` once per row, so the three
+ * `getAll` results line up positionally. That is deliberate rather than naming each
+ * field after its platform slug: a slug in a field name has to be parsed back out
+ * here, and it breaks the moment two platforms share a prefix.
+ *
+ * The length check is not paranoia — a malformed post would otherwise pair a URL with
+ * the wrong platform and quietly file a client's Instagram under Facebook.
+ */
+export async function savePlatformLinksAction(
+  _prev: { ok: boolean; error?: string },
+  form: FormData,
+): Promise<{ ok: boolean; error?: string }> {
+  const user = await requireUser();
+
+  if (!can({ role: user.role, id: user.id }, 'project.edit')) {
+    return { ok: false, error: 'Only an Admin can change a project.' };
+  }
+
+  const projectId = str(form, 'projectId');
+  const existing = await getProject(user.id, projectId);
+  if (!existing) return { ok: false, error: 'That project is no longer available.' };
+
+  const ids = form.getAll('platformIds').map(String);
+  const urls = form.getAll('pageUrls').map(String);
+  const handles = form.getAll('handles').map(String);
+
+  if (ids.length !== urls.length || ids.length !== handles.length) {
+    return { ok: false, error: 'That form did not arrive intact. Reload and try again.' };
+  }
+
+  /* ⚠️ Only platforms the project actually manages. Without this filter a crafted
+     post could attach a page to a platform the project does not use, and the row
+     would then be invisible on every screen — the header only draws what the project
+     has. */
+  const managed = new Set(existing.platforms.map((platform) => platform.id));
+
+  const links = ids
+    .map((platformId, index) => ({
+      platformId,
+      /* Empty becomes NULL: the database refuses a blank handle and a blank URL would
+         fail the URL check, so "clear this" cannot be ''. */
+      pageUrl: urls[index]?.trim() || null,
+      handle: handles[index]?.trim() || null,
+    }))
+    .filter((link) => managed.has(link.platformId));
+
+  /* Checked here as well as by the constraint, so the reader gets a sentence naming
+     the platform rather than an opaque check violation. */
+  for (const link of links) {
+    if (link.pageUrl !== null && !/^https?:\/\/\S+$/.test(link.pageUrl)) {
+      const name = existing.platforms.find((p) => p.id === link.platformId)?.name ?? 'A platform';
+      return { ok: false, error: `${name}: that is not a URL. It has to start with https://` };
+    }
+  }
+
+  try {
+    await setPlatformLinks(user.id, projectId, links);
+  } catch {
+    return { ok: false, error: 'Those links could not be saved.' };
+  }
+
+  revalidatePath('/projects');
+  revalidatePath(`/projects/${projectId}`);
+  return { ok: true };
 }
 
 export async function updateProjectAction(

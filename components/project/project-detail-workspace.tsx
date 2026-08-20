@@ -9,7 +9,10 @@ import {
   CalendarDays,
   ListChecks,
   MoreVertical,
-  Sparkles,
+  Link2 as LinkIcon,
+  Pencil,
+  Plus,
+
   Upload,
   ExternalLink,
   FileText,
@@ -42,6 +45,8 @@ import { cn } from '@/lib/utils';
 
 import { MonthRhythm } from './month-rhythm';
 import { ProjectCredentials } from './project-credentials';
+import { ProjectDialog } from './project-dialog';
+import { PlatformLinksDialog } from './platform-links-dialog';
 import { ProjectOverview } from './project-overview';
 import { PlatformStrip } from './project-delivery';
 import { IncludesPills, KindPill, PackagePill, StatusPill } from './project-pills';
@@ -100,6 +105,11 @@ const PROJECT_ROLE_LABEL: Record<string, string> = {
   other: 'Other',
 };
 
+/** The secondary action buttons on the tab row. One string so the three of them
+ *  cannot drift apart by a pixel. */
+const ACTION =
+  'inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-border-default px-2.5 py-1.5 text-caption font-semibold text-text-secondary hover:bg-bg-hover hover:text-text-primary';
+
 /** Shared table cell classes, so the Tasks and Content tables line up. */
 const TH =
   'px-3 py-2 text-left text-micro font-semibold uppercase tracking-[0.06em] text-text-tertiary';
@@ -116,8 +126,10 @@ export function ProjectDetailWorkspace({
   canSeeFinance,
   monthStart,
   monthLabel,
+  months,
   today,
   activity,
+  ownerAvatarUrl,
 }: {
   project: ProjectRow;
   members: readonly ProjectMemberRow[];
@@ -138,9 +150,13 @@ export function ProjectDetailWorkspace({
   monthStart: string;
   /** "August 2026" — formatted on the server for the same reason the dates are. */
   monthLabel: string;
+  /** The months the progress card's selector offers, newest first. */
+  months: readonly string[];
   today: string;
   /** This project's and its tasks' history, newest first. */
   activity: readonly ActivityRow[];
+  /** The owner's uploaded picture, or null. */
+  ownerAvatarUrl: string | null;
 }) {
   const [tab, setTab] = React.useState<Tab>('overview');
   const router = useRouter();
@@ -150,6 +166,12 @@ export function ProjectDetailWorkspace({
   const [busy, setBusy] = React.useState<string | null>(null);
   const [note, setNote] = React.useState<string | null>(null);
   const [adding, setAdding] = React.useState('');
+
+  /* The two dialogs this page can open. Owner, 2026-08-20 asked where a project is
+     edited — the answer was "only the pencil on the projects list", which is not an
+     answer, so the header menu opens them here. */
+  const [editing, setEditing] = React.useState(false);
+  const [editingPlatforms, setEditingPlatforms] = React.useState(false);
   const [addingRole, setAddingRole] = React.useState('content');
 
   /** Run a member change, surface any refusal, and refresh the server data.
@@ -221,26 +243,51 @@ export function ProjectDetailWorkspace({
             </div>
           </div>
 
-          {/* Owner: *"The platform should display proper platform icons."* At 22px
-              here rather than the card's 18 — this is the page about this project. */}
-          <PlatformStrip platforms={project.platforms} size={22} />
+          {/* ── ⚠️ THE PLATFORM STRIP, AND THE MENU BESIDE IT ──────────────────
+              Owner, 2026-08-20: *"how the Facebook, Instagram, and TikTok icons are a
+              little bit away from each other, not very congested… There is a humble
+              button over there where you can maybe add it."*
+
+              So: `gap-2` rather than the strip's default `gap-1`, and the ⋮ menu sits
+              beside them. That menu is where a project is EDITED — the owner's other
+              question was *"If I want to change any detail related to Daniyal
+              Marketing, where can I do that?"* and until now the answer was "only from
+              the pencil on the projects list", which is not an answer. */}
+          <div className="flex shrink-0 items-center gap-2">
+            <PlatformStrip platforms={project.platforms} size={24} gap="gap-2" />
+            {canManage && (
+              <ProjectMenu
+                onEdit={() => setEditing(true)}
+                onPlatforms={() => setEditingPlatforms(true)}
+              />
+            )}
+          </div>
         </div>
       </div>
 
-      {/* ── Tabs, and the actions beside them ──────────────────────────────────
-          The owner's mockup puts four buttons on the tab row: Create Content, Add
-          Task, Upload Asset, Generate Report.
+      {/* ── ⚠️ TABS LEFT, ACTIONS RIGHT, ONE LINE ──────────────────────────────
+          Owner, 2026-08-20: *"these buttons or tabs are on the left side. They are
+          small, optimized, and very sleek. Create Content, Upload Assets, and Generate
+          Report should be parallel on the right side… Right now these are upside
+          down."*
 
-          ⚠️ Every one of them GOES somewhere real. A row that looks like the picture
-          and does nothing is worse than four that work — so Create Content and Add
-          Task open the task dialog, Upload Asset switches to the Files tab where the
-          uploader lives, and Generate Report links to /monthly-report, which is
-          already built. Nothing here is a placeholder. */}
-      <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2 border-b border-border-subtle">
+          They were. The container already said `justify-between`, but the two groups
+          together were wider than the row, so `flex-wrap` sent the buttons onto a
+          second line UNDERNEATH the tabs — which reads as the buttons being on the
+          left. Two fixes, both needed:
+
+            · `flex-nowrap` on the row, so it can never stack again.
+            · Both groups made genuinely smaller — `text-caption` tabs with tighter
+              padding, `gap-0.5`, and the tab bar allowed to scroll on a narrow
+              viewport rather than pushing the buttons off.
+
+          The buttons keep their own `shrink-0` so a long tab list steals space from
+          the tabs, never from the actions. */}
+      <div className="flex flex-nowrap items-end justify-between gap-x-3 border-b border-border-subtle">
       <nav
         role="tablist"
         aria-label="Project sections"
-        className="-mb-px flex flex-wrap items-center gap-1 pb-1"
+        className="chrome-scroll -mb-px flex min-w-0 items-center gap-0.5 overflow-x-auto pb-0"
       >
         {TABS.map((entry) => {
           const active = entry.key === tab;
@@ -264,15 +311,19 @@ export function ProjectDetailWorkspace({
               role="tab"
               aria-selected={active}
               onClick={() => setTab(entry.key)}
+              /* Sleeker than before, per the owner: `text-caption` not `text-body-sm`,
+                 px-2.5 not px-3.5, and an underline rather than a filled plate — a
+                 tinted background on the active tab made eight of them look like eight
+                 buttons rather than one bar. */
               className={cn(
-                'flex items-center gap-2 rounded-t-lg px-3.5 py-2 text-body-sm font-semibold',
+                'flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-2.5 py-2 text-caption font-semibold',
                 'transition-colors duration-[120ms] focus-visible:outline-none',
                 active
-                  ? 'bg-bg-selected text-text-brand'
-                  : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary',
+                  ? 'border-[var(--accent-primary)] text-text-brand'
+                  : 'border-transparent text-text-secondary hover:text-text-primary',
               )}
             >
-              <entry.icon className="h-4 w-4" strokeWidth={2.25} aria-hidden="true" />
+              <entry.icon className="h-[15px] w-[15px]" strokeWidth={2.25} aria-hidden="true" />
               {entry.label}
               {count !== null && count > 0 && (
                 <span className="tabular text-micro text-text-tertiary">{count}</span>
@@ -282,7 +333,10 @@ export function ProjectDetailWorkspace({
         })}
       </nav>
 
-        <div className="flex flex-wrap items-center gap-1.5 pb-1.5">
+        {/* ⚠️ `shrink-0` — a long tab list must steal room from the tabs, never from
+            the actions. That is what keeps them "parallel on the right side" instead
+            of being pushed under. */}
+        <div className="flex shrink-0 items-center gap-1.5 pb-1.5">
           {/* ⚠️ LINKS, not buttons that open a dialog here. `TaskDialog` needs the
               shell's project list, person list and current user — none of which this
               component has, and threading them in only to duplicate the New-task flow
@@ -293,40 +347,24 @@ export function ProjectDetailWorkspace({
           <Link
             href={`/tasks?project=${project.id}`}
             className={cn(
-              'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-caption font-semibold',
+              'inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-caption font-semibold',
               'bg-[image:var(--gradient-brand)] text-text-on-brand shadow-[var(--shadow-brand-glow)]',
               'hover:bg-[image:var(--gradient-brand-hover)] active:translate-y-px',
             )}
           >
-            <Sparkles className="h-4 w-4" strokeWidth={2.25} aria-hidden="true" />
-            Create content
+            <Plus className="h-3.5 w-3.5" strokeWidth={2.5} aria-hidden="true" />
+            Create Content
           </Link>
 
-          <button
-            type="button"
-            onClick={() => setTab('files')}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border-default px-3 py-1.5 text-caption font-semibold text-text-secondary hover:bg-bg-hover hover:text-text-primary"
-          >
-            <Upload className="h-4 w-4" strokeWidth={2.25} aria-hidden="true" />
-            Upload asset
+          <button type="button" onClick={() => setTab('files')} className={ACTION}>
+            <Upload className="h-3.5 w-3.5" strokeWidth={2.25} aria-hidden="true" />
+            Upload Asset
           </button>
 
-          <Link
-            href="/monthly-report"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border-default px-3 py-1.5 text-caption font-semibold text-text-secondary hover:bg-bg-hover hover:text-text-primary"
-          >
-            <FileText className="h-4 w-4" strokeWidth={2.25} aria-hidden="true" />
-            Generate report
+          <Link href="/monthly-report" className={ACTION}>
+            <FileText className="h-3.5 w-3.5" strokeWidth={2.25} aria-hidden="true" />
+            Generate Report
           </Link>
-
-          {canManage && (
-            <IconButton
-              label="More project actions"
-              icon={MoreVertical}
-              size="sm"
-              onClick={() => setTab('access')}
-            />
-          )}
         </div>
       </div>
 
@@ -339,8 +377,10 @@ export function ProjectDetailWorkspace({
           activity={activity}
           monthStart={monthStart}
           monthLabel={monthLabel}
+          months={months}
           today={today}
           canSeeFinance={canSeeFinance}
+          ownerAvatarUrl={ownerAvatarUrl}
           onAddContent={() => setTab('tasks')}
         />
       )}
@@ -701,7 +741,101 @@ export function ProjectDetailWorkspace({
           </CardBody>
         </Card>
       )}
+
+      {/* ── The two dialogs the header menu opens ───────────────────────────────
+          Owner, 2026-08-20: *"If I want to change any detail or anything related to
+          Daniyal Marketing, where can I do that? Is there any place?"* Until now the
+          only way in was the pencil on the projects LIST — you had to leave the page
+          you were looking at to edit it. */}
+      {editing && (
+        <ProjectDialog
+          open
+          onClose={() => setEditing(false)}
+          people={people.map((person) => ({ id: person.id, name: person.name }))}
+          project={project}
+          canSeeFinance={canSeeFinance}
+        />
+      )}
+
+      <PlatformLinksDialog
+        open={editingPlatforms}
+        onClose={() => setEditingPlatforms(false)}
+        projectId={project.id}
+        projectName={project.name}
+        platforms={project.platforms.map((platform) => ({
+          id: platform.id,
+          name: platform.name,
+          slug: platform.slug,
+          pageUrl: platform.pageUrl,
+          handle: platform.handle,
+        }))}
+      />
     </div>
+  );
+}
+
+/* ----------------------------------------------------------------------------
+ * THE HEADER MENU
+ * ----------------------------------------------------------------------------
+ * Owner, 2026-08-20: *"There is a humble button over there where you can maybe add
+ * it. These three buttons should be above and parallel to the platform icons, where
+ * we can edit any detail."*
+ *
+ * ── ⚠️ `<details>`, NOT A HAND-ROLLED POPOVER ─────────────────────────────────
+ * Escape closes it, clicking the summary toggles it, and it is keyboard reachable —
+ * all from the browser, with no state, no outside-click listener and no focus trap to
+ * get wrong. The one thing it does not do natively is close when you click an item,
+ * which is why each button closes the parent explicitly.
+ * ------------------------------------------------------------------------- */
+function ProjectMenu({
+  onEdit,
+  onPlatforms,
+}: {
+  onEdit: () => void;
+  onPlatforms: () => void;
+}) {
+  const ref = React.useRef<HTMLDetailsElement>(null);
+  const close = () => ref.current?.removeAttribute('open');
+
+  return (
+    <details ref={ref} className="relative">
+      <summary
+        aria-label="Edit this project"
+        title="Edit this project"
+        className={cn(
+          'grid h-8 w-8 cursor-pointer place-items-center rounded-md text-text-secondary',
+          'marker:content-none hover:bg-bg-hover hover:text-text-primary',
+          '[&::-webkit-details-marker]:hidden',
+        )}
+      >
+        <MoreVertical className="h-4 w-4" strokeWidth={2.25} aria-hidden="true" />
+      </summary>
+
+      <div className="absolute right-0 z-20 mt-1 w-[13rem] overflow-hidden rounded-xl border border-border-default bg-bg-surface py-1 shadow-[var(--shadow-lg)]">
+        <button
+          type="button"
+          onClick={() => {
+            close();
+            onEdit();
+          }}
+          className="flex w-full items-center gap-2 px-3 py-2 text-left text-caption text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+        >
+          <Pencil className="h-3.5 w-3.5 shrink-0" strokeWidth={2.25} aria-hidden="true" />
+          Edit project details
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            close();
+            onPlatforms();
+          }}
+          className="flex w-full items-center gap-2 px-3 py-2 text-left text-caption text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+        >
+          <LinkIcon className="h-3.5 w-3.5 shrink-0" strokeWidth={2.25} aria-hidden="true" />
+          Platform pages &amp; handles
+        </button>
+      </div>
+    </details>
   );
 }
 

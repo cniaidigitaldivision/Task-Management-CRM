@@ -68,7 +68,10 @@ function toProject(row: Record<string, unknown>): ProjectRow {
     reelDays: (row.reel_days as number[] | null)?.map(Number) ?? [],
     postingDays: (row.posting_days as number[] | null)?.map(Number) ?? [],
 
-    platforms: (row.platforms as { id: string; name: string; slug: string }[] | null) ?? [],
+    platforms:
+      (row.platforms as
+        | { id: string; name: string; slug: string; pageUrl: string | null; handle: string | null }[]
+        | null) ?? [],
     memberCount: Number(row.member_count ?? 0),
 
     /* ⚠️ Left as null when there is no package. `Boolean(null)` is false, which
@@ -123,7 +126,8 @@ const COMMERCIAL_SELECT = `
            ⚠️ NO BACKTICKS ANYWHERE IN THIS STRING. It is a JS template literal, so a
            backtick in a SQL comment ends the literal and the file stops parsing —
            which is exactly what happened when this comment was first written. */
-        select jsonb_agg(jsonb_build_object('id', pl.id, 'name', pl.name, 'slug', pl.slug)
+        select jsonb_agg(jsonb_build_object('id', pl.id, 'name', pl.name, 'slug', pl.slug,
+                                           'pageUrl', ppl.page_url, 'handle', ppl.handle)
                          order by pl.sort_order)
           from public.project_platforms ppl
           join public.platforms pl on pl.id = ppl.platform_id
@@ -313,12 +317,46 @@ export async function setProjectPlatforms(
   });
 }
 
+/**
+ * Record the client's page URL and handle per platform — migration 037.
+ *
+ * ⚠️ Only UPDATES existing rows; it never inserts. A (project, platform) pair that is
+ * not already there means the project does not manage that platform, and quietly
+ * creating it here would let this form change the platform SET as a side effect of
+ * recording a link. Which platforms a project manages is decided in the project
+ * dialog, and this is the wrong place to change it.
+ *
+ * ⚠️ An empty string is written as NULL. The database refuses a blank handle
+ * (`project_platforms_handle_not_blank`) and a blank URL would fail the URL check, so
+ * "clear this field" has to become null rather than ''.
+ */
+export async function setPlatformLinks(
+  actorId: string,
+  projectId: string,
+  links: ReadonlyArray<{ platformId: string; pageUrl: string | null; handle: string | null }>,
+): Promise<void> {
+  if (links.length === 0) return;
+
+  await withUser(actorId, async (tx) => {
+    for (const link of links) {
+      await tx`
+        update public.project_platforms
+           set page_url = ${link.pageUrl}, handle = ${link.handle}
+         where project_id = ${projectId} and platform_id = ${link.platformId}
+      `;
+    }
+  });
+}
+
 export interface ProjectMemberRow {
   readonly userId: string;
   readonly fullName: string;
   readonly role: string;
   readonly projectRole: string;
   readonly addedByName: string | null;
+  /** Their uploaded picture, so the team list shows a face rather than initials.
+   *  Owner, 2026-08-20: *"once present it should show the image with it."* */
+  readonly avatarUrl: string | null;
 }
 
 export async function listProjectMembers(
@@ -327,7 +365,7 @@ export async function listProjectMembers(
 ): Promise<ProjectMemberRow[]> {
   const rows = await withUser(actorId, (tx) => tx`
     select m.user_id, m.role as project_role,
-           u.full_name, u.role,
+           u.full_name, u.role, u.avatar_url,
            b.full_name as added_by_name
       from public.project_members m
       join public.users u on u.id = m.user_id
@@ -341,6 +379,7 @@ export async function listProjectMembers(
     role: r.role as string,
     projectRole: r.project_role as string,
     addedByName: (r.added_by_name as string | null) ?? null,
+    avatarUrl: (r.avatar_url as string | null) ?? null,
   }));
 }
 

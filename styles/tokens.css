@@ -321,6 +321,24 @@
   --project-promo: var(--fuchsia-l);
   --project-other: var(--amber-l);
 
+  /* ---- The project page's KPI row ------------------------------------------
+     Owner, 2026-08-20, naming the five colours exactly: *"Monthly target: blue,
+     Published: green, In review: orange, Scheduled: blue, Remaining: purple."*
+
+     ⚠️ Named for the METRIC, not the colour. `--kpi-target: var(--blue-l)` can be
+     restyled later without every call site turning into a lie — whereas a component
+     reaching for `--blue-l` directly ties the markup to a hue and puts the light and
+     dark values in the component instead of here.
+
+     Target and Scheduled are deliberately the SAME blue: the owner asked for that,
+     and it reads correctly — both are "planned", one for the month and one for a
+     date. Their icons differ, which is what separates them. */
+  --kpi-target: var(--blue-l);
+  --kpi-published: var(--emerald-deep-l);
+  --kpi-review: var(--orange-l);
+  --kpi-scheduled: var(--blue-l);
+  --kpi-remaining: var(--purple-l);
+
   /* ---- Feedback ---- */
   --feedback-success: var(--emerald-deep-l);
   --feedback-warning: var(--orange-l);
@@ -427,6 +445,15 @@
   --project-business: var(--slate-deep-d);
   --project-promo: var(--fuchsia-d);
   --project-other: var(--amber-d);
+
+  /* ---- The project page's KPI row ----
+     The dark-theme halves of the five above. Every semantic token must be defined
+     in BOTH blocks or the dark theme inherits a light-theme hue and the card glows. */
+  --kpi-target: var(--blue-d);
+  --kpi-published: var(--emerald-deep-d);
+  --kpi-review: var(--orange-d);
+  --kpi-scheduled: var(--blue-d);
+  --kpi-remaining: var(--purple-d);
 
   /* ---- Feedback ---- */
   --feedback-success: var(--emerald-deep-d);

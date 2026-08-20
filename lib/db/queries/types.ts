@@ -81,6 +81,10 @@ export interface ProjectRow {
     readonly id: string;
     readonly name: string;
     readonly slug: string;
+    /** The client's page on this platform — migration 037. Null until recorded, which
+     *  is why the header icon is only a link when there is something to link to. */
+    readonly pageUrl: string | null;
+    readonly handle: string | null;
   }[];
   readonly memberCount: number;
 

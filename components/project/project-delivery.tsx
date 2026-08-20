@@ -136,21 +136,69 @@ function Count({
 export function PlatformStrip({
   platforms,
   size = 18,
+  gap = 'gap-1',
 }: {
-  platforms: readonly { id: string; name: string; slug: string }[];
+  platforms: readonly {
+    id: string;
+    name: string;
+    slug: string;
+    /** Migration 037. When present the icon becomes a real link to the client's page. */
+    pageUrl?: string | null;
+    handle?: string | null;
+  }[];
   size?: number;
+  /** Owner, 2026-08-20: *"a little bit away from each other, not very congested."*
+   *  The header passes `gap-2`; a dense table row keeps the default. */
+  gap?: string;
 }) {
   if (platforms.length === 0) {
     return <p className="text-micro text-text-tertiary">No platforms chosen yet</p>;
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-1">
-      {platforms.map((platform) => (
-        <span key={platform.id} title={platform.name} aria-label={platform.name}>
-          <PlatformIcon slug={platform.slug} size={size} />
-        </span>
-      ))}
+    <div className={cn('flex flex-wrap items-center', gap)}>
+      {platforms.map((platform) => {
+        const label = platform.handle
+          ? `${platform.name} · ${platform.handle}`
+          : platform.name;
+
+        /* ── ⚠️ A LINK ONLY WHEN THERE IS SOMEWHERE TO GO ────────────────────
+           Owner, 2026-08-20 asked where these icons' URLs came from. They had none:
+           the icons were drawn from the set of platforms ticked on the form, and
+           nothing stored a page anywhere. Migration 037 added `page_url`, and this is
+           the difference it makes — an icon with a recorded page is an anchor, one
+           without is inert and says so on hover. An icon that LOOKS like a link and
+           goes nowhere is worse than no icon. */
+        if (platform.pageUrl) {
+          return (
+            <a
+              key={platform.id}
+              href={platform.pageUrl}
+              target="_blank"
+              /* `noreferrer` as well as `noopener`: a client's public page should not
+                 receive this CRM's URL in a referrer header. */
+              rel="noopener noreferrer"
+              title={`${label} — open`}
+              aria-label={`${label} — opens in a new tab`}
+              className="rounded-[28%] transition-transform duration-[140ms] hover:-translate-y-px hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+              style={{ outlineColor: 'var(--focus-ring)' }}
+            >
+              <PlatformIcon slug={platform.slug} size={size} />
+            </a>
+          );
+        }
+
+        return (
+          <span
+            key={platform.id}
+            title={`${label} — no page recorded yet`}
+            aria-label={`${label}, no page recorded`}
+            className="opacity-70"
+          >
+            <PlatformIcon slug={platform.slug} size={size} />
+          </span>
+        );
+      })}
     </div>
   );
 }

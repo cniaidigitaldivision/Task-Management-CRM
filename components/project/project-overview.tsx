@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   AlertTriangle,
   CalendarClock,
@@ -102,8 +103,10 @@ export function ProjectOverview({
   activity,
   monthStart,
   monthLabel,
+  months,
   today,
   canSeeFinance,
+  ownerAvatarUrl,
   onAddContent,
 }: {
   project: ProjectRow;
@@ -112,8 +115,12 @@ export function ProjectOverview({
   activity: readonly ActivityRow[];
   monthStart: string;
   monthLabel: string;
+  /** The months the selector offers, newest first. */
+  months: readonly string[];
   today: string;
   canSeeFinance: boolean;
+  /** The owner's uploaded picture, or null. */
+  ownerAvatarUrl: string | null;
   /** Opens the task dialog. Passed in so this component owns no dialog state. */
   onAddContent: () => void;
 }) {
@@ -146,35 +153,35 @@ export function ProjectOverview({
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:col-span-9 lg:grid-cols-5">
         <Kpi
           icon={Target}
-          token="accent-primary"
+          token="kpi-target"
           label="Monthly Target"
           value={target ?? '—'}
           hint={target === null ? 'nothing agreed' : 'assets this month'}
         />
         <Kpi
           icon={CheckCircle2}
-          token="feedback-success"
+          token="kpi-published"
           label="Published"
           value={counts.published}
           hint={pct(counts.published) === null ? 'no target' : `${pct(counts.published)}% of target`}
         />
         <Kpi
           icon={Clock}
-          token="feedback-warning"
+          token="kpi-review"
           label="In Review"
           value={counts.inReview}
           hint={pct(counts.inReview) === null ? 'awaiting approval' : `${pct(counts.inReview)}% of target`}
         />
         <Kpi
           icon={CalendarClock}
-          token="feedback-info"
+          token="kpi-scheduled"
           label="Scheduled"
           value={counts.scheduled}
           hint={pct(counts.scheduled) === null ? 'dated, not yet live' : `${pct(counts.scheduled)}% of target`}
         />
         <Kpi
           icon={FileText}
-          token="accent-gold"
+          token="kpi-remaining"
           label="Remaining"
           value={counts.remaining ?? '—'}
           hint={
@@ -210,6 +217,12 @@ export function ProjectOverview({
                     href={`/tasks?project=${project.id}`}
                     className="group flex items-center gap-2.5 py-2 text-caption hover:text-text-primary"
                   >
+                    {/* ── ⚠️ A DIFFERENT ICON PER ROW ────────────────────────
+                        Owner, 2026-08-20: *"Attention: orange icon, Warning: red icon,
+                        Schedule: blue icon."* Every row used the same amber triangle,
+                        so three different problems looked like one repeated. The icon
+                        and the colour both come from the item now — overdue is a red
+                        alert, approval an orange clock, scheduling a blue calendar. */}
                     <span
                       aria-hidden="true"
                       className="grid h-6 w-6 shrink-0 place-items-center rounded-md"
@@ -218,7 +231,13 @@ export function ProjectOverview({
                         color: `var(--${item.token})`,
                       }}
                     >
-                      <AlertTriangle className="h-3.5 w-3.5" strokeWidth={2.5} />
+                      {item.key === 'overdue' ? (
+                        <AlertTriangle className="h-3.5 w-3.5" strokeWidth={2.5} />
+                      ) : item.key === 'approval' ? (
+                        <Clock className="h-3.5 w-3.5" strokeWidth={2.5} />
+                      ) : (
+                        <CalendarClock className="h-3.5 w-3.5" strokeWidth={2.5} />
+                      )}
                     </span>
                     <span className="min-w-0 flex-1 text-text-secondary">
                       <span className="font-semibold text-text-primary">{item.count}</span>{' '}
@@ -240,10 +259,21 @@ export function ProjectOverview({
       {/* ══ MONTH PROGRESS ══════════════════════════════════════════════════ */}
       <Card className="lg:col-span-3">
         <CardBody className="space-y-3 p-4">
-          <div className="flex items-baseline justify-between gap-2">
+          {/* ── ⚠️ THE MONTH SELECTOR ───────────────────────────────────────────
+              Owner, 2026-08-20: *"in the image at the reference I gave you, you can see
+              there is a month dropdown but the one you created is not showing any
+              month."*
+
+              It reads "August Content Progress" with a "This Month" control beside it,
+              as the mockup does. The control is a real `<select>` and it navigates —
+              `?month=` on this page — rather than being a decorative chip. Server-side
+              so the figures come back computed for that month; filtering client-side
+              would need every month's tasks in the browser. */}
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-body-sm font-semibold text-text-primary">
-              {monthLabel} Progress
+              {monthLabel.split(' ')[0]} Content Progress
             </p>
+            <MonthSelect months={months} value={monthStart} projectId={project.id} />
           </div>
 
           <div>
@@ -255,7 +285,7 @@ export function ProjectOverview({
                 <span className="tabular-nums text-h3 text-text-tertiary">/ {target}</span>
               )}
             </p>
-            <p className="text-caption text-text-secondary">assets published</p>
+            <p className="text-caption text-text-secondary">assets completed</p>
           </div>
 
           {target === null ? (
@@ -301,8 +331,15 @@ export function ProjectOverview({
         <CardBody className="p-4">
           <p className="text-body-sm font-semibold text-text-primary">Content Pipeline</p>
 
-          <div className="mt-2.5 overflow-x-auto">
-            <div className="grid min-w-[36rem] grid-cols-5 gap-2">
+          {/* ⚠️ NO SCROLLER. Owner, 2026-08-20: *"in the Content Pipeline you have
+              added a scrollbar. You don't need to add a scrollbar. Please optimize all
+              the content within it."* It was `overflow-x-auto` over a `min-w-[36rem]`
+              grid, so five columns in a 6-of-12 card always overflowed. The columns now
+              size to the card and the cards inside them are tighter — `min-w-0` on each
+              column is what lets them actually shrink rather than being held open by
+              their own text. */}
+          <div className="mt-2.5">
+            <div className="grid grid-cols-5 gap-1.5">
               {stages.map((bucket) => (
                 <div key={bucket.stage} className="min-w-0">
                   <div className="flex items-center justify-between gap-1 border-b border-border-subtle pb-1.5">
@@ -327,13 +364,13 @@ export function ProjectOverview({
                     {bucket.tasks.slice(0, 2).map((task) => (
                       <div
                         key={task.id}
-                        className="rounded-md border border-border-subtle bg-bg-surface p-1.5"
+                        className="rounded-md border border-border-subtle bg-bg-surface px-1.5 py-1"
                         title={task.title}
                       >
-                        <p className="truncate text-micro font-medium text-text-primary">
+                        <p className="truncate text-micro font-medium leading-tight text-text-primary">
                           {task.title}
                         </p>
-                        <p className="truncate text-micro text-text-tertiary">
+                        <p className="truncate text-micro leading-tight text-text-tertiary">
                           {task.contentKind ? KIND_SHORT[task.contentKind] : '—'}
                         </p>
                       </div>
@@ -368,7 +405,11 @@ export function ProjectOverview({
                 owner; he is assigned."* Accountability and assignment are different
                 facts and this list keeps them apart. */}
             <li className="flex items-center gap-2.5">
-              <Avatar name={project.ownerName ?? 'Unassigned'} size="sm" />
+              {/* ⚠️ `src` as well as `name`. Owner, 2026-08-20: *"maybe the image is
+                  not present but once present it should show the image with it."*
+                  `Avatar` already falls back to initials, so passing the URL costs
+                  nothing and the moment somebody uploads a picture it appears. */}
+              <Avatar name={project.ownerName ?? 'Unassigned'} src={ownerAvatarUrl} size="sm" />
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-1.5">
                   <span className="truncate text-caption font-semibold text-text-primary">
@@ -394,7 +435,7 @@ export function ProjectOverview({
 
             {members.map((member) => (
               <li key={member.userId} className="flex items-center gap-2.5">
-                <Avatar name={member.fullName} size="sm" />
+                <Avatar name={member.fullName} src={member.avatarUrl} size="sm" />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-caption font-medium text-text-primary">
                     {member.fullName}
@@ -417,7 +458,7 @@ export function ProjectOverview({
       </Card>
 
       {/* ══ THIS WEEK ═══════════════════════════════════════════════════════ */}
-      <Card className="lg:col-span-6">
+      <Card className="lg:col-span-5">
         <CardBody className="p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-body-sm font-semibold text-text-primary">This Week</p>
@@ -551,8 +592,12 @@ export function ProjectOverview({
         </CardBody>
       </Card>
 
-      {/* ══ RECENT ACTIVITY ═════════════════════════════════════════════════ */}
-      <Card className="lg:col-span-3">
+      {/* ══ RECENT ACTIVITY ═════════════════════════════════════════════════
+          ⚠️ 4 of 12, not 3. Owner, 2026-08-20: *"the Activity tab has more width. Right
+          now you have created it very small. It's not looking good."* An activity line
+          is a sentence with a name in it and needed the room; This Week gave up a
+          column because its six day-cells tolerate being narrower than prose does. */}
+      <Card className="lg:col-span-4">
         <CardBody className="p-4">
           <p className="text-body-sm font-semibold text-text-primary">Recent Activity</p>
 
@@ -594,6 +639,59 @@ export function ProjectOverview({
       </Card>
     </div>
   );
+}
+
+/* ----------------------------------------------------------------------------
+ * THE MONTH SELECTOR
+ * ----------------------------------------------------------------------------
+ * ⚠️ Navigates rather than filtering in the browser. The figures for a month are
+ * computed from that month's tasks server-side, so changing the month has to be a
+ * request — filtering client-side would need every month's tasks in the payload, and
+ * the counts would silently be "whatever happens to be loaded".
+ *
+ * A plain `<select>` with an onChange push: no dropdown to build, keyboard and mobile
+ * behaviour come from the platform, and the current month is in the URL so the view is
+ * linkable.
+ * ------------------------------------------------------------------------- */
+function MonthSelect({
+  months,
+  value,
+  projectId,
+}: {
+  months: readonly string[];
+  value: string;
+  projectId: string;
+}) {
+  const router = useRouter();
+
+  return (
+    <select
+      value={value}
+      aria-label="Which month to show"
+      onChange={(event) => router.push(`/projects/${projectId}?month=${event.target.value}`)}
+      className="rounded-lg border border-border-default bg-bg-surface px-2 py-1 text-micro font-semibold text-text-secondary hover:bg-bg-hover"
+    >
+      {months.map((month) => (
+        <option key={month} value={month}>
+          {monthName(month)}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+] as const;
+
+/** 'YYYY-MM-01' → 'August 2026'. Parsed by hand: `new Date('2026-08-01')` is UTC
+ *  midnight, so local `getMonth()` returns July anywhere behind UTC. */
+function monthName(monthStart: string): string {
+  const index = Number(monthStart.slice(5, 7)) - 1;
+  return index >= 0 && index < 12
+    ? `${MONTH_NAMES[index]} ${monthStart.slice(0, 4)}`
+    : monthStart;
 }
 
 /* ----------------------------------------------------------------------------

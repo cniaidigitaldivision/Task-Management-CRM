@@ -13,6 +13,7 @@ import { can } from '@/lib/domain/permissions';
 import { redactOne } from '@/lib/view/project-finance';
 import { nowMs } from '@/lib/now';
 import { monthLabel as cadenceMonthLabel } from '@/lib/domain/ceo-report';
+import { MONTH_START_PATTERN, recentMonths } from '@/lib/domain/ceo-report';
 
 export const metadata: Metadata = { title: 'Project' };
 
@@ -40,10 +41,13 @@ export const metadata: Metadata = { title: 'Project' };
 
 export default async function ProjectPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ month?: string }>;
 }) {
   const { id } = await params;
+  const { month: requestedMonth } = await searchParams;
   const user = await requireUser();
   const actor = { role: user.role, id: user.id };
 
@@ -73,12 +77,24 @@ export default async function ProjectPage({
      them: the answer must not depend on where the server runs. */
   const now = new Date(nowMs());
   const pad = (n: number) => String(n).padStart(2, '0');
-  const monthStart = `${now.getUTCFullYear()}-${pad(now.getUTCMonth() + 1)}-01`;
+  const thisMonth = `${now.getUTCFullYear()}-${pad(now.getUTCMonth() + 1)}-01`;
   const today = `${now.getUTCFullYear()}-${pad(now.getUTCMonth() + 1)}-${pad(now.getUTCDate())}`;
   /* Formatted here, not in the component: `toLocaleString` in a client component
      renders differently on the server and in the browser and React reports it as a
      hydration mismatch. `monthLabel` already solves this for the CEO report. */
+  /* ⚠️ The requested month is VALIDATED, not trusted. It arrives in a URL, is
+     compared against a date column, and a malformed value would produce an empty
+     month — which reads as "a quiet month" rather than as the fault it is. */
+  const monthStart =
+    requestedMonth && MONTH_START_PATTERN.test(requestedMonth) ? requestedMonth : thisMonth;
   const monthLabel = cadenceMonthLabel(monthStart);
+  const months = recentMonths(nowMs(), 12);
+
+  /* The owner's picture. Read from the people list already fetched above rather than
+     as a seventh query — and `?? null` because that list is EMPTY for a reader without
+     `project.edit`, in which case the Avatar falls back to initials. */
+  const ownerAvatar =
+    people.find((person) => person.id === project.ownerId)?.avatarUrl ?? null;
 
   return (
     <div className="mx-auto max-w-[var(--content-max)] space-y-5">
@@ -89,8 +105,10 @@ export default async function ProjectPage({
         canSeeFinance={canSeeFinance}
         monthStart={monthStart}
         monthLabel={monthLabel}
+        months={months}
         today={today}
         activity={activity}
+        ownerAvatarUrl={ownerAvatar}
         members={members}
         tasks={tasks}
         /* Filtered here rather than in SQL because both lists are already scoped
