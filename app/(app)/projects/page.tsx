@@ -1,16 +1,13 @@
 import type { Metadata } from 'next';
 
 import { ProjectsWorkspace } from '@/components/project/projects-workspace';
-import { PageHeader, PageSection } from '@/components/ui/page-header';
-import { Card, CardBody } from '@/components/ui/card';
-import { IconTile } from '@/components/ui/icon-tile';
-import { ProgressBar } from '@/components/ui/progress';
+import { PageHeader } from '@/components/ui/page-header';
 import { requireUser } from '@/lib/auth/current-user';
 import { listAssignablepeople } from '@/lib/db/queries/people';
 import { listProjects } from '@/lib/db/queries/projects';
 import { PROJECT_TYPE_META, type ProjectType } from '@/lib/domain/constants';
 import { can } from '@/lib/domain/permissions';
-import { Package } from 'lucide-react';
+import { redactFinance } from '@/lib/view/project-finance';
 import { getSettings } from '@/lib/settings/current';
 
 export const metadata: Metadata = { title: 'Projects' };
@@ -57,116 +54,54 @@ export default async function ProjectsPage() {
      future change to who may EDIT a project cannot quietly expose every fee. */
   const canSeeFinance = can({ role: user.role, id: user.id }, 'project.view_finance');
 
+  /* ── ⚠️ WHAT WAS REMOVED FROM THIS PAGE, AND WHY ────────────────────────────
+     Owner, 2026-08-19:
+
+     · The eyebrow "Event · Client · Business · Self-Promotion · Other" —
+       *"In Project, Event, Client, Business, Self Promotion, and Others, I think
+       don't need it here."* It listed the five types above a page that already
+       shows them as cards and as a filter. Three copies of one taxonomy.
+
+     · "N projects holding N points of open effort…" — *"One Project Holding 0
+       Brevet text: don't need it here."* The count is on the cards; the sentence
+       about reference prefixes was teaching, not informing.
+
+     · The whole Ad-hoc audit card — *"This whole card is useless, I think. I don't
+       know the purpose of this whole card."* It was doc 15 §6's "Other work above
+       15% is a warning sign", and the owner is the person that warning exists for.
+       If they cannot tell what it is, it is not doing its job in that shape. The
+       figure is not lost: it is now the Other card's own subtitle in the row below,
+       where it sits beside the thing it is a proportion OF.
+
+     Everything the cards need is computed above and still is. */
   return (
-    <div className="mx-auto max-w-[var(--content-max)] space-y-8">
-      <PageHeader
-        eyebrow="Event · Client · Business · Self-Promotion · Other"
-        title="Projects"
-        description={
-          <>
-            <span className="tabular font-semibold text-text-primary">{projects.length}</span>{' '}
-            projects holding <span className="tabular font-semibold text-text-primary">{totalPoints}</span>{' '}
-            points of open effort. The type changes the form and sets the reference prefix, so{' '}
-            <span className="font-mono text-micro">EVT-142</span> says what kind of work it is
-            before anybody opens it.
-          </>
-        }
+    <div className="mx-auto max-w-[var(--content-max)] space-y-5">
+      {/* Short on purpose — owner: *"Try to use less information and less text."*
+          The "New project" button lives in the workspace's own toolbar beside the
+          filters, so it is not repeated here. */}
+      <PageHeader title="Projects" description="Pick a card to filter. Click a project to open it." />
+
+      <ProjectsWorkspace
+        /* ⚠️ Stripped HERE, on the server. The workspace is a Client Component, so
+           anything on the row is serialised into the RSC payload whether it is
+           rendered or not — a check of the real response found the fee in the HTML
+           of this page. See lib/view/project-finance.ts. */
+        projects={redactFinance(projects, canSeeFinance)}
+        people={people.map((p) => ({ id: p.id, name: p.fullName }))}
+        canManage={canManage}
+        canSeeFinance={canSeeFinance}
+        /* The type mix, computed server-side so the filter cards arrive with their
+           counts on them rather than flashing zeroes. `otherPct` travels with it
+           because the ad-hoc proportion is now the Other card's subtitle. */
+        mix={(Object.keys(PROJECT_TYPE_META) as ProjectType[]).map((type) => ({
+          type,
+          count: byType.get(type)?.count ?? 0,
+          points: byType.get(type)?.points ?? 0,
+        }))}
+        otherPct={otherPct}
+        otherIsHigh={otherHigh}
+        otherWarningPct={otherWarningPct}
       />
-
-      {/* ---- The Other audit (doc 15 §6) ---- */}
-      <Card>
-        <CardBody className="flex flex-wrap items-center gap-x-6 gap-y-4 p-5">
-          <IconTile
-            icon={Package}
-            token={otherHigh ? 'load-warning' : 'project-other'}
-            size="xl"
-          />
-          <div className="min-w-[13rem] flex-1">
-            <p className="text-caption font-semibold text-text-secondary">Ad-hoc work</p>
-            <p
-              className="tabular text-h1 font-semibold"
-              style={{ color: otherHigh ? 'var(--load-warning)' : 'var(--text-primary)' }}
-            >
-              {otherPct}%
-            </p>
-            <p className="text-caption text-text-secondary">
-              <span className="tabular">{otherPoints}</span> of{' '}
-              <span className="tabular">{totalPoints}</span> committed points sit in Other projects
-            </p>
-          </div>
-          <div className="min-w-[15rem] flex-1">
-            <ProgressBar
-              value={Math.min(otherPct, 100)}
-              token={otherHigh ? 'load-warning' : 'project-other'}
-              size="lg"
-              label={`Ad-hoc work: ${otherPct}% of committed effort`}
-            />
-            <p className="mt-2 text-micro text-text-tertiary">
-              {otherHigh ? (
-                <>
-                  Above the {otherWarningPct}% line. This is real capacity going
-                  to work nobody planned — worth deciding whether it should become a project or stop.
-                </>
-              ) : (
-                <>
-                  Under the {otherWarningPct}% line. Every Other task carries a
-                  written explanation, which is what keeps this figure honest (BR-012).
-                </>
-              )}
-            </p>
-          </div>
-        </CardBody>
-      </Card>
-
-      {/* ---- The mix ---- */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-        {(Object.keys(PROJECT_TYPE_META) as ProjectType[]).map((type) => {
-          const meta = PROJECT_TYPE_META[type];
-          const entry = byType.get(type);
-          return (
-            /* ── STEP 7: THE SAME CARD LANGUAGE EVERYWHERE ────────────────────
-               These were flat while the dashboard's KPI cards carried a wash of
-               their own metric's colour. Same idea, two appearances. `toneToken`
-               gives them the identical radial tint the StatCards use, keyed to
-               the project type's own token, so a row of five reads as five
-               categories before a single word is parsed — which is exactly what
-               the reference dashboards do with their KPI row. */
-            <Card
-              key={type}
-              toneToken={meta.token}
-              className="border-border-subtle px-3.5 py-3 shadow-none"
-            >
-              <div className="flex items-center gap-1.5">
-                <span
-                  aria-hidden="true"
-                  className="h-2 w-2 shrink-0 rounded-full"
-                  style={{ backgroundColor: `var(--${meta.token})` }}
-                />
-                <span className="truncate text-micro font-semibold text-text-secondary">
-                  {meta.label}
-                </span>
-              </div>
-              <p className="tabular mt-1 text-h2 font-semibold text-text-primary">
-                {entry?.count ?? 0}
-              </p>
-              <p className="tabular text-micro text-text-tertiary">{entry?.points ?? 0} pts open</p>
-            </Card>
-          );
-        })}
-      </div>
-
-      <PageSection
-        step={1}
-        title="Every project"
-        description="Ordered by status, with the catch-all last — it is where work with no home lands, not something anybody planned."
-      >
-        <ProjectsWorkspace
-          projects={projects}
-          people={people.map((p) => ({ id: p.id, name: p.fullName }))}
-          canManage={canManage}
-          canSeeFinance={canSeeFinance}
-        />
-      </PageSection>
     </div>
   );
 }

@@ -1,0 +1,156 @@
+'use client';
+
+import * as React from 'react';
+import { Clapperboard, ImageIcon } from 'lucide-react';
+
+import { PlatformIcon } from '@/components/brand/platform-icon';
+import { ProgressBar } from '@/components/ui/progress';
+import type { ProjectRow } from '@/lib/db/queries/types';
+import { projectProgress, VERDICT_LABEL, VERDICT_TOKEN } from '@/lib/domain/project-progress';
+import { IncludesPills } from './project-pills';
+import { cn } from '@/lib/utils';
+
+/* ============================================================================
+ * WHAT WENT OUT THIS MONTH, AGAINST WHAT WAS PROMISED — owner request 2026-08-19
+ * ----------------------------------------------------------------------------
+ * *"How many posts are in this project? How many posts, how many reels, and website:
+ * this short information should be displayed in a grid view."*
+ *
+ * ── ⚠️ WHY THIS REPLACED "12 of 30 TASKS DONE" ────────────────────────────────
+ * The card's progress bar measured TASK COMPLETION — how much of the to-do list was
+ * ticked. That is a number about the CRM, not about the client: a project can have
+ * every task closed and still have published nothing, and a project with a hundred
+ * open tasks can be perfectly on target.
+ *
+ * The owner asked for posts and reels, and the reason that is the better question is
+ * that it is the one the client is paying for. So the bar now measures published
+ * assets against the agreed minimum, and the verdict comes from
+ * `lib/domain/project-progress.ts` — the same function the monthly report uses, so a
+ * card and the report cannot disagree.
+ *
+ * ── AND WHY IT CAN SAY "NO TARGET" ───────────────────────────────────────────
+ * Rule 2 of that module: a project on "up to N, no floor" cannot miss anything. It
+ * gets a grey label rather than a red bar, because painting it red would be reporting
+ * a failure against a promise nobody made.
+ * ========================================================================= */
+
+export function ProjectDelivery({ project }: { project: ProjectRow }) {
+  const progress = projectProgress({
+    assetsPublished: project.assetsPublishedThisMonth,
+    reelsPublished: project.reelsPublishedThisMonth,
+    assetsTargetMin: project.assetsTargetMin,
+    assetsTargetMax: project.assetsTargetMax,
+    reelsTargetMin: project.reelsTargetMin,
+  });
+
+  const token = VERDICT_TOKEN[progress.verdict];
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+        <Count
+          icon={ImageIcon}
+          done={project.assetsPublishedThisMonth}
+          target={project.assetsTargetMin}
+          label="posts"
+        />
+        <Count
+          icon={Clapperboard}
+          done={project.reelsPublishedThisMonth}
+          target={project.reelsTargetMin}
+          label="reels"
+        />
+        <span className="ml-auto flex flex-wrap items-center gap-1">
+          <IncludesPills
+            website={project.packageIncludesWebsite}
+            crm={project.packageIncludesCrm}
+          />
+        </span>
+      </div>
+
+      {/* A bar only where there is something to measure against. An untargeted
+          project gets its label instead — a bar at 0% of nothing reads as failure. */}
+      {progress.assetsPercent !== null ? (
+        <ProgressBar
+          value={progress.assetsPercent}
+          token={token}
+          size="md"
+          markerAt={100}
+          label={`${project.name}: ${progress.summary}`}
+        />
+      ) : (
+        <p className="text-micro text-text-tertiary">{VERDICT_LABEL[progress.verdict]}</p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * "14 / 16" or just "14".
+ *
+ * ⚠️ The target is omitted when null rather than shown as 0. `null` is "nothing
+ * agreed" and `0` is "agreed to publish nothing" — the same distinction the schema
+ * and every report keep, and a card that printed "14 / 0" would be nonsense.
+ */
+function Count({
+  icon: Icon,
+  done,
+  target,
+  label,
+}: {
+  icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
+  done: number;
+  target: number | null;
+  label: string;
+}) {
+  const short = target !== null && done < target;
+
+  return (
+    <span className="inline-flex items-baseline gap-1.5" title={`${label} published this month`}>
+      <Icon
+        className="h-3.5 w-3.5 shrink-0 self-center text-text-tertiary"
+        strokeWidth={2.25}
+        aria-hidden="true"
+      />
+      <span
+        className={cn('tabular-nums text-body-sm font-semibold')}
+        style={{ color: short ? 'var(--feedback-warning)' : 'var(--text-primary)' }}
+      >
+        {done}
+      </span>
+      {target !== null && (
+        <span className="tabular-nums text-micro text-text-tertiary">/ {target}</span>
+      )}
+      <span className="text-micro text-text-secondary">{label}</span>
+    </span>
+  );
+}
+
+/* ----------------------------------------------------------------------------
+ * WHERE IT GOES
+ * ----------------------------------------------------------------------------
+ * Owner: *"The platform should display proper platform icons and things like that."*
+ * Icons alone, no names — six brand marks in a row are recognisable at a glance and
+ * six names are a paragraph. The name travels in the tooltip and the aria-label.
+ * ------------------------------------------------------------------------- */
+export function PlatformStrip({
+  platforms,
+  size = 18,
+}: {
+  platforms: readonly { id: string; name: string; slug: string }[];
+  size?: number;
+}) {
+  if (platforms.length === 0) {
+    return <p className="text-micro text-text-tertiary">No platforms chosen yet</p>;
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      {platforms.map((platform) => (
+        <span key={platform.id} title={platform.name} aria-label={platform.name}>
+          <PlatformIcon slug={platform.slug} size={size} />
+        </span>
+      ))}
+    </div>
+  );
+}

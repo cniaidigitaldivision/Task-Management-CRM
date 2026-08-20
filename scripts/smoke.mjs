@@ -59,7 +59,12 @@ const APP_ROUTES = [
      This sentence is in the page description and renders in every state, and it
      still only appears once `listTasks` and `listProjects` have both returned. */
   ['/tasks', 'Drag a card between columns', 'member'],
-  ['/projects', 'Ad-hoc work', 'member'],
+  /* Was "Ad-hoc work" — the large audit card, removed on the owner's instruction
+     (*"I don't know the purpose of this whole card"*). "All projects" is the first
+     filter card: it lives inside ProjectsWorkspace, so it only appears once the page
+     has real project data to hand it, and unlike the old marker it renders whether
+     the division has one project or none. */
+  ['/projects', 'All projects', 'member'],
   /* The description changed when the calendar gained per-task detail. Matching on
      a weekday heading instead of on prose: the grid cannot render without it, so
      this fails if the calendar breaks rather than merely if its wording changes. */

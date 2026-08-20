@@ -68,8 +68,20 @@ function toProject(row: Record<string, unknown>): ProjectRow {
     reelDays: (row.reel_days as number[] | null)?.map(Number) ?? [],
     postingDays: (row.posting_days as number[] | null)?.map(Number) ?? [],
 
-    platforms: (row.platforms as { id: string; name: string }[] | null) ?? [],
+    platforms: (row.platforms as { id: string; name: string; slug: string }[] | null) ?? [],
     memberCount: Number(row.member_count ?? 0),
+
+    /* ⚠️ Left as null when there is no package. `Boolean(null)` is false, which
+       would render "no website" for a project that never chose a package at all —
+       a different statement, and the wrong one. */
+    packageIncludesWebsite:
+      row.package_includes_website === null || row.package_includes_website === undefined
+        ? null
+        : Boolean(row.package_includes_website),
+    packageIncludesCrm:
+      row.package_includes_crm === null || row.package_includes_crm === undefined
+        ? null
+        : Boolean(row.package_includes_crm),
 
     assetsPublishedThisMonth: Number(row.assets_published_this_month ?? 0),
     reelsPublishedThisMonth: Number(row.reels_published_this_month ?? 0),
@@ -92,10 +104,26 @@ function nullableInt(value: unknown): number | null {
 const COMMERCIAL_SELECT = `
       c.name as client_name,
       pk.name as package_name,
+      /* Owner, 2026-08-19: *"How many posts, how many reels, and website: this short
+         information should be displayed in a grid view."* Website and CRM belong to
+         the PACKAGE, not the project, so they are read across the join rather than
+         copied onto the row — unlike the target figures, which are snapshotted
+         because they are a promise. Whether a package bundles a website is a fact
+         about the package and should track it. */
+      pk.includes_website as package_includes_website,
+      pk.includes_crm     as package_includes_crm,
       (select count(*) from public.project_members m where m.project_id = p.id)
         as member_count,
       coalesce((
-        select jsonb_agg(jsonb_build_object('id', pl.id, 'name', pl.name)
+        /* ⚠️ slug as well as name — the card and the detail header draw real brand
+           marks, and components/brand/platform-icon.tsx is keyed on the slug. Names
+           get reworded ("X (Twitter)" already has) and a lookup on the label silently
+           loses its icon the day somebody edits it.
+
+           ⚠️ NO BACKTICKS ANYWHERE IN THIS STRING. It is a JS template literal, so a
+           backtick in a SQL comment ends the literal and the file stops parsing —
+           which is exactly what happened when this comment was first written. */
+        select jsonb_agg(jsonb_build_object('id', pl.id, 'name', pl.name, 'slug', pl.slug)
                          order by pl.sort_order)
           from public.project_platforms ppl
           join public.platforms pl on pl.id = ppl.platform_id

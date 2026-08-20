@@ -4,13 +4,10 @@ import * as React from 'react';
 import Link from 'next/link';
 import { ChevronRight, FolderPlus, LayoutGrid, Package, Pencil, Rows3 } from 'lucide-react';
 
-import { Badge } from '@/components/ui/badge';
 import { Button, IconButton } from '@/components/ui/button';
 import { Card, CardBody } from '@/components/ui/card';
 import { IconTile } from '@/components/ui/icon-tile';
 import { Pagination, usePagination } from '@/components/ui/pagination';
-import { ProgressBar } from '@/components/ui/progress';
-import { Select } from '@/components/ui/select';
 import {
   ToggleGroup,
   Toolbar,
@@ -21,7 +18,6 @@ import {
 import type { ProjectRow } from '@/lib/db/queries/types';
 import {
   PROJECT_STATUSES,
-  PROJECT_TYPES,
   PROJECT_TYPE_META,
   type ProjectStatus,
   type ProjectType,
@@ -29,7 +25,10 @@ import {
 
 import { cn } from '@/lib/utils';
 
+import { ProjectDelivery, PlatformStrip } from './project-delivery';
 import { ProjectDialog } from './project-dialog';
+import { ProjectFilterCards, type TypeMix } from './project-filter-cards';
+import { IncludesPills, KindPill, PackagePill, StatusPill } from './project-pills';
 
 /* ============================================================================
  * PROJECTS — doc 15, doc 10 §4
@@ -45,27 +44,30 @@ import { ProjectDialog } from './project-dialog';
  * alphabetically would disguise that. It is last, and it says what it is.
  * ========================================================================= */
 
-/**
- * Read one type-specific field as text.
- *
- * `type_fields` is jsonb, so every value arrives as `unknown` — deliberately: the
- * shape depends on the project's type and the database does not police it. This
- * is the single narrowing point, so no `unknown` reaches JSX and no card can
- * render `[object Object]` because somebody stored a nested value.
- */
-function field(project: ProjectRow, key: string): string | null {
-  const value = project.typeFields?.[key];
-  if (value === null || value === undefined || value === '') return null;
-  if (typeof value === 'object') return null;
-  return String(value);
-}
+/** Which colour each status chip lights up in. Mirrors `StatusPill`. */
+const STATUS_FILTER_TOKEN: Readonly<Record<ProjectStatus, string>> = {
+  planning: 'feedback-info',
+  active: 'feedback-success',
+  on_hold: 'feedback-warning',
+  completed: 'accent-primary',
+  archived: 'text-tertiary',
+  cancelled: 'feedback-error',
+};
 
 export function ProjectsWorkspace({
   projects,
   people,
   canManage,
   canSeeFinance,
+  mix,
+  otherPct,
+  otherIsHigh,
+  otherWarningPct,
 }: {
+  mix: readonly TypeMix[];
+  otherPct: number;
+  otherIsHigh: boolean;
+  otherWarningPct: number;
   projects: readonly ProjectRow[];
   people: ReadonlyArray<{ id: string; name: string }>;
   /** Admin and above — doc 03 §3.2. */
@@ -90,45 +92,65 @@ export function ProjectsWorkspace({
     return true;
   });
 
-  /* The totals below count the whole filtered set, not the page — a footer that
-     said "18 open tasks" while showing page 2 of 3 would be describing nothing. */
-  const totalOpen = visible.reduce((sum, p) => sum + p.openTaskCount, 0);
-  const totalPoints = visible.reduce((sum, p) => sum + p.effortPoints, 0);
-
   const pager = usePagination(visible);
 
   return (
     <div className="space-y-4">
-      <Toolbar aria-label="Project filters">
-        <ToolbarGroup>
-          <ToolbarLabel>Type</ToolbarLabel>
-          <Select
-            label="Filter by project type"
-            value={type}
-            onChange={(event) => setType(event.target.value as ProjectType | 'all')}
-            options={[
-              { value: 'all', label: 'Every type' },
-              ...PROJECT_TYPES.map((t) => ({ value: t, label: PROJECT_TYPE_META[t].label })),
-            ]}
-            className="w-[11rem]"
-          />
-        </ToolbarGroup>
+      {/* ── The cards ARE the type filter ─────────────────────────────────────
+          They used to sit on the page above this component, counting projects while
+          a separate dropdown did the filtering. Owner: *"use a good interactive
+          UI."* One control now. */}
+      <ProjectFilterCards
+        mix={mix}
+        active={type}
+        onPick={setType}
+        total={projects.length}
+        otherPct={otherPct}
+        otherIsHigh={otherIsHigh}
+        otherWarningPct={otherWarningPct}
+      />
 
+      <Toolbar aria-label="Project filters">
+        {/* Status stays chips rather than a dropdown for the same reason the types
+            did: *"I want all filters… status, active, planning, this one, or any
+            other status."* Six states fit on a line, and a chip shows which one is
+            on without being opened. */}
         <ToolbarGroup>
           <ToolbarLabel>Status</ToolbarLabel>
-          <Select
-            label="Filter by status"
-            value={status}
-            onChange={(event) => setStatus(event.target.value as ProjectStatus | 'all')}
-            options={[
-              { value: 'all', label: 'Any status' },
-              ...PROJECT_STATUSES.map((s) => ({
-                value: s,
-                label: s.replace('_', ' ').replace(/^./, (c) => c.toUpperCase()),
-              })),
-            ]}
-            className="w-[10rem]"
-          />
+          <div className="flex flex-wrap gap-1">
+            {(['all', ...PROJECT_STATUSES] as const).map((key) => {
+              const on = status === key;
+              const token =
+                key === 'all' ? 'accent-primary' : STATUS_FILTER_TOKEN[key];
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => setStatus(on && key !== 'all' ? 'all' : key)}
+                  className={cn(
+                    'rounded-full px-2.5 py-1 text-micro font-semibold',
+                    'transition-[background-color,color] duration-[140ms]',
+                    'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2',
+                    on ? '' : 'text-text-secondary hover:bg-bg-hover',
+                  )}
+                  style={{
+                    outlineColor: 'var(--focus-ring)',
+                    ...(on
+                      ? {
+                          backgroundColor: `color-mix(in oklab, var(--${token}) var(--tint-strong), var(--bg-surface))`,
+                          color: `color-mix(in oklab, var(--${token}) 84%, var(--text-primary))`,
+                        }
+                      : {}),
+                  }}
+                >
+                  {key === 'all'
+                    ? 'Any'
+                    : key.replace('_', ' ').replace(/^./, (c) => c.toUpperCase())}
+                </button>
+              );
+            })}
+          </div>
         </ToolbarGroup>
 
         <ToolbarSpacer />
@@ -142,11 +164,6 @@ export function ProjectsWorkspace({
             { key: 'list', label: 'List', icon: Rows3 },
           ]}
         />
-
-        <span className="text-caption text-text-secondary">
-          <span className="tabular font-semibold text-text-primary">{totalOpen}</span> open ·{' '}
-          <span className="tabular font-semibold text-text-primary">{totalPoints}</span> pts
-        </span>
 
         {canManage && (
           <Button variant="primary" size="md" onClick={() => setCreating(true)}>
@@ -173,10 +190,6 @@ export function ProjectsWorkspace({
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {pager.visible.map((project) => {
             const meta = PROJECT_TYPE_META[project.type];
-            const donePct =
-              project.taskCount > 0
-                ? Math.round((project.doneTaskCount / project.taskCount) * 100)
-                : 0;
             const isClosed = ['completed', 'archived', 'cancelled'].includes(project.status);
 
             return (
@@ -227,22 +240,26 @@ export function ProjectsWorkspace({
                           {project.name}
                         </Link>
                       </h3>
+                      {/* ── ⚠️ THE PILLS, AND WHAT LEFT ─────────────────────────
+                          Owner, 2026-08-19: *"The pills you are using for active and
+                          starter are not looking good"* and *"Client name is not
+                          necessary."*
+
+                          Gone: the type Badge (the card already sits under a coloured
+                          type filter and carries that type's icon tile), and the
+                          client name row further down. What is left answers "is this
+                          running, is it ours or a client's, and what did they buy" —
+                          which is what the owner listed. Status now shows in EVERY
+                          state, not only when it is not active: "Active" with a live
+                          dot is information, and hiding it made the common case the
+                          one with no answer. */}
                       <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                        <Badge token={meta.token} size="sm">
-                          {meta.label}
-                        </Badge>
+                        <StatusPill status={project.status} size="sm" />
+                        <KindPill kind={project.clientKind} />
+                        <PackagePill name={project.packageName} />
                         <span className="tabular font-mono text-micro font-semibold text-text-tertiary">
                           {project.code}
                         </span>
-                        {project.status !== 'active' && (
-                          <Badge
-                            token={project.status === 'on_hold' ? 'feedback-warning' : 'neutral-500'}
-                            size="sm"
-                            variant="outline"
-                          >
-                            {project.status.replace('_', ' ')}
-                          </Badge>
-                        )}
                       </div>
                     </div>
                     {/* Above the stretched link, or the card swallows the click. */}
@@ -271,51 +288,23 @@ export function ProjectsWorkspace({
                     </p>
                   )}
 
-                  {project.description && (
-                    <p className="line-clamp-2 text-caption text-text-secondary">
-                      {project.description}
-                    </p>
-                  )}
+                  {/* ── ⚠️ WHAT THE CARD SAYS NOW ────────────────────────────────
+                      Owner, 2026-08-19: *"Client name is not necessary. Daniyal
+                      Marketing project, that's perfect. How many posts are in this
+                      project? How many posts, how many reels, and website: this
+                      short information should be displayed in a grid view."*
 
-                  {/* The type-specific line: the client contact on a client card,
-                      the date and venue on an event, nothing on the rest.
-                      `field()` narrows `unknown` to a string in one place, so no
-                      untyped jsonb value reaches JSX. */}
-                  {project.type === 'client' && field(project, 'client_name') && (
-                    <p className="text-micro text-text-tertiary">
-                      {field(project, 'client_name')}
-                      {field(project, 'contact_person') && <> · {field(project, 'contact_person')}</>}
-                      {field(project, 'retainer_hours_per_month') && (
-                        <> · {field(project, 'retainer_hours_per_month')}h retainer</>
-                      )}
-                    </p>
-                  )}
-                  {project.type === 'event' && field(project, 'event_date') && (
-                    <p className="text-micro text-text-tertiary">
-                      {field(project, 'event_date')}
-                      {field(project, 'venue') && <> · {field(project, 'venue')}</>}
-                    </p>
-                  )}
+                      Gone: the description (two lines of prose on every card is the
+                      "too much text" being objected to), the client-contact line, and
+                      the event date/venue line. The `field()` helper that read them
+                      went with them — nothing else used it.
 
-                  <div className="space-y-1.5">
-                    <div className="flex items-baseline justify-between gap-2">
-                      <span className="text-micro text-text-tertiary">
-                        <span className="tabular font-semibold text-text-primary">
-                          {project.doneTaskCount}
-                        </span>{' '}
-                        of {project.taskCount} done
-                      </span>
-                      <span className="tabular text-caption font-semibold text-text-primary">
-                        {donePct}%
-                      </span>
-                    </div>
-                    <ProgressBar
-                      value={donePct}
-                      token="accent-primary"
-                      size="md"
-                      label={`${project.name}: ${donePct}% complete`}
-                    />
-                  </div>
+                      What replaced them is the month's delivery against what was
+                      promised — which is the question a project card should answer
+                      and previously could not. */}
+                  <ProjectDelivery project={project} />
+
+                  <PlatformStrip platforms={project.platforms} />
 
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border-subtle pt-3">
                     <span className="tabular text-micro text-text-secondary">
@@ -433,24 +422,34 @@ function ProjectTable({
         <table className="w-full min-w-[820px] border-collapse">
           <thead>
             <tr className="border-b border-border-default bg-bg-surface-sunken">
+              {/* ── ⚠️ THE COLUMNS CHANGED, FOR THE SAME REASON THE CARD DID ─────
+                  Owner, 2026-08-19: *"The grid view and the list view of a project
+                  are not good."* and *"How many posts, how many reels, and website."*
+
+                  Out: Type (the filter cards above say it, in colour), and
+                  Done/Complete — both measured TASK completion, which is a fact about
+                  the CRM rather than about the client. A project can close every task
+                  and have published nothing.
+
+                  In: Posts and Reels published this month against what was promised,
+                  Platforms as brand marks, and Includes. Open/Late/Points stay
+                  because comparing many projects on one figure is what a list is for
+                  and cards are bad at. */}
               <th scope="col" className={thLeft}>Project</th>
-              <th scope="col" className={thLeft}>Type</th>
               <th scope="col" className={thLeft}>Status</th>
-              <th scope="col" className={thRight}>Done</th>
+              <th scope="col" className={thRight}>Posts</th>
+              <th scope="col" className={thRight}>Reels</th>
+              <th scope="col" className={thLeft}>Platforms</th>
+              <th scope="col" className={thLeft}>Includes</th>
               <th scope="col" className={thRight}>Open</th>
               <th scope="col" className={thRight}>Late</th>
               <th scope="col" className={thRight}>Points</th>
-              <th scope="col" className={thRight}>Complete</th>
               <th scope="col" className="w-px" />
             </tr>
           </thead>
           <tbody>
             {projects.map((project) => {
               const meta = PROJECT_TYPE_META[project.type];
-              const donePct =
-                project.taskCount > 0
-                  ? Math.round((project.doneTaskCount / project.taskCount) * 100)
-                  : 0;
               const isClosed = ['completed', 'archived', 'cancelled'].includes(project.status);
 
               return (
@@ -495,28 +494,40 @@ function ProjectTable({
                   </td>
 
                   <td className="px-3 py-2.5">
-                    <Badge token={meta.token} size="sm" variant="outline">
-                      {meta.label}
-                    </Badge>
+                    <StatusPill status={project.status} size="sm" />
                   </td>
 
-                  <td className="px-3 py-2.5">
-                    {project.status === 'active' ? (
-                      <span className="text-caption text-text-secondary">Active</span>
-                    ) : (
-                      <Badge
-                        token={project.status === 'on_hold' ? 'feedback-warning' : 'neutral-500'}
-                        size="sm"
-                        variant="outline"
-                      >
-                        {project.status.replace(/_/g, ' ')}
-                      </Badge>
+                  {/* Posts and reels published THIS MONTH against what was promised.
+                      The bare done/total task counts they replaced described the CRM,
+                      not the client. */}
+                  <td className={tdNum}>
+                    <span className="font-semibold text-text-primary">
+                      {project.assetsPublishedThisMonth}
+                    </span>
+                    {project.assetsTargetMin !== null && (
+                      <span className="text-text-tertiary"> / {project.assetsTargetMin}</span>
+                    )}
+                  </td>
+                  <td className={tdNum}>
+                    <span className="font-semibold text-text-primary">
+                      {project.reelsPublishedThisMonth}
+                    </span>
+                    {project.reelsTargetMin !== null && (
+                      <span className="text-text-tertiary"> / {project.reelsTargetMin}</span>
                     )}
                   </td>
 
-                  <td className={tdNum}>
-                    {project.doneTaskCount}
-                    <span className="text-text-tertiary"> / {project.taskCount}</span>
+                  <td className="px-3 py-2.5">
+                    <PlatformStrip platforms={project.platforms} size={16} />
+                  </td>
+
+                  <td className="px-3 py-2.5">
+                    <div className="flex flex-wrap items-center gap-1">
+                      <IncludesPills
+                        website={project.packageIncludesWebsite}
+                        crm={project.packageIncludesCrm}
+                      />
+                    </div>
                   </td>
                   <td className={tdNum}>{project.openTaskCount}</td>
                   <td className={tdNum}>
@@ -529,24 +540,6 @@ function ProjectTable({
                     )}
                   </td>
                   <td className={tdNum}>{project.effortPoints}</td>
-
-                  {/* A bar this narrow cannot be read as a proportion, so the
-                      number leads and the bar is a hint beside it. */}
-                  <td className="px-3 py-2.5">
-                    <div className="flex items-center justify-end gap-2">
-                      <span className="tabular text-caption font-semibold text-text-primary">
-                        {donePct}%
-                      </span>
-                      <span className="w-16 shrink-0">
-                        <ProgressBar
-                          value={donePct}
-                          token="accent-primary"
-                          size="sm"
-                          label={`${project.name}: ${donePct}% complete`}
-                        />
-                      </span>
-                    </div>
-                  </td>
 
                   <td className="px-3 py-2.5">
                     <div className="flex items-center justify-end gap-1">

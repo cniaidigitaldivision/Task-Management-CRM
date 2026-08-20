@@ -75,9 +75,22 @@ export interface ProjectRow {
   readonly reelDays: readonly number[];
   readonly postingDays: readonly number[];
 
-  /** Platforms this project manages, for the card and the detail header. */
-  readonly platforms: readonly { readonly id: string; readonly name: string }[];
+  /** Platforms this project manages, for the card and the detail header. `slug` is
+   *  what `components/brand/platform-icon.tsx` draws the brand mark from. */
+  readonly platforms: readonly {
+    readonly id: string;
+    readonly name: string;
+    readonly slug: string;
+  }[];
   readonly memberCount: number;
+
+  /* ── From the PACKAGE, not copied onto the project ────────────────────────
+     Null where no package is attached — which is not the same as false. "No
+     package chosen" and "a package that excludes a website" are different
+     answers, and a card that showed both as a grey cross would be lying about
+     one of them. */
+  readonly packageIncludesWebsite: boolean | null;
+  readonly packageIncludesCrm: boolean | null;
 
   /* ── Progress: what actually went out THIS calendar month ─────────────────
      Counted on `published_on`, not on completion — a reel finished Monday and
