@@ -362,7 +362,12 @@ export function AppShell({
             creating one. */}
         <main
           key={pathname}
-          className="page-ambience reveal-children flex-1 overflow-x-clip px-4 py-5 sm:px-6 sm:py-7"
+          /* ⚠️ `sm:py-7` → `sm:py-4`. Owner, 2026-08-20: *"compact everything in such a
+             way that it will show the same view at 100 [zoom]."* Two of the biggest
+             single wins on every page are the shell's own top and bottom padding, and 12px
+             off each is 24px of content back for one line changed. The horizontal padding
+             is untouched — width was never the complaint, and cards need their gutter. */
+          className="page-ambience reveal-children flex-1 overflow-x-clip px-4 py-4 sm:px-6 sm:py-4"
         >
           {children}
         </main>

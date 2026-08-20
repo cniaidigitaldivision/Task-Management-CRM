@@ -181,9 +181,21 @@ export function ProjectOverview({
   const onTrack = target === null || donePct >= monthPct - 10;
 
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+    /* ── ⚠️ DENSITY PASS — owner request 2026-08-20 ────────────────────────────
+       *"The zoom factor is set to 90 right now… I want that view at 100. In short I want
+       to compact everything in such a way that it will show the same view at 100."*
+
+       Between 90% and 100% zoom roughly 100px of content height is lost, and it is found
+       back one step at a time: the shell's padding and the topbar token (16px + 24px),
+       the header block on the project page, this grid's gap, and every card's padding
+       and the KPI tiles below.
+
+       ⚠️ Nothing was DELETED and no type went below `text-micro`. A page that fits by
+       saying less has not been compacted — it has been cut, and the owner asked for the
+       same view, not a smaller one. */
+    <div className="grid grid-cols-1 gap-2.5 lg:grid-cols-12">
       {/* ══ KPI ROW ═════════════════════════════════════════════════════════ */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:col-span-9 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:col-span-9 lg:grid-cols-5">
         <Kpi
           icon={Target}
           token="kpi-target"
@@ -239,7 +251,7 @@ export function ProjectOverview({
 
       {/* ══ ATTENTION NEEDED ════════════════════════════════════════════════ */}
       <Card className="lg:col-span-3">
-        <CardBody className="p-4">
+        <CardBody className="p-3.5">
           <p className="text-body-sm font-semibold text-text-primary">Attention Needed</p>
 
           {needsAttention.length === 0 ? (
@@ -303,7 +315,7 @@ export function ProjectOverview({
 
       {/* ══ MONTH PROGRESS ══════════════════════════════════════════════════ */}
       <Card className="lg:col-span-3">
-        <CardBody className="space-y-3 p-4">
+        <CardBody className="space-y-2.5 p-3.5">
           {/* ── ⚠️ THE MONTH SELECTOR ───────────────────────────────────────────
               Owner, 2026-08-20: *"in the image at the reference I gave you, you can see
               there is a month dropdown but the one you created is not showing any
@@ -373,7 +385,7 @@ export function ProjectOverview({
 
       {/* ══ CONTENT PIPELINE ════════════════════════════════════════════════ */}
       <Card className="lg:col-span-6">
-        <CardBody className="p-4">
+        <CardBody className="p-3.5">
           <p className="text-body-sm font-semibold text-text-primary">Content Pipeline</p>
 
           {/* ⚠️ NO SCROLLER. Owner, 2026-08-20: *"in the Content Pipeline you have
@@ -442,7 +454,7 @@ export function ProjectOverview({
 
       {/* ══ ACCOUNTABLE / TEAM ══════════════════════════════════════════════ */}
       <Card className="lg:col-span-3">
-        <CardBody className="p-4">
+        <CardBody className="p-3.5">
           <p className="text-body-sm font-semibold text-text-primary">Accountable / Team</p>
 
           <ul className="mt-2 space-y-2">
@@ -508,7 +520,7 @@ export function ProjectOverview({
             Owner, 2026-08-20: *"the Add Content button should stick to the bottom of
             the height."* Without this the button hugs the day grid and floats in the
             middle of a card that is as tall as the Package Summary beside it. */}
-        <CardBody className="flex flex-1 flex-col p-4">
+        <CardBody className="flex flex-1 flex-col p-3.5">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-body-sm font-semibold text-text-primary">This Week</p>
             <Link
@@ -614,7 +626,7 @@ export function ProjectOverview({
 
       {/* ══ PACKAGE SUMMARY ═════════════════════════════════════════════════ */}
       <Card className="lg:col-span-3">
-        <CardBody className="p-4">
+        <CardBody className="p-3.5">
           <p className="text-body-sm font-semibold text-text-primary">Package Summary</p>
 
           <dl className="mt-2 space-y-2">
@@ -688,7 +700,7 @@ export function ProjectOverview({
           is a sentence with a name in it and needed the room; This Week gave up a
           column because its six day-cells tolerate being narrower than prose does. */}
       <Card className="lg:col-span-4">
-        <CardBody className="p-4">
+        <CardBody className="p-3.5">
           <p className="text-body-sm font-semibold text-text-primary">Recent Activity</p>
 
           {activity.length === 0 ? (
@@ -757,7 +769,7 @@ function DailyKpi({
       : 'kpi-review';
 
   return (
-    <div className="relative overflow-hidden rounded-xl border border-border-default bg-bg-surface p-3.5 shadow-sm">
+    <div className="relative overflow-hidden rounded-xl border border-border-default bg-bg-surface p-3 shadow-sm">
       <span
         aria-hidden="true"
         className="pointer-events-none absolute inset-0"
@@ -768,7 +780,7 @@ function DailyKpi({
       <div className="relative flex items-center gap-2.5">
         <span
           aria-hidden="true"
-          className="grid h-9 w-9 shrink-0 place-items-center rounded-full"
+          className="grid h-8 w-8 shrink-0 place-items-center rounded-full"
           style={{
             backgroundColor: `color-mix(in oklab, var(--${token}) var(--tint-medium), var(--bg-surface))`,
             color: `var(--${token})`,
@@ -786,7 +798,7 @@ function DailyKpi({
 
       {/* One icon per platform: lit where something went out today, dimmed where it
           has not. This is the "whether daily publishing on each platform or not". */}
-      <div className="relative mt-1.5 flex flex-wrap items-center gap-1">
+      <div className="relative mt-1 flex flex-wrap items-center gap-1">
         {isOffDay ? (
           <span className="text-micro text-text-tertiary">off day — nothing scheduled</span>
         ) : platforms.length === 0 ? (
@@ -892,7 +904,7 @@ function Kpi({
   hint: string;
 }) {
   return (
-    <div className="relative overflow-hidden rounded-xl border border-border-default bg-bg-surface p-3.5 shadow-sm">
+    <div className="relative overflow-hidden rounded-xl border border-border-default bg-bg-surface p-3 shadow-sm">
       <span
         aria-hidden="true"
         className="pointer-events-none absolute inset-0"
@@ -903,7 +915,7 @@ function Kpi({
       <div className="relative flex items-center gap-2.5">
         <span
           aria-hidden="true"
-          className="grid h-9 w-9 shrink-0 place-items-center rounded-full"
+          className="grid h-8 w-8 shrink-0 place-items-center rounded-full"
           style={{
             backgroundColor: `color-mix(in oklab, var(--${token}) var(--tint-medium), var(--bg-surface))`,
             color: `var(--${token})`,
@@ -920,7 +932,7 @@ function Kpi({
           </span>
         </span>
       </div>
-      <p className="relative mt-1.5 truncate text-micro text-text-tertiary">{hint}</p>
+      <p className="relative mt-1 truncate text-micro text-text-tertiary">{hint}</p>
     </div>
   );
 }

@@ -55,6 +55,9 @@ next-env.d.ts
 # exactly the thing that must never be in version control. Broad patterns on
 # purpose: a near-miss here costs far more than an over-eager ignore rule.
 *.pdf
+# Report layout previews, written by `REPORT_POSTER_DUMP=1 npx vitest run lib/pdf`.
+# ⚠️ Real project figures end up in these when the integration suite writes them.
+.report-preview/
 *recovery*code*
 *recovery-codes*
 *.p12

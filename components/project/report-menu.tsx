@@ -2,8 +2,9 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { CalendarRange, ChevronDown, FileText } from 'lucide-react';
+import { CalendarRange, ChevronDown, FileText, Loader2 } from 'lucide-react';
 
+import { generateProjectReportAction } from '@/app/actions/project-report';
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
 import { Field } from '@/components/ui/input';
@@ -71,19 +72,47 @@ export function ReportMenu({
 
   const close = () => ref.current?.removeAttribute('open');
 
+  const [busy, setBusy] = React.useState<ReportKind | null>(null);
+  const [note, setNote] = React.useState<string | null>(null);
+
+  /* ⚠️ GENERATES, then opens the PDF. Owner, 2026-08-20: *"I want that to generate a
+     report always in PDF format."*
+
+     It still shows a spinner, but the wait is now a database read rather than a call to
+     an image model: the page is drawn by `lib/pdf/report-poster.ts`, so a press that
+     took 64 seconds and cost money takes under a second and costs nothing. The spinner
+     stays because the figures are still computed server-side, and because
+     `REPORT_POSTER_MODEL=1` puts the slow path back. */
+  const generate = async (kind: ReportKind, from?: string, to?: string) => {
+    setBusy(kind);
+    setNote(null);
+    try {
+      const result = await generateProjectReportAction(projectId, kind, from, to);
+      if (!result.ok || !result.reportId) {
+        setNote(result.error ?? 'That report could not be generated.');
+        return;
+      }
+      /* Straight to the PDF, in a new tab. `router.refresh()` as well, so the list of
+         past reports on the project page picks it up. */
+      window.open(`/api/project-report/${result.reportId}`, '_blank', 'noopener,noreferrer');
+      router.refresh();
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const go = (kind: ReportKind) => {
     close();
     if (kind === 'year') {
-      /* The owner's second prompt. Everything else has an unambiguous range and goes
-         straight there. */
+      /* The owner's second prompt. Everything else has an unambiguous range. */
       setRangeOpen(true);
       return;
     }
-    router.push(`/projects/${projectId}/report?kind=${kind}`);
+    void generate(kind);
   };
 
   return (
-    <>
+    <div className="relative">
       <details ref={ref} className={cn('relative', className)}>
         <summary
           title={`Generate a report for ${projectName}`}
@@ -94,10 +123,14 @@ export function ReportMenu({
             '[&::-webkit-details-marker]:hidden',
           )}
         >
-          <FileText className="h-3.5 w-3.5 shrink-0" strokeWidth={2.25} aria-hidden="true" />
+          {busy ? (
+            <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" strokeWidth={2.25} aria-hidden="true" />
+          ) : (
+            <FileText className="h-3.5 w-3.5 shrink-0" strokeWidth={2.25} aria-hidden="true" />
+          )}
           {/* Matches the other action buttons: the label goes below `xl` so a zoomed
               viewport gets icons rather than a crowded row. */}
-          <span className="hidden xl:inline">Generate Report</span>
+          <span className="hidden xl:inline">{busy ? 'Generating…' : 'Generate Report'}</span>
           <ChevronDown className="h-3 w-3 shrink-0" strokeWidth={2.5} aria-hidden="true" />
         </summary>
 
@@ -110,6 +143,7 @@ export function ReportMenu({
             <button
               key={kind}
               type="button"
+              disabled={busy !== null}
               onClick={() => go(kind)}
               className="flex w-full items-center gap-2 px-3 py-2 text-left text-caption text-text-secondary hover:bg-bg-hover hover:text-text-primary"
             >
@@ -124,8 +158,21 @@ export function ReportMenu({
               )}
             </button>
           ))}
+          <p className="border-t border-border-subtle px-3 pt-1.5 pb-1 text-micro text-text-tertiary">
+            Each one is drawn in your report layout and opens as a PDF you can download.
+          </p>
         </div>
       </details>
+
+      {note && (
+        <p
+          className="absolute right-0 z-30 mt-1 max-w-[20rem] rounded-lg border border-border-default bg-bg-surface px-3 py-2 text-micro shadow-[var(--shadow-lg)]"
+          style={{ color: 'var(--feedback-error)' }}
+          role="alert"
+        >
+          {note}
+        </p>
+      )}
 
       {/* ---- The year range, as the owner's second prompt ---- */}
       <Dialog
@@ -143,14 +190,13 @@ export function ReportMenu({
               type="button"
               variant="primary"
               size="md"
+              disabled={busy !== null}
               onClick={() => {
                 setRangeOpen(false);
-                router.push(
-                  `/projects/${projectId}/report?kind=year&from=${from}&to=${to}`,
-                );
+                void generate('year', from, to);
               }}
             >
-              Generate
+              {busy === 'year' ? 'Generating…' : 'Generate'}
             </Button>
           </>
         }
@@ -188,6 +234,6 @@ export function ReportMenu({
               : `${monthTitle(to)} through ${monthTitle(from)} — the order is corrected for you.`}
         </p>
       </Dialog>
-    </>
+    </div>
   );
 }

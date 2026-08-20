@@ -210,16 +210,17 @@ export function ProjectDetailWorkspace({
 
 
   return (
-    <div className="space-y-4">
+    /* ⚠️ DENSITY PASS — owner, 2026-08-20: *"the zoom factor is set to 90… I want that
+       view at 100. In short I want to compact everything in such a way that it will show
+       the same view at 100."* Every gap on this page dropped one step. Nothing was
+       removed and no font went below `text-micro`, because the ask was to fit more on
+       the screen, not to say less. */
+    <div className="space-y-2.5">
       {/* ---- Header ---- */}
-      <div className="space-y-2">
-        <Link
-          href="/projects"
-          className="inline-flex items-center gap-1.5 text-caption text-text-secondary hover:text-text-primary"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" strokeWidth={2.25} aria-hidden="true" />
-          All projects
-        </Link>
+      <div className="space-y-1.5">
+        {/* ⚠️ The back link sits on the SAME line as the pills further down rather than
+            owning a line of its own — see the note there. What is left here is nothing,
+            so the title is the first thing on the page. */}
 
         {/* ── ⚠️ THE HEADER, REBUILT ────────────────────────────────────────────
             Owner, 2026-08-19: *"This UPI is totally out of place. Make them
@@ -234,16 +235,28 @@ export function ProjectDetailWorkspace({
 
             Now: name, then one row of solid pills that each say a different thing,
             then the brand marks. Nothing is repeated. */}
-        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
-          <div className="min-w-0 space-y-2">
+        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+          <div className="min-w-0 space-y-1.5">
             <div className="flex flex-wrap items-baseline gap-x-2.5">
-              <h1 className="text-h1 text-text-primary">{project.name}</h1>
+              <h1 className="text-h1 leading-tight text-text-primary">{project.name}</h1>
               <span className="tabular font-mono text-caption font-semibold text-text-tertiary">
                 {project.code}
               </span>
             </div>
 
+            {/* ⚠️ THE BACK LINK LIVES HERE NOW, not on a line of its own above the
+                title. Owner, 2026-08-20, asking for the 90%-zoom view at 100%: a link
+                with 22px of line box and a gap either side was the cheapest whole line on
+                the page to reclaim, and it reads just as well at the head of the pill
+                row — where the eye already goes for "what is this project". */}
             <div className="flex flex-wrap items-center gap-1.5">
+              <Link
+                href="/projects"
+                className="inline-flex items-center gap-1 rounded-md border border-border-default px-1.5 py-0.5 text-micro font-semibold text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+              >
+                <ArrowLeft className="h-3 w-3 shrink-0" strokeWidth={2.5} aria-hidden="true" />
+                All projects
+              </Link>
               <StatusPill status={project.status} />
               <KindPill kind={project.clientKind} />
               <PackagePill name={project.packageName} />
@@ -439,7 +452,7 @@ export function ProjectDetailWorkspace({
       {/* ══ CONTENT & POSTS ════════════════════════════════════════════════════ */}
       {tab === 'content' && (
         <Card>
-          <CardBody className="space-y-3 p-4">
+          <CardBody className="space-y-2.5 p-3.5">
             <p className="text-body-sm font-semibold text-text-primary">
               Deliverables
               <span className="ml-2 font-normal text-text-tertiary">
@@ -494,7 +507,7 @@ export function ProjectDetailWorkspace({
           <CardHeader>
             <CardTitle>The posting month</CardTitle>
           </CardHeader>
-          <CardBody className="p-4 pt-0">
+          <CardBody className="p-3.5 pt-0">
             <MonthRhythm
               cadence={{
                 staticPostsPerDay: project.staticPostsPerDay,
@@ -591,7 +604,7 @@ export function ProjectDetailWorkspace({
       {/* ══ TEAM ═══════════════════════════════════════════════════════════════ */}
       {tab === 'team' && (
         <Card>
-          <CardBody className="space-y-3 p-4">
+          <CardBody className="space-y-2.5 p-3.5">
             <p className="text-body-sm font-semibold text-text-primary">Who is accountable</p>
 
             {/* ⚠️ Naming somebody here also GRANTS THEM SIGHT of the project —
@@ -738,7 +751,7 @@ export function ProjectDetailWorkspace({
       {/* ══ DOCUMENTS ══════════════════════════════════════════════════════════ */}
       {tab === 'files' && (
         <Card>
-          <CardBody className="space-y-3 p-4">
+          <CardBody className="space-y-2.5 p-3.5">
             <p className="text-body-sm font-semibold text-text-primary">Documents</p>
 
             {documents.length === 0 ? (
