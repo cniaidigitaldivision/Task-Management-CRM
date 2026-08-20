@@ -180,7 +180,10 @@ export function PlatformStrip({
               rel="noopener noreferrer"
               title={`${label} — open`}
               aria-label={`${label} — opens in a new tab`}
-              className="rounded-[28%] transition-transform duration-[140ms] hover:-translate-y-px hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+              /* Owner, 2026-08-20: *"There are no hover effects on social media
+                 platform icons."* A lift plus a ring in the brand's own colour, so the
+                 icon reads as pressable rather than printed on. */
+              className="rounded-[28%] transition-[transform,box-shadow] duration-[140ms] hover:-translate-y-0.5 hover:shadow-[0_2px_10px_-2px_rgb(0_0_0/0.35)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
               style={{ outlineColor: 'var(--focus-ring)' }}
             >
               <PlatformIcon slug={platform.slug} size={size} />
@@ -193,7 +196,10 @@ export function PlatformStrip({
             key={platform.id}
             title={`${label} — no page recorded yet`}
             aria-label={`${label}, no page recorded`}
-            className="opacity-70"
+            /* Still responds to the pointer, but differently: it brightens toward full
+               opacity rather than lifting, which says "this is real but incomplete"
+               instead of pretending to be a link. */
+            className="opacity-60 transition-opacity duration-[140ms] hover:opacity-100"
           >
             <PlatformIcon slug={platform.slug} size={size} />
           </span>

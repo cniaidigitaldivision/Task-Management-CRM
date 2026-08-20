@@ -24,11 +24,14 @@ import {
   type PipelineTask,
 } from '@/lib/domain/content-pipeline';
 import type { ContentKind } from '@/lib/domain/constants';
-import { WEEKDAY_LABEL } from '@/lib/domain/cadence';
+import { WEEKDAY_LABEL, monthPlan } from '@/lib/domain/cadence';
+import { PlatformIcon } from '@/components/brand/platform-icon';
 import { Avatar } from '@/components/ui/avatar';
 import { Card, CardBody } from '@/components/ui/card';
 import { ProgressBar } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
+
+import { ContractDialog, type PackageDetail } from './contract-dialog';
 
 /* ============================================================================
  * THE PROJECT OVERVIEW — built to the owner's mockup, 2026-08-20
@@ -107,6 +110,8 @@ export function ProjectOverview({
   today,
   canSeeFinance,
   ownerAvatarUrl,
+  publishedTodayPlatformIds,
+  packageDetail,
   onAddContent,
 }: {
   project: ProjectRow;
@@ -121,6 +126,11 @@ export function ProjectOverview({
   canSeeFinance: boolean;
   /** The owner's uploaded picture, or null. */
   ownerAvatarUrl: string | null;
+  /** Platform ids that got a live placement TODAY — migration 034's placements. */
+  publishedTodayPlatformIds: readonly string[];
+  /** The chosen package's own terms, for the contract dialog. Null when the project
+   *  is on a customised arrangement rather than a listed package. */
+  packageDetail: PackageDetail | null;
   /** Opens the task dialog. Passed in so this component owns no dialog state. */
   onAddContent: () => void;
 }) {
@@ -128,6 +138,7 @@ export function ProjectOverview({
   const stages = pipeline(tasks, today);
   const week = weekOf(tasks, today, 6);
   const needsAttention = attention(tasks, today);
+  const [contractOpen, setContractOpen] = React.useState(false);
 
   const target = counts.target;
   const pct = (n: number) => (target && target > 0 ? Math.round((n / target) * 100) : null);
@@ -144,6 +155,28 @@ export function ProjectOverview({
   /* "On track" compares progress through the target with progress through the month.
      Publishing 40% of the month's assets on the 20th is behind, not fine — which a
      bare percentage cannot tell you. */
+  /* Today's expectation comes from the same `monthPlan` the calendar draws, so the
+     card and the grid can never disagree about whether today is a posting day. */
+  const plan = React.useMemo(
+    () =>
+      monthPlan(
+        {
+          staticPostsPerDay: project.staticPostsPerDay,
+          reelsPerWeek: project.reelsPerWeek,
+          reelDays: project.reelDays as never,
+          postingDays: project.postingDays as never,
+        },
+        monthStart,
+      ),
+    [project.staticPostsPerDay, project.reelsPerWeek, project.reelDays, project.postingDays, monthStart],
+  );
+  const todayPlan = plan.days.find((day) => day.date === today) ?? null;
+  const expectedToday = todayPlan ? todayPlan.staticPosts + todayPlan.reels : 0;
+  /* ⚠️ `?? false` and not `?? true`: when the selected month is not the month today
+     falls in there is no plan row, and calling that an off day would grey out the card
+     for a reason that has nothing to do with the project's rest days. */
+  const isOffDay = todayPlan?.isOff ?? false;
+
   const monthPct = Math.round((dayOfMonth / monthDays) * 100);
   const onTrack = target === null || donePct >= monthPct - 10;
 
@@ -158,12 +191,24 @@ export function ProjectOverview({
           value={target ?? '—'}
           hint={target === null ? 'nothing agreed' : 'assets this month'}
         />
-        <Kpi
-          icon={CheckCircle2}
-          token="kpi-published"
-          label="Published"
-          value={counts.published}
-          hint={pct(counts.published) === null ? 'no target' : `${pct(counts.published)}% of target`}
+        {/* ── ⚠️ TODAY, NOT "PUBLISHED" ────────────────────────────────────────
+            Owner, 2026-08-20: *"whether daily publishing on each platform or not
+            should be displayed over here… the daily target card should be for daily
+            publishing. Remove one card and adjust that daily summary."*
+
+            The Published card went, because its figure was the same
+            month-to-date number the progress card next to it already leads with —
+            two cards for one fact. This one answers a question nothing else on the
+            page could: did today's post actually go out, and where.
+
+            The platform ticks come from `task_placements`, not from tasks: one asset
+            cross-posted to three platforms is one task and three placements, and
+            "which platforms got something" is the placement question. */}
+        <DailyKpi
+          expected={expectedToday}
+          platforms={project.platforms}
+          publishedPlatformIds={publishedTodayPlatformIds}
+          isOffDay={isOffDay}
         />
         <Kpi
           icon={Clock}
@@ -458,8 +503,12 @@ export function ProjectOverview({
       </Card>
 
       {/* ══ THIS WEEK ═══════════════════════════════════════════════════════ */}
-      <Card className="lg:col-span-5">
-        <CardBody className="p-4">
+      <Card className="flex flex-col lg:col-span-5">
+        {/* ⚠️ `flex-1` + `flex-col` on the body, and `mt-auto` on the button below.
+            Owner, 2026-08-20: *"the Add Content button should stick to the bottom of
+            the height."* Without this the button hugs the day grid and floats in the
+            middle of a card that is as tall as the Package Summary beside it. */}
+        <CardBody className="flex flex-1 flex-col p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-body-sm font-semibold text-text-primary">This Week</p>
             <Link
@@ -470,7 +519,7 @@ export function ProjectOverview({
             </Link>
           </div>
 
-          <div className="mt-2.5 overflow-x-auto">
+          <div className="mt-2.5 shrink-0 overflow-x-auto">
             <div className="grid min-w-[38rem] grid-cols-6 gap-1.5">
               {week.map((day) => {
                 const isPostingDay = project.postingDays.includes(day.weekday);
@@ -547,7 +596,7 @@ export function ProjectOverview({
           <button
             type="button"
             onClick={onAddContent}
-            className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-border-default py-2 text-micro font-semibold text-text-secondary hover:border-border-strong hover:bg-bg-hover hover:text-text-primary"
+            className="mt-auto flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-border-default py-2 text-micro font-semibold text-text-secondary hover:border-border-strong hover:bg-bg-hover hover:text-text-primary"
           >
             <Plus className="h-3.5 w-3.5" strokeWidth={2.5} aria-hidden="true" />
             Add content
@@ -589,8 +638,40 @@ export function ProjectOverview({
             />
             <Line label="Started on" value={project.startDate ?? '—'} />
           </dl>
+
+          {/* ⚠️ Owner, 2026-08-20: *"the View Contract button should, on click, pop up
+              and display the package main summary… even that button is not showing."*
+              It was in the mockup and I had left it out entirely. It opens the full
+              listed-vs-agreed comparison — see contract-dialog.tsx for why both
+              columns are shown rather than one. */}
+          <button
+            type="button"
+            onClick={() => setContractOpen(true)}
+            className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-border-default py-2 text-micro font-semibold text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+          >
+            <FileText className="h-3.5 w-3.5" strokeWidth={2.25} aria-hidden="true" />
+            View contract
+          </button>
         </CardBody>
       </Card>
+
+      <ContractDialog
+        open={contractOpen}
+        onClose={() => setContractOpen(false)}
+        projectName={project.name}
+        detail={packageDetail}
+        agreed={{
+          monthlyFeePkr: project.monthlyFeePkr,
+          assetsTargetMin: project.assetsTargetMin,
+          assetsTargetMax: project.assetsTargetMax,
+          reelsTargetMin: project.reelsTargetMin,
+          staticPostsPerDay: project.staticPostsPerDay,
+          reelsPerWeek: project.reelsPerWeek,
+          startDate: project.startDate,
+        }}
+        platforms={project.platforms}
+        canSeeFinance={canSeeFinance}
+      />
 
       {/* ══ RECENT ACTIVITY ═════════════════════════════════════════════════
           ⚠️ 4 of 12, not 3. Owner, 2026-08-20: *"the Activity tab has more width. Right
@@ -637,6 +718,97 @@ export function ProjectOverview({
           )}
         </CardBody>
       </Card>
+    </div>
+  );
+}
+
+/* ----------------------------------------------------------------------------
+ * TODAY, PER PLATFORM
+ * ----------------------------------------------------------------------------
+ * ⚠️ An OFF day is its own state, not zero-of-zero. Owner's standing rule: a Sunday
+ * with nothing on it must say it is off, or it looks like a Sunday somebody forgot.
+ * A card reading "0 / 0" on a rest day would be the same failure in a smaller box.
+ * ------------------------------------------------------------------------- */
+function DailyKpi({
+  expected,
+  platforms,
+  publishedPlatformIds,
+  isOffDay,
+}: {
+  expected: number;
+  platforms: readonly { id: string; name: string; slug: string }[];
+  publishedPlatformIds: readonly string[];
+  isOffDay: boolean;
+}) {
+  const done = platforms.filter((platform) => publishedPlatformIds.includes(platform.id)).length;
+  const token = isOffDay
+    ? 'text-tertiary'
+    : platforms.length > 0 && done >= platforms.length
+      ? 'kpi-published'
+      : 'kpi-review';
+
+  return (
+    <div className="relative overflow-hidden rounded-xl border border-border-default bg-bg-surface p-3.5 shadow-sm">
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background: `radial-gradient(120% 100% at 100% 0%, color-mix(in oklab, var(--${token}) 16%, transparent) 0%, transparent 70%)`,
+        }}
+      />
+      <div className="relative flex items-center gap-2.5">
+        <span
+          aria-hidden="true"
+          className="grid h-9 w-9 shrink-0 place-items-center rounded-full"
+          style={{
+            backgroundColor: `color-mix(in oklab, var(--${token}) var(--tint-medium), var(--bg-surface))`,
+            color: `var(--${token})`,
+          }}
+        >
+          <CheckCircle2 className="h-4 w-4" strokeWidth={2.25} />
+        </span>
+        <span className="min-w-0">
+          <span className="block truncate text-micro font-semibold text-text-secondary">Today</span>
+          <span className="block tabular-nums text-h2 font-semibold leading-tight text-text-primary">
+            {isOffDay ? '—' : `${done}/${platforms.length || '—'}`}
+          </span>
+        </span>
+      </div>
+
+      {/* One icon per platform: lit where something went out today, dimmed where it
+          has not. This is the "whether daily publishing on each platform or not". */}
+      <div className="relative mt-1.5 flex flex-wrap items-center gap-1">
+        {isOffDay ? (
+          <span className="text-micro text-text-tertiary">off day — nothing scheduled</span>
+        ) : platforms.length === 0 ? (
+          <span className="text-micro text-text-tertiary">no platforms chosen</span>
+        ) : (
+          <>
+            {platforms.map((platform) => {
+              const live = publishedPlatformIds.includes(platform.id);
+              return (
+                <span
+                  key={platform.id}
+                  title={
+                    live
+                      ? `${platform.name} — published today`
+                      : `${platform.name} — nothing today`
+                  }
+                  className={cn(
+                    'transition-opacity duration-150',
+                    live ? 'opacity-100' : 'opacity-30 grayscale',
+                  )}
+                >
+                  <PlatformIcon slug={platform.slug} size={16} />
+                </span>
+              );
+            })}
+            <span className="ml-1 text-micro text-text-tertiary">
+              {expected > 0 ? `${expected} due` : 'nothing due'}
+            </span>
+          </>
+        )}
+      </div>
     </div>
   );
 }

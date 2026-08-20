@@ -44,6 +44,7 @@ import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 
 import { MonthRhythm } from './month-rhythm';
+import type { PackageDetail } from './contract-dialog';
 import { ProjectCredentials } from './project-credentials';
 import { ProjectDialog } from './project-dialog';
 import { PlatformLinksDialog } from './platform-links-dialog';
@@ -130,6 +131,8 @@ export function ProjectDetailWorkspace({
   today,
   activity,
   ownerAvatarUrl,
+  publishedTodayPlatformIds,
+  packageDetail,
 }: {
   project: ProjectRow;
   members: readonly ProjectMemberRow[];
@@ -157,6 +160,10 @@ export function ProjectDetailWorkspace({
   activity: readonly ActivityRow[];
   /** The owner's uploaded picture, or null. */
   ownerAvatarUrl: string | null;
+  /** Platform ids with a live placement today — feeds the Today KPI card. */
+  publishedTodayPlatformIds: readonly string[];
+  /** The chosen package's terms, for the contract dialog. Null on a custom deal. */
+  packageDetail: PackageDetail | null;
 }) {
   const [tab, setTab] = React.useState<Tab>('overview');
   const router = useRouter();
@@ -356,6 +363,16 @@ export function ProjectDetailWorkspace({
             Create Content
           </Link>
 
+          {/* ⚠️ Owner, 2026-08-20: *"the Add Task button is missing."* It was in the
+              mockup and I dropped it when I made these links instead of dialogs.
+              Both this and Create Content go to the task board filtered to this
+              project — the difference is that Create Content is the primary and this
+              is not, which is what the mockup shows. */}
+          <Link href={`/tasks?project=${project.id}`} className={ACTION}>
+            <Plus className="h-3.5 w-3.5" strokeWidth={2.5} aria-hidden="true" />
+            Add Task
+          </Link>
+
           <button type="button" onClick={() => setTab('files')} className={ACTION}>
             <Upload className="h-3.5 w-3.5" strokeWidth={2.25} aria-hidden="true" />
             Upload Asset
@@ -381,6 +398,8 @@ export function ProjectDetailWorkspace({
           today={today}
           canSeeFinance={canSeeFinance}
           ownerAvatarUrl={ownerAvatarUrl}
+          publishedTodayPlatformIds={publishedTodayPlatformIds}
+          packageDetail={packageDetail}
           onAddContent={() => setTab('tasks')}
         />
       )}

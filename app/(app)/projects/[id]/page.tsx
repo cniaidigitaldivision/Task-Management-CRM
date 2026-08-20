@@ -5,7 +5,12 @@ import { ProjectDetailWorkspace } from '@/components/project/project-detail-work
 import { requireUser } from '@/lib/auth/current-user';
 import { listCredentials } from '@/lib/db/queries/credentials';
 import { listDocuments } from '@/lib/db/queries/documents';
-import { getProject, listProjectMembers } from '@/lib/db/queries/projects';
+import {
+  getProject,
+  listProjectMembers,
+  platformsPublishedOn,
+} from '@/lib/db/queries/projects';
+import { listPackages } from '@/lib/db/queries/catalogue';
 import { listTasks } from '@/lib/db/queries/tasks';
 import { listPeople } from '@/lib/db/queries/people';
 import { listProjectActivity } from '@/lib/db/queries/feed';
@@ -96,6 +101,42 @@ export default async function ProjectPage({
   const ownerAvatar =
     people.find((person) => person.id === project.ownerId)?.avatarUrl ?? null;
 
+  /* Two more reads, both cheap and both needed by the Overview.
+
+     ⚠️ `platformsPublishedOn` is asked for TODAY specifically, not the selected month.
+     The Today card answers "did today's post go out", and pointing it at a month the
+     reader is browsing would make it answer a different question silently.
+
+     The package is looked up from the full list rather than by id: it is eight rows,
+     already cached by the catalogue query, and a dedicated getter would be a second
+     place for the package shape to drift. */
+  const [publishedTodayPlatformIds, packages] = await Promise.all([
+    platformsPublishedOn(user.id, id, today),
+    project.packageId ? listPackages(user.id) : Promise.resolve([]),
+  ]);
+
+  const chosenPackage = packages.find((pkg) => pkg.id === project.packageId) ?? null;
+  const packageDetail = chosenPackage
+    ? {
+        name: chosenPackage.name,
+        tagline: chosenPackage.tagline,
+        monthlyFeePkr: chosenPackage.monthlyFeePkr,
+        feeIsFrom: chosenPackage.feeIsFrom,
+        platformCount: chosenPackage.platformCount,
+        assetsMin: chosenPackage.assetsMin,
+        assetsMax: chosenPackage.assetsMax,
+        reelsMin: chosenPackage.reelsMin,
+        includesWebsite: chosenPackage.includesWebsite,
+        websiteNote: chosenPackage.websiteNote,
+        includesCrm: chosenPackage.includesCrm,
+        crmNote: chosenPackage.crmNote,
+        automationNote: chosenPackage.automationNote,
+        reportingCadence: chosenPackage.reportingCadence,
+        freeBenefit: chosenPackage.freeBenefit,
+        bestFor: chosenPackage.bestFor,
+      }
+    : null;
+
   return (
     <div className="mx-auto max-w-[var(--content-max)] space-y-5">
       <ProjectDetailWorkspace
@@ -109,6 +150,8 @@ export default async function ProjectPage({
         today={today}
         activity={activity}
         ownerAvatarUrl={ownerAvatar}
+        publishedTodayPlatformIds={publishedTodayPlatformIds}
+        packageDetail={packageDetail}
         members={members}
         tasks={tasks}
         /* Filtered here rather than in SQL because both lists are already scoped

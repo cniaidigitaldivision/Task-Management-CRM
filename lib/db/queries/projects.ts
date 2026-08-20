@@ -348,6 +348,38 @@ export async function setPlatformLinks(
   });
 }
 
+/**
+ * Which platforms this project actually published to on one date.
+ *
+ * Owner, 2026-08-20: *"whether daily publishing on each platform or not should be
+ * displayed."* The KPI card needs to light one icon per platform that got something
+ * out today, so it needs the platform ids — not a count.
+ *
+ * ── ⚠️ READ FROM `task_placements`, NOT FROM `tasks` ──────────────────────────
+ * A task is ONE asset and may be cross-posted to four platforms; the platform lives on
+ * the placement (migration 034). Counting tasks would tell you something went out
+ * today but never where, which is the entire question.
+ *
+ * ⚠️ Only placements with a URL count. A placement row with no link is planned, not
+ * live — the same rule the monthly report's `liveLinks` uses.
+ */
+export async function platformsPublishedOn(
+  actorId: string,
+  projectId: string,
+  date: string,
+): Promise<string[]> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select distinct tp.platform_id
+      from public.task_placements tp
+      join public.tasks t on t.id = tp.task_id
+     where t.project_id = ${projectId}
+       and not t.is_deleted
+       and tp.url is not null
+       and tp.published_on = ${date}::date
+  `);
+  return rows.map((row) => row.platform_id as string);
+}
+
 export interface ProjectMemberRow {
   readonly userId: string;
   readonly fullName: string;
