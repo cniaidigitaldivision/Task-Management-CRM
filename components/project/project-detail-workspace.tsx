@@ -21,7 +21,8 @@ import type { CredentialRow } from '@/lib/db/queries/credentials';
 import type { DocumentRow } from '@/lib/db/queries/documents';
 import type { ProjectMemberRow } from '@/lib/db/queries/projects';
 import type { ProjectRow, TaskRow } from '@/lib/db/queries/types';
-import { CONTENT_KIND_LABEL, PROJECT_TYPE_META } from '@/lib/domain/constants';
+import { CONTENT_KIND_LABEL } from '@/lib/domain/constants';
+import { WEEKDAY_LABEL } from '@/lib/domain/cadence';
 import {
   VERDICT_LABEL,
   VERDICT_TOKEN,
@@ -35,9 +36,15 @@ import { Badge } from '@/components/ui/badge';
 import { Button, IconButton } from '@/components/ui/button';
 import { Field } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
-import { Card, CardBody } from '@/components/ui/card';
+import { Avatar } from '@/components/ui/avatar';
+import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/card';
 import { ProgressBar } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
+
+import { MonthRhythm } from './month-rhythm';
+import { ProjectCredentials } from './project-credentials';
+import { PlatformStrip } from './project-delivery';
+import { IncludesPills, KindPill, PackagePill, StatusPill } from './project-pills';
 
 /* ============================================================================
  * ONE PROJECT, IN TABS
@@ -68,19 +75,9 @@ const TABS: ReadonlyArray<{ key: Tab; label: string; icon: typeof Users }> = [
   { key: 'documents', label: 'Documents', icon: FileText },
 ];
 
-/* ⚠️ `STATUS_META` in lib/domain/constants is for TASK status — its keys are
-   backlog/todo/in_progress/… and indexing it with a PROJECT status is a type
-   error, which is how this was caught. There is no shared project-status meta,
-   so it is defined here rather than refactoring the projects list mid-change.
-   Worth promoting to constants the next time either screen touches status. */
-const PROJECT_STATUS_META: Record<string, { label: string; token: string }> = {
-  planning: { label: 'Planning', token: 'feedback-info' },
-  active: { label: 'Active', token: 'feedback-success' },
-  on_hold: { label: 'On hold', token: 'feedback-warning' },
-  completed: { label: 'Completed', token: 'accent-primary' },
-  archived: { label: 'Archived', token: 'text-tertiary' },
-  cancelled: { label: 'Cancelled', token: 'feedback-error' },
-};
+/* ⚠️ The project-status meta that used to live here is gone — StatusPill in
+   project-pills.tsx owns it now, so the list page and this page cannot drift
+   apart on what colour "on hold" is. */
 
 const PROJECT_ROLE_LABEL: Record<string, string> = {
   manager: 'Manager',
@@ -94,7 +91,31 @@ const PROJECT_ROLE_LABEL: Record<string, string> = {
 
 function money(pkr: number | null): string {
   if (pkr === null) return '—';
+  /* Locale passed explicitly — an argless `toLocaleString()` formats differently on
+     the server and in the browser and React reports it as a hydration mismatch. */
   return `PKR ${pkr.toLocaleString('en-PK')}`;
+}
+
+/**
+ * "1 a day, 2 reels a week" — the commitment in the words somebody agreed it in.
+ *
+ * ⚠️ Distinguishes null from 0. "No rhythm agreed" and "agreed to post nothing" are
+ * different statements, and the second one is a real thing a paused retainer might
+ * say. The same rule the schema and every report follow.
+ */
+function rhythmSentence(staticPerDay: number | null, reelsPerWeek: number | null): string {
+  const parts: string[] = [];
+  if (staticPerDay !== null) {
+    parts.push(staticPerDay === 0 ? 'no daily posts' : `${staticPerDay} a day`);
+  }
+  if (reelsPerWeek !== null) {
+    parts.push(
+      reelsPerWeek === 0
+        ? 'no reels'
+        : `${reelsPerWeek} reel${reelsPerWeek === 1 ? '' : 's'} a week`,
+    );
+  }
+  return parts.length > 0 ? parts.join(', ') : 'Nothing agreed';
 }
 
 export function ProjectDetailWorkspace({
@@ -105,6 +126,9 @@ export function ProjectDetailWorkspace({
   documents,
   people,
   canManage,
+  canSeeFinance,
+  monthStart,
+  today,
 }: {
   project: ProjectRow;
   members: readonly ProjectMemberRow[];
@@ -113,6 +137,17 @@ export function ProjectDetailWorkspace({
   documents: readonly DocumentRow[];
   people: readonly { id: string; name: string; role: string }[];
   canManage: boolean;
+  /** `project.view_finance` — Admin and above. The fee is ALSO stripped server-side
+   *  before it reaches this component; see lib/view/project-finance.ts for why both. */
+  canSeeFinance: boolean;
+  /** 'YYYY-MM-01' and 'YYYY-MM-DD', from the server.
+   *
+   *  ⚠️ Passed in rather than read here. A component that reads the clock is not a
+   *  pure render (React's compiler lint refuses it), and the server and the browser
+   *  can disagree about the date across midnight or a timezone — which would put the
+   *  month grid on the wrong month. Same rule as lib/now.ts. */
+  monthStart: string;
+  today: string;
 }) {
   const [tab, setTab] = React.useState<Tab>('overview');
   const router = useRouter();
@@ -151,7 +186,7 @@ export function ProjectDetailWorkspace({
      part of what the client was promised, so it does not belong in a list headed
      "content". */
   const deliverables = tasks.filter((t) => t.contentKind !== null);
-  const status = PROJECT_STATUS_META[project.status] ?? { label: project.status, token: 'text-tertiary' };
+
 
   return (
     <div className="space-y-4">
@@ -165,26 +200,45 @@ export function ProjectDetailWorkspace({
           All projects
         </Link>
 
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-micro font-semibold tracking-[0.08em] text-text-tertiary uppercase">
-              {PROJECT_TYPE_META[project.type].label}
-              {project.clientKind && ` · ${project.clientKind === 'internal' ? 'Internal' : 'External'}`}
-              {project.clientName && ` · ${project.clientName}`}
-            </p>
-            <h1 className="text-h1 text-text-primary">{project.name}</h1>
+        {/* ── ⚠️ THE HEADER, REBUILT ────────────────────────────────────────────
+            Owner, 2026-08-19: *"This UPI is totally out of place. Make them
+            reorganized and redesign this whole thing."* and *"The pills you are
+            using for active and starter are not looking good."*
+
+            Was: an uppercase run of "Client · External · ABC Traders" over the name,
+            with two hairline outline badges floated right. The eyebrow repeated what
+            the pills said, the pills were invisible, and the platforms — the thing
+            you actually want to see about a social project — were buried in a text
+            list three cards down.
+
+            Now: name, then one row of solid pills that each say a different thing,
+            then the brand marks. Nothing is repeated. */}
+        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+          <div className="min-w-0 space-y-2">
+            <div className="flex flex-wrap items-baseline gap-x-2.5">
+              <h1 className="text-h1 text-text-primary">{project.name}</h1>
+              <span className="tabular font-mono text-caption font-semibold text-text-tertiary">
+                {project.code}
+              </span>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1.5">
+              <StatusPill status={project.status} />
+              <KindPill kind={project.clientKind} />
+              <PackagePill name={project.packageName} />
+              <IncludesPills
+                website={project.packageIncludesWebsite}
+                crm={project.packageIncludesCrm}
+              />
+              {project.clientName && (
+                <span className="text-caption text-text-secondary">{project.clientName}</span>
+              )}
+            </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge token={status.token} size="sm" variant="outline">
-              {status.label}
-            </Badge>
-            {project.packageName && (
-              <Badge token="accent-gold" size="sm" variant="outline">
-                {project.packageName}
-              </Badge>
-            )}
-          </div>
+          {/* Owner: *"The platform should display proper platform icons."* At 22px
+              here rather than the card's 18 — this is the page about this project. */}
+          <PlatformStrip platforms={project.platforms} size={22} />
         </div>
       </div>
 
@@ -297,32 +351,151 @@ export function ProjectDetailWorkspace({
             </CardBody>
           </Card>
 
-          {/* ---- The commercial facts ---- */}
+          {/* ── ⚠️ THE RHYTHM, AS A MONTH ────────────────────────────────────────
+              Owner: *"This one, it's a monthly chart. This one is very interactive,
+              very sleek and beautifully represented overall, graphically."* and
+              *"make it empty, like a Sunday… mention that this is Sunday."*
+
+              This replaced nothing — the old Overview had no picture of the month at
+              all, which is why it read as a pile of labels. */}
           <Card>
-            <CardBody className="grid gap-x-6 gap-y-3 p-4 sm:grid-cols-2 lg:grid-cols-3">
-              <Fact label="Package" value={project.packageName ?? 'None — services only'} />
-              <Fact label="Monthly fee" value={money(project.monthlyFeePkr)} />
-              <Fact label="Owner" value={project.ownerName ?? '—'} />
-              <Fact label="Started" value={project.startDate ?? '—'} />
-              <Fact label="Renews" value={project.renewsOn ?? '—'} />
-              <Fact
-                label="Platforms"
-                value={
-                  project.platforms.length > 0
-                    ? project.platforms.map((p) => p.name).join(', ')
-                    : 'None chosen'
-                }
+            <CardHeader>
+              <CardTitle>The month</CardTitle>
+            </CardHeader>
+            <CardBody className="p-4 pt-0">
+              <MonthRhythm
+                cadence={{
+                  staticPostsPerDay: project.staticPostsPerDay,
+                  reelsPerWeek: project.reelsPerWeek,
+                  reelDays: project.reelDays as never,
+                  postingDays: project.postingDays as never,
+                }}
+                monthStart={monthStart}
+                today={today}
               />
             </CardBody>
           </Card>
 
-          {project.description && (
+          {/* ── ⚠️ ACCOUNTABILITY: OWNER IS NOT "ASSIGNED TO" ────────────────────
+              Owner, 2026-08-19: *"Who is the project owner? Who is on this project or
+              assigned to Kashif Ahmad? He is not the owner; he is assigned, assigned
+              by Kashif Ahmad or someone like that."*
+
+              The old Overview had a single `Fact` labelled "Owner" showing
+              `ownerName`, which is genuinely ambiguous — it could mean the person
+              accountable for the project or the person the work landed on. They are
+              different people and the distinction is the whole point of the Team tab.
+
+              So this says ACCOUNTABLE, in words, and names the members separately
+              underneath. The column is still `owner_id`; only the label changed. */}
+          <div className="grid gap-4 lg:grid-cols-2">
             <Card>
-              <CardBody className="p-4">
-                <p className="text-caption text-text-secondary">{project.description}</p>
+              <CardHeader>
+                <CardTitle>Accountable</CardTitle>
+              </CardHeader>
+              <CardBody className="space-y-3 p-4 pt-0">
+                <div className="flex items-center gap-2.5">
+                  <Avatar name={project.ownerName ?? 'Unassigned'} size="md" />
+                  <div className="min-w-0">
+                    <p className="truncate text-body-sm font-semibold text-text-primary">
+                      {project.ownerName ?? 'Nobody yet'}
+                    </p>
+                    <p className="text-micro text-text-tertiary">
+                      owns this project — answers for it
+                    </p>
+                  </div>
+                </div>
+
+                <div className="border-t border-border-subtle pt-2.5">
+                  <p className="text-micro font-semibold uppercase tracking-[0.06em] text-text-tertiary">
+                    Also working on it
+                  </p>
+                  {members.length === 0 ? (
+                    <p className="mt-1 text-micro text-text-secondary">
+                      Nobody else added. Use the Team tab.
+                    </p>
+                  ) : (
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                      {members.map((member) => (
+                        <span
+                          key={member.userId}
+                          className="inline-flex items-center gap-1.5 rounded-full bg-bg-subtle py-0.5 pl-0.5 pr-2"
+                          /* ⚠️ `projectRole` (Content, Design, Ads…), not `role` —
+                             `role` is the person's SYSTEM role and would label a
+                             designer "member" on a card about who does what here.
+
+                             `addedByName` answers the owner's other question directly:
+                             *"he is not the owner; he is assigned, assigned by Kashif
+                             Ahmad."* Who put somebody on a project is a different fact
+                             from who is accountable for it. */
+                          title={
+                            `${member.fullName} — ${PROJECT_ROLE_LABEL[member.projectRole] ?? member.projectRole}` +
+                            (member.addedByName ? ` · added by ${member.addedByName}` : '')
+                          }
+                        >
+                          <Avatar name={member.fullName} size="xs" />
+                          <span className="text-micro font-medium text-text-secondary">
+                            {member.fullName}
+                          </span>
+                          <span className="text-micro text-text-tertiary">
+                            {PROJECT_ROLE_LABEL[member.projectRole] ?? member.projectRole}
+                          </span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </CardBody>
             </Card>
-          )}
+
+            {/* ---- What was sold ----
+                ⚠️ The fee is gated on `project.view_finance`, and the value is also
+                stripped server-side before it reaches this component — see
+                lib/view/project-finance.ts. Two gates because not rendering a field
+                is not the same as not sending it, which a check of the real HTML on
+                /projects proved the hard way. */}
+            <Card>
+              <CardHeader>
+                <CardTitle>What was sold</CardTitle>
+              </CardHeader>
+              <CardBody className="grid gap-x-5 gap-y-3 p-4 pt-0 sm:grid-cols-2">
+                <Fact label="Package" value={project.packageName ?? 'Customized'} />
+                {canSeeFinance && <Fact label="Monthly fee" value={money(project.monthlyFeePkr)} />}
+                <Fact
+                  label="Rhythm"
+                  value={rhythmSentence(project.staticPostsPerDay, project.reelsPerWeek)}
+                />
+                <Fact
+                  label="Promised a month"
+                  value={
+                    project.assetsTargetMin === null
+                      ? 'Nothing agreed'
+                      : `${project.assetsTargetMin} assets${
+                          project.reelsTargetMin ? `, ${project.reelsTargetMin} reels` : ''
+                        }`
+                  }
+                />
+                <Fact label="Started" value={project.startDate ?? '—'} />
+                <Fact
+                  label="Posting days"
+                  value={
+                    project.postingDays.length === 0
+                      ? 'None'
+                      : project.postingDays
+                          .map((d) => WEEKDAY_LABEL[d as 1 | 2 | 3 | 4 | 5 | 6 | 7])
+                          .join(' ')
+                  }
+                />
+              </CardBody>
+            </Card>
+          </div>
+
+          {/* ⚠️ The description card is gone from here. Owner: *"Try to use less
+              text. You are adding a lot of text. It's not text; it's a dashboard, a
+              CRM."* A paragraph nobody edits, sitting under the figures, was the
+              clearest example of that. It is still on the project and still editable
+              in the dialog; it simply does not get a card of its own on the screen
+              whose job is to show numbers. */}
         </div>
       )}
 
@@ -514,50 +687,13 @@ export function ProjectDetailWorkspace({
 
       {/* ══ CREDENTIALS ════════════════════════════════════════════════════════ */}
       {tab === 'credentials' && (
-        <Card>
-          <CardBody className="space-y-3 p-4">
-            <p className="text-body-sm font-semibold text-text-primary">
-              Credentials for this project
-            </p>
-
-            {credentials.length === 0 ? (
-              <p className="text-caption text-text-secondary">
-                None recorded against this project. They are added in the{' '}
-                <Link href="/vault" className="font-semibold text-text-brand hover:underline">
-                  Vault
-                </Link>
-                , where the secret is sealed before it reaches the database.
-              </p>
-            ) : (
-              <ul className="divide-y divide-border-subtle">
-                {credentials.map((c) => (
-                  <li key={c.id} className="flex flex-wrap items-center gap-2 py-2">
-                    <span className="min-w-0 flex-1 truncate text-body-sm text-text-primary">
-                      {c.label}
-                    </span>
-                    <Badge token="text-tertiary" size="sm" variant="outline">
-                      {c.kind}
-                    </Badge>
-                    {c.username && (
-                      <span className="font-mono text-micro text-text-tertiary">{c.username}</span>
-                    )}
-                    {/* ⚠️ NO SECRET IS RENDERED HERE, and none is fetched. Revealing
-                        one is a deliberate, audited act in the Vault. A project page
-                        that printed passwords would be a screen anybody could
-                        photograph over a shoulder. */}
-                    <Link
-                      href="/vault"
-                      className="inline-flex items-center gap-1 text-micro font-semibold text-text-brand hover:underline"
-                    >
-                      Open in Vault
-                      <ExternalLink className="h-3 w-3" strokeWidth={2.25} aria-hidden="true" />
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </CardBody>
-        </Card>
+        <ProjectCredentials
+          credentials={credentials}
+          projectId={project.id}
+          projectName={project.name}
+          people={people.map((person) => ({ id: person.id, name: person.name }))}
+          canManage={canManage}
+        />
       )}
 
       {/* ══ DOCUMENTS ══════════════════════════════════════════════════════════ */}

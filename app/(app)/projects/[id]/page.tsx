@@ -9,6 +9,8 @@ import { getProject, listProjectMembers } from '@/lib/db/queries/projects';
 import { listTasks } from '@/lib/db/queries/tasks';
 import { listPeople } from '@/lib/db/queries/people';
 import { can } from '@/lib/domain/permissions';
+import { redactOne } from '@/lib/view/project-finance';
+import { nowMs } from '@/lib/now';
 
 export const metadata: Metadata = { title: 'Project' };
 
@@ -58,10 +60,27 @@ export default async function ProjectPage({
     can(actor, 'project.edit') ? listPeople(user.id, {}) : Promise.resolve([]),
   ]);
 
+  const canSeeFinance = can(actor, 'project.view_finance');
+
+  /* ⚠️ The month and today are resolved HERE and passed down. A client component that
+     read the clock would not be a pure render, and the browser can disagree with the
+     server about the date across midnight or a timezone — which would draw the month
+     grid for the wrong month. UTC parts for the same reason `currentMonthStart` uses
+     them: the answer must not depend on where the server runs. */
+  const now = new Date(nowMs());
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const monthStart = `${now.getUTCFullYear()}-${pad(now.getUTCMonth() + 1)}-01`;
+  const today = `${now.getUTCFullYear()}-${pad(now.getUTCMonth() + 1)}-${pad(now.getUTCDate())}`;
+
   return (
     <div className="mx-auto max-w-[var(--content-max)] space-y-5">
       <ProjectDetailWorkspace
-        project={project}
+        /* Money stripped before it can reach the payload — see the projects list
+           page for the leak this closes. */
+        project={redactOne(project, canSeeFinance)}
+        canSeeFinance={canSeeFinance}
+        monthStart={monthStart}
+        today={today}
         members={members}
         tasks={tasks}
         /* Filtered here rather than in SQL because both lists are already scoped
