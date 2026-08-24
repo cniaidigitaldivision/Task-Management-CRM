@@ -82,3 +82,9 @@ next-env.d.ts
 *.pem
 *.key
 secrets/
+
+.vercel
+.env*
+
+# CLI deploy transcript, written by scripts and by hand. Not source.
+deploy.log

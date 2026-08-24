@@ -33,6 +33,36 @@ import {
  * assignee, and no amount of privilege satisfies it. It is the only rule here
  * that a Super Admin cannot override, and that is deliberate: a reviewer who can
  * approve their own submission is not a reviewer.
+ *
+ * ── ⚠️ WHO CLOSES A TASK — REVISED 2026-08-24 ────────────────────────────────
+ * Owner:
+ *
+ *   *"If a team member created his task, he is showing its status and then he
+ *   does it. He knows that it's done, right? If … the team coordinator Kashif
+ *   creates or raises some task and assigns it to some team member, the team
+ *   member can only put it in Review. Kashif … can only move that task to Done
+ *   because it was raised by him. Tasks that are created by a team member
+ *   themselves can be moved to any status."*
+ *
+ * So closing a task belongs to WHOEVER RAISED IT, not to whoever outranks the
+ * room. Before this, `in_review → done` was `['coordinator']` plus
+ * `forbidsAssignee`, which produced the complaint exactly: a Member could not
+ * complete even a task they had invented for themselves, because they were not
+ * a Coordinator and they were the assignee.
+ *
+ * ⚠️ AND IT NARROWS BR-002 RATHER THAN BREAKING IT. Read the rule again — its
+ * point is separating the person who ASKED for the work from the person who DID
+ * it. Delegated work still gets a second pair of eyes, and no privilege buys a
+ * way around it. But when you raised the task yourself there is no second party
+ * to protect: the requester and the doer are the same person by construction,
+ * and refusing them is not a control, it is a dead end. So the assignee bar now
+ * lifts for the creator, and only for the creator.
+ *
+ * The consequence worth stating plainly: a Coordinator who raises a task and
+ * assigns it to themselves can now approve it. That is the cost of the carve-out
+ * and it is accepted knowingly — anybody senior enough to assign their own work
+ * could already have reassigned it to get the same result, so the rule was
+ * costing honest people friction while stopping nobody determined.
  * ========================================================================= */
 
 /** Who may perform a transition, in the vocabulary of doc 05 §2's table. */
@@ -43,7 +73,13 @@ export type TransitionActor =
   | 'coordinator'
   /** Admin and above. */
   | 'admin'
-  /** The person who raised the task — only relevant for Any → Cancelled. */
+  /**
+   * The person who raised the task.
+   *
+   * ⚠️ Was "only relevant for Any → Cancelled". Since 2026-08-24 it also decides
+   * who may close a task — see the header. Whoever asked for the work signs it
+   * off, which for a self-raised task is the person doing it.
+   */
   | 'creator';
 
 export interface TransitionRule {
@@ -52,7 +88,15 @@ export interface TransitionRule {
   readonly allow: readonly TransitionActor[];
   /** A written reason must accompany the change. FR-043. */
   readonly requiresReason?: boolean;
-  /** BR-002 — the assignee may never be the one who performs it. */
+  /**
+   * BR-002 — the assignee may not be the one who performs it.
+   *
+   * ⚠️ EXCEPT WHEN THE ASSIGNEE ALSO RAISED THE TASK. The rule separates the
+   * requester from the doer; where they are the same person by construction
+   * there is nothing to separate, and enforcing it only blocks somebody from
+   * finishing their own to-do item. See the header, and `satisfies`/the check in
+   * `evaluateTransition`.
+   */
   readonly forbidsAssignee?: boolean;
   /** Shown in the UI before the move, and logged after it. */
   readonly note?: string;
@@ -71,6 +115,13 @@ export const TRANSITIONS: Readonly<Record<TaskStatus, readonly TransitionRule[]>
   todo: [
     { to: 'in_progress', allow: ['assignee', 'coordinator'] },
     { to: 'backlog', allow: ['coordinator'], note: 'Deprioritised' },
+    /* ⚠️ Straight to Done, and only for the person who raised it — owner,
+       2026-08-24: *"Tasks that are created by a team member themselves can be
+       moved to any status."* Routing a personal to-do through In Progress and
+       Review so its author can approve their own submission is ceremony that
+       teaches people the tool is in the way. No review step, because there is
+       nobody to review it for. */
+    { to: 'done', allow: ['creator'], note: 'Your own task — no review needed' },
     { to: 'cancelled', allow: ['coordinator', 'creator'], requiresReason: true },
   ],
 
@@ -79,6 +130,10 @@ export const TRANSITIONS: Readonly<Record<TaskStatus, readonly TransitionRule[]>
     { to: 'in_review', allow: ['assignee', 'coordinator'] },
     { to: 'todo', allow: ['assignee', 'coordinator'] },
     { to: 'backlog', allow: ['coordinator'], note: 'Deprioritised' },
+    /* Same carve-out as `todo → done`. Note this also lets a Coordinator close
+       work they raised and delegated without a review pass — the requester
+       saying "this is fine" is what approval means, and they are the requester. */
+    { to: 'done', allow: ['creator'], note: 'Raised by you — close it directly' },
     { to: 'cancelled', allow: ['coordinator', 'creator'], requiresReason: true },
   ],
 
@@ -93,9 +148,13 @@ export const TRANSITIONS: Readonly<Record<TaskStatus, readonly TransitionRule[]>
        Approval and rejection are BOTH reviewer-only, and both forbid the
        assignee. Forbidding only approval would leave the obvious hole: send it
        back to yourself with an empty note, then approve the resubmission. */
+    /* ⚠️ `creator` first, and it is what fixes the owner's report: whoever
+       raised the task approves it. A Coordinator who raised nothing here still
+       qualifies on rank — somebody has to be able to close work when the person
+       who asked for it is on leave. */
     {
       to: 'done',
-      allow: ['coordinator'],
+      allow: ['creator', 'coordinator'],
       forbidsAssignee: true,
       note: 'Approving releases the load and stamps completion',
     },
@@ -198,12 +257,26 @@ export function evaluateTransition(
 
   /* BR-002 first. It outranks everything, including a Super Admin's authority,
      so checking it before the role test means the refusal message is the true
-     reason rather than an incidental one. */
-  if (rule.forbidsAssignee && ctx.assigneeId !== null && ctx.assigneeId === ctx.actorId) {
+     reason rather than an incidental one.
+
+     ⚠️ `&& !isCreator` since 2026-08-24 — the carve-out described in the header.
+     The rule separates the person who asked for the work from the person who did
+     it; when you raised it yourself there are not two people to separate, and
+     the bar was stopping somebody completing their own to-do item. Delegated
+     work is untouched: if somebody else raised it, being the assignee still
+     disqualifies you from approving it, at every rank. */
+  const isAssignee = ctx.assigneeId !== null && ctx.assigneeId === ctx.actorId;
+  const isCreator = ctx.createdById === ctx.actorId;
+
+  if (rule.forbidsAssignee && isAssignee && !isCreator) {
     return {
       ok: false,
       code: 'own_work',
-      message: 'You cannot review your own work — somebody else has to approve it.',
+      /* Names the person who can, rather than only the person who cannot — the
+         previous wording ("somebody else has to approve it") left the assignee
+         guessing who to chase. */
+      message:
+        'You cannot approve work somebody else asked you to do — whoever raised this task has to close it.',
     };
   }
 

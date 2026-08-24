@@ -1,0 +1,56 @@
+# ============================================================================
+# WHAT NEVER GOES UP TO VERCEL
+# ----------------------------------------------------------------------------
+# ⚠️ THIS FILE EXISTS BECAUSE ITS ABSENCE HUNG A DEPLOY FOR 23 MINUTES.
+# `vercel deploy` from this directory sat at status UNKNOWN with a 0ms build and
+# produced no output at all. It was not building — it was still uploading:
+#
+#     .next          1.5 GB      (a local production build)
+#     node_modules   503 MB
+#     .git            27 MB
+#
+# Two gigabytes, over a domestic connection, for a source tree that is about
+# 25 MB. Vercel installs dependencies and runs the build on its own machines, so
+# every byte of the first two is not merely wasted, it is actively harmful: the
+# uploaded `.next` can shadow the one the build produces.
+#
+# The failure mode is the nasty part — no error, no progress, just a deployment
+# that never becomes Ready while the subdomain keeps serving the previous build.
+# Which reads exactly like "the deploy worked and the fix did not".
+#
+# ⚠️ .gitignore ALREADY LISTED .next AND node_modules and it made no difference.
+# Do not delete this file on the assumption the two are equivalent.
+# ============================================================================
+
+# Build output — Vercel produces its own.
+.next/
+out/
+*.tsbuildinfo
+
+# Installed on the build machine from the lockfile.
+node_modules/
+
+# History is not needed to build a deployment.
+.git/
+
+# ---- Local-only material ----------------------------------------------------
+# Nothing secret should be here anyway (.gitignore covers these too), but a
+# deploy upload is one more path out of this directory, so it is named again.
+.env*
+env*
+.vercel/
+
+# ---- Weight with no runtime purpose ----------------------------------------
+# The 5 MB source artwork. The served copy lives in public/brand/ and the email
+# mark is generated into lib/email/mark.ts — neither reads this folder.
+logo/
+
+# Generated previews, never imported.
+.report-preview/
+email-preview.html
+
+# ⚠️ TESTS ARE DELIBERATELY *NOT* EXCLUDED HERE. Skipping `test/` and
+# `**/__tests__/` would save about 2 MB out of 2 GB — nothing — while giving the
+# build machine a source tree that differs from the one `tsc` runs against
+# locally. A deploy that fails for a reason no local check reproduces costs far
+# more than the bytes. The four entries above are 99.9% of the saving.

@@ -587,7 +587,26 @@ export function TaskBoard({
         /* While a card is in the air the board must not also pan under it. */
         style={isDragging ? { overscrollBehaviorX: 'contain' } : undefined}
       >
-        <div className="flex min-w-max gap-3">
+        {/* ── ⚠️ THE COLUMNS SHARE THE WIDTH INSTEAD OF CLAIMING IT ────────────
+            Owner, 2026-08-24: *"you have added a scrollbar. That's fine but …
+            don't you think all the statuses should be displayed on one screen?"*
+
+            It was `min-w-max` over eight fixed 286px columns — 2372px including
+            gaps, which no laptop has, so the board ALWAYS scrolled sideways even
+            on a large monitor with room to spare. That is the part worth fixing:
+            the scrollbar was unconditional rather than a response to running out
+            of room.
+
+            Now each column is `flex-1` from a 208px floor. On a wide screen the
+            eight divide the space and every status is visible at once — no
+            scrollbar at all. On a narrow one they stop at 208px and the board
+            scrolls exactly as before, because a 130px column is not a column,
+            it is a stripe.
+
+            ⚠️ `min-w-max` had to go for `flex-1` to mean anything — with it the
+            row sizes to its content first and there is never spare width to
+            distribute. The floor is what keeps the overflow behaviour. */}
+        <div className="flex gap-3">
           {TASK_STATUSES.map((status) => {
             const meta = STATUS_META[status];
             const columnTasks = tasks.filter((t) => t.status === status);
@@ -610,7 +629,10 @@ export function TaskBoard({
                 }}
                 aria-label={`${meta.label} — ${columnTasks.length} tasks`}
                 className={cn(
-                  'flex w-[286px] shrink-0 flex-col rounded-xl border',
+                  /* 208px floor, grows to share whatever is spare. Capped at
+                     the old 286px so on a very wide monitor the board does not
+                     stretch into eight over-wide columns of mostly whitespace. */
+                  'flex min-w-[208px] max-w-[286px] flex-1 basis-0 flex-col rounded-xl border',
                   'transition-[border-color,background-color] duration-[140ms]',
                   isDropTarget
                     ? 'border-border-brand bg-bg-selected'
