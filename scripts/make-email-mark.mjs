@@ -14,7 +14,12 @@ const NATURAL = { w: 2390, h: 1792 };
 /* Identical to MARK in components/brand/logo.tsx. Kept in step by the comment
    there; if the artwork is re-exported both move together. */
 const MARK = { left: 0.219, top: 0.092, width: 0.639, height: 0.575 };
-const BAND = { r: 0x07, g: 0x1e, b: 0x22 }; /* --sidebar-bg */
+/* ⚠️ MUST MATCH `BAND` IN lib/email/templates.ts EXACTLY.
+   The mark is flattened onto this colour rather than kept transparent (Outlook
+   composites alpha onto black), so a mismatch shows as a visible rectangle
+   around the logo. Owner's reference design, 2026-08-24: a dark teal band, one
+   shade off the navigation rail's #071e22. */
+const BAND = { r: 0x0e, g: 0x2a, b: 0x2c };
 
 const crop = {
   left: Math.round(MARK.left * NATURAL.w),
@@ -23,8 +28,11 @@ const crop = {
   height: Math.round(MARK.height * NATURAL.h),
 };
 
-/* Displayed at 44px tall; rendered at 2x so it stays crisp on a phone. */
-const OUT_H = 88;
+/* ⚠️ Displayed at 52px tall — up from 44 on 2026-08-24. The owner's reference
+   design sets the mark noticeably larger than the wordmark beside it, at roughly
+   twice the cap height, which is what stops the header reading as a line of text
+   with a decoration. Rendered at 2x so it stays crisp on a phone. */
+const OUT_H = 104;
 const OUT_W = Math.round((crop.width / crop.height) * OUT_H);
 
 const png = await sharp(SRC)

@@ -190,17 +190,25 @@ describe('the invitation welcomes the recipient', () => {
   const email = invitationEmail(INVITE);
 
   it('asks them to accept an invitation, not to choose a password', () => {
-    expect(email.html).toContain('Accept invitation');
+    /* Cased as the reference design has it. */
+    expect(email.html).toContain('Accept Invitation');
     expect(email.html).not.toContain('Choose your password');
   });
 
-  it('opens by welcoming them to the division', () => {
-    expect(email.html).toContain(`Welcome to the ${DIVISION_NAME}`);
+  it('opens by inviting the reader, in a headline of its own', () => {
+    /* ⚠️ Was `Welcome to the ${DIVISION_NAME}`. The owner's reference design of
+       2026-08-24 leads with "You're invited to join Taskly" instead — same
+       intent, which is what this actually guards: the first line is addressed to
+       the person reading it, not a statement about who sent it. `&rsquo;` because
+       the headline goes through HTML. */
+    expect(email.html).toContain(`You&rsquo;re invited to join ${APP_NAME}`);
+    expect(email.html).toContain(DIVISION_NAME);
   });
 
   it('does not put the inviter in the subject line', () => {
     expect(email.subject).not.toContain(INVITE.invitedByName);
-    expect(email.subject).toContain('Welcome');
+    /* The subject is about the reader's invitation, not about a sender. */
+    expect(email.subject).toContain(`invited to join ${APP_NAME}`);
   });
 
   it('still credits the inviter, further down', () => {
