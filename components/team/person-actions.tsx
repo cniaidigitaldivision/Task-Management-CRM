@@ -11,6 +11,7 @@ import {
   RotateCcw,
   Send,
   ShieldAlert,
+  Trash2,
   UserMinus,
   UserPlus,
 } from 'lucide-react';
@@ -18,6 +19,7 @@ import {
 import {
   changeRoleAction,
   forceResetAction,
+  purgePersonAction,
   resendInvitationAction,
   setActiveAction,
   type TeamActionResult,
@@ -30,7 +32,8 @@ import { Select } from '@/components/ui/select';
 import { ResetTrailDialog } from './reset-trail-dialog';
 import type { PersonRow } from '@/lib/db/queries/types';
 import type { ResetTrailView } from '@/lib/view/reset-trail';
-import { ROLE_LABEL, type Role } from '@/lib/domain/constants';
+import { ROLE_LABEL, ROLE_RANK, type Role } from '@/lib/domain/constants';
+import { can } from '@/lib/domain/permissions';
 import { cn } from '@/lib/utils';
 
 /* ============================================================================
@@ -51,7 +54,10 @@ import { cn } from '@/lib/utils';
  * can see, so both confirm. Re-sending an invitation costs nothing and does not.
  * ========================================================================= */
 
-type Pending = null | { kind: 'deactivate' | 'restore' | 'role' | 'reset'; role?: Role };
+type Pending = null | {
+  kind: 'deactivate' | 'restore' | 'role' | 'reset' | 'delete';
+  role?: Role;
+};
 
 export function PersonActions({
   person,
@@ -106,6 +112,21 @@ export function PersonActions({
 
   const isSelf = person.id === currentUser.id;
   const isSuperAdmin = person.role === 'super_admin';
+
+  /* ── WHETHER TO OFFER A PERMANENT DELETE ───────────────────────────────────
+     Owner, 2026-08-23, on testing: *"I'm adding someone and I couldn't delete
+     it. I don't want to dump my database with the testing or dummy data."*
+
+     The rank half is decided here so the option does not appear where it could
+     never work. The other half — whether this person has authored anything —
+     deliberately is NOT: it needs five counts from the database, and the honest
+     refusal naming what holds them ("32 tasks, 2 projects — deactivate them
+     instead") is better arriving from the server than as a greyed-out control
+     with no explanation. That is this file's stated position on refusals. */
+  const canDelete =
+    can({ role: currentUser.role, id: currentUser.id }, 'user.purge') &&
+    !isSelf &&
+    ROLE_RANK[currentUser.role] > ROLE_RANK[person.role];
 
   if (isSuperAdmin) {
     return (
@@ -279,6 +300,26 @@ export function PersonActions({
                 Restore access
               </button>
             )}
+
+            {canDelete && (
+              <button
+                type="button"
+                className={item}
+                disabled={busy}
+                onClick={() => {
+                  setConfirm({ kind: 'delete' });
+                  setOpen(false);
+                }}
+              >
+                <Trash2
+                  className="h-3.5 w-3.5 shrink-0"
+                  strokeWidth={2}
+                  aria-hidden="true"
+                  style={{ color: 'var(--feedback-error)' }}
+                />
+                Delete permanently
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -291,11 +332,13 @@ export function PersonActions({
         title={
           confirm?.kind === 'deactivate'
             ? `Deactivate ${person.fullName}?`
-            : confirm?.kind === 'role'
-              ? `Change ${person.fullName}'s role`
-              : confirm?.kind === 'reset'
-                ? `Force a password reset for ${person.fullName}?`
-                : ''
+            : confirm?.kind === 'delete'
+              ? `Delete ${person.fullName} permanently?`
+              : confirm?.kind === 'role'
+                ? `Change ${person.fullName}'s role`
+                : confirm?.kind === 'reset'
+                  ? `Force a password reset for ${person.fullName}?`
+                  : ''
         }
         footer={
           <>
@@ -303,11 +346,14 @@ export function PersonActions({
               Cancel
             </Button>
             <Button
-              variant={confirm?.kind === 'deactivate' ? 'danger' : 'primary'}
+              variant={
+                confirm?.kind === 'deactivate' || confirm?.kind === 'delete' ? 'danger' : 'primary'
+              }
               size="md"
               disabled={busy || (confirm?.kind === 'role' && nextRole === person.role)}
               onClick={() => {
                 if (confirm?.kind === 'deactivate') return void run(() => setActiveAction(person.id, false));
+                if (confirm?.kind === 'delete') return void run(() => purgePersonAction(person.id));
                 if (confirm?.kind === 'reset') return void run(() => forceResetAction(person.id));
                 if (confirm?.kind === 'role') return void run(() => changeRoleAction(person.id, nextRole));
               }}
@@ -315,9 +361,11 @@ export function PersonActions({
               {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
               {confirm?.kind === 'deactivate'
                 ? 'Deactivate'
-                : confirm?.kind === 'reset'
-                  ? 'Force the reset'
-                  : 'Change the role'}
+                : confirm?.kind === 'delete'
+                  ? 'Delete permanently'
+                  : confirm?.kind === 'reset'
+                    ? 'Force the reset'
+                    : 'Change the role'}
             </Button>
           </>
         }
@@ -331,6 +379,25 @@ export function PersonActions({
             — accounts are deactivated, never deleted, so nothing they worked on loses its author
             (BR-007). You can restore them at any time.
           </p>
+        )}
+
+        {confirm?.kind === 'delete' && (
+          <div className="space-y-3">
+            <p className="text-caption text-text-secondary">
+              <span className="font-semibold text-text-primary">
+                This cannot be undone.
+              </span>{' '}
+              The account, its sign-in, any pending invitation and every session are removed
+              outright. There is no restore.
+            </p>
+            <p className="text-caption text-text-secondary">
+              It only works for somebody who has{' '}
+              <span className="font-semibold text-text-primary">not made anything yet</span> — a
+              test account, or an invitation sent to the wrong address. If they have created tasks,
+              written comments, own a project or logged time, this is refused and you will be told
+              what is holding them. Deactivate those instead.
+            </p>
+          </div>
         )}
 
         {confirm?.kind === 'reset' && (

@@ -77,7 +77,9 @@ const EXPECTED: Readonly<Record<Action, Row>> = {
   'user.edit_profile': ['allow', 'allow', 'self', 'self'],
   'user.set_capacity_and_skills': ['allow', 'allow', 'deny', 'deny'],
   'user.deactivate': ['allow', 'allow', 'deny', 'deny'],
-  'user.purge': ['allow', 'deny', 'deny', 'deny'],
+  /* Widened to Admin 2026-08-23 — see the note in permissions.ts. Transcribed
+     here independently, as every row in this table is. */
+  'user.purge': ['allow', 'allow', 'deny', 'deny'],
   'user.change_role': ['allow', 'allow', 'deny', 'deny'],
   'user.promote_to_admin': ['allow', 'deny', 'deny', 'deny'],
   'user.promote_to_super_admin': ['deny', 'deny', 'deny', 'deny'],

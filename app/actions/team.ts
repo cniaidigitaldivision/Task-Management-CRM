@@ -34,6 +34,8 @@ import {
 import {
   assignableRolesFor as assignableRolesForRole,
   can,
+  purgeBlockers,
+  purgeRefusal,
 } from '@/lib/domain/permissions';
 import { nowMs } from '@/lib/now';
 import { getSettings } from '@/lib/settings/current';
@@ -393,6 +395,116 @@ export async function setActiveAction(userId: string, isActive: boolean): Promis
       'That was refused. The Super Admin cannot be deactivated by anybody, and an Admin can only manage people below their own rank.',
     );
   }
+}
+
+/* ==========================================================================
+ * PERMANENT REMOVAL — owner request 2026-08-23
+ * ==========================================================================
+ * *"I want that super admin and admin to be able to delete a team member…
+ * I'm adding someone and I couldn't delete it. I don't want to dump my
+ * database with the testing or dummy data."*
+ *
+ * ── THIS IS NOT A REPEAL OF BR-007 ───────────────────────────────────────────
+ * "Accounts are deactivated, never deleted" still holds for anybody who has
+ * done work here — the database refuses those at the foreign key whatever this
+ * action decides. What changed is that a person who has authored NOTHING, which
+ * is every mistyped invitation and every test account, is no longer permanent.
+ *
+ * ── WHY THE FOOTPRINT IS READ BEFORE THE DELETE ──────────────────────────────
+ * Not to decide — the database decides. To make the refusal a sentence. Without
+ * it the failure arrives as `foreign key violation on tasks_created_by_id_fkey`,
+ * which tells the reader nothing about what to do instead.
+ */
+
+export async function purgePersonAction(userId: string): Promise<TeamActionResult> {
+  const user = await requireUser();
+  const actor = { role: user.role, id: user.id };
+
+  const target = await P.getAccountState(user.id, userId);
+  if (!target) return fail('That person is no longer available.');
+
+  /* ⚠️ Step-up, as `user.purge` has demanded since STEP_UP_ACTIONS was written.
+     Permanent and irreversible is exactly the category that list exists for:
+     a hijacked session must not be able to erase somebody. */
+  if (!stepUpIsFresh(user, nowMs())) {
+    return {
+      ok: false,
+      error: 'Deleting somebody permanently needs your password again first.',
+      stepUpRequired: true,
+    };
+  }
+
+  const footprint = await P.personFootprint(user.id, userId);
+  const refusal = purgeRefusal(actor, { id: userId, role: target.role }, footprint);
+
+  if (refusal === 'not_permitted') {
+    return fail('Only an Admin or the Super Admin can delete somebody.');
+  }
+  if (refusal === 'self') {
+    return fail('You cannot delete your own account.');
+  }
+  if (refusal === 'outranked') {
+    return fail(
+      `You can only delete somebody below your own rank, and ${target.fullName} is not.`,
+    );
+  }
+  if (refusal === 'has_work') {
+    const blockers = purgeBlockers(footprint);
+    return fail(
+      `${target.fullName} cannot be deleted — they have ${blockers.join(', ')} in the system. ` +
+        `Deleting them would destroy that work or leave it orphaned, so deactivate them instead: ` +
+        `they lose all access immediately and what they made stays intact.`,
+    );
+  }
+
+  /* Sessions first. If the delete succeeds the cascade takes them anyway, and if
+     it does not, somebody about to be removed has still been signed out — which
+     is the safer of the two failure modes. */
+  await revokeAllSessions(userId, 'account_deactivated');
+
+  let removed: boolean;
+  try {
+    removed = await P.purgePerson(user.id, userId);
+  } catch {
+    /* Reached when a RESTRICT foreign key refuses — which means the footprint
+       missed a table. Reported honestly rather than as a success. */
+    return fail(
+      `${target.fullName} could not be deleted: something in the system still refers to them. ` +
+        `Deactivate them instead — they lose all access and their history is kept.`,
+    );
+  }
+
+  /* ⚠️ ZERO ROWS IS A REFUSAL, NOT A SUCCESS. `users` is under RLS, so a row
+     this actor may not delete is invisible to the statement rather than an
+     error: the delete reports success and removes nothing. Before migration 043
+     that was the behaviour for every delete. */
+  if (!removed) {
+    return fail(
+      `${target.fullName} was not deleted — the database refused it. ` +
+        `Deactivate them instead.`,
+    );
+  }
+
+  /* ⚠️ No `record()` here. The activity feed keys on the entity, and the entity
+     is the row that just stopped existing. The database writes a `user_purged`
+     security event from inside the trigger (migration 042), attributed to this
+     actor and naming the address — which is the durable trail, and it commits
+     with the delete rather than alongside it. `audit` is still written because
+     it does not hold a foreign key to `users`. */
+  await withUser(user.id, async (tx) => {
+    await audit(tx, user, {
+      entityType: 'user',
+      entityId: userId,
+      action: 'user.purged',
+      before: { email: target.email, role: target.role, fullName: target.fullName },
+    });
+  });
+
+  revalidatePath('/team');
+  return {
+    ok: true,
+    message: `${target.fullName} has been deleted permanently.`,
+  };
 }
 
 /* ==========================================================================

@@ -112,7 +112,20 @@ export const PERMISSIONS = {
   'user.edit_profile': M('allow', 'allow', 'self', 'self'),
   'user.set_capacity_and_skills': M('allow', 'allow', 'deny', 'deny'),
   'user.deactivate': M('allow', 'allow', 'deny', 'deny'),
-  'user.purge': M('allow', 'deny', 'deny', 'deny'),
+  /**
+   * ⚠️ WIDENED TO ADMIN, 2026-08-23. Owner: *"I want that super admin and admin
+   * to be able to delete a team member… I'm adding someone and I couldn't delete
+   * it. I don't want to dump my database with the testing or dummy data."*
+   *
+   * The rank rule still applies underneath — `outranks` is not used here because
+   * the database refuses regardless: an Admin cannot reach the Super Admin, and
+   * `enforce_users_write_rules` is the thing that actually stops it.
+   *
+   * What keeps this safe is not the role, it is `purgeBlockers` below plus the
+   * thirteen RESTRICT foreign keys on authored content. A person who has made
+   * anything cannot be purged by anybody, Super Admin included.
+   */
+  'user.purge': M('allow', 'allow', 'deny', 'deny'),
   'user.change_role': M('allow', 'allow', 'deny', 'deny'),
   'user.promote_to_admin': M('allow', 'deny', 'deny', 'deny'),
 
@@ -705,4 +718,114 @@ export function deleteRefusal(actor: Actor, task: DeletableTask): DeleteRefusal 
 /** Convenience for the interface, which usually only needs the boolean. */
 export function canDeleteTask(actor: Actor, task: DeletableTask): boolean {
   return deleteRefusal(actor, task) === null;
+}
+
+/* ==========================================================================
+ * DELETING A PERSON — owner request, 2026-08-23
+ * ==========================================================================
+ * *"I want that super admin and admin to be able to delete a team member…
+ * I'm having a lot of difficulty maintaining things because I'm just testing.
+ * I'm adding someone and I couldn't delete it. I don't want to dump my
+ * database with the testing or dummy data."*
+ *
+ * ── TWO DIFFERENT THINGS WERE BOTH CALLED "CANNOT DELETE" ────────────────────
+ * They have opposite answers, and conflating them is why this looked like one
+ * immovable rule:
+ *
+ *   1. A person who has never made anything — invited yesterday, or invited and
+ *      never activated. There is nothing to protect. This was refused only
+ *      because of a database accident (see migration 041) and is now allowed.
+ *
+ *   2. A person who created tasks, wrote comments, owns a project, logged time
+ *      or uploaded a document. Removing them would either destroy that work or
+ *      orphan it. Still refused, for everybody, Super Admin included — and the
+ *      thirteen RESTRICT foreign keys enforce it whatever this file says.
+ *
+ * Deactivation remains the answer for (2), which is what BR-007 was always
+ * really about: *"accounts are deactivated, never deleted"* is right for people
+ * who have done work, and was never meant to trap a typo'd test account.
+ *
+ * ── WHY THE COUNTS ARE PASSED IN ─────────────────────────────────────────────
+ * This layer has no database and no clock (doc 19 §2). The caller counts; this
+ * decides. That also makes every branch below testable without a fixture.
+ */
+
+/** What a person has left behind. Each field maps to RESTRICT foreign keys. */
+export interface PersonFootprint {
+  readonly tasksCreated: number;
+  readonly comments: number;
+  readonly projects: number;
+  readonly timeEntries: number;
+  readonly uploads: number;
+}
+
+export const EMPTY_FOOTPRINT: PersonFootprint = {
+  tasksCreated: 0,
+  comments: 0,
+  projects: 0,
+  timeEntries: 0,
+  uploads: 0,
+};
+
+/**
+ * The specific things holding a person in the system, in the order a human
+ * would want to hear them. Empty means they can be removed.
+ *
+ * Phrased for display because the alternative — returning codes and mapping
+ * them in three different components — is how the same list ends up worded
+ * three different ways.
+ */
+export function purgeBlockers(footprint: PersonFootprint): readonly string[] {
+  const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  const blockers: string[] = [];
+
+  if (footprint.tasksCreated > 0) blockers.push(plural(footprint.tasksCreated, 'task', 'tasks'));
+  if (footprint.comments > 0) blockers.push(plural(footprint.comments, 'comment', 'comments'));
+  if (footprint.projects > 0) blockers.push(plural(footprint.projects, 'project', 'projects'));
+  if (footprint.timeEntries > 0) {
+    blockers.push(plural(footprint.timeEntries, 'time entry', 'time entries'));
+  }
+  if (footprint.uploads > 0) blockers.push(plural(footprint.uploads, 'upload', 'uploads'));
+
+  return blockers;
+}
+
+export type PurgeRefusal =
+  | 'not_permitted'
+  | 'self'
+  | 'outranked'
+  | 'has_work'
+  | null;
+
+/**
+ * Whether `actor` may permanently remove `target`, and if not, why.
+ *
+ * ⚠️ `self` is checked before rank, because an Admin outranks themselves and
+ * would otherwise sail through into deleting their own account — which, unlike
+ * deactivation, nobody could undo for them.
+ */
+export function purgeRefusal(
+  actor: Actor,
+  target: { id: string; role: Role },
+  footprint: PersonFootprint,
+): PurgeRefusal {
+  if (!can(actor, 'user.purge')) return 'not_permitted';
+  if (actor.id === target.id) return 'self';
+
+  /* Strictly greater, not `>=`. Deactivation lets an Admin manage a peer; a
+     permanent delete between equals is how two Admins remove each other. */
+  if (ROLE_RANK[actor.role] <= ROLE_RANK[target.role]) return 'outranked';
+
+  if (purgeBlockers(footprint).length > 0) return 'has_work';
+
+  return null;
+}
+
+/** Convenience for the interface, which usually only needs the boolean. */
+export function canPurgePerson(
+  actor: Actor,
+  target: { id: string; role: Role },
+  footprint: PersonFootprint,
+): boolean {
+  return purgeRefusal(actor, target, footprint) === null;
 }

@@ -1,6 +1,7 @@
 import 'server-only';
 
 import type { Role } from '@/lib/domain/constants';
+import type { PersonFootprint } from '@/lib/domain/permissions';
 
 import { withUser } from '../client';
 
@@ -160,6 +161,87 @@ export async function setPersonActive(
            account_state = ${isActive ? 'active' : 'deactivated'}::public.account_state
      where id = ${userId}
   `);
+}
+
+/* ==========================================================================
+ * PERMANENT REMOVAL — owner request 2026-08-23
+ * ==========================================================================
+ * *"I'm adding someone and I couldn't delete it. I don't want to dump my
+ * database with the testing or dummy data."*
+ *
+ * BR-007 said accounts are deactivated and never deleted, and it was right
+ * about people who have done work. It was never meant to make a mistyped
+ * invitation permanent. Migrations 041–043 opened exactly that gap; these two
+ * functions are the only way the application reaches it.
+ */
+
+/**
+ * What a person has authored, counted against the columns that would refuse a
+ * delete.
+ *
+ * ⚠️ These five counts are not arbitrary — each one maps to RESTRICT foreign
+ * keys pointing at `users`. If a new table ever references a user with
+ * RESTRICT, it belongs here too, or the interface will promise a delete that
+ * the database then refuses.
+ *
+ * One round trip. Five sequential counts would be five times the latency to
+ * Singapore to answer a question nobody is waiting on with interest.
+ */
+export async function personFootprint(
+  actorId: string,
+  userId: string,
+): Promise<PersonFootprint> {
+  const [row] = await withUser(actorId, (tx) => tx<
+    {
+      tasks_created: string;
+      comments: string;
+      projects: string;
+      time_entries: string;
+      uploads: string;
+    }[]
+  >`
+    select
+      (select count(*) from public.tasks    t where t.created_by_id  = ${userId}) as tasks_created,
+      (select count(*) from public.comments c where c.author_id      = ${userId}) as comments,
+      (select count(*) from public.projects p
+        where p.created_by_id = ${userId} or p.owner_id = ${userId})              as projects,
+      (select count(*) from public.time_entries e where e.user_id    = ${userId}) as time_entries,
+      (  (select count(*) from public.documents   d  where d.uploaded_by_id = ${userId})
+       + (select count(*) from public.attachments a  where a.uploaded_by_id = ${userId})
+       + (select count(*) from public.credentials cr where cr.created_by_id = ${userId})
+      )                                                                          as uploads
+  `);
+
+  return {
+    tasksCreated: Number(row?.tasks_created ?? 0),
+    comments: Number(row?.comments ?? 0),
+    projects: Number(row?.projects ?? 0),
+    timeEntries: Number(row?.time_entries ?? 0),
+    uploads: Number(row?.uploads ?? 0),
+  };
+}
+
+/**
+ * Remove a person permanently. Returns whether a row actually went.
+ *
+ * ⚠️ THE BOOLEAN IS THE WHOLE POINT, AND IT IS NOT DEFENSIVENESS.
+ * `users` is under RLS. A row this actor may not delete is not an error — it is
+ * invisible to the statement, so the delete affects zero rows and reports
+ * success. Before migration 043 added `users_delete`, EVERY delete behaved that
+ * way: silently, cheerfully, doing nothing. A caller that ignores this return
+ * value will tell somebody an account was removed when it was not.
+ *
+ * The cascade takes sessions, invitations, MFA factors, project memberships and
+ * notifications with it. `activity_log.actor_id` is released to null, which is
+ * what migration 041 exists to permit. Anything the person authored refuses the
+ * delete outright at the foreign key — check `personFootprint` first so that
+ * arrives as a sentence rather than a database error.
+ */
+export async function purgePerson(actorId: string, userId: string): Promise<boolean> {
+  const rows = await withUser(actorId, (tx) => tx`
+    delete from public.users where id = ${userId} returning id
+  `);
+  return rows.length > 0;
 }
 
 /**
