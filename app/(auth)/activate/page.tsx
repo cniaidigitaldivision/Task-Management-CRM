@@ -69,10 +69,11 @@ export default async function ActivatePage({
             <h1 className="text-h2 text-text-primary">
               Welcome{firstName ? `, ${firstName}` : ''}
             </h1>
+            {/* "Choose a password and you are in" was here too, directly above a
+                field labelled "Choose a password". Saying it once is enough. */}
             <p className="mt-1 text-caption text-text-secondary">
-              Your account is set up as{' '}
+              You are joining as{' '}
               <span className="font-semibold text-text-primary">{ROLE_LABEL[found.role]}</span>.
-              Choose a password and you are in.
             </p>
             <p className="mt-1 text-micro text-text-tertiary">{found.email}</p>
           </div>

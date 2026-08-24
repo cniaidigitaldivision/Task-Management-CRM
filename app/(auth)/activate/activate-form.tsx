@@ -49,10 +49,14 @@ export function ActivateForm({ token, role }: { token: string; role: Role }) {
         </div>
       )}
 
+      {/* ⚠️ ONE LINE, AND IT IS THE RULE — owner, 2026-08-23: *"It is stuffed
+          with too much text."* The hint used to argue for passphrases, which is
+          advice, not the requirement. A field label says what is required and
+          stops. */}
       <Field
         label="Choose a password"
         htmlFor="password"
-        hint={`At least ${minLengthFor(role)} characters. Four unrelated words is easier to remember and far harder to guess than a mangled one.`}
+        hint={`At least ${minLengthFor(role)} characters, with a capital, a small letter and a symbol.`}
       >
         <Input
           id="password"
@@ -77,9 +81,10 @@ export function ActivateForm({ token, role }: { token: string; role: Role }) {
         {pending ? 'Setting it up…' : 'Set my password and sign in'}
       </Button>
 
+      {/* Was three sentences explaining one-way hashing to somebody who is
+          trying to get into their account. Reassurance, kept to a line. */}
       <p className="text-micro text-text-tertiary">
-        Nobody sent you a password and nobody has one. This is the only moment it is set, and only
-        you will know it — the system stores a one-way fingerprint it cannot reverse.
+        Only you will ever know this password — it is never stored in a readable form.
       </p>
     </form>
   );

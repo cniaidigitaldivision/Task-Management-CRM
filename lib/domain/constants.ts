@@ -637,8 +637,21 @@ export const SYSTEM_DEFAULTS = {
   activationTokenTtlHours: 48,
   temporaryPasswordTtlHours: 24,
   requireMfaOnPrivilegedReset: true,
-  passwordMinLength: 12,
-  superAdminPasswordMinLength: 16,
+  /* ⚠️ LOWERED FROM 12/16 ON 2026-08-23, AT THE OWNER'S INSTRUCTION.
+     *"At least 12 characters is too many characters. Just the correct
+     combination of a capital character, a small character, and any special
+     character is fine. The length of the character is not compulsory."*
+
+     Composition is now required instead — see `password-policy.ts`, which also
+     records the argument against that trade. Eight rather than none: with a
+     composition rule and no floor, "Aa!" satisfies every check, and three
+     characters is not a password. Eight is the point below which the
+     composition requirement stops meaning anything.
+
+     Both are editable settings (`lib/domain/settings.ts`), so this is the
+     starting value and not a ceiling — raise it in Settings without a deploy. */
+  passwordMinLength: 8,
+  superAdminPasswordMinLength: 12,
   passwordHistoryCount: 5,
   recoveryCodeCount: 10,
 

@@ -248,10 +248,15 @@ export const SETTING_DEFINITIONS: readonly SettingDefinition[] = [
   {
     key: 'passwordMinLength',
     label: 'Minimum password length',
-    help: 'The Super Admin is always held to 16 regardless of this (SA-2).',
+    /* ⚠️ The help text said 16 and the floor said 12, both from the pre-2026-08-23
+       policy. Every password must now also carry a capital, a small letter and a
+       symbol (see password-policy.ts), which is where the strength requirement
+       moved to. The floor is 8 rather than lower because composition with no
+       length floor accepts "Aa!". */
+    help: 'Every password also needs a capital, a small letter and a symbol. The Super Admin is held to 12 regardless of this (SA-2).',
     group: 'security',
     kind: 'integer',
-    min: 12,
+    min: 8,
     max: 64,
     unit: 'characters',
     permission: 'settings.security',

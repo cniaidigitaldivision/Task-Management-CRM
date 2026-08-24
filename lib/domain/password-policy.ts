@@ -3,16 +3,35 @@
  * ----------------------------------------------------------------------------
  * ⛔ LAYER 2 (Domain). Pure and deterministic — no clock, no network, no hash.
  *
- * Aligned to NIST SP 800-63B, which is deliberately the opposite of what most
- * systems still do:
+ * ── ⚠️ THIS FILE CHANGED DIRECTION ON 2026-08-23 ─────────────────────────────
+ * It was aligned to NIST SP 800-63B: length as the only hard requirement, and
+ * explicitly NO forced composition. The owner asked for the opposite:
  *
- *   · length is the requirement, not composition
- *   · NO forced symbols/numbers — that rule is what produces `Password1!`
+ *   *"At least 12 characters is too many characters. Just the correct
+ *   combination of a capital character, a small character, and any special
+ *   character is fine. The length of the character is not compulsory."*
+ *
+ * The argument against it is kept rather than deleted, because it is the reason
+ * the file was written the other way and whoever reads this next deserves it:
+ * a composition rule does not make people choose better passwords, it makes
+ * them choose `Password1!` — predictable substitutions on a dictionary word,
+ * which is the first thing every cracking list tries. Twelve random-ish
+ * characters beat eight with a mandated symbol comfortably.
+ *
+ * It is nonetheless implemented as asked, with one deviation stated plainly:
+ * the length floor is 8, not zero. With composition required and no floor,
+ * "Aa!" passes every check in this file. Eight is where the composition rule
+ * stops being decorative.
+ *
+ * What survived from the NIST alignment, because none of it was disputed:
+ *
  *   · NO forced rotation — periodic expiry produces weaker, incrementing
  *     passwords; rotate on evidence of compromise instead
  *   · paste is allowed, because blocking it breaks password managers, which
  *     are a large net security gain
  *   · every candidate is checked against a breach corpus
+ *   · the guessable-from-what-an-attacker-knows checks below (own name, email,
+ *     company name, keyboard runs) — these catch what composition cannot
  *
  * ────────────────────────────────────────────────────────────────────────────
  * WHAT IS *NOT* HERE, AND WHY
@@ -32,6 +51,8 @@ export const PASSWORD_MAX_LENGTH = 128;
 export type PasswordFailureCode =
   | 'too_short'
   | 'too_long'
+  /** Missing a capital, a small letter, or a symbol — owner request 2026-08-23. */
+  | 'composition'
   | 'contains_name'
   | 'contains_email'
   | 'contains_organisation'
@@ -147,8 +168,32 @@ export function validatePassword(password: string, context: PasswordContext): Pa
   } else if (password.length < minLength) {
     failures.push({
       code: 'too_short',
-      message: `Use at least ${minLength} characters. A short phrase of three or four words is easier to remember and far harder to guess.`,
+      /* Short on purpose. The owner's note on the activation screen was that it
+         is "stuffed with too much text" — a rule the reader has already broken
+         needs to say what to do, not deliver a lecture on passphrases. */
+      message: `Use at least ${minLength} characters.`,
     });
+  }
+
+  /* ---- Composition — owner request, 2026-08-23. See the header. ----
+     Reported as ONE failure naming exactly what is missing, not three separate
+     ones. Three bullets for a single typed word is the wall of text this screen
+     was criticised for. */
+  if (password.trim().length > 0) {
+    const missing: string[] = [];
+    if (!/[A-Z]/.test(password)) missing.push('a capital letter');
+    if (!/[a-z]/.test(password)) missing.push('a small letter');
+    /* "Any special character" — anything that is not a letter or a digit.
+       Deliberately wide: a policy that rejects a symbol somebody's keyboard
+       actually has is a policy that gets worked around. */
+    if (!/[^A-Za-z0-9]/.test(password)) missing.push('a symbol');
+
+    if (missing.length > 0) {
+      failures.push({
+        code: 'composition',
+        message: `Add ${listWords(missing)}.`,
+      });
+    }
   }
 
   if (password.length > PASSWORD_MAX_LENGTH) {
@@ -269,6 +314,12 @@ export const STRENGTH_LABEL: Readonly<Record<0 | 1 | 2 | 3 | 4, string>> = {
 };
 
 /* -------------------------------------------------------------------------- */
+
+/** "a" · "a and b" · "a, b and c" — so the message reads as a sentence. */
+function listWords(items: readonly string[]): string {
+  if (items.length <= 1) return items[0] ?? '';
+  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
+}
 
 function nameParts(fullName: string | undefined): string[] {
   if (!fullName) return [];
