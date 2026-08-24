@@ -463,7 +463,22 @@ export const ACTIONS = Object.keys(PERMISSIONS) as readonly Action[];
 export const STEP_UP_ACTIONS = [
   'admin.create',
   'admin.manage',
-  'user.purge',
+  /* ⚠️ `user.purge` IS NOT IN THIS LIST, AND THAT IS NOT A RELAXATION.
+     Owner, 2026-08-23, deleting a test account: *"once I enter it, it sends me
+     to the authenticator app. No need… Just the password is enough here."*
+
+     Session step-up is deliberately coarse: it stamps the SESSION, so for ten
+     minutes it satisfies every 🔒 action at once. That is right for the things
+     on this list, which are all reversible-but-privileged — a role change, a
+     settings edit, reading a credential. It is the wrong instrument for a
+     permanent delete, because passing it once to remove a mistyped invitation
+     would also unlock a credential read as a side effect.
+
+     So `purgePersonAction` asks for the password ITSELF, inline in its own
+     confirmation, and does NOT mark the session. The proof is consumed by that
+     one delete and elevates nothing else — narrower than what it replaced, not
+     weaker. Removing it from this list is what stops the two mechanisms from
+     both firing and asking twice. */
   'user.change_role',
   'user.promote_to_admin',
   'super_admin.edit',

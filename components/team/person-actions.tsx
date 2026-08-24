@@ -27,6 +27,7 @@ import {
 import { StepUpDialog } from '@/components/security/step-up-dialog';
 import { Button, IconButton } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 
 import { ResetTrailDialog } from './reset-trail-dialog';
@@ -92,6 +93,16 @@ export function PersonActions({
      conditional hook — caught by react-hooks/rules-of-hooks, and it would have
      been a genuine crash the first time this rendered for the Super Admin. */
   const [held, setHeld] = React.useState<(() => Promise<TeamActionResult>) | null>(null);
+  /* ⚠️ WHAT THE STEP-UP DIALOG SHOULD CALL ITSELF.
+     It was the literal string "Changing {name}'s role", written when a role
+     change was the only thing that could open it. The owner pressed Delete and
+     was asked to confirm a role change — a dialog lying about what it is about
+     to do is the one thing a confirmation must never do. Each caller now names
+     its own act. */
+  const [heldLabel, setHeldLabel] = React.useState('');
+  /* Typed into the delete confirmation itself. Never stored anywhere else and
+     cleared the moment the dialog closes — see `closeConfirm`. */
+  const [deletePassword, setDeletePassword] = React.useState('');
   const menuRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
@@ -153,7 +164,7 @@ export function PersonActions({
         meant to read went with it. The refresh now waits until they dismiss the
         result — the data on screen is a few seconds stale in exchange for the
         answer actually being readable, which is the right trade. */
-  const run = async (fn: () => Promise<TeamActionResult>) => {
+  const run = async (fn: () => Promise<TeamActionResult>, label = '') => {
     setBusy(true);
     try {
       const outcome = await fn();
@@ -163,6 +174,7 @@ export function PersonActions({
            passed to a setter and store its result, which here would fire the
            action a second time before anyone had re-authenticated. */
         setHeld(() => fn);
+        if (label) setHeldLabel(label);
         setResult(null);
         return;
       }
@@ -175,9 +187,17 @@ export function PersonActions({
       });
     } finally {
       setConfirm(null);
+      /* ⚠️ Never leave a typed password in state behind a closed dialog. */
+      setDeletePassword('');
       setOpen(false);
       setBusy(false);
     }
+  };
+
+  /** Close a confirmation without acting, dropping anything typed into it. */
+  const closeConfirm = () => {
+    setConfirm(null);
+    setDeletePassword('');
   };
 
   /** Dismiss the result, and only then pick up the server's new state. */
@@ -294,7 +314,9 @@ export function PersonActions({
                 type="button"
                 className={item}
                 disabled={busy}
-                onClick={() => void run(() => setActiveAction(person.id, true))}
+                onClick={() =>
+                  void run(() => setActiveAction(person.id, true), `Restoring ${person.fullName}'s access`)
+                }
               >
                 <RotateCcw className="h-3.5 w-3.5 shrink-0" strokeWidth={2} aria-hidden="true" />
                 Restore access
@@ -327,7 +349,7 @@ export function PersonActions({
       {/* ---- Confirmations ---- */}
       <Dialog
         open={confirm !== null}
-        onClose={() => setConfirm(null)}
+        onClose={closeConfirm}
         size="sm"
         title={
           confirm?.kind === 'deactivate'
@@ -342,7 +364,7 @@ export function PersonActions({
         }
         footer={
           <>
-            <Button variant="ghost" size="md" onClick={() => setConfirm(null)} disabled={busy}>
+            <Button variant="ghost" size="md" onClick={closeConfirm} disabled={busy}>
               Cancel
             </Button>
             <Button
@@ -350,12 +372,21 @@ export function PersonActions({
                 confirm?.kind === 'deactivate' || confirm?.kind === 'delete' ? 'danger' : 'primary'
               }
               size="md"
-              disabled={busy || (confirm?.kind === 'role' && nextRole === person.role)}
+              disabled={
+                busy ||
+                (confirm?.kind === 'role' && nextRole === person.role) ||
+                /* Nothing typed yet — the server would only refuse it. */
+                (confirm?.kind === 'delete' && deletePassword.length === 0)
+              }
               onClick={() => {
-                if (confirm?.kind === 'deactivate') return void run(() => setActiveAction(person.id, false));
-                if (confirm?.kind === 'delete') return void run(() => purgePersonAction(person.id));
-                if (confirm?.kind === 'reset') return void run(() => forceResetAction(person.id));
-                if (confirm?.kind === 'role') return void run(() => changeRoleAction(person.id, nextRole));
+                if (confirm?.kind === 'deactivate')
+                  return void run(() => setActiveAction(person.id, false), `Deactivating ${person.fullName}`);
+                if (confirm?.kind === 'delete')
+                  return void run(() => purgePersonAction(person.id, deletePassword));
+                if (confirm?.kind === 'reset')
+                  return void run(() => forceResetAction(person.id), `Forcing a password reset for ${person.fullName}`);
+                if (confirm?.kind === 'role')
+                  return void run(() => changeRoleAction(person.id, nextRole), `Changing ${person.fullName}'s role`);
               }}
             >
               {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
@@ -396,6 +427,33 @@ export function PersonActions({
               test account, or an invitation sent to the wrong address. If they have created tasks,
               written comments, own a project or logged time, this is refused and you will be told
               what is holding them. Deactivate those instead.
+            </p>
+
+            {/* ⚠️ THE PASSWORD IS ASKED FOR HERE, NOT BY THE STEP-UP DIALOG.
+                Owner, 2026-08-23: *"once I enter it, it sends me to the
+                authenticator app. No need… Just the password is enough here."*
+                Step-up stamps the whole session for ten minutes; this is spent
+                on this one delete and unlocks nothing else. See the note on
+                `purgePersonAction`. */}
+            <label
+              className="block text-caption font-medium text-text-primary"
+              htmlFor={`purge-password-${person.id}`}
+            >
+              Your password
+              <Input
+                id={`purge-password-${person.id}`}
+                type="password"
+                size="md"
+                className="mt-1.5 w-full"
+                autoComplete="current-password"
+                value={deletePassword}
+                onChange={(event) => setDeletePassword(event.target.value)}
+                disabled={busy}
+              />
+            </label>
+            <p className="text-micro text-text-tertiary">
+              A session lasts hours, and an unlocked laptop presents a perfectly valid one — so the
+              things that cannot be undone ask for something only you know.
             </p>
           </div>
         )}
@@ -498,7 +556,7 @@ export function PersonActions({
           `changeRoleAction` does, which is the most durable change on this menu. */}
       <StepUpDialog
         open={held !== null}
-        actionLabel={`Changing ${person.fullName}'s role`}
+        actionLabel={heldLabel || `Confirming an action on ${person.fullName}`}
         onClose={() => {
           setHeld(null);
           setBusy(false);

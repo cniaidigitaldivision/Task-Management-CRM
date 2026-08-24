@@ -601,9 +601,18 @@ describe('requiresStepUp — every 🔒 in doc 03 §3', () => {
     }
   });
 
+  it('deleting a person asks for a password, but not through session step-up', () => {
+    /* ⚠️ Deliberately absent from STEP_UP_ACTIONS since 2026-08-23.
+       `purgePersonAction` verifies the password inline and does NOT stamp the
+       session, so the proof is spent on that one delete instead of unlocking
+       every other 🔒 action for ten minutes. See the note in permissions.ts —
+       this is a narrowing, and the assertion is here so nobody "fixes" it by
+       adding the action back. */
+    expect(requiresStepUp('user.purge')).toBe(false);
+  });
+
   it('destructive and credential-changing actions are all covered', () => {
     for (const action of [
-      'user.purge',
       'task.purge',
       'project.purge',
       'user.change_role',

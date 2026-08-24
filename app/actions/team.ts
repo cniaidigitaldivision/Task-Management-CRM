@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 
 import { requireUser, stepUpIsFresh } from '@/lib/auth/current-user';
+import { burnTimeLikeAVerify, verifyPassword } from '@/lib/auth/hashing';
 import {
   expiresInMinutes,
   generateNumericCode,
@@ -13,6 +14,7 @@ import {
 } from '@/lib/auth/tokens';
 import { withUser } from '@/lib/db/client';
 import {
+  findIdentity,
   getResetTrail,
   issueToken,
   recordTokenDelivery,
@@ -416,22 +418,51 @@ export async function setActiveAction(userId: string, isActive: boolean): Promis
  * which tells the reader nothing about what to do instead.
  */
 
-export async function purgePersonAction(userId: string): Promise<TeamActionResult> {
+export async function purgePersonAction(
+  userId: string,
+  password: string,
+): Promise<TeamActionResult> {
   const user = await requireUser();
   const actor = { role: user.role, id: user.id };
 
   const target = await P.getAccountState(user.id, userId);
   if (!target) return fail('That person is no longer available.');
 
-  /* ⚠️ Step-up, as `user.purge` has demanded since STEP_UP_ACTIONS was written.
-     Permanent and irreversible is exactly the category that list exists for:
-     a hijacked session must not be able to erase somebody. */
-  if (!stepUpIsFresh(user, nowMs())) {
-    return {
-      ok: false,
-      error: 'Deleting somebody permanently needs your password again first.',
-      stepUpRequired: true,
-    };
+  /* ── ⚠️ THE PASSWORD IS CHECKED HERE, NOT VIA SESSION STEP-UP ──────────────
+     Owner, 2026-08-23: *"once I enter it, it sends me to the authenticator app.
+     No need… Just the password is enough here."*
+
+     `user.purge` was in STEP_UP_ACTIONS, which stamps the SESSION — ten minutes
+     satisfying every 🔒 action at once. Passing it to delete a mistyped
+     invitation would also have unlocked a credential read, which is a strange
+     thing for a delete to buy you. So the proof is taken and spent right here:
+     nothing is marked, nothing else is elevated, and the next delete asks
+     again. Narrower than what it replaced.
+
+     ⚠️ Verified BEFORE the footprint is read and before anything is touched, so
+     a wrong password cannot even learn whether the person could have been
+     deleted. */
+  if (!password) return fail('Enter your password to confirm.');
+
+  const identity = await findIdentity(user.email);
+  if (!identity?.passwordHash) {
+    /* Should be unreachable — they are signed in. Burn the time anyway so this
+       cannot be told apart from a wrong password by how long it took. */
+    await burnTimeLikeAVerify(password);
+    return fail('That did not work. Sign out and back in.');
+  }
+
+  if (!(await verifyPassword(identity.passwordHash, password))) {
+    await withUser(user.id, (tx) =>
+      audit(tx, user, {
+        entityType: 'security',
+        entityId: user.id,
+        action: 'user.purge_password_failed',
+        outcome: 'failed',
+        after: { targetId: userId },
+      }),
+    ).catch(() => {});
+    return fail('That password was not accepted.');
   }
 
   const footprint = await P.personFootprint(user.id, userId);
