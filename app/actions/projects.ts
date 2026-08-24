@@ -32,6 +32,8 @@ import {
 } from '@/lib/domain/constants';
 import { cadenceProblem, contractTargets, type Cadence } from '@/lib/domain/cadence';
 import { can } from '@/lib/domain/permissions';
+import { isoDateIn } from '@/lib/now';
+import { generateForProject } from '@/lib/schedule/run';
 
 /* ============================================================================
  * PROJECT ACTIONS — LAYER 3
@@ -487,6 +489,39 @@ export async function createProjectAction(
         after: { name, type, status },
       }),
     );
+
+    /* ── ⚠️ THE DAILY POSTS ARE CREATED WITH THE PROJECT ─────────────────────
+       Owner, 2026-08-22: *"by default for every project create a daily task. I
+       don't want anybody to add it for the first time. At the time of project
+       creation please note it. I will not repeat this same thing again and
+       again… The daily tasks will be created on the basis of a package: how many
+       posts will be done every day and how many reels will be done every week."*
+
+       So a project with an agreed rhythm arrives with the rest of its month
+       already on the board. Nobody has to know a Generate button exists, which
+       was the flaw in doing this only on demand — a project could sit for a week
+       looking empty because the one person who knew about the button was away.
+
+       ── WHY A FAILURE HERE DOES NOT FAIL THE PROJECT ────────────────────────
+       The project IS created by this point and its row is committed. If the
+       generator throws — an incoherent rhythm, a database blip — the honest
+       outcome is a project with no tasks yet, not a "creation failed" message
+       for something that plainly succeeded. The Generate schedule button on the
+       Overview tab remains, and it is now the retry.
+
+       A project with no rhythm (a website build, a one-off) generates nothing
+       and is not an error; `generateForProject` reports that as a skip. */
+    try {
+      const from = isoDateIn();
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const [fy, fm] = from.split('-').map(Number);
+      const last = new Date(Date.UTC(fy, fm, 0));
+      const to = `${fy}-${pad(fm)}-${pad(last.getUTCDate())}`;
+
+      await generateForProject(user.id, projectId, from, to);
+    } catch {
+      /* Deliberately swallowed — see above. */
+    }
 
     revalidatePath('/projects');
     revalidatePath('/dashboard');

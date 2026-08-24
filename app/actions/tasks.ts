@@ -6,19 +6,21 @@ import { requireUser, stepUpIsFresh } from '@/lib/auth/current-user';
 import { withUser } from '@/lib/db/client';
 import { audit } from '@/lib/db/queries/audit';
 import { notify, record, notifySelf } from '@/lib/db/queries/feed';
-import { listAvailability } from '@/lib/db/queries/people';
+import { getPerson, listAvailability } from '@/lib/db/queries/people';
 import * as R from '@/lib/db/queries/task-relations';
 import * as T from '@/lib/db/queries/tasks';
 import {
   CONTENT_KINDS,
   EFFORT_POINTS,
   PRIORITIES,
+  ROLE_LABEL,
   STATUS_META,
   TASK_STATUSES,
   type ContentKind,
   type EffortSize,
   type Priority,
   type ProjectType,
+  type Role,
   type TaskStatus,
 } from '@/lib/domain/constants';
 import {
@@ -34,8 +36,13 @@ import { decideHandoff } from '@/lib/domain/handoff';
 import { gatherCandidates, skillKeywords } from '@/lib/db/queries/recommendation';
 import { inferSkills, recommend } from '@/lib/domain/recommendation';
 import { PURGE_IS_AVAILABLE } from '@/lib/capabilities';
-import { can } from '@/lib/domain/permissions';
-import { nowMs } from '@/lib/now';
+import { can, canAssignTo, deleteRefusal } from '@/lib/domain/permissions';
+import {
+  canChangeStatus,
+  canComplete,
+  isDailyDeliverable,
+} from '@/lib/domain/daily';
+import { isoDateIn, nowMs } from '@/lib/now';
 import {
   formatRecurrence,
   nextInstanceDates,
@@ -89,6 +96,11 @@ export interface ActionResult {
 }
 
 const fail = (error: string): ActionResult => ({ ok: false, error });
+
+/** Today in the division's own zone — see `isoDateIn`. Was UTC, which made the
+ *  working day run 05:00 → 05:00 for a team in Pakistan, so a post published at
+ *  1am counted against the previous day. */
+const todayIso = () => isoDateIn();
 
 function str(form: FormData, key: string): string {
   return String(form.get(key) ?? '').trim();
@@ -156,6 +168,42 @@ function revalidateWork(): void {
   for (const path of ['/dashboard', '/tasks', '/my-work', '/projects', '/workload', '/reports']) {
     revalidatePath(path);
   }
+}
+
+/* ============================================================================
+ * WORK FLOWS DOWNWARD — owner instruction, 2026-08-23
+ * ----------------------------------------------------------------------------
+ * *"a lower-level person could not assign a task to an upper-level person… The
+ * flow will always move from up to down."*
+ *
+ * ── ⚠️ WHY `task.create_for_other` WAS NOT ENOUGH ───────────────────────────
+ * That permission asks whether assigning work is this person's job at all, and
+ * answers yes for Coordinator and above. It never looked at WHO the work landed
+ * on — so a Coordinator could put a task on the Super Admin's board and every
+ * check in the system passed. The rank comparison is a second question and it
+ * is asked here, at every point where an assignee is set: creation, reassignment
+ * and the bulk bar (which routes through `assignTaskAction`).
+ *
+ * Returns a sentence to refuse with, or null to proceed.
+ * ========================================================================= */
+async function rankGate(
+  actorId: string,
+  actorRole: Role,
+  assigneeId: string | null,
+): Promise<string | null> {
+  /* Unassigned work has no rank to compare against. The generated daily posts
+     arrive this way and must not be refused. */
+  if (!assigneeId) return null;
+  if (assigneeId === actorId) return null;
+
+  const person = await getPerson(actorId, assigneeId);
+  /* RLS may legitimately hide them. `capacityGate` and the database will refuse
+     the write on their own terms; this check simply has nothing to say. */
+  if (!person) return null;
+
+  if (canAssignTo(actorRole, person.role as Role)) return null;
+
+  return `${person.fullName} is ${ROLE_LABEL[person.role as Role]}, so this task cannot be assigned to them. Work is assigned downward.`;
 }
 
 /* ==========================================================================
@@ -413,6 +461,12 @@ export async function createTaskAction(_prev: ActionResult, form: FormData): Pro
     return fail('Members can only raise tasks for themselves. Ask a coordinator to reassign it.');
   }
 
+  /* Work flows downward — see `rankGate`. Checked before capacity, because
+     "you cannot assign to them at all" is a clearer answer than a warning about
+     their workload for an assignment that was never going to be permitted. */
+  const rankRefusal = await rankGate(user.id, user.role, assigneeId);
+  if (rankRefusal) return fail(rankRefusal);
+
   let warning: string | null = null;
 
   if (assigneeId) {
@@ -527,6 +581,27 @@ export async function updateTaskAction(_prev: ActionResult, form: FormData): Pro
     return fail('You can only edit tasks assigned to you or raised by you.');
   }
 
+  /* ── ⚠️ WHAT A MEMBER MAY NOT CHANGE WHEN EDITING ─────────────────────────
+     Owner, 2026-08-22: *"he writes some wrong thing, or accidentally he add a
+     wrong task in a wrong project… so this edit option will be available. But
+     some things are limited… it's up to you what could be the limited."*
+
+     THE PROJECT STAYS EDITABLE, deliberately — moving a task filed against the
+     wrong project is the exact repair he described wanting. Locking it would
+     leave the mistake permanent and make somebody senior fix a typo.
+
+     THE ASSIGNEE DOES NOT. A Member is denied `task.create_for_other`, so
+     handing work to somebody else is the one thing their rank does not do —
+     and an edit form that allowed it would be a way around that rule rather
+     than a repair. Blocked here rather than only hidden in the dialog, because
+     a hidden control is not a boundary (registry C-21). */
+  if (user.role === 'member') {
+    const nextAssignee = str(form, 'assigneeId');
+    if (nextAssignee !== (task.assigneeId ?? '')) {
+      return fail('You cannot hand this task to somebody else. A Coordinator can reassign it.');
+    }
+  }
+
   const priority = str(form, 'priority');
   const effort = effortFrom(form);
   if (!isPriority(priority)) return fail('Choose a priority.');
@@ -623,6 +698,47 @@ export async function changeStatusAction(
   });
 
   if (!verdict.ok) return fail(verdict.message);
+
+  /* ── ⚠️ THE TWO DAILY RULES, ENFORCED HERE AND NOWHERE ELSE ────────────────
+     Owner, 2026-08-22, asked directly about both.
+
+     1. DONE IS FINAL. *"Definitely nobody can undo it… the status would not be
+        changed once it's done."* Not the person who posted it, not a
+        Coordinator, not an Admin. `evaluateTransition` permits done → revisions
+        for ordinary work and that stays true for ordinary work; a published post
+        is different, because the client has already seen it.
+
+     2. A MISSED DAY STAYS MISSED. *"Once 12 pm has gone, that task would be
+        considered incomplete… if it is not posted on that day, that blank day
+        will be done."* Without this the "missed" state is a colour somebody can
+        clear by ticking the box a week later, and a monthly delivery figure a
+        client is shown could be back-filled to look complete.
+
+     ⚠️ Both apply ONLY to dated deliverables — a static post, reel, carousel,
+     story or video with a due date. Website work and reports go through the
+     ordinary status machine untouched; see `isDailyDeliverable`. */
+  const daily = {
+    id: task.id,
+    status: task.status,
+    dueDate: task.dueDate,
+    contentKind: task.contentKind,
+  };
+
+  if (isDailyDeliverable(daily)) {
+    if (!canChangeStatus(daily)) {
+      return fail(
+        'That post is already marked as published, and that cannot be undone. ' +
+          'If a link is wrong, correct the link on the task itself.',
+      );
+    }
+
+    if (to === 'done' && !canComplete(daily, todayIso())) {
+      return fail(
+        `That post was due on ${task.dueDate} and the day has passed, so it counts as a blank day. ` +
+          'It cannot be marked as published now.',
+      );
+    }
+  }
 
   /* ── BR-008 · unfinished blockers WARN, they do not refuse ─────────────────
      Computed before the write, because the answer changes the moment the write
@@ -942,6 +1058,22 @@ async function spawnHandoff(actorId: string, taskId: string): Promise<string | n
          handoff existing and needing a person beats the handoff being lost. */
     }
 
+    /* ── ⚠️ THE CHAIN OBEYS THE RANK RULE TOO ────────────────────────────
+       This path picks an assignee from the recommendation engine and writes
+       through `T.createTask` directly, so it does not pass the gate in
+       `createTaskAction`. Left alone, a handoff step could land on somebody
+       senior to whoever completed the previous one — which is the same thing
+       the owner asked to stop, arriving by a different route.
+
+       It DROPS the assignee rather than refusing: an unassigned handoff step is
+       a task a Coordinator can hand out, and losing the step entirely because
+       the best-skilled person happened to outrank the actor would be worse than
+       either. */
+    const actorRole = (await getPerson(actorId, actorId))?.role as Role | undefined;
+    if (assigneeId && actorRole && !canAssignTo(actorRole, ((await getPerson(actorId, assigneeId))?.role as Role) ?? 'member')) {
+      assigneeId = undefined;
+    }
+
     const created = await T.createTask(actorId, {
       title: spawn.title,
       description: spawn.description ?? undefined,
@@ -996,6 +1128,11 @@ export async function assignTaskAction(
   if (!can(actor, 'task.assign', { assigneeId: task.assigneeId ?? undefined, createdById: task.createdById })) {
     return fail('Only a coordinator or above can hand work to someone else.');
   }
+
+  /* Work flows downward. This is the path the bulk bar's "Assign to…" takes,
+     so guarding it here covers selecting twenty tasks as well as one. */
+  const assignRefusal = await rankGate(user.id, user.role, assigneeId);
+  if (assignRefusal) return fail(assignRefusal);
 
   let warning: string | null = null;
 
@@ -1088,11 +1225,26 @@ export async function deleteTaskAction(taskId: string): Promise<ActionResult> {
   const task = await T.getTask(user.id, taskId);
   if (!task) return fail('That task no longer exists.');
 
-  if (!can({ role: user.role, id: user.id }, 'task.soft_delete', {
-    assigneeId: task.assigneeId ?? undefined,
+  /* ── ⚠️ THE WHOLE DELETION RULE, NOT JUST THE MATRIX ROW ──────────────────
+     `deleteRefusal` composes both halves: who raised it (rules 1 and 2) and how
+     far along it is (rule 3). Calling `can()` alone here would enforce the first
+     and silently drop the second — which is what this used to do. */
+  const refusal = deleteRefusal({ role: user.role, id: user.id }, {
     createdById: task.createdById,
-  })) {
-    return fail('You do not have permission to delete this task.');
+    assigneeId: task.assigneeId,
+    status: task.status,
+  });
+
+  if (refusal) {
+    /* Each refusal names the rule that applied, because the two need different
+       responses: one means "ask whoever raised it", the other means "ask an
+       Admin". A single "no permission" would mean neither, and the person would
+       have no idea which door to knock on. */
+    return fail(
+      refusal === 'not_yours'
+        ? `${task.createdByName ?? 'Somebody else'} raised this task, so only they or an Admin can delete it.`
+        : `This task is ${STATUS_META[task.status].label} — past the point where it can be deleted. Only an Admin can remove it now.`,
+    );
   }
 
   await T.softDeleteTask(user.id, taskId);

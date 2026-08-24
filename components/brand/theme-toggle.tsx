@@ -10,6 +10,7 @@
  *   <ThemeSegmented />     explicit three-way control for settings
  * ========================================================================= */
 
+import { APP_NAME } from '@/lib/domain/constants';
 import * as React from 'react';
 import { Moon, Sun } from 'lucide-react';
 
@@ -150,7 +151,7 @@ export function ThemeSetting({ className }: { className?: string }) {
       <div className="space-y-1">
         <h3 className="text-h3 text-text-primary">Appearance</h3>
         <p className="text-body-sm text-text-secondary">
-          Choose how CNI CRM looks to you. This applies to your account on every device.
+          Choose how {APP_NAME} looks to you. This applies to your account on every device.
         </p>
       </div>
 

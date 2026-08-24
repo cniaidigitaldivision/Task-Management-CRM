@@ -25,8 +25,10 @@ import {
 } from '@/lib/domain/content-pipeline';
 import type { ContentKind } from '@/lib/domain/constants';
 import { WEEKDAY_LABEL, monthPlan } from '@/lib/domain/cadence';
+import { generateScheduleAction } from '@/app/actions/schedule';
 import { PlatformIcon } from '@/components/brand/platform-icon';
 import { Avatar } from '@/components/ui/avatar';
+import { Button } from '@/components/ui/button';
 import { Card, CardBody } from '@/components/ui/card';
 import { ProgressBar } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
@@ -109,6 +111,7 @@ export function ProjectOverview({
   months,
   today,
   canSeeFinance,
+  canGenerateSchedule,
   ownerAvatarUrl,
   publishedTodayPlatformIds,
   packageDetail,
@@ -124,6 +127,8 @@ export function ProjectOverview({
   months: readonly string[];
   today: string;
   canSeeFinance: boolean;
+  /** `task.create_for_other` — Coordinator and above. */
+  canGenerateSchedule: boolean;
   /** The owner's uploaded picture, or null. */
   ownerAvatarUrl: string | null;
   /** Platform ids that got a live placement TODAY — migration 034's placements. */
@@ -379,6 +384,21 @@ export function ProjectOverview({
                 </span>
               </div>
             </>
+          )}
+
+          {/* ── ⚠️ THE CONTROL THAT MAKES THE RHYTHM REAL ─────────────────────
+              Owner, 2026-08-22: *"daily tasks should be automatically created."*
+
+              Everything above this line is a PLAN — `monthPlan()` computing what
+              the agreed rhythm implies. Until this button existed, none of it
+              ever became a task, which is why a project on a 22-asset package
+              opened onto `Today 0/3` and a week of dashes.
+
+              It sits inside the progress card on purpose: the figures it moves
+              are the ones directly above it. Hidden from a Member, who cannot
+              create work for anybody else. */}
+          {canGenerateSchedule && target !== null && (
+            <GenerateSchedule projectId={project.id} monthStart={monthStart} />
           )}
         </CardBody>
       </Card>
@@ -870,6 +890,67 @@ function MonthSelect({
         </option>
       ))}
     </select>
+  );
+}
+
+/* ----------------------------------------------------------------------------
+ * GENERATE SCHEDULE
+ * ----------------------------------------------------------------------------
+ * Turns the agreed rhythm into actual tasks for the rest of the selected month.
+ *
+ * ── ⚠️ SAFE TO PRESS TWICE, AND THE LABEL SHOULD NOT SUGGEST OTHERWISE ───────
+ * `lib/domain/schedule.ts` tops each day up to what the rhythm asks for rather
+ * than inserting a fresh set, so a second press adds nothing. That is why this
+ * is an ordinary button with no confirmation step — a dialog asking "are you
+ * sure?" would imply a risk that does not exist, and people learn to click
+ * through those anyway.
+ *
+ * `useTransition` rather than a loading flag of its own: the action calls
+ * `revalidatePath`, and the transition stays pending until the new figures have
+ * actually arrived. A manual boolean would clear the moment the promise
+ * resolved, leaving the button idle beside numbers that had not updated yet.
+ * ------------------------------------------------------------------------- */
+function GenerateSchedule({ projectId, monthStart }: { projectId: string; monthStart: string }) {
+  const [pending, start] = React.useTransition();
+  const [message, setMessage] = React.useState<{ ok: boolean; text: string } | null>(null);
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-t border-border-subtle pt-2.5">
+      <Button
+        size="sm"
+        variant="secondary"
+        disabled={pending}
+        onClick={() => {
+          setMessage(null);
+          start(async () => {
+            const result = await generateScheduleAction(projectId, monthStart);
+            setMessage({
+              ok: result.ok,
+              /* `warning` carries the summary on success — the shared ActionResult
+                 has no `message` field and inventing one would touch every action. */
+              text: result.ok
+                ? (result.warning ?? 'Schedule generated.')
+                : (result.error ?? 'That did not work.'),
+            });
+          });
+        }}
+      >
+        <CalendarClock className="size-4" aria-hidden="true" />
+        {pending ? 'Generating…' : 'Generate schedule'}
+      </Button>
+
+      {message && (
+        <span
+          role="status"
+          className={cn(
+            'text-micro',
+            message.ok ? 'text-text-secondary' : 'text-feedback-error',
+          )}
+        >
+          {message.text}
+        </span>
+      )}
+    </div>
   );
 }
 

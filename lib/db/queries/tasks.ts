@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { randomUUID } from 'node:crypto';
+
 import { dateOnly, isoOrNull, timeOnly } from '../row-values';
 import { TIMER_ALERTS, type TimerAlert } from '@/lib/domain/timers';
 
@@ -329,14 +331,38 @@ export async function createTask(actorId: string, input: CreateTaskInput): Promi
 
     const ref = await tx`select app.next_reference(${project[0].code as string}) as reference`;
 
-    const inserted = await tx`
+    /* ── ⚠️ THE ID IS MADE HERE, AND `returning` IS DELIBERATELY ABSENT ───────
+       This used to end `returning id`, which is the obvious way to write it and
+       is broken for a Member. Found on 2026-08-22 when the schedule generator
+       ran as a project owner who happens to be a Member: every insert failed
+       with "new row violates row-level security policy for table tasks", while
+       the identical insert without `returning` succeeded.
+
+       PostgreSQL applies the SELECT policy to the row an INSERT returns. That
+       policy is `app.task_is_visible(id)`, which is STABLE — so it reads the
+       CALLING QUERY'S SNAPSHOT, taken before this insert existed. For a
+       Coordinator or above the function short-circuits on rank and never looks
+       at the table, so it passes; for a Member it has to find the row by id and
+       cannot, because from that snapshot the row is not there yet. The check
+       therefore fails for a person who is unambiguously allowed to create it.
+
+       Reading the row back in a SEPARATE statement takes a fresh snapshot, and
+       the same function then sees it — which is what the code below already
+       does. So the only thing needed is an id known in advance.
+
+       ⚠️ Do not "simplify" this back to `returning id`. It will pass every test
+       run as an Admin and fail for every Member. */
+    const id = randomUUID();
+
+    await tx`
       insert into public.tasks (
-        reference, title, description, project_id, other_description, parent_task_id,
+        id, reference, title, description, project_id, other_description, parent_task_id,
         assignee_id, created_by_id, status, priority, effort_size, effort_points,
         start_date, start_time, due_date, due_time, blocked_reason, time_limit_minutes,
         assignment_override_reason, recurrence_rule,
         content_kind, source_drive_url, asset_drive_url, published_on
       ) values (
+        ${id},
         ${ref[0].reference as string},
         ${input.title.trim()},
         ${input.description?.trim() || null},
@@ -362,10 +388,9 @@ export async function createTask(actorId: string, input: CreateTaskInput): Promi
         ${input.assetDriveUrl?.trim() || null},
         ${input.publishedOn ?? null}
       )
-      returning id
     `;
 
-    const created = await tx`${TASK_SELECT(tx)} where t.id = ${inserted[0].id as string}`;
+    const created = await tx`${TASK_SELECT(tx)} where t.id = ${id}`;
     return created[0];
   });
 

@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { APP_NAME } from '@/lib/domain/constants';
+
 /* ============================================================================
  * EMAIL — Resend
  * ----------------------------------------------------------------------------
@@ -55,7 +57,12 @@ function apiKey(): string | null {
 }
 
 function from(): string {
-  return process.env.EMAIL_FROM?.trim() || 'CNI CRM <onboarding@resend.dev>';
+  /* ⚠️ The fallback is the SANDBOX sender, and it is a fallback rather than a
+     default: `onboarding@resend.dev` refuses any recipient except the Resend
+     account owner (see the 403 above). Naming it after the product rather than
+     the old "CNI CRM" keeps a sandbox message from arriving under a name the
+     application no longer uses. The real sender is EMAIL_FROM. */
+  return process.env.EMAIL_FROM?.trim() || `${APP_NAME} <onboarding@resend.dev>`;
 }
 
 /** True while mail can only reach the Resend account's own address. */
@@ -74,6 +81,21 @@ export async function sendEmail(input: {
   /* Always supplied. A message with no plain-text alternative scores worse with
      spam filters, and the recovery design depends on these arriving (ADR-007). */
   text: string;
+  /* ── INLINE IMAGES, BY CONTENT ID ─────────────────────────────────────────
+     Optional so a caller with nothing to attach stays a three-field call, but
+     in practice every template carries the header mark.
+
+     ⚠️ The field names go over the wire in snake_case. Resend rejects
+     `contentId` silently — it is not a validation error, the attachment simply
+     arrives as a normal file and the cid: reference in the HTML resolves to
+     nothing, which is a broken image with no error anywhere to explain it. The
+     mapping below is the whole reason this is not a straight pass-through. */
+  attachments?: readonly {
+    filename: string;
+    content: string;
+    contentId: string;
+    contentType: string;
+  }[];
 }): Promise<EmailResult> {
   const key = apiKey();
   if (!key) {
@@ -97,6 +119,19 @@ export async function sendEmail(input: {
         subject: input.subject,
         html: input.html,
         text: input.text,
+        /* Omitted entirely when there is nothing to attach, rather than sent as
+           an empty array — a stray `attachments: []` is the kind of thing an API
+           is within its rights to reject. */
+        ...(input.attachments?.length
+          ? {
+              attachments: input.attachments.map((file) => ({
+                filename: file.filename,
+                content: file.content,
+                content_id: file.contentId,
+                content_type: file.contentType,
+              })),
+            }
+          : {}),
       }),
       /* A slow mail provider must not hold a page open. The invitation exists
          regardless of whether this succeeds. */

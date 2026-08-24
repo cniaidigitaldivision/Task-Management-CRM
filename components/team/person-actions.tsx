@@ -22,6 +22,7 @@ import {
   setActiveAction,
   type TeamActionResult,
 } from '@/app/actions/team';
+import { StepUpDialog } from '@/components/security/step-up-dialog';
 import { Button, IconButton } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
 import { Select } from '@/components/ui/select';
@@ -74,6 +75,17 @@ export function PersonActions({
   const [confirm, setConfirm] = React.useState<Pending>(null);
   const [trailOpen, setTrailOpen] = React.useState(false);
   const [nextRole, setNextRole] = React.useState<Role>(person.role);
+  /* ── ⚠️ HELD FOR REPLAY AFTER RE-AUTHENTICATION — FR-149 ──────────────────
+     Changing a role now demands password + second factor even inside a valid
+     session. The server answers `stepUpRequired` instead of failing, the
+     challenge opens, and on success the SAME call is made again — so nobody has
+     to find the menu, the row and the role a second time.
+
+     ⚠️ Declared with the other state, ABOVE the `isSuperAdmin` early return.
+     Placed next to `run` further down it sat after that return, which makes it a
+     conditional hook — caught by react-hooks/rules-of-hooks, and it would have
+     been a genuine crash the first time this rendered for the Super Admin. */
+  const [held, setHeld] = React.useState<(() => Promise<TeamActionResult>) | null>(null);
   const menuRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
@@ -124,6 +136,16 @@ export function PersonActions({
     setBusy(true);
     try {
       const outcome = await fn();
+
+      if (outcome.stepUpRequired) {
+        /* Stored via an updater function — React would otherwise CALL a function
+           passed to a setter and store its result, which here would fire the
+           action a second time before anyone had re-authenticated. */
+        setHeld(() => fn);
+        setResult(null);
+        return;
+      }
+
       setResult(outcome);
     } catch {
       setResult({
@@ -404,6 +426,22 @@ export function PersonActions({
           onChanged={() => router.refresh()}
         />
       )}
+
+      {/* FR-149. Opened when the server answers `stepUpRequired` — today only
+          `changeRoleAction` does, which is the most durable change on this menu. */}
+      <StepUpDialog
+        open={held !== null}
+        actionLabel={`Changing ${person.fullName}'s role`}
+        onClose={() => {
+          setHeld(null);
+          setBusy(false);
+        }}
+        onConfirmed={() => {
+          const again = held;
+          setHeld(null);
+          if (again) void run(again);
+        }}
+      />
     </>
   );
 }

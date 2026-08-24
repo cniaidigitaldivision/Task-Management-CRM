@@ -7,12 +7,15 @@ import { Avatar } from '@/components/ui/avatar';
 import { Badge, PriorityFlag } from '@/components/ui/badge';
 import { Pagination, usePagination } from '@/components/ui/pagination';
 import { ProgressBar } from '@/components/ui/progress';
+import { Select } from '@/components/ui/select';
 import {
   EFFORT_POINTS,
   PRIORITY_LABEL,
   PRIORITY_TOKEN,
   PROJECT_TYPE_META,
   STATUS_META,
+  TASK_STATUSES,
+  type TaskStatus,
 } from '@/lib/domain/constants';
 import type { TaskView } from '@/lib/view/task-view';
 import { cn } from '@/lib/utils';
@@ -91,7 +94,19 @@ export function groupTasks(tasks: readonly TaskView[], groupBy: GroupBy): TaskGr
 
 /* ---- Row ---------------------------------------------------------------- */
 
-function TaskRow({ task, onOpen }: { task: TaskView; onOpen?: (id: string) => void }) {
+function TaskRow({
+  task,
+  onOpen,
+  selected = false,
+  onSelect,
+  onChangeStatus,
+}: {
+  task: TaskView;
+  onOpen?: (id: string) => void;
+  selected?: boolean;
+  onSelect?: (id: string) => void;
+  onChangeStatus?: (taskId: string, to: TaskStatus) => void;
+}) {
   const status = STATUS_META[task.status];
   const project = PROJECT_TYPE_META[task.projectType];
   const isClosed = status.category === 'done' || status.category === 'cancelled';
@@ -119,10 +134,25 @@ function TaskRow({ task, onOpen }: { task: TaskView; onOpen?: (id: string) => vo
       className={cn(
         'group border-b border-border-subtle transition-colors duration-[140ms] last:border-0 hover:bg-bg-hover',
         onOpen && 'cursor-pointer focus-visible:outline-none focus-visible:bg-bg-hover',
+        selected && 'bg-bg-selected',
       )}
     >
+      {/* ── ⚠️ SELECTION — AND `stopPropagation` IS LOAD-BEARING ─────────────
+          The whole row opens the task. Without stopping the event here, ticking
+          the box would also open the drawer over the list you are selecting in,
+          which makes multi-select impossible rather than merely annoying. */}
+      <td className="py-2.5 pr-0 pl-3" onClick={(e) => e.stopPropagation()}>
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={() => onSelect?.(task.id)}
+          aria-label={`Select ${task.reference}`}
+          className="size-4 cursor-pointer accent-[var(--accent-primary)]"
+        />
+      </td>
+
       {/* Task */}
-      <td className="py-2.5 pr-3 pl-4">
+      <td className="py-2.5 pr-3 pl-1">
         <div className="flex items-start gap-2.5">
           <span
             aria-hidden="true"
@@ -165,11 +195,49 @@ function TaskRow({ task, onOpen }: { task: TaskView; onOpen?: (id: string) => vo
         </div>
       </td>
 
-      {/* Status */}
-      <td className="px-3 py-2.5">
-        <Badge token={status.token} size="sm">
-          {status.label}
-        </Badge>
+      {/* ── ⚠️ STATUS IS CHANGED HERE, NOT BY OPENING THE TASK ───────────────
+          Owner, 2026-08-23: *"we should show a dropdown where I can see or
+          update any one status in the table… if I change that status it will
+          hide silently from there and show on that status."*
+
+          It was a read-only chip, so moving a task meant opening the drawer,
+          changing it, closing the drawer — three interactions to do the one
+          thing this table is read for. The board could do it by dragging; the
+          list could not do it at all.
+
+          `onChangeStatus` routes to the SAME handler the board drag uses, so an
+          illegal move raises the same reason prompt and an optimistic change
+          lands the row in its new group — which is the "hide from there, show on
+          that status" the owner describes. Grouping by status makes that
+          movement visible rather than surprising.
+
+          Read-only when no handler is passed: the list is also rendered where
+          nothing is editable. */}
+      <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
+        {onChangeStatus ? (
+          <span className="inline-flex items-center gap-1.5">
+            <span
+              aria-hidden="true"
+              className="size-2 shrink-0 rounded-full"
+              style={{ backgroundColor: `var(--${status.token})` }}
+            />
+            <Select
+              size="sm"
+              label={`Status of ${task.reference}`}
+              value={task.status}
+              onChange={(event) => onChangeStatus(task.id, event.target.value as TaskStatus)}
+              options={TASK_STATUSES.map((value) => ({
+                value,
+                label: STATUS_META[value].label,
+              }))}
+              className="w-[8.25rem]"
+            />
+          </span>
+        ) : (
+          <Badge token={status.token} size="sm">
+            {status.label}
+          </Badge>
+        )}
       </td>
 
       {/* Priority */}
@@ -237,8 +305,12 @@ function TaskRow({ task, onOpen }: { task: TaskView; onOpen?: (id: string) => vo
 
 /* ---- List --------------------------------------------------------------- */
 
+/* ⚠️ The first heading is deliberately blank — it labels the selection column,
+   and a visible word above a column of checkboxes reads as data. The header
+   checkbox carries its own aria-label instead. */
 const HEADINGS = [
-  { label: 'Task', className: 'pl-4 pr-3 text-left' },
+  { label: '', className: 'w-9 pl-3 pr-0 text-left' },
+  { label: 'Task', className: 'pl-1 pr-3 text-left' },
   { label: 'Status', className: 'px-3 text-left' },
   { label: 'Priority', className: 'hidden px-3 text-left md:table-cell' },
   { label: 'Effort', className: 'hidden px-3 text-left lg:table-cell' },
@@ -250,11 +322,43 @@ const HEADINGS = [
 export function TaskList({
   groups,
   onOpen,
+  selectedIds,
+  onSelect,
+  onSelectAll,
+  onChangeStatus,
 }: {
   groups: readonly TaskGroup[];
   onOpen?: (taskId: string) => void;
+  /* ── ⚠️ SELECTION CAME LATE, AND THE LIST HAD NONE ────────────────────────
+     Owner, 2026-08-23: *"when I can select multiple checkboxes for multiple
+     tasks, a bar should appear at the bottom."*
+
+     The bulk bar has existed since Session 20 — but only on the BOARD, because
+     only the board had checkboxes. So the list, which is the view somebody
+     actually reads a project's work in, could not select anything at all and
+     the bar could never appear over it. Optional props rather than required
+     ones: the list is also rendered read-only elsewhere. */
+  selectedIds?: ReadonlySet<string>;
+  onSelect?: (taskId: string) => void;
+  /** Ticks or clears every task currently rendered, across all groups. */
+  onSelectAll?: (taskIds: readonly string[], select: boolean) => void;
+  /** Makes the status column editable. Routed to the same handler the board's
+   *  drag uses, so both paths get the same legality check and reason prompt. */
+  onChangeStatus?: (taskId: string, to: TaskStatus) => void;
 }) {
   const [collapsed, setCollapsed] = React.useState<ReadonlySet<string>>(new Set());
+
+  /* Every task currently rendered, across all groups — what select-all acts on.
+     Deliberately the FILTERED set, not the whole project: ticking the box at the
+     top of a filtered list and silently selecting rows that are not on screen is
+     how somebody deletes work they never saw. */
+  const everyId = React.useMemo(
+    () => groups.flatMap((group) => group.tasks.map((task) => task.id)),
+    [groups],
+  );
+  const selectedCount = everyId.filter((id) => selectedIds?.has(id)).length;
+  const allSelected = everyId.length > 0 && selectedCount === everyId.length;
+  const someSelected = selectedCount > 0;
 
   const toggle = (key: string) =>
     setCollapsed((prev) => {
@@ -281,16 +385,34 @@ export function TaskList({
         <table className="w-full min-w-[720px] border-collapse">
           <thead>
             <tr className="border-b border-border-default bg-bg-surface-sunken">
-              {HEADINGS.map((h) => (
+              {HEADINGS.map((h, index) => (
                 <th
-                  key={h.label}
+                  key={h.label || `col-${index}`}
                   scope="col"
                   className={cn(
                     'py-2 text-micro font-semibold tracking-[0.07em] text-text-tertiary uppercase',
                     h.className,
                   )}
                 >
-                  {h.label}
+                  {/* The blank first heading carries select-all instead of a
+                      word. `indeterminate` is set through a ref because it is a
+                      DOM property with no HTML attribute — React will not render
+                      it from JSX, and without it a partial selection shows an
+                      empty box that looks like nothing is selected. */}
+                  {index === 0 && onSelectAll ? (
+                    <input
+                      type="checkbox"
+                      aria-label={allSelected ? 'Clear the selection' : 'Select every task shown'}
+                      checked={allSelected}
+                      ref={(node) => {
+                        if (node) node.indeterminate = someSelected && !allSelected;
+                      }}
+                      onChange={() => onSelectAll(everyId, !allSelected)}
+                      className="size-4 cursor-pointer accent-[var(--accent-primary)]"
+                    />
+                  ) : (
+                    h.label
+                  )}
                 </th>
               ))}
             </tr>
@@ -345,7 +467,15 @@ export function TaskList({
                   </th>
                 </tr>
 
-                {!isCollapsed && <GroupRows group={group} onOpen={onOpen} />}
+                {!isCollapsed && (
+                  <GroupRows
+                    group={group}
+                    onOpen={onOpen}
+                    selectedIds={selectedIds}
+                    onSelect={onSelect}
+                    onChangeStatus={onChangeStatus}
+                  />
+                )}
               </tbody>
             );
           })}
@@ -381,13 +511,32 @@ export function TaskList({
  * Collapsing a group unmounts this and so resets it to page 1. Deliberate:
  * re-opening a group you left on page 3 should not hide its first rows.
  * ------------------------------------------------------------------------- */
-function GroupRows({ group, onOpen }: { group: TaskGroup; onOpen?: (id: string) => void }) {
+function GroupRows({
+  group,
+  onOpen,
+  selectedIds,
+  onSelect,
+  onChangeStatus,
+}: {
+  group: TaskGroup;
+  onOpen?: (id: string) => void;
+  selectedIds?: ReadonlySet<string>;
+  onSelect?: (id: string) => void;
+  onChangeStatus?: (taskId: string, to: TaskStatus) => void;
+}) {
   const pager = usePagination(group.tasks);
 
   return (
     <>
       {pager.visible.map((task) => (
-        <TaskRow key={task.id} task={task} onOpen={onOpen} />
+        <TaskRow
+          key={task.id}
+          task={task}
+          onOpen={onOpen}
+          selected={selectedIds?.has(task.id) ?? false}
+          onSelect={onSelect}
+          onChangeStatus={onChangeStatus}
+        />
       ))}
 
       {pager.pageCount > 1 && (

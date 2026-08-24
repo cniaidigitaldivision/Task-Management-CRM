@@ -490,20 +490,39 @@
   --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
   --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
 
-  /* Layout
-     ⚠️ DENSITY — owner, 2026-08-20: *"the zoom factor is set to 90… I want that view at
-     100. In short I want to compact everything in such a way that it will show the same
-     view at 100."*
+  /* ── ⚠️ DENSITY — ONE SCALE, NOT A HUNDRED EDITS ──────────────────────────
+     Owner, 2026-08-20: *"the zoom factor is set to 90… I want that view at 100. In
+     short I want to compact everything in such a way that it will show the same view
+     at 100."* Restated 2026-08-21: *"I want the 90 zoom view in 100 zoom."*
 
-     Between 90% and 100% zoom about 100px of content height is lost, so it has to be
-     found back a step at a time. This is the first place it comes from: the topbar gives
-     up 8px on every page in the application, and still clears the 40px search field it
-     holds.
+     The first attempt answered this by hand — the topbar gave up 8px, and the note
+     here said the remaining ~100px would be "found back a step at a time". That
+     cannot converge, and it is the wrong shape of fix. Browser zoom does not tighten
+     a topbar; it multiplies EVERY length in the document by one factor. Reproducing
+     it by editing values one at a time means auditing all 99 hard-coded px in
+     app/ and components/ plus every rem utility Tailwind emits, and any value missed
+     shows up as the exact crowding the owner is complaining about.
 
-     ⚠️ `--subheader-height` is NOT touched, because nothing reads it. It is referenced
-     nowhere in the codebase — changing it would look like a saving in the diff and
-     deliver nothing on the screen. Left at its original value rather than "tightened"
-     for appearance's sake. */
+     So the factor is applied once, where the browser would apply it: `--ui-scale` is
+     read by the single `zoom` declaration on `body` further down this file. At 0.9
+     the rendered page is the 90% view, at 100% browser zoom, to the pixel — text,
+     padding, icon boxes, the rail, radii, hairlines, all of it, including values this
+     stylesheet never sees.
+
+     ⚠️ THE TOPBAR IS DELIBERATELY LEFT AT 52px. It is tempting to restore the 60px
+     the first attempt took away, since the scale now does that job. It is not
+     restored because the screenshots the owner approved as "sleek" were taken from
+     the CURRENT code at 90% zoom — 52px was already in them. Putting 60px back would
+     produce a topbar TALLER than the thing being copied.
+
+     ⚠️ `--subheader-height` is still NOT touched, because nothing reads it. It is
+     referenced nowhere in the codebase — changing it would look like a saving in the
+     diff and deliver nothing on the screen.
+
+     To revert the density change entirely, set `--ui-scale: 1`. Nothing else in the
+     codebase encodes the factor. */
+  --ui-scale: 0.9;
+
   --sidebar-width: 264px;
   --sidebar-width-collapsed: 72px;
   --topbar-height: 52px;
@@ -557,6 +576,43 @@ html {
 }
 
 body {
+  /* ── THE DENSITY SCALE — see `--ui-scale` in the layout block above ────────
+     This one declaration is the whole of the "90% view at 100% zoom" change.
+
+     ── WHY `zoom` AND NOT `font-size: 90%` ON `html` ────────────────────────
+     The rem trick is the usual advice and it is not enough here. It scales only
+     what is expressed in rem, and this codebase has 99 hard-coded px lengths
+     across 31 files in app/ and components/ — 15 `w-[18px]`/`h-[18px]` icon
+     boxes among them — plus --sidebar-width, --topbar-height and every radius
+     in this file. Those would keep their full size while the text around them
+     shrank, which does not read as "compact", it reads as broken proportions.
+
+     ── WHY NOT `transform: scale()` ─────────────────────────────────────────
+     A transform paints smaller but lays out at the original size, so it leaves
+     a 10% empty gutter down the right and bottom of the window and the page
+     scrolls to reach nothing. `zoom` changes layout, which is the point: the
+     content genuinely gets more room, exactly as it does at 90% browser zoom.
+
+     ── ⚠️ THE DRAG-AND-DROP BOARD IS THE THING TO RE-TEST BY HAND ───────────
+     components/task/task-board.tsx compares getBoundingClientRect() against
+     PointerEvent.clientX/clientY in ~40 places, which is the one pattern that
+     historically broke under `zoom`. In current Chrome both sides of every one
+     of those comparisons are reported in the same zoom-adjusted viewport space,
+     so the arithmetic should be unchanged — but that is reasoning, NOT a
+     measurement: this was landed without a browser available to drive, so no
+     card was actually dragged. If a dragged card ever lands one column or one
+     slot off target, this declaration is the first suspect, and `--ui-scale: 1`
+     is the one-line test that confirms or clears it.
+
+     ── WHY `body` AND NOT `html` ────────────────────────────────────────────
+     Leaving html unzoomed keeps the canvas background painting the true
+     viewport, so no unpainted strip can appear at the bottom of a short page.
+     The sidebar is `fixed inset-y-0` (components/layout/sidebar.tsx) — anchored
+     to both viewport edges rather than sized with 100vh — so it still spans the
+     full window height. Anything sized in vh/dvh does NOT get this for free and
+     is compensated at its own call site; grep `--ui-scale` to find them. */
+  zoom: var(--ui-scale);
+
   background-color: var(--bg-base);
   color: var(--text-primary);
   font-feature-settings: 'cv11', 'ss01';

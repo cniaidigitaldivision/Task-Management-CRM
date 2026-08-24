@@ -92,10 +92,14 @@ const EXPECTED: Readonly<Record<Action, Row>> = {
   'user.view_directory_entry': ['allow', 'allow', 'allow', 'allow'],
 
   /* Projects */
-  'project.create': ['allow', 'allow', 'deny', 'deny'],
-  'project.set_type': ['allow', 'allow', 'deny', 'deny'],
-  'project.edit': ['allow', 'allow', 'deny', 'deny'],
-  'project.change_status': ['allow', 'allow', 'deny', 'deny'],
+  /* Coordinator gained all four on 2026-08-23 — owner: *"a team coordinator can
+     create a new project and can add social media accounts, their credentials,
+     and their documentation."* Note `project.view_finance` two lines down did
+     NOT move: they run the project without seeing what it bills. */
+  'project.create': ['allow', 'allow', 'allow', 'deny'],
+  'project.set_type': ['allow', 'allow', 'allow', 'deny'],
+  'project.edit': ['allow', 'allow', 'allow', 'deny'],
+  'project.change_status': ['allow', 'allow', 'allow', 'deny'],
   'project.soft_delete': ['allow', 'allow', 'deny', 'deny'],
   'project.purge': ['allow', 'deny', 'deny', 'deny'],
   'project.view_all': ['allow', 'allow', 'allow', 'deny'],
@@ -121,7 +125,11 @@ const EXPECTED: Readonly<Record<Action, Row>> = {
   'task.approve_review': ['not_assignee', 'not_assignee', 'not_assignee', 'deny'],
   'task.request_revisions': ['not_assignee', 'not_assignee', 'not_assignee', 'deny'],
   'task.cancel': ['allow', 'allow', 'allow', 'self_created'],
-  'task.soft_delete': ['allow', 'allow', 'deny', 'deny'],
+  /* `self_created` for BOTH lower roles since 2026-08-23 — everyone may remove
+     what they raised, nobody may remove work handed to them. This row is only
+     the coarse half: the status window ("To Do or In Progress, else Admin") is
+     in `canDeleteTask`, because no Rule kind takes a status. See delete-rule.test.ts. */
+  'task.soft_delete': ['allow', 'allow', 'self_created', 'self_created'],
   'task.purge': ['allow', 'deny', 'deny', 'deny'],
   'task.restore': ['allow', 'allow', 'deny', 'deny'],
   'task.comment': ['allow', 'allow', 'allow', 'own_task'],
@@ -155,20 +163,26 @@ const EXPECTED: Readonly<Record<Action, Row>> = {
   'reports.view_own': ['allow', 'allow', 'allow', 'allow'],
   'rebalance_advisor.view': ['allow', 'allow', 'allow', 'deny'],
   'audit_log.view': ['allow', 'allow', 'deny', 'deny'],
-  'security_dashboard.view': ['allow', 'deny', 'deny', 'deny'],
+  /* Admin from 2026-08-22 — owner decision. The row-level policies on
+     `security_events` and `sessions` moved with it in migration 040; this
+     entry alone would render the screen with empty panels. */
+  'security_dashboard.view': ['allow', 'allow', 'deny', 'deny'],
 
-  /* System settings */
-  'settings.capacity_thresholds': ['allow', 'deny', 'deny', 'deny'],
-  'settings.default_capacity': ['allow', 'deny', 'deny', 'deny'],
-  'settings.status_workflow': ['allow', 'deny', 'deny', 'deny'],
+  /* System settings — every one of these reached Admin on 2026-08-22 by owner
+     decision. See the note beside the block in permissions.ts: what the Super
+     Admin keeps is control of the SYSTEM (appointing Admins, purging, their own
+     account), not the knobs that run the team. */
+  'settings.capacity_thresholds': ['allow', 'allow', 'deny', 'deny'],
+  'settings.default_capacity': ['allow', 'allow', 'deny', 'deny'],
+  'settings.status_workflow': ['allow', 'allow', 'deny', 'deny'],
   'settings.skills_library': ['allow', 'allow', 'deny', 'deny'],
-  'settings.scoring_weights': ['allow', 'deny', 'deny', 'deny'],
+  'settings.scoring_weights': ['allow', 'allow', 'deny', 'deny'],
   'settings.other_work_threshold': ['allow', 'allow', 'deny', 'deny'],
-  'settings.project_type_priority': ['allow', 'deny', 'deny', 'deny'],
+  'settings.project_type_priority': ['allow', 'allow', 'deny', 'deny'],
   'settings.notification_defaults': ['allow', 'allow', 'deny', 'deny'],
   'settings.own_notification_prefs': ['allow', 'allow', 'allow', 'allow'],
-  'settings.security': ['allow', 'deny', 'deny', 'deny'],
-  'data.export_all': ['allow', 'deny', 'deny', 'deny'],
+  'settings.security': ['allow', 'allow', 'deny', 'deny'],
+  'data.export_all': ['allow', 'allow', 'deny', 'deny'],
   'sessions.view_and_revoke_own': ['allow', 'allow', 'allow', 'allow'],
 
   /* The credentials vault. `view` and `reveal` are open to every role because the
@@ -179,7 +193,8 @@ const EXPECTED: Readonly<Record<Action, Row>> = {
   'credential.view': ['allow', 'allow', 'allow', 'allow'],
   'credential.reveal': ['allow', 'allow', 'allow', 'allow'],
   'credential.manage': ['allow', 'allow', 'allow', 'deny'],
-  'credential.delete': ['allow', 'allow', 'deny', 'deny'],
+  /* Coordinator too, 2026-08-23 — they add the logins, they remove them. */
+  'credential.delete': ['allow', 'allow', 'allow', 'deny'],
 
   /* Drive documents. `request` is open to everybody because a pending upload is
      not in Drive — the approval is the gate. `approve` stops at Admin, so a
@@ -512,18 +527,37 @@ describe('BR-003 — only Admin+ may override a capacity block', () => {
   });
 });
 
-describe('doc 03 §3.2 — the Coordinator assigns within projects but does not own them', () => {
-  it('cannot create, edit or delete a project', () => {
+describe('doc 03 §3.2 — the Coordinator runs projects but cannot destroy them', () => {
+  /* ⚠️ THIS BLOCK WAS REVERSED ON 2026-08-23, NOT RELAXED TO GO GREEN.
+     It asserted the Coordinator could not create, edit or delete a project —
+     doc 03 §3.2 as originally written. Owner: *"a team coordinator can create a
+     new project and can add social media accounts, their credentials, and their
+     documentation. He can also manage all these things."*
+
+     The line the owner did NOT move is the one that matters: destruction. So
+     the test splits in two, and the second half is the part still worth
+     asserting. */
+  it('can create, edit and run a project', () => {
     for (const action of [
       'project.create',
       'project.edit',
       'project.set_type',
       'project.change_status',
-      'project.soft_delete',
-      'project.purge',
     ] as Action[]) {
+      expect(can(COORDINATOR, action), action).toBe(true);
+    }
+  });
+
+  it('still cannot delete or purge one', () => {
+    for (const action of ['project.soft_delete', 'project.purge'] as Action[]) {
       expect(can(COORDINATOR, action), action).toBe(false);
     }
+  });
+
+  it('and still cannot see what it bills', () => {
+    /* The two instructions held together: they run the project without the
+       money. Owner, 2026-08-19, unchanged by the widening above. */
+    expect(can(COORDINATOR, 'project.view_finance')).toBe(false);
   });
 
   it('can see them all and create work inside them', () => {

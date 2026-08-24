@@ -1,11 +1,12 @@
 'use client';
 
 import * as React from 'react';
-import { AlertTriangle, Ban, Bell, CheckCheck, Loader2, Trash2, X } from 'lucide-react';
+import { AlertTriangle, Ban, Bell, CheckCheck, Flame, Loader2, Trash2, X } from 'lucide-react';
 
 import {
   bulkAssignAction,
   bulkChangeStatusAction,
+  bulkDeleteAction,
   bulkWatchAction,
   type BulkResult,
 } from '@/app/actions/task-relations';
@@ -152,9 +153,34 @@ export function BulkBar({
           Cancel work
         </Button>
 
+        {/* ── ⚠️ DELETE AND PURGE ARE BOTH HERE, AND ARE NOT THE SAME THING ──
+            Owner, 2026-08-23: *"there should also be a delete button where I can
+            delete multiple tasks at once. Now we can move multiple tasks or I
+            can change the status. In the same way I want to delete."*
+
+            The bar could already move, assign, follow, cancel and PURGE — but
+            purge is permanent, Super Admin only and behind a typed confirmation,
+            so for everybody else the bar had no delete at all while the
+            single-task menu did. Selecting six tasks and then deleting them one
+            at a time from six menus is the gap this closes.
+
+            They keep separate names on purpose. "Delete" is the reversible one
+            every role already knows from the task menu — the row stays and
+            reports keep working. "Purge" destroys. Two buttons a pixel apart
+            called the same word is how the wrong one gets pressed. */}
+        <Button
+          variant="danger"
+          size="md"
+          disabled={busy}
+          onClick={() => setConfirming('delete')}
+        >
+          <Trash2 className="h-3.5 w-3.5" strokeWidth={2} aria-hidden="true" />
+          Delete
+        </Button>
+
         {canPurge && (
           <Button variant="danger" size="md" disabled={busy} onClick={() => setConfirming('purge')}>
-            <Trash2 className="h-3.5 w-3.5" strokeWidth={2} aria-hidden="true" />
+            <Flame className="h-3.5 w-3.5" strokeWidth={2} aria-hidden="true" />
             Purge
           </Button>
         )}
@@ -180,6 +206,14 @@ export function BulkBar({
           setConfirming(null);
           if (mode === 'cancel') {
             void run(() => bulkChangeStatusAction(selectedIds, 'cancelled', reason));
+          } else if (mode === 'delete') {
+            void run(async () => {
+              const outcome = await bulkDeleteAction(selectedIds);
+              /* A deleted task is off the board, so leaving it selected would
+                 leave the bar acting on rows that are no longer there. */
+              if (outcome.succeeded > 0) onClear();
+              return outcome;
+            });
           } else if (mode === 'purge') {
             void run(async () => {
               const outcome = await purgeTasksAction([...selectedIds]);

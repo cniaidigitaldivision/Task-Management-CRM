@@ -48,7 +48,16 @@ import type { PackageDetail } from './contract-dialog';
 import { ProjectCredentials } from './project-credentials';
 import { ProjectDialog } from './project-dialog';
 import { PlatformLinksDialog } from './platform-links-dialog';
+import type { PlacementRow } from '@/lib/db/queries/placements';
+import type { CalendarTask } from '@/lib/db/queries/search';
+import { CalendarView } from '@/components/calendar/calendar-view';
+import { dailyState, isDailyDeliverable } from '@/lib/domain/daily';
+import type { Role } from '@/lib/domain/constants';
+import { canAssignTo } from '@/lib/domain/permissions';
+
+import { DailyBoard } from './daily-board';
 import { ProjectOverview } from './project-overview';
+import { ProjectTasksTab } from './project-tasks-tab';
 import { ReportMenu } from './report-menu';
 import { PlatformStrip } from './project-delivery';
 import { IncludesPills, KindPill, PackagePill, StatusPill } from './project-pills';
@@ -118,10 +127,10 @@ const ACTION =
  *  guessing game. */
 const ACTION_LABEL = 'hidden xl:inline';
 
-/** Shared table cell classes, so the Tasks and Content tables line up. */
-const TH =
-  'px-3 py-2 text-left text-micro font-semibold uppercase tracking-[0.06em] text-text-tertiary';
-const TD = 'px-3 py-2 align-top text-caption text-text-secondary';
+/* ⚠️ `TH`/`TD` lived here so the Tasks and Content tables lined up. Both are
+   gone from this file — Tasks moved to `project-tasks-tab.tsx` with its own
+   header style, and Content is a "coming soon" panel. The classes went with the
+   Tasks table rather than being kept here for a caller that no longer exists. */
 
 export function ProjectDetailWorkspace({
   project,
@@ -132,6 +141,12 @@ export function ProjectDetailWorkspace({
   people,
   canManage,
   canSeeFinance,
+  canGenerateSchedule,
+  placements,
+  driveFolders,
+  dailyLookbackFrom,
+  calendarTasks,
+  currentUser,
   monthStart,
   monthLabel,
   months,
@@ -151,6 +166,28 @@ export function ProjectDetailWorkspace({
   /** `project.view_finance` — Admin and above. The fee is ALSO stripped server-side
    *  before it reaches this component; see lib/view/project-finance.ts for why both. */
   canSeeFinance: boolean;
+  /** `task.create_for_other` — Coordinator and above. Decides whether the
+   *  "Generate schedule" control appears; the action checks it again. */
+  canGenerateSchedule: boolean;
+  /** Published links per platform, for the Today view. Fetched once on the page
+   *  rather than per task — see `listPlacementsForProject`. */
+  placements: readonly PlacementRow[];
+  /** Every Drive folder this person can see. The Today view puts this project's
+   *  own at the top and leaves the rest reachable, per the owner's instruction. */
+  driveFolders: readonly {
+    id: string;
+    name: string;
+    projectId: string | null;
+    driveFolderId: string;
+  }[];
+  /** How far back the Today view looks for blank days. Resolved on the server so
+   *  it agrees with the window the placements were fetched for. */
+  dailyLookbackFrom: string;
+  /** This project's tasks for the visible month, for the Calendar tab. */
+  calendarTasks: readonly CalendarTask[];
+  /** Who is looking. Needed so the Tasks tab can open the create form in place
+   *  and so a Member can change the status of their own task from the list. */
+  currentUser: { id: string; role: Role };
   /** 'YYYY-MM-01' and 'YYYY-MM-DD', from the server.
    *
    *  ⚠️ Passed in rather than read here. A component that reads the clock is not a
@@ -207,6 +244,34 @@ export function ProjectDetailWorkspace({
      part of what the client was promised, so it does not belong in a list headed
      "content". */
   const deliverables = tasks.filter((t) => t.contentKind !== null);
+
+  /* ── THE MONTH'S REAL OUTCOME, PER DAY ────────────────────────────────────
+     One pass over the project's deliverables, keyed by date, so the calendar can
+     colour each square by what actually happened. `dailyState` is the same
+     function the Today view uses — the two screens cannot disagree about whether
+     a day was blank, because they are asking the same code. */
+  const monthActuals = React.useMemo(() => {
+    const map = new Map<string, { done: number; missed: number; pending: number }>();
+
+    for (const task of tasks) {
+      const daily = {
+        id: task.id,
+        status: task.status,
+        dueDate: task.dueDate,
+        contentKind: task.contentKind,
+      };
+      if (!isDailyDeliverable(daily) || !task.dueDate) continue;
+
+      const at = map.get(task.dueDate) ?? { done: 0, missed: 0, pending: 0 };
+      const state = dailyState(daily, today);
+      if (state === 'done') at.done += 1;
+      else if (state === 'missed') at.missed += 1;
+      else if (state === 'pending') at.pending += 1;
+      map.set(task.dueDate, at);
+    }
+
+    return map;
+  }, [tasks, today]);
 
 
   return (
@@ -426,7 +491,19 @@ export function ProjectDetailWorkspace({
               /monthly-report, which is the division-wide CEO report — the right report
               for the Reports page and the wrong one here. The menu below opens periods
               scoped to this project. */}
-          <ReportMenu projectId={project.id} projectName={project.name} today={today} />
+          {/* ⚠️ NOT FOR A MEMBER. Owner, 2026-08-22: *"on the NajuMula side, in
+              the project detail, this Generate Report tab doesn't even display
+              because they don't need that."*
+
+              A client report is an Admin or Coordinator artefact — it is the
+              thing sent outward. A Member seeing the control has one of two
+              outcomes, and both are bad: they generate a client-facing document
+              nobody asked them for, or they press it and are refused. Removing
+              it is the third option. Reporting permissions on the server are
+              unchanged; this is the control, not the boundary. */}
+          {currentUser.role !== 'member' && (
+            <ReportMenu projectId={project.id} projectName={project.name} today={today} />
+          )}
         </div>
       </div>
 
@@ -442,6 +519,7 @@ export function ProjectDetailWorkspace({
           months={months}
           today={today}
           canSeeFinance={canSeeFinance}
+          canGenerateSchedule={canGenerateSchedule}
           ownerAvatarUrl={ownerAvatarUrl}
           publishedTodayPlatformIds={publishedTodayPlatformIds}
           packageDetail={packageDetail}
@@ -450,7 +528,40 @@ export function ProjectDetailWorkspace({
       )}
 
       {/* ══ CONTENT & POSTS ════════════════════════════════════════════════════ */}
+      {/* ══ CONTENT — HELD BACK ON PURPOSE ═══════════════════════════════════
+          Owner, 2026-08-22: *"for the content we will say that it will be coming
+          soon… because we are not going to implement any content over there."*
+
+          What was here listed the same deliverables the Tasks tab and the daily
+          board already show, in a third arrangement. The owner's objection is
+          not that it was broken — it is that three views of one list is what
+          makes the system feel heavy to a team who are social media managers
+          rather than project managers.
+
+          The old panel is directly below and still compiles; it is unreachable
+          rather than deleted, so bringing it back is removing this block. */}
       {tab === 'content' && (
+        <Card>
+          <CardBody className="flex flex-col items-center gap-2 px-4 py-14 text-center">
+            <div
+              className="flex size-11 items-center justify-center rounded-full"
+              style={{
+                backgroundColor:
+                  'color-mix(in oklab, var(--accent-primary) var(--tint-soft), var(--bg-surface))',
+              }}
+            >
+              <Share2 className="size-5 text-text-brand" aria-hidden="true" />
+            </div>
+            <p className="text-body-sm font-semibold text-text-primary">Content · coming soon</p>
+            <p className="max-w-[34rem] text-caption text-text-secondary">
+              The day&rsquo;s posts, their links and where the files live are all on the{' '}
+              <span className="font-semibold text-text-primary">Tasks</span> tab for now.
+            </p>
+          </CardBody>
+        </Card>
+      )}
+
+      {false && (
         <Card>
           <CardBody className="space-y-2.5 p-3.5">
             <p className="text-body-sm font-semibold text-text-primary">
@@ -509,6 +620,10 @@ export function ProjectDetailWorkspace({
           </CardHeader>
           <CardBody className="p-3.5 pt-0">
             <MonthRhythm
+              /* The month's real outcome, so a square says what happened rather
+                 than only what was promised. Owner, 2026-08-22: *"for the same
+                 task you have to represent it on a calendar."* */
+              actual={monthActuals}
               cadence={{
                 staticPostsPerDay: project.staticPostsPerDay,
                 reelsPerWeek: project.reelsPerWeek,
@@ -522,47 +637,86 @@ export function ProjectDetailWorkspace({
         </Card>
       )}
 
+      {/* ── ⚠️ THE ACTUAL WORK, UNDER THE PLAN ────────────────────────────────
+          Owner, 2026-08-23: *"on any project detail page, the calendar is not
+          working. It's not showing anything related to that project."*
+
+          The grid above is the posting RHYTHM — what the agreed cadence implies,
+          coloured by what happened. Useful, and not what somebody clicking
+          "Calendar" is looking for: they want the work, on the days it is due,
+          with who is doing it and what state it is in.
+
+          This is the same `CalendarView` the Calendar page uses, scoped to this
+          project — so the two screens cannot drift, and paging to another month
+          stays inside the project. `canSeeOthers` is false because the person
+          filter would be a second way to ask a question this tab has already
+          answered by being a project. */}
+      {tab === 'calendar' && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Work due this month</CardTitle>
+          </CardHeader>
+          <CardBody className="p-3.5 pt-0">
+            <CalendarView
+              initialTasks={calendarTasks}
+              initialYear={Number(monthStart.slice(0, 4))}
+              initialMonth={Number(monthStart.slice(5, 7))}
+              todayIso={today}
+              people={[]}
+              currentUserId={currentUser.id}
+              canSeeOthers={false}
+              projectId={project.id}
+            />
+          </CardBody>
+        </Card>
+      )}
+
       {/* ══ TASKS ══════════════════════════════════════════════════════════════
           EVERY task, not only the deliverables the Content tab lists. A
           coordinator's admin work is real and belongs somewhere — it is simply not
           countable against a package target, which is why the two tabs differ. */}
+      {/* ══ TASKS ═════════════════════════════════════════════════════════════
+          Was five columns of raw database values with no filter of any kind —
+          `status.replace(/_/g,' ')` printed the enum and `dueDate` printed an ISO
+          string. Owner, 2026-08-22: *"it is just like a sheet you are showing
+          me… I have to read it very carefully, like Google Sheets. I don't want
+          that."* Moved to its own component; see the note there for what
+          actually changed and why it is still a table. */}
       {tab === 'tasks' && (
-        <Card>
-          <CardBody className="p-0">
-            {tasks.length === 0 ? (
-              <p className="px-4 py-10 text-center text-caption text-text-secondary">
-                No tasks in this project yet.
-              </p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[42rem] border-collapse">
-                  <thead>
-                    <tr className="border-b border-border-default">
-                      <th scope="col" className={TH}>Reference</th>
-                      <th scope="col" className={TH}>Task</th>
-                      <th scope="col" className={TH}>Status</th>
-                      <th scope="col" className={TH}>Assignee</th>
-                      <th scope="col" className={TH}>Due</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {tasks.map((task) => (
-                      <tr key={task.id} className="border-b border-border-subtle last:border-0">
-                        <td className={cn(TD, 'whitespace-nowrap font-mono text-micro')}>
-                          {task.reference}
-                        </td>
-                        <td className={cn(TD, 'font-medium text-text-primary')}>{task.title}</td>
-                        <td className={TD}>{task.status.replace(/_/g, ' ')}</td>
-                        <td className={TD}>{task.assigneeName ?? '—'}</td>
-                        <td className={cn(TD, 'whitespace-nowrap')}>{task.dueDate ?? '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardBody>
-        </Card>
+        <ProjectTasksTab
+          tasks={tasks}
+          project={{ id: project.id, name: project.name, type: project.type, code: project.code }}
+          today={today}
+          currentUser={currentUser}
+          /* Project members, not the whole division: a task raised inside a
+             project goes to somebody on it.
+
+             ⚠️ And only those at or below this person's rank. This list is built
+             here from `project_members` rather than coming from
+             `listAssignablepeople`, so it did NOT inherit the rank rule those
+             queries carry — an Admin who happens to be on the project would
+             otherwise appear in a Coordinator's assignee control. Owner,
+             2026-08-23: *"the suggestion should also be very intelligent. It
+             should know to whom he can assign it or to whom he could not."* */
+          people={members
+            .filter((m) => canAssignTo(currentUser.role, m.role as Role))
+            .map((m) => ({
+              id: m.userId,
+              name: m.fullName,
+              roleTitle: m.projectRole,
+            }))}
+          daily={
+            <DailyBoard
+              tasks={tasks}
+              placements={placements}
+              platforms={project.platforms}
+              driveFolders={driveFolders}
+              projectId={project.id}
+              today={today}
+              lookbackFrom={dailyLookbackFrom}
+            />
+          }
+        />
       )}
 
       {/* ══ ANALYTICS ══════════════════════════════════════════════════════════

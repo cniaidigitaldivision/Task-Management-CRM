@@ -6,7 +6,7 @@ import { usePathname } from 'next/navigation';
 import { ProjectDialog } from '@/components/project/project-dialog';
 import { TaskDialog } from '@/components/task/task-dialog';
 import { InviteDialog } from '@/components/team/invite-dialog';
-import { ROLE_LABEL, type Role, type Theme } from '@/lib/domain/constants';
+import { APP_NAME, ROLE_LABEL, type Role, type Theme } from '@/lib/domain/constants';
 import { assignableRolesFor } from '@/lib/domain/permissions';
 import type { NotificationRow } from '@/lib/db/queries/types';
 import { cn } from '@/lib/utils';
@@ -115,7 +115,7 @@ function titleFor(pathname: string): { title: string; subtitle?: string } {
       }
     }
   }
-  return EXTRA_TITLES[pathname] ?? { title: 'CNI CRM' };
+  return EXTRA_TITLES[pathname] ?? { title: APP_NAME };
 }
 
 /* ============================================================================

@@ -49,7 +49,11 @@ export interface NavSection {
 const ALL: readonly Role[] = ['super_admin', 'admin', 'team_coordinator', 'member'];
 const LEAD_UP: readonly Role[] = ['super_admin', 'admin', 'team_coordinator'];
 const ADMIN_UP: readonly Role[] = ['super_admin', 'admin'];
-const SUPER_ONLY: readonly Role[] = ['super_admin'];
+/* ⚠️ The only DOWNWARD rank in this file: everything else is "this rank and
+   above", this is "this rank and no other". My Work exists because a Member has
+   no other view of their own tasks; for a Coordinator it is a narrower copy of
+   Tasks, which is why it stops here rather than reading `ALL`. */
+const MEMBER_ONLY: readonly Role[] = ['member'];
 
 export const NAV_SECTIONS: readonly NavSection[] = [
   {
@@ -61,12 +65,30 @@ export const NAV_SECTIONS: readonly NavSection[] = [
       /* CHANGE-PLAN 7.1: open to a Member too, now that the page has a shape for
          them. It used to be LEAD_UP and they were redirected away. */
       { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, roles: ALL },
-      { label: 'My Work', href: '/my-work', icon: ListChecks, roles: ALL, badgeKey: 'myTasks' },
+      /* ⚠️ MEMBER ONLY, since 2026-08-22. Owner, about the Coordinator's rail:
+         *"Remove Today, workflow, and my work also. I don't need all these
+         pages."*
+
+         A Member has no other view of their own work, so this is their home. A
+         Coordinator and above have Tasks, which shows the same rows plus
+         everybody else's — so for them My Work was a narrower duplicate of a
+         screen they already open, and one more thing in the rail to skip past. */
+      { label: 'My Work', href: '/my-work', icon: ListChecks, roles: MEMBER_ONLY, badgeKey: 'myTasks' },
     ],
   },
   {
     label: 'Work',
     items: [
+      /* ⚠️ THERE WAS A "TODAY" ITEM HERE AND IT WAS A MISTAKE.
+         Built 2026-08-22 as its own page; removed the same day. Owner: *"I don't
+         understand why you created this Today page separately… I want Today to be
+         there and Today will display the tasks for that day."*
+
+         The content was right and the placement was wrong. "What is happening
+         today" is a VIEW OF THE TASK LIST, not a second place to look — putting
+         it in the rail meant two screens answering one question, which is exactly
+         the sprawl the owner keeps asking to remove. It now lives as the Today
+         tab inside a project's Tasks, where the work already is. */
       { label: 'Tasks', href: '/tasks', icon: CalendarClock, roles: ALL },
       /* Open to everybody: RLS decides what is in it, so a Member sees their
          own due dates and a Coordinator sees the division's. */
@@ -117,9 +139,15 @@ export const NAV_SECTIONS: readonly NavSection[] = [
          queue, and the person it lands on should be able to see why — a Member
          who finds a task they did not create can read the chain that made it.
          The write side is gated by the actions and by migration 026's policies. */
-      { label: 'Workflow', href: '/workflow', icon: Workflow, roles: ALL },
+      /* ⚠️ ADMIN_UP since 2026-08-22, on the same instruction. Handoff chains are
+         configured by an Admin and every action on the screen is already gated
+         there — a Coordinator could open it and change nothing, which is a page
+         that exists only to refuse. */
+      { label: 'Workflow', href: '/workflow', icon: Workflow, roles: ADMIN_UP },
       { label: 'Settings', href: '/settings', icon: Settings, roles: ADMIN_UP },
-      { label: 'Security', href: '/security', icon: ShieldCheck, roles: SUPER_ONLY },
+      /* ADMIN_UP since 2026-08-22 — owner decision. Was SUPER_ONLY; the route
+         guard, the permission matrix and migration 040 all moved with it. */
+      { label: 'Security', href: '/security', icon: ShieldCheck, roles: ADMIN_UP },
     ],
   },
 ];

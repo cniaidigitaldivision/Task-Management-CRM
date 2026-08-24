@@ -64,11 +64,29 @@ export async function gatherCandidates(
 
   return withUser(actorId, async (tx) => {
     const [people, skills, load, dueLoad, recent, history, familiarity, leave] = await Promise.all([
+      /* ── ⚠️ ONLY PEOPLE THIS ACTOR MAY ACTUALLY ASSIGN TO ──────────────────
+         Owner, 2026-08-23, looking at the panel as a Coordinator: *"you can see
+         that the admin and the super admin suggestion is also coming. It
+         couldn't be like that… The suggestion should also be very intelligent.
+         It should know to whom he can assign it or to whom he could not."*
+
+         `listAssignablepeople` had already been given this rule; this query is a
+         second, separate list and did not get it — so the dropdown was correct
+         while the panel beside it recommended the Super Admin, complete with a
+         score and an "Assign to Ammar" button that the server would then refuse.
+         A suggestion that cannot be acted on is worse than no suggestion.
+
+         The comparison is `canAssignTo` from lib/domain/permissions.ts, written
+         in SQL because the filter has to happen before scoring — ranking people
+         who will be discarded wastes the work and, worse, pushes real
+         candidates down the list. */
       tx`
         select id, full_name, role_title, weekly_capacity_points, max_concurrent_tasks
-          from public.users
-         where is_active and account_state = 'active'
-         order by full_name
+          from public.users u
+         where u.is_active
+           and u.account_state = 'active'
+           and app.role_rank(u.role) <= app.role_rank(app.current_user_role())
+         order by u.full_name
       `,
       tx`select user_id, skill_id, proficiency from public.user_skills`,
       /* ── THE WEIGHTS ARE NOT REPEATED IN SQL ─────────────────────────────

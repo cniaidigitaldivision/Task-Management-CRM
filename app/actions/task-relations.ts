@@ -691,3 +691,54 @@ export async function relationPickerAction(query: string): Promise<{
     })),
   };
 }
+
+/**
+ * Soft-delete several tasks at once.
+ *
+ * Owner, 2026-08-23: *"when I can select multiple checkboxes for multiple tasks,
+ * a bar should appear at the bottom. There should also be a delete button where
+ * I can delete multiple tasks at once. Now we can move multiple tasks or I can
+ * change the status. In the same way I want to delete multiple tasks."*
+ *
+ * ── ⚠️ THIS IS NOT `purgeTasksAction`, AND THE DIFFERENCE MATTERS ────────────
+ * Purge is permanent, Super Admin only, and demands re-authentication — it is
+ * for a legal erasure, not for tidying up. This is the ordinary Delete that the
+ * single-task menu already offers: the row stays, `is_deleted` goes true, and it
+ * leaves every report and every audit trail intact.
+ *
+ * The bar now carries both, which is why they are named for what they do rather
+ * than both being called "delete".
+ *
+ * ── EACH TASK IS DECIDED SEPARATELY ─────────────────────────────────────────
+ * Same shape as `bulkChangeStatusAction` above and for the same reason. A Member
+ * selecting six tasks may own three of them; deleting three and reporting the
+ * other three as refused is more useful than refusing all six because one was
+ * not theirs. `deleteTaskAction` applies `task.soft_delete` per row — which for
+ * a Member is `self_created`, so work handed to them by a Coordinator is
+ * refused by name.
+ */
+export async function bulkDeleteAction(taskIds: readonly string[]): Promise<BulkResult> {
+  const { deleteTaskAction } = await import('./tasks');
+
+  const refusals: string[] = [];
+  let succeeded = 0;
+
+  for (const taskId of taskIds) {
+    const result = await deleteTaskAction(taskId);
+    if (result.ok) succeeded += 1;
+    else refusals.push(result.error ?? 'Refused.');
+  }
+
+  touch();
+  return {
+    ok: succeeded > 0,
+    succeeded,
+    failed: refusals.length,
+    refusals: [...new Set(refusals)],
+    error: succeeded === 0 ? (refusals[0] ?? 'Nothing was deleted.') : undefined,
+    note:
+      refusals.length === 0
+        ? `${succeeded} ${succeeded === 1 ? 'task' : 'tasks'} deleted.`
+        : `${succeeded} deleted, ${refusals.length} refused.`,
+  };
+}

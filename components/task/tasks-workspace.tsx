@@ -9,6 +9,7 @@ import {
   Columns3,
   EyeOff,
   Flag,
+  FolderKanban,
   Layers,
   List,
   Loader2,
@@ -23,6 +24,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/input';
 import { ViewTabs, type ViewTab } from '@/components/ui/page-header';
+import { DateRange } from '@/components/ui/date-range';
 import { Select } from '@/components/ui/select';
 import {
   ToggleButton,
@@ -35,6 +37,7 @@ import {
 import {
   PRIORITIES,
   PRIORITY_LABEL,
+  TASK_STATUSES,
   PRIORITY_TOKEN,
   STATUS_META,
   type Priority,
@@ -103,6 +106,8 @@ export function TasksWorkspace({
   initialSearch = '',
   initialOpenTaskId = null,
   initialAssignee = null,
+  initialProject = null,
+  today,
 }: {
   initialTasks: readonly TaskView[];
   currentUser: { id: string; name: string; role: Role };
@@ -113,6 +118,12 @@ export function TasksWorkspace({
   initialOpenTaskId?: string | null;
   /** From `?assignee=…`, set when arriving from somebody's row on Team. */
   initialAssignee?: string | null;
+  /** From `?project=…`, set when arriving from a project's Tasks tab. Filters
+   *  the board AND locks the project on the create form. */
+  initialProject?: string | null;
+  /** Resolved on the server in the division's zone, so the range shortcuts agree
+   *  with what the rest of the system calls today. */
+  today: string;
 }) {
   const router = useRouter();
 
@@ -120,6 +131,14 @@ export function TasksWorkspace({
   const [view, setView] = React.useState<'list' | 'board'>('board');
   const [groupBy, setGroupBy] = React.useState<GroupBy>('status');
   const [priority, setPriority] = React.useState<Priority | 'all'>('all');
+  /* ── ⚠️ THERE WAS NO STATUS FILTER ON THIS PAGE ──────────────────────────
+     Owner, 2026-08-23: *"the status filter should be shown properly."*
+
+     "Status" appeared in the toolbar already — as a GROUP BY option, which
+     arranges the same rows into headed sections and filters nothing. So the
+     control existed, read like a filter, and could not narrow the list to one
+     status. Two different jobs sharing one word. This is the filter. */
+  const [statusFilter, setStatusFilter] = React.useState<TaskStatus | 'all'>('all');
   /* Seeded from `?assignee=…`. The server already filtered the rows, so leaving
      this at "all" meant the toolbar said "Everyone" while showing one person's
      work — the filter was invisible and could not be cleared. */
@@ -127,8 +146,30 @@ export function TasksWorkspace({
   /* Only for the create dialog's default. `assignee` is a FILTER and the person
      may change it; this remembers who you arrived here for. */
   const [arrivedFor] = React.useState<string | null>(initialAssignee);
+
+  /* ── ⚠️ `?project=` WAS BEING IGNORED ENTIRELY ────────────────────────────
+     A project's Tasks tab links here as `/tasks?project=<id>` and its comment
+     says the destination is "the task board filtered to this project". It was
+     not: the page never read the parameter, so you arrived at every task in the
+     system and the create form defaulted to whichever project sorted first.
+
+     Owner, 2026-08-22: *"their tasks tab should auto select or auto
+     understandable that this all task and any new task created here is assigned
+     to that project whose project is clicked."* That is this. */
+  const [projectFilter, setProjectFilter] = React.useState<string>(initialProject ?? 'all');
+  /* As with `arrivedFor`: the filter above is changeable, this is not. It is
+     what locks the project on the create form, so a task made from inside a
+     project cannot land in a different one. */
+  const [arrivedForProject] = React.useState<string | null>(initialProject);
   const [hideClosed, setHideClosed] = React.useState(true);
   const [search, setSearch] = React.useState(initialSearch);
+  /* ── ⚠️ A DATE RANGE, ON THIS PAGE TOO ────────────────────────────────────
+     Owner, 2026-08-23: *"I want this filter in both pages — first in that task
+     page, second in the product detail page, the task tab."* The board had no
+     date filter at all, so "what is due this week across everything" could only
+     be answered by reading the columns. */
+  const [dueFrom, setDueFrom] = React.useState('');
+  const [dueTo, setDueTo] = React.useState('');
   const [pending, setPending] = React.useState(false);
   const [flash, setFlash] = React.useState<{ tone: 'error' | 'warn' | 'ok'; text: string } | null>(null);
   /* Seeded from `?task=…` so a notification, an email or the Admin's extension
@@ -216,7 +257,15 @@ export function TasksWorkspace({
     () =>
       tasks.filter((t) => {
         if (priority !== 'all' && t.priority !== priority) return false;
+        if (statusFilter !== 'all' && t.status !== statusFilter) return false;
         if (assignee !== 'all' && (t.assigneeId ?? 'unassigned') !== assignee) return false;
+        if (projectFilter !== 'all' && t.projectId !== projectFilter) return false;
+        /* Either end may be empty and means unbounded there. Undated work is
+           kept whatever the range — it has no date to be outside one. */
+        if (t.dueDate) {
+          if (dueFrom && t.dueDate < dueFrom) return false;
+          if (dueTo && t.dueDate > dueTo) return false;
+        }
         if (hideClosed) {
           const category = STATUS_META[t.status].category;
           if (category === 'done' || category === 'cancelled') return false;
@@ -233,7 +282,7 @@ export function TasksWorkspace({
         }
         return true;
       }),
-    [tasks, priority, assignee, hideClosed, search],
+    [tasks, priority, statusFilter, assignee, projectFilter, hideClosed, search, dueFrom, dueTo],
   );
 
   const points = visible.reduce((sum, t) => sum + t.effortPoints, 0);
@@ -384,6 +433,21 @@ export function TasksWorkspace({
         )}
 
         <ToolbarGroup>
+          <ToolbarLabel>Status</ToolbarLabel>
+          <Select
+            label="Filter by status"
+            icon={Layers}
+            value={statusFilter}
+            onChange={(event) => setStatusFilter(event.target.value as TaskStatus | 'all')}
+            options={[
+              { value: 'all', label: 'Any status' },
+              ...TASK_STATUSES.map((s) => ({ value: s, label: STATUS_META[s].label })),
+            ]}
+            className="w-[9.5rem]"
+          />
+        </ToolbarGroup>
+
+        <ToolbarGroup>
           <ToolbarLabel>Priority</ToolbarLabel>
           <Select
             label="Filter by priority"
@@ -412,6 +476,39 @@ export function TasksWorkspace({
             className="w-[11rem]"
           />
         </ToolbarGroup>
+
+        {/* ⚠️ There was no way to filter by project on the task board at all —
+            only to search for its name as text. Owner, 2026-08-22: *"there is no
+            note, managed by, or any filters available… I want a lot of filters
+            with very good interactive UIs."* This is the first of them, and the
+            one that makes `?project=` from a project's Tasks tab visible and
+            clearable rather than a hidden filter nobody can see. */}
+        <ToolbarGroup>
+          <ToolbarLabel>Project</ToolbarLabel>
+          <Select
+            label="Filter by project"
+            icon={FolderKanban}
+            value={projectFilter}
+            onChange={(event) => setProjectFilter(event.target.value)}
+            options={[
+              { value: 'all', label: 'All projects' },
+              ...projects.map((p) => ({ value: p.id, label: p.name })),
+            ]}
+            className="w-[11rem]"
+          />
+        </ToolbarGroup>
+
+        <DateRange
+          from={dueFrom}
+          to={dueTo}
+          today={today}
+          onFrom={setDueFrom}
+          onTo={setDueTo}
+          onClear={() => {
+            setDueFrom('');
+            setDueTo('');
+          }}
+        />
 
         <ToggleButton pressed={!hideClosed} onChange={(next) => setHideClosed(!next)} icon={EyeOff}>
           {hideClosed ? 'Closed hidden' : 'Closed shown'}
@@ -471,7 +568,33 @@ export function TasksWorkspace({
       </div>
 
       {view === 'list' ? (
-        <TaskList groups={groups} onOpen={setOpenTaskId} />
+        <TaskList
+          groups={groups}
+          onOpen={setOpenTaskId}
+          /* ⚠️ The list had no selection at all — the bulk bar existed but only
+             the board could feed it. Owner, 2026-08-23, asking for multi-delete:
+             *"when I can select multiple checkboxes for multiple tasks, a bar
+             should appear at the bottom."* */
+          selectedIds={new Set(selectedIds)}
+          onSelect={(taskId) =>
+            setSelectedIds((prev) =>
+              prev.includes(taskId) ? prev.filter((id) => id !== taskId) : [...prev, taskId],
+            )
+          }
+          onSelectAll={(taskIds, select) =>
+            setSelectedIds((prev) =>
+              select
+                ? [...new Set([...prev, ...taskIds])]
+                : prev.filter((id) => !taskIds.includes(id)),
+            )
+          }
+          /* The same handler the board's drag uses. So an illegal move raises
+             the same reason prompt, a refusal snaps back with the server's own
+             sentence, and an accepted one re-groups the row under its new
+             status — which is what makes the change visible instead of the row
+             simply disappearing. */
+          onChangeStatus={move}
+        />
       ) : (
         <TaskBoard
           tasks={visible}
@@ -529,20 +652,24 @@ export function TasksWorkspace({
         currentUser={{ id: currentUser.id, role: currentUser.role }}
         defaultStatus={addToStatus ?? undefined}
         defaultAssigneeId={arrivedFor ?? undefined}
+        /* Arrived from a project's Tasks tab — the project is settled, so the
+           form shows it rather than asking. */
+        lockedProjectId={arrivedForProject ?? undefined}
       />
 
-      {view === 'board' && (
-        <BulkBar
-          selectedIds={selectedIds}
-          onClear={() => setSelectedIds([])}
-          onDone={() => router.refresh()}
-          people={people.map((person) => ({ id: person.id, name: person.name }))}
-          /* Super Admin only AND only once the tasks_delete RLS policy exists.
-             Shipping a button that silently does nothing is exactly the
-             complaint that opened this batch (B1, B4) — so it is not shipped. */
-          canPurge={currentUser.role === 'super_admin' && PURGE_IS_AVAILABLE}
-        />
-      )}
+      {/* ⚠️ Was `view === 'board'`. The bar belongs to the SELECTION, not to a
+          view — gating it on the board meant list selections had nowhere to go.
+          It renders nothing of its own when nothing is selected. */}
+      <BulkBar
+        selectedIds={selectedIds}
+        onClear={() => setSelectedIds([])}
+        onDone={() => router.refresh()}
+        people={people.map((person) => ({ id: person.id, name: person.name }))}
+        /* Super Admin only AND only once the tasks_delete RLS policy exists.
+           Shipping a button that silently does nothing is exactly the complaint
+           that opened this batch (B1, B4) — so it is not shipped. */
+        canPurge={currentUser.role === 'super_admin' && PURGE_IS_AVAILABLE}
+      />
 
       {/* ---- The reason prompt (FR-043) ---- */}
       <Dialog

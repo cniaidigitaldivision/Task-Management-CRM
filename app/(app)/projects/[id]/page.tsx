@@ -14,11 +14,37 @@ import { listPackages } from '@/lib/db/queries/catalogue';
 import { listTasks } from '@/lib/db/queries/tasks';
 import { listPeople } from '@/lib/db/queries/people';
 import { listProjectActivity } from '@/lib/db/queries/feed';
+import { listFolders } from '@/lib/db/queries/drive-folders';
+import { listPlacementsForProject } from '@/lib/db/queries/placements';
+import { tasksInRange } from '@/lib/db/queries/search';
 import { can } from '@/lib/domain/permissions';
 import { redactOne } from '@/lib/view/project-finance';
-import { nowMs } from '@/lib/now';
+import { isoDateIn, isoMonthIn, nowMs } from '@/lib/now';
 import { monthLabel as cadenceMonthLabel } from '@/lib/domain/ceo-report';
 import { MONTH_START_PATTERN, recentMonths } from '@/lib/domain/ceo-report';
+
+/** How far back the daily board looks for blank days. A fortnight is enough for
+ *  somebody returning from a week away to see what was missed, and short enough
+ *  that the list stays readable rather than becoming an archive. */
+const DAILY_LOOKBACK_DAYS = 14;
+
+/** Shift an ISO date by whole days. Built on Date.UTC so it cannot land on the
+ *  wrong day across a DST boundary — the trap `lib/domain/cadence.ts` documents. */
+function isoDaysFrom(iso: string, days: number): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  const at = new Date(Date.UTC(y, m - 1, d + days));
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${at.getUTCFullYear()}-${pad(at.getUTCMonth() + 1)}-${pad(at.getUTCDate())}`;
+}
+
+/** Last date of the month a 'YYYY-MM-01' names. Day 0 of the next month, the
+ *  same trick `cadence.ts` uses and for the same reason. */
+function monthEnd(monthStart: string): string {
+  const year = Number(monthStart.slice(0, 4));
+  const month = Number(monthStart.slice(5, 7));
+  const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return `${monthStart.slice(0, 7)}-${String(last).padStart(2, '0')}`;
+}
 
 export const metadata: Metadata = { title: 'Project' };
 
@@ -75,15 +101,24 @@ export default async function ProjectPage({
 
   const canSeeFinance = can(actor, 'project.view_finance');
 
-  /* ⚠️ The month and today are resolved HERE and passed down. A client component that
-     read the clock would not be a pure render, and the browser can disagree with the
-     server about the date across midnight or a timezone — which would draw the month
-     grid for the wrong month. UTC parts for the same reason `currentMonthStart` uses
-     them: the answer must not depend on where the server runs. */
-  const now = new Date(nowMs());
-  const pad = (n: number) => String(n).padStart(2, '0');
-  const thisMonth = `${now.getUTCFullYear()}-${pad(now.getUTCMonth() + 1)}-01`;
-  const today = `${now.getUTCFullYear()}-${pad(now.getUTCMonth() + 1)}-${pad(now.getUTCDate())}`;
+  /* Generating a month creates work nobody volunteered for, which is planning —
+     so it asks the same question as "may this person create a task that is not
+     their own". Coordinator and above; a Member is refused. The action re-checks
+     it server-side; this only decides whether the control is rendered. */
+  const canGenerateSchedule = can(actor, 'task.create_for_other');
+
+  /* ⚠️ The month and today are resolved HERE and passed down. A client component
+     that read the clock would not be a pure render, and the browser can disagree
+     with the server about the date — which would draw the month grid for the
+     wrong month.
+
+     ⚠️ And they are resolved in the DIVISION'S zone, not UTC. Pakistan is UTC+5,
+     so between midnight and 5am local a UTC date is still yesterday — which made
+     the Today view show the previous day's posts for five hours every night.
+     Owner, 2026-08-23, at 00:12 local: *"the time limit does not end at 5 am."*
+     See `isoDateIn`. */
+  const today = isoDateIn();
+  const thisMonth = isoMonthIn();
   /* Formatted here, not in the component: `toLocaleString` in a client component
      renders differently on the server and in the browser and React reports it as a
      hydration mismatch. `monthLabel` already solves this for the CEO report. */
@@ -94,6 +129,32 @@ export default async function ProjectPage({
     requestedMonth && MONTH_START_PATTERN.test(requestedMonth) ? requestedMonth : thisMonth;
   const monthLabel = cadenceMonthLabel(monthStart);
   const months = recentMonths(nowMs(), 12);
+
+  /* ── THE DAILY BOARD'S OWN DATA ────────────────────────────────────────────
+     Fetched here rather than inside the tab so the whole page is still one round
+     of latency. Bounded to the last fortnight and the next week: the board shows
+     today, plus the recent days that went blank, plus what is coming — it has no
+     use for March, and an unbounded read would grow with the project. */
+  const boardFrom = isoDaysFrom(today, -DAILY_LOOKBACK_DAYS);
+  const boardTo = isoDaysFrom(today, 7);
+
+  /* ── ⚠️ THE PROJECT'S OWN TASKS, FOR ITS CALENDAR TAB ─────────────────────
+     Owner, 2026-08-23: *"on any project detail page, the calendar is not
+     working. It's not showing anything related to that project."*
+
+     It was drawing the posting RHYTHM — what the agreed cadence implies — and
+     no tasks whatsoever. That is a useful picture and it is not what somebody
+     opening a Calendar expects: they want the work, on the days it is due, with
+     who is doing it. Both are shown now, the plan first and the actual work
+     under it.
+
+     Scoped to the visible month; the view fetches its own neighbours as you
+     page, carrying the same project id. */
+  const [placements, driveFolders, calendarTasks] = await Promise.all([
+    listPlacementsForProject(user.id, id, boardFrom, boardTo),
+    listFolders(user.id),
+    tasksInRange(user.id, { from: monthStart, to: monthEnd(monthStart), projectId: id }),
+  ]);
 
   /* The owner's picture. Read from the people list already fetched above rather than
      as a seventh query — and `?? null` because that list is EMPTY for a reader without
@@ -144,6 +205,16 @@ export default async function ProjectPage({
            page for the leak this closes. */
         project={redactOne(project, canSeeFinance)}
         canSeeFinance={canSeeFinance}
+        canGenerateSchedule={canGenerateSchedule}
+        /* So the Tasks tab can open the create form in place instead of sending
+           somebody to /tasks to do it — owner, 2026-08-22: *"When I click Add
+           Task, the form should pop up here. Don't bring me to that task table
+           or task page."* */
+        currentUser={{ id: user.id, role: user.role }}
+        placements={placements}
+        driveFolders={driveFolders}
+        dailyLookbackFrom={boardFrom}
+        calendarTasks={calendarTasks}
         monthStart={monthStart}
         monthLabel={monthLabel}
         months={months}

@@ -42,9 +42,11 @@ export const metadata: Metadata = { title: 'Security' };
  * ========================================================================= */
 
 export default async function SecurityPage() {
-  /* Super Admin only, per nav-config. Hiding the nav item is convenience, not
-     security (NFR-006) — registry C-21. */
-  const user = await requireRole('super_admin');
+  /* Admin and above since 2026-08-22 — owner decision, see the note beside
+     `security_dashboard.view` in lib/domain/permissions.ts. Hiding the nav item
+     is convenience, not security (NFR-006) — registry C-21, which is why the
+     rank is asserted here and in layout.tsx rather than in the nav alone. */
+  const user = await requireRole('admin');
 
   const [sessions, attempts, auditLog, events, lockedAccounts, breakGlass] = await Promise.all([
     listMySessions(user.id, user.sessionId),

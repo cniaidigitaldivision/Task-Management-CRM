@@ -50,8 +50,9 @@ export default function GlobalError({
 }) {
   const [retrying, setRetrying] = React.useState(false);
 
+  /* /var(--ui-scale): vh ignores the density zoom on body — see tokens.css */
   return (
-    <div className="flex min-h-[70vh] items-center justify-center px-4 py-16">
+    <div className="flex min-h-[calc(70vh/var(--ui-scale))] items-center justify-center px-4 py-16">
       <div className="w-full max-w-lg rounded-2xl border border-border-default bg-bg-surface p-6 shadow-[var(--shadow-lg)]">
         <span
           aria-hidden="true"

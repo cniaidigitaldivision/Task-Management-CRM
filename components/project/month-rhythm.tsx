@@ -44,12 +44,46 @@ export function MonthRhythm({
    *  than read here — a component that reads the clock is not a pure render, and
    *  the server and the browser can disagree about the date across midnight. */
   today,
+  actual,
 }: {
   cadence: Cadence;
   monthStart: string;
   today: string;
+  /**
+   * What actually happened on each date, keyed 'YYYY-MM-DD'.
+   *
+   * ── ⚠️ WHY THE CALENDAR NEEDED THIS ─────────────────────────────────────
+   * Owner, 2026-08-22: *"for the same task you have to represent it on a
+   * calendar. That's not a different thing."*
+   *
+   * Until now this grid drew the PLAN and only the plan — every posting day
+   * looked identical whether it had gone out, was still waiting, or had been
+   * missed entirely. A month of teal squares says what was promised and nothing
+   * about what was delivered, which is the one thing somebody opens a calendar
+   * to find out.
+   *
+   * Optional, so the grid still works as a pure planning view where no tasks
+   * exist yet — a project being set up, or a future month.
+   */
+  actual?: ReadonlyMap<string, DayActual>;
 }) {
   const plan = React.useMemo(() => monthPlan(cadence, monthStart), [cadence, monthStart]);
+
+  /* Counted across the days the calendar is showing, not across the project —
+     the legend has to agree with the squares above it. */
+  const actualTotals = React.useMemo(() => {
+    let done = 0;
+    let missed = 0;
+    if (actual) {
+      for (const day of plan.days) {
+        const real = actual.get(day.date);
+        if (!real) continue;
+        done += real.done;
+        if (real.done === 0) missed += real.missed;
+      }
+    }
+    return { done, missed };
+  }, [actual, plan]);
 
   const nothingAgreed =
     cadence.staticPostsPerDay === null && cadence.reelsPerWeek === null;
@@ -92,11 +126,33 @@ export function MonthRhythm({
           const dayNumber = Number(day.date.slice(8));
           const hasReel = day.reels > 0;
 
-          /* Three states, three appearances: a reel day carries the gold accent, an
-             ordinary posting day the brand teal, an off day nothing but a hatch. */
+          /* ── WHAT ACTUALLY HAPPENED BEATS WHAT WAS PLANNED ──────────────────
+             A day carries one of four appearances, and the ORDER matters: a day
+             that went out is green whatever it was planned to be, a day that was
+             missed is red, and only a day with nothing decided yet falls back to
+             the plan's teal or gold. Painting the plan on top of a missed day
+             would hide the one thing worth seeing. */
+          const real = actual?.get(day.date);
+          const delivered = (real?.done ?? 0) > 0;
+          const blank = !delivered && (real?.missed ?? 0) > 0;
+
+          const tone = day.isOff
+            ? 'off'
+            : delivered
+              ? 'done'
+              : blank
+                ? 'missed'
+                : hasReel
+                  ? 'reel'
+                  : 'planned';
+
           const title = day.isOff
             ? `${day.date} — off day, nothing scheduled`
-            : `${day.date} — ${day.staticPosts} static${hasReel ? ' + 1 reel' : ''}`;
+            : delivered
+              ? `${day.date} — ${real?.done} published`
+              : blank
+                ? `${day.date} — nothing went out, blank day`
+                : `${day.date} — ${day.staticPosts} static${hasReel ? ' + 1 reel' : ''} planned`;
 
           return (
             <div
@@ -112,15 +168,15 @@ export function MonthRhythm({
               style={{
                 /* An off day is a hatch rather than a fill, so it reads as "closed"
                    instead of as another category of work. */
-                background: day.isOff
-                  ? 'repeating-linear-gradient(135deg, var(--bg-surface-sunken) 0 3px, transparent 3px 6px)'
-                  : hasReel
-                    ? 'color-mix(in oklab, var(--accent-gold) var(--tint-strong), var(--bg-surface))'
-                    : 'color-mix(in oklab, var(--accent-primary) var(--tint-medium), var(--bg-surface))',
+                background:
+                  tone === 'off'
+                    ? 'repeating-linear-gradient(135deg, var(--bg-surface-sunken) 0 3px, transparent 3px 6px)'
+                    : `color-mix(in oklab, var(${TONE_VAR[tone]}) var(${TONE_TINT[tone]}), var(--bg-surface))`,
                 color: day.isOff ? 'var(--text-disabled)' : 'var(--text-primary)',
-                boxShadow: day.isOff
-                  ? undefined
-                  : `inset 0 0 0 1px color-mix(in oklab, var(--${hasReel ? 'accent-gold' : 'accent-primary'}) 40%, transparent)`,
+                boxShadow:
+                  tone === 'off'
+                    ? undefined
+                    : `inset 0 0 0 1px color-mix(in oklab, var(${TONE_VAR[tone]}) 40%, transparent)`,
                 ...(isToday
                   ? ({ '--tw-ring-color': 'var(--focus-ring)' } as React.CSSProperties)
                   : {}),
@@ -153,6 +209,15 @@ export function MonthRhythm({
       </div>
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-micro text-text-tertiary">
+        {/* The delivered/blank keys appear only once there is something real to
+            explain — on a future month they would be a legend for two colours
+            that are not on screen. */}
+        {actual && actualTotals.done > 0 && (
+          <Key colour="var(--feedback-success)" label={`${actualTotals.done} published`} />
+        )}
+        {actual && actualTotals.missed > 0 && (
+          <Key colour="var(--feedback-error)" label={`${actualTotals.missed} blank`} />
+        )}
         <Key colour="var(--accent-primary)" label={`${plan.staticPosts} static posts`} />
         <Key colour="var(--accent-gold)" label={`${plan.reels} reels`} />
         <span className="inline-flex items-center gap-1.5">
@@ -173,6 +238,32 @@ export function MonthRhythm({
     </div>
   );
 }
+
+/** One day's real outcome, as the calendar needs it. */
+export interface DayActual {
+  readonly done: number;
+  readonly missed: number;
+  readonly pending: number;
+}
+
+/* The four fills. Kept as a table rather than a chain of ternaries in the style
+   attribute — five nested conditionals inside a template literal is where the
+   wrong colour hides. */
+const TONE_VAR = {
+  done: '--feedback-success',
+  missed: '--feedback-error',
+  reel: '--accent-gold',
+  planned: '--accent-primary',
+  off: '--bg-surface-sunken',
+} as const;
+
+const TONE_TINT = {
+  done: '--tint-strong',
+  missed: '--tint-medium',
+  reel: '--tint-strong',
+  planned: '--tint-medium',
+  off: '--tint-soft',
+} as const;
 
 function Key({ colour, label }: { colour: string; label: string }) {
   return (

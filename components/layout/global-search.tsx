@@ -237,7 +237,8 @@ export function GlobalSearch() {
           role="listbox"
           className="absolute top-[calc(100%+6px)] right-0 z-50 w-[min(30rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-border-strong bg-bg-surface shadow-[var(--shadow-xl)]"
         >
-          <div className="max-h-[60vh] overflow-y-auto">
+          {/* /var(--ui-scale): vh ignores the density zoom on body — see tokens.css */}
+          <div className="max-h-[calc(60vh/var(--ui-scale))] overflow-y-auto">
             {tooShort && (
               <p className="px-3.5 py-5 text-center text-caption text-text-tertiary">
                 Type at least two characters. A reference like{' '}

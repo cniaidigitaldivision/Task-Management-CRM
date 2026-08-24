@@ -64,12 +64,11 @@ export function notifyAccountLocked(input: {
         lockAfter: Number(settings.failedLoginsToLock),
         lockClearsAfterMinutes: Number(settings.accountLockAutoClearMinutes),
       });
-      await sendEmail({
-        to: input.email,
-        subject: message.subject,
-        html: message.html,
-        text: message.text,
-      });
+      /* Spread whole, not field by field. Every template also carries the
+         header mark as an inline attachment, and a call that names subject,
+         html and text individually drops it — silently, as a broken image in
+         somebody's inbox with nothing logged anywhere. */
+      await sendEmail({ to: input.email, ...message });
     } catch {
       /* Swallowed on purpose. The lock is already applied and the ledger already
          records it; a failed email must not undo either, and must not surface as
@@ -104,12 +103,11 @@ export function notifyNewDeviceSignIn(input: {
   void (async () => {
     try {
       const message = loginAlertEmail(input);
-      await sendEmail({
-        to: input.email,
-        subject: message.subject,
-        html: message.html,
-        text: message.text,
-      });
+      /* Spread whole, not field by field. Every template also carries the
+         header mark as an inline attachment, and a call that names subject,
+         html and text individually drops it — silently, as a broken image in
+         somebody's inbox with nothing logged anywhere. */
+      await sendEmail({ to: input.email, ...message });
     } catch {
       /* Never blocks or fails a sign-in. */
     }
@@ -151,12 +149,7 @@ export function notifyEmailChanged(input: {
         isSuperAdmin: input.isSuperAdmin,
         appUrl: input.appUrl,
       });
-      await sendEmail({
-        to: input.previousEmail,
-        subject: message.subject,
-        html: message.html,
-        text: message.text,
-      });
+      await sendEmail({ to: input.previousEmail, ...message });
     } catch {
       /* The change stands, and the security event is already written. */
     }

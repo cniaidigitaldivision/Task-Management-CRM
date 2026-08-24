@@ -27,7 +27,11 @@ import { activeHref } from '../nav-active';
    wrong entry here (`/vault`, `/profile`) was caught the first time. */
 const ADMIN_NAV = [
   '/dashboard',
-  '/my-work',
+  /* ⚠️ `/my-work` is NOT here and `/today` never should have been.
+     My Work became Member-only on 2026-08-22 — a Coordinator and above have
+     Tasks, which is the same rows plus everyone else's. `/today` was a page for
+     one day; it is now a tab inside a project's Tasks. Both on owner
+     instruction, and this fixture is what proved the tree actually changed. */
   '/tasks',
   '/calendar',
   '/projects',
@@ -38,6 +42,8 @@ const ADMIN_NAV = [
   '/documents',
   '/vault',
   '/settings',
+  /* Reached the Admin's rail on 2026-08-22 — owner decision, see migration 040. */
+  '/security',
   '/workflow',
 ] as const;
 
@@ -93,10 +99,14 @@ describe('activeHref', () => {
   it('returns null for a path in no section', () => {
     /* Routes reached from the avatar menu rather than the rail — they have no nav
        item, and must leave every item unlit rather than lighting an arbitrary one.
-       ⚠️ `/vault` was used here first and is wrong: it IS in the rail. The
-       agreement check below is what caught that. */
-    expect(activeHref(ADMIN_NAV, '/security')).toBeNull();
+
+       ⚠️ TWO ROUTES HAVE BEEN WRONG HERE, FOR THE SAME REASON. `/vault` was used
+       first and is in the rail. `/security` replaced it and was correct until
+       2026-08-22, when the Admin gained that screen and it became a rail item
+       too. Both times the agreement check below is what caught it — which is the
+       argument for keeping that check rather than trusting this list. */
     expect(activeHref(ADMIN_NAV, '/profile')).toBeNull();
+    expect(activeHref(ADMIN_NAV, '/mfa-setup')).toBeNull();
   });
 
   it('handles an empty nav and the root path', () => {

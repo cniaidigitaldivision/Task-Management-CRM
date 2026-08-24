@@ -137,13 +137,16 @@ export function CalendarView({
   people,
   currentUserId,
   canSeeOthers,
+  projectId,
 }: {
   initialTasks: readonly CalendarTask[];
   initialYear: number;
   initialMonth: number;
   /** Passed from the server — reading the clock during render is impure. */
   todayIso: string;
-  people: readonly { id: string; name: string }[];
+  /** `avatarUrl` so a day cell shows a face rather than initials — owner,
+   *  2026-08-23: *"plus the team members' tasks, with their icons or images."* */
+  people: readonly { id: string; name: string; avatarUrl?: string | null }[];
   currentUserId: string;
   /**
    * Whether the person dropdown is offered at all.
@@ -159,14 +162,35 @@ export function CalendarView({
    * be, which is why this decides what to *offer* and never what to *return*.
    */
   canSeeOthers: boolean;
+  /** Set by a project's Calendar tab. Scopes both the rows passed in and every
+   *  month fetched afterwards to that one project. */
+  projectId?: string;
 }) {
   const router = useRouter();
   const [year, setYear] = React.useState(initialYear);
   const [month, setMonth] = React.useState(initialMonth);
 
-  /* Defaults to the reader's own work, so the calendar opens as their diary
-     rather than as the division's noticeboard. */
-  const [assignee, setAssignee] = React.useState(currentUserId);
+  /* ── ⚠️ WHAT IT OPENS ON DEPENDS ON WHO IS LOOKING ────────────────────────
+     It used to default to the reader's own work for everybody, on the reasoning
+     that a calendar is a diary. That is right for a Member and wrong for anyone
+     who plans — a Coordinator opening their own calendar sees the handful of
+     tasks they happen to be assigned, not the week they are responsible for, and
+     has to discover a dropdown to see the thing they came for.
+
+     Owner, 2026-08-23: *"he can see his own tasks in a calendar, plus the team
+     members' tasks… the admin and the super admin can see the calendar and see
+     that tomorrow this task will be done."*
+
+     So: a Member still opens on their diary, because that is all they have.
+     Anyone who can see the team opens on the team, and narrowing to one person
+     is the deliberate act rather than the default. */
+  const [assignee, setAssignee] = React.useState(
+    /* `projectId` too, not just `canSeeOthers`: a project's Calendar tab offers
+       no person filter at all, and defaulting to the reader there would show a
+       Coordinator only their own tasks on a screen whose whole point is the
+       project's month. */
+    canSeeOthers || projectId ? 'all' : currentUserId,
+  );
 
   /* ── THE AGENDA RAIL'S DAY (step 6) ────────────────────────────────────────
      Starts on today, so the rail is answering a question before anybody has
@@ -226,6 +250,10 @@ export function CalendarView({
       calendarAction({
         from: iso(slot.y, slot.m, 1),
         to: iso(slot.y, slot.m, daysInMonth(slot.y, slot.m)),
+        /* Carried through so paging to another month stays inside the project
+           you opened the calendar from. Without it the first arrow click would
+           silently widen to the whole division. */
+        projectId,
       })
         .then((rows) => {
           if (cancelled) return;
@@ -242,7 +270,9 @@ export function CalendarView({
     return () => {
       cancelled = true;
     };
-  }, [year, month, months]);
+    /* `projectId` is in the list because a month fetched for one project must
+       not be reused for another — see the fetch above. */
+  }, [year, month, months, projectId]);
 
   const visible = React.useMemo(() => {
     const rows = tasks ?? [];

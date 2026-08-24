@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { AlertTriangle, Loader2 } from 'lucide-react';
+import { AlertTriangle, Loader2, Lock } from 'lucide-react';
 
 import { createTaskAction, updateTaskAction, type ActionResult } from '@/app/actions/tasks';
 import { Button } from '@/components/ui/button';
@@ -18,12 +18,12 @@ import {
   CONTENT_KINDS,
   CONTENT_KIND_LABEL,
   EFFORT_LABEL,
-  EFFORT_POINTS,
   EFFORT_SIZES,
   PRIORITIES,
   PRIORITY_LABEL,
   PROJECT_TYPE_META,
   STATUS_META,
+  type EffortSize,
   type Role,
   type TaskStatus,
 } from '@/lib/domain/constants';
@@ -56,6 +56,62 @@ import type { ShellPerson, ShellProject } from '@/components/layout/app-shell';
 
 const EMPTY: ActionResult = { ok: false };
 
+/* ============================================================================
+ * EFFORT → A DUE DATE
+ * ----------------------------------------------------------------------------
+ * Owner, 2026-08-22: *"if one hour is selected, then the start date will be auto
+ * select… but due date and due time will auto select to the effort. For example,
+ * one hour then auto select same date and one hour difference… if he say that
+ * the task will be completed in a two days, then due date will auto select."*
+ *
+ * ── ⚠️ WHY THE TWO LONGER SIZES DO NOT SET A TIME ───────────────────────────
+ * An hour from now is a real moment and worth writing down. "Two to three days
+ * at 4:37pm" is not — the minute is an artefact of when somebody happened to
+ * open the form, and a due TIME on a multi-day task makes it overdue at an
+ * arbitrary point in the afternoon. Those sizes set a date and leave the time
+ * blank, which the rest of the system already reads as end of that day.
+ *
+ * ── WORKING DAYS, NOT CALENDAR DAYS, FOR THE WEEK ───────────────────────────
+ * "A week" lands five working days out, skipping Sunday — this division posts
+ * Monday to Saturday. A calendar week would put a deadline on the one day
+ * nobody is working.
+ * ========================================================================= */
+
+/** Sunday is the rest day here; Mon–Sat are working days. */
+function addWorkingDays(from: Date, count: number): Date {
+  const out = new Date(from);
+  let left = count;
+  while (left > 0) {
+    out.setDate(out.getDate() + 1);
+    if (out.getDay() !== 0) left -= 1;
+  }
+  return out;
+}
+
+function dueFromEffort(size: EffortSize, from: Date): { date: string; time: string } {
+  const pad = (value: number) => String(value).padStart(2, '0');
+  const asDate = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const asTime = (d: Date) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+  switch (size) {
+    case 'XS': {
+      const end = new Date(from.getTime() + 60 * 60 * 1000);
+      return { date: asDate(end), time: asTime(end) };
+    }
+    case 'S': {
+      const end = new Date(from.getTime() + 4 * 60 * 60 * 1000);
+      return { date: asDate(end), time: asTime(end) };
+    }
+    case 'M':
+      /* A full day: due at the end of today, so no time. */
+      return { date: asDate(from), time: '' };
+    case 'L':
+      return { date: asDate(addWorkingDays(from, 2)), time: '' };
+    case 'XL':
+      return { date: asDate(addWorkingDays(from, 5)), time: '' };
+  }
+}
+
 /**
  * The repeat control.
  *
@@ -70,9 +126,10 @@ const EMPTY: ActionResult = { ok: false };
 function RepeatField({ initial }: { initial: string | null }) {
   const parsed = initial ? parseRecurrence(initial) : null;
   const [freq, setFreq] = React.useState(parsed?.ok ? parsed.rule.freq : 'none');
-  const [interval, setInterval] = React.useState(
-    parsed?.ok ? String(parsed.rule.interval) : '1',
-  );
+  /* No setter: the interval is fixed at 1 now that the "every N" box is gone.
+     Read from an existing rule so editing a task that already repeats every two
+     weeks does not silently rewrite it to weekly. */
+  const [interval] = React.useState(parsed?.ok ? String(parsed.rule.interval) : '1');
   const [days, setDays] = React.useState<string[]>(parsed?.ok ? [...parsed.rule.byDay] : []);
 
   return (
@@ -105,23 +162,16 @@ function RepeatField({ initial }: { initial: string | null }) {
           </Select>
         </Field>
 
-        {freq !== 'none' && (
-          <Field
-            label={`Every … ${freq === 'DAILY' ? 'days' : freq === 'WEEKLY' ? 'weeks' : 'months'}`}
-            htmlFor="repeatInterval"
-            hint="1 is every one."
-          >
-            <Input
-              id="repeatInterval"
-              name="repeatInterval"
-              type="number"
-              min="1"
-              max="52"
-              value={interval}
-              onChange={(event) => setInterval(event.target.value)}
-            />
-          </Field>
-        )}
+        {/* ⚠️ "Every … N days/weeks/months" was a visible field and is now a
+            fixed 1. Owner, 2026-08-22, listing the only types he wants:
+            *"daily tasks, weekly tasks, monthly tasks, or do not repeat."*
+
+            Nobody at this division runs a rhythm of "every third week", and the
+            box was one more thing to read and get wrong on a form used several
+            times a day. Kept as a hidden field rather than removed from the
+            payload, because the recurrence rule the server stores still has an
+            interval and would otherwise arrive malformed. */}
+        <input type="hidden" name="repeatInterval" value={interval} />
       </div>
 
       {freq === 'WEEKLY' && (
@@ -171,9 +221,9 @@ export function TaskDialog({
   people,
   currentUser,
   task,
-  driveFolders = [],
   defaultStatus,
   defaultAssigneeId,
+  lockedProjectId,
 }: {
   open: boolean;
   onClose: () => void;
@@ -184,6 +234,15 @@ export function TaskDialog({
   task?: TaskRow;
   /** Known Drive folders, to suggest in the link fields. Empty is fine — the
    *  fields still accept any URL. */
+  /**
+   * ⚠️ Accepted and deliberately UNUSED since 2026-08-22.
+   *
+   * It fed the "Raw material" and "Finished file" suggestions, which the owner
+   * removed from this form — those belong to the daily completion flow, where a
+   * Drive folder is actually pickable against a finished asset. The prop is kept
+   * so the callers that already pass it do not have to change twice: the daily
+   * flow needs exactly this list.
+   */
   driveFolders?: readonly { id: string; name: string; driveFolderId: string }[];
   /** Pre-selects the starting status. Set by a board column's "Add task", so a
    *  card created from the Blocked column does not arrive in To Do. */
@@ -192,6 +251,9 @@ export function TaskDialog({
    *  one person — arriving from their row on Team — so the task lands on the
    *  person whose list you were looking at. Still changeable. */
   defaultAssigneeId?: string;
+  /** Set by a project's own Tasks tab. The project is then context rather than a
+   *  question: shown as a fact and posted as a hidden field, never a dropdown. */
+  lockedProjectId?: string;
 }) {
   const isEdit = Boolean(task);
   const router = useRouter();
@@ -222,9 +284,57 @@ export function TaskDialog({
     EMPTY,
   );
 
-  const [projectId, setProjectId] = React.useState(task?.projectId ?? projects[0]?.id ?? '');
-  const selected = projects.find((p) => p.id === projectId);
+  const [projectId, setProjectId] = React.useState(
+    task?.projectId ?? lockedProjectId ?? projects[0]?.id ?? '',
+  );
+  const lockedProject = lockedProjectId
+    ? (projects.find((p) => p.id === lockedProjectId) ?? null)
+    : null;
+  const selected = projects.find((p) => p.id === (lockedProject?.id ?? projectId));
   const needsOtherDescription = selected?.type === 'other';
+
+  /* ── EFFORT, AND THE DUE DATE IT WRITES ────────────────────────────────────
+     Owner: *"the start date and due date and time will auto select by the
+     effort."* Held as state rather than read off the DOM so the two due fields
+     can be rewritten whenever the estimate changes — and still typed over
+     afterwards, because the estimate is a default, not a rule.
+
+     ⚠️ Seeded from the task when editing and left ALONE in that case. Reopening
+     a task from three weeks ago and having its due date silently jump to today
+     plus one hour would be a data change nobody asked for. */
+  const [effort, setEffort] = React.useState<EffortSize>(task?.effortSize ?? 'M');
+
+  /* Seeded from the default effort on create, so the form opens with a due date
+     already in it rather than filling one in a moment later. */
+  const seed = isEdit ? null : dueFromEffort(task?.effortSize ?? 'M', now);
+  const [dueDate, setDueDate] = React.useState(task?.dueDate ?? seed?.date ?? '');
+  const [dueTime, setDueTime] = React.useState(task?.dueTime ?? seed?.time ?? '');
+
+  /* ── ⚠️ WRITTEN IN THE CHANGE HANDLER, NOT AN EFFECT ──────────────────────
+     The first version watched `effort` with a `useEffect` and called setState
+     inside it. That works and `react-hooks/set-state-in-effect` refuses it,
+     correctly: an effect that only ever runs because a value it derives from
+     changed is a render the component did not need. Recomputing where the
+     change actually happens is one pass instead of two, and it also stops the
+     effect from overwriting a due date somebody has just typed. */
+  const chooseEffort = (size: EffortSize) => {
+    setEffort(size);
+    if (isEdit) return;
+    const next = dueFromEffort(size, new Date());
+    setDueDate(next.date);
+    setDueTime(next.time);
+  };
+
+  /* A Member can only ever assign to themselves, so there is nothing to choose.
+     `assignable` below is already filtered to one; this decides whether to show
+     a control at all.
+
+     ⚠️ Applies when EDITING too, not just creating. The select was still shown
+     on edit, and although it listed only the Member themselves it also offered
+     "Unassigned" — so the one thing a Member could do with it was give their own
+     task away to nobody. `updateTaskAction` now refuses an assignee change from
+     a Member outright; this stops the control existing to be tried. */
+  const isSelfOnly = currentUser.role === 'member';
 
   /* The server asks for an override reason by saying so in the error. Showing
      the box only once it has been asked for keeps the ordinary path clean —
@@ -289,53 +399,103 @@ export function TaskDialog({
           </div>
         )}
 
-        <Field label="What needs doing?" htmlFor="title">
+        {/* ── ⚠️ LABELS ARE WRITTEN FOR A SOCIAL MEDIA MANAGER ─────────────────
+            Owner, 2026-08-22: *"write the labels in such a way that could be
+            easily understandable… they are just social media manager. They can
+            understand little things."*
+
+            "What needs doing?" is a project manager's phrasing — it asks for a
+            description when the field wants a name. Every label on this form was
+            reviewed against that: say the noun the person is about to type. */}
+        <Field label="Name the task" htmlFor="title" hint="One line. What is it?">
           <Input
             id="title"
             name="title"
             defaultValue={task?.title ?? ''}
-            placeholder="Edit the exhibition showreel — 30s vertical"
+            placeholder="Eid sale post — Instagram"
             required
             autoFocus
           />
         </Field>
 
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Project" htmlFor="projectId" hint="Every task belongs to exactly one (BR-011).">
-            <Select
-              size="md"
-              id="projectId"
-              name="projectId"
-              value={projectId}
-              onChange={(event) => setProjectId(event.target.value)}
-              required
-            >
-              {projects.map((project) => (
-                <option key={project.id} value={project.id}>
-                  {PROJECT_TYPE_META[project.type as keyof typeof PROJECT_TYPE_META]?.label ?? project.type}
-                  {' · '}
-                  {project.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
+          {/* ── ⚠️ LOCKED WHEN THE PROJECT IS ALREADY THE ANSWER ────────────────
+              Owner: *"in the tasks tab, it should auto select or auto
+              understandable that this all task and any new task created here is
+              assigned to that project whose project is clicked."*
 
-          <Field label="Assignee" htmlFor="assigneeId" hint="Leave unassigned to plan it first.">
-            <Select
-              size="md"
-              id="assigneeId"
-              name="assigneeId"
-              defaultValue={task?.assigneeId ?? defaultAssigneeId ?? ''}
-            >
-              <option value="">Unassigned</option>
-              {assignable.map((person) => (
-                <option key={person.id} value={person.id}>
-                  {person.name}
-                  {person.roleTitle ? ` — ${person.roleTitle}` : ''}
-                </option>
-              ))}
-            </Select>
-          </Field>
+              Opened from inside a project, the project is not a question — it is
+              context. Rendering a dropdown there invites a wrong answer for no
+              benefit, and picking the wrong project is the exact mistake the
+              owner described somebody making. Shown as a fact, posted as a
+              hidden field, still a real dropdown everywhere else. */}
+          {lockedProject ? (
+            <Field label="Project" hint="Set by the project you are in.">
+              <div className="flex h-9 items-center gap-2 rounded-lg border border-border-subtle bg-bg-subtle px-3">
+                <Lock className="size-3.5 shrink-0 text-text-tertiary" aria-hidden="true" />
+                <span className="truncate text-body-sm text-text-primary">{lockedProject.name}</span>
+              </div>
+              <input type="hidden" name="projectId" value={lockedProject.id} />
+            </Field>
+          ) : (
+            <Field label="Project" htmlFor="projectId" hint="Every task belongs to exactly one.">
+              <Select
+                size="md"
+                id="projectId"
+                name="projectId"
+                value={projectId}
+                onChange={(event) => setProjectId(event.target.value)}
+                required
+              >
+                {projects.map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {PROJECT_TYPE_META[project.type as keyof typeof PROJECT_TYPE_META]?.label ?? project.type}
+                    {' · '}
+                    {project.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          )}
+
+          {/* ── ⚠️ A MEMBER SEES THEIR OWN NAME, NOT A DROPDOWN OF ONE ──────────
+              Owner: *"any member who create his task, definitely that task is
+              assigned to that person."* A Member could only ever pick themselves
+              — `assignable` has already filtered the list to one — so a select
+              is a control that cannot do anything. Worse, it defaulted to
+              "Unassigned", so a Member creating their own task got a task
+              belonging to nobody unless they noticed.
+
+              Coordinator and above still choose, because assigning to somebody
+              else is exactly what their rank is for. */}
+          {isSelfOnly ? (
+            <Field label="Assigned to" hint="Your own task.">
+              <div className="flex h-9 items-center gap-2 rounded-lg border border-border-subtle bg-bg-subtle px-3">
+                <Lock className="size-3.5 shrink-0 text-text-tertiary" aria-hidden="true" />
+                <span className="truncate text-body-sm text-text-primary">
+                  {people.find((p) => p.id === currentUser.id)?.name ?? 'You'}
+                </span>
+              </div>
+              <input type="hidden" name="assigneeId" value={currentUser.id} />
+            </Field>
+          ) : (
+            <Field label="Assigned to" htmlFor="assigneeId" hint="Leave unassigned to plan it first.">
+              <Select
+                size="md"
+                id="assigneeId"
+                name="assigneeId"
+                defaultValue={task?.assigneeId ?? defaultAssigneeId ?? ''}
+              >
+                <option value="">Unassigned</option>
+                {assignable.map((person) => (
+                  <option key={person.id} value={person.id}>
+                    {person.name}
+                    {person.roleTitle ? ` — ${person.roleTitle}` : ''}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          )}
         </div>
 
         {/* BR-012 — ad-hoc work has to explain itself, or "Other" becomes the
@@ -376,11 +536,36 @@ export function TaskDialog({
             </Select>
           </Field>
 
-          <Field label="Effort" htmlFor="effortSize" hint="Sets the capacity cost.">
-            <Select size="md" id="effortSize" name="effortSize" defaultValue={task?.effortSize ?? 'M'} required>
+          {/* ── ⚠️ EFFORT DRIVES THE DUE DATE ───────────────────────────────────
+              Owner: *"if he say that under one hour, then the start date will be
+              auto select… but due date and due time will auto select to the
+              effort… I hope you get my point."*
+
+              Four date and time boxes is three too many for somebody logging a
+              post. The one thing they genuinely know is how long it will take, so
+              that is the only thing asked for — the dates follow from it and stay
+              editable for the rare case that is wrong.
+
+              The XS–XL scale is kept because the whole capacity and workload
+              engine is built on its points; only the LABEL leads with time now.
+              Replacing the scale with real durations would have meant reworking
+              the workload maths for a wording change. */}
+          <Field
+            label="How long will it take?"
+            htmlFor="effortSize"
+            hint="Fills in the due date below."
+          >
+            <Select
+              size="md"
+              id="effortSize"
+              name="effortSize"
+              value={effort}
+              onChange={(event) => chooseEffort(event.target.value as EffortSize)}
+              required
+            >
               {EFFORT_SIZES.map((size) => (
                 <option key={size} value={size}>
-                  {size} — {EFFORT_LABEL[size]} ({EFFORT_POINTS[size]} pts)
+                  {EFFORT_LABEL[size]}
                 </option>
               ))}
             </Select>
@@ -419,12 +604,27 @@ export function TaskDialog({
             />
           </Field>
 
-          <Field label="Due date" htmlFor="dueDate">
-            <Input id="dueDate" name="dueDate" type="date" defaultValue={task?.dueDate ?? ''} />
+          {/* Controlled, unlike every other input on this form: these two are the
+              ones the effort control writes into. `defaultValue` is read once at
+              mount and would ignore every later change. */}
+          <Field label="Due date" htmlFor="dueDate" hint="Filled in from the effort. Change it if you need to.">
+            <Input
+              id="dueDate"
+              name="dueDate"
+              type="date"
+              value={dueDate}
+              onChange={(event) => setDueDate(event.target.value)}
+            />
           </Field>
 
-          <Field label="Due time" htmlFor="dueTime" hint="Optional — blank means end of that day.">
-            <Input id="dueTime" name="dueTime" type="time" defaultValue={task?.dueTime ?? ''} />
+          <Field label="Due time" htmlFor="dueTime" hint="Blank means end of that day.">
+            <Input
+              id="dueTime"
+              name="dueTime"
+              type="time"
+              value={dueTime}
+              onChange={(event) => setDueTime(event.target.value)}
+            />
           </Field>
 
           {/* Paired deliberately: on create these two fill a row, and on edit
@@ -457,116 +657,63 @@ export function TaskDialog({
             </Field>
           )}
 
-          <Field label="Time limit" htmlFor="timeLimitHours" hint="Hours. Blank for none.">
-            <Input
-              id="timeLimitHours"
-              name="timeLimitHours"
-              type="number"
-              min="0"
-              step="0.5"
-              defaultValue={task?.timeLimitMinutes ? task.timeLimitMinutes / 60 : ''}
-            />
-          </Field>
+          {/* ⚠️ "Time limit" was here and is gone. Owner, 2026-08-22: *"he's
+              saying that one hour, then due time will auto select, right? So I
+              think so we can exclude this time limit."* It asked the same
+              question as the effort control in a different unit, and two fields
+              that disagree about how long something takes is worse than one.
+
+              The COLUMN survives — `tasks.time_limit_minutes`, the timer and the
+              extension-request flow all still work and are still reachable from a
+              task's own page. It is only off the create form, where it was making
+              somebody answer twice. */}
         </div>
 
         <RepeatField initial={task?.recurrenceRule ?? null} />
 
-        {/* ══ THE DELIVERABLE ═══════════════════════════════════════════════════
-            The coordinator's Google Sheet, in fields. Owner, 2026-08-19: a row
-            per video, with the raw material's Drive link, the finished asset's
-            Drive link, and then a link per platform once it goes live.
+        {/* ══ CATEGORY ══════════════════════════════════════════════════════════
+            ⚠️ THIS BLOCK WAS FOUR FIELDS AND IS NOW ONE.
 
-            The per-platform links are NOT here. They are added on the task's own
-            page as each one goes out, which is days after the task is created —
-            asking for six URLs in a create form would mean six empty boxes every
-            time. `content kind` is here because it has to be decided up front:
-            it is what makes this task countable against the package target. */}
-        <fieldset className="space-y-4 rounded-lg border border-border-subtle p-3">
-          <legend className="px-1 text-micro font-semibold tracking-[0.06em] text-text-tertiary uppercase">
-            Deliverable
-          </legend>
+            Owner, 2026-08-22: *"published on, exclude this field. Raw material
+            exclude it, and finish file also exclude it… every post will be a
+            different URL. So we can't take it as a single task, right? So we
+            will deal them separately."* Confirmed by the ✓/× marks on the
+            notebook page: Details ✓, Publish on ×, Raw material ×, Finished
+            file ×.
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field
-              label="What is being produced?"
-              htmlFor="contentKind"
-              hint="Leave blank for work that is not a client deliverable."
-            >
-              <Select
-                size="md"
-                id="contentKind"
-                name="contentKind"
-                defaultValue={task?.contentKind ?? ''}
-                options={[
-                  { value: '', label: 'Not a deliverable' },
-                  ...CONTENT_KINDS.map((k) => ({
-                    value: k,
-                    label: CONTENT_KIND_LABEL[k],
-                  })),
-                ]}
-              />
-            </Field>
+            The reasoning is his, and it is correct. Those three describe what
+            happened to a deliverable AFTER the work — a URL, a date, a folder —
+            and they were being asked for at the moment the task is created, when
+            all three are necessarily empty. On a daily post they are also not
+            singular: one task can go out on three platforms with three different
+            links, which no single "Published on" field can hold.
 
-            <Field
-              label="Published on"
-              htmlFor="publishedOn"
-              hint="The date it went live. Counted in that month's target — not the date it was finished."
-            >
-              <Input
-                id="publishedOn"
-                name="publishedOn"
-                type="date"
-                defaultValue={task?.publishedOn ?? ''}
-              />
-            </Field>
-          </div>
+            They move to the daily completion flow, where they are answerable.
+            `tasks.published_on`, `source_drive_url` and `asset_drive_url` all
+            still exist and are still written — just not from here.
 
-          <Field
-            label="Raw material"
-            htmlFor="sourceDriveUrl"
-            hint="The Drive folder or file with the clips, photos and brief."
-          >
-            <Input
-              id="sourceDriveUrl"
-              name="sourceDriveUrl"
-              type="url"
-              placeholder="https://drive.google.com/…"
-              defaultValue={task?.sourceDriveUrl ?? ''}
-              list="drive-folder-urls"
-            />
-          </Field>
-
-          <Field
-            label="Finished file"
-            htmlFor="assetDriveUrl"
-            hint="Where the edited reel or graphic ended up."
-          >
-            <Input
-              id="assetDriveUrl"
-              name="assetDriveUrl"
-              type="url"
-              placeholder="https://drive.google.com/…"
-              defaultValue={task?.assetDriveUrl ?? ''}
-              list="drive-folder-urls"
-            />
-          </Field>
-
-          {/* ⚠️ A `datalist`, not a `select`. Owner asked that "all the Google
-              Drive folders should appear" — but the link is often to a FILE
-              inside a folder, or to something not in the registry at all. A
-              select would make the registry the only permitted answer and force
-              people back to pasting into the wrong field. This suggests the known
-              folders while still accepting any URL. */}
-          {driveFolders.length > 0 && (
-            <datalist id="drive-folder-urls">
-              {driveFolders.map((f) => (
-                <option key={f.id} value={`https://drive.google.com/drive/folders/${f.driveFolderId}`}>
-                  {f.name}
-                </option>
-              ))}
-            </datalist>
-          )}
-        </fieldset>
+            Category stays, and stays on the create form, because it is the one
+            thing that must be decided up front: it is what makes the task
+            countable against the package target. */}
+        <Field
+          label="Category"
+          htmlFor="contentKind"
+          hint="What this produces. Leave blank if it is not a client deliverable."
+        >
+          <Select
+            size="md"
+            id="contentKind"
+            name="contentKind"
+            defaultValue={task?.contentKind ?? ''}
+            options={[
+              { value: '', label: 'Not a deliverable' },
+              ...CONTENT_KINDS.map((k) => ({
+                value: k,
+                label: CONTENT_KIND_LABEL[k],
+              })),
+            ]}
+          />
+        </Field>
 
         <Field label="Detail" htmlFor="description" hint="Brief, links, references — anything the person needs.">
           <Textarea

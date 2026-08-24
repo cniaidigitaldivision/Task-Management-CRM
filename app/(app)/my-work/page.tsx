@@ -13,7 +13,7 @@ import { listProjects } from '@/lib/db/queries/projects';
 import { listTasks } from '@/lib/db/queries/tasks';
 import { teamWorkload } from '@/lib/db/queries/workload';
 import { WORKLOAD_BAND_META } from '@/lib/domain/constants';
-import { nowMs } from '@/lib/now';
+import { isoDateIn, nowMs } from '@/lib/now';
 import { toTaskView } from '@/lib/view/task-view';
 import { getSettings } from '@/lib/settings/current';
 
@@ -187,7 +187,8 @@ export default async function MyWorkPage() {
           initialTasks={tasks}
           currentUser={{ id: user.id, name: user.fullName, role: user.role }}
           people={people.map((p) => ({ id: p.id, name: p.fullName, roleTitle: p.roleTitle }))}
-          projects={projects.map((p) => ({ id: p.id, name: p.name, type: p.type, code: p.code }))}
+          today={isoDateIn()}
+        projects={projects.map((p) => ({ id: p.id, name: p.name, type: p.type, code: p.code }))}
         />
       </PageSection>
     </div>

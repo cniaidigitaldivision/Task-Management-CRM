@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 
-import { requireUser } from '@/lib/auth/current-user';
+import { requireUser, stepUpIsFresh } from '@/lib/auth/current-user';
 import {
   expiresInMinutes,
   generateNumericCode,
@@ -81,6 +81,17 @@ export interface TeamActionResult {
   readonly warning?: string;
   /** Plain confirmation, for when there is nothing to caveat. */
   readonly message?: string;
+  /**
+   * The caller must re-authenticate before this will be accepted (FR-149).
+   *
+   * ⚠️ Added 2026-08-22. `user.change_role` and `user.promote_to_admin` have
+   * been in `STEP_UP_ACTIONS` since that list was written, and this file was the
+   * one place that never asked — it imported `requireUser` and nothing else. So
+   * the permission was enforced and the ceremony was not, which meant a hijacked
+   * session could appoint an Admin without re-entering a password. See the note
+   * on `changeRoleAction`.
+   */
+  readonly stepUpRequired?: boolean;
 }
 
 const fail = (error: string): TeamActionResult => ({ ok: false, error });
@@ -213,7 +224,9 @@ export async function invitePersonAction(
     activationUrl,
   });
 
-  const result = await sendEmail({ to: email, subject: message.subject, html: message.html, text: message.text });
+  /* Spread whole — the invitation carries the header mark as an inline
+     attachment, and naming the fields individually drops it (lib/email/send.ts). */
+  const result = await sendEmail({ to: email, ...message });
 
   let emailNote: string;
   if (result.sent) {
@@ -270,7 +283,7 @@ export async function resendInvitationAction(userId: string): Promise<TeamAction
     roleLabel: ROLE_LABEL[target.role],
     activationUrl,
   });
-  const result = await sendEmail({ to: target.email, subject: message.subject, html: message.html, text: message.text });
+  const result = await sendEmail({ to: target.email, ...message });
 
   await withUser(user.id, async (tx) => {
     await record(tx, user.id, {
@@ -412,6 +425,28 @@ export async function changeRoleAction(userId: string, role: Role): Promise<Team
      Admin could promote a Member to Admin and quietly widen the circle. */
   if (role === 'admin' && !can(actor, 'user.promote_to_admin', context)) {
     return fail('Only the Super Admin can appoint an Admin.');
+  }
+
+  /* ── ⚠️ RE-AUTHENTICATION, FR-149 — ADDED 2026-08-22 ──────────────────────
+     `user.change_role` and `user.promote_to_admin` are both in
+     `STEP_UP_ACTIONS`, and this action never asked. Credentials, settings, the
+     profile email and task purging all did; team management was the gap.
+
+     What that meant in practice: a session taken over at an unlocked laptop
+     could grant somebody Admin without ever producing a password or a second
+     factor — which is the exact scenario step-up exists for. Changing a role is
+     the most durable thing in this file. A forced password reset is loud and
+     reversible; an extra Admin is quiet and persists.
+
+     Checked AFTER the permission and validity checks, so nobody is made to
+     re-authenticate only to be told the change was not allowed anyway. Same
+     ordering as `changeEmailAction` in people.ts, for the same reason. */
+  if (!stepUpIsFresh(user, nowMs())) {
+    return {
+      ok: false,
+      stepUpRequired: true,
+      error: 'Confirm it is you before changing somebody’s role.',
+    };
   }
 
   try {
@@ -564,12 +599,7 @@ async function issueReset(
     resetUrl: `${await appUrl()}/reset-password?code=${code}&t=${trailRef}`,
   });
 
-  const result = await sendEmail({
-    to: target.email,
-    subject: message.subject,
-    html: message.html,
-    text: message.text,
-  });
+  const result = await sendEmail({ to: target.email, ...message });
 
   const sender = describeSender();
   const delivery: Delivery = result.sent

@@ -48,7 +48,10 @@
 
 import Image from 'next/image';
 
-import { DIVISION_NAME, ORGANISATION_NAME, ORGANISATION_SHORT_NAME } from '@/lib/domain/constants';
+/* ⚠️ `ORGANISATION_SHORT_NAME` is deliberately not imported here any more. Both
+   lockups used to read "CNI · CRM"; they now read the PRODUCT name, and the
+   organisation is named only where it belongs — on reports that go to clients. */
+import { APP_NAME, DIVISION_NAME, ORGANISATION_NAME } from '@/lib/domain/constants';
 import { cn } from '@/lib/utils';
 
 const LOGO_SRC = '/brand/cni-ai-digital-division.png';
@@ -247,11 +250,25 @@ export function LogoSidebar({
 
       {!collapsed && (
         <span className="flex min-w-0 flex-col leading-tight">
+          {/* ⚠️ 16px, set explicitly rather than through the type scale.
+              Owner, 2026-08-23. It was `text-body-sm` (14px), which is the scale
+              step for ordinary interface text — right for a label, too quiet for
+              the product's own name sitting at the top of the rail.
+
+              A literal size here and not a new scale step: the type scale in
+              globals.css describes CONTENT, and a wordmark is a piece of
+              branding that happens to be set in type. Adding a step for one
+              element would put a brand decision into the vocabulary every other
+              screen reads from.
+
+              ⚠️ It renders at 14.4px, not 16px — `--ui-scale: 0.9` on `body`
+              multiplies every length in the document. That is the density the
+              owner asked for on 2026-08-21; say so before "fixing" this number. */}
           <span
-            className="truncate text-body-sm font-semibold tracking-tight"
+            className="truncate text-[16px] leading-tight font-semibold tracking-tight"
             style={{ color: 'var(--sidebar-heading)' }}
           >
-            {ORGANISATION_SHORT_NAME} {'·'} CRM
+            {APP_NAME}
           </span>
           <span
             className="truncate text-micro"
@@ -284,7 +301,7 @@ export function LogoWordmark({
       <LogoGlow width={markWidth} size="sm" decorative />
       <span className="flex min-w-0 flex-col leading-none">
         <span className="text-body-sm font-semibold tracking-tight">
-          {ORGANISATION_SHORT_NAME} CRM
+          {APP_NAME}
         </span>
         <span className="mt-1 text-micro font-medium tracking-[0.06em] uppercase opacity-70">
           {DIVISION_NAME}

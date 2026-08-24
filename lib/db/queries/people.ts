@@ -73,11 +73,30 @@ export async function getPerson(actorId: string, userId: string): Promise<Person
  * in the assignee list means its capacity starts appearing in workload reports —
  * which quietly inflates the team's apparent headroom.
  */
+/* ── ⚠️ WORK FLOWS DOWNWARD — owner instruction, 2026-08-23 ──────────────────
+   *"a lower-level person could not assign a task to an upper-level person… the
+   team coordinator can assign a task to all team members except the admin and
+   super admin."*
+
+   This was `role <> 'super_admin'`: a blunt exclusion that hid one person from
+   everybody, including from themselves, and did nothing about the case the
+   owner actually named — a Coordinator putting work on an Admin.
+
+   The rank comparison says the whole rule in one line, and says it in the same
+   direction as `canAssignTo` in lib/domain/permissions.ts. Filtering HERE rather
+   than in each component means the task dialog, the bulk bar's "Assign to…" and
+   anything added later all inherit it without knowing it exists.
+
+   ⚠️ Still not the boundary. `rankGate` in app/actions/tasks.ts re-checks every
+   assignment server-side, because a list that omits a name is convenience and a
+   hand-written POST is not bound by it (registry C-21). */
 export async function listAssignablepeople(actorId: string): Promise<PersonRow[]> {
   const rows = await withUser(actorId, (tx) => tx`
-    select * from public.users
-     where is_active and account_state = 'active' and role <> 'super_admin'
-     order by full_name
+    select * from public.users u
+     where u.is_active
+       and u.account_state = 'active'
+       and app.role_rank(u.role) <= app.role_rank(app.current_user_role())
+     order by u.full_name
   `);
   return rows.map(toPerson);
 }

@@ -40,7 +40,7 @@
  * annotated inline where it occurs.
  * ========================================================================= */
 
-import { ROLE_RANK, type Role } from './constants';
+import { ROLE_RANK, type Role, type TaskStatus } from './constants';
 
 /* ==========================================================================
  * RULES
@@ -148,10 +148,25 @@ export const PERMISSIONS = {
 
   /* ---- Projects — doc 03 §3.2 ------------------------------------------ */
 
-  'project.create': M('allow', 'allow', 'deny', 'deny'),
-  'project.set_type': M('allow', 'allow', 'deny', 'deny'),
-  'project.edit': M('allow', 'allow', 'deny', 'deny'),
-  'project.change_status': M('allow', 'allow', 'deny', 'deny'),
+  /* ── ⚠️ THE COORDINATOR RUNS PROJECTS NOW — owner, 2026-08-23 ──────────────
+   * *"a team coordinator can create a new project and can add social media
+   * accounts, their credentials, and their documentation. He can also manage all
+   * these things."*
+   *
+   * Was Admin-and-above throughout, from doc 03 §3.2. The reasoning then was
+   * that a project is a commercial commitment — it carries a package, a fee and
+   * a client. That is still true of the MONEY, and `project.view_finance` is
+   * unchanged: a Coordinator creates and runs the project without ever seeing
+   * what it bills, which is the owner's earlier instruction and this one held
+   * together.
+   *
+   * What stays Admin-only is destruction, not creation: `project.soft_delete`
+   * and `project.purge` below. Someone who plans the work should not be able to
+   * remove the container it lives in. */
+  'project.create': M('allow', 'allow', 'allow', 'deny'),
+  'project.set_type': M('allow', 'allow', 'allow', 'deny'),
+  'project.edit': M('allow', 'allow', 'allow', 'deny'),
+  'project.change_status': M('allow', 'allow', 'allow', 'deny'),
   /** doc 03 gives the Admin soft delete only; the purge is Super Admin, 🔒. */
   'project.soft_delete': M('allow', 'allow', 'deny', 'deny'),
   'project.purge': M('allow', 'deny', 'deny', 'deny'),
@@ -212,7 +227,27 @@ export const PERMISSIONS = {
   'task.request_revisions': M('not_assignee', 'not_assignee', 'not_assignee', 'deny'),
 
   'task.cancel': M('allow', 'allow', 'allow', 'self_created'),
-  'task.soft_delete': M('allow', 'allow', 'deny', 'deny'),
+
+  /* ── ⚠️ THIS ROW IS THE COARSE HALF OF THE RULE — SEE `canDeleteTask` ──────
+   * Owner, 2026-08-23, stating it fully:
+   *   1. *"everyone can delete his own task that he raised or created by
+   *      himself. Tasks assigned by someone else would not be deletable unless
+   *      that person deletes them."*
+   *   2. *"that task will not be deletable unless it is in the To Do or In
+   *      Progress status. Once it is in [Blocked], Done, Cancel, or Backlog
+   *      status, the delete option will only be available to admin."*
+   *
+   * `self_created` for BOTH lower roles now, not just Member: a Coordinator was
+   * `deny`, which meant they could raise a task by mistake and then had to ask
+   * an Admin to remove it. The owner's rule 1 says everyone, and it means it.
+   *
+   * ⚠️ WHAT THIS ROW CANNOT SAY is rule 2. No `Rule` kind here takes a STATUS —
+   * they describe the actor's relationship to a resource, not the resource's own
+   * state. So this row answers "may this role ever delete this task", and
+   * `canDeleteTask` below answers the whole question. The action calls that one.
+   * Kept in the matrix anyway because doc 03 lists the action, and a row missing
+   * from the table reads as an oversight rather than a deliberate split. */
+  'task.soft_delete': M('allow', 'allow', 'self_created', 'self_created'),
   'task.purge': M('allow', 'deny', 'deny', 'deny'),
   'task.restore': M('allow', 'allow', 'deny', 'deny'),
   'task.comment': M('allow', 'allow', 'allow', 'own_task'),
@@ -271,21 +306,55 @@ export const PERMISSIONS = {
    * Q-054). Whether they may open the log at all is this.
    */
   'audit_log.view': M('allow', 'allow', 'deny', 'deny'),
-  'security_dashboard.view': M('allow', 'deny', 'deny', 'deny'),
+  /* ⚠️ ADMIN, from 2026-08-22 — owner decision, taken against a stated caution.
+   *
+   * This screen lists live sessions, failed sign-ins and security events for
+   * EVERY account, and its session panel can end a session. An Admin can
+   * therefore sign the Super Admin out. The owner was told that in those words
+   * and chose full parity anyway.
+   *
+   * What still holds them off the Super Admin: `users_update` refuses any write
+   * to that row (migration 005), `audit_log_select` hides the Super Admin's own
+   * entries from an Admin (Q-054), and nothing here grants `admin.create` or
+   * `user.purge`. Being signed out is recoverable; the rest would not be.
+   *
+   * ⚠️ The matrix alone does NOT open this screen — the row-level policies on
+   * `security_events` and `sessions` were super_admin-only and had to move with
+   * it (migration 040). Granting one without the other renders empty panels,
+   * which reads as a broken page rather than a permission boundary. */
+  'security_dashboard.view': M('allow', 'allow', 'deny', 'deny'),
 
-  /* ---- System settings — doc 03 §3.6 ----------------------------------- */
+  /* ---- System settings — doc 03 §3.6 -----------------------------------
+   * ⚠️ THE ADMIN REACHED ALL OF THESE ON 2026-08-22, BY OWNER DECISION.
+   *
+   * Owner: *"the admin today cannot open security, can't change [settings] …
+   * and cannot export data. I want the admin to be able to export data because I
+   * am the admin … They run the company project without being able to adjust how
+   * the system works. Definitely I want that."*
+   *
+   * The original split gave the Admin the day-to-day settings and reserved the
+   * ones that change how the ENGINE scores and schedules — capacity thresholds,
+   * the status workflow, assignment weights — for the Super Admin, on the
+   * reasoning that those alter every future decision the system makes rather than
+   * one project. That reasoning was sound and the owner overruled it knowingly:
+   * the person running the division is an Admin, and an Admin who cannot set a
+   * capacity threshold has to ask someone else to run their own team.
+   *
+   * The Super Admin keeps what is genuinely about CONTROL OF THE SYSTEM ITSELF —
+   * appointing Admins, purging records, and their own account. Those are still
+   * 'deny' above, and deliberately so. */
 
-  'settings.capacity_thresholds': M('allow', 'deny', 'deny', 'deny'),
-  'settings.default_capacity': M('allow', 'deny', 'deny', 'deny'),
-  'settings.status_workflow': M('allow', 'deny', 'deny', 'deny'),
+  'settings.capacity_thresholds': M('allow', 'allow', 'deny', 'deny'),
+  'settings.default_capacity': M('allow', 'allow', 'deny', 'deny'),
+  'settings.status_workflow': M('allow', 'allow', 'deny', 'deny'),
   'settings.skills_library': M('allow', 'allow', 'deny', 'deny'),
-  'settings.scoring_weights': M('allow', 'deny', 'deny', 'deny'),
+  'settings.scoring_weights': M('allow', 'allow', 'deny', 'deny'),
   'settings.other_work_threshold': M('allow', 'allow', 'deny', 'deny'),
-  'settings.project_type_priority': M('allow', 'deny', 'deny', 'deny'),
+  'settings.project_type_priority': M('allow', 'allow', 'deny', 'deny'),
   'settings.notification_defaults': M('allow', 'allow', 'deny', 'deny'),
   'settings.own_notification_prefs': M('allow', 'allow', 'allow', 'allow'),
-  'settings.security': M('allow', 'deny', 'deny', 'deny'),
-  'data.export_all': M('allow', 'deny', 'deny', 'deny'),
+  'settings.security': M('allow', 'allow', 'deny', 'deny'),
+  'data.export_all': M('allow', 'allow', 'deny', 'deny'),
   'sessions.view_and_revoke_own': M('allow', 'allow', 'allow', 'allow'),
 
   /* ---- The credentials vault — owner request 2026-08-12 ------------------
@@ -317,7 +386,11 @@ export const PERMISSIONS = {
   'credential.view': M('allow', 'allow', 'allow', 'allow'),
   'credential.reveal': M('allow', 'allow', 'allow', 'allow'),
   'credential.manage': M('allow', 'allow', 'allow', 'deny'),
-  'credential.delete': M('allow', 'allow', 'deny', 'deny'),
+  /* Coordinator too, since 2026-08-23 — *"he can also manage all these
+     things."* A person who adds a client's Instagram login is the person who
+     removes it when the client changes it. RLS still narrows both to projects
+     they own (`app.can_read_credential`). */
+  'credential.delete': M('allow', 'allow', 'allow', 'deny'),
 
   /* ---- Google Drive documents — owner request 2026-08-13 -----------------
    * Owner: *"every time a user or anybody comes, they should have a place where
@@ -353,6 +426,11 @@ export const PERMISSIONS = {
      is part of running it. Mirrored by the `drive_folders_write` policy in
      migration 027, which is the enforcement; this is the sentence. */
   'document.share': M('allow', 'allow', 'allow', 'deny'),
+  /* ⚠️ Still Admin-only, deliberately, and NOT part of the 2026-08-23 widening.
+     This connects the division's Google account — one OAuth grant shared by
+     everybody, not a per-project setting. A Coordinator managing a project's
+     documents (`document.manage`, already theirs) is a different act from
+     re-pointing the whole division's Drive. */
   'drive.configure': M('allow', 'allow', 'deny', 'deny'),
 } as const satisfies Record<string, Readonly<Record<Role, Rule>>>;
 
@@ -504,4 +582,127 @@ function isSame(actorId: string, candidate: string | undefined): boolean {
   // unauthenticated request the owner of anything with a missing field.
   if (!candidate || !actorId) return false;
   return candidate === actorId;
+}
+
+/**
+ * May `actorRole` put work on somebody of `assigneeRole`?
+ *
+ * Owner, 2026-08-23: *"a lower-level person could not assign a task to an
+ * upper-level person… The flow will always move from up to down. In the same way
+ * the task assign thing will also move from up to down… the team coordinator can
+ * assign a task to all team members except the admin and super admin."*
+ *
+ * ── ⚠️ THIS IS A DIFFERENT QUESTION FROM `task.create_for_other` ─────────────
+ * That one asks "may this person assign work at all", and answers yes for
+ * Coordinator and above. It says nothing about WHO — so a Coordinator could put
+ * a task on the Super Admin, which is the gap this closes. Both checks run: the
+ * first decides whether assigning is their job, this decides whether the target
+ * is beneath them.
+ *
+ * ── WHY `>=` AND NOT `>` ────────────────────────────────────────────────────
+ * Equal rank is allowed. Two Coordinators planning between themselves is normal
+ * work, and the owner's rule names the exclusions upward — *"except the admin
+ * and super admin"* — not sideways. `>` would stop a Coordinator handing
+ * anything to another Coordinator, which nobody asked for.
+ *
+ * ── IT IS NOT IN `PERMISSIONS` ──────────────────────────────────────────────
+ * The matrix answers "may this ROLE do this ACTION", and every `Rule` it has
+ * describes the actor's relationship to a RESOURCE — self, own task, in project.
+ * This compares two roles, which no rule kind expresses. `outranks` is the
+ * closest and is subtly wrong here: it is strict, and it is about acting ON a
+ * user record rather than about handing work to one.
+ */
+export function canAssignTo(actorRole: Role, assigneeRole: Role): boolean {
+  return ROLE_RANK[actorRole] >= ROLE_RANK[assigneeRole];
+}
+
+/**
+ * The people this actor may hand work to, filtered from a wider list.
+ *
+ * Used to build the assignee control, so a name that would be refused is never
+ * offered. The server checks `canAssignTo` again — this is convenience, never
+ * the boundary (registry C-21).
+ */
+export function assignableTo<T extends { readonly role: Role }>(
+  actorRole: Role,
+  people: readonly T[],
+): T[] {
+  return people.filter((person) => canAssignTo(actorRole, person.role));
+}
+
+/* ============================================================================
+ * DELETING A TASK — THE WHOLE RULE, IN ONE PLACE
+ * ----------------------------------------------------------------------------
+ * Owner, 2026-08-23, in three parts:
+ *
+ *   1. *"everyone can delete his own task that he raised or created by
+ *      himself."*
+ *   2. *"tasks assigned by someone else would not be deletable unless that
+ *      person deletes them."*
+ *   3. *"that task will not be deletable unless it is in the To Do or In
+ *      Progress status. Once it is in [Blocked], Done, Cancel, or Backlog
+ *      status, the delete option will only be available to admin."*
+ *
+ * ── ⚠️ WHY THIS IS A FUNCTION AND NOT A MATRIX ROW ──────────────────────────
+ * Rules 1 and 2 are about WHO — `self_created` says both of them in one word,
+ * and the matrix carries it. Rule 3 is about the task's own STATE, and no `Rule`
+ * kind takes a status: they all describe the actor's relationship to a resource.
+ * Adding a `self_created_and_early` kind would encode one screen's policy into
+ * the shared vocabulary, which is how a permission table stops being readable.
+ *
+ * So the matrix keeps the coarse answer and this composes the full one. Both are
+ * checked — this calls `can()` rather than reimplementing it.
+ *
+ * ── WHY ONLY TO DO AND IN PROGRESS ──────────────────────────────────────────
+ * The owner named those two as the window and listed the rest as Admin-only.
+ * It is a whitelist rather than a blacklist on purpose: `in_review` and
+ * `revisions` were not named either way, and work that somebody else is
+ * currently reviewing is exactly the case where a quiet delete is worst — the
+ * reviewer's screen empties with no explanation. A whitelist fails closed for
+ * every status nobody thought about, including any added later.
+ *
+ * ── "ADMIN" MEANS ADMIN AND SUPER ADMIN ─────────────────────────────────────
+ * The owner said so explicitly. Expressed as a rank comparison rather than two
+ * string equalities, so it stays true if a rank is ever inserted between them.
+ * ========================================================================= */
+
+/** The only statuses in which somebody other than an Admin may delete a task. */
+export const DELETABLE_STATUSES: readonly TaskStatus[] = ['todo', 'in_progress'];
+
+export interface DeletableTask {
+  readonly createdById: string;
+  readonly assigneeId?: string | null;
+  readonly status: TaskStatus;
+}
+
+/** Why a delete was refused, so the interface can say which rule applied rather
+ *  than "no permission" — the two refusals need different responses from the
+ *  person reading them. */
+export type DeleteRefusal = 'not_yours' | 'too_far_along' | null;
+
+/**
+ * May this actor delete this task? Returns the reason when not.
+ *
+ * `null` means allowed. Anything else is the rule that refused, and the caller
+ * turns it into a sentence — kept as a code rather than a string so the domain
+ * layer holds no copy.
+ */
+export function deleteRefusal(actor: Actor, task: DeletableTask): DeleteRefusal {
+  /* Admin and above: any task, any status. Rule 3's escape hatch. */
+  if (ROLE_RANK[actor.role] >= ROLE_RANK.admin) return null;
+
+  /* Rules 1 and 2, via the matrix — `self_created` is exactly "you raised it". */
+  if (!can(actor, 'task.soft_delete', { createdById: task.createdById })) {
+    return 'not_yours';
+  }
+
+  /* Rule 3. */
+  if (!DELETABLE_STATUSES.includes(task.status)) return 'too_far_along';
+
+  return null;
+}
+
+/** Convenience for the interface, which usually only needs the boolean. */
+export function canDeleteTask(actor: Actor, task: DeletableTask): boolean {
+  return deleteRefusal(actor, task) === null;
 }

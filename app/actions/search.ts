@@ -21,6 +21,9 @@ export async function searchAction(term: string): Promise<SearchResults> {
 export async function calendarAction(range: {
   from: string;
   to: string;
+  /** Set by a project's Calendar tab, so paging to another month stays scoped
+   *  to that project rather than silently widening to the whole division. */
+  projectId?: string;
 }): Promise<CalendarTask[]> {
   const user = await requireUser();
   return tasksInRange(user.id, range);

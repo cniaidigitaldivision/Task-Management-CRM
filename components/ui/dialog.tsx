@@ -216,7 +216,10 @@ export function Dialog({
       {open && (
         <div
           className={cn(
-            'flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-border-default',
+            /* Divided by the density scale for the same reason as the auth
+               layout: `dvh` ignores the `zoom` on body, so a plain 92dvh would
+               cap this at 83% of the window instead of 92%. */
+            'flex max-h-[calc(92dvh/var(--ui-scale))] w-full flex-col overflow-hidden rounded-t-2xl border border-border-default',
             'bg-bg-surface shadow-[var(--shadow-xl)] sm:rounded-2xl',
             widths[size],
           )}

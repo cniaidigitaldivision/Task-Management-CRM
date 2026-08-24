@@ -1,10 +1,10 @@
 import type { Metadata } from 'next';
 
 import { LogoHero } from '@/components/brand/logo';
-import { ORGANISATION_NAME } from '@/lib/domain/constants';
+import { APP_NAME, ORGANISATION_NAME } from '@/lib/domain/constants';
 
 export const metadata: Metadata = {
-  title: { default: 'Sign in', template: '%s · CNI CRM' },
+  title: { default: 'Sign in', template: `%s · ${APP_NAME}` },
 };
 
 /* ============================================================================
@@ -31,8 +31,12 @@ export const metadata: Metadata = {
  * ========================================================================= */
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
+  /* `dvh` is measured against the real window, which the density scale on
+     `body` (styles/tokens.css) does not change — so a bare `min-h-dvh` would
+     paint this surface over only 90% of the screen and leave a band of
+     --bg-base along the bottom. Dividing by the scale restores full height. */
   return (
-    <div className="flex min-h-dvh flex-col items-center justify-center bg-bg-surface px-4 py-10">
+    <div className="flex min-h-[calc(100dvh/var(--ui-scale))] flex-col items-center justify-center bg-bg-surface px-4 py-10">
       <main className="w-full max-w-[26rem]">
         <div className="mb-8 flex flex-col items-center gap-4 text-center">
           <LogoHero width={230} />

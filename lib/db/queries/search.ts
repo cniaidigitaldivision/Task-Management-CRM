@@ -191,7 +191,11 @@ export interface CalendarTask {
  */
 export async function tasksInRange(
   actorId: string,
-  range: { from: string; to: string },
+  /* ⚠️ `projectId` added 2026-08-23. Owner, looking at a project's Calendar tab:
+     *"the calendar is not working. It's not showing anything related to that
+     project."* It was showing the posting RHYTHM — the plan — and no tasks at
+     all, because nothing had ever asked this query for one project's work. */
+  range: { from: string; to: string; projectId?: string },
 ): Promise<CalendarTask[]> {
   const rows = await withUser(actorId, (tx) => tx`
     select t.id, t.reference, t.title, t.status, t.priority,
@@ -205,6 +209,7 @@ export async function tasksInRange(
        and t.due_date is not null
        and t.due_date >= ${range.from}::date
        and t.due_date <= ${range.to}::date
+       ${range.projectId ? tx`and t.project_id = ${range.projectId}` : tx``}
      /* Time first, then priority. A day reads in the order the work happens; two
         things at the same hour are ordered by which matters more. Tasks with no
         time sort last within their day rather than first — an unscheduled task is

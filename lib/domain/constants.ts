@@ -734,7 +734,20 @@ export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 export const ORGANISATION_NAME = 'Crescent Nova International';
 export const ORGANISATION_SHORT_NAME = 'CNI';
 export const DIVISION_NAME = 'AI & Digital Division';
-export const APP_NAME = 'CNI CRM';
+
+/* ── ⚠️ THE TOOL HAS ITS OWN NAME NOW — owner, 2026-08-23 ────────────────────
+   *"on the top where the CNI CRM is written, remove that and instead write
+   this: Taskly. It's the name of our tool."*
+
+   Two different things were both reading "CNI CRM": the ORGANISATION that owns
+   the division, and the PRODUCT people sign into. They were the same string
+   because the product had never been named.
+
+   `APP_NAME` is now the product and nothing else. The organisation constants
+   above are untouched — they still label reports, which are sent to clients and
+   must carry the company's name, not the tool's. Changing the wrong one would
+   have put "Taskly" on a client-facing document. */
+export const APP_NAME = 'Taskly';
 
 /** localStorage key holding the user's theme *preference* (light|dark|system).
  *  Distinct from the resolved value written to <html data-theme>. */

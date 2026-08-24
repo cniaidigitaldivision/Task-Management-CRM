@@ -258,16 +258,21 @@ describe('who may change what (doc 03 §3.6)', () => {
     }
   });
 
-  it('lets an Admin change only the library and the two shared defaults', () => {
-    /* The screen is Admin-gated, but the doc 03 matrix reserves the numbers the
-       whole workload model rests on — the thresholds, the weights, the security
-       timings — for the Super Admin. So an Admin opening Settings sees most of
-       it read-only rather than gets refused at the door, which is the honest
-       shape: they are allowed here, just not allowed to move those. */
-    const allowed = SETTING_DEFINITIONS.filter((d) => can(actor('admin'), d.permission)).map(
+  it('lets an Admin change every setting on the screen, as of 2026-08-22', () => {
+    /* ⚠️ THIS ASSERTION WAS REVERSED BY THE OWNER, NOT RELAXED TO GET IT PASSING.
+       It used to read `expect(allowed).toEqual(['otherWorkWarningPct'])`, on the
+       reasoning that the numbers the workload model rests on — thresholds,
+       scoring weights, security timings — belonged to the Super Admin alone.
+
+       Owner, 2026-08-22: *"They run the company project without being able to
+       adjust how the system works. Definitely I want that."* An Admin now moves
+       every one of them. What the Super Admin keeps is control of the system
+       itself — appointing Admins, purging records, their own account — and those
+       are asserted elsewhere in permissions.test.ts. */
+    const denied = SETTING_DEFINITIONS.filter((d) => !can(actor('admin'), d.permission)).map(
       (d) => d.key,
     );
-    expect(allowed).toEqual(['otherWorkWarningPct']);
+    expect(denied).toEqual([]);
   });
 
   it('lets a Team Coordinator and a Member change none of them', () => {
@@ -280,8 +285,14 @@ describe('who may change what (doc 03 §3.6)', () => {
     }
   });
 
-  it('keeps the security settings to the Super Admin alone', () => {
-    for (const role of ['admin', 'team_coordinator', 'member'] as const) {
+  it('keeps the security settings above the Coordinator', () => {
+    /* Also reversed for the Admin on 2026-08-22. The boundary that matters is
+       still here: a Coordinator and a Member cannot touch lockout thresholds or
+       session lifetimes, and hiding the control is not what stops them — this
+       per-field check is (registry C-21). */
+    expect(can(actor('admin'), 'settings.security')).toBe(true);
+
+    for (const role of ['team_coordinator', 'member'] as const) {
       expect(can(actor(role), 'settings.security'), role).toBe(false);
     }
   });

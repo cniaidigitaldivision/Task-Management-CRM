@@ -168,24 +168,41 @@ Legend: ✅ allowed · ⚠️ allowed with condition · ❌ denied · 🔒 requi
 | See per-member performance reports | ✅ | ✅ | ⚠️ read-only | ⚠️ own only (Q-018) |
 | See the Rebalance Advisor | ✅ | ✅ | ⚠️ read-only | ❌ |
 | See the system audit log | ✅ 🔒 | ⚠️ read-only, own scope | ❌ | ❌ |
-| See the security dashboard | ✅ 🔒 | ❌ | ❌ | ❌ |
+| See the security dashboard | ✅ 🔒 | ✅ 🔒 | ❌ | ❌ |
 
 ### System settings
 
+**⚠️ Revised 2026-08-22 — the Admin reached this whole table.** Owner: *"They run
+the company project without being able to adjust how the system works. Definitely
+I want that."* Every row below was previously Super-Admin-only except the skills
+library, the "Other" threshold and notification defaults.
+
+What the Super Admin still keeps is control of the **system itself** — appointing
+Admins, purging records, and their own account (§3.1) — not the settings that run
+the division. Enforcement moved in the same change: `lib/domain/permissions.ts`,
+its two test transcriptions, the `/security` route guard, and migration 040 for
+the row-level policies on `security_events` and `sessions`.
+
 | Action | Super Admin | Admin | Coordinator | Member |
 |---|:--:|:--:|:--:|:--:|
-| Change capacity thresholds | ✅ 🔒 | ❌ | ❌ | ❌ |
-| Change the default weekly capacity | ✅ 🔒 | ❌ | ❌ | ❌ |
-| Edit the status workflow | ✅ 🔒 | ❌ | ❌ | ❌ |
+| Change capacity thresholds | ✅ 🔒 | ✅ 🔒 | ❌ | ❌ |
+| Change the default weekly capacity | ✅ 🔒 | ✅ 🔒 | ❌ | ❌ |
+| Edit the status workflow | ✅ 🔒 | ✅ 🔒 | ❌ | ❌ |
 | Edit the skills library | ✅ | ✅ | ❌ | ❌ |
-| Tune assignment scoring weights | ✅ 🔒 | ❌ | ❌ | ❌ |
+| Tune assignment scoring weights | ✅ 🔒 | ✅ 🔒 | ❌ | ❌ |
 | Set the "Other" work threshold | ✅ | ✅ | ❌ | ❌ |
-| Set project-type rebalance priority | ✅ 🔒 | ❌ | ❌ | ❌ |
+| Set project-type rebalance priority | ✅ 🔒 | ✅ 🔒 | ❌ | ❌ |
 | Configure notification defaults | ✅ | ✅ | ❌ | ❌ |
 | Manage own notification preferences | ✅ | ✅ | ✅ | ✅ |
-| Change security settings | ✅ 🔒 | ❌ | ❌ | ❌ |
-| Export / back up all data | ✅ 🔒 | ❌ | ❌ | ❌ |
+| Change security settings | ✅ 🔒 | ✅ 🔒 | ❌ | ❌ |
+| Export / back up all data | ✅ 🔒 | ✅ 🔒 | ❌ | ❌ |
 | View own active sessions & revoke them | ✅ | ✅ | ✅ | ✅ |
+| Revoke **anyone's** session | ✅ | ✅ ⚠️ | ❌ | ❌ |
+
+⚠️ The last row is the one with teeth: an Admin can end a Super Admin's session.
+The owner was told so explicitly and chose full parity. `users_update` still
+refuses any write to the Super Admin row, so the account cannot be edited,
+demoted or locked — only signed out, which is recoverable.
 
 ---
 

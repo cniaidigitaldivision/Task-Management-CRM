@@ -3,9 +3,10 @@ import type { Metadata } from 'next';
 import { CalendarView } from '@/components/calendar/calendar-view';
 import { PageHeader } from '@/components/ui/page-header';
 import { requireUser } from '@/lib/auth/current-user';
-import { listAssignablepeople } from '@/lib/db/queries/people';
+import { listPeople } from '@/lib/db/queries/people';
 import { tasksInRange } from '@/lib/db/queries/search';
-import { nowMs } from '@/lib/now';
+import { can } from '@/lib/domain/permissions';
+import { isoDateIn } from '@/lib/now';
 
 export const metadata: Metadata = { title: 'Calendar' };
 
@@ -25,10 +26,11 @@ export const metadata: Metadata = { title: 'Calendar' };
 
 export default async function CalendarPage() {
   const user = await requireUser();
-  const now = new Date(nowMs());
-
-  const year = now.getUTCFullYear();
-  const month = now.getUTCMonth() + 1;
+  /* ⚠️ The division's own day, not UTC — Pakistan is UTC+5, so between midnight
+     and 5am a UTC date opens the calendar on yesterday. See `isoDateIn`. */
+  const today = isoDateIn();
+  const year = Number(today.slice(0, 4));
+  const month = Number(today.slice(5, 7));
   const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
   const pad = (n: number) => String(n).padStart(2, '0');
 
@@ -37,8 +39,30 @@ export default async function CalendarPage() {
       from: `${year}-${pad(month)}-01`,
       to: `${year}-${pad(month)}-${pad(lastDay)}`,
     }),
-    listAssignablepeople(user.id),
+    /* ── ⚠️ THE DIRECTORY, NOT THE ASSIGNABLE LIST ──────────────────────────
+       This used `listAssignablepeople`, which is rank-filtered: it answers "who
+       may I hand work to". The calendar asks a different question — "whose work
+       may I look at" — and for a Coordinator those differ, so filtering to the
+       assignment list would have shown an Admin's tasks under "Everyone" while
+       offering no way to filter to that person.
+
+       `listPeople` is the directory, and RLS already scopes it: a Member sees
+       only themselves, Coordinator and above see the division. */
+    listPeople(user.id, {}),
   ]);
+
+  /* Owner, 2026-08-23: *"you are not handling the team coordinator properly, or
+     even the admin and the super admin… these things should properly be working
+     in every role."*
+
+     This was hard-coded to `super_admin || admin`, which left the Coordinator —
+     the person who plans the week — looking at their own empty calendar while
+     the whole team's deadlines sat behind a control they were never offered.
+
+     Asked as a permission rather than a role list: `task.view_all` is already
+     the answer to "may this person see the team's work", and it is allowed to
+     Coordinator and above and denied to a Member. */
+  const canSeeOthers = can({ id: user.id, role: user.role }, 'task.view_all');
 
   return (
     <div className="mx-auto max-w-[var(--content-max)] space-y-6">
@@ -51,16 +75,12 @@ export default async function CalendarPage() {
         initialTasks={tasks}
         initialYear={year}
         initialMonth={month}
-        todayIso={`${year}-${pad(month)}-${pad(now.getUTCDate())}`}
-        people={people.map((p) => ({ id: p.id, name: p.fullName }))}
+        todayIso={today}
+        people={people
+          .filter((p) => p.isActive)
+          .map((p) => ({ id: p.id, name: p.fullName, avatarUrl: p.avatarUrl }))}
         currentUserId={user.id}
-        /* Owner instruction: only a Super Admin and an Admin may look at somebody
-           else's calendar. Everybody else sees their own, which is what the view
-           defaults to for all four roles.
-           A narrowing of the interface, not of the query — RLS still decides what
-           `tasksInRange` returns, and a Coordinator still sees the division on the
-           Tasks screen. Offering less than is permitted is always safe. */
-        canSeeOthers={user.role === 'super_admin' || user.role === 'admin'}
+canSeeOthers={canSeeOthers}
       />
     </div>
   );

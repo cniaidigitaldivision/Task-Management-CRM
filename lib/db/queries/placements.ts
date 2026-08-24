@@ -111,3 +111,33 @@ export async function removePlacement(actorId: string, id: string): Promise<bool
   `);
   return rows.length > 0;
 }
+
+/* ============================================================================
+ * EVERY PLACEMENT ON A PROJECT'S POSTS, IN ONE READ
+ * ----------------------------------------------------------------------------
+ * The daily board shows a day's posts with a URL box per platform. Calling
+ * `listPlacements` once per task would be one round trip per post — on a project
+ * posting twice a day that is a dozen queries to draw one screen, each of them
+ * paying the ~100ms to Singapore that `lib/db/client.ts` documents.
+ *
+ * Bounded by date rather than fetching the project's whole history: a board
+ * showing today plus the last week has no use for March.
+ * ========================================================================= */
+export async function listPlacementsForProject(
+  actorId: string,
+  projectId: string,
+  from: string,
+  to: string,
+): Promise<PlacementRow[]> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select tp.*, pl.name as platform_name, pl.slug as platform_slug
+      from public.task_placements tp
+      join public.platforms pl on pl.id = tp.platform_id
+      join public.tasks t on t.id = tp.task_id
+     where t.project_id = ${projectId}
+       and t.is_deleted = false
+       and t.due_date between ${from}::date and ${to}::date
+     order by pl.sort_order, tp.content_kind
+  `);
+  return rows.map((r) => toRow(r as Record<string, unknown>));
+}

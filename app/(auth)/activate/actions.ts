@@ -151,12 +151,9 @@ export async function activateAccount(
     appUrl: (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:4310').replace(/\/+$/, ''),
     roleLabel: ROLE_LABEL[found.role],
   });
-  void sendEmail({
-    to: found.email ?? '',
-    subject: message.subject,
-    html: message.html,
-    text: message.text,
-  });
+  /* Spread whole — the template also carries the header mark as an inline
+     attachment, and naming the fields individually drops it. */
+  void sendEmail({ to: found.email ?? '', ...message });
 
   /* Straight in, rather than back to a sign-in form asking for the password they
      typed ten seconds ago. They proved possession of the invitation and just set

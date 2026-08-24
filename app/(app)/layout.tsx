@@ -1,3 +1,4 @@
+import { APP_NAME } from '@/lib/domain/constants';
 import type { Metadata } from 'next';
 
 import { AppShell } from '@/components/layout/app-shell';
@@ -9,7 +10,7 @@ import { runningTimers } from '@/lib/db/queries/tasks';
 import { TimerBar } from '@/components/timer/timer-bar';
 
 export const metadata: Metadata = {
-  title: { default: 'CNI CRM', template: '%s · CNI CRM' },
+  title: { default: APP_NAME, template: `%s · ${APP_NAME}` },
 };
 
 /* Never statically rendered: every page below this shows one person's data, and

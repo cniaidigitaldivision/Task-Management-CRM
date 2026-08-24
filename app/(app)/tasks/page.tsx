@@ -6,7 +6,7 @@ import { requireUser } from '@/lib/auth/current-user';
 import { listAssignablepeople } from '@/lib/db/queries/people';
 import { listProjects } from '@/lib/db/queries/projects';
 import { listTasks } from '@/lib/db/queries/tasks';
-import { nowMs } from '@/lib/now';
+import { isoDateIn, nowMs } from '@/lib/now';
 import { toTaskView } from '@/lib/view/task-view';
 
 export const metadata: Metadata = { title: 'Tasks' };
@@ -57,6 +57,25 @@ export default async function TasksPage({
   const overdue = tasks.filter((t) => t.overdue).length;
   const projectCount = new Set(tasks.map((t) => t.projectId)).size;
 
+  /* ── ⚠️ COUNTED FROM ROWS ALREADY LOADED, NOT FROM FOUR MORE QUERIES ───────
+     Owner, 2026-08-23: *"I want there to be cards that show how many open
+     projects, how many open tasks, how many completed tasks… in a very
+     beautiful and very sleek way, not filled with too many cards. Just four or
+     five cards are more than enough."*
+
+     `listTasks` above already returns the whole visible set with
+     `includeClosed`, so every figure here is a filter over an array in memory.
+     Four `count(*)` round trips to Singapore to draw four small numbers would
+     be the most expensive part of this page.
+
+     FOUR cards, not five. The owner named three things and set the ceiling at
+     five; overdue is the fourth because it is the only one of these that anybody
+     acts on today. A fifth would be a number nobody had asked a question about. */
+  const done = tasks.filter((t) => t.status === 'done').length;
+  const activeProjects = new Set(
+    tasks.filter((t) => t.status !== 'done' && t.status !== 'cancelled').map((t) => t.projectId),
+  ).size;
+
   return (
     <div className="mx-auto max-w-[var(--content-max)] space-y-5">
       <PageHeader
@@ -80,6 +99,16 @@ export default async function TasksPage({
         }
       />
 
+      {/* Sleek by being few and quiet: no icons, no borders competing with the
+          board below, one accent colour reserved for the one figure that is bad
+          news. The number is the loud thing; the label is not. */}
+      <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
+        <Stat value={open} label="Open tasks" />
+        <Stat value={done} label="Completed" tone="var(--feedback-success)" />
+        <Stat value={overdue} label="Overdue" tone={overdue > 0 ? 'var(--feedback-error)' : undefined} />
+        <Stat value={activeProjects} label={activeProjects === 1 ? 'Active project' : 'Active projects'} />
+      </div>
+
       <TasksWorkspace
         initialTasks={tasks}
         currentUser={{ id: user.id, name: user.fullName, role: user.role }}
@@ -90,7 +119,38 @@ export default async function TasksPage({
         /* So the toolbar shows the filter that is actually applied, and a task
            created here defaults to the person whose row you came from. */
         initialAssignee={params.assignee ?? null}
+        /* `?project=` is what a project's Tasks tab links here with. It was
+           never read, so that link landed on every task in the system. */
+        initialProject={params.project ?? null}
+        /* The division's day, so "This week" on the range filter means the same
+           week the daily board and the reports mean. */
+        today={isoDateIn()}
       />
+    </div>
+  );
+}
+
+/* One figure and its name. Deliberately not the dashboard's `StatCard` — that
+   one carries an icon, a trend and a sublabel, which is three more things than
+   this row wants and is why a strip of them stops reading as a summary. */
+function Stat({
+  value,
+  label,
+  tone,
+}: {
+  value: number;
+  label: string;
+  tone?: string;
+}) {
+  return (
+    <div className="rounded-xl border border-border-default bg-bg-surface px-3.5 py-3 shadow-xs">
+      <p
+        className="text-display leading-none font-semibold tabular-nums"
+        style={{ color: tone ?? 'var(--text-primary)' }}
+      >
+        {value}
+      </p>
+      <p className="mt-1 text-caption text-text-secondary">{label}</p>
     </div>
   );
 }

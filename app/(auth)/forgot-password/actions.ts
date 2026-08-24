@@ -137,7 +137,8 @@ export async function requestReset(
   /* Not awaited into the response shape: whether Resend succeeded must not
      change what the caller is told, or the neutral answer leaks by timing and
      by wording both. */
-  await sendEmail({ to: email, subject: message.subject, html: message.html, text: message.text });
+  /* Spread whole — see lib/email/send.ts; the inline mark rides along with it. */
+  await sendEmail({ to: email, ...message });
 
   return { sent: true, email };
 }

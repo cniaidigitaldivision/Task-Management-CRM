@@ -17,14 +17,30 @@ import { signIn, type SignInState } from './actions';
  *
  * ── THE TWO-STAGE SHAPE ──────────────────────────────────────────────────────
  * When MFA is required the action returns `mfaRequired` rather than redirecting,
- * and the same form re-renders with the code field revealed. The email and
- * password stay in the form and are resubmitted with the code.
+ * and the same form re-renders showing only the code box.
  *
  * That is deliberate: a separate "enter your code" page would need somewhere to
  * park the half-authenticated state between requests, and every option there is
  * worse — a cookie holding a partial session, or a token in the URL. Keeping it
  * in one request means there is no intermediate state to protect.
- * ========================================================================= */
+ *
+ * ── ⚠️ THE CREDENTIALS ARE HELD IN COMPONENT STATE, AND THEY HAD TO BE ───────
+ * This comment used to say "the email and password stay in the form", and they
+ * did not. Email survived because it was re-rendered with `defaultValue` from
+ * the server; the PASSWORD came back as an empty input, because a password field
+ * cannot be repopulated from a server round trip and nothing was holding it.
+ *
+ * So the second stage asked for the password again, next to the code. Owner,
+ * 2026-08-23: *"even if he already entered the password he has to enter the
+ * password again for the authenticator app code… This is not logical."* He is
+ * right, and it is worse than illogical — a person who has just proved the
+ * password now types it a second time on a screen that appeared after they were
+ * told it was accepted, which is exactly the shape of a phishing prompt.
+ *
+ * Both fields are now controlled React state. On the code step they are posted
+ * as hidden inputs and the visible form is the six digits and nothing else. The
+ * values live in one tab's memory for the seconds between the two submits, and
+ * are never written anywhere. */
 
 const INITIAL: SignInState = {};
 
@@ -32,11 +48,23 @@ export function LoginForm() {
   const [state, formAction, pending] = React.useActionState(signIn, INITIAL);
   const codeRef = React.useRef<HTMLInputElement>(null);
 
+  /* Controlled, so the pair survives the round trip that reveals the code box.
+     Seeded from the server's echo of the email on a retry. */
+  const [email, setEmail] = React.useState(state.email ?? '');
+  const [password, setPassword] = React.useState('');
+
+  const onCodeStep = Boolean(state.mfaRequired);
+
   // Move the cursor to the code box the moment it appears, so the second stage
   // does not need a click before typing.
   React.useEffect(() => {
     if (state.mfaRequired) codeRef.current?.focus();
   }, [state.mfaRequired]);
+
+  /* ⚠️ No effect syncing `state.email` back into local state. The server echoes
+     the address on a retry, but this component never unmounts between the two
+     submits — the local value IS what was posted, so adopting the echo would be
+     one render to arrive at the string already held. */
 
   return (
     <form action={formAction} className="space-y-4">
@@ -78,34 +106,47 @@ export function LoginForm() {
         </div>
       )}
 
-      <Field label="Email" htmlFor="email">
-        <Input
-          id="email"
-          name="email"
-          type="email"
-          autoComplete="username"
-          inputMode="email"
-          placeholder="you@company.com"
-          defaultValue={state.email ?? ''}
-          readOnly={state.mfaRequired}
-          required
-        />
-      </Field>
+      {onCodeStep ? (
+        /* ⚠️ Posted, not shown. The person has already given both of these and
+           been told they were accepted; asking again is the phishing shape. */
+        <>
+          <input type="hidden" name="email" value={email} />
+          <input type="hidden" name="password" value={password} />
+        </>
+      ) : (
+        <>
+          <Field label="Email" htmlFor="email">
+            <Input
+              id="email"
+              name="email"
+              type="email"
+              autoComplete="username"
+              inputMode="email"
+              placeholder="you@company.com"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              required
+            />
+          </Field>
 
-      <Field label="Password" htmlFor="password">
-        <Input
-          id="password"
-          name="password"
-          type="password"
-          // doc 16 §5 — long passphrases allowed, paste allowed, no maxLength.
-          autoComplete="current-password"
-          placeholder="Your password"
-          required
-        />
-      </Field>
+          <Field label="Password" htmlFor="password">
+            <Input
+              id="password"
+              name="password"
+              type="password"
+              // doc 16 §5 — long passphrases allowed, paste allowed, no maxLength.
+              autoComplete="current-password"
+              placeholder="Your password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              required
+            />
+          </Field>
+        </>
+      )}
 
       {/* ---- Stage two ---- */}
-      {state.mfaRequired && (
+      {onCodeStep && (
         <div
           className="space-y-3 rounded-lg border px-3 py-3"
           style={{
@@ -123,6 +164,15 @@ export function LoginForm() {
             <p className="text-micro text-text-secondary">
               <span className="font-semibold text-text-primary">One more step.</span> Enter the
               six-digit code from your authenticator app.
+              {/* Naming the account is what makes the hidden password legible:
+                  without it the screen would ask for a code with no indication
+                  of whom it is signing in. */}
+              {email && (
+                <>
+                  {' '}
+                  Signing in as <span className="font-semibold text-text-primary">{email}</span>.
+                </>
+              )}
             </p>
           </div>
 
@@ -151,13 +201,27 @@ export function LoginForm() {
           submits — which is exactly what happened here until it was caught in a
           browser. */}
       <Button type="submit" variant="primary" size="lg" className="w-full" disabled={pending}>
-        {state.mfaRequired ? (
+        {onCodeStep ? (
           <KeyRound className="h-[18px] w-[18px]" strokeWidth={2} aria-hidden="true" />
         ) : (
           <LogIn className="h-[18px] w-[18px]" strokeWidth={2} aria-hidden="true" />
         )}
-        {pending ? 'Checking…' : state.mfaRequired ? 'Verify and sign in' : 'Sign in'}
+        {pending ? 'Checking…' : onCodeStep ? 'Verify and sign in' : 'Sign in'}
       </Button>
+
+      {/* ⚠️ A real link, not a button that clears local state. `state` comes from
+          `useActionState` and only the server can change it, so a client-side
+          "back" would leave `mfaRequired` true and bounce straight to the code
+          box again. Reloading /login is the only honest way out — and it is the
+          right one anyway: somebody who typed the wrong address wants a clean
+          form, not the old one with the password still in memory. */}
+      {onCodeStep && (
+        <p className="text-center text-micro text-text-secondary">
+          <a href="/login" className="font-semibold text-text-brand hover:underline">
+            Use a different account
+          </a>
+        </p>
+      )}
     </form>
   );
 }

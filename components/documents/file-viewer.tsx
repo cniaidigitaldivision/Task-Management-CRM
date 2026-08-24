@@ -93,7 +93,9 @@ export function FileViewer({
           <img
             src={src}
             alt={file.name}
-            className="max-h-[70vh] max-w-full rounded-lg object-contain"
+            /* /var(--ui-scale) on every vh here: vh is measured against the real
+               window and so ignores the density zoom on body (tokens.css). */
+            className="max-h-[calc(70vh/var(--ui-scale))] max-w-full rounded-lg object-contain"
           />
         )}
 
@@ -102,7 +104,7 @@ export function FileViewer({
             src={src}
             controls
             preload="metadata"
-            className="max-h-[70vh] w-full rounded-lg bg-black"
+            className="max-h-[calc(70vh/var(--ui-scale))] w-full rounded-lg bg-black"
           >
             Your browser cannot play this video.
           </video>
@@ -118,7 +120,7 @@ export function FileViewer({
           <iframe
             src={src}
             title={file.name}
-            className="h-[60vh] w-full rounded-lg border border-border-subtle bg-bg-surface"
+            className="h-[calc(60vh/var(--ui-scale))] w-full rounded-lg border border-border-subtle bg-bg-surface"
           />
         )}
 
