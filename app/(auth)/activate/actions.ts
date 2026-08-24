@@ -71,16 +71,23 @@ export async function inspectToken(token: string): Promise<{
 } > {
   if (!token || token.length < 20) return { valid: false };
 
+  /* ── ⚠️ THROUGH A DEFINER FUNCTION, NOT A DIRECT SELECT — migration 044 ────
+     This was a direct join across `invitations` and `users`, and it could never
+     return a row. `withAppRole` sets `role = cni_app` and deliberately no
+     `app.user_id`, because the reader here IS an anonymous stranger holding a
+     link. Both tables have RLS written in terms of the current user, so with no
+     identity both return nothing — the query was right, the token was right,
+     and the row was invisible.
+
+     An empty result is indistinguishable from an expired token in this
+     function's shape, so it surfaced as "This link is not usable" with no error
+     anywhere. Nobody had ever successfully activated an account through this
+     page, in any environment.
+
+     Measured: the old query returns 0 rows anonymously and 1 row identified. */
   const rows = await withAppRole((tx) => tx`
-    select u.full_name, u.email, u.role
-      from public.invitations i
-      join public.users u on u.id = i.user_id
-     where i.token_hash = ${hashToken(token)}
-       and i.purpose = 'activation'
-       and i.consumed_at is null
-       and i.invalidated_at is null
-       and i.expires_at > now()
-     limit 1
+    select full_name, email, role
+      from app.auth_inspect_activation(${hashToken(token)})
   `);
 
   if (!rows[0]) return { valid: false };
@@ -138,11 +145,17 @@ export async function activateAccount(
      lock — all inside app.auth_set_password (migration 010). */
   await setPassword(consumed.userId, passwordHash);
 
-  await withAppRole((tx) => tx`
-    update public.users
-       set account_state = 'active'::public.account_state, is_active = true
-     where id = ${consumed.userId}
-  `);
+  /* ── ⚠️ DEFINER FUNCTION, NOT A DIRECT UPDATE — migration 045 ──────────────
+     This was the bare UPDATE, and it matched zero rows every time: no
+     `app.user_id` is set here (the caller is still anonymous — they are setting
+     the credential that will give them an identity), and `users_update` is
+     identity-scoped.
+
+     An UPDATE matching nothing is not an error, so the flow carried on: token
+     spent, password stored, session issued, welcome email sent, person
+     redirected — with `account_state` still `pending_activation` and the
+     invitation now unusable. */
+  await withAppRole((tx) => tx`select app.auth_activate_account(${consumed.userId})`);
 
   /* Reported, never thrown: the account is already active, and a welcome email
      that fails to send must not make a successful activation look broken. */

@@ -239,11 +239,13 @@ export async function completeReset(_prev: ResetState, form: FormData): Promise<
      suspected compromise, leaving the attacker's session alive defeats it. */
   await setPassword(consumed.userId, passwordHash);
 
-  await withAppRole((tx) => tx`
-    update public.users
-       set account_state = 'active'::public.account_state
-     where id = ${consumed.userId} and account_state = 'password_reset_required'
-  `);
+  /* ── ⚠️ DEFINER FUNCTION, NOT A DIRECT UPDATE — migration 046 ──────────────
+     This was the bare UPDATE and it matched zero rows every time: no
+     `app.user_id` is set here (somebody completing a reset has no session yet)
+     and `users_update` is identity-scoped. An UPDATE matching nothing is not an
+     error, so a forced reset left `password_reset_required` set — telling the
+     person to reset a password they had just reset, with no way to clear it. */
+  await withAppRole((tx) => tx`select app.auth_clear_reset_required(${consumed.userId})`);
 
   /* Straight in — they proved the emailed code, cleared MFA where required, and
      just chose the credential. A sign-in form now would ask for what they typed

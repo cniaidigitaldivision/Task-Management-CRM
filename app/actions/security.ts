@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 
 import { requireUser } from '@/lib/auth/current-user';
-import { withAppRole, withUser } from '@/lib/db/client';
+import { withUser } from '@/lib/db/client';
 import { audit } from '@/lib/db/queries/audit';
 import { setLock } from '@/lib/db/queries/auth';
 import { getAccountState } from '@/lib/db/queries/provisioning';
@@ -166,7 +166,15 @@ export async function breakGlassStatus(): Promise<{
      cni_app — doc 04 §5's "no client read path at all". So even the Super Admin
      cannot read it through the app, by design, and the honest answer is to say
      so rather than to add a policy that would defeat the point. */
-  const rows = await withAppRole((tx) => tx`
+  /* ⚠️ `withUser`, not `withAppRole`. This reads `security_events`, whose select
+     policy is identity-scoped — under an unidentified session it returned no
+     rows, so the count was always zero and this panel would have reported
+     "never used" however many times the seal had actually been broken. A
+     security signal that cannot fire is worse than not having one.
+
+     The Super Admin check above is what makes `withUser` correct here rather
+     than a widening: the policy admits them, and nobody else reaches this line. */
+  const rows = await withUser(user.id, (tx) => tx`
     select count(*) filter (where severity = 'critical') as criticals
       from public.security_events
      where event_type = 'break_glass_used'
