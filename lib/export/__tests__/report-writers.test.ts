@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { unzipSync, strFromU8 } from 'fflate';
 
 import { reportToCsv, reportToXlsx } from '../report-writers';
-import { buildReport, type ReportInput, type ReportTask } from '@/lib/domain/reports';
+import {
+  EMPTY_FILTERS,
+  NATURAL_SORT, buildReport, type ReportInput, type ReportTask } from '@/lib/domain/reports';
 
 /* ============================================================================
  * REPORT WRITERS
@@ -36,6 +38,11 @@ function task(over: Partial<ReportTask> = {}): ReportTask {
     timeLimitMinutes: 120,
     timeSpentMinutes: 90,
     extensionMinutesGranted: 0,
+    contentKind: null,
+    platforms: [],
+    publishedOn: null,
+    assigneeAvatarUrl: null,
+    updatedAt: '2026-08-09T12:00:00Z',
     ...over,
   };
 }
@@ -47,6 +54,8 @@ function input(over: Partial<ReportInput> = {}): ReportInput {
     subjectId: null,
     subjectName: null,
     today: '2026-08-12',
+    filters: EMPTY_FILTERS,
+    sort: NATURAL_SORT,
     tasks: [task()],
     people: [
       {

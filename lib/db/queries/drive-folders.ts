@@ -51,6 +51,54 @@ export interface DriveFolderRow {
   readonly filesCountedAt: string | null;
   /** `driveFileCount` is a floor — the folder has more children than one page. */
   readonly fileCountPartial: boolean;
+
+  /* ── For the folder table. All four are derived from `public.documents` ────
+     and therefore sit behind the same RLS as `documentCount` — see the note on
+     `listFolders`. They describe what the READER can see in the folder, which is
+     the only honest thing they could describe and matches what opening it shows. */
+
+  /**
+   * Bytes of the files directly in this Drive folder, as of `filesCountedAt`.
+   *
+   * ⚠️ FROM DRIVE, not from `public.documents`. The first version of this summed
+   * the CRM's own uploads and was therefore 0 on all 33 folders — the division
+   * files in Drive, not through this system. Owner: *"Even the real drive size,
+   * folder size, anything should be real."*
+   *
+   * Null means never counted, which is NOT the same as 0. See migration 056.
+   */
+  readonly driveSizeBytes: number | null;
+  /**
+   * How many of `driveFileCount` reported a size.
+   *
+   * ⚠️ Google-native files (Docs, Sheets, Slides) have no byte size, so a folder
+   * of twelve Google Docs is honestly "12 files, 0 B". This is what lets the
+   * screen say that rather than look broken.
+   */
+  readonly driveSizedFileCount: number | null;
+  /** The newest modifiedTime among the files directly inside. */
+  readonly driveModifiedAt: string | null;
+  /** Documents in here that came through this system. Usually 0 — see above. */
+  readonly lastActivityAt: string | null;
+  readonly lastActivityBy: string | null;
+  /**
+   * The Google accounts that own the files in here, most recently active first.
+   *
+   * ⚠️ FILE OWNERS FROM DRIVE — not this system's users, and not the folder's own
+   * owner. The folder has exactly one owner and a column of identical single
+   * avatars says nothing; who has actually put work in here is the useful answer.
+   *
+   * ⚠️ These are GOOGLE identities. Most will never match a `public.users` row,
+   * which is why they are cached jsonb rather than a join — see migration 056.
+   * `photo` is Google's own avatar URL and is loaded by the browser directly.
+   *
+   * Capped at five by the sync; the table draws three and counts the rest.
+   */
+  readonly owners: readonly {
+    readonly name: string;
+    readonly email: string | null;
+    readonly photo: string | null;
+  }[];
 }
 
 function toRow(row: Record<string, unknown>): DriveFolderRow {
@@ -71,6 +119,30 @@ function toRow(row: Record<string, unknown>): DriveFolderRow {
         : Number(row.drive_file_count),
     filesCountedAt: isoOrNull(row.files_counted_at),
     fileCountPartial: Boolean(row.file_count_partial),
+    /* ⚠️ Null-preserving. `Number(null)` is 0, and "never counted" must not
+       render as "empty" — migration 056 says so explicitly. */
+    driveSizeBytes:
+      row.drive_size_bytes === null || row.drive_size_bytes === undefined
+        ? null
+        : Number(row.drive_size_bytes),
+    driveSizedFileCount:
+      row.drive_sized_file_count === null || row.drive_sized_file_count === undefined
+        ? null
+        : Number(row.drive_sized_file_count),
+    driveModifiedAt: isoOrNull(row.drive_modified_at),
+    lastActivityAt: isoOrNull(row.last_activity_at),
+    lastActivityBy: (row.last_activity_by as string | null) ?? null,
+    /* The column is nullable and jsonb, so both "no column value" and "not an
+       array" have to land on an empty list rather than throw in a page render. */
+    owners: Array.isArray(row.drive_owners)
+      ? (row.drive_owners as Array<Record<string, unknown>>)
+          .map((o) => ({
+            name: (o.name as string | null) ?? 'Someone',
+            email: (o.email as string | null) ?? null,
+            photo: (o.photo as string | null) ?? null,
+          }))
+          .filter((o) => o.name.length > 0)
+      : [],
   };
 }
 
@@ -93,10 +165,26 @@ export async function listFolders(userId: string): Promise<DriveFolderRow[]> {
            p.name as project_name,
            u.full_name as shared_by_name,
            (select count(*) from public.documents d where d.folder_id = f.id)
-             as document_count
+             as document_count,
+           /* Straight from the sync — see migration 056. No aggregation here,
+              because Drive already answered and the answer is cached. */
+           f.drive_size_bytes, f.drive_sized_file_count, f.drive_modified_at,
+           f.drive_owners,
+           recent.last_activity_at,
+           recent.last_activity_by
       from public.drive_folders f
       left join public.projects p on p.id = f.project_id
       left join public.users    u on u.id = f.shared_by_id
+      /* ⚠️ LATERAL, so each subquery sees this folder's id. Both are ordered and
+         limited, which a correlated scalar subquery cannot express. */
+      left join lateral (
+        select d.created_at as last_activity_at, du.full_name as last_activity_by
+          from public.documents d
+          left join public.users du on du.id = d.uploaded_by_id
+         where d.folder_id = f.id
+         order by d.created_at desc
+         limit 1
+      ) recent on true
      order by f.member_access desc, lower(f.name)
   `);
   return rows.map((r) => toRow(r as Record<string, unknown>));
@@ -113,7 +201,15 @@ export async function getFolder(
            f.drive_file_count, f.files_counted_at, f.file_count_partial,
            p.name as project_name,
            u.full_name as shared_by_name,
-           0 as document_count
+           /* ⚠️ Zeroed deliberately. This is the single-folder read used when
+              deciding access, where the counts are not shown and computing them
+              would be three subqueries nobody looks at. 'toRow' still needs the
+              keys to exist, so they are named rather than omitted. */
+           0 as document_count,
+           f.drive_size_bytes, f.drive_sized_file_count, f.drive_modified_at,
+           f.drive_owners,
+           null::timestamptz as last_activity_at,
+           null::text as last_activity_by
       from public.drive_folders f
       left join public.projects p on p.id = f.project_id
       left join public.users    u on u.id = f.shared_by_id
@@ -146,6 +242,12 @@ export async function recordFolders(
      *  a folder found as a child but never descended into. */
     fileCount: number | null;
     filePartial: boolean;
+    /** All four null when the walk did not look inside. Written together with the
+     *  count, from the one request that produced all of them. */
+    sizeBytes: number | null;
+    sizedFileCount: number | null;
+    lastModified: string | null;
+    owners: readonly { name: string; email: string | null; photo: string | null }[] | null;
   }>,
 ): Promise<number> {
   if (folders.length === 0) return 0;
@@ -160,7 +262,8 @@ export async function recordFolders(
       const rows = await tx`
         insert into public.drive_folders
           (drive_folder_id, name, parent_drive_id, project_id,
-           drive_file_count, files_counted_at, file_count_partial)
+           drive_file_count, files_counted_at, file_count_partial,
+           drive_size_bytes, drive_sized_file_count, drive_modified_at, drive_owners)
         values (
           ${folder.driveFolderId},
           ${folder.name},
@@ -172,7 +275,36 @@ export async function recordFolders(
             where drive_folder_id = ${folder.driveFolderId} limit 1),
           ${folder.fileCount},
           ${countedAt},
-          ${folder.filePartial}
+          ${folder.filePartial},
+          ${folder.sizeBytes},
+          ${folder.sizedFileCount},
+          ${folder.lastModified},
+          /* ── ⚠️ THE ARRAY ITSELF, NOT A STRINGIFIED COPY OF IT ────────────────
+             This called JSON.stringify first, on the assumption that postgres.js
+             sends a JS array as a Postgres array literal. It does not, for a jsonb
+             target — it JSON-encodes the value already. So a pre-stringified array
+             arrived as a JSON *string* and jsonb_typeof came back 'string' rather
+             than 'array'.
+
+             Migration 056's drive_folders_owners_is_array check refused it on the
+             very first write, which is precisely why that constraint exists:
+             without it the column would have filled quietly with double-encoded
+             strings and the page would have thrown on .map weeks later, far from
+             the cause.
+
+             Confirmed against the database: a plain array yields 'array' and the
+             stringified form yields 'string'.
+
+             ⚠️ Sent through tx.json() rather than as a bare array. Both produce
+             'array' at runtime — measured — but postgres.js's own types do not
+             accept an array of objects as a parameter, so the bare form compiled
+             only behind an assertion. Silencing a driver that is telling you which
+             helper to use is how the double-encoding got in to begin with.
+
+             ⚠️ No backticks anywhere in this comment: it sits inside a JS template
+             literal, so one would close the SQL string. That has now bitten this
+             file twice. */
+          ${folder.owners === null ? null : tx.json([...folder.owners])}::jsonb
         )
         on conflict (drive_folder_id) do update
            set name           = excluded.name,
@@ -190,7 +322,22 @@ export async function recordFolders(
                  when excluded.drive_file_count is null
                    then public.drive_folders.file_count_partial
                  else excluded.file_count_partial
-               end
+               end,
+               /* ⚠️ Same rule as the count above: a fresh reading replaces the old
+                  one, a null does NOT. The walk is depth-bounded, so the deepest
+                  folders are recorded without being looked inside — overwriting
+                  last week's real size with "unknown" would make the display worse
+                  on every sync. All four move together because they came from one
+                  request; keeping some and discarding others would leave a row
+                  describing two different moments. */
+               drive_size_bytes = coalesce(excluded.drive_size_bytes,
+                                           public.drive_folders.drive_size_bytes),
+               drive_sized_file_count = coalesce(excluded.drive_sized_file_count,
+                                                 public.drive_folders.drive_sized_file_count),
+               drive_modified_at = coalesce(excluded.drive_modified_at,
+                                            public.drive_folders.drive_modified_at),
+               drive_owners = coalesce(excluded.drive_owners,
+                                       public.drive_folders.drive_owners)
         returning (xmax = 0) as inserted
       `;
       if (rows[0]?.inserted) created += 1;

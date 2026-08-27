@@ -1,6 +1,9 @@
 import {
+  CONTENT_KIND_LABEL,
   PRIORITY_WEIGHT,
+  PUBLISH_PROOF_KINDS,
   STATUS_META,
+  type ContentKind,
   type Priority,
   type Role,
   type TaskStatus,
@@ -27,12 +30,19 @@ import {
  * requirement like BR-002 ("the assignee cannot approve their own work") would
  * hold in the place it was written and nowhere else.
  *
- * ── THE ONE RULE THAT IS NOT ABOUT ROLES ─────────────────────────────────────
+ * ── THE TWO RULES THAT ARE NOT ABOUT ROLES ───────────────────────────────────
  * BR-002 is about *identity*, not rank. An Admin may approve work — unless the
  * work is theirs. `evaluateTransition` therefore takes the actor AND the task's
- * assignee, and no amount of privilege satisfies it. It is the only rule here
- * that a Super Admin cannot override, and that is deliberate: a reviewer who can
- * approve their own submission is not a reviewer.
+ * assignee, and no amount of privilege satisfies it: a reviewer who can approve
+ * their own submission is not a reviewer.
+ *
+ * The publish gate (added 2026-08-24) is about *evidence*. A static post or a
+ * reel cannot enter Done until a placement carries a link, whoever is asking —
+ * because an Admin marking an unpublished post as done produces exactly the
+ * delivery figure a client is shown and cannot check. See the check at the foot
+ * of `evaluateTransition` and `PUBLISH_PROOF_KINDS` in ./constants.ts.
+ *
+ * Both are rules a Super Admin cannot override, and that is deliberate.
  *
  * ── ⚠️ WHO CLOSES A TASK — REVISED 2026-08-24 ────────────────────────────────
  * Owner:
@@ -192,6 +202,22 @@ export interface TransitionContext {
   readonly createdById: string;
   /** Trimmed. Presence, not length, is what `requiresReason` tests. */
   readonly reason?: string;
+
+  /* ── WHAT THE DELIVERABLE IS, AND WHETHER IT IS DEMONSTRABLY LIVE ──────────
+     Both optional, and that is a decision rather than convenience. Three of the
+     four call sites ask about moves that have nothing to do with publishing —
+     "can this start?", "can this be blocked?" — and forcing them to supply a
+     content kind they do not need would be ceremony. Absent means "no proof
+     required", which is the correct answer for the whole of non-content work.
+
+     ⚠️ A caller that CAN reach a `→ done` move must pass both. Omitting them
+     there does not fail loudly; it silently waves the post through. The two
+     places that matter are `changeStatusAction` and the board's `canMove`, and
+     both are covered by tests naming this risk. */
+  /** Null for work that is not a deliverable — a coordinator's admin task. */
+  readonly contentKind?: ContentKind | null;
+  /** Placements carrying a URL. `TaskRow.placementLiveCount` is exactly this. */
+  readonly placementUrlCount?: number;
 }
 
 export type TransitionVerdict =
@@ -203,7 +229,8 @@ export type TransitionRefusal =
   | 'same_status'
   | 'insufficient_role'
   | 'own_work'
-  | 'reason_required';
+  | 'reason_required'
+  | 'publish_proof_required';
 
 const RANK: Readonly<Record<Role, number>> = {
   super_admin: 4,
@@ -293,6 +320,41 @@ export function evaluateTransition(
       ok: false,
       code: 'reason_required',
       message: `Moving to ${STATUS_META[to].label} requires a written reason.`,
+    };
+  }
+
+  /* ── ⚠️ A STATIC POST OR A REEL IS CLOSED BY A LINK, NOT BY A CLAIM ────────
+     Owner, 2026-08-24: *"it cannot be marked as done unless he says he has
+     published the static post and pastes the URL of that post. Until then that
+     task will not be moved to the done category."*
+
+     ── WHY THIS IS LAST, AFTER THE ROLE AND REASON CHECKS ────────────────────
+     The other refusals are about authority; this one is about evidence. Somebody
+     with no business closing the task should be told THAT, not sent off to fetch
+     a link they were never going to be allowed to use. So the checks run in the
+     order a person can act on them: may you close this at all, then have you
+     shown that it went out.
+
+     ── AND NO RANK BUYS PAST IT ──────────────────────────────────────────────
+     Like BR-002, deliberately not role-gated. An Admin marking an unpublished
+     post as done produces exactly the number a client is shown and cannot
+     verify, which is the failure this exists to prevent. `PUBLISH_PROOF_KINDS`
+     is the whole scope — everything else reaches this line and passes. */
+  if (
+    STATUS_META[to].category === 'done' &&
+    ctx.contentKind != null &&
+    PUBLISH_PROOF_KINDS.includes(ctx.contentKind) &&
+    (ctx.placementUrlCount ?? 0) < 1
+  ) {
+    return {
+      ok: false,
+      code: 'publish_proof_required',
+      /* Names the kind, so the sentence is about the thing in front of them, and
+         says where to go — a refusal that does not say what to do next reads as
+         a broken control rather than a rule. */
+      message:
+        `A ${CONTENT_KIND_LABEL[ctx.contentKind].toLowerCase()} cannot be marked as done until it is published. ` +
+        'Add where it went and paste the post link under "Where it went" on the task, then close it.',
     };
   }
 

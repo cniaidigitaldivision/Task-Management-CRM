@@ -1,5 +1,6 @@
 import { requireUser } from '@/lib/auth/current-user';
 import { withUser } from '@/lib/db/client';
+import { contentDisposition } from '@/lib/domain/content-disposition';
 import { fileContentResponse, getFileMeta, isGoogleNativeType } from '@/lib/drive/client';
 
 /* ============================================================================
@@ -99,15 +100,22 @@ export async function GET(
      in the downloads folder — the owner's actual complaint. `?download=1` asks
      for the other behaviour explicitly.
 
-     ⚠️ The filename is quoted and stripped of quotes and newlines: a name is
-     user-controlled data going into a response header, and a newline there is
-     header injection. */
+     ⚠️ THE SAME BUG THE LIBRARY ROUTE HAD, AND IT WAS WORSE HERE. This built the
+     header by hand from a Drive filename:
+
+         const safeName = meta.value.name.replace(/["\\\r\n]/g, '_');
+
+     Stripping quotes and newlines is necessary and not sufficient: a header value
+     is a ByteString, so `Headers.set` THROWS on anything above U+00FF. A Drive
+     file called "Brief — v2", or named in Urdu, took the route down with a
+     TypeError and produced a blank tab. Worse than the library because these names
+     come from Google, so nobody here chose them.
+
+     `contentDisposition` gives an ASCII fallback plus an RFC 5987 `filename*`, so
+     the exact name survives and the header is always legal. No extension work
+     here: Drive names already carry theirs. */
   const wantsDownload = new URL(request.url).searchParams.get('download') === '1';
-  const safeName = meta.value.name.replace(/["\\\r\n]/g, '_');
-  headers.set(
-    'Content-Disposition',
-    `${wantsDownload ? 'attachment' : 'inline'}; filename="${safeName}"`,
-  );
+  headers.set('Content-Disposition', contentDisposition(meta.value.name, !wantsDownload));
 
   /* Private: this passed a per-user check, so no shared cache may keep it. */
   headers.set('Cache-Control', 'private, max-age=0, must-revalidate');

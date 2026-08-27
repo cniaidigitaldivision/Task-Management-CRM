@@ -10,9 +10,9 @@ import {
 } from '@/app/actions/placements';
 import type { PlacementRow } from '@/lib/db/queries/placements';
 import type { PlatformRow } from '@/lib/db/queries/catalogue';
-import { CONTENT_KIND_LABEL, CONTENT_KINDS, type ContentKind } from '@/lib/domain/constants';
-import { Badge } from '@/components/ui/badge';
+import { CONTENT_KIND_LABEL, PLACEMENT_KINDS } from '@/lib/domain/constants';
 import { Button, IconButton } from '@/components/ui/button';
+import { PlatformIcon } from '@/components/brand/platform-icon';
 import { Field, Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 
@@ -36,13 +36,6 @@ import { Select } from '@/components/ui/select';
  * So nothing on this panel counts toward the package target — the task does that.
  * This panel is the evidence trail.
  * ========================================================================= */
-
-/** The formats worth offering for a published destination. `website`, `report`
- *  and `ad` are real content kinds but nobody publishes them *to a platform*, so
- *  offering them here would only invite a nonsense row. */
-const PLACEMENT_KINDS: readonly ContentKind[] = CONTENT_KINDS.filter(
-  (k): k is ContentKind => k === 'static' || k === 'reel' || k === 'carousel' || k === 'story' || k === 'video',
-);
 
 export function PlacementsPanel({ taskId }: { taskId: string }) {
   const [placements, setPlacements] = React.useState<PlacementRow[]>([]);
@@ -113,9 +106,21 @@ export function PlacementsPanel({ taskId }: { taskId: string }) {
         <ul className="divide-y divide-border-subtle">
           {placements.map((p) => (
             <li key={p.id} className="flex flex-wrap items-center gap-2 py-2">
-              <Badge token="accent-primary" size="sm" variant="outline">
+              {/* ⚠️ THE SAME TILES THE PROJECT SCREENS ALREADY USE — the app
+                  icons added for the platform checkboxes on 2026-08-19, from
+                  lib/brand/platform-marks.ts. This panel was the one place
+                  showing a destination that still rendered it as an outlined
+                  text badge, which is why the owner could not tell at a glance
+                  that these rows were social links.
+
+                  THE MARK AND THE NAME, NOT THE MARK INSTEAD OF THE NAME: the
+                  tile does the fast recognition, the word removes all doubt.
+                  `PlatformIcon` is `aria-hidden`, so the name beside it is also
+                  what a screen reader reads. */}
+              <PlatformIcon slug={p.platformSlug} size={22} />
+              <span className="text-caption font-semibold text-text-primary">
                 {p.platformName}
-              </Badge>
+              </span>
               <span className="text-micro text-text-tertiary">
                 {CONTENT_KIND_LABEL[p.contentKind]}
               </span>

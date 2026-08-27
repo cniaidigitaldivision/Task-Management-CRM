@@ -7,9 +7,10 @@ import { IconTile } from '@/components/ui/icon-tile';
 import { PageHeader } from '@/components/ui/page-header';
 import { requireUser } from '@/lib/auth/current-user';
 import { listCredentials } from '@/lib/db/queries/credentials';
-import { listAssignablepeople } from '@/lib/db/queries/people';
+import { listAssignablepeople, listPeople } from '@/lib/db/queries/people';
 import { listProjects } from '@/lib/db/queries/projects';
 import { can } from '@/lib/domain/permissions';
+import { nowMs } from '@/lib/now';
 
 export const metadata: Metadata = { title: 'Vault' };
 
@@ -42,10 +43,22 @@ export default async function VaultPage() {
   const user = await requireUser();
   const actor = { role: user.role, id: user.id };
 
-  const [credentials, projects, people] = await Promise.all([
+  const [credentials, projects, people, everyone] = await Promise.all([
     listCredentials(user.id),
     listProjects(user.id, { includeArchived: true }),
     listAssignablepeople(user.id),
+    /* ⚠️ TWO PEOPLE LISTS, AND THEY ARE NOT INTERCHANGEABLE ──────────────────
+       `listAssignablepeople` answers "who may be given this" — it hides anybody
+       ranked above the viewer, because work flows downward (see its header). That
+       is right for custody: the Issued-to picker should not offer to hand an
+       Admin's login to the Super Admin.
+
+       It is WRONG for "who can see this credential". Read access is Coordinator
+       and above, so the Super Admin can always open it — but is filtered out of
+       the assignable list for an Admin viewer. Feeding that list to the access
+       dialogue would print a list headed "who can open this" with a name missing
+       from it, which is worse than no list. */
+    listPeople(user.id),
   ]);
 
   const canManage = can(actor, 'credential.manage');
@@ -64,9 +77,12 @@ export default async function VaultPage() {
             The logins the division holds{' '}
             <span className="font-semibold text-text-primary">on behalf of clients and
             projects</span>{' '}
+            {/* ⚠️ Was "reading one needs your password and authenticator again".
+                Removed on the owner's instruction, 2026-08-25 — so the sentence
+                went with it rather than being left to mislead. */}
             — portals, hosting, ad managers, API keys. Passwords are encrypted before they are
-            stored, reading one needs your password and authenticator again, and every reveal is
-            written to the security log.
+            stored, and every reveal is written to the security log against the person who did
+            it.
             {expiring > 0 && (
               <>
                 {' '}
@@ -105,9 +121,14 @@ export default async function VaultPage() {
             <p className="mt-3 text-body-sm font-semibold text-text-primary">
               Nothing has been shared with you
             </p>
+            {/* ⚠️ NOT "when one is issued to you". That was true before migration
+                047 and is the exact bug 047 removed: being ISSUED a credential used
+                to let you read it, so a custody field granted a permission as a side
+                effect. Owning a project stopped being a route in 058. Telling
+                somebody to wait for the wrong thing leaves them waiting. */}
             <p className="mx-auto mt-1 max-w-[38rem] text-caption text-text-secondary">
-              You will see a credential here when one is issued to you, or when you own a project
-              that has some.
+              You will see a credential here when an Admin names you on one. Being the person who
+              holds an account is recorded separately and does not open it.
             </p>
           </CardBody>
         </Card>
@@ -115,9 +136,18 @@ export default async function VaultPage() {
         <VaultWorkspace
           credentials={credentials}
           projects={projects.map((p) => ({ id: p.id, name: p.name }))}
-          people={people.map((p) => ({ id: p.id, name: p.fullName }))}
+          people={people.map((p) => ({ id: p.id, name: p.fullName, avatarUrl: p.avatarUrl }))}
+          readers={everyone.map((p) => ({
+            id: p.id,
+            name: p.fullName,
+            role: p.role,
+            avatarUrl: p.avatarUrl,
+          }))}
           canManage={canManage}
           canDelete={canDelete}
+          canGrant={can(actor, 'credential.grant')}
+          canOversee={can(actor, 'credential.view')}
+          nowMs={nowMs()}
         />
       )}
     </div>

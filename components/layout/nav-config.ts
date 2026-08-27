@@ -4,6 +4,7 @@ import {
   CalendarClock,
   CalendarDays,
   FolderKanban,
+  Clock3,
   FolderOpen,
   Gauge,
   KeyRound,
@@ -11,7 +12,9 @@ import {
   ListChecks,
   Settings,
   ShieldCheck,
+  Sparkles,
   Users,
+  Wallet,
   Workflow,
 } from 'lucide-react';
 
@@ -62,6 +65,18 @@ export const NAV_SECTIONS: readonly NavSection[] = [
        A Member has no Dashboard at all (LEAD_UP), so for them the list still
        opens on My Work; the order only shows for a Coordinator and above. */
     items: [
+      /* ⚠️ LEAD_UP is the DEFAULT, not the whole rule. Owner, 2026-08-26:
+         *"this facility will only be provided to upper levels [...] later on
+         maybe I can have a radio button for each member that I can switch on
+         and off at my choice."*
+
+         A row in `public.assistant_access` overrides that per person, so a
+         switched-on Member may use the assistant and will NOT see this link —
+         they reach it from the floating launcher, which asks the composed rule.
+         Offering it here to everybody would advertise it to the majority who
+         are switched off, and this list is cosmetic anyway (NFR-006): the real
+         gate is `mayUseAssistant` in the route's own layout. */
+      { label: 'AI Assistant', href: '/assistant', icon: Sparkles, roles: LEAD_UP },
       /* CHANGE-PLAN 7.1: open to a Member too, now that the page has a shape for
          them. It used to be LEAD_UP and they were redirected away. */
       { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, roles: ALL },
@@ -120,19 +135,47 @@ export const NAV_SECTIONS: readonly NavSection[] = [
          enforced by `requireRole` in the route's own layout and page, and this
          list only decides whether the link is offered (NFR-006). */
       { label: 'Monthly report', href: '/monthly-report', icon: FileBarChart, roles: ADMIN_UP },
+      /* ⚠️ MOVED HERE FROM System, 2026-08-26, on owner instruction. Attendance
+         is about the people, not about the machinery — it sits with Team and
+         Reports, which are the other two screens read about who is doing what.
+
+         ⚠️ OPEN TO EVERY ROLE, and it has to be: the page is where somebody sees
+         their OWN record, and a Member who cannot open it cannot check whether
+         the day they forgot to check out was fixed. This is the one item in this
+         section offered below LEAD_UP. What differs by role is what the page
+         CONTAINS — a Member's board is built from themselves alone, on the
+         server — not whether the link is offered. Owner, 2026-08-25: *"Some
+         things should be hidden from the team members"*, which is about the
+         contents (NFR-006). */
+      { label: 'Attendance', href: '/attendance', icon: Clock3, roles: ALL },
     ],
   },
   {
     label: 'System',
     items: [
-      /* Open to every role, like the calendar: row-level security decides what is
-         in it (migration 023), so a Member sees only credentials issued to them —
-         usually none. Hiding it by role would be a second, weaker copy of the
-         real rule. */
       /* Open to every role: anybody may upload, and RLS decides what is on the
          page. Owner: 'every time a user or anybody comes, they should have a place
          where they can upload something.' */
       { label: 'Documents', href: '/documents', icon: FolderOpen, roles: ALL },
+      /* ⚠️ MOVED HERE FROM Team, 2026-08-26, on owner instruction. The ledger is
+         division machinery — it belongs with Vault and Settings rather than
+         beside the screens about people.
+
+         ⚠️ LEAD_UP, NOT ADMIN_UP, AND THAT IS DELIBERATE. Owner, 2026-08-26:
+         *"the team coordinator can also add expenses. The list of expenses,
+         their report, or their analysis should only be visible to the admin and
+         the super admin."*
+
+         So a Coordinator needs the LINK — they file from that page — and must
+         not receive the ledger. Hiding the link would take away the one thing
+         they were given. What they actually get is decided on the server in the
+         route's own page.tsx, which returns a form and no figures; this list
+         only decides whether the link is offered (NFR-006). */
+      { label: 'Finance', href: '/finance', icon: Wallet, roles: LEAD_UP },
+      /* Open to every role, like the calendar: row-level security decides what is
+         in it (migration 023), so a Member sees only credentials issued to them —
+         usually none. Hiding it by role would be a second, weaker copy of the
+         real rule. */
       { label: 'Vault', href: '/vault', icon: KeyRound, roles: ALL },
       /* Handoff chains (doc 12 E-004, rule R4a). Open to every role, EDITABLE by
          Admin+ (owner, 2026-08-15). A chain creates work that lands in somebody's

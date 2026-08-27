@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
 import { Field, Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
+import { OFFICE_TEAMS, OFFICE_TEAM_KEYS } from '@/lib/domain/attendance';
 import { ROLE_LABEL, SYSTEM_DEFAULTS, type Role } from '@/lib/domain/constants';
 
 /* ============================================================================
@@ -34,11 +35,14 @@ export function InviteDialog({
   onClose,
   assignableRoles,
   actorRoleLabel,
+  canSetPay,
 }: {
   open: boolean;
   onClose: () => void;
   assignableRoles: readonly Role[];
   actorRoleLabel: string;
+  /** Admin and above. See the note at the salary field. */
+  canSetPay: boolean;
 }) {
   const router = useRouter();
   const [state, formAction, pending] = React.useActionState(invitePersonAction, EMPTY);
@@ -199,6 +203,31 @@ export function InviteDialog({
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
+          {/* ── ⚠️ THE OFFICE IS NOT COSMETIC ────────────────────────────────
+              `office_team` decides which weekdays count as an absence — Blue
+              Area rests on Sunday, Wah on Friday. Until this field existed the
+              form could not set it, so everybody landed on the default and a
+              Wah hire was marked absent every Friday. */}
+          <Field
+            label="Which office"
+            htmlFor="officeTeam"
+            hint="Decides their day off, and their attendance."
+          >
+            <Select size="md" id="officeTeam" name="officeTeam" defaultValue="blue_area" required>
+              {OFFICE_TEAM_KEYS.map((key) => (
+                <option key={key} value={key}>
+                  {OFFICE_TEAMS[key].label} — {OFFICE_TEAMS[key].where} ({OFFICE_TEAMS[key].restDay})
+                </option>
+              ))}
+            </Select>
+          </Field>
+
+          <Field label="Phone" htmlFor="phone" hint="Optional.">
+            <Input id="phone" name="phone" type="tel" inputMode="tel" placeholder="+92 300 1234567" />
+          </Field>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
           <Field
             label="Weekly capacity"
             htmlFor="weeklyCapacityPoints"
@@ -229,6 +258,32 @@ export function InviteDialog({
             />
           </Field>
         </div>
+
+        {/* ── ⚠️ SHOWN ONLY TO AN ADMIN, AND THAT IS THE SECOND LOCK ────────
+            `employee_compensation` is Admin+ by its own RLS policy, so a
+            Coordinator who submitted this field would simply be refused by the
+            database. Hiding it is therefore not the security boundary — it is
+            an honesty measure, so nobody is offered a control that cannot work.
+            The boundary is in migration 062. */}
+        {canSetPay && (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field
+              label="Monthly salary"
+              htmlFor="monthlySalary"
+              hint="Optional — can be set later. Visible to Admins only."
+            >
+              <Input
+                id="monthlySalary"
+                name="monthlySalary"
+                type="number"
+                min="0"
+                step="1000"
+                inputMode="numeric"
+                placeholder="120000"
+              />
+            </Field>
+          </div>
+        )}
 
         <p className="text-micro text-text-tertiary">
           The account is created with no password at all. They set one through a single-use link

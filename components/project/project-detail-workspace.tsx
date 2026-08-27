@@ -12,18 +12,13 @@ import {
   Link2 as LinkIcon,
   Pencil,
   Plus,
-
+  Share2,
+  Sparkles,
   Upload,
-  ExternalLink,
   FileText,
-  Folder,
   KeyRound,
   LayoutDashboard,
-  Share2,
-  Trash2,
-  UserPlus,
   Users,
-  Loader2,
 } from 'lucide-react';
 
 import type { CredentialRow } from '@/lib/db/queries/credentials';
@@ -32,26 +27,27 @@ import type { ActivityRow } from '@/lib/db/queries/types';
 import type { ProjectMemberRow } from '@/lib/db/queries/projects';
 import type { ProjectRow, TaskRow } from '@/lib/db/queries/types';
 import { CONTENT_KIND_LABEL } from '@/lib/domain/constants';
-import {
-  addProjectMemberAction,
-  removeProjectMemberAction,
-} from '@/app/actions/projects';
 import { Badge } from '@/components/ui/badge';
-import { Button, IconButton } from '@/components/ui/button';
-import { Field } from '@/components/ui/input';
-import { Select } from '@/components/ui/select';
+import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/card';
+import { Dialog } from '@/components/ui/dialog';
+import { ToggleGroup } from '@/components/ui/toolbar';
+import { ComingSoon } from '@/components/ui/coming-soon';
 import { cn } from '@/lib/utils';
 
-import { MonthRhythm } from './month-rhythm';
+import { PostingCalendar } from './posting-calendar';
 import type { PackageDetail } from './contract-dialog';
+import { TaskDialog } from '@/components/task/task-dialog';
+import { UploadDialog } from '@/components/documents/upload-dialog';
+
 import { ProjectCredentials } from './project-credentials';
+import { ProjectFilesTab } from './project-files-tab';
+import { ProjectTeamTab } from './project-team-tab';
 import { ProjectDialog } from './project-dialog';
 import { PlatformLinksDialog } from './platform-links-dialog';
 import type { PlacementRow } from '@/lib/db/queries/placements';
 import type { CalendarTask } from '@/lib/db/queries/search';
 import { CalendarView } from '@/components/calendar/calendar-view';
-import { dailyState, isDailyDeliverable } from '@/lib/domain/daily';
 import type { Role } from '@/lib/domain/constants';
 import { canAssignTo } from '@/lib/domain/permissions';
 
@@ -106,16 +102,6 @@ const TABS: ReadonlyArray<{ key: Tab; label: string; icon: typeof Users }> = [
    project-pills.tsx owns it now, so the list page and this page cannot drift
    apart on what colour "on hold" is. */
 
-const PROJECT_ROLE_LABEL: Record<string, string> = {
-  manager: 'Manager',
-  content: 'Content',
-  design: 'Design',
-  development: 'Development',
-  ads: 'Ads',
-  video: 'Video',
-  other: 'Other',
-};
-
 /** The secondary action buttons on the tab row. One string so the three of them
  *  cannot drift apart by a pixel. */
 const ACTION =
@@ -140,6 +126,9 @@ export function ProjectDetailWorkspace({
   documents,
   people,
   canManage,
+  canManageDocuments,
+  canApproveDocuments,
+  canGrantCredentials,
   canSeeFinance,
   canGenerateSchedule,
   placements,
@@ -151,6 +140,7 @@ export function ProjectDetailWorkspace({
   monthLabel,
   months,
   today,
+  nowMs,
   activity,
   ownerAvatarUrl,
   publishedTodayPlatformIds,
@@ -161,8 +151,24 @@ export function ProjectDetailWorkspace({
   tasks: readonly TaskRow[];
   credentials: readonly CredentialRow[];
   documents: readonly DocumentRow[];
-  people: readonly { id: string; name: string; role: string }[];
+  /** Every active person in the division, with rank and picture. `role` decides
+   *  who a task may be assigned to; `avatarUrl` draws the Access tab's
+   *  "who can see this" stack. */
+  people: readonly { id: string; name: string; role: string; avatarUrl?: string | null }[];
   canManage: boolean;
+  /** `document.manage` — Super Admin, Admin and Team Coordinator; Member denied.
+   *  Whether the Files tab offers Rename and Delete per row. Deliberately its own
+   *  prop rather than reusing `canManage`: they happen to cover the same roles
+   *  today and are different permissions, and one of them will move first. */
+  canManageDocuments: boolean;
+  /** `document.approve` — the same set, asked as a different question: whether
+   *  THIS person's upload skips the queue. The upload dialog needs it so its button
+   *  can say what will actually happen instead of always "Send for approval". */
+  canApproveDocuments: boolean;
+  /** `credential.grant` — Admin and Super Admin only, unlike every other
+   *  credential permission. Whether the Access tab's "who can see this" modal can
+   *  add and remove named people. Migration 050. */
+  canGrantCredentials: boolean;
   /** `project.view_finance` — Admin and above. The fee is ALSO stripped server-side
    *  before it reaches this component; see lib/view/project-finance.ts for why both. */
   canSeeFinance: boolean;
@@ -200,6 +206,10 @@ export function ProjectDetailWorkspace({
   /** The months the progress card's selector offers, newest first. */
   months: readonly string[];
   today: string;
+  /** Epoch milliseconds, read on the server. Feeds the Access tab's relative
+   *  ages — see the prop's note on the page and lib/now.ts for why a component
+   *  may not read this itself. */
+  nowMs: number;
   /** This project's and its tasks' history, newest first. */
   activity: readonly ActivityRow[];
   /** The owner's uploaded picture, or null. */
@@ -212,66 +222,63 @@ export function ProjectDetailWorkspace({
   const [tab, setTab] = React.useState<Tab>('overview');
   const router = useRouter();
 
-  /* Team editing state. `busy` holds the id being changed so only that row's
-     control shows a spinner, rather than the whole list freezing. */
-  const [busy, setBusy] = React.useState<string | null>(null);
-  const [note, setNote] = React.useState<string | null>(null);
-  const [adding, setAdding] = React.useState('');
+  /* ⚠️ The team-editing state that used to live here — `busy`, `note`, `adding`,
+     `addingRole` and the `run` helper — moved with the Team tab into
+     ./project-team-tab.tsx. Nothing else on this page used it. */
 
   /* The two dialogs this page can open. Owner, 2026-08-20 asked where a project is
      edited — the answer was "only the pencil on the projects list", which is not an
      answer, so the header menu opens them here. */
   const [editing, setEditing] = React.useState(false);
   const [editingPlatforms, setEditingPlatforms] = React.useState(false);
-  const [addingRole, setAddingRole] = React.useState('content');
 
-  /** Run a member change, surface any refusal, and refresh the server data.
-   *  `router.refresh()` rather than local state: membership changes VISIBILITY,
-   *  so the whole page's data can legitimately differ afterwards. */
-  const run = async (id: string, fn: () => Promise<{ ok: boolean; error?: string }>) => {
-    setBusy(id);
-    setNote(null);
-    try {
-      const result = await fn();
-      if (!result.ok) setNote(result.error ?? 'That could not be saved.');
-      else router.refresh();
-    } finally {
-      setBusy(null);
-    }
-  };
+  /* ── The three header actions, all of which now stay on this page ──────────
+     `creatingContent` opens a notice rather than a form: the feature does not
+     exist, and a button that silently does nothing is worse than one that says
+     why. See the Content tab, which says the same thing in the same words. */
+  /* ── WHO A TASK RAISED HERE MAY GO TO ─────────────────────────────────────
+     Project members, not the whole division: a task raised inside a project goes
+     to somebody on it.
+
+     ⚠️ And only those at or below this person's rank. Built from
+     `project_members` rather than from `listAssignablePeople`, so it does NOT
+     inherit the rank rule those queries carry and has to apply it here — an Admin
+     who happens to be on the project would otherwise appear in a Coordinator's
+     assignee control. Owner, 2026-08-23: *"the suggestion should also be very
+     intelligent. It should know to whom he can assign it or to whom he could
+     not."*
+
+     ⚠️ HOISTED OUT OF THE TASKS TAB, 2026-08-24. The header's Add Task opens the
+     same form, so it must offer the same people — a second inline `.map` was how
+     one of the two would have quietly kept offering an Admin. */
+  const assignablePeople = React.useMemo(
+    () =>
+      members
+        .filter((m) => canAssignTo(currentUser.role, m.role as Role))
+        .map((m) => ({ id: m.userId, name: m.fullName, roleTitle: m.projectRole })),
+    [members, currentUser.role],
+  );
+
+  /* Which of the calendar tab's two grids is showing. 'rhythm' first: it is the
+     one the tab is named after, and the one a manager opens the tab to check. */
+  const [calendarView, setCalendarView] = React.useState<'rhythm' | 'work'>('rhythm');
+
+  const [creatingContent, setCreatingContent] = React.useState(false);
+  const [addingTask, setAddingTask] = React.useState(false);
+  const [uploading, setUploading] = React.useState(false);
 
   /* Deliverables only — a coordinator's admin task is real work but was never
      part of what the client was promised, so it does not belong in a list headed
      "content". */
   const deliverables = tasks.filter((t) => t.contentKind !== null);
 
-  /* ── THE MONTH'S REAL OUTCOME, PER DAY ────────────────────────────────────
-     One pass over the project's deliverables, keyed by date, so the calendar can
-     colour each square by what actually happened. `dailyState` is the same
-     function the Today view uses — the two screens cannot disagree about whether
-     a day was blank, because they are asking the same code. */
-  const monthActuals = React.useMemo(() => {
-    const map = new Map<string, { done: number; missed: number; pending: number }>();
-
-    for (const task of tasks) {
-      const daily = {
-        id: task.id,
-        status: task.status,
-        dueDate: task.dueDate,
-        contentKind: task.contentKind,
-      };
-      if (!isDailyDeliverable(daily) || !task.dueDate) continue;
-
-      const at = map.get(task.dueDate) ?? { done: 0, missed: 0, pending: 0 };
-      const state = dailyState(daily, today);
-      if (state === 'done') at.done += 1;
-      else if (state === 'missed') at.missed += 1;
-      else if (state === 'pending') at.pending += 1;
-      map.set(task.dueDate, at);
-    }
-
-    return map;
-  }, [tasks, today]);
+  /* ⚠️ `monthActuals` USED TO BE HERE and is deliberately gone. It pre-computed
+     done/missed/pending per date for `MonthRhythm`'s coloured squares. The posting
+     calendar that replaced it counts from the same tasks and placements it already
+     renders, so the day tints and the chips inside them cannot disagree — which
+     they could when one came from a map built here and the other from the rows.
+     Deleted rather than left: dead code with a plausible name is worse than none,
+     because the next reader assumes something still uses it. */
 
 
   return (
@@ -442,16 +449,23 @@ export function ProjectDetailWorkspace({
             the actions. That is what keeps them "parallel on the right side" instead
             of being pushed under. */}
         <div className="flex shrink-0 items-center gap-1.5 pb-1.5">
-          {/* ⚠️ LINKS, not buttons that open a dialog here. `TaskDialog` needs the
-              shell's project list, person list and current user — none of which this
-              component has, and threading them in only to duplicate the New-task flow
-              that /tasks already owns would be a second place for that form to drift.
-              So these navigate to the task board filtered to this project, where the
-              real control lives. One extra click, no duplicated form, no dead
-              button. */}
-          <Link
-            href={`/tasks?project=${project.id}`}
-            title="Create content for this project"
+          {/* ── ⚠️ MODALS ON THIS PAGE, NOT LINKS TO ANOTHER ONE ─────────────
+              Owner, 2026-08-24: *"when I click on the Add Task button, it will
+              not bring me to the task page. It should show a task form popup
+              here on the same page… I don't want to go somewhere else."*
+
+              All three used to be `<Link href="/tasks?project=…">`. The note
+              that replaced said the component lacked the shell's project and
+              person lists — it does not: the server page already passes
+              `people`, `currentUser` and the project, because the Tasks tab
+              needed exactly the same three to open its own create form. So the
+              form opens here, and it is still ONE form: the same `TaskDialog`
+              and the same `UploadDialog` the dedicated pages use, with this
+              project locked on both. No second copy to drift. */}
+          <button
+            type="button"
+            onClick={() => setCreatingContent(true)}
+            title="Plan content for this project"
             className={cn(
               'inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg px-2 py-1.5 text-caption font-semibold',
               'bg-[image:var(--gradient-brand)] text-text-on-brand shadow-[var(--shadow-brand-glow)]',
@@ -460,27 +474,26 @@ export function ProjectDetailWorkspace({
           >
             <Plus className="h-3.5 w-3.5 shrink-0" strokeWidth={2.5} aria-hidden="true" />
             <span className={ACTION_LABEL}>Create Content</span>
-          </Link>
+          </button>
 
-          {/* ⚠️ Owner, 2026-08-20: *"the Add Task button is missing."* It was in the
-              mockup and I dropped it when I made these links instead of dialogs.
-              Both this and Create Content go to the task board filtered to this
-              project — the difference is that Create Content is the primary and this
-              is not, which is what the mockup shows. */}
-          <Link
-            href={`/tasks?project=${project.id}`}
+          <button
+            type="button"
+            onClick={() => setAddingTask(true)}
             className={ACTION}
             title="Add a task to this project"
           >
             <Plus className="h-3.5 w-3.5 shrink-0" strokeWidth={2.5} aria-hidden="true" />
             <span className={ACTION_LABEL}>Add Task</span>
-          </Link>
+          </button>
 
+          {/* ⚠️ Was `setTab('files')` — it changed tab and left the person to
+              find the upload control themselves, on a tab that told them to go
+              to /documents. It opens the form. */}
           <button
             type="button"
-            onClick={() => setTab('files')}
+            onClick={() => setUploading(true)}
             className={ACTION}
-            title="Upload an asset"
+            title="Upload an asset to this project"
           >
             <Upload className="h-3.5 w-3.5 shrink-0" strokeWidth={2.25} aria-hidden="true" />
             <span className={ACTION_LABEL}>Upload Asset</span>
@@ -540,25 +553,40 @@ export function ProjectDetailWorkspace({
 
           The old panel is directly below and still compiles; it is unreachable
           rather than deleted, so bringing it back is removing this block. */}
+      {/* ══ CONTENT ════════════════════════════════════════════════════════════
+          Not built. The planning surface the owner has in mind — a month of posts
+          with captions, assets and approvals — is its own piece of work, and the
+          `Create Content` button in the header opens the same notice. */}
       {tab === 'content' && (
-        <Card>
-          <CardBody className="flex flex-col items-center gap-2 px-4 py-14 text-center">
-            <div
-              className="flex size-11 items-center justify-center rounded-full"
-              style={{
-                backgroundColor:
-                  'color-mix(in oklab, var(--accent-primary) var(--tint-soft), var(--bg-surface))',
-              }}
-            >
-              <Share2 className="size-5 text-text-brand" aria-hidden="true" />
-            </div>
-            <p className="text-body-sm font-semibold text-text-primary">Content · coming soon</p>
-            <p className="max-w-[34rem] text-caption text-text-secondary">
-              The day&rsquo;s posts, their links and where the files live are all on the{' '}
-              <span className="font-semibold text-text-primary">Tasks</span> tab for now.
-            </p>
-          </CardBody>
-        </Card>
+        <ComingSoon
+          icon={Share2}
+          title="Content planning"
+          description={
+            <>
+              A month of posts in one place — caption, asset and approval per slot, laid out
+              against the agreed rhythm. It is not built yet, so nothing here would be true.
+            </>
+          }
+          bullets={[
+            'Plan a month of slots from the posting rhythm, then fill them.',
+            'Caption and asset on the slot, so the post is assembled before the day.',
+            'An approval step before anything is scheduled.',
+            'Each slot becomes a task, so the board and this tab stay one truth.',
+          ]}
+          insteadOf={
+            <>
+              Until then the day&rsquo;s posts, their links and where the files live are all on the{' '}
+              <button
+                type="button"
+                onClick={() => setTab('tasks')}
+                className="font-semibold text-text-brand hover:underline"
+              >
+                Tasks
+              </button>{' '}
+              tab.
+            </>
+          }
+        />
       )}
 
       {false && (
@@ -611,62 +639,96 @@ export function ProjectDetailWorkspace({
       )}
 
       {/* ══ CALENDAR ═══════════════════════════════════════════════════════════
-          The month grid, on its own tab as the mockup has it. Same component the
-          Overview used to embed — one renderer, so the two cannot disagree. */}
+          ⚠️ TWO CALENDARS, SWITCHED — NOT TWO CALENDARS STACKED.
+          Owner, 2026-08-24: *"is it possible that instead of scrolling down I
+          should be able to switch tabs over here in this calendar tab? The
+          posting month: then I switch to the Work Due This Month tab, in which
+          the calendars will be switching."*
+
+          They were rendered one under the other, so the second was below the
+          fold on every laptop — which is why the first thing seen was an
+          apparently empty month grid with the actual work hidden underneath it.
+          Two grids of that height never coexist on one screen; they compete.
+
+          They answer genuinely different questions and both are worth keeping:
+          the RHYTHM (what the agreed cadence implies, coloured by what happened)
+          and the WORK (tasks on the days they are due). So it is one control and
+          one grid at a time. */}
       {tab === 'calendar' && (
         <Card>
-          <CardHeader>
-            <CardTitle>The posting month</CardTitle>
+          <CardHeader className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle>
+              {calendarView === 'rhythm' ? 'The posting month' : 'Work due this month'}
+            </CardTitle>
+            <ToggleGroup
+              label="Calendar view"
+              value={calendarView}
+              onChange={(next) => setCalendarView(next as 'rhythm' | 'work')}
+              options={[
+                { key: 'rhythm', label: 'Posting month' },
+                { key: 'work', label: 'Work due' },
+              ]}
+            />
           </CardHeader>
           <CardBody className="p-3.5 pt-0">
-            <MonthRhythm
-              /* The month's real outcome, so a square says what happened rather
-                 than only what was promised. Owner, 2026-08-22: *"for the same
-                 task you have to represent it on a calendar."* */
-              actual={monthActuals}
-              cadence={{
-                staticPostsPerDay: project.staticPostsPerDay,
-                reelsPerWeek: project.reelsPerWeek,
-                reelDays: project.reelDays as never,
-                postingDays: project.postingDays as never,
-              }}
-              monthStart={monthStart}
-              today={today}
-            />
-          </CardBody>
-        </Card>
-      )}
+            {calendarView === 'rhythm' ? (
+              <>
+                {/* ── ⚠️ REPLACES `MonthRhythm` FOR THIS VIEW ─────────────────
+                    Owner, 2026-08-24, with a mockup: *"I want every posting month
+                    to display everything like this"* — each day stacking its posts
+                    as chips with the platform logo and the time.
 
-      {/* ── ⚠️ THE ACTUAL WORK, UNDER THE PLAN ────────────────────────────────
-          Owner, 2026-08-23: *"on any project detail page, the calendar is not
-          working. It's not showing anything related to that project."*
+                    `MonthRhythm` drew the agreed cadence as one tint per day. That
+                    answered "are we keeping to the rhythm" and could not answer
+                    "what went out on the 13th", which is what the mockup is about
+                    and why the tab read as empty even with posts in it.
 
-          The grid above is the posting RHYTHM — what the agreed cadence implies,
-          coloured by what happened. Useful, and not what somebody clicking
-          "Calendar" is looking for: they want the work, on the days it is due,
-          with who is doing it and what state it is in.
+                    ⚠️ The cadence is still passed in, and still used: `monthPlan`
+                    inside the grid marks a day the contract wanted and which has
+                    nothing filed — the owner's *"some days with absent"*. Dropping
+                    the plan would have made an ordinary quiet Tuesday and a missed
+                    one look identical.
 
-          This is the same `CalendarView` the Calendar page uses, scoped to this
-          project — so the two screens cannot drift, and paging to another month
-          stays inside the project. `canSeeOthers` is false because the person
-          filter would be a second way to ask a question this tab has already
-          answered by being a project. */}
-      {tab === 'calendar' && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Work due this month</CardTitle>
-          </CardHeader>
-          <CardBody className="p-3.5 pt-0">
-            <CalendarView
-              initialTasks={calendarTasks}
-              initialYear={Number(monthStart.slice(0, 4))}
-              initialMonth={Number(monthStart.slice(5, 7))}
-              todayIso={today}
-              people={[]}
-              currentUserId={currentUser.id}
-              canSeeOthers={false}
-              projectId={project.id}
-            />
+                    ⚠️ `monthActuals` is no longer needed here. The grid counts from
+                    the tasks and placements it is already given, so the day tints
+                    and the chips cannot disagree — which they could when one came
+                    from a pre-computed map and the other from the rows. */}
+                <PostingCalendar
+                  tasks={calendarTasks}
+                  placements={placements}
+                  cadence={{
+                    staticPostsPerDay: project.staticPostsPerDay,
+                    reelsPerWeek: project.reelsPerWeek,
+                    reelDays: project.reelDays as never,
+                    postingDays: project.postingDays as never,
+                  }}
+                  monthStart={monthStart}
+                  today={today}
+                  months={months}
+                  /* The month goes in the URL, so a month is a place you can send
+                     somebody — the same reason the project is a route and not a
+                     drawer, and the same query parameter the Overview's month
+                     picker already writes. */
+                  onMonth={(next) => router.push(`/projects/${project.id}?month=${next}`)}
+                />
+              </>
+            ) : (
+              /* The same `CalendarView` the Calendar page uses, scoped to this
+                 project — so the two screens cannot drift, and paging to another
+                 month stays inside the project. `canSeeOthers` is false because a
+                 person filter would be a second way to ask a question this tab has
+                 already answered by being a project. */
+              <CalendarView
+                initialTasks={calendarTasks}
+                initialYear={Number(monthStart.slice(0, 4))}
+                initialMonth={Number(monthStart.slice(5, 7))}
+                todayIso={today}
+                people={[]}
+                currentUserId={currentUser.id}
+                canSeeOthers={false}
+                projectId={project.id}
+              />
+            )}
           </CardBody>
         </Card>
       )}
@@ -688,23 +750,8 @@ export function ProjectDetailWorkspace({
           project={{ id: project.id, name: project.name, type: project.type, code: project.code }}
           today={today}
           currentUser={currentUser}
-          /* Project members, not the whole division: a task raised inside a
-             project goes to somebody on it.
-
-             ⚠️ And only those at or below this person's rank. This list is built
-             here from `project_members` rather than coming from
-             `listAssignablepeople`, so it did NOT inherit the rank rule those
-             queries carry — an Admin who happens to be on the project would
-             otherwise appear in a Coordinator's assignee control. Owner,
-             2026-08-23: *"the suggestion should also be very intelligent. It
-             should know to whom he can assign it or to whom he could not."* */
-          people={members
-            .filter((m) => canAssignTo(currentUser.role, m.role as Role))
-            .map((m) => ({
-              id: m.userId,
-              name: m.fullName,
-              roleTitle: m.projectRole,
-            }))}
+          /* See `assignablePeople` — members only, and rank-filtered. */
+          people={assignablePeople}
           daily={
             <DailyBoard
               tasks={tasks}
@@ -728,167 +775,53 @@ export function ProjectDetailWorkspace({
 
           What IS available is stated, because it is not nothing: the placement links
           per platform, which is the seed a real analytics tab would grow from. */}
+      {/* ══ ANALYTICS ══════════════════════════════════════════════════════════
+          ⚠️ NO PLACEHOLDER CHART HERE, EVER. Reach and engagement live inside
+          Meta, TikTok and YouTube and this CRM does not read them — a
+          demonstration chart on this tab is the one thing on the page somebody
+          would screenshot and send to a client. */}
       {tab === 'analytics' && (
-        <Card>
-          <CardBody className="space-y-3 px-6 py-10 text-center">
-            <BarChart3
-              className="mx-auto h-6 w-6 text-text-tertiary"
-              strokeWidth={1.9}
-              aria-hidden="true"
-            />
-            <p className="text-body-sm font-semibold text-text-primary">
-              Nothing to chart yet
-            </p>
-            <p className="mx-auto max-w-[40rem] text-caption text-text-secondary">
-              Reach, impressions and engagement live inside Meta, TikTok and YouTube — this
-              CRM does not read them yet, so there is nothing here that would be true. What it
-              does hold is every published post and its live link, which is what the{' '}
+        <ComingSoon
+          icon={BarChart3}
+          title="Performance analytics"
+          description={
+            <>
+              Reach, impressions and engagement live inside Meta, TikTok and YouTube. This CRM
+              does not read them yet, so there is no figure here that would be true.
+            </>
+          }
+          bullets={[
+            'Reach and engagement per post, pulled from each platform’s insights API.',
+            'Best day and best format, from this project’s own history.',
+            'Month against month, so a dip is visible before a client mentions it.',
+          ]}
+          insteadOf={
+            <>
+              What the system does hold is every published post and its live link, which is what
+              the{' '}
               <Link href="/monthly-report" className="font-semibold text-text-brand hover:underline">
                 monthly report
               </Link>{' '}
-              is built from.
-            </p>
-            <p className="text-micro text-text-tertiary">
-              Connecting a platform&rsquo;s insights API is its own piece of work — say the word.
-            </p>
-          </CardBody>
-        </Card>
+              is built from. Connecting a platform&rsquo;s insights API is its own piece of
+              work — say the word.
+            </>
+          }
+        />
       )}
 
-      {/* ══ TEAM ═══════════════════════════════════════════════════════════════ */}
+      {/* ══ TEAM ═══════════════════════════════════════════════════════════════
+          Extracted to its own component on 2026-08-24 and rebuilt — see the note
+          there for what was wrong with the list this replaced. */}
       {tab === 'team' && (
-        <Card>
-          <CardBody className="space-y-2.5 p-3.5">
-            <p className="text-body-sm font-semibold text-text-primary">Who is accountable</p>
-
-            {/* ⚠️ Naming somebody here also GRANTS THEM SIGHT of the project —
-                `app.project_is_visible` consults this table (migration 033). So
-                the copy says so, because a control that silently changes access
-                is one people use without realising what they did. */}
-            <p className="text-micro text-text-tertiary">
-              Anyone named here can see this project even before they hold a task on it, and is
-              who a report names when it is late.
-            </p>
-
-            {members.length === 0 ? (
-              <p className="text-caption text-text-secondary">
-                Nobody named yet. Until somebody is, &ldquo;who is responsible for this
-                project&rdquo; can only be guessed from who happens to hold a task on it.
-              </p>
-            ) : (
-              <ul className="divide-y divide-border-subtle">
-                {members.map((m) => (
-                  <li key={m.userId} className="flex flex-wrap items-center gap-2 py-2">
-                    <span className="min-w-0 flex-1 truncate text-body-sm text-text-primary">
-                      {m.fullName}
-                    </span>
-
-                    {canManage ? (
-                      <Select
-                        aria-label={`${m.fullName}'s role on this project`}
-                        value={m.projectRole}
-                        disabled={busy !== null}
-                        options={Object.entries(PROJECT_ROLE_LABEL).map(([value, label]) => ({
-                          value,
-                          label,
-                        }))}
-                        onChange={(event) =>
-                          void run(m.userId, () =>
-                            addProjectMemberAction(project.id, m.userId, event.target.value),
-                          )
-                        }
-                      />
-                    ) : (
-                      <Badge token="accent-primary" size="sm" variant="outline">
-                        {PROJECT_ROLE_LABEL[m.projectRole] ?? m.projectRole}
-                      </Badge>
-                    )}
-
-                    {m.addedByName && (
-                      <span className="text-micro text-text-tertiary">
-                        added by {m.addedByName}
-                      </span>
-                    )}
-
-                    {canManage && (
-                      <IconButton
-                        variant="deleteGhost"
-                        size="sm"
-                        label={`Remove ${m.fullName} from this project`}
-                        icon={Trash2}
-                        disabled={busy !== null}
-                        onClick={() =>
-                          void run(m.userId, () =>
-                            removeProjectMemberAction(project.id, m.userId),
-                          )
-                        }
-                      />
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-
-            {canManage && (
-              <div className="flex flex-wrap items-end gap-2 border-t border-border-subtle pt-3">
-                <Field label="Add somebody" htmlFor="addMember" className="basis-56 grow">
-                  <Select
-                    id="addMember"
-                    value={adding}
-                    disabled={busy !== null}
-                    options={[
-                      { value: '', label: 'Choose a person…' },
-                      /* Already-named people are excluded: changing their role is
-                         what the row's own dropdown is for, and offering them
-                         here would look like a way to add them twice. */
-                      ...people
-                        .filter((p) => !members.some((m) => m.userId === p.id))
-                        .map((p) => ({ value: p.id, label: p.name })),
-                    ]}
-                    onChange={(event) => setAdding(event.target.value)}
-                  />
-                </Field>
-
-                <Field label="As" htmlFor="addMemberRole" className="basis-40">
-                  <Select
-                    id="addMemberRole"
-                    value={addingRole}
-                    disabled={busy !== null}
-                    options={Object.entries(PROJECT_ROLE_LABEL).map(([value, label]) => ({
-                      value,
-                      label,
-                    }))}
-                    onChange={(event) => setAddingRole(event.target.value)}
-                  />
-                </Field>
-
-                <Button
-                  variant="secondary"
-                  size="md"
-                  disabled={busy !== null || !adding}
-                  onClick={() => {
-                    const id = adding;
-                    setAdding('');
-                    void run(id, () => addProjectMemberAction(project.id, id, addingRole));
-                  }}
-                >
-                  {busy === adding && adding ? (
-                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-                  ) : (
-                    <UserPlus className="h-4 w-4" strokeWidth={2.25} aria-hidden="true" />
-                  )}
-                  Add
-                </Button>
-              </div>
-            )}
-
-            {note && (
-              <p className="text-caption" style={{ color: 'var(--feedback-error)' }}>
-                {note}
-              </p>
-            )}
-          </CardBody>
-        </Card>
+        <ProjectTeamTab
+          projectId={project.id}
+          ownerId={project.ownerId ?? null}
+          members={members}
+          people={people}
+          canManage={canManage}
+          currentUser={currentUser}
+          onChanged={() => router.refresh()}
+        />
       )}
 
       {/* ══ CREDENTIALS ════════════════════════════════════════════════════════ */}
@@ -897,67 +830,35 @@ export function ProjectDetailWorkspace({
           credentials={credentials}
           projectId={project.id}
           projectName={project.name}
-          people={people.map((person) => ({ id: person.id, name: person.name }))}
+          /* ⚠️ Passed whole, not narrowed to `{id, name}` as it was. The panel's
+             "who can see this" stack is built from `role` — access to a credential
+             is rank since migration 047 — and it needs `avatarUrl` to be a row of
+             faces rather than a row of initials. */
+          people={people}
           canManage={canManage}
+          canGrant={canGrantCredentials}
+          nowMs={nowMs}
         />
       )}
 
-      {/* ══ DOCUMENTS ══════════════════════════════════════════════════════════ */}
+      {/* ══ FILES ══════════════════════════════════════════════════════════════
+          Extracted and rebuilt on 2026-08-24 — see the note in that component for
+          what the list this replaces failed to offer. */}
       {tab === 'files' && (
-        <Card>
-          <CardBody className="space-y-2.5 p-3.5">
-            <p className="text-body-sm font-semibold text-text-primary">Documents</p>
-
-            {documents.length === 0 ? (
-              <p className="text-caption text-text-secondary">
-                Nothing filed against this project yet. Uploads happen on{' '}
-                <Link href="/documents" className="font-semibold text-text-brand hover:underline">
-                  Documents
-                </Link>
-                .
-              </p>
-            ) : (
-              <ul className="divide-y divide-border-subtle">
-                {documents.map((d) => (
-                  <li key={d.id} className="flex flex-wrap items-center gap-2 py-2">
-                    <Folder
-                      className="h-3.5 w-3.5 shrink-0 text-text-tertiary"
-                      strokeWidth={2.25}
-                      aria-hidden="true"
-                    />
-                    <span className="min-w-0 flex-1 truncate text-body-sm text-text-primary">
-                      {d.name}
-                    </span>
-                    <Badge
-                      token={
-                        d.state === 'approved'
-                          ? 'feedback-success'
-                          : d.state === 'rejected'
-                            ? 'feedback-error'
-                            : 'feedback-warning'
-                      }
-                      size="sm"
-                      variant="outline"
-                    >
-                      {d.state === 'approved' ? 'In Drive' : d.state === 'rejected' ? 'Refused' : 'Waiting'}
-                    </Badge>
-                    {d.driveWebLink && (
-                      <a
-                        href={d.driveWebLink}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 text-micro font-semibold text-text-brand hover:underline"
-                      >
-                        Open
-                        <ExternalLink className="h-3 w-3" strokeWidth={2.25} aria-hidden="true" />
-                      </a>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </CardBody>
-        </Card>
+        <ProjectFilesTab
+          documents={documents}
+          projectName={project.name}
+          /* ⚠️ `document.manage`, NOT the page's `canManage` (`project.edit`).
+             They differ for exactly the role this matters for: `project.edit` is
+             Coordinator and above, and so is `document.manage` — but they are
+             separate permissions and conflating them would silently move file
+             deletion whenever either one is re-scoped. Owner, 2026-08-24: *"only
+             in the admin and team coordinator access."* */
+          canManage={canManageDocuments}
+          nowMs={nowMs}
+          onUpload={() => setUploading(true)}
+          onChanged={() => router.refresh()}
+        />
       )}
 
       {/* ── The two dialogs the header menu opens ───────────────────────────────
@@ -972,6 +873,114 @@ export function ProjectDetailWorkspace({
           people={people.map((person) => ({ id: person.id, name: person.name }))}
           project={project}
           canSeeFinance={canSeeFinance}
+        />
+      )}
+
+      {/* ── ⚠️ CREATE CONTENT SAYS SO, RATHER THAN QUIETLY DOING NOTHING ──────
+          Owner, 2026-08-24: *"the Content tab, or this Create Content button, is
+          coming soon. Right now we have not implemented this feature. When you
+          click on this Create Content button, the modal pops up and shows that it
+          will be a Coming Soon feature."*
+
+          It used to navigate to /tasks?project=… — a primary, brand-coloured
+          button whose label promised content planning and delivered the task
+          board. The notice is the honest version, and it offers the two things
+          that DO exist rather than being a dead end. */}
+      <Dialog
+        open={creatingContent}
+        onClose={() => setCreatingContent(false)}
+        size="sm"
+        title="Content planning"
+        footer={
+          <>
+            <Button variant="ghost" size="md" onClick={() => setCreatingContent(false)}>
+              Close
+            </Button>
+            <Button
+              variant="primary"
+              size="md"
+              onClick={() => {
+                setCreatingContent(false);
+                setAddingTask(true);
+              }}
+            >
+              <Plus className="h-4 w-4" strokeWidth={2.25} aria-hidden="true" />
+              Add a task instead
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <p
+            className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-micro font-bold tracking-[0.08em] uppercase"
+            style={{
+              backgroundColor:
+                'color-mix(in oklab, var(--accent-primary) var(--tint-strong), var(--bg-surface))',
+              color: 'color-mix(in oklab, var(--accent-primary) 88%, var(--text-primary))',
+            }}
+          >
+            <Sparkles className="size-3" strokeWidth={2.25} aria-hidden="true" />
+            Coming soon
+          </p>
+          <p className="text-caption leading-relaxed text-text-secondary">
+            A month of posts in one place &mdash; caption, asset and approval per slot, laid out
+            against{' '}
+            <span className="font-semibold text-text-primary">{project.name}</span>&rsquo;s agreed
+            rhythm. It is not built yet, so nothing it showed would be true.
+          </p>
+          <p className="text-caption leading-relaxed text-text-secondary">
+            Until it is, a post is an ordinary task with a content kind set &mdash; that is what
+            makes it countable against the monthly target, and what the Content Pipeline on the
+            Overview is built from.
+          </p>
+        </div>
+      </Dialog>
+
+      {/* ── ADD TASK AND UPLOAD, BOTH LOCKED TO THIS PROJECT ──────────────────
+          `lockedProjectId` on both, so neither can file work against a different
+          project than the page it was opened from. Same components the /tasks and
+          /documents pages use. */}
+      <TaskDialog
+        open={addingTask}
+        onClose={() => setAddingTask(false)}
+        projects={[{ id: project.id, name: project.name, type: project.type, code: project.code }]}
+        people={assignablePeople}
+        currentUser={currentUser}
+        lockedProjectId={project.id}
+      />
+
+      {uploading && (
+        <UploadDialog
+          projects={[{ id: project.id, name: project.name }]}
+          /* ⚠️ Empty, deliberately — and now doubly so. The folder picker narrows
+             to folders this person may file into, and that list is built on the
+             Documents page from `listFolders` plus each folder's access level;
+             passing an unfiltered list here would offer folders the server then
+             refuses. With the destination locked to the bucket below, a Drive
+             folder would be meaningless here anyway. */
+          folders={[]}
+          initialFolderId={null}
+          lockedProjectId={project.id}
+          lockedProjectName={project.name}
+          /* ── ⚠️ THE PROJECT'S FILES GO IN THE BUCKET. NOT A DEFAULT — A LOCK ──
+             Owner, 2026-08-24: *"in the File tab… the file which is uploaded over
+             there will only be saved in the bucket, right? It will not be saved in
+             Google Drive."*
+
+             A pre-selected radio would still let somebody send a client's asset to
+             Drive from a tab whose own footnote promises it does not. The choice
+             exists on the Documents page, which is where choosing is the job. */
+          lockedDestination="bucket"
+          /* Irrelevant while the destination is locked to the bucket, and passed
+             honestly rather than as `true`: if the lock is ever lifted here, a
+             hardcoded `true` would offer a Drive radio that cannot work. */
+          driveConnected={false}
+          canApprove={canApproveDocuments}
+          onClose={() => setUploading(false)}
+          onDone={() => {
+            setUploading(false);
+            router.refresh();
+          }}
         />
       )}
 

@@ -205,6 +205,16 @@ export interface ActivityRow {
   readonly id: string;
   readonly actorId: string | null;
   readonly actorName: string | null;
+  /**
+   * The actor's photo, for a feed that shows faces.
+   *
+   * ⚠️ Added 2026-08-25: the dashboard's activity feed drew initials for
+   * everybody because this was never selected, and an initial is what `Avatar`
+   * falls back to when it has no `src` — so the bug looked like a deliberate
+   * style rather than missing data. Nullable because a person may genuinely have
+   * no photo, and because a system-generated row has no actor at all.
+   */
+  readonly actorAvatarUrl: string | null;
   readonly entityType: string;
   readonly entityId: string;
   readonly action: string;

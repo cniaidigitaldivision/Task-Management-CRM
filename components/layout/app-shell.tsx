@@ -166,6 +166,13 @@ const PRIMARY_ACTIONS: Readonly<Record<string, PrimaryAction | null>> = {
   '/security': null,
   '/vault': null,
   '/documents': null,
+  /* Nothing to create: attendance is recorded by the top bar's button, and a
+     "New attendance" button would imply somebody types these by hand. */
+  '/attendance': null,
+  /* The thing this page makes is a QUESTION, and the box for it is the whole
+     screen. A "New conversation" button in the top bar would duplicate the
+     control the page opens on. */
+  '/assistant': null,
   /* Nothing to create from the top bar. The thing this page makes is a CHAIN,
      and its own "Create" sits beside the name and type it needs — a generic
      button up here could not supply either. */
@@ -195,6 +202,8 @@ export function AppShell({
   projects,
   people,
   timerBar,
+  checkInButton,
+  launcher,
   children,
 }: {
   user: ShellUser;
@@ -204,6 +213,28 @@ export function AppShell({
   people: readonly ShellPerson[];
   /** The running-timer chips, rendered by the layout. See Topbar. */
   timerBar?: React.ReactNode;
+  /** The attendance pill, rendered by the layout. See Topbar. */
+  checkInButton?: React.ReactNode;
+  /**
+   * A viewport-anchored control the layout supplies — today, the assistant
+   * launcher.
+   *
+   * ── ⚠️ WHY THIS IS A PROP AND NOT JUST ANOTHER CHILD ───────────────────────
+   * It was a second child at first, and that was wrong twice over:
+   *
+   *   1. `children` became a two-element array, and React asked for keys on
+   *      both — the "Each child in a list should have a unique key" warning
+   *      that pointed, confusingly, at Topbar.
+   *   2. Worse and quieter: it landed inside `<main class="reveal-children">`,
+   *      which animates a transform on every direct child. A transformed
+   *      ancestor becomes the containing block for a `fixed` descendant, so a
+   *      launcher pinned to the viewport was in fact pinned to `<main>` — close
+   *      enough to look right and wrong the moment the page scrolls or the
+   *      layout changes.
+   *
+   * Rendered below as a sibling of the layout column, outside every transform.
+   */
+  launcher?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const [navOpen, setNavOpen] = React.useState(false);
@@ -335,6 +366,7 @@ export function AppShell({
           notifications={notifications}
           unreadCount={unreadCount}
           timerBar={timerBar}
+          checkInButton={checkInButton}
         />
         {/* `page-ambience` lays two very faint brand gradients over the content
             surface, so the page is a lit plane rather than a flat slab. It is a
@@ -373,6 +405,12 @@ export function AppShell({
         </main>
       </div>
 
+      {/* ⚠️ OUTSIDE the layout column, and outside `reveal-children`. See the
+          note on the `launcher` prop: anything `fixed` that sits inside a
+          transformed ancestor is positioned against that ancestor instead of
+          the viewport. */}
+      {launcher}
+
       {/* All three creates live here rather than on their pages, so the topbar
           button and the N shortcut behave identically wherever you are. Each is
           MOUNTED on demand: leaving them mounted with `open` false would keep
@@ -410,6 +448,9 @@ export function AppShell({
              The database refuses an out-of-rank insert regardless (FR-141). */
           assignableRoles={assignableRolesFor(user.role)}
           actorRoleLabel={ROLE_LABEL[user.role]}
+          /* Pay is Admin+ — the same gate the finance panel uses above, and the
+             same one `employee_compensation`'s RLS enforces in the database. */
+          canSetPay={ADMIN_UP.includes(user.role)}
         />
       )}
     </div>

@@ -326,3 +326,32 @@ export async function setOwnAvatar(
   `);
   return { previousUrl: (rows[0]?.previous_url as string | null) ?? null };
 }
+
+/**
+ * What each person does on each project.
+ *
+ * ── WHY THE PAIRING AND NOT THE PERSON ───────────────────────────────────────
+ * `users.role` is rank — what somebody may do anywhere in the system. This is the
+ * job they hold on ONE project, and the two genuinely differ: Kashif is a Team
+ * Coordinator by rank and runs Daniyal Marketing's pages by role. The work report
+ * shows a row per project-and-person, so it needs the pairing; the constant that
+ * labels these lives at `PROJECT_ROLE_LABEL` and already says the same thing.
+ *
+ * ⚠️ One query for every visible pairing rather than one per row. A work report
+ * can hold a hundred rows, and RLS on `project_members` narrows this to the
+ * reader's own scope exactly as it does everywhere else (ADR-003).
+ *
+ * Keyed `projectId:userId`. Absent means the person has work on a project they are
+ * not a member of — which happens, and reads as no role rather than as an error.
+ */
+export async function projectRolesByPerson(actorId: string): Promise<Map<string, string>> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select project_id, user_id, role from public.project_members
+  `);
+
+  const out = new Map<string, string>();
+  for (const row of rows as Array<Record<string, unknown>>) {
+    out.set(`${row.project_id as string}:${row.user_id as string}`, row.role as string);
+  }
+  return out;
+}

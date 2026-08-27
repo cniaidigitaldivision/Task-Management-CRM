@@ -21,6 +21,28 @@
 
 export type GlyphTone = 'light' | 'dark';
 
+/**
+ * One coloured region of a full-colour logo. A 24×24 path plus the colour it is
+ * painted in, and — where the shape has to be cut out of a larger one — the box to
+ * clip it to.
+ *
+ * ── ⚠️ WHY REGIONS ARE CLIPPED RATHER THAN DRAWN SEPARATELY ──────────────────
+ * A multicolour logo could be five hand-drawn paths. It is instead ONE verified
+ * silhouette painted five times, each clipped to a rectangle, because the
+ * silhouette is the part that has to be geometrically right and it is the part
+ * already extracted from `simple-icons` and pinned by tests. Redrawing it as five
+ * approximations would put the shape at risk to gain nothing — only the boundaries
+ * between colours are new information, and those are single numbers rather than
+ * hundreds of coordinates.
+ */
+export interface MarkLayer {
+  /** The colour this region is painted. */
+  readonly fill: string;
+  /** `[x, y, width, height]` in the 24×24 box, or absent to paint the whole
+   *  silhouette. Regions are drawn in order, so a later one covers an earlier. */
+  readonly clip?: readonly [number, number, number, number];
+}
+
 export interface PlatformMark {
   readonly label: string;
   /** The brand's own colour, for the tile. */
@@ -29,6 +51,41 @@ export interface PlatformMark {
   readonly glyph: GlyphTone;
   /** A single path in a 24×24 box. Absent for marks drawn as shapes. */
   readonly path?: string;
+  /**
+   * The brand's real colours, painted onto a WHITE tile instead of knocked out of
+   * `hex`. Owner, 2026-08-24, of the Access tab: *"use gmail this icon"* — with
+   * the full-colour M rather than the white-on-red silhouette.
+   *
+   * ⚠️ Only for logos whose identity IS the colour. Gmail's M is four colours and
+   * a monochrome version reads as "some mail app"; Facebook's `f` is one colour on
+   * blue and a white tile would make it look like a favicon. So this is opt-in per
+   * mark, not a mode the whole set switches to. `hex` and `glyph` stay populated
+   * so anything that cannot draw layers still has a working tile — the PDF
+   * composer, for one.
+   */
+  readonly layers?: readonly MarkLayer[];
+  /**
+   * A logo drawn as SEPARATE COLOURED PATHS, in its own viewBox.
+   *
+   * ── ⚠️ WHY `layers` COULD NOT DO THIS ───────────────────────────────────
+   * `layers` paints one silhouette repeatedly through rectangular clips. That is
+   * exactly right for Gmail, whose colour regions are vertical and horizontal
+   * slices of a single shape. It cannot express Google Drive, whose three colours
+   * are diagonal wedges of a triangle — no set of axis-aligned rectangles cuts a
+   * triangle into its three faces.
+   *
+   * So a mark may instead carry its real artwork: the paths as the brand ships
+   * them, each with its own fill, in the brand's own viewBox. Nothing is
+   * transcribed into a 24×24 box, which is the step that introduces errors you
+   * cannot see until the logo looks subtly wrong.
+   *
+   * ⚠️ Prefer `path` (one silhouette, knocked out of a coloured tile) wherever it
+   * works. This is for the handful of logos whose identity IS several colours.
+   */
+  readonly art?: {
+    readonly viewBox: string;
+    readonly paths: readonly { readonly d: string; readonly fill: string }[];
+  };
 }
 
 export const PLATFORM_MARKS: Readonly<Record<string, PlatformMark>> = {

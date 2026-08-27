@@ -179,14 +179,27 @@ export function Dialog({
   onClose,
   title,
   description,
+  header,
   children,
   footer,
   size = 'md',
 }: {
   open: boolean;
   onClose: () => void;
+  /** Always required: it is the dialog's accessible name even when `header`
+   *  replaces the visible title. */
   title: string;
   description?: string;
+  /**
+   * Replaces the default title block, keeping the row and its close button.
+   *
+   * ⚠️ For a header that has to carry more than words — a brand mark, a status
+   * chip — NOT for a different layout. The close button, the padding and the
+   * border stay where they are, so every dialog in the app still shuts in the
+   * same place. `title` is still required and still names it for a screen
+   * reader.
+   */
+  header?: React.ReactNode;
   children: React.ReactNode;
   footer?: React.ReactNode;
   size?: 'sm' | 'md' | 'lg';
@@ -226,9 +239,13 @@ export function Dialog({
         >
           <div className="flex shrink-0 items-start gap-3 border-b border-border-subtle px-5 py-4">
             <div className="min-w-0 flex-1">
-              <h2 className="text-h3 text-text-primary">{title}</h2>
-              {description && (
-                <p className="mt-0.5 text-caption text-text-secondary">{description}</p>
+              {header ?? (
+                <>
+                  <h2 className="text-h3 text-text-primary">{title}</h2>
+                  {description && (
+                    <p className="mt-0.5 text-caption text-text-secondary">{description}</p>
+                  )}
+                </>
               )}
             </div>
             <IconButton label="Close" icon={X} size="sm" onClick={onClose} className="-mr-1" />

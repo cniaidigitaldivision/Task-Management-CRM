@@ -141,3 +141,48 @@ export async function listPlacementsForProject(
   `);
   return rows.map((r) => toRow(r as Record<string, unknown>));
 }
+
+/**
+ * Every platform a task reached, for every task the reader can see.
+ *
+ * ── WHY A SEPARATE QUERY AND NOT A COLUMN ON `TaskRow` ───────────────────────
+ * The Platform filter on the reports page needs the slugs per task, and
+ * `listTasks` is used by six screens that do not. Aggregating a subquery onto the
+ * task list to serve one page would make every task query pay for it — and
+ * `TaskRow` already carries `placementCount`, which is what the others actually
+ * want.
+ *
+ * ── ⚠️ ONE QUERY, NOT ONE PER TASK ──────────────────────────────────────────
+ * A report covers up to 5000 tasks. Asking per task would be 5000 round trips
+ * for a filter dropdown, so this returns the whole visible set at once and the
+ * caller indexes it. RLS (`app.task_is_visible`, via the join on `tasks`) narrows
+ * it to what the reader may see, exactly as `listPlacements` does — so there is
+ * no `if` here deciding scope, which is ADR-003's whole point.
+ *
+ * Returns a Map so the caller does no grouping. Absent means no placements, which
+ * is the common case for anything unpublished — the caller should read a missing
+ * key as an empty list, not as unknown.
+ */
+export async function platformSlugsByTask(actorId: string): Promise<Map<string, string[]>> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select tp.task_id, pl.slug
+      from public.task_placements tp
+      join public.platforms pl on pl.id = tp.platform_id
+      join public.tasks t on t.id = tp.task_id
+     where t.is_deleted = false
+     order by tp.task_id, pl.sort_order
+  `);
+
+  const byTask = new Map<string, string[]>();
+  for (const row of rows as Array<Record<string, unknown>>) {
+    const id = row.task_id as string;
+    const slug = row.slug as string;
+    const list = byTask.get(id);
+    /* ⚠️ De-duplicated. A task published to Facebook as both a post and a reel is
+       TWO placements on ONE platform, and a filter that matched it twice would be
+       harmless while a chart counting slugs would double it. */
+    if (!list) byTask.set(id, [slug]);
+    else if (!list.includes(slug)) list.push(slug);
+  }
+  return byTask;
+}

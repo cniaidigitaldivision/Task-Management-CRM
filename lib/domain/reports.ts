@@ -2,6 +2,7 @@ import {
   EFFORT_POINTS,
   PROJECT_TYPE_META,
   STATUS_META,
+  type ContentKind,
   type ProjectType,
   type TaskStatus,
 } from './constants';
@@ -96,7 +97,19 @@ export interface ReportFigure {
 }
 
 export interface Report {
-  readonly type: ReportType;
+  /**
+   * ⚠️ WIDER THAN `REPORT_TYPES`, deliberately. Attendance and finance each
+   * build a Report so they can reuse the print sheet in lib/pdf/report-sheet.ts
+   * — the owner asked for exactly that, twice: *"the PDF template should be the
+   * same as on the report page"* (2026-08-25) and *"make sure the report
+   * template is the same as the report pages' PDF template"* (2026-08-26) — but
+   * neither is one of the four analytical reports, and neither must appear in
+   * the Reports page's type dropdown, which is driven by `REPORT_TYPES`.
+   *
+   * Adding them to that array instead would put tabs on a page whose builder
+   * cannot produce them. Only `reportFileStem` reads this field.
+   */
+  readonly type: ReportType | 'attendance' | 'finance';
   readonly title: string;
   readonly subtitle: string;
   readonly period: ReportPeriod;
@@ -136,6 +149,38 @@ export interface ReportTask {
   readonly timeLimitMinutes: number | null;
   readonly timeSpentMinutes: number;
   readonly extensionMinutesGranted: number;
+  /**
+   * What kind of deliverable this is, or null for work that is not content.
+   *
+   * ⚠️ NULL IS A REAL ANSWER, not missing data. Oversight work — a client call, a
+   * spend review — is work, and it is deliberately not a post. Every posting
+   * figure in this system keys off this column being non-null, so a filter on it
+   * is the difference between "what did we publish" and "what did we do".
+   */
+  readonly contentKind: ContentKind | null;
+  /**
+   * Platform slugs this task was placed on. Empty for anything unpublished or
+   * not a post.
+   *
+   * A LIST, not one value, because one asset goes to several platforms — that is
+   * the entire reason `task_placements` is its own table. A task filtered to
+   * "Instagram" therefore matches if Instagram is among its platforms; it is not
+   * removed for also having gone to Facebook.
+   */
+  readonly platforms: readonly string[];
+  /**
+   * The date the asset went live, or null.
+   *
+   * ⚠️ NOT `completedAt`. Migration 033 was explicit that these are different
+   * dates and migration 055 exists because every report was reading the wrong one:
+   * a reel finished on Monday and posted on Friday counts against Friday. "Posts
+   * published" is measured on THIS column and nothing else.
+   */
+  readonly publishedOn: string | null;
+  /** For the avatar in the work report. Null falls back to initials. */
+  readonly assigneeAvatarUrl: string | null;
+  /** ISO timestamp of the last change, for "Last active". */
+  readonly updatedAt: string;
 }
 
 export interface ReportPerson {
@@ -160,6 +205,77 @@ export interface ReportProject {
   readonly status: string;
 }
 
+/* ==========================================================================
+ * FILTERS — every one of them optional, and empty means "no opinion"
+ * ==========================================================================
+ * Owner: *"I want a proper filter and each and everything should properly
+ * implement the filters."*
+ *
+ * ── ⚠️ EMPTY ARRAY MEANS ALL, AND THAT IS NOT THE SAME AS AN ARRAY OF ALL ───
+ * A filter holding every project reads identically to no filter today, and stops
+ * doing so the moment somebody adds a project — the saved filter would silently
+ * exclude it. So "no opinion" is the empty array, and it is checked with
+ * `length === 0` before anything else. This is the difference between a filter
+ * that ages well and one that quietly goes stale.
+ *
+ * ── WHY THESE FIVE AND NOT A GENERIC PREDICATE ──────────────────────────────
+ * Each of the five answers a question the owner named for the monthly meeting:
+ * which project, who, what state, which platform, what kind of content. A
+ * generic predicate would be shorter here and impossible to put in a URL, an
+ * audit row, or a PDF header — all three of which have to say what was filtered.
+ * ========================================================================== */
+
+export interface ReportFilters {
+  /** Project ids. Empty for every project the reader can see. */
+  readonly projectIds: readonly string[];
+  readonly statuses: readonly TaskStatus[];
+  /** Platform slugs, matched against a task's placements. */
+  readonly platforms: readonly string[];
+  /**
+   * Content kinds. `'none'` selects work with NO content kind — the oversight
+   * items — which no list of real kinds could ever express.
+   */
+  readonly contentKinds: readonly (ContentKind | 'none')[];
+}
+
+export const EMPTY_FILTERS: ReportFilters = {
+  projectIds: [],
+  statuses: [],
+  platforms: [],
+  contentKinds: [],
+};
+
+/** True when nothing is filtered — used to label the report honestly. */
+export function noFilters(filters: ReportFilters): boolean {
+  return (
+    filters.projectIds.length === 0 &&
+    filters.statuses.length === 0 &&
+    filters.platforms.length === 0 &&
+    filters.contentKinds.length === 0
+  );
+}
+
+/**
+ * Which column to order the table by, and which way.
+ *
+ * ── WHY A COLUMN KEY AND NOT A SORT FUNCTION ────────────────────────────────
+ * The four report types have different columns, so a shared enum of sort modes
+ * would be wrong for three of them. A column KEY is the one thing every report
+ * already publishes, it survives being put in a URL, and it means the control on
+ * screen can be built from `report.columns` rather than from a second list that
+ * has to be kept in step with the first.
+ *
+ * An empty key means the report's own natural order — which is chosen per type
+ * and is usually the most useful one (utilisation descending for workload,
+ * alphabetical for completion). "Default" has to remain expressible.
+ */
+export interface ReportSort {
+  readonly key: string;
+  readonly direction: 'asc' | 'desc';
+}
+
+export const NATURAL_SORT: ReportSort = { key: '', direction: 'asc' };
+
 export interface ReportInput {
   readonly type: ReportType;
   readonly period: ReportPeriod;
@@ -181,6 +297,8 @@ export interface ReportInput {
   readonly tasks: readonly ReportTask[];
   readonly people: readonly ReportPerson[];
   readonly projects: readonly ReportProject[];
+  readonly filters: ReportFilters;
+  readonly sort: ReportSort;
 }
 
 /* ==========================================================================
@@ -259,6 +377,10 @@ const duration = (value: number): Cell => ({ kind: 'duration', value });
  * ========================================================================== */
 
 export function buildReport(input: ReportInput): Report {
+  return sortRows(byType(input), input.sort);
+}
+
+function byType(input: ReportInput): Report {
   switch (input.type) {
     case 'completion':
       return completionReport(input);
@@ -278,16 +400,119 @@ function subtitleFor(input: ReportInput): string {
     : `${who} · ${input.period.start} to ${input.period.end}`;
 }
 
-/** Applies the person filter. See the note on `subjectId` at the top. */
+/**
+ * Every narrowing, in one function.
+ *
+ * ── ⚠️ ONE PLACE, SO A FILTER CANNOT BE HONOURED BY THREE REPORTS AND NOT THE
+ *    FOURTH ────────────────────────────────────────────────────────────────
+ * All four report builders call this. That is the only reason it is safe to add a
+ * filter without auditing four call sites — and the failure it prevents is the
+ * quiet kind: a Platform filter that visibly works on the completion report and
+ * is ignored by the project one produces two numbers that disagree, on the same
+ * screen, with no indication which is answering the question that was asked.
+ *
+ * Order is deliberate: period first, because it is the cheapest and removes the
+ * most rows; then the person; then the four filters.
+ */
 function scopedTasks(input: ReportInput): ReportTask[] {
-  const inPeriod = input.tasks.filter((t) => taskInPeriod(t, input.period));
-  return input.subjectId ? inPeriod.filter((t) => t.assigneeId === input.subjectId) : inPeriod;
+  const { filters } = input;
+  let tasks = input.tasks.filter((t) => taskInPeriod(t, input.period));
+
+  if (input.subjectId) tasks = tasks.filter((t) => t.assigneeId === input.subjectId);
+
+  if (filters.projectIds.length > 0) {
+    const wanted = new Set(filters.projectIds);
+    tasks = tasks.filter((t) => wanted.has(t.projectId));
+  }
+
+  if (filters.statuses.length > 0) {
+    const wanted = new Set<TaskStatus>(filters.statuses);
+    tasks = tasks.filter((t) => wanted.has(t.status));
+  }
+
+  if (filters.platforms.length > 0) {
+    /* ANY, not ALL. One asset goes to several platforms, so "Instagram" must mean
+       "reached Instagram", not "reached Instagram and nowhere else" — the second
+       reading would report almost nothing for a division that cross-posts. */
+    const wanted = new Set(filters.platforms);
+    tasks = tasks.filter((t) => t.platforms.some((slug) => wanted.has(slug)));
+  }
+
+  if (filters.contentKinds.length > 0) {
+    const wanted = new Set(filters.contentKinds);
+    /* `'none'` is how non-content work is selected. See ReportFilters. */
+    tasks = tasks.filter((t) => wanted.has(t.contentKind ?? 'none'));
+  }
+
+  return tasks;
 }
 
+/**
+ * The people a report covers.
+ *
+ * ── ⚠️ A PROJECT FILTER NARROWS WHO IS LISTED, NOT WHAT THEY ARE CARRYING ───
+ * Capacity is a property of a person, not of a project: somebody at 120%
+ * utilisation is over capacity because of everything on them, and re-stating that
+ * as "40% within this project" would invent a number that means nothing — you
+ * cannot plan against a fraction of a person's load.
+ *
+ * So filtering by project changes which people APPEAR (those with work in it) and
+ * leaves each person's figures whole. The report says so in its notes, because a
+ * reader who filtered to one project and saw a full load would otherwise
+ * reasonably assume the filter had failed.
+ */
 function scopedPeople(input: ReportInput): ReportPerson[] {
-  return input.subjectId
+  let people = input.subjectId
     ? input.people.filter((p) => p.userId === input.subjectId)
     : [...input.people];
+
+  if (!noFilters(input.filters)) {
+    const present = new Set(scopedTasks(input).map((t) => t.assigneeId).filter(Boolean));
+    people = people.filter((p) => present.has(p.userId));
+  }
+
+  return people;
+}
+
+/* ==========================================================================
+ * SORTING — generic, because the columns are typed
+ * ==========================================================================
+ * The report already publishes a `kind` per column, so one comparator serves all
+ * four types and there is no per-report sort code to keep in step.
+ *
+ * ⚠️ APPLIED AFTER the builder and NOT to the charts. A chart's order carries
+ * meaning — a trend is chronological, a donut is largest-first — and re-ordering
+ * it to match a table the reader sorted by name would turn a time series into
+ * nonsense. Tables are sorted; charts keep their own order.
+ * ========================================================================== */
+
+function compareCells(a: Cell, b: Cell): number {
+  if (a.kind === 'text' && b.kind === 'text') return a.value.localeCompare(b.value);
+  if (a.kind === 'bool' && b.kind === 'bool') return Number(a.value) - Number(b.value);
+  if (a.kind === 'date' && b.kind === 'date') {
+    /* Undated last in ascending order, whichever way the column is pointed —
+       a blank is not "earlier than 1970", it is the absence of an answer. */
+    if (a.value === b.value) return 0;
+    if (a.value === null) return 1;
+    if (b.value === null) return -1;
+    return a.value.localeCompare(b.value);
+  }
+  if ('value' in a && 'value' in b && typeof a.value === 'number' && typeof b.value === 'number') {
+    return a.value - b.value;
+  }
+  return 0;
+}
+
+function sortRows(report: Report, sort: ReportSort): Report {
+  if (sort.key === '') return report;
+  const index = report.columns.findIndex((c) => c.key === sort.key);
+  /* An unknown key is the natural order, not an error. A saved link whose column
+     was renamed should still render the report. */
+  if (index < 0) return report;
+
+  const sign = sort.direction === 'desc' ? -1 : 1;
+  const rows = [...report.rows].sort((a, b) => sign * compareCells(a[index], b[index]));
+  return { ...report, rows };
 }
 
 /* ---- 1 · COMPLETION ------------------------------------------------------ */

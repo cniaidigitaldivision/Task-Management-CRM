@@ -230,10 +230,43 @@ export default async function ProjectPage({
            past a few hundred rows this becomes a per-project query. */
         credentials={credentials.filter((c) => c.projectId === id)}
         documents={documents.filter((d) => d.projectId === id)}
+        /* `avatarUrl` is carried now for the Access tab's "who can see this"
+           stack — a row of faces is only recognisable if it has faces in it.
+           `role` was already here; both come off the same `listPeople` row, so
+           this adds no query. */
         people={people
           .filter((p) => p.isActive)
-          .map((p) => ({ id: p.id, name: p.fullName, role: p.role }))}
+          .map((p) => ({
+            id: p.id,
+            name: p.fullName,
+            role: p.role,
+            avatarUrl: p.avatarUrl,
+          }))}
+        /* ── ⚠️ THE CLOCK, READ ON THE SERVER, ONCE ────────────────────────────
+           The Access list says "updated 3d ago" per row. `lib/now.ts` is explicit
+           that a component may not read the clock — a render that does is not pure,
+           and the server and browser can disagree across a midnight boundary — so
+           the instant is passed in and `relativeAge` turns it into words. Same
+           reason `today` and `monthStart` are props rather than computed below. */
+        nowMs={nowMs()}
         canManage={can(actor, 'project.edit')}
+        /* ── ⚠️ FILES ARE THEIR OWN TWO PERMISSIONS, ASKED HERE ───────────────
+           Owner, 2026-08-24: *"only in the admin and team coordinator access…
+           he can delete it, change the name of the file, view it."*
+
+           `document.manage` is exactly that set (Super Admin, Admin, Team
+           Coordinator; Member denied) and `document.approve` the same set asked
+           about the queue. Read from the matrix rather than compared against
+           `user.role` in the component: the actions check the same predicate, so
+           the control and the boundary cannot come to disagree about who. */
+        canManageDocuments={can(actor, 'document.manage')}
+        canApproveDocuments={can(actor, 'document.approve')}
+        /* ⚠️ NOT the same set as the three above. `credential.grant` is Admin and
+           Super Admin only — a Coordinator may change a stored password but not
+           hand it to a third person, because that one cannot be undone by undoing
+           it. Owner, 2026-08-24: *"only admins and super admins can add someone
+           and can delete someone from here."* */
+        canGrantCredentials={can(actor, 'credential.grant')}
       />
     </div>
   );

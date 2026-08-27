@@ -244,16 +244,38 @@ export function LogoSidebar({
 }) {
   return (
     <span className={cn('flex items-center gap-2.5', className)}>
+      {/* ── ⚠️ THESE ARE WIDTHS, AND THE TWO ARE BOUNDED BY DIFFERENT THINGS ─
+          Owner, 2026-08-27: *"Make the logo of Taskly on the left side bar
+          prominent. Right now it's very small so increase its size a little."*
+          Was 42 / 38.
+
+          ⚠️ `LogoMark` takes a WIDTH and derives its height as
+          `width / MARK_RATIO` — the artwork is wider than it is tall. So 52
+          here renders 35px tall, and sizing the brand block from this number
+          overshoots by half. Measured: the block needs 76px, not the 88 that
+          "52 + padding" suggests. See the note in `sidebar.tsx`.
+
+          COLLAPSED (46) is bounded by the RAIL'S WIDTH, which is a different
+          constraint entirely: `--sidebar-width-collapsed` is 72px and the brand
+          row carries `lg:px-3`, so 48px is all there is. 52 here would overflow
+          by 4px and clip against the rail's edge — which is why these are not
+          one value with a nudge.
+
+          EXPANDED (52) is bounded by nothing tight; the two lines of text
+          beside it are 36.5px and already set the row's height. Check both
+          states in the browser when changing either. */}
       <span className="brand-glow brand-glow-sm inline-flex shrink-0">
-        <LogoMark width={collapsed ? 38 : 42} priority />
+        <LogoMark width={collapsed ? 46 : 52} priority />
       </span>
 
       {!collapsed && (
         <span className="flex min-w-0 flex-col leading-tight">
-          {/* ⚠️ 16px, set explicitly rather than through the type scale.
-              Owner, 2026-08-23. It was `text-body-sm` (14px), which is the scale
-              step for ordinary interface text — right for a label, too quiet for
-              the product's own name sitting at the top of the rail.
+          {/* ⚠️ 18px, set explicitly rather than through the type scale.
+              It was `text-body-sm` (14px) until 2026-08-23, then 16px, and is
+              now 18 — owner, 2026-08-27, asking for the whole lockup to be more
+              prominent. 14px is the scale step for ordinary interface text:
+              right for a label, too quiet for the product's own name at the top
+              of the rail.
 
               A literal size here and not a new scale step: the type scale in
               globals.css describes CONTENT, and a wordmark is a piece of
@@ -261,11 +283,17 @@ export function LogoSidebar({
               element would put a brand decision into the vocabulary every other
               screen reads from.
 
-              ⚠️ It renders at 14.4px, not 16px — `--ui-scale: 0.9` on `body`
+              ⚠️ It renders at 16.2px, not 18px — `--ui-scale: 0.9` on `body`
               multiplies every length in the document. That is the density the
-              owner asked for on 2026-08-21; say so before "fixing" this number. */}
+              owner asked for on 2026-08-21; say so before "fixing" this number.
+
+              ⚠️ THIS is what sets the brand block's height, not the mark beside
+              it. Measured: these two lines are 36.5px against the mark's 35px,
+              so the block (76px, less 36px of padding) is sized by TYPE. Push
+              this past ~19px and the block overflows even though the artwork
+              has not changed — which is the opposite of where anybody looks. */}
           <span
-            className="truncate text-[16px] leading-tight font-semibold tracking-tight"
+            className="truncate text-[18px] leading-tight font-semibold tracking-tight"
             style={{ color: 'var(--sidebar-heading)' }}
           >
             {APP_NAME}

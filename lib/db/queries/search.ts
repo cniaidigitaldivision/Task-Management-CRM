@@ -2,7 +2,7 @@ import 'server-only';
 
 import { dateOnly } from '../row-values';
 
-import type { Priority, ProjectType, TaskStatus } from '@/lib/domain/constants';
+import type { ContentKind, Priority, ProjectType, TaskStatus } from '@/lib/domain/constants';
 
 import { withUser } from '../client';
 
@@ -180,6 +180,11 @@ export interface CalendarTask {
   readonly projectType: ProjectType;
   /** Enough for the grid to say how big a piece of work it is. */
   readonly effortPoints: number;
+  /** ⚠️ Added 2026-08-24 for the posting calendar. Null means this is ordinary
+   *  work rather than a deliverable, which is exactly what the posting grid
+   *  filters on — a coordinator's admin task is real work and was never part of
+   *  what the client was promised. */
+  readonly contentKind: ContentKind | null;
 }
 
 /**
@@ -200,6 +205,7 @@ export async function tasksInRange(
   const rows = await withUser(actorId, (tx) => tx`
     select t.id, t.reference, t.title, t.status, t.priority,
            t.due_date, t.due_time, t.start_date, t.assignee_id, t.effort_points,
+           t.content_kind,
            u.full_name as assignee_name, u.avatar_url as assignee_avatar_url,
            p.name as project_name, p.type as project_type
       from public.tasks t
@@ -227,6 +233,7 @@ export async function tasksInRange(
     /* Postgres `time` arrives as `HH:MM:SS`; the grid wants `HH:MM`. Same
        narrowing as `timeOnly()` in the task mapper. */
     dueTime: row.due_time ? String(row.due_time).slice(0, 5) : null,
+    contentKind: (row.content_kind as ContentKind | null) ?? null,
     startDate: dateOnly(row.start_date),
     assigneeId: (row.assignee_id as string | null) ?? null,
     assigneeName: (row.assignee_name as string | null) ?? null,

@@ -5,44 +5,33 @@ import { useRouter } from 'next/navigation';
 import {
   AlertTriangle,
   CheckCircle2,
-  Clock,
-  ExternalLink,
-  Eye,
-  FileUp,
   BookOpen,
   Folder as FolderIcon,
-  Loader2,
-  RefreshCw,
+  FolderOpen,
   Settings,
-  Trash2,
-  XCircle,
 } from 'lucide-react';
 
 import {
   approveDocumentAction,
   deleteDocumentAction,
-  disconnectDriveAction,
   pendingFileUrlAction,
   rejectDocumentAction,
-  requestDocumentAction,
-  setWatchedFolderAction,
-  syncDriveFoldersAction,
   type DocumentResult,
 } from '@/app/actions/documents';
 import type { DocumentRow } from '@/lib/db/queries/documents';
 import type { DriveSyncRow } from '@/lib/db/queries/documents';
 import type { DriveFolderRow } from '@/lib/db/queries/drive-folders';
 import type { LibraryDocumentRow } from '@/lib/db/queries/library';
-import { ACCESS_META, accessAtLeast } from '@/lib/domain/folder-access';
-import { Badge } from '@/components/ui/badge';
-import { Button, IconButton } from '@/components/ui/button';
-import { Card, CardBody } from '@/components/ui/card';
+import { accessAtLeast } from '@/lib/domain/folder-access';
+import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
 import { Field, Input } from '@/components/ui/input';
-import { Pagination, usePagination } from '@/components/ui/pagination';
-import { Select } from '@/components/ui/select';
-import { ToggleGroup, Toolbar, ToolbarGroup, ToolbarLabel, ToolbarSpacer } from '@/components/ui/toolbar';
 import { cn } from '@/lib/utils';
+
+import { UploadDialog } from './upload-dialog';
+import { ProjectFilesPanel } from './project-files-panel';
+import { DriveSettings } from './drive-settings';
+import { RegisterTable } from './register-table';
 
 import { FolderBrowser } from './folder-browser';
 import { LibraryPanel } from './library-panel';
@@ -62,33 +51,73 @@ import { LibraryPanel } from './library-panel';
  * exists because it has not. Every pending row says so.
  * ========================================================================= */
 
-const EMPTY: DocumentResult = { ok: false };
 
-type Filter = 'pending' | 'approved' | 'rejected' | 'all';
+/* ⚠️ `FILTER_LABEL` and `WHERE` moved into ./register-table.tsx along with the
+   controls that read them. The reasoning they carried is worth keeping and lives
+   there: this tab filters by STATE — has somebody decided — while WHERE the bytes
+   are is a separate question, because since migration 048 an accepted document
+   normally sits in this system's own storage rather than in Drive. One control
+   answering both is how a screen comes to claim that accepting moves a file. */
 
-const FILTER_LABEL: Record<Filter, string> = {
-  pending: 'Waiting',
-  approved: 'In Drive',
-  rejected: 'Refused',
-  all: 'Everything',
-};
+type Tab = 'folders' | 'projects' | 'approvals' | 'library' | 'settings';
 
-type Tab = 'folders' | 'approvals' | 'library' | 'settings';
-
-/* ⚠️ ORDER IS THE ORDER OF USE, not of importance. Browsing folders is the daily
-   job, so it is first and is the default; approvals are frequent but occasional;
-   the connection is set up once and then never touched, so it is last and
-   Admin-only. */
+/* ============================================================================
+ * THE TABS, AND WHO SEES WHICH — revised 2026-08-24
+ * ----------------------------------------------------------------------------
+ * Owner: *"In the team member, in the documentation, they should show only:
+ * Folder, File, Company library, Projects documentation… Register and approval
+ * should only be for the admin, super admin, or team coordinator. Below the team
+ * level this should not be visible."*
+ *
+ * ── ⚠️ ORDER IS THE ORDER OF USE, not of importance ──────────────────────────
+ * Browsing Drive folders and looking up a project's files are the daily jobs, so
+ * they are first and one of them is the default. Approvals are frequent but
+ * occasional. The connection is set up once and then never touched, so it is last.
+ *
+ * ── ⚠️ TWO DIFFERENT GATES, AND THEY ARE NOT THE SAME PEOPLE ─────────────────
+ *   `approverOnly`  `document.approve` — Super Admin, Admin, Team Coordinator.
+ *                   The register is a DECISION QUEUE; to somebody who cannot
+ *                   decide it is a list of other people's business sorted by a
+ *                   question they cannot answer.
+ *   `adminOnly`     `drive.configure` — connecting Google Drive. A narrower set.
+ *
+ * ⚠️ HIDING THE REGISTER FROM A MEMBER IS ONLY SAFE BECAUSE OF THE NEW TAB. Their
+ * own pending upload, and — the part that matters — a REFUSAL with its reason, was
+ * visible on the register and nowhere else. `ProjectFilesPanel` carries both on the
+ * row. Removing a tab without checking what was only reachable through it is how a
+ * person stops being told their work was rejected.
+ * ========================================================================= */
 const TABS: ReadonlyArray<{
   key: Tab;
   label: string;
   icon: typeof FolderIcon;
+  /**
+   * The icon's colour token.
+   *
+   * ⚠️ ONE HUE PER TAB, and it is not decoration. The owner's layout draws five
+   * cards whose icons differ in colour, and the reason it works is that the colour
+   * is the thing you learn: after a week nobody reads "Register & approvals", they
+   * go to the purple one. Five identical grey icons would make the five cards a
+   * wall of text with pictures on it.
+   *
+   * These are semantic tokens rather than a rainbow picked here — the same green
+   * that means "done" elsewhere, the same amber that means "waiting".
+   */
+  tint: string;
   adminOnly?: boolean;
+  approverOnly?: boolean;
 }> = [
-  { key: 'folders', label: 'Folders & files', icon: FolderIcon },
-  { key: 'approvals', label: 'Register & approvals', icon: CheckCircle2 },
-  { key: 'library', label: 'Company library', icon: BookOpen },
-  { key: 'settings', label: 'Drive settings', icon: Settings, adminOnly: true },
+  { key: 'folders', label: 'Folders & files', icon: FolderIcon, tint: 'status-done' },
+  { key: 'projects', label: 'Project files', icon: FolderOpen, tint: 'status-todo' },
+  {
+    key: 'approvals',
+    label: 'Register & approvals',
+    icon: CheckCircle2,
+    tint: 'status-progress',
+    approverOnly: true,
+  },
+  { key: 'library', label: 'Company library', icon: BookOpen, tint: 'status-revisions' },
+  { key: 'settings', label: 'Drive settings', icon: Settings, tint: 'status-backlog', adminOnly: true },
 ];
 
 export function DocumentsWorkspace({
@@ -98,6 +127,7 @@ export function DocumentsWorkspace({
   canManage,
   canConfigure,
   canShare,
+  nowMs,
   folders,
   library,
   drive,
@@ -110,6 +140,10 @@ export function DocumentsWorkspace({
   /** Coordinator and above: may share a folder with members, and may file into
    *  any folder rather than only the shared ones. */
   canShare: boolean;
+  /** The server clock, for every date label below. See lib/now.ts — a component
+   *  that reads its own clock renders one string on the server and another in the
+   *  browser, which is a hydration mismatch. */
+  nowMs: number;
   folders: readonly DriveFolderRow[];
   /** The agency's own reference material — migration 035. */
   library: readonly LibraryDocumentRow[];
@@ -122,19 +156,35 @@ export function DocumentsWorkspace({
     lastCheckedLabel: string | null;
     sync: DriveSyncRow | null;
     drafts: Array<{ id: string; name: string; driveFolderId: string | null }>;
+    /** ISO. From `drive_connection.connected_at` — see the status strip. */
+    connectedAt: string | null;
+    /** What the last sync actually left behind. Counted on the server. */
+    registry: { folders: number; files: number };
+    /** The watched folder's own name, resolved from the registry. Null when unset. */
+    watchedFolderName: string | null;
   };
 }) {
   const router = useRouter();
   const pendingCount = documents.filter((d) => d.state === 'pending').length;
 
-  /* Opens on the approvals tab when something is actually waiting, and on folders
+  /* ── WHERE THE SCREEN OPENS ────────────────────────────────────────────────
+     On the approvals tab when something is actually waiting, and on folders
      otherwise. The old layout's failure was that a waiting approval was below
      thirty-two folders; landing on it when it exists is the fix, not just moving
-     it into a tab somebody has to remember to check. */
+     it into a tab somebody has to remember to check.
+
+     ⚠️ `canApprove` GUARDS IT NOW. Without that a Member would land on a tab that
+     is not in their tab bar — the panel would render with no way to navigate away
+     from it and no highlighted tab, which reads as a broken page. Found by asking
+     what the initial state does once the tab it names can be absent. */
   const [activeTab, setActiveTab] = React.useState<Tab>(
-    pendingCount > 0 ? 'approvals' : 'folders',
+    canApprove && pendingCount > 0 ? 'approvals' : 'folders',
   );
-  const [filter, setFilter] = React.useState<Filter>(pendingCount > 0 ? 'pending' : 'all');
+  /* ⚠️ The state, storage and search filters now live INSIDE `RegisterTable`.
+     They were here so that a `visible` array could be derived beside them, and
+     nothing else on this screen ever read them — the folders, project files and
+     library tabs each own their own filtering. Keeping them at this level meant
+     switching tabs silently carried the register's filter along. */
   const [uploading, setUploading] = React.useState(false);
   /** Pre-chosen folder when upload was started from inside one. */
   const [uploadInto, setUploadInto] = React.useState<string | null>(null);
@@ -142,25 +192,23 @@ export function DocumentsWorkspace({
   const [note, setNote] = React.useState<DocumentResult | null>(null);
   const [busy, setBusy] = React.useState<string | null>(null);
 
-  const visible = documents.filter((d) => filter === 'all' || d.state === filter);
-  const pager = usePagination(visible);
 
   /* Coordinator+ files anywhere; everybody else only where they have `upload` or
      better. `view` is deliberately excluded — a folder a Member can read but not
      add to must not appear in the picker at all, or they choose it and are told no
      after selecting the file. Mirrors the check in `requestDocumentAction`, which
-     is the one that actually decides. */
+     is the one that actually decides.
+
+     ⚠️ The `direct` flag this used to carry is gone. It meant "choosing this
+     folder sends the file to Drive with no approval" — a property the FOLDER
+     stopped having when the destination became its own field on the form. It is
+     now a property of the destination, for everybody, and the dialog says it
+     there. */
   const uploadableFolders = React.useMemo(
     () =>
       folders
         .filter((f) => canShare || accessAtLeast(f.memberAccess, 'upload'))
-        .map((f) => ({
-          id: f.id,
-          name: f.name,
-          /* Said in the picker, because "no approval needed" changes what pressing
-             the button does and the label is the only warning. */
-          direct: !canShare && accessAtLeast(f.memberAccess, 'upload'),
-        })),
+        .map((f) => ({ id: f.id, name: f.name })),
     [folders, canShare],
   );
 
@@ -174,6 +222,43 @@ export function DocumentsWorkspace({
     } finally {
       setBusy(null);
       setRejecting(null);
+    }
+  };
+
+  /**
+   * Save a document rather than open it.
+   *
+   * ⚠️ Shares `preview`'s permission check and error handling by design, and
+   * differs only in what happens to the signed URL: a real anchor with
+   * `download` puts the file on disk, where `window.open` would merely display
+   * it. A Drive-hosted row goes to Drive's own page, which is where its download
+   * button lives.
+   */
+  const download = async (doc: DocumentRow) => {
+    if (doc.driveWebLink) {
+      window.open(doc.driveWebLink, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    if (!doc.storagePath) {
+      setNote({ ok: false, error: `${doc.name} has no file attached to it.` });
+      return;
+    }
+
+    setBusy(doc.id);
+    try {
+      const result = await pendingFileUrlAction(doc.id);
+      if (!result.ok) {
+        setNote({ ok: false, error: result.error });
+        return;
+      }
+      const anchorEl = window.document.createElement('a');
+      anchorEl.href = result.url;
+      anchorEl.download = doc.name;
+      window.document.body.append(anchorEl);
+      anchorEl.click();
+      anchorEl.remove();
+    } finally {
+      setBusy(null);
     }
   };
 
@@ -191,6 +276,24 @@ export function DocumentsWorkspace({
     }
   };
 
+  /**
+   * What each tab has to report.
+   *
+   * ⚠️ Null means "nothing to count", NOT zero. Drive settings with no draft
+   * projects has nothing to say; showing "0" there would read as a measurement of
+   * something rather than the absence of anything to measure.
+   */
+  const TAB_COUNTS: Record<Tab, number | null> = {
+    folders: folders.length || null,
+    /* Documents attached to a project — what the Project files tab lists. */
+    projects: documents.filter((d) => d.projectId !== null).length || null,
+    approvals: pendingCount || null,
+    library: library.length || null,
+    /* The only number this tab owns: draft projects a Drive sync created that
+       still need naming. Empty for anybody who cannot configure Drive anyway. */
+    settings: drive.drafts.length || null,
+  };
+
   return (
     <div className="space-y-4">
       {/* ══ THE TAB BAR ═══════════════════════════════════════════════════════
@@ -206,17 +309,32 @@ export function DocumentsWorkspace({
           A real `tablist` with `aria-selected`, matching Settings, so arrow keys
           and screen readers behave. Which tab is open is NOT persisted: it is a
           place in a screen, not a preference. */}
+      {/* ── ⚠️ CARDS, NOT A TAB RAIL ────────────────────────────────────────────
+          The owner's layout draws five raised cards, each with a coloured icon, a
+          label and a count. It replaces a row of text tabs, and the count is the
+          reason it is worth the space: "how many folders / how many waiting / how
+          big is the library" was previously unanswerable without opening each one.
+
+          ⚠️ EVERY COUNT IS REAL. None is a placeholder — folders is the registry,
+          approvals is the pending queue, library is the row count, and Drive
+          settings shows the draft projects waiting to be named, which is the only
+          number that tab has anything to say about. A tab with nothing to count
+          shows no badge rather than a zero, because "0" and "nothing to report"
+          read differently and only one of them is true.
+
+          Still a real `tablist` with `aria-selected`, so arrow keys and screen
+          readers behave exactly as they did. Which tab is open is NOT persisted: it
+          is a place in a screen, not a preference. */}
       <nav
         role="tablist"
         aria-label="Documents sections"
-        className="flex flex-wrap items-center gap-1 border-b border-border-subtle pb-1"
+        className="grid gap-2 sm:grid-cols-3 lg:grid-cols-5"
       >
-        {TABS.filter((tab) => !tab.adminOnly || canConfigure).map((tab) => {
+        {TABS.filter(
+          (tab) => (!tab.adminOnly || canConfigure) && (!tab.approverOnly || canApprove),
+        ).map((tab) => {
           const isActive = tab.key === activeTab;
-          /* The queue count lives on the tab, because the whole reason the old
-             layout failed is that a waiting approval was invisible from the top
-             of the page. */
-          const badge = tab.key === 'approvals' && pendingCount > 0 ? pendingCount : null;
+          const count = TAB_COUNTS[tab.key];
 
           return (
             <button
@@ -228,24 +346,58 @@ export function DocumentsWorkspace({
               aria-controls={`documents-panel-${tab.key}`}
               onClick={() => setActiveTab(tab.key)}
               className={cn(
-                'flex items-center gap-2 rounded-t-lg px-3.5 py-2 text-body-sm font-semibold',
-                'transition-colors duration-[120ms] focus-visible:outline-none',
+                'flex items-center gap-2.5 rounded-xl border-2 px-3 py-2.5 text-left',
+                'transition-[border-color,background-color] duration-[140ms]',
+                /* The same treatment the owner signed off for the Access tab and
+                   the platform filters: constant 2px, brand border when selected,
+                   neutral on hover. Never 1px→2px, or the row of cards shifts a
+                   pixel as you click along it. */
                 isActive
-                  ? 'bg-bg-selected text-text-brand'
-                  : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary',
+                  ? 'border-border-brand bg-bg-selected'
+                  : 'border-border-subtle bg-bg-surface hover:border-border-strong hover:bg-bg-hover',
               )}
             >
-              <tab.icon className="h-4 w-4" strokeWidth={2.25} aria-hidden="true" />
-              {tab.label}
-              {badge !== null && (
+              <span
+                aria-hidden="true"
+                className="grid size-9 shrink-0 place-items-center rounded-lg"
+                style={{
+                  backgroundColor: `color-mix(in oklab, var(--${tab.tint}) 15%, transparent)`,
+                }}
+              >
+                <tab.icon
+                  className="size-[1.15rem]"
+                  strokeWidth={2.25}
+                  style={{ color: `var(--${tab.tint})` }}
+                />
+              </span>
+
+              <span className="min-w-0 flex-1">
                 <span
-                  className="tabular rounded-full px-1.5 text-micro font-bold"
+                  className={cn(
+                    'block truncate text-caption font-semibold',
+                    isActive ? 'text-text-primary' : 'text-text-secondary',
+                  )}
+                >
+                  {tab.label}
+                </span>
+              </span>
+
+              {count !== null && (
+                <span
+                  className="tabular shrink-0 rounded-full px-1.5 py-0.5 text-micro font-bold"
                   style={{
-                    backgroundColor: 'var(--feedback-warning)',
-                    color: 'var(--text-on-brand)',
+                    /* ⚠️ The approvals badge is the ONE that changes colour: a
+                       waiting decision is the only count on this strip that is a
+                       call to action rather than a measurement. */
+                    backgroundColor:
+                      tab.key === 'approvals'
+                        ? 'var(--feedback-warning)'
+                        : `color-mix(in oklab, var(--${tab.tint}) 15%, transparent)`,
+                    color:
+                      tab.key === 'approvals' ? 'var(--text-on-brand)' : `var(--${tab.tint})`,
                   }}
                 >
-                  {badge}
+                  {count}
                 </span>
               )}
             </button>
@@ -280,16 +432,36 @@ export function DocumentsWorkspace({
             canShare={canShare}
             canConfigure={canConfigure}
             watchedDriveId={drive.sync?.watchedFolderId ?? null}
+            nowMs={nowMs}
             /* Uploading from inside a folder pre-selects it, so the dialog does
-               not ask where to put something you were already looking at. */
+               not ask where to put something you were already looking at.
+               ⚠️ NULL means "ask me" — the toolbar's Upload button has no folder in
+               mind, and pre-selecting an arbitrary one would file somebody's work
+               into whatever happened to be first in the list. */
             onUploadHere={(folder) => {
-              setUploadInto(folder.id);
+              setUploadInto(folder?.id ?? null);
               setUploading(true);
             }}
             onDone={(r) => {
               setNote(r);
               router.refresh();
             }}
+          />
+        </div>
+      )}
+
+      {/* ---- PROJECT FILES ------------------------------------------------
+          The tab a Member actually wants: what this system holds for each client,
+          grouped by project and filterable by type. See the component's header for
+          why the three existing tabs did not cover it, and for why a Member's own
+          refused upload has to appear here now that the register is hidden from
+          them. */}
+      {activeTab === 'projects' && (
+        <div role="tabpanel" id="documents-panel-projects" aria-labelledby="documents-tab-projects">
+          <ProjectFilesPanel
+            documents={documents}
+            nowMs={nowMs}
+            onUpload={() => setUploading(true)}
           />
         </div>
       )}
@@ -304,8 +476,22 @@ export function DocumentsWorkspace({
       {/* ---- SETTINGS ------------------------------------------------------ */}
       {activeTab === 'settings' && canConfigure && (
         <div role="tabpanel" id="documents-panel-settings" aria-labelledby="documents-tab-settings">
-          <DrivePanel
-            drive={drive}
+          <DriveSettings
+            drive={{
+              configured: drive.configured,
+              connected: drive.connected,
+              account: drive.account,
+              connectedAt: drive.connectedAt,
+              lastError: drive.lastError,
+              sync: drive.sync,
+              drafts: drive.drafts,
+            }}
+            /* ⚠️ REAL COUNTS from the registry the last sync wrote — 33 folders and
+               310 files today — not the drawing's invented "52 subfolders • 1,248
+               files". They are computed on the server from `drive_folders`. */
+            registry={drive.registry}
+            watchedFolderName={drive.watchedFolderName}
+            nowMs={nowMs}
             onDone={(r) => {
               setNote(r);
               router.refresh();
@@ -315,191 +501,47 @@ export function DocumentsWorkspace({
       )}
 
       {/* ---- APPROVALS / THE REGISTER -------------------------------------- */}
-      {activeTab === 'approvals' && (
+      {/* ⚠️ `&& canApprove`, not just the tab check. The tab is gone from the bar
+          for a Member, but `activeTab` is a string in component state and a panel
+          guarded only by its own name would still render if that string ever
+          arrived from anywhere else. The tab bar decides what is REACHABLE; this
+          decides what is RENDERED. Same belt-and-braces as the server actions,
+          which check the permission again regardless of which button called them.
+          The real boundary is `app.can_read_document` plus the action checks — this
+          is the third layer, and it costs one clause. */}
+      {activeTab === 'approvals' && canApprove && (
         <div
           role="tabpanel"
           id="documents-panel-approvals"
           aria-labelledby="documents-tab-approvals"
-          className="space-y-4"
         >
-          <Toolbar aria-label="Document filters">
-            <ToolbarGroup>
-              <ToolbarLabel>Show</ToolbarLabel>
-              <ToggleGroup
-                label="Which documents"
-                value={filter}
-                onChange={setFilter}
-                options={(['pending', 'approved', 'rejected', 'all'] as Filter[]).map((key) => ({
-                  key,
-                  label:
-                    key === 'pending' && pendingCount > 0
-                      ? `${FILTER_LABEL[key]} · ${pendingCount}`
-                      : FILTER_LABEL[key],
-                }))}
-              />
-            </ToolbarGroup>
+          {/* ── ⚠️ A TABLE, NOT A LIST OF CARDS ────────────────────────────────
+              What was here was a stack of `Card`s, one per document, each carrying
+              a badge, a name, five grey clauses of metadata and a row of icon
+              buttons. It worked at three documents and does not scan at thirty:
+              the eye has no column to run down, so comparing two rows means
+              reading both.
 
-            <ToolbarSpacer />
-
-            <Button variant="primary" size="md" onClick={() => setUploading(true)}>
-              <FileUp className="h-4 w-4" strokeWidth={2.25} aria-hidden="true" />
-              Upload a document
-            </Button>
-          </Toolbar>
-
-          {visible.length === 0 ? (
-        <Card>
-          <CardBody className="px-6 py-14 text-center">
-            <p className="text-body-sm font-semibold text-text-primary">
-              {filter === 'pending' ? 'Nothing is waiting' : 'Nothing here yet'}
-            </p>
-            <p className="mx-auto mt-1 max-w-[40rem] text-caption text-text-secondary">
-              {filter === 'pending'
-                ? 'Every upload has been decided on.'
-                : 'Upload a document and it will wait here until an Admin approves it into Google Drive.'}
-            </p>
-          </CardBody>
-        </Card>
-      ) : (
-        <div className="space-y-3">
-          <ul className="space-y-2">
-            {pager.visible.map((doc) => (
-              <li key={doc.id}>
-                <Card>
-                  <CardBody className="flex flex-wrap items-start gap-3 p-4">
-                    <StateBadge state={doc.state} />
-
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-body-sm font-semibold text-text-primary">
-                        {doc.name}
-                      </p>
-                      <p className="text-micro text-text-tertiary">
-                        {doc.uploadedByName ?? 'Unknown'}
-                        {doc.projectName && <> · {doc.projectName}</>}
-                        {doc.folderName && <> · {doc.folderName}</>}
-                        {doc.sizeBytes !== null && <> · {formatBytes(doc.sizeBytes)}</>}
-                        {doc.state === 'pending' && (
-                          <>
-                            {' · '}
-                            <span style={{ color: 'var(--feedback-warning)' }}>
-                              not in Drive yet
-                            </span>
-                          </>
-                        )}
-                        {/* ── WHY THIS ONE IS VISIBLE TO EVERYBODY ──────────
-                            A Coordinator looking down the register cannot
-                            otherwise tell which of these the whole team can
-                            read. Shown only to whoever can change it, because
-                            to a Member it is not information, just noise. */}
-                        {canShare && doc.folderAccess !== 'none' && (
-                          <>
-                            {' · '}
-                            <span style={{ color: `var(--${ACCESS_META[doc.folderAccess].token})` }}>
-                              {ACCESS_META[doc.folderAccess].label.toLowerCase()}
-                            </span>
-                          </>
-                        )}
-                      </p>
-                      {doc.description && (
-                        <p className="mt-1 text-caption text-text-secondary">{doc.description}</p>
-                      )}
-                      {doc.state === 'rejected' && doc.decisionReason && (
-                        <p className="mt-1 text-micro" style={{ color: 'var(--feedback-error)' }}>
-                          Refused by {doc.decidedByName ?? 'an Admin'}: {doc.decisionReason}
-                        </p>
-                      )}
-                    </div>
-
-                    {/* ── ICONS ONLY, AND THE COLOUR IS THE LABEL ────────────
-                        Owner, 2026-08-18: *"Don't use extra words where the icon
-                        is… just the icon itself is enough."*
-
-                        Every one carries `label`, which IconButton puts on both
-                        `title` (hover) and `aria-label` (screen reader), so
-                        removing the visible word removes nothing but the clutter.
-
-                        Colour comes from the shared variants in
-                        components/ui/button.tsx — green approves, orange refuses,
-                        red deletes — so these three mean the same thing on every
-                        table in the application. */}
-                    <div className="flex shrink-0 items-center gap-0.5">
-                      {doc.state === 'pending' && (
-                        <IconButton
-                          variant="ghost"
-                          size="sm"
-                          label={`Look at ${doc.name} before deciding`}
-                          icon={Eye}
-                          disabled={busy !== null}
-                          onClick={() => void preview(doc.id)}
-                        />
-                      )}
-
-                      {doc.state === 'approved' && doc.driveWebLink && (
-                        <a
-                          href={doc.driveWebLink}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          title={`Open ${doc.name} in Google Drive`}
-                          aria-label={`Open ${doc.name} in Google Drive`}
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-text-brand hover:bg-bg-hover"
-                        >
-                          <ExternalLink className="h-4 w-4" strokeWidth={1.9} aria-hidden="true" />
-                        </a>
-                      )}
-
-                      {doc.state === 'pending' && canApprove && (
-                        <>
-                          {/* Orange, not red: a refusal is reversible — the file
-                              is still here and can be approved afterwards. Red is
-                              kept for deleting alone. */}
-                          <IconButton
-                            variant="refuseGhost"
-                            size="sm"
-                            label={`Refuse ${doc.name}`}
-                            icon={XCircle}
-                            disabled={busy !== null}
-                            onClick={() => setRejecting(doc)}
-                          />
-                          <IconButton
-                            variant="approveGhost"
-                            size="sm"
-                            label={`Approve ${doc.name} into Google Drive`}
-                            icon={busy === doc.id ? Loader2 : CheckCircle2}
-                            className={busy === doc.id ? '[&_svg]:animate-spin' : undefined}
-                            disabled={busy !== null}
-                            onClick={() => void run(doc.id, () => approveDocumentAction(doc.id))}
-                          />
-                        </>
-                      )}
-
-                      {canManage && (
-                        <IconButton
-                          variant="deleteGhost"
-                          label={`Remove ${doc.name} from the register`}
-                          icon={Trash2}
-                          size="sm"
-                          disabled={busy !== null}
-                          onClick={() => void run(doc.id, () => deleteDocumentAction(doc.id))}
-                        />
-                      )}
-                    </div>
-                  </CardBody>
-                </Card>
-              </li>
-            ))}
-          </ul>
-
-          <Pagination
-            page={pager.page}
-            pageCount={pager.pageCount}
-            onPage={pager.setPage}
-            from={pager.from}
-            to={pager.to}
-            total={pager.total}
-            label="documents"
+              The owner supplied a design for exactly this and it is a table.
+              Every control on it maps to a handler that already existed —
+              nothing here is new behaviour, only the same actions in the drawn
+              layout. */}
+          <RegisterTable
+            documents={documents}
+            canApprove={canApprove}
+            canManage={canManage}
+            nowMs={nowMs}
+            busyId={busy}
+            onUpload={() => setUploading(true)}
+            onPreview={(doc) => void preview(doc.id)}
+            onDownload={(doc) => void download(doc)}
+            onApprove={(doc) => void run(doc.id, () => approveDocumentAction(doc.id))}
+            /* Refuse opens the reason dialogue rather than acting — a refusal
+               deletes the file, and the reason is the only thing the uploader
+               gets told. */
+            onRefuse={setRejecting}
+            onDelete={(doc) => void run(doc.id, () => deleteDocumentAction(doc.id))}
           />
-        </div>
-          )}
         </div>
       )}
 
@@ -508,6 +550,17 @@ export function DocumentsWorkspace({
           projects={projects}
           folders={uploadableFolders}
           initialFolderId={uploadInto}
+          /* "Upload here", pressed inside a Drive folder, means there. See the
+             prop's note for why this is a default and not a lock. */
+          initialDestination={uploadInto ? 'drive' : undefined}
+          /* So the button can say "Upload and file it" to a Coordinator instead
+             of "Send for approval" — which was the label everybody got, including
+             the people whose uploads are approved on arrival. */
+          canApprove={canApprove}
+          /* Both halves are needed for a Drive write to succeed, so the option is
+             offered only when both hold. `configured` alone would show a radio
+             that fails at the last step with an OAuth message. */
+          driveConnected={drive.configured && drive.connected}
           onClose={() => { setUploading(false); setUploadInto(null); }}
           onDone={(result) => {
             setUploading(false);
@@ -530,389 +583,17 @@ export function DocumentsWorkspace({
   );
 }
 
-/* ---- Drive connection ---------------------------------------------------- */
+/* ---- Drive connection -----------------------------------------------------
+   Moved to ./drive-settings.tsx when the owner supplied a design for this tab.
+   Only the layout went with it; the two facts worth keeping are recorded there —
+   that `configured` and `connected` are different failures needing different
+   fixes, and that NOTHING schedules a Drive sync, so the panel must not claim
+   one runs. */
 
-/**
- * Whether Drive is connected, which folder is watched, and what the last check
- * found.
- *
- * States what to do when it is not connected rather than only that it is not.
- * "Drive is not configured" sends somebody to ask; naming the variable and the
- * sharing step is the difference between a message and an instruction.
- */
-function DrivePanel({
-  drive,
-  onDone,
-}: {
-  drive: {
-    configured: boolean;
-    connected: boolean;
-    account: string | null;
-    lastError: string | null;
-    /** Formatted on the SERVER — see lib/now.ts. Null when never checked. */
-    lastCheckedLabel: string | null;
-    sync: DriveSyncRow | null;
-    drafts: Array<{ id: string; name: string; driveFolderId: string | null }>;
-  };
-  onDone: (result: DocumentResult) => void;
-}) {
-  const [folderId, setFolderId] = React.useState(drive.sync?.watchedFolderId ?? '');
-  const [busy, setBusy] = React.useState<null | 'save' | 'sync' | 'disconnect'>(null);
-
-  /* ── TWO DIFFERENT "NOT WORKING" STATES, TWO DIFFERENT FIXES ───────────────
-     `configured` is whether the OAuth client exists — only the owner can create
-     that, in Google Cloud. `connected` is whether somebody has since granted
-     access. Showing one message for both is how a screen tells you it is broken
-     without telling you what to do. */
-  if (!drive.configured) {
-    return (
-      <Card>
-        <CardBody className="space-y-2 p-4">
-          <p className="flex items-center gap-2 text-body-sm font-semibold text-text-primary">
-            <AlertTriangle
-              className="h-4 w-4"
-              strokeWidth={2.25}
-              aria-hidden="true"
-              style={{ color: 'var(--feedback-warning)' }}
-            />
-            Google Drive is not set up yet
-          </p>
-          <p className="text-caption text-text-secondary">
-            Uploads still work and still queue for approval — they simply cannot be sent anywhere
-            yet. Someone needs to create an OAuth client in Google Cloud and put{' '}
-            <code className="font-mono">GOOGLE_OAUTH_CLIENT_ID</code> and{' '}
-            <code className="font-mono">GOOGLE_OAUTH_CLIENT_SECRET</code> in{' '}
-            <code className="font-mono">.env.local</code>. The steps are in{' '}
-            <span className="font-semibold text-text-primary">docs/GOOGLE-DRIVE-SETUP.md</span>.
-          </p>
-        </CardBody>
-      </Card>
-    );
-  }
-
-  if (!drive.connected) {
-    return (
-      <Card lit>
-        <CardBody className="space-y-3 p-4">
-          <p className="text-body-sm font-semibold text-text-primary">Connect Google Drive</p>
-          <p className="text-caption text-text-secondary">
-            You will be sent to Google to grant access, once. Approved documents are then filed
-            into that account&rsquo;s Drive, owned by it — so nothing depends on one person&rsquo;s
-            laptop or on a folder being shared with a robot.
-          </p>
-          {drive.lastError && (
-            <p className="text-caption" style={{ color: 'var(--feedback-warning)' }}>
-              {drive.lastError}
-            </p>
-          )}
-          {/* A plain link, not a fetch: this is a full-page redirect to Google
-              and back, and the state cookie has to survive both legs. */}
-          <a
-            href="/api/drive/auth"
-            className="inline-flex w-fit items-center gap-2 rounded-lg bg-[image:var(--gradient-brand)] px-3.5 py-2 text-body-sm font-semibold text-text-on-brand shadow-[var(--shadow-brand-glow)]"
-          >
-            Connect Google Drive
-          </a>
-        </CardBody>
-      </Card>
-    );
-  }
-
-  return (
-    <Card>
-      <CardBody className="space-y-3 p-4">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <p className="text-body-sm font-semibold text-text-primary">Google Drive is connected</p>
-          {drive.account && (
-            <p className="text-micro text-text-tertiary">
-              Acting as{' '}
-              <code className="font-mono text-text-secondary">{drive.account}</code>
-            </p>
-          )}
-        </div>
-
-        {drive.lastError && (
-          <p className="text-caption" style={{ color: 'var(--feedback-warning)' }}>
-            {drive.lastError}
-          </p>
-        )}
-
-        {/* ── LABEL ABOVE, HINT BELOW, CONTROLS IN ONE ROW ────────────────────
-            This was a `Field` (label + input + hint) sitting in a row with the
-            buttons under `items-end`. `items-end` aligns the bottom of the whole
-            Field — hint included — with the bottom of the buttons, so the buttons
-            sat a line lower than the input they belong to. Owner, 2026-08-18:
-            *"the input box is above and the Save and Check Now button is below."*
-
-            The hint is now outside the row, so the row contains only things of
-            the same height and they line up by construction rather than by
-            alignment tricks. */}
-        <label htmlFor="watchedFolder" className="block text-caption font-medium text-text-primary">
-          Watched folder
-        </label>
-
-        <div className="flex flex-wrap items-center gap-2">
-          {/* `basis-64 grow` rather than a min-width: at a larger browser font
-              size the old `min-w-[18rem]` could not shrink, so the buttons were
-              pushed onto their own line. This shrinks instead of wrapping. */}
-          <Input
-            id="watchedFolder"
-            value={folderId}
-            onChange={(event) => setFolderId(event.target.value)}
-            placeholder="Paste the folder's URL from Drive, or pick one below"
-            className="w-full basis-64 grow"
-          />
-
-          <Button
-            variant="secondary"
-            size="md"
-            disabled={busy !== null}
-            onClick={async () => {
-              setBusy('save');
-              try {
-                onDone(await setWatchedFolderAction(folderId));
-              } finally {
-                setBusy(null);
-              }
-            }}
-          >
-            {busy === 'save' && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
-            Save
-          </Button>
-
-          <Button
-            variant="ghost"
-            size="md"
-            disabled={busy !== null || !drive.sync?.watchedFolderId}
-            title={
-              drive.sync?.watchedFolderId
-                ? 'Read the folder now'
-                : 'Set a folder first'
-            }
-            onClick={async () => {
-              setBusy('sync');
-              try {
-                onDone(await syncDriveFoldersAction());
-              } finally {
-                setBusy(null);
-              }
-            }}
-          >
-            {busy === 'sync' ? (
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-            ) : (
-              <RefreshCw className="h-4 w-4" strokeWidth={2.25} aria-hidden="true" />
-            )}
-            Check now
-          </Button>
-        </div>
-
-        <p className="text-micro text-text-tertiary">
-          A new subfolder here becomes a draft project. Leave it empty to turn that off — the
-          folder list below still works either way.
-        </p>
-
-        {/* ── ⚠️ THE LABEL IS FORMATTED ON THE SERVER, NOT HERE ───────────────
-            This called `new Date(...).toLocaleString()` with no locale, in a
-            client component. Node formatted it "17:12:09" and the browser
-            "5:12:09 pm", so React reported a hydration mismatch — the visible
-            error the owner hit on 2026-08-18.
-
-            `lib/now.ts` already states the rule this broke: date labels are
-            computed on the server and shipped as strings, because a component
-            that formats its own is free to disagree with the HTML it is
-            hydrating. So the finished sentence arrives as a prop. */}
-        <p className="text-micro text-text-tertiary">
-          {drive.lastCheckedLabel ?? 'Not checked yet.'}
-          {drive.sync?.lastError && (
-            <span style={{ color: 'var(--feedback-error)' }}> {drive.sync.lastError}</span>
-          )}
-        </p>
-
-        {drive.drafts.length > 0 && (
-          <p className="text-caption" style={{ color: 'var(--feedback-warning)' }}>
-            {drive.drafts.length} draft {drive.drafts.length === 1 ? 'project' : 'projects'} need a
-            type and an owner before they count anywhere: {drive.drafts.map((d) => d.name).join(', ')}.
-          </p>
-        )}
-
-        {/* ── DISCONNECTING IS NOT DESTRUCTIVE, AND SAYS SO ──────────────────
-            It forgets the token. Files already in Drive stay in Drive, owned by
-            the account — the whole reason for using OAuth rather than a service
-            account. Saying that here stops it reading as "delete everything". */}
-        <div className="flex flex-wrap items-center gap-3 border-t border-border-subtle pt-3">
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={busy !== null}
-            onClick={async () => {
-              setBusy('disconnect');
-              try {
-                onDone(await disconnectDriveAction());
-              } finally {
-                setBusy(null);
-              }
-            }}
-          >
-            {busy === 'disconnect' && (
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-            )}
-            Disconnect
-          </Button>
-          <span className="text-micro text-text-tertiary">
-            Forgets the stored access. Documents already filed into Drive are untouched.
-          </span>
-        </div>
-      </CardBody>
-    </Card>
-  );
-}
-
-
-/* ---- Upload -------------------------------------------------------------- */
-
-function UploadDialog({
-  projects,
-  folders,
-  initialFolderId,
-  onClose,
-  onDone,
-}: {
-  projects: ReadonlyArray<{ id: string; name: string }>;
-  /** Already narrowed by the caller to the folders this person may file into.
-   *  The server checks it again — this only keeps the list honest. `direct` means
-   *  choosing it sends the file to Drive immediately, with no approval. */
-  folders: ReadonlyArray<{ id: string; name: string; direct: boolean }>;
-  /** Pre-chosen when the upload was started from inside a folder. */
-  initialFolderId: string | null;
-  onClose: () => void;
-  onDone: (result: DocumentResult) => void;
-}) {
-  const [state, formAction, pending] = React.useActionState(requestDocumentAction, EMPTY);
-  const seen = React.useRef(false);
-  const [folderId, setFolderId] = React.useState(initialFolderId ?? '');
-  const chosenGoesDirect = folders.some((f) => f.id === folderId && f.direct);
-
-  React.useEffect(() => {
-    if (state.ok && !seen.current) {
-      seen.current = true;
-      onDone(state);
-    }
-  }, [state, onDone]);
-
-  return (
-    <Dialog
-      open
-      onClose={onClose}
-      size="md"
-      title="Upload a document"
-      footer={
-        <>
-          <Button variant="ghost" size="md" onClick={onClose} disabled={pending}>
-            Cancel
-          </Button>
-          <Button variant="primary" size="md" type="submit" form="upload-form" disabled={pending}>
-            {pending && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
-            Send for approval
-          </Button>
-        </>
-      }
-    >
-      <form id="upload-form" action={formAction} className="space-y-4">
-        {!state.ok && state.error && (
-          <p
-            className="flex items-start gap-2 rounded-lg px-3 py-2 text-caption"
-            style={{ backgroundColor: 'var(--bg-subtle)', color: 'var(--feedback-error)' }}
-          >
-            <AlertTriangle className="mt-px h-4 w-4 shrink-0" strokeWidth={2.25} aria-hidden="true" />
-            {state.error}
-          </p>
-        )}
-
-        {/* The hint follows the chosen folder, because the limit genuinely
-            differs: a file going straight to Drive skips the CRM's own storage
-            and its 50 MB project cap. Saying "up to 25 MB" was wrong on both
-            counts and was what the owner hit. */}
-        <Field
-          label="File"
-          htmlFor="file"
-          hint={
-            chosenGoesDirect
-              ? 'Up to 100 MB, straight into Drive.'
-              : 'Up to 50 MB while it waits for approval. Larger files have to go into Drive directly for now.'
-          }
-        >
-          <input
-            id="file"
-            name="file"
-            type="file"
-            required
-            className="w-full rounded-lg border border-border-default bg-bg-surface px-3 py-2 text-caption text-text-primary"
-          />
-        </Field>
-
-        <Field
-          label="Name"
-          htmlFor="name"
-          hint="Leave empty to use the file's own name."
-        >
-          <Input id="name" name="name" placeholder="ABC Traders — signed contract" />
-        </Field>
-
-        <Field
-          label="Project"
-          htmlFor="projectId"
-          hint="Filing it against a project is what lets that project's people see it."
-        >
-          <Select
-            id="projectId"
-            name="projectId"
-            options={[
-              { value: '', label: 'Not tied to a project' },
-              ...projects.map((p) => ({ value: p.id, label: p.name })),
-            ]}
-          />
-        </Field>
-
-        {folders.length > 0 && (
-          <Field
-            label="Drive folder"
-            htmlFor="folderId"
-            hint="Where it goes. Leave empty and it lands wherever the project does, after approval."
-          >
-            <Select
-              id="folderId"
-              name="folderId"
-              value={folderId}
-              onChange={(event) => setFolderId(event.target.value)}
-              options={[
-                { value: '', label: 'Wherever the project goes' },
-                ...folders.map((f) => ({
-                  value: f.id,
-                  label: f.direct ? `${f.name} — goes straight to Drive` : f.name,
-                })),
-              ]}
-            />
-          </Field>
-        )}
-
-        <Field label="Note" htmlFor="description" hint="Anything the approver should know.">
-          <Input id="description" name="description" />
-        </Field>
-
-        {/* ── THE FOOTNOTE HAS TO FOLLOW THE CHOICE ─────────────────────────
-            "Nothing reaches Google Drive before approval" was true when every
-            upload queued. Now it depends on the folder, so the sentence changes
-            with the picker rather than being a promise the form breaks. */}
-        <p className="text-micro text-text-tertiary">
-          {chosenGoesDirect
-            ? 'You have upload access to that folder, so this goes into Google Drive immediately. There is no approval step and no undo here.'
-            : 'It is held here until a Team Coordinator or Admin approves it. Nothing reaches Google Drive before that.'}
-        </p>
-      </form>
-    </Dialog>
-  );
-}
+/* ---- Upload ----------------------------------------------------------------
+   Moved to ./upload-dialog.tsx — the project detail page opens the same form with
+   its own project locked, and two copies of an upload form is two places for the
+   size limits and the approval wording to drift. */
 
 /* ---- Refuse -------------------------------------------------------------- */
 
@@ -971,31 +652,4 @@ function RejectDialog({
 
 /* ---- Bits ---------------------------------------------------------------- */
 
-function StateBadge({ state }: { state: DocumentRow['state'] }) {
-  const meta = {
-    pending: { token: 'feedback-warning', label: 'Waiting', icon: Clock },
-    approved: { token: 'feedback-success', label: 'In Drive', icon: CheckCircle2 },
-    rejected: { token: 'feedback-error', label: 'Refused', icon: XCircle },
-  }[state];
-  const Icon = meta.icon;
 
-  return (
-    <span className={cn('inline-flex shrink-0 items-center gap-1.5')}>
-      <Icon
-        className="h-4 w-4"
-        strokeWidth={2.25}
-        aria-hidden="true"
-        style={{ color: `var(--${meta.token})` }}
-      />
-      <Badge token={meta.token} size="sm" variant="outline">
-        {meta.label}
-      </Badge>
-    </span>
-  );
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1_048_576) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / 1_048_576).toFixed(1)} MB`;
-}

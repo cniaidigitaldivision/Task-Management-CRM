@@ -124,8 +124,52 @@ async function readError(response: Response, fallback: string): Promise<string> 
   }
 
   const body = await response.text().catch(() => '');
-  const detail = body.slice(0, 200).trim();
-  return detail && !detail.startsWith('<') ? `${fallback} (${detail})` : fallback;
+  const detail = body.slice(0, 400).trim();
+  if (!detail || detail.startsWith('<')) return fallback;
+
+  /* ── ⚠️ THE BODY IS JSON, AND IT MUST NOT BE SHOWN RAW ────────────────────
+     Found in the browser, not by reading this: opening a proof whose object had
+     been removed put this on screen, inside a dialog, to an Admin —
+
+       That file could not be opened. ({"statusCode":"404","error":"not_found",
+       "message":"Object not found","code":"NoSuchKey", ...
+
+     Two things are wrong with that. It is not a sentence anybody can act on,
+     and it publishes the storage layer's internals to whoever happened to click.
+
+     ⚠️ AND THE STATUS CHECKS ABOVE DID NOT CATCH IT. Supabase's sign endpoint
+     answers HTTP **400** for a missing object and reports the real 404 inside
+     the body — so `response.status === 404` is false for the single most common
+     storage failure there is. The body is the only place that number appears.
+
+     So: parse it, map the code, and fall back to the plain sentence. Never
+     interpolate the payload. */
+  try {
+    const parsed = JSON.parse(detail) as {
+      statusCode?: string | number;
+      error?: string;
+      message?: string;
+    };
+
+    const code = String(parsed.statusCode ?? '');
+    if (code === '404' || parsed.error === 'not_found') {
+      return 'That file is no longer in storage.';
+    }
+    if (code === '401' || code === '403') {
+      return 'File storage rejected this server’s credentials. An Admin needs to check SUPABASE_STORAGE_KEY.';
+    }
+
+    /* ⚠️ `message` only — never the whole object. Supabase's own message is a
+       short human sentence ("Object not found", "Bucket not found"); the
+       surrounding JSON is not. */
+    return typeof parsed.message === 'string' && parsed.message.length <= 120
+      ? `${fallback} ${parsed.message}.`
+      : fallback;
+  } catch {
+    /* Not JSON. A short plain-text body is safe to append; anything long is
+       almost certainly a stack trace or a page. */
+    return detail.length <= 120 ? `${fallback} (${detail})` : fallback;
+  }
 }
 
 export async function uploadObject(input: {

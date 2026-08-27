@@ -3,36 +3,21 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  AlertTriangle,
-  Check,
-  Copy,
-  Eye,
-  EyeOff,
-  KeyRound,
-  Loader2,
-  Pencil,
-  Plus,
-  Trash2,
-} from 'lucide-react';
-
-import {
   clearSecretAction,
   deleteCredentialAction,
   revealCredentialAction,
+  setCredentialStatusAction,
   type VaultResult,
 } from '@/app/actions/credentials';
 import { StepUpDialog } from '@/components/security/step-up-dialog';
-import { Badge } from '@/components/ui/badge';
-import { Button, IconButton } from '@/components/ui/button';
-import { Card, CardBody } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
-import { Pagination, usePagination } from '@/components/ui/pagination';
-import { Select } from '@/components/ui/select';
-import { Toolbar, ToolbarGroup, ToolbarLabel, ToolbarSpacer } from '@/components/ui/toolbar';
 import type { CredentialRow } from '@/lib/db/queries/credentials';
-import { cn } from '@/lib/utils';
 
-import { CredentialDialog, KIND_LABEL, KINDS } from './credential-dialog';
+import { CredentialDialog } from './credential-dialog';
+import { VaultTable } from './vault-table';
+import { CredentialDetails } from './credential-details';
+import { CredentialAccessDialog } from './credential-access-dialog';
 
 /* ============================================================================
  * THE VAULT — owner request 2026-08-12
@@ -61,21 +46,73 @@ export function VaultWorkspace({
   credentials,
   projects,
   people,
+  readers,
   canManage,
   canDelete,
+  canGrant,
+  canOversee,
+  nowMs,
 }: {
   credentials: readonly CredentialRow[];
   projects: ReadonlyArray<{ id: string; name: string }>;
-  people: ReadonlyArray<{ id: string; name: string }>;
+  /** Who a credential can be ISSUED to — the assignable list, so it stops at the
+   *  viewer's own rank. Custody, not access. */
+  people: ReadonlyArray<{ id: string; name: string; avatarUrl?: string | null }>;
+  /** ⚠️ Everybody, WITH their rank — the access dialogue works out who can open a
+   *  credential from it, and read access does not stop at the viewer's rank. Two
+   *  lists on purpose; see the note in app/(app)/vault/page.tsx. */
+  readers: ReadonlyArray<{
+    id: string;
+    name: string;
+    role?: string | null;
+    avatarUrl?: string | null;
+  }>;
   canManage: boolean;
   canDelete: boolean;
+  /** `credential.grant` — Admin and above only, since 2026-08-25. Gates changing
+   *  who can see a credential, and the Share history tab. */
+  canGrant: boolean;
+  /**
+   * `credential.view` — Coordinator and above.
+   *
+   * ⚠️ NOT the same question as "can they see this row". A Member reaches the vault
+   * when an Admin names them on one credential (migration 050), and RLS shows them
+   * that row — but they are not an overseer of it. Owner, 2026-08-25: *"all this
+   * information is for the admin, or you can say, the coordinator… The things will
+   * be different for the team members."*
+   */
+  canOversee: boolean;
+  /** The server's clock, for every age on the page. See lib/now.ts. */
+  nowMs: number;
 }) {
   const router = useRouter();
-  const [kind, setKind] = React.useState<string>('all');
-  const [projectId, setProjectId] = React.useState<string>('all');
+  /* ⚠️ The type, project, status and search filters now live inside `VaultTable`,
+     next to the counters they narrow. They were here only so a `visible` array
+     could be derived beside them, and nothing else in this file read them. */
   const [editing, setEditing] = React.useState<CredentialRow | null>(null);
   const [creating, setCreating] = React.useState(false);
   const [confirmDelete, setConfirmDelete] = React.useState<CredentialRow | null>(null);
+  /** ⚠️ Separate from `confirmDelete`. Forgetting the password keeps the account
+   *  record; deleting destroys both. Sharing one dialogue would mean one wrong
+   *  click does the larger of the two. */
+  const [confirmClear, setConfirmClear] = React.useState<CredentialRow | null>(null);
+  /** The credential whose details panel is open. Separate from `revealed`: a panel
+   *  can be open with nothing revealed, and revealing does not open a panel. */
+  const [openCredential, setOpenCredential] = React.useState<CredentialRow | null>(null);
+  /**
+   * Bumped whenever the access dialogue changes who can read a credential.
+   *
+   * ⚠️ A counter rather than shared grant state. Both the dialogue and the view
+   * modal read the grants for themselves — the dialogue because it must work from
+   * the project page too, the modal because its row of faces is derived from them —
+   * so this is the smallest thing that can tell the modal "yours is out of date".
+   * `router.refresh()` alone would not: the grants are not part of the page's
+   * server-rendered props.
+   */
+  const [accessToken, setAccessToken] = React.useState(0);
+
+  /** Whose access list is open. Admin-only — see `canGrant`. */
+  const [accessFor, setAccessFor] = React.useState<CredentialRow | null>(null);
   const [note, setNote] = React.useState<VaultResult | null>(null);
   const [busy, setBusy] = React.useState<string | null>(null);
 
@@ -87,24 +124,16 @@ export function VaultWorkspace({
   >(null);
   const [pendingReveal, setPendingReveal] = React.useState<string | null>(null);
 
-  const visible = credentials.filter((c) => {
-    if (kind !== 'all' && c.kind !== kind) return false;
-    if (projectId === 'none' && c.projectId !== null) return false;
-    if (projectId !== 'all' && projectId !== 'none' && c.projectId !== projectId) return false;
-    return true;
-  });
-
-  const pager = usePagination(visible);
 
   const reveal = async (id: string) => {
     setBusy(id);
     setNote(null);
     try {
       const result = await revealCredentialAction(id);
-      if (result.stepUpRequired) {
-        setPendingReveal(id);
-        return;
-      }
+      /* ⚠️ No `stepUpRequired` branch any more. The action no longer asks —
+         owner, 2026-08-25: *"don't require confirming the password again."* The
+         field is still on the result type because other actions use it, and it is
+         simply never set for a reveal. */
       if (!result.ok) {
         setNote({ ok: false, error: result.error });
         return;
@@ -135,57 +164,18 @@ export function VaultWorkspace({
     }
   };
 
-  const usedKinds = [...new Set(credentials.map((c) => c.kind))];
 
   return (
     <div className="space-y-4">
-      <Toolbar aria-label="Credential filters">
-        <ToolbarGroup>
-          <ToolbarLabel>Kind</ToolbarLabel>
-          <Select
-            label="Filter by kind"
-            value={kind}
-            onChange={(event) => setKind(event.target.value)}
-            options={[
-              { value: 'all', label: 'Every kind' },
-              ...KINDS.filter((k) => usedKinds.includes(k)).map((k) => ({
-                value: k,
-                label: KIND_LABEL[k],
-              })),
-            ]}
-            className="w-[12rem]"
-          />
-        </ToolbarGroup>
+      {/* ── ⚠️ THE TOOLBAR AND THE CARD LIST ARE GONE ───────────────────────────
+          What was here was a `Toolbar` of two Selects above a list of cards. The
+          owner supplied a design for this page and it is five counters, four
+          filters, a sort, a view toggle and a table — which `VaultTable` is, in
+          full.
 
-        <ToolbarGroup>
-          <ToolbarLabel>Project</ToolbarLabel>
-          <Select
-            label="Filter by project"
-            value={projectId}
-            onChange={(event) => setProjectId(event.target.value)}
-            options={[
-              { value: 'all', label: 'Any project' },
-              { value: 'none', label: 'Not tied to a project' },
-              ...projects.map((p) => ({ value: p.id, label: p.name })),
-            ]}
-            className="w-[14rem]"
-          />
-        </ToolbarGroup>
-
-        <ToolbarSpacer />
-
-        <span className="text-caption text-text-secondary">
-          <span className="tabular font-semibold text-text-primary">{visible.length}</span> stored
-        </span>
-
-        {canManage && (
-          <Button variant="primary" size="md" onClick={() => setCreating(true)}>
-            <Plus className="h-4 w-4" strokeWidth={2.25} aria-hidden="true" />
-            Add credential
-          </Button>
-        )}
-      </Toolbar>
-
+          What stayed in this file is everything that talks to the server: the
+          reveal round trip, the status changes, the save and delete dialogues, and
+          the access modal. None of that is layout. */}
       {note && (
         <p
           className="flex items-start gap-2 rounded-lg px-3 py-2 text-caption"
@@ -194,171 +184,105 @@ export function VaultWorkspace({
             color: note.ok ? 'var(--feedback-success)' : 'var(--feedback-error)',
           }}
         >
-          {!note.ok && (
-            <AlertTriangle
-              className="mt-px h-4 w-4 shrink-0"
-              strokeWidth={2.25}
-              aria-hidden="true"
-            />
-          )}
           {note.error ?? note.message}
         </p>
       )}
 
-      {visible.length === 0 ? (
-        <Card>
-          {/* dot-grid: the plan reserves this texture for empty states, which is
-              exactly what this is. It goes on the body rather than the Card so it
-              stays inside the rounded border. */}
-          <CardBody className="dot-grid px-6 py-14 text-center">
-            <p className="text-body-sm font-semibold text-text-primary">
-              {credentials.length === 0 ? 'Nothing stored yet' : 'Nothing matches that filter'}
-            </p>
-            <p className="mx-auto mt-1 max-w-[42rem] text-caption text-text-secondary">
-              {credentials.length === 0
-                ? 'This is for the logins the division holds on behalf of clients and projects — a client portal, a hosting account, an ad manager, an API key.'
-                : 'Clear a filter to see the rest.'}
-            </p>
-          </CardBody>
-        </Card>
-      ) : (
-        <div className="space-y-3">
-          <div className="overflow-hidden rounded-xl border border-border-default bg-bg-surface shadow-sm">
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[860px] border-collapse">
-                <thead>
-                  <tr className="border-b border-border-default bg-bg-surface-sunken">
-                    <th scope="col" className={thLeft}>Credential</th>
-                    <th scope="col" className={thLeft}>Kind</th>
-                    <th scope="col" className={thLeft}>Project</th>
-                    <th scope="col" className={thLeft}>Issued to</th>
-                    <th scope="col" className={thLeft}>Rotation</th>
-                    <th scope="col" className="w-px" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {pager.visible.map((row) => (
-                    <tr
-                      key={row.id}
-                      className="border-b border-border-subtle last:border-0 hover:bg-bg-hover"
-                    >
-                      <td className="px-3 py-2.5">
-                        <div className="min-w-0">
-                          <p className="truncate text-body-sm font-medium text-text-primary">
-                            {row.label}
-                          </p>
-                          <p className="truncate text-micro text-text-tertiary">
-                            {row.username ?? 'no username recorded'}
-                            {row.url && (
-                              <>
-                                {' · '}
-                                <a
-                                  href={row.url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-text-brand hover:underline"
-                                >
-                                  open
-                                </a>
-                              </>
-                            )}
-                          </p>
-                        </div>
-                      </td>
+      <VaultTable
+        credentials={credentials}
+        projects={projects}
+        canManage={canManage}
+        canDelete={canDelete}
+        canGrant={canGrant}
+        nowMs={nowMs}
+        busyId={busy}
+        revealed={revealed}
+        onAdd={() => setCreating(true)}
+        onOpen={(credential) => {
+          /* ⚠️ Opening a DIFFERENT credential drops any secret already on screen.
+             Without this, revealing one password and then opening another row shows
+             the first row's secret under the second row's name. */
+          if (revealed && revealed.id !== credential.id) setRevealed(null);
+          setOpenCredential(credential);
+        }}
+        /* ⚠️ REVEALING OPENS THE VIEW MODAL — it used to open a second, smaller
+           dialogue of its own. Owner, 2026-08-25, of that one: *"the view model is
+           still not showing properly as I want"*, with a reference showing the
+           password beside the URL, the username and who can see it. Two dialogues
+           for one credential meant the good layout was never the one a reveal
+           produced. Now there is one sheet, and a reveal is a row inside it. */
+        onReveal={(credential) => {
+          if (revealed && revealed.id !== credential.id) setRevealed(null);
+          setOpenCredential(credential);
+          void reveal(credential.id);
+        }}
+        onEdit={setEditing}
+        onStatus={(credential, status) =>
+          void run(credential.id, () => setCredentialStatusAction(credential.id, status))
+        }
+        onDelete={setConfirmDelete}
+        onAccess={setAccessFor}
+      />
 
-                      <td className="px-3 py-2.5">
-                        <Badge token="accent-primary" size="sm" variant="outline">
-                          {KIND_LABEL[row.kind] ?? row.kind}
-                        </Badge>
-                      </td>
+      {/* ── Who can see it ─────────────────────────────────────────────────
+          One dialogue, shared with the project Access tab. Two copies would be
+          two places deciding who may read a password, and the day they disagree
+          that is a security bug rather than a cosmetic one. */}
+      <CredentialAccessDialog
+        credential={accessFor}
+        people={readers}
+        canGrant={canGrant}
+        onClose={() => setAccessFor(null)}
+        /* Refreshes so the Shared counter and the row grant count follow
+           immediately rather than after the next navigation — and bumps the token
+           the view modal watches, since that loads its own copy of the grants and
+           would otherwise keep showing the faces from before the change. */
+        onChanged={() => {
+          setAccessToken((n) => n + 1);
+          router.refresh();
+        }}
+      />
 
-                      <td className="px-3 py-2.5 text-caption text-text-secondary">
-                        {row.projectName ?? <span className="text-text-disabled">—</span>}
-                      </td>
-
-                      <td className="px-3 py-2.5 text-caption text-text-secondary">
-                        {row.issuedToName ?? <span className="text-text-disabled">—</span>}
-                      </td>
-
-                      <td className="px-3 py-2.5">
-                        <Rotation row={row} />
-                      </td>
-
-                      <td className="px-3 py-2.5">
-                        <div className="flex items-center justify-end gap-1">
-                          {row.hasSecret ? (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              disabled={busy !== null}
-                              onClick={() => void reveal(row.id)}
-                            >
-                              {busy === row.id ? (
-                                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-                              ) : (
-                                <Eye className="h-3.5 w-3.5" strokeWidth={2.25} aria-hidden="true" />
-                              )}
-                              Reveal
-                            </Button>
-                          ) : (
-                            <span
-                              className="px-2 text-micro text-text-tertiary"
-                              title="The account is recorded here but its password is not"
-                            >
-                              no password stored
-                            </span>
-                          )}
-
-                          {canManage && (
-                            <IconButton
-                              label={`Edit ${row.label}`}
-                              icon={Pencil}
-                              size="sm"
-                              onClick={() => setEditing(row)}
-                            />
-                          )}
-                          {canDelete && (
-                            <IconButton
-                              label={`Delete ${row.label}`}
-                              icon={Trash2}
-                              variant="deleteGhost"
-                              size="sm"
-                              onClick={() => setConfirmDelete(row)}
-                            />
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <Pagination
-            page={pager.page}
-            pageCount={pager.pageCount}
-            onPage={pager.setPage}
-            from={pager.from}
-            to={pager.to}
-            total={pager.total}
-            label="credentials"
-          />
-        </div>
-      )}
-
-      {/* ---- The revealed secret ------------------------------------------ */}
-      {revealed && (
-        <RevealDialog
-          revealed={revealed}
-          onClose={() => setRevealed(null)}
-          onForget={
-            canManage
-              ? () => void run(revealed.id, () => clearSecretAction(revealed.id))
-              : undefined
+      {/* ---- One credential, in full ------------------------------------- */}
+      {openCredential && (
+        <CredentialDetails
+          credential={openCredential}
+          /* Only when it is THIS credential's secret — see onOpen above. */
+          secret={revealed?.id === openCredential.id ? revealed.secret : null}
+          people={readers}
+          /* `credential.view` — Coordinator and above. A Member is looking at this
+             only because an Admin named them on it, and gets the credential without
+             the management of it. */
+          canOversee={canOversee}
+          canManage={canManage}
+          canGrant={canGrant}
+          busy={busy === openCredential.id}
+          nowMs={nowMs}
+          accessToken={accessToken}
+          onClose={() => {
+            setOpenCredential(null);
+            /* ⚠️ The plaintext goes when the panel does. Leaving it in state would
+               mean re-opening the row shows the password again with no reveal, and
+               no second audit row for the second look. */
+            setRevealed(null);
+          }}
+          onReveal={() => void reveal(openCredential.id)}
+          onHide={() => setRevealed(null)}
+          onEdit={() => {
+            setOpenCredential(null);
+            setEditing(openCredential);
+          }}
+          onStatus={(status) =>
+            void run(openCredential.id, () =>
+              setCredentialStatusAction(openCredential.id, status),
+            )
           }
+          onAccess={() => setAccessFor(openCredential)}
+          onClearSecret={() => setConfirmClear(openCredential)}
         />
       )}
+
+
 
       {/* ---- Step-up, then resume the reveal they asked for ---------------- */}
       <StepUpDialog
@@ -371,6 +295,55 @@ export function VaultWorkspace({
           if (id) void reveal(id);
         }}
       />
+
+      {/* ── FORGET THE PASSWORD, KEEP THE ACCOUNT ──────────────────────────
+          ⚠️ RESTORED HERE ON 2026-08-25. This was a button inside the old reveal
+          dialogue, and deleting that dialogue took the only way to clear a secret
+          from the Vault page with it — the project panel had its own. It is the
+          same wording and the same confirmation as that one, deliberately: two
+          screens offering the same irreversible act should describe it identically. */}
+      <Dialog
+        open={confirmClear !== null}
+        onClose={() => setConfirmClear(null)}
+        size="sm"
+        title={confirmClear ? `Forget the password for ${confirmClear.label}?` : ''}
+        footer={
+          <>
+            <Button
+              variant="ghost"
+              size="md"
+              onClick={() => setConfirmClear(null)}
+              disabled={busy !== null}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              size="md"
+              disabled={busy !== null}
+              onClick={() => {
+                if (confirmClear) {
+                  const id = confirmClear.id;
+                  setConfirmClear(null);
+                  /* The plaintext on screen goes with it — leaving it would show a
+                     password the vault no longer holds. */
+                  setRevealed(null);
+                  void run(id, () => clearSecretAction(id));
+                }
+              }}
+            >
+              Forget it
+            </Button>
+          </>
+        }
+      >
+        <p className="text-caption leading-relaxed text-text-secondary">
+          The stored password is destroyed and the record of the account stays — the URL, the
+          username and the notes are untouched. Use this when a client changes a password and
+          nobody has told you the new one yet, so the vault stops offering a value that no longer
+          works.
+        </p>
+      </Dialog>
 
       {/* ---- Create and edit ---------------------------------------------- */}
       {creating && (
@@ -439,150 +412,21 @@ export function VaultWorkspace({
   );
 }
 
-/* ---- Rotation ------------------------------------------------------------ */
 
-/**
- * When it was last changed, and whether it is due.
+/* ----------------------------------------------------------------------------
+ * THE REVEAL DIALOGUE WAS DELETED ON 2026-08-25
+ * ----------------------------------------------------------------------------
+ * It was a second, smaller modal that opened on top of everything to show one
+ * secret. `CredentialDetails` now has a password row with Reveal and Copy on it,
+ * which is what the owner's reference draws — so a reveal opens the sheet instead
+ * of a dialogue of its own.
  *
- * Days are computed from the date strings rather than from `Date.now()` against a
- * timestamp, so a reader in another timezone does not see a key expire a day
- * early. "Today" is close enough to the boundary that the distinction shows.
- */
-function Rotation({ row }: { row: CredentialRow }) {
-  const today = new Date().toISOString().slice(0, 10);
-
-  if (row.expiresAt) {
-    const overdue = row.expiresAt < today;
-    const soon = !overdue && daysUntil(row.expiresAt, today) <= 14;
-
-    return (
-      <span
-        className="text-caption"
-        style={{
-          color: overdue
-            ? 'var(--feedback-error)'
-            : soon
-              ? 'var(--feedback-warning)'
-              : 'var(--text-secondary)',
-        }}
-        title={row.lastRotatedAt ? `Last changed ${row.lastRotatedAt.slice(0, 10)}` : undefined}
-      >
-        {overdue ? 'Expired ' : 'Expires '}
-        {row.expiresAt}
-      </span>
-    );
-  }
-
-  return (
-    <span className="text-caption text-text-tertiary">
-      {row.lastRotatedAt ? `Changed ${row.lastRotatedAt.slice(0, 10)}` : 'No expiry set'}
-    </span>
-  );
-}
-
-function daysUntil(iso: string, todayIso: string): number {
-  const a = Date.parse(`${todayIso}T00:00:00Z`);
-  const b = Date.parse(`${iso}T00:00:00Z`);
-  return Math.round((b - a) / 86_400_000);
-}
-
-/* ---- The reveal dialog --------------------------------------------------- */
-
-/**
- * Shows one secret, and nothing else.
+ * ⚠️ WHY NOT KEEP BOTH. They disagreed. This one had the brand mark and a link to
+ * the site; the sheet had the URL, the username, the project and the access list.
+ * Whichever a person happened to use decided how much they were told about the
+ * credential they were reading, and the quick path was the poorer one.
  *
- * Hidden behind a toggle even after the step-up, because "reveal" and "on screen
- * in an open-plan office" are not the same decision — and Copy exists so the
- * common case never needs it visible at all.
- */
-function RevealDialog({
-  revealed,
-  onClose,
-  onForget,
-}: {
-  revealed: { label: string; username: string | null; secret: string };
-  onClose: () => void;
-  onForget?: () => void;
-}) {
-  const [shown, setShown] = React.useState(false);
-  const [copied, setCopied] = React.useState(false);
-
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(revealed.secret);
-      setCopied(true);
-    } catch {
-      /* A denied clipboard permission is not an error worth a dialog — the value
-         is on screen behind the toggle, which is the fallback. */
-      setShown(true);
-    }
-  };
-
-  return (
-    <Dialog
-      open
-      onClose={onClose}
-      size="sm"
-      title={revealed.label}
-      footer={
-        <>
-          {onForget && (
-            <Button variant="ghost" size="md" onClick={onForget}>
-              Forget the password
-            </Button>
-          )}
-          <Button variant="primary" size="md" onClick={onClose}>
-            Done
-          </Button>
-        </>
-      }
-    >
-      <div className="space-y-3">
-        {revealed.username && (
-          <div>
-            <p className="text-micro text-text-tertiary">Username</p>
-            <p className="font-mono text-caption break-all text-text-primary">
-              {revealed.username}
-            </p>
-          </div>
-        )}
-
-        <div>
-          <p className="text-micro text-text-tertiary">Password</p>
-          <div className="mt-1 flex items-start gap-2">
-            <code
-              className={cn(
-                'min-w-0 flex-1 rounded-lg border border-border-default bg-bg-surface-sunken px-3 py-2',
-                'font-mono text-caption break-all text-text-primary',
-              )}
-            >
-              {shown ? revealed.secret || '(empty)' : '•'.repeat(Math.min(revealed.secret.length, 24))}
-            </code>
-            <IconButton
-              label={shown ? 'Hide' : 'Show'}
-              icon={shown ? EyeOff : Eye}
-              size="sm"
-              onClick={() => setShown((v) => !v)}
-            />
-            <IconButton
-              label={copied ? 'Copied' : 'Copy'}
-              icon={copied ? Check : Copy}
-              size="sm"
-              onClick={() => void copy()}
-            />
-          </div>
-        </div>
-
-        <p className="flex items-start gap-2 text-micro text-text-tertiary">
-          <KeyRound className="mt-px h-3.5 w-3.5 shrink-0" strokeWidth={2} aria-hidden="true" />
-          This was written to the security log as a critical event, with your name and the time.
-          That is deliberate: reading a stored password changes nothing else, so the log is the
-          only trace it leaves.
-        </p>
-      </div>
-    </Dialog>
-  );
-}
-
-const thBase = 'py-2 text-micro font-semibold tracking-[0.07em] text-text-tertiary uppercase';
-const thLeft = `px-3 text-left ${thBase}`;
+ * What it carried that is worth keeping is kept: "Forget the password" — the
+ * reversible clear — is on the row menu, and the audit note is in the sheet's
+ * footer banner.
+ * ------------------------------------------------------------------------- */

@@ -35,7 +35,20 @@ export type NumberFormat =
   /** Effort points, whole, with the unit. */
   | 'points'
   /** Thousands as `1.2k`. For an axis, where four digits per tick will not fit. */
-  | 'compact';
+  | 'compact'
+  /**
+   * Whole rupees, grouped — `4,446,000`.
+   *
+   * ⚠️ ADDED because `integer` prints `4446000`, and a seven-digit figure with no
+   * separators is one a reader has to count digits on. That is fine for a task
+   * count, which is what `integer` was written for, and not fine for money —
+   * seen on the finance page's own hero tiles.
+   *
+   * `integer` is deliberately UNCHANGED: it is the default for every chart and
+   * counter in the product, and putting commas into task counts would be a wide
+   * visual change nobody asked for.
+   */
+  | 'money';
 
 /**
  * Prints a number in the named form.
@@ -70,10 +83,33 @@ export function formatNumber(value: number, kind: NumberFormat = 'integer'): str
       if (magnitude >= 1_000) return `${trim(value / 1_000)}k`;
       return trim(value);
     }
+    case 'money':
+      return group(Math.round(value));
     case 'integer':
     default:
       return String(Math.round(value));
   }
+}
+
+/**
+ * `4446000` → `4,446,000`.
+ *
+ * ⚠️ Hand-rolled rather than `toLocaleString`, for the reason given at the top of
+ * this file — and with a second reason here: several `en-*` locales group by the
+ * lakh/crore system (`44,46,000`). Two panels rendering the same figure
+ * differently because one ran on the server and one in the browser is exactly
+ * the failure this module exists to prevent.
+ */
+function group(value: number): string {
+  const negative = value < 0;
+  const digits = String(Math.abs(value));
+  let out = '';
+  for (let i = 0; i < digits.length; i += 1) {
+    /* A comma before every third digit counting from the right, never leading. */
+    if (i > 0 && (digits.length - i) % 3 === 0) out += ',';
+    out += digits[i];
+  }
+  return negative ? `−${out}` : out;
 }
 
 /** One decimal, but only when it says something: 1.2k, and 5k rather than 5.0k. */

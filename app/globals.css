@@ -96,6 +96,16 @@
   --color-feedback-error: var(--feedback-error);
   --color-feedback-info: var(--feedback-info);
 
+  /* ---- Money, as text ----
+          Registered so `text-money-in` works alongside the inline style the
+          finance components use. See the note beside `--money-in` in
+          styles/tokens.css: these are for FIGURES, and the chart tokens above
+          stay on bars, dots and ring segments. ---- */
+  --color-money-in: var(--money-in);
+  --color-money-out: var(--money-out);
+  --color-money-due: var(--money-due);
+  --color-money-wait: var(--money-wait);
+
   /* ---- Brand ramps — gradients and illustration only.
           BR-024: none of these may express a semantic state. ---- */
   --color-teal-950: var(--teal-950);
@@ -328,4 +338,35 @@
     size: A4 landscape;
     margin: 12mm 10mm;
   }
+}
+
+/* ============================================================================
+ * NATIVE DROPDOWN LISTS FOLLOW THE THEME
+ * ----------------------------------------------------------------------------
+ * Owner, 2026-08-25, of the attendance filters: *"When I open the dropdown, the
+ * dropdown values are not visible. When I hover over them they would be visible
+ * but other than that they are all white."*
+ *
+ * ── WHY IT HAPPENS ──────────────────────────────────────────────────────────
+ * `components/ui/select.tsx` draws the closed control itself — `appearance-none`,
+ * a transparent background, and `color: var(--text-primary)`. The OPEN list is
+ * drawn by the operating system, and it inherits the select's `color` while taking
+ * its own background from the platform. In the dark theme that is near-white text
+ * on a light popup: invisible until a row is highlighted, which is exactly what
+ * the owner described.
+ *
+ * ── WHY THIS IS THE FIX AND NOT A CUSTOM MENU ───────────────────────────────
+ * Every `Select` in the application shares this, so a hand-built listbox would
+ * mean re-implementing keyboard behaviour, typeahead and mobile pickers on eleven
+ * screens to solve a colour problem. Chrome on Windows and Linux — which is what
+ * this division uses — honours `background-color` and `color` on `option`, so
+ * naming the tokens here fixes every dropdown at once.
+ *
+ * ⚠️ Set on BOTH properties. Giving only the background leaves the inherited
+ * near-white text on a near-black popup in the light theme's inverse case.
+ * ========================================================================= */
+select option,
+select optgroup {
+  background-color: var(--bg-surface);
+  color: var(--text-primary);
 }

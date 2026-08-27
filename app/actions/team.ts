@@ -12,7 +12,9 @@ import {
   hashScopedCode,
   hashToken,
 } from '@/lib/auth/tokens';
+import { setSalary } from '@/lib/db/queries/compensation';
 import { withUser } from '@/lib/db/client';
+import { OFFICE_TEAM_KEYS, type OfficeTeam } from '@/lib/domain/attendance';
 import {
   findIdentity,
   getResetTrail,
@@ -159,6 +161,29 @@ export async function invitePersonAction(
     return fail('Weekly capacity has to be between 1 and 48 points. 36 is the default (ADR-004).');
   }
 
+  /* ── Which office they sit in ──────────────────────────────────────────────
+     Not cosmetic: `office_team` decides which weekdays count as an absence —
+     Blue Area rests on Sunday, Wah on Friday (migration 060). Getting it wrong
+     marks somebody absent every week on their own day off, which is why the
+     form now asks instead of letting everybody default to Blue Area. */
+  const officeTeam = str(form, 'officeTeam') as OfficeTeam;
+  if (!OFFICE_TEAM_KEYS.includes(officeTeam)) return fail('Choose which office they sit in.');
+
+  const phone = str(form, 'phone');
+
+  /* ── ⚠️ SALARY IS OPTIONAL HERE, AND ADMIN-ONLY EVERYWHERE ────────────────
+     Optional because an invite should not be blocked on a figure that may not
+     be agreed yet — the person can be added and paid later.
+
+     There is no role check on the write: `employee_compensation` is Admin+ by
+     its own RLS policy, so a Coordinator inviting somebody simply cannot set a
+     salary, and the database is what refuses rather than this line. */
+  const salaryRaw = str(form, 'monthlySalary');
+  const monthlySalary = salaryRaw === '' ? null : Number(salaryRaw);
+  if (monthlySalary !== null && (!Number.isFinite(monthlySalary) || monthlySalary < 0)) {
+    return fail('A salary has to be a positive number, or left blank.');
+  }
+
   if (await P.emailIsTaken(user.id, email)) {
     return fail(
       'Somebody already has that email address. If they were deactivated, restore them instead of creating a second account — BR-007 keeps their history attached.',
@@ -174,11 +199,26 @@ export async function invitePersonAction(
       roleTitle: roleTitle || null,
       weeklyCapacityPoints: capacity,
       maxConcurrentTasks: maxTasks,
+      officeTeam,
+      phone: phone || null,
     });
   } catch {
     return fail(
       'That account could not be created. You can only add people below your own rank.',
     );
+  }
+
+  /* ⚠️ After the person exists, and deliberately NOT inside the same try. A
+     failed salary write must not roll back a created account — the invitation
+     is the point of this action, and pay can be set afterwards from the team
+     page. A Coordinator's attempt lands here and is refused by RLS, which is
+     the correct outcome and not an error worth surfacing on an invite. */
+  if (monthlySalary !== null) {
+    try {
+      await setSalary(user.id, { userId, monthlySalary });
+    } catch {
+      /* Swallowed on purpose — see above. The account is created either way. */
+    }
   }
 
   /* The raw token exists in memory for the length of this function and nowhere

@@ -269,6 +269,95 @@ export interface DonutSlice {
  * A total of zero — nothing to show yet — returns all-zero slices rather than
  * dividing by it, so an empty donut draws its track and no segments.
  */
+/* --------------------------------------------------------------------------
+ * The 3D donut
+ * ------------------------------------------------------------------------
+ * Owner, 2026-08-25, of the attendance distribution card: *"I want a circular
+ * chart… this circular bar should be in a 3D view."*
+ *
+ * A ring seen from above at an angle is an ELLIPSE, and its body is that ellipse
+ * extruded downwards. Both of those are arithmetic, so both live here where they
+ * can be tested, and the component is left with markup — the same split as every
+ * other chart in this application.
+ * ------------------------------------------------------------------------ */
+
+/**
+ * A point on an ellipse, in degrees clockwise from twelve o'clock.
+ *
+ * The same convention as `polarPoint`, and for the same reason: every ring in the
+ * references reads clockwise from the top. `polarPoint` cannot be reused because
+ * it takes ONE radius — the whole point of the projection is that the vertical
+ * radius is smaller than the horizontal one.
+ */
+export function ellipsePoint(
+  cx: number,
+  cy: number,
+  rx: number,
+  ry: number,
+  degrees: number,
+): { x: number; y: number } {
+  const rad = ((degrees - 90) * Math.PI) / 180;
+  return { x: cx + rx * Math.cos(rad), y: cy + ry * Math.sin(rad) };
+}
+
+/**
+ * One slice of a projected ring, as a closed SVG path.
+ *
+ * The shape is an annulus sector: out along the outer ellipse, across to the
+ * inner one, back along it, closed. That is the TOP FACE of the slice; the
+ * component makes it solid by drawing it repeatedly at increasing depth.
+ *
+ * ── ⚠️ SPLIT INTO CHUNKS OF AT MOST 180° ────────────────────────────────────
+ * Two faults, one fix. A single arc command cannot draw a full circle — start and
+ * end coincide and the browser renders NOTHING, so a period in which everybody
+ * was present (one slice, 100%) would have produced an empty card. And beyond
+ * 180° the large-arc flag has to flip, which is the classic way a chart draws the
+ * complement of the slice it was asked for at one specific value.
+ *
+ * Splitting means every chunk is under a half turn, so `large-arc` is always 0
+ * and a full ring is simply two chunks. Multiple `M…Z` subpaths in one `d` fill
+ * as one shape, so this stays a single element per slice.
+ *
+ * ⚠️ Returns `''` for a slice of no width. An empty `d` draws nothing, which is
+ * what a zero-valued slice should do — a degenerate path whose four corners
+ * coincide can still render a stray dot at some stroke widths.
+ */
+export function ringSectorPath(input: {
+  readonly cx: number;
+  readonly cy: number;
+  /** Outer radii of the projected ring. */
+  readonly rx: number;
+  readonly ry: number;
+  /** Inner radii — the hole. */
+  readonly irx: number;
+  readonly iry: number;
+  readonly startDeg: number;
+  readonly endDeg: number;
+}): string {
+  const span = input.endDeg - input.startDeg;
+  if (!Number.isFinite(span) || span <= 0.01) return '';
+
+  const parts = Math.max(1, Math.ceil(span / 180));
+  const step = span / parts;
+  const n = (v: number) => Number(v.toFixed(3));
+
+  const chunks: string[] = [];
+  for (let i = 0; i < parts; i += 1) {
+    const from = input.startDeg + i * step;
+    const to = from + step;
+    const o0 = ellipsePoint(input.cx, input.cy, input.rx, input.ry, from);
+    const o1 = ellipsePoint(input.cx, input.cy, input.rx, input.ry, to);
+    const i1 = ellipsePoint(input.cx, input.cy, input.irx, input.iry, to);
+    const i0 = ellipsePoint(input.cx, input.cy, input.irx, input.iry, from);
+    chunks.push(
+      /* Outer arc clockwise (sweep 1), inner arc back anticlockwise (sweep 0). */
+      `M ${n(o0.x)} ${n(o0.y)} A ${n(input.rx)} ${n(input.ry)} 0 0 1 ${n(o1.x)} ${n(o1.y)} ` +
+        `L ${n(i1.x)} ${n(i1.y)} A ${n(input.irx)} ${n(input.iry)} 0 0 0 ${n(i0.x)} ${n(i0.y)} Z`,
+    );
+  }
+  return chunks.join(' ');
+}
+
 export function donutSlices(values: readonly number[]): DonutSlice[] {
   const clean = values.map((v) => (Number.isFinite(v) && v > 0 ? v : 0));
   const total = clean.reduce((a, b) => a + b, 0);

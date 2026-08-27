@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   Clock,
   Loader2,
+  Lock,
   Pause,
   Pencil,
   Play,
@@ -111,6 +112,7 @@ const EMPTY: TaskDetailPayload = {
   canEditGraph: false,
   canDecideExtensions: false,
   blockedWarning: null,
+  publishProofMissing: false,
 };
 
 export function TaskDetail({
@@ -352,32 +354,67 @@ export function TaskDetail({
                     There is no move you can make from here.
                   </p>
                 )}
+                {/* ⚠️ Done is missing from the list above for a static post or
+                    reel with no link recorded, and this is the sentence that
+                    says so. Without it the dropdown just quietly lacks an
+                    option, which reads as a bug rather than as a rule — and the
+                    panel it points at is a few centimetres further down the same
+                    drawer, so the fix is one scroll away. */}
+                {data.publishProofMissing && (
+                  <p className="text-micro" style={{ color: 'var(--feedback-warning)' }}>
+                    Not done until it is published — add the platform and paste the post link under
+                    “Where it went” below, then close it.
+                  </p>
+                )}
               </div>
 
               <div className="space-y-1.5">
                 <label className="block text-micro font-semibold text-text-secondary" htmlFor="detail-assignee">
                   Assignee
                 </label>
-                <Select
-                  size="md"
-                  id="detail-assignee"
-                  value={task.assigneeId ?? ''}
-                  disabled={busy || currentUser.role === 'member'}
-                  onChange={(event) =>
-                    void run(() => assignTaskAction(task.id, event.target.value || null))
-                  }
-                >
-                  <option value="">Unassigned</option>
-                  {people.map((person) => (
-                    <option key={person.id} value={person.id}>
-                      {person.name}
-                    </option>
-                  ))}
-                </Select>
-                {currentUser.role === 'member' && (
-                  <p className="text-micro text-text-tertiary">
-                    Only a coordinator can reassign work.
-                  </p>
+                {/* ── ⚠️ A MEMBER GETS A LOCKED ROW, NOT A DEAD DROPDOWN ─────
+                    `task.assign` is denied to a Member (permissions.ts) and
+                    `assignTaskAction` refuses it again server-side, so the
+                    control could never do anything for them. It was still
+                    rendered — greyed out, with a line of explanation — and a
+                    disabled dropdown reads as "this is broken" rather than "this
+                    is not yours to change".
+
+                    This is the treatment task-dialog.tsx already gives a Member
+                    on the create form, padlock and all; the drawer was simply
+                    the one place that had not adopted it. Not hidden entirely,
+                    because WHO has the task is information a Member needs — on
+                    something they are following rather than doing, it is most of
+                    what the field is for. */}
+                {currentUser.role === 'member' ? (
+                  <>
+                    <div className="flex h-9 items-center gap-2 rounded-lg border border-border-subtle bg-bg-subtle px-3">
+                      <Lock className="size-3.5 shrink-0 text-text-tertiary" aria-hidden="true" />
+                      <span className="truncate text-body-sm text-text-primary">
+                        {task.assigneeName ?? 'Unassigned'}
+                      </span>
+                    </div>
+                    <p className="text-micro text-text-tertiary">
+                      Only a coordinator can reassign work.
+                    </p>
+                  </>
+                ) : (
+                  <Select
+                    size="md"
+                    id="detail-assignee"
+                    value={task.assigneeId ?? ''}
+                    disabled={busy}
+                    onChange={(event) =>
+                      void run(() => assignTaskAction(task.id, event.target.value || null))
+                    }
+                  >
+                    <option value="">Unassigned</option>
+                    {people.map((person) => (
+                      <option key={person.id} value={person.id}>
+                        {person.name}
+                      </option>
+                    ))}
+                  </Select>
                 )}
               </div>
             </div>

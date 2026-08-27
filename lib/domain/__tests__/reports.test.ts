@@ -6,6 +6,8 @@ import {
   daysLate,
   formatMinutes,
   presetPeriod,
+  EMPTY_FILTERS,
+  NATURAL_SORT,
   reportFileStem,
   taskInPeriod,
   weeksInPeriod,
@@ -47,6 +49,11 @@ function task(over: Partial<ReportTask> = {}): ReportTask {
     timeLimitMinutes: 120,
     timeSpentMinutes: 90,
     extensionMinutesGranted: 0,
+    contentKind: null,
+    platforms: [],
+    publishedOn: null,
+    assigneeAvatarUrl: null,
+    updatedAt: '2026-08-09T12:00:00Z',
     ...over,
   };
 }
@@ -100,6 +107,11 @@ const TODAY = '2026-08-12';
 
 const base = {
   people: [person()],
+  /* No filters and the natural order — every existing test asserts the
+     unfiltered arithmetic, and a fixture that quietly filtered would make each
+     of those numbers mean something else. */
+  filters: EMPTY_FILTERS,
+  sort: NATURAL_SORT,
   projects: [project],
   subjectId: null,
   subjectName: null,
@@ -614,6 +626,8 @@ describe('every report type', () => {
       tasks: [],
       people: [],
       projects: [],
+      filters: EMPTY_FILTERS,
+      sort: NATURAL_SORT,
     });
     expect(report.rows).toHaveLength(0);
     expect(report.figures.length).toBeGreaterThan(0);

@@ -63,6 +63,31 @@ const nothing = (error: string | null): FolderScanOutcome => ({
  * obvious place to file a document — the top folder — would be the one place the
  * picker could not offer.
  */
+/**
+ * One folder as the walk knows it.
+ *
+ * ⚠️ Named rather than inlined into the Map, because three things have to agree on
+ * it now: this Map, the `UNCOUNTED` partial that seeds it, and `recordFolders`'s
+ * parameter. When it was an inline literal, adding a field meant finding four
+ * places by compiler error — which is how the first attempt at this shipped a
+ * folder whose size and count came from different syncs.
+ *
+ * All of `sizeBytes`, `sizedFileCount`, `lastModified` and `owners` are null
+ * together or set together: they come from ONE Drive response and describe one
+ * moment. See migration 056.
+ */
+interface FolderFacts {
+  driveFolderId: string;
+  name: string;
+  parentDriveId: string | null;
+  fileCount: number | null;
+  filePartial: boolean;
+  sizeBytes: number | null;
+  sizedFileCount: number | null;
+  lastModified: string | null;
+  owners: readonly { name: string; email: string | null; photo: string | null }[] | null;
+}
+
 export async function scanDriveFolders(actorId: string): Promise<FolderScanOutcome> {
   const sync = await D.getDriveSync(actorId);
 
@@ -89,19 +114,26 @@ export async function scanDriveFolders(actorId: string): Promise<FolderScanOutco
   const root = await getFolder(roots[0]);
   if (!root.ok) return nothing(root.reason);
 
+  /**
+   * A folder that is known to exist but has not been looked inside.
+   *
+   * ⚠️ NULL, NOT ZERO. `recordFolders` keeps an existing value when the new one is
+   * null and replaces it when it is not — so null means "I did not look, keep what
+   * you had", while 0 would mean "I looked and it is empty" and would wipe a real
+   * reading. The walk is depth-bounded, so the deepest level is always recorded
+   * this way and must not clear last sync's numbers.
+   */
+  const UNCOUNTED = {
+    sizeBytes: null,
+    sizedFileCount: null,
+    lastModified: null,
+    owners: null,
+  } satisfies Pick<FolderFacts, 'sizeBytes' | 'sizedFileCount' | 'lastModified' | 'owners'>;
+
   /* Keyed by Drive id so a folder discovered as a CHILD (name and parent known,
      contents not yet) can be upgraded in place when the walk reaches it and
      counts its files. An array would mean scanning it to find the entry. */
-  const found = new Map<
-    string,
-    {
-      driveFolderId: string;
-      name: string;
-      parentDriveId: string | null;
-      fileCount: number | null;
-      filePartial: boolean;
-    }
-  >([
+  const found = new Map<string, FolderFacts>([
     [
       root.value.id,
       {
@@ -110,6 +142,7 @@ export async function scanDriveFolders(actorId: string): Promise<FolderScanOutco
         parentDriveId: null,
         fileCount: null,
         filePartial: false,
+        ...UNCOUNTED,
       },
     ],
   ]);
@@ -136,6 +169,7 @@ export async function scanDriveFolders(actorId: string): Promise<FolderScanOutco
       parentDriveId: null,
       fileCount: null,
       filePartial: false,
+      ...UNCOUNTED,
     });
     frontier.push(folder.value.id);
   }
@@ -161,11 +195,19 @@ export async function scanDriveFolders(actorId: string): Promise<FolderScanOutco
         continue;
       }
 
-      /* This folder has now been looked inside, so its count is known. */
+      /* This folder has now been looked inside, so everything about it is known.
+         ⚠️ ALL SIX MOVE TOGETHER, from the one response. They are cached as a
+         snapshot of a single moment (migration 056); setting some while leaving
+         others from a previous sync would leave a row describing two different
+         times — a size from last week beside a count from today. */
       const entry = found.get(parent);
       if (entry) {
         entry.fileCount = children.value.fileCount;
         entry.filePartial = children.value.truncated;
+        entry.sizeBytes = children.value.sizeBytes;
+        entry.sizedFileCount = children.value.sizedFileCount;
+        entry.lastModified = children.value.lastModified;
+        entry.owners = children.value.owners;
       }
 
       for (const child of children.value.folders) {
@@ -183,6 +225,7 @@ export async function scanDriveFolders(actorId: string): Promise<FolderScanOutco
           parentDriveId: parent,
           fileCount: null,
           filePartial: false,
+          ...UNCOUNTED,
         });
         next.push(child.id);
       }

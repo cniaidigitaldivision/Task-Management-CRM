@@ -141,8 +141,8 @@ export async function notifySelf(tx: Tx, input: NotifyInput): Promise<void> {
 
 export async function listActivity(actorId: string, limit = 25): Promise<ActivityRow[]> {
   const rows = await withUser(actorId, (tx) => tx`
-    select a.id, a.actor_id, u.full_name as actor_name, a.entity_type, a.entity_id,
-           a.action, a.summary, a.created_at
+    select a.id, a.actor_id, u.full_name as actor_name, u.avatar_url as actor_avatar_url,
+           a.entity_type, a.entity_id, a.action, a.summary, a.created_at
       from public.activity_log a
       left join public.users u on u.id = a.actor_id
      order by a.created_at desc
@@ -152,6 +152,7 @@ export async function listActivity(actorId: string, limit = 25): Promise<Activit
     id: row.id as string,
     actorId: (row.actor_id as string | null) ?? null,
     actorName: (row.actor_name as string | null) ?? null,
+    actorAvatarUrl: (row.actor_avatar_url as string | null) ?? null,
     entityType: row.entity_type as string,
     entityId: row.entity_id as string,
     action: row.action as string,
@@ -180,8 +181,8 @@ export async function listProjectActivity(
   limit = 12,
 ): Promise<ActivityRow[]> {
   const rows = await withUser(actorId, (tx) => tx`
-    select a.id, a.actor_id, u.full_name as actor_name, a.entity_type, a.entity_id,
-           a.action, a.summary, a.created_at
+    select a.id, a.actor_id, u.full_name as actor_name, u.avatar_url as actor_avatar_url,
+           a.entity_type, a.entity_id, a.action, a.summary, a.created_at
       from public.activity_log a
       left join public.users u on u.id = a.actor_id
      where (a.entity_type = 'project' and a.entity_id = ${projectId})
@@ -196,6 +197,7 @@ export async function listProjectActivity(
     id: row.id as string,
     actorId: (row.actor_id as string | null) ?? null,
     actorName: (row.actor_name as string | null) ?? null,
+    actorAvatarUrl: (row.actor_avatar_url as string | null) ?? null,
     entityType: row.entity_type as string,
     entityId: row.entity_id as string,
     action: row.action as string,

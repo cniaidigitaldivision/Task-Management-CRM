@@ -6,6 +6,7 @@ import { CheckCircle2, Filter, Flag, Plus, Trash2, User, XCircle } from 'lucide-
 import { Button, ButtonGroup, IconButton } from './button';
 import { CONTROL_HEIGHT, type ControlSize } from './control';
 import { Field, Input, SearchInput } from './input';
+import { PasswordInput } from './password-input';
 import { FilterChip } from './page-header';
 import { Select } from './select';
 import { ToggleButton, ToggleGroup, Toolbar, ToolbarGroup, ToolbarLabel } from './toolbar';
@@ -208,6 +209,11 @@ export function ControlGallery() {
           </Field>
           <Field label="Time limit" error="Only an Admin may change this once work has started.">
             <Input placeholder="4h" invalid />
+          </Field>
+          {/* Every password field in the application is this one control, so the
+              eye behaves identically on sign-in, activation, reset and step-up. */}
+          <Field label="Your password" hint="The eye reveals it; it always starts hidden.">
+            <PasswordInput id="gallery-password" autoComplete="off" placeholder="Your password" />
           </Field>
         </div>
       </div>

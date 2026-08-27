@@ -40,6 +40,7 @@ import {
   TASK_STATUSES,
   PRIORITY_TOKEN,
   STATUS_META,
+  SYSTEM_DEFAULTS,
   type Priority,
   type Role,
   type TaskStatus,
@@ -161,7 +162,21 @@ export function TasksWorkspace({
      what locks the project on the create form, so a task made from inside a
      project cannot land in a different one. */
   const [arrivedForProject] = React.useState<string | null>(initialProject);
-  const [hideClosed, setHideClosed] = React.useState(true);
+  /* ── ⚠️ "HIDE OLD CLOSED WORK", NOT "HIDE CLOSED WORK" ─────────────────────
+     Owner, 2026-08-24, having closed a static post from inside a project: *"that
+     project is showing that one post is done but on the task page it's not
+     showing as done."*
+
+     Nothing was wrong with the data. This flag was `hideClosed` and it dropped
+     every done and cancelled task before the board was built — so the Done
+     column, which the board renders from the status enum whether it has cards or
+     not, was permanently empty, and the tasks page contradicted the project page
+     about work that had genuinely been finished.
+
+     It now hides only *older* completions (`recentlyClosed`, computed on the
+     server — see lib/view/task-view.ts). Pressing the toggle still reveals the
+     whole history, so nothing has become unreachable. */
+  const [hideOldClosed, setHideOldClosed] = React.useState(true);
   const [search, setSearch] = React.useState(initialSearch);
   /* ── ⚠️ A DATE RANGE, ON THIS PAGE TOO ────────────────────────────────────
      Owner, 2026-08-23: *"I want this filter in both pages — first in that task
@@ -266,7 +281,9 @@ export function TasksWorkspace({
           if (dueFrom && t.dueDate < dueFrom) return false;
           if (dueTo && t.dueDate > dueTo) return false;
         }
-        if (hideClosed) {
+        /* Recent completions stay. `recentlyClosed` is false for anything still
+           open, so this reads as "drop closed work that has gone cold". */
+        if (hideOldClosed && !t.recentlyClosed) {
           const category = STATUS_META[t.status].category;
           if (category === 'done' || category === 'cancelled') return false;
         }
@@ -282,11 +299,50 @@ export function TasksWorkspace({
         }
         return true;
       }),
-    [tasks, priority, statusFilter, assignee, projectFilter, hideClosed, search, dueFrom, dueTo],
+    [tasks, priority, statusFilter, assignee, projectFilter, hideOldClosed, search, dueFrom, dueTo],
+  );
+
+  /* What the toggle is currently keeping off the board, so the label can say a
+     number instead of implying the board is everything there is. Counted over
+     the same predicate the filter uses, minus the closed-work clause. */
+  const oldClosedCount = React.useMemo(
+    () =>
+      tasks.filter((t) => {
+        if (t.recentlyClosed) return false;
+        const category = STATUS_META[t.status].category;
+        return category === 'done' || category === 'cancelled';
+      }).length,
+    [tasks],
   );
 
   const points = visible.reduce((sum, t) => sum + t.effortPoints, 0);
   const groups = React.useMemo(() => groupTasks(visible, groupBy), [visible, groupBy]);
+
+  /* ---- Drop legality ----------------------------------------------------
+   * One question to lib/domain/task-machine.ts, which is doc 05 §2's transition
+   * table as data. This component holds no rules of its own — and the same
+   * function runs again on the server, so a tampered client gains nothing. */
+  const canMove = React.useCallback(
+    (task: TaskView, to: TaskStatus): string | null => {
+      const verdict = evaluateTransition(task.status, to, {
+        actorRole: currentUser.role,
+        actorId: currentUser.id,
+        assigneeId: task.assigneeId,
+        createdById: task.createdById,
+        // A reason is collected by the prompt, so it must not fail legality here.
+        reason: 'pending',
+        /* ⚠️ The publish gate needs both, or a static post with no link drags
+           cleanly into Done and is bounced by the server a moment later. Unlike
+           the reason above, this is NOT something a prompt can collect — the
+           link is pasted on the task, so the honest thing is to refuse the drop
+           and say why. */
+        contentKind: task.contentKind,
+        placementUrlCount: task.placementUrlCount,
+      });
+      return verdict.ok ? null : verdict.message;
+    },
+    [currentUser.id, currentUser.role],
+  );
 
   /* ---- The move ---------------------------------------------------------- */
 
@@ -324,6 +380,24 @@ export function TasksWorkspace({
       const task = tasks.find((t) => t.id === taskId);
       if (!task) return;
 
+      /* ── ⚠️ ASK LEGALITY BEFORE MOVING, NOT AFTER ──────────────────────────
+         The board never reaches an illegal move — `canMove` stops the card
+         following the pointer into a column that refuses it. The LIST does: its
+         status dropdown offers all eight statuses with no check, so picking one
+         used to fire an optimistic move, take a refusal from the server, and snap
+         the row back with a flash. That was survivable while the refusals were
+         about authority, which the person could do nothing about anyway.
+
+         The publish gate changes the arithmetic. "Paste the link, then close it"
+         is a refusal somebody can act on immediately, and it has to arrive as an
+         explanation rather than as a row that jumps and reverts. Same function
+         the board and the server ask, so there is still one set of rules. */
+      const refusal = canMove(task, to);
+      if (refusal) {
+        setFlash({ tone: 'warn', text: refusal });
+        return;
+      }
+
       /* FR-043 — ask first. A reason collected after the write is a write that
          cannot happen: the check constraint refuses the row. */
       if (transitionNeedsReason(task.status, to)) {
@@ -333,26 +407,7 @@ export function TasksWorkspace({
       }
       void commit(task, to);
     },
-    [tasks, commit],
-  );
-
-  /* ---- Drop legality ----------------------------------------------------
-   * One question to lib/domain/task-machine.ts, which is doc 05 §2's transition
-   * table as data. This component holds no rules of its own — and the same
-   * function runs again on the server, so a tampered client gains nothing. */
-  const canMove = React.useCallback(
-    (task: TaskView, to: TaskStatus): string | null => {
-      const verdict = evaluateTransition(task.status, to, {
-        actorRole: currentUser.role,
-        actorId: currentUser.id,
-        assigneeId: task.assigneeId,
-        createdById: task.createdById,
-        // A reason is collected by the prompt, so it must not fail legality here.
-        reason: 'pending',
-      });
-      return verdict.ok ? null : verdict.message;
-    },
-    [currentUser.id, currentUser.role],
+    [tasks, commit, canMove],
   );
 
   const assigneeOptions = React.useMemo(() => {
@@ -510,8 +565,21 @@ export function TasksWorkspace({
           }}
         />
 
-        <ToggleButton pressed={!hideClosed} onChange={(next) => setHideClosed(!next)} icon={EyeOff}>
-          {hideClosed ? 'Closed hidden' : 'Closed shown'}
+        {/* ⚠️ THE LABEL SAYS WHAT IS ON THE BOARD, NOT WHAT THE BUTTON DOES.
+            "Closed hidden" was true and still misleading — it read as a tidy
+            default rather than "the Done column is lying to you". Naming the
+            window and counting what is held back means somebody looking for a
+            post they closed last month can see that it exists and where to
+            click. With nothing old to hide the count is dropped rather than
+            shown as "(0)", which invites the question of what is missing. */}
+        <ToggleButton
+          pressed={!hideOldClosed}
+          onChange={(next) => setHideOldClosed(!next)}
+          icon={EyeOff}
+        >
+          {hideOldClosed
+            ? `Closed: last ${SYSTEM_DEFAULTS.closedVisibleDays} days${oldClosedCount > 0 ? ` (${oldClosedCount} older)` : ''}`
+            : 'Closed: all'}
         </ToggleButton>
 
         <ToolbarSpacer />

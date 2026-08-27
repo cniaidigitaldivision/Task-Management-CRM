@@ -5,7 +5,8 @@ import { AlertTriangle, KeyRound, Loader2 } from 'lucide-react';
 
 import { activateAccount, type ActivationState } from './actions';
 import { Button } from '@/components/ui/button';
-import { Field, Input } from '@/components/ui/input';
+import { Field } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
 import { minLengthFor } from '@/lib/domain/password-policy';
 import type { Role } from '@/lib/domain/constants';
 
@@ -58,18 +59,11 @@ export function ActivateForm({ token, role }: { token: string; role: Role }) {
         htmlFor="password"
         hint={`At least ${minLengthFor(role)} characters, with a capital, a small letter and a symbol.`}
       >
-        <Input
-          id="password"
-          name="password"
-          type="password"
-          autoComplete="new-password"
-          required
-          autoFocus
-        />
+        <PasswordInput id="password" name="password" autoComplete="new-password" required autoFocus />
       </Field>
 
       <Field label="Type it again" htmlFor="confirm">
-        <Input id="confirm" name="confirm" type="password" autoComplete="new-password" required />
+        <PasswordInput id="confirm" name="confirm" autoComplete="new-password" required />
       </Field>
 
       <Button type="submit" variant="primary" size="lg" className="w-full" disabled={pending}>

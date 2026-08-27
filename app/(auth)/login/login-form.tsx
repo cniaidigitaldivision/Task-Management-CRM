@@ -6,6 +6,7 @@ import { AlertTriangle, KeyRound, LogIn, ShieldCheck } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Field, Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
 
 import { signIn, type SignInState } from './actions';
 
@@ -130,10 +131,9 @@ export function LoginForm() {
           </Field>
 
           <Field label="Password" htmlFor="password">
-            <Input
+            <PasswordInput
               id="password"
               name="password"
-              type="password"
               // doc 16 §5 — long passphrases allowed, paste allowed, no maxLength.
               autoComplete="current-password"
               placeholder="Your password"

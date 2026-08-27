@@ -6,6 +6,7 @@ import { AlertTriangle, KeyRound, Loader2, ShieldCheck } from 'lucide-react';
 import { completeReset, type ResetState } from '../forgot-password/actions';
 import { Button } from '@/components/ui/button';
 import { Field, Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
 
 /* ============================================================================
  * USE THE CODE
@@ -150,12 +151,12 @@ export function ResetForm({
           htmlFor="password"
           hint="Four unrelated words beats a mangled one — easier to remember, far harder to guess."
         >
-          <Input id="password" name="password" type="password" autoComplete="new-password" required />
+          <PasswordInput id="password" name="password" autoComplete="new-password" required />
         </Field>
       </div>
 
       <Field label="Type it again" htmlFor="confirm">
-        <Input id="confirm" name="confirm" type="password" autoComplete="new-password" required />
+        <PasswordInput id="confirm" name="confirm" autoComplete="new-password" required />
       </Field>
 
       <Button type="submit" variant="primary" size="lg" className="w-full" disabled={pending}>

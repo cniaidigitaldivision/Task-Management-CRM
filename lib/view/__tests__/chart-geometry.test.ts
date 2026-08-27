@@ -4,10 +4,12 @@ import {
   arcPath,
   domainOf,
   donutSlices,
+  ellipsePoint,
   indexFraction,
   nearestIndex,
   niceScale,
   polarPoint,
+  ringSectorPath,
   smoothPath,
   valueFraction,
 } from '@/lib/view/chart-geometry';
@@ -304,5 +306,76 @@ describe('donutSlices', () => {
   it('sums to the whole ring', () => {
     const total = donutSlices([5, 3, 9, 1]).reduce((a, s) => a + s.length, 0);
     expect(total).toBeCloseTo(1);
+  });
+});
+
+/* ============================================================================
+ * The 3D donut
+ * ----------------------------------------------------------------------------
+ * The projected ring is where a chart can silently draw the wrong thing: a full
+ * circle renders as NOTHING through a single arc command, and a sector past 180°
+ * renders as its own complement if the large-arc flag is wrong. Both produce a
+ * picture that looks deliberate.
+ * ========================================================================= */
+
+describe('ellipsePoint', () => {
+  it('starts at twelve o’clock and runs clockwise', () => {
+    const top = ellipsePoint(50, 50, 40, 20, 0);
+    expect(top.x).toBeCloseTo(50);
+    expect(top.y).toBeCloseTo(30); // straight up by the VERTICAL radius
+
+    const right = ellipsePoint(50, 50, 40, 20, 90);
+    expect(right.x).toBeCloseTo(90); // and across by the HORIZONTAL one
+    expect(right.y).toBeCloseTo(50);
+  });
+
+  it('squashes vertically, which is the whole projection', () => {
+    const bottom = ellipsePoint(50, 50, 40, 20, 180);
+    expect(bottom.y).toBeCloseTo(70);
+    /* A circle would put this at 90. If these two are ever equal the ring has
+       gone back to being face-on and the card is no longer 3D. */
+    expect(bottom.y).not.toBeCloseTo(90);
+  });
+});
+
+describe('ringSectorPath', () => {
+  const ring = { cx: 50, cy: 30, rx: 46, ry: 30, irx: 27, iry: 18 };
+
+  it('draws a closed annulus sector', () => {
+    const d = ringSectorPath({ ...ring, startDeg: 0, endDeg: 90 });
+    expect(d).toMatch(/^M /);
+    expect(d).toContain('A 46 30');
+    expect(d).toContain('A 27 18');
+    expect(d.trim().endsWith('Z')).toBe(true);
+  });
+
+  it('splits a full ring into subpaths rather than drawing nothing', () => {
+    /* A single arc whose start and end coincide renders as an empty path, so a
+       period in which everybody was present would have shown a blank card. */
+    const d = ringSectorPath({ ...ring, startDeg: 0, endDeg: 360 });
+    expect(d.match(/M /g)).toHaveLength(2);
+    expect(d.match(/Z/g)).toHaveLength(2);
+  });
+
+  it('never needs the large-arc flag, at any span', () => {
+    /* Every chunk is at most a half turn, so the flag is always 0. This is what
+       stops a 200° slice drawing as the other 160°. */
+    for (const endDeg of [1, 90, 179, 181, 270, 359, 360]) {
+      const d = ringSectorPath({ ...ring, startDeg: 0, endDeg });
+      expect(d).not.toMatch(/A [\d.]+ [\d.]+ 0 1 /);
+    }
+  });
+
+  it('returns nothing for a slice of no width', () => {
+    expect(ringSectorPath({ ...ring, startDeg: 40, endDeg: 40 })).toBe('');
+    expect(ringSectorPath({ ...ring, startDeg: 40, endDeg: 39 })).toBe('');
+    expect(ringSectorPath({ ...ring, startDeg: 0, endDeg: NaN })).toBe('');
+  });
+
+  it('produces only finite coordinates', () => {
+    const d = ringSectorPath({ ...ring, startDeg: 12, endDeg: 233 });
+    for (const n of d.match(/-?\d+\.?\d*/g) ?? []) {
+      expect(Number.isFinite(Number(n))).toBe(true);
+    }
   });
 });

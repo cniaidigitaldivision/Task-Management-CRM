@@ -13,6 +13,7 @@ import {
   CONTENT_KINDS,
   EFFORT_POINTS,
   PRIORITIES,
+  PUBLISH_PROOF_KINDS,
   ROLE_LABEL,
   STATUS_META,
   TASK_STATUSES,
@@ -321,6 +322,10 @@ export interface TaskDetailPayload {
   readonly canDecideExtensions: boolean;
   /** What is holding this up right now, in one sentence (BR-008). */
   readonly blockedWarning: string | null;
+  /** True when Done is absent from `allowed` because this static post or reel
+   *  has no placement link yet, so the drawer can say so instead of leaving a
+   *  gap in the dropdown. See `PUBLISH_PROOF_KINDS`. */
+  readonly publishProofMissing: boolean;
 }
 
 /**
@@ -353,6 +358,7 @@ export async function getTaskDetailAction(taskId: string): Promise<TaskDetailPay
       canEditGraph: false,
       canDecideExtensions: false,
       blockedWarning: null,
+      publishProofMissing: false,
     };
   }
 
@@ -386,6 +392,12 @@ export async function getTaskDetailAction(taskId: string): Promise<TaskDetailPay
       assigneeId: task.assigneeId,
       createdById: task.createdById,
       reason: 'pending',
+      /* So the drawer's Status dropdown does not offer Done on a static post
+         with no link recorded. `publishProofMissing` below turns the absence
+         into a sentence — an option that silently vanishes is indistinguishable
+         from a bug. */
+      contentKind: task.contentKind,
+      placementUrlCount: task.placementLiveCount,
     }).ok;
   });
 
@@ -423,6 +435,17 @@ export async function getTaskDetailAction(taskId: string): Promise<TaskDetailPay
       user.role === 'super_admin' || user.role === 'admin' || user.role === 'team_coordinator',
     canDecideExtensions: canDecideExtensions(user.role),
     blockedWarning: dependencyWarning(blockers),
+    /* ── WHY DONE IS NOT IN THE STATUS LIST ───────────────────────────────────
+       True for a static post or reel with no link recorded yet. The dropdown
+       above simply will not contain Done in that case, and an option that is
+       absent for a reason nobody states is the interface's way of looking
+       broken. The drawer turns this into one line pointing at the panel
+       immediately below it, where the link is pasted. */
+    publishProofMissing:
+      task.contentKind !== null &&
+      PUBLISH_PROOF_KINDS.includes(task.contentKind) &&
+      task.placementLiveCount < 1 &&
+      STATUS_META[task.status].category !== 'done',
   };
 }
 
@@ -695,6 +718,13 @@ export async function changeStatusAction(
     assigneeId: task.assigneeId,
     createdById: task.createdById,
     reason,
+    /* ── THE AUTHORITATIVE PUBLISH GATE ───────────────────────────────────────
+       The board refuses the drop and the drawer omits the option, but both are
+       conveniences. This is the check that actually holds: read from the task row
+       the server just fetched, so a tampered client, a stale page or a direct
+       call to this action all meet the same rule. */
+    contentKind: task.contentKind,
+    placementUrlCount: task.placementLiveCount,
   });
 
   if (!verdict.ok) return fail(verdict.message);

@@ -187,16 +187,38 @@ const EXPECTED: Readonly<Record<Action, Row>> = {
   'data.export_all': ['allow', 'allow', 'deny', 'deny'],
   'sessions.view_and_revoke_own': ['allow', 'allow', 'allow', 'allow'],
 
-  /* The credentials vault. `view` and `reveal` are open to every role because the
-     real restriction is relational — a project you own, or a login issued to you
-     — and row-level security enforces it (migration 023). A Member opening the
-     vault sees only what was issued to them, usually nothing. Same shape as the
-     calendar. `manage` and `delete` ARE role-decidable, so they are stated. */
-  'credential.view': ['allow', 'allow', 'allow', 'allow'],
-  'credential.reveal': ['allow', 'allow', 'allow', 'allow'],
-  'credential.manage': ['allow', 'allow', 'allow', 'deny'],
-  /* Coordinator too, 2026-08-23 — they add the logins, they remove them. */
-  'credential.delete': ['allow', 'allow', 'allow', 'deny'],
+  /* ── THE CREDENTIALS VAULT — COORDINATOR AND ABOVE, REVISED 2026-08-24 ─────
+     `view` and `reveal` used to be open to every role, deferring the real
+     restriction to row-level security: a project you own, or a login issued to
+     you (migration 023). Owner withdrew that rule — *"not even the person who is
+     working on this project can show that credential to them"* — so migration
+     047 replaces `app.can_read_credential` with this same rank test and the two
+     layers now say the same thing.
+
+     ⚠️ If this row is ever widened again, migration 047 has to be revisited in
+     the same commit. A Member allowed here and refused by the database would see
+     an empty vault with no explanation, which is the confusing half of a leak
+     without the leak. */
+  'credential.view': ['allow', 'allow', 'allow', 'deny'],
+  'credential.reveal': ['allow', 'allow', 'allow', 'deny'],
+  /* ── ⚠️ ADMIN AND ABOVE SINCE 2026-08-25 ─────────────────────────────────
+     Owner: *"only the admin is able to assign, add, delete, or manage who can
+     view this whole project: credential plus any specific credential."* This
+     reverses 2026-08-23 (*"he can also manage all these things"*), which is why
+     the previous value was Coordinator.
+
+     It also closed a mismatch that predated both: `credentials_delete` in the
+     database has been admin-only since migration 023, so a Coordinator was shown
+     a Delete button the policy then refused. Migration 058 brought insert and
+     update into line. Reading is untouched — a Coordinator can still see a
+     credential and can no longer change one. */
+  'credential.manage': ['allow', 'allow', 'deny', 'deny'],
+  'credential.delete': ['allow', 'allow', 'deny', 'deny'],
+  /* ⚠️ THE ONE CREDENTIAL PERMISSION A COORDINATOR DOES NOT HAVE. Owner,
+     2026-08-24: *"only admins and super admins can add someone and can delete
+     someone from here."* Editing a password is reversible; handing it to a third
+     person is not — they have seen it. Migration 050's RLS agrees. */
+  'credential.grant': ['allow', 'allow', 'deny', 'deny'],
 
   /* Drive documents. `request` is open to everybody because a pending upload is
      not in Drive — the approval is the gate. `approve` stops at Admin, so a
@@ -213,6 +235,51 @@ const EXPECTED: Readonly<Record<Action, Row>> = {
      may decide who reads a folder without being able to wave a file into Drive. */
   'document.share': ['allow', 'allow', 'allow', 'deny'],
   'drive.configure': ['allow', 'allow', 'deny', 'deny'],
+
+  /* Attendance — owner instruction, 2026-08-25, transcribed from the request and
+     not from permissions.ts:
+       "the check-in button appearing throughout this whole dashboard"  → everyone
+       "the super admin or admin, and the team coordinator can see who is
+        coming on time and who is coming late"                          → not members
+       "he can add their checkout time but you can say Kashif or any team
+        coordinator could not do that"                                  → not the Coordinator */
+  'attendance.check_in': ['allow', 'allow', 'allow', 'allow'],
+  'attendance.view_all': ['allow', 'allow', 'allow', 'deny'],
+  'attendance.edit': ['allow', 'allow', 'deny', 'deny'],
+
+  /* Finance — owner instruction, 2026-08-26, transcribed from the request and
+     not from permissions.ts:
+       "in the admin panel the admin and the super admin can view where we have
+        spent and what we have spent"                                → not below Admin
+       "the team coordinator can also add expenses"                  → filing only
+       "the list of expenses, their report, or their analysis should
+        only be visible to the admin and the super admin"            → reading is Admin+
+       "each person can see which subscriptions they have"           → everyone
+       "the subscription cost is not compulsory to show them"        → managing is Admin+ */
+  'finance.view': ['allow', 'allow', 'deny', 'deny'],
+  'finance.record_expense': ['allow', 'allow', 'allow', 'deny'],
+  'finance.manage': ['allow', 'allow', 'deny', 'deny'],
+  'subscription.view_own': ['allow', 'allow', 'allow', 'allow'],
+  'subscription.manage': ['allow', 'allow', 'deny', 'deny'],
+
+  /* The assistant — owner instruction, 2026-08-26, transcribed from the request
+     and not from permissions.ts:
+       "this facility will only be provided to upper levels, like this super
+        admin, admin, or team coordinator"                    → not a Member
+       "later on maybe I can have a radio button for each member [...] that I
+        can switch on and off at my choice"                   → a row overrides
+       "on admin or super admin choice"                       → managing is Admin+
+       "maybe one person uses all the credits [...] I should have some check
+        and balance"                                          → usage is Admin+
+
+     ⚠️ `assistant.use` is the ROLE DEFAULT only. A row in
+     `public.assistant_access` wins over it in either direction, which is what
+     the owner's radio button writes. The composed answer is tested separately
+     in lib/domain/__tests__/assistant-access.test.ts — asserting this line
+     alone would prove the floor and not the rule. */
+  'assistant.use': ['allow', 'allow', 'allow', 'deny'],
+  'assistant.manage_access': ['allow', 'allow', 'deny', 'deny'],
+  'assistant.view_usage': ['allow', 'allow', 'deny', 'deny'],
 };
 
 const ROLE_ORDER: readonly Role[] = ['super_admin', 'admin', 'team_coordinator', 'member'];
@@ -620,6 +687,10 @@ describe('requiresStepUp — every 🔒 in doc 03 §3', () => {
       'user.reset_mfa',
       'data.export_all',
       'settings.security',
+      /* ⚠️ Granting somebody access to a stored password is MORE dangerous than
+         reading one — it is standing rather than momentary — so it would be an
+         odd thing to protect less than `credential.reveal`. Migration 050. */
+      'credential.grant',
     ] as Action[]) {
       expect(requiresStepUp(action), action).toBe(true);
     }

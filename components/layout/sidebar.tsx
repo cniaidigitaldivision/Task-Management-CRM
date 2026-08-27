@@ -76,15 +76,19 @@ export function Sidebar({
    *
    *  ── THE TOGGLE IS NOT IN HERE ANY MORE (owner instruction, 2026-08-15) ────
    *  It lived in this rail's brand block, and collapsed it overlapped the logo
-   *  by about 9px — measured, not guessed: the block is a fixed 76px with
+   *  by about 9px — measured, not guessed: the block was a fixed 76px with
    *  pt-5/pb-4, so the 25.6px mark sat at 27.2–52.8px while the absolutely
    *  placed arrow sat at 44–72px.
    *
-   *  The block's height cannot grow to make room: it is fixed precisely because
-   *  a changing height dragged every nav item with it ("when it closes the icons
-   *  jump up"). And 76px cannot hold a 25.6px mark above a 28px button with the
-   *  existing padding. So the control moved OUT, to the top bar, where overlap
-   *  is structurally impossible in either state. See components/layout/topbar.tsx. */
+   *  The block's height cannot simply grow to make room: it is fixed precisely
+   *  because a changing height dragged every nav item with it ("when it closes
+   *  the icons jump up"). So the control moved OUT, to the top bar, where
+   *  overlap is structurally impossible in either state.
+   *
+   *  ⚠️ The logo grew on 2026-08-27 (42 → 52) and this decision did not move
+   *  with it: the block is still 76px, because its height is set by the TYPE
+   *  beside the mark rather than by the artwork. A bigger logo buys no
+   *  clearance here. See components/layout/topbar.tsx. */
   pinned?: boolean;
 }) {
   const pathname = usePathname();
@@ -146,10 +150,28 @@ export function Sidebar({
             to crack rather than glide.
 
             It was 148px, sized for the full 150×112 artwork. The rail now shows
-            the MARK plus real text — about 28px tall either way — so 148px would
-            be 100px of nothing above the navigation. 76px is the padded height
-            of the current lockup (28 + 20 + 16, rounded up for breathing room),
-            and it is still FIXED for the original reason. */}
+            the MARK plus real text, so 148px was 100px of nothing above the
+            navigation. 76px is the padded height of the lockup, and it is FIXED
+            for the original reason: identical in the expanded and collapsed
+            rail, or every nav item below is dragged up and down and the
+            animation cracks rather than glides.
+
+            ── ⚠️ IT SURVIVED THE LOGO GETTING BIGGER, AND THE REASON IS A TRAP ─
+            Owner, 2026-08-27: *"Make the logo of Taskly on the left side bar
+            prominent [...] increase its size a little."* The mark went 42 → 52
+            and this was raised to 88 to make room — 52 + pt-5 (20) + pb-4 (16).
+
+            That arithmetic is WRONG, and measuring caught it. `LogoMark` takes a
+            WIDTH; its height is `width / MARK_RATIO`, so a 52px mark is only
+            35px tall. Worse, the two lines of text beside it measure 36.5px —
+            so the TEXT sets this row's height, not the artwork. The lockup is
+            36.5px either way, 76px holds it with room, and 88px was 12px of
+            dead space above the navigation of the exact kind that got 148px
+            reduced in the first place.
+
+            ⚠️ So before changing this number again: measure the LOCKUP's
+            rendered height, not the mark's width. They are not the same
+            quantity and the mark is not usually the taller one. */}
         <div className="relative flex h-[76px] shrink-0 items-center px-4 pt-5 pb-4 lg:px-3 lg:group-data-[pinned=true]/rail:px-4">
           <div className="flex w-full items-center justify-between gap-2">
             <Link

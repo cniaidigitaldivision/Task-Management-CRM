@@ -55,6 +55,50 @@ export const ALLOWED_MIME_TYPES: ReadonlySet<string> = new Set([
   'application/x-zip-compressed',
 ]);
 
+/* ── ⚠️ THE EXTENSIONS THOSE TYPES CORRESPOND TO ──────────────────────────────
+ * Owner, 2026-08-24: *"when I try to upload a PowerPoint file, it is not
+ * accepting it. Please see why it's happening."*
+ *
+ * THE CAUSE. `ALLOWED_MIME_TYPES` above is correct and contains both PowerPoint
+ * types. The check that used it was `ALLOWED_MIME_TYPES.has(file.type)` — and
+ * `file.type` is not read from the file. The browser looks the extension up in
+ * the OPERATING SYSTEM's registry, and when that registry has no entry it
+ * reports an empty string or 'application/octet-stream'.
+ *
+ * For Office formats that is common rather than exotic: a Windows machine with
+ * no Office install, a .pptx pulled out of a zip, a file off a network share or
+ * a phone download all routinely arrive with no type at all. So a perfectly
+ * ordinary PowerPoint was refused with "That kind of file is not something this
+ * system stores" — which is both wrong and impossible to act on.
+ *
+ * THE FIX. When the browser tells us nothing useful, fall back to the extension,
+ * which is the same evidence the browser was using less reliably. An allow-list
+ * either way, so nothing new becomes storable.
+ *
+ * ⚠️ THIS DOES NOT WEAKEN THE `.exe` DEFENCE. `FORBIDDEN_EXTENSIONS` is checked
+ * BEFORE this, and on the extension — so `payload.exe` is refused whatever its
+ * claimed type, and a file with no type and an unlisted extension is still
+ * refused here. What changed is only that a missing type is no longer treated as
+ * a disqualifying answer.
+ */
+const ALLOWED_EXTENSIONS: ReadonlySet<string> = new Set([
+  'png', 'jpg', 'jpeg', 'webp', 'gif', 'svg',
+  'pdf',
+  'doc', 'docx',
+  'xls', 'xlsx',
+  'ppt', 'pptx',
+  'txt', 'csv', 'md',
+  'zip',
+]);
+
+/** Types that mean "the browser could not tell", not "this is binary rubbish". */
+const UNINFORMATIVE_MIME: ReadonlySet<string> = new Set([
+  '',
+  'application/octet-stream',
+  'application/binary',
+  'binary/octet-stream',
+]);
+
 /** For the file picker's `accept`. Extensions, because that is what it wants. */
 export const ACCEPT_ATTRIBUTE =
   '.png,.jpg,.jpeg,.webp,.gif,.svg,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.md,.zip';
@@ -112,10 +156,29 @@ export function validateUpload(input: {
     );
   }
 
+  /* ── THE TYPE, OR THE EXTENSION WHEN THE TYPE IS NOT AN ANSWER ────────────
+     See `ALLOWED_EXTENSIONS` for why the second branch exists — in short, a
+     PowerPoint routinely arrives with no MIME type at all and was being refused
+     for it. `mimeType` is trusted when it says something; the extension is the
+     fallback, never an override. */
+  const claimed = input.mimeType.trim().toLowerCase();
+
   if (!ALLOWED_MIME_TYPES.has(input.mimeType)) {
-    return no(
-      `${input.mimeType || 'That kind of file'} is not something this system stores. Images, PDFs, Office documents, text and zip archives are.`,
-    );
+    const uninformative = UNINFORMATIVE_MIME.has(claimed);
+
+    if (!uninformative || !ALLOWED_EXTENSIONS.has(extension)) {
+      /* ⚠️ Names the extension when there is no type to name. "That kind of
+         file is not something this system stores" told somebody holding a .pptx
+         nothing whatsoever about what was wrong. */
+      const what = uninformative
+        ? extension
+          ? `.${extension} files`
+          : 'A file with no name or type'
+        : input.mimeType;
+      return no(
+        `${what} cannot be stored here. Images, PDFs, Office documents (Word, Excel, PowerPoint), text and zip archives can.`,
+      );
+    }
   }
 
   return ok;

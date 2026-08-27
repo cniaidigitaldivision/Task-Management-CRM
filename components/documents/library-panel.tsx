@@ -1,203 +1,306 @@
 'use client';
 
 import * as React from 'react';
-import { Download, ExternalLink, FileText, Search } from 'lucide-react';
+import { Download, ExternalLink, Search } from 'lucide-react';
 
 import type { LibraryDocumentRow } from '@/lib/db/queries/library';
-import {
-  LIBRARY_CATEGORIES,
-  LIBRARY_CATEGORY_LABEL,
-  type LibraryCategory,
-} from '@/lib/domain/library';
-import { Badge } from '@/components/ui/badge';
-import { Card, CardBody } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
+import { LIBRARY_CATEGORY_LABEL, type LibraryCategory } from '@/lib/domain/library';
 import { cn } from '@/lib/utils';
 
+import { FileTypeIcon, fileIconName } from './file-type-icon';
+import { formatFileSize } from './file-viewer';
+
 /* ============================================================================
- * THE COMPANY LIBRARY — owner request 2026-08-19
+ * THE COMPANY LIBRARY — the owner's layout
  * ----------------------------------------------------------------------------
- * *"Whenever I want to see a document or all the packages or documentation related
- * to my own internal or our agency system, I will know that. For example if I want
- * to see packages with the name convention, I know that these are the packages'
- * PDFs and I click it. It gives me a proper PDF view… instead of downloading each
- * time."*
+ * *"I want this same UI that I have here in your screenshot. You properly implement
+ * everything logically, each and every button, and each and every icon."*
  *
- * ── ⚠️ VIEW AND DOWNLOAD ARE TWO DIFFERENT CONTROLS ──────────────────────────
- * The owner's complaint was that everything downloaded. So the title opens the
- * document INLINE in a new tab — the browser's own PDF viewer — and a separate
- * icon downloads it. A single control that did one or the other depending on file
- * type would be the same guessing game they are complaining about.
+ * A search box, a row of category chips, and a row per document: a preview panel,
+ * the title and its summary, a category badge, the file type, the page count, and
+ * two controls — open and download.
  *
- * For a design source (.ai, .eps) there is no viewer to open, so only the
- * download is offered. `isViewable` carries that from the database rather than
- * being re-derived from the mime type here.
+ * ── ⚠️ VIEW AND DOWNLOAD ARE TWO SEPARATE CONTROLS ──────────────────────────
+ * This was the owner's original complaint about this tab: *"It gives me a proper
+ * PDF view… instead of downloading each time."* So the title and the open button
+ * show the document inline in a new tab, and a distinct button downloads it. One
+ * control that did either depending on file type is the guessing game they were
+ * complaining about.
  *
- * ── GROUPED BY CATEGORY, NOT BY UPLOAD DATE ──────────────────────────────────
- * "Show me the packages" is the question. Sorting by date answers "what arrived
- * most recently", which nobody asked.
+ * For a design source (.ai, .eps) there is no viewer to open, so only download is
+ * offered. `isViewable` carries that from the database rather than being
+ * re-derived from the mime type here.
+ *
+ * ── ⚠️ THE PREVIEW PANEL IS THE FILE-TYPE ARTWORK, NOT A PAGE THUMBNAIL ─────
+ * The drawing shows two rendered page previews per row. There is no thumbnail
+ * anywhere in `library_documents` — the columns are id, title, category,
+ * storage_path, mime_type, size_bytes, summary, page_count, is_viewable,
+ * uploaded_by_id, created_at, updated_at — and producing one means rasterising a
+ * PDF page, which needs a renderer this project does not carry.
+ *
+ * So the slot holds the file-type artwork on a tinted ground: honest, and it reads
+ * as a deliberate panel rather than a broken image. Two empty frames would look
+ * like thumbnails that failed to load, which is worse than not claiming to have
+ * them. Real thumbnails are a separate piece of work — a PDF renderer, a place to
+ * store the output, and a job to generate it on upload.
+ *
+ * ── ⚠️ THE CHIPS ARE BUILT FROM THE DOCUMENTS, NOT FROM THE ENUM ────────────
+ * `LIBRARY_CATEGORIES` has seven entries; the library holds four of them today.
+ * Offering all seven would give three chips that always return nothing, which
+ * teaches people the filters are unreliable. Same rule as every other filter on
+ * this screen.
  * ========================================================================= */
 
-function size(bytes: number | null): string {
-  if (bytes === null) return '';
-  const mb = bytes / 1_048_576;
-  return mb >= 1 ? `${mb.toFixed(1)} MB` : `${Math.round(bytes / 1024)} KB`;
-}
+const ALL = '__all__';
 
-export function LibraryPanel({
-  documents,
-}: {
-  documents: readonly LibraryDocumentRow[];
-}) {
+export function LibraryPanel({ documents }: { documents: readonly LibraryDocumentRow[] }) {
   const [query, setQuery] = React.useState('');
-  const [category, setCategory] = React.useState<LibraryCategory | 'all'>('all');
+  const [category, setCategory] = React.useState<LibraryCategory | typeof ALL>(ALL);
+
+  /* Only the categories actually present, in the order the enum declares them so
+     the chips do not reshuffle as the library grows. */
+  const present = React.useMemo(() => {
+    const seen = new Set<LibraryCategory>();
+    for (const doc of documents) seen.add(doc.category);
+    return [...seen].sort((a, b) =>
+      LIBRARY_CATEGORY_LABEL[a].localeCompare(LIBRARY_CATEGORY_LABEL[b]),
+    );
+  }, [documents]);
 
   const shown = React.useMemo(() => {
     const needle = query.trim().toLowerCase();
-    return documents.filter((d) => {
-      if (category !== 'all' && d.category !== category) return false;
+    return documents.filter((doc) => {
+      if (category !== ALL && doc.category !== category) return false;
       if (!needle) return true;
-      /* The summary is searched as well as the title, because it is where "which
-         document has which thing" actually lives — searching SPARK should find
-         the booklet that describes it, not only a file with SPARK in its name. */
-      return (
-        d.title.toLowerCase().includes(needle) ||
-        (d.summary ?? '').toLowerCase().includes(needle)
-      );
+      /* The summary is searched as well as the title — somebody looking for "rate
+         card" should find the booklet whose summary mentions rates. */
+      return `${doc.title} ${doc.summary ?? ''}`.toLowerCase().includes(needle);
     });
   }, [documents, query, category]);
 
-  /* Only categories that have something in them. A filter chip that yields an
-     empty list is a chip nobody should have been offered. */
-  const present = LIBRARY_CATEGORIES.filter((c) => documents.some((d) => d.category === c));
-
-  if (documents.length === 0) {
-    return (
-      <Card>
-        <CardBody className="px-6 py-12 text-center">
-          <p className="text-body-sm font-semibold text-text-primary">
-            The library is empty
-          </p>
-          <p className="mx-auto mt-1 max-w-[36rem] text-caption text-text-secondary">
-            This is where the division&rsquo;s own material lives — rate cards, package
-            booklets, the corporate profile. Nothing to do with client uploads, which is what
-            the other tabs are for.
-          </p>
-        </CardBody>
-      </Card>
-    );
-  }
-
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-[14rem] flex-1">
-          <Search
-            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-tertiary"
-            strokeWidth={2.25}
-            aria-hidden="true"
-          />
-          <Input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Find a document, or search what is inside one…"
-            aria-label="Search the library"
-            className="pl-9"
-          />
-        </div>
-
-        <div className="flex flex-wrap gap-1.5">
-          {(['all', ...present] as const).map((key) => {
-            const on = key === category;
-            return (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setCategory(key)}
-                className={cn(
-                  'rounded-lg border px-2.5 py-1 text-micro font-semibold',
-                  on
-                    ? 'border-transparent bg-[image:var(--gradient-brand)] text-text-on-brand'
-                    : 'border-border-subtle text-text-secondary hover:bg-bg-hover',
-                )}
-              >
-                {key === 'all' ? 'Everything' : LIBRARY_CATEGORY_LABEL[key]}
-              </button>
-            );
-          })}
-        </div>
+      {/* ---- Search ---------------------------------------------------------- */}
+      <div className="relative max-w-[26rem]">
+        <Search
+          className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-text-tertiary"
+          strokeWidth={2.25}
+          aria-hidden="true"
+        />
+        <input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search company library…"
+          aria-label="Search the company library"
+          className={cn(
+            'h-10 w-full rounded-xl border border-border-default bg-bg-surface pl-9 pr-3',
+            'text-body-sm text-text-primary placeholder:text-text-tertiary',
+            'focus-visible:border-border-brand focus-visible:outline-none',
+          )}
+        />
       </div>
 
-      {shown.length === 0 ? (
+      {/* ---- Category chips -------------------------------------------------- */}
+      <div role="radiogroup" aria-label="Category" className="flex flex-wrap items-center gap-1.5">
+        <Chip on={category === ALL} onClick={() => setCategory(ALL)}>
+          Everything
+        </Chip>
+        {present.map((key) => (
+          <Chip key={key} on={category === key} onClick={() => setCategory(key)}>
+            {LIBRARY_CATEGORY_LABEL[key]}
+          </Chip>
+        ))}
+      </div>
+
+      {/* ---- Rows ------------------------------------------------------------ */}
+      <div className="overflow-hidden rounded-xl border border-border-default bg-bg-surface">
+        {shown.map((doc, index) => (
+          <Row key={doc.id} doc={doc} first={index === 0} />
+        ))}
+
+        {shown.length === 0 && (
+          <p className="px-4 py-12 text-center text-body-sm text-text-secondary">
+            {documents.length === 0
+              ? 'The library is empty.'
+              : `Nothing matches ${query ? `“${query}”` : 'that category'}.`}
+          </p>
+        )}
+      </div>
+
+      {shown.length > 0 && (
         <p className="text-caption text-text-secondary">
-          Nothing matches. Try a different word, or choose Everything.
+          {shown.length === documents.length
+            ? `${documents.length} document${documents.length === 1 ? '' : 's'}`
+            : `${shown.length} of ${documents.length} documents`}
         </p>
-      ) : (
-        <ul className="space-y-2">
-          {shown.map((doc) => (
-            <li key={doc.id}>
-              <Card>
-                <CardBody className="flex flex-wrap items-start gap-3 p-4">
-                  <FileText
-                    className="mt-0.5 h-4 w-4 shrink-0 text-text-tertiary"
-                    strokeWidth={2.25}
-                    aria-hidden="true"
-                  />
-
-                  <div className="min-w-0 flex-1 space-y-1">
-                    {doc.isViewable ? (
-                      /* ⚠️ A plain link with target=_blank, not a fetch: the whole
-                         request is "open this in a tab", and the route answers with
-                         Content-Disposition: inline so the browser's own viewer
-                         takes over. */
-                      <a
-                        href={`/api/library/${doc.id}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 text-body-sm font-semibold text-text-primary hover:text-text-brand hover:underline"
-                      >
-                        {doc.title}
-                        <ExternalLink
-                          className="h-3.5 w-3.5 shrink-0"
-                          strokeWidth={2.25}
-                          aria-hidden="true"
-                        />
-                      </a>
-                    ) : (
-                      <p className="text-body-sm font-semibold text-text-primary">{doc.title}</p>
-                    )}
-
-                    <p className="text-micro text-text-tertiary">
-                      {LIBRARY_CATEGORY_LABEL[doc.category]}
-                      {doc.pageCount !== null && ` · ${doc.pageCount} pages`}
-                      {doc.sizeBytes !== null && ` · ${size(doc.sizeBytes)}`}
-                      {!doc.isViewable && ' · no preview — download to open'}
-                    </p>
-
-                    {doc.summary && (
-                      <p className="text-caption text-text-secondary">{doc.summary}</p>
-                    )}
-                  </div>
-
-                  <div className="flex shrink-0 items-center gap-1">
-                    <Badge token="accent-primary" size="sm" variant="outline">
-                      {LIBRARY_CATEGORY_LABEL[doc.category]}
-                    </Badge>
-                    <a
-                      href={`/api/library/${doc.id}?download=1`}
-                      title={`Download ${doc.title}`}
-                      aria-label={`Download ${doc.title}`}
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-md text-text-secondary hover:bg-bg-hover hover:text-text-primary"
-                    >
-                      <Download className="h-4 w-4" strokeWidth={1.9} aria-hidden="true" />
-                    </a>
-                  </div>
-                </CardBody>
-              </Card>
-            </li>
-          ))}
-        </ul>
       )}
     </div>
   );
 }
+
+function Chip({
+  on,
+  onClick,
+  children,
+}: {
+  on: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={on}
+      onClick={onClick}
+      className={cn(
+        'h-9 rounded-full px-3.5 text-caption font-semibold',
+        'transition-[background-color,color,border-color] duration-[120ms]',
+        /* ⚠️ The active chip is FILLED, not outlined. The drawing fills it, and it
+           is the same lesson the platform filters taught: an outlined chip among
+           outlined chips has to be hunted for. */
+        on
+          ? 'bg-accent-primary text-text-on-brand'
+          : 'border border-border-default text-text-secondary hover:border-border-strong hover:bg-bg-hover hover:text-text-primary',
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function Row({ doc, first }: { doc: LibraryDocumentRow; first: boolean }) {
+  const artwork = fileIconName(doc.mimeType, doc.title) !== null;
+  const viewHref = `/api/library/${doc.id}`;
+
+  return (
+    <div
+      className={cn(
+        'flex flex-wrap items-center gap-4 px-4 py-3.5 hover:bg-bg-hover',
+        !first && 'border-t border-border-subtle',
+      )}
+    >
+      {/* The preview panel. See the header on why this is the file-type artwork
+          rather than a page thumbnail. */}
+      <div
+        aria-hidden="true"
+        className="grid h-[4.5rem] w-[7rem] shrink-0 place-items-center rounded-lg border border-border-subtle"
+        style={{ backgroundColor: 'var(--bg-subtle)' }}
+      >
+        {artwork ? (
+          <FileTypeIcon mimeType={doc.mimeType} name={doc.title} size={40} />
+        ) : (
+          <span className="text-micro font-bold uppercase tracking-wide text-text-tertiary">
+            {doc.mimeType.split('/').pop()?.slice(0, 8) ?? 'file'}
+          </span>
+        )}
+      </div>
+
+      {/* Title and summary. The title is a link when there is something to open —
+          the owner's whole point about this tab. */}
+      <div className="min-w-0 flex-1 basis-[16rem]">
+        {doc.isViewable ? (
+          <a
+            href={viewHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block truncate text-body font-semibold text-text-primary hover:underline"
+            title={doc.title}
+          >
+            {doc.title}
+          </a>
+        ) : (
+          <p className="truncate text-body font-semibold text-text-primary" title={doc.title}>
+            {doc.title}
+          </p>
+        )}
+        {doc.summary && (
+          <p className="mt-0.5 line-clamp-2 text-caption text-text-secondary">{doc.summary}</p>
+        )}
+      </div>
+
+      {/* Category */}
+      <span
+        className="shrink-0 rounded-full px-2.5 py-1 text-micro font-semibold"
+        style={{
+          backgroundColor: `color-mix(in oklab, var(--${CATEGORY_TOKEN[doc.category]}) 14%, transparent)`,
+          color: `var(--${CATEGORY_TOKEN[doc.category]})`,
+        }}
+      >
+        {LIBRARY_CATEGORY_LABEL[doc.category]}
+      </span>
+
+      {/* File type — the artwork again, small, beside its name. */}
+      <span className="flex w-[5.5rem] shrink-0 items-center gap-1.5">
+        {artwork && <FileTypeIcon mimeType={doc.mimeType} name={doc.title} size={18} />}
+        <span className="text-caption font-medium text-text-secondary">
+          {(fileIconName(doc.mimeType, doc.title) ?? 'file').toUpperCase()}
+        </span>
+      </span>
+
+      {/* ⚠️ Pages where the database knows, SIZE where it does not. `page_count` is
+          null for anything that is not paginated, and "— pages" is a worse answer
+          than the one fact that is always available. */}
+      <span className="w-[5rem] shrink-0 text-caption text-text-secondary">
+        {doc.pageCount !== null
+          ? `${doc.pageCount} page${doc.pageCount === 1 ? '' : 's'}`
+          : formatFileSize(doc.sizeBytes)}
+      </span>
+
+      {/* Open and download */}
+      <span className="flex shrink-0 items-center gap-1.5">
+        {doc.isViewable ? (
+          <a
+            href={viewHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={`Open ${doc.title}`}
+            title="Open in a new tab"
+            className="grid size-9 place-items-center rounded-lg border border-border-default text-text-secondary hover:border-border-strong hover:bg-bg-hover hover:text-text-primary"
+          >
+            <ExternalLink className="size-4" strokeWidth={2.25} aria-hidden="true" />
+          </a>
+        ) : (
+          /* ⚠️ Disabled rather than absent, so the row keeps its shape and the
+             reason is on the tooltip. A design source has no browser viewer — that
+             is a fact about the file, not a missing feature. */
+          <span
+            aria-hidden="true"
+            title="No browser can display this file — download it instead"
+            className="grid size-9 place-items-center rounded-lg border border-border-subtle text-text-disabled"
+          >
+            <ExternalLink className="size-4" strokeWidth={2.25} />
+          </span>
+        )}
+
+        <a
+          href={`${viewHref}?download=1`}
+          aria-label={`Download ${doc.title}`}
+          title={`Download — ${formatFileSize(doc.sizeBytes)}`}
+          className="grid size-9 place-items-center rounded-lg border border-border-default text-text-secondary hover:border-border-strong hover:bg-bg-hover hover:text-text-primary"
+        >
+          <Download className="size-4" strokeWidth={2.25} aria-hidden="true" />
+        </a>
+      </span>
+    </div>
+  );
+}
+
+/**
+ * A colour per category.
+ *
+ * ⚠️ Semantic tokens rather than a hand-picked palette, and one hue per category
+ * so the badge is learnable — after a week nobody reads "Package detail", they
+ * recognise the blue. Design source takes the grey deliberately: it is the one
+ * category that cannot be opened, and a muted badge is a second signal for that
+ * alongside the disabled open button.
+ */
+const CATEGORY_TOKEN: Readonly<Record<LibraryCategory, string>> = {
+  package_card: 'accent-gold',
+  package_detail: 'status-todo',
+  rate_card: 'status-done',
+  booklet: 'status-progress',
+  deck: 'status-review',
+  design_source: 'status-backlog',
+  other: 'status-cancelled',
+};

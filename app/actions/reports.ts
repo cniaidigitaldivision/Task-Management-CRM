@@ -1,14 +1,18 @@
 'use server';
 
 import { requireRole } from '@/lib/auth/current-user';
+import { CONTENT_KINDS, CONTENT_KIND_LABEL, STATUS_META } from '@/lib/domain/constants';
 import { withUser } from '@/lib/db/client';
 import { audit } from '@/lib/db/queries/audit';
-import { listPeople } from '@/lib/db/queries/people';
+import { listPeople, projectRolesByPerson } from '@/lib/db/queries/people';
 import { listProjects } from '@/lib/db/queries/projects';
 import { listTasks } from '@/lib/db/queries/tasks';
+import { platformSlugsByTask } from '@/lib/db/queries/placements';
 import { teamWorkload } from '@/lib/db/queries/workload';
 import { computeWorkload, weekWindow } from '@/lib/domain/workload';
 import {
+  EMPTY_FILTERS,
+  NATURAL_SORT,
   PERIOD_PRESETS,
   REPORT_TYPES,
   buildReport,
@@ -18,9 +22,21 @@ import {
   type PeriodPreset,
   type Report,
   type ReportPeriod,
+  type ReportFilters,
+  type ReportInput,
+  type ReportSort,
   type ReportTask,
   type ReportType,
 } from '@/lib/domain/reports';
+import { chartsFor, type ChartSpec } from '@/lib/domain/report-charts';
+import {
+  WORK_SORTS,
+  buildWorkReport,
+  workReportToReport,
+  type WorkReport,
+  type WorkSort,
+} from '@/lib/domain/work-report';
+import { composeReportSheet } from '@/lib/pdf/report-sheet';
 import { reportFileName, reportToCsv, reportToXlsx } from '@/lib/export/report-writers';
 import { nowMs } from '@/lib/now';
 
@@ -52,6 +68,26 @@ export interface ReportRequest {
   readonly start?: string;
   readonly end?: string;
   readonly subjectId?: string | null;
+  /**
+   * Optional so every existing caller — the page's initial request, the export
+   * action, the tests — keeps working unchanged and means "no filters". A
+   * required field here would have been a wider change for the same behaviour.
+   */
+  readonly filters?: ReportFilters;
+  readonly sort?: ReportSort;
+  /**
+   * The mockup's report-type dropdown reads "Work reports", and that is this:
+   * a row per project-and-person. The four analytical types in lib/domain/reports.ts
+   * sit alongside it in the same control.
+   *
+   * ⚠️ A SEPARATE FIELD rather than a fifth `ReportType`. `ReportType` is the
+   * argument to `buildReport`, which is exhaustively switched over in three
+   * places and tested against all four — adding a fifth member that one of those
+   * switches cannot build would have made the type lie.
+   */
+  readonly work?: boolean;
+  readonly workSort?: WorkSort;
+  readonly workDirection?: 'asc' | 'desc';
 }
 
 export interface ReportResponse {
@@ -59,6 +95,31 @@ export interface ReportResponse {
   readonly report: Report;
   /** Everybody the reader may narrow to. Empty for a Member — see below. */
   readonly people: ReadonlyArray<{ id: string; name: string }>;
+  /**
+   * The analytical view of the same rows.
+   *
+   * Alongside the report rather than inside it: `Report` is the type both export
+   * writers and all of their tests already speak, and neither has any use for a
+   * chart. See lib/domain/report-charts.ts.
+   */
+  readonly charts: readonly ChartSpec[];
+  /** Everything the filter controls need to offer, from what the reader can see. */
+  readonly options: FilterOptions;
+  /** Present only when `work` was asked for. Null for the analytical types. */
+  readonly work: WorkReport | null;
+}
+
+/**
+ * What the filter dropdowns can offer.
+ *
+ * ⚠️ Built from the reader's OWN visible rows, not from a constant. A Coordinator
+ * who can see three projects gets three in the dropdown — so the control cannot
+ * offer a filter that would return an empty report and look broken, and it cannot
+ * be used to discover the existence of a project outside their scope.
+ */
+export interface FilterOptions {
+  readonly projects: ReadonlyArray<{ id: string; name: string; code: string }>;
+  readonly platforms: ReadonlyArray<{ slug: string; label: string }>;
 }
 
 export interface ReportFailure {
@@ -112,12 +173,15 @@ export async function buildReportAction(
     return { ok: false, error: 'That period is not a valid pair of dates. Pick a start and an end.' };
   }
 
-  const [taskRows, projectRows, people] = await Promise.all([
+  const [taskRows, projectRows, people, platformsByTask] = await Promise.all([
     /* 5000 matches the CSV export's ceiling. A report over a period will be far
        under it; the bound exists so one enormous query cannot be provoked. */
     listTasks(user.id, { includeClosed: true, limit: 5000 }),
     listProjects(user.id, { includeArchived: true }),
     listPeople(user.id, { includeInactive: true }),
+    /* In parallel with the tasks, not after them: it does not depend on which
+       tasks came back, because RLS narrows both to the same reader. */
+    platformSlugsByTask(user.id),
   ]);
 
   const subjectId = request.subjectId?.trim() || null;
@@ -129,7 +193,7 @@ export async function buildReportAction(
     return { ok: false, error: 'That person is not somebody you can report on.' };
   }
 
-  const report = buildReport({
+  const input = {
     type: request.type,
     period,
     subjectId,
@@ -137,7 +201,9 @@ export async function buildReportAction(
     /* Today from the server's clock, so "overdue" cannot be shifted by a wrong
        clock on the reader's machine. See ReportInput.today. */
     today: new Date(now).toISOString().slice(0, 10),
-    tasks: taskRows.map(toReportTask),
+    tasks: taskRows.map((row) =>
+      toReportTask({ ...row, platforms: platformsByTask.get(row.id) ?? [] }),
+    ),
     people: await reportPeople(user.id, period, now),
     projects: projectRows.map((p) => ({
       id: p.id,
@@ -146,15 +212,165 @@ export async function buildReportAction(
       type: p.type,
       status: p.status,
     })),
-  });
+    /* ⚠️ Sanitised, not trusted. These arrive from a form and reach a pure
+       function, a file name and an audit row — an unknown project id here would
+       silently produce an empty report, which reads as "nothing happened" rather
+       than as a bad request. See `cleanFilters`. */
+    filters: cleanFilters(request.filters, projectRows.map((p) => p.id)),
+    sort: request.sort ?? NATURAL_SORT,
+  } satisfies ReportInput;
+
+  /* ⚠️ ONE input, TWO consumers. The table and the charts must be computed from
+     the identical object — building a second one "the same way" is how a chart
+     comes to show 47 published while the table under it totals 45, and a reader
+     who catches that stops trusting every other figure on the page. */
+  const report = buildReport(input);
+
+  /* ⚠️ Only queried when it is going to be used. `projectRolesByPerson` is a whole
+     extra round trip, and the four analytical reports have no Role column — paying
+     for it on every request would slow the reports nobody asked it for. */
+  const work = request.work
+    ? buildWorkReport(input, {
+        roles: await projectRolesByPerson(user.id),
+        sort: WORK_SORTS.includes(request.workSort as WorkSort)
+          ? (request.workSort as WorkSort)
+          : 'posts',
+        direction: request.workDirection === 'asc' ? 'asc' : 'desc',
+        weekStart: startOfWeek(now),
+      })
+    : null;
+
+  /* Platform slugs the reader can actually see any placement for, so the filter
+     never offers a platform that would return nothing. Sorted for a stable
+     dropdown order — a list whose order changes between requests makes the
+     control feel like it is moving under the cursor. */
+  const slugs = [...new Set([...platformsByTask.values()].flat())].sort();
 
   return {
     ok: true,
-    report,
+    /* The work report is exported through the SAME typed-cell shape as the other
+       four, so CSV, .xlsx and the PDF need no special case. See work-report.ts. */
+    report: work ? workReportToReport(work, input, new Date(now).toISOString()) : report,
+    work,
+    /* ⚠️ No charts on the work report. The owner's mockup has none, and it is a
+       table of pairings — a chart of it would be a chart of a join. The
+       analytical types keep theirs. */
+    charts: request.work ? [] : chartsFor(input),
     people: people
       .filter((p) => p.isActive)
       .map((p) => ({ id: p.id, name: p.fullName })),
+    options: {
+      projects: projectRows.map((p) => ({ id: p.id, name: p.name, code: p.code })),
+      platforms: slugs.map((slug) => ({
+        slug,
+        label: slug.charAt(0).toUpperCase() + slug.slice(1),
+      })),
+    },
   };
+}
+
+/**
+ * Keep only values this reader could legitimately have chosen.
+ *
+ * ── ⚠️ AN UNKNOWN VALUE IS DROPPED, NOT REFUSED, AND THAT IS DELIBERATE ─────
+ * A person id is refused above, because widening "one person" to "everybody"
+ * hands over more than was asked for — failing open in the dangerous direction.
+ * These four fail the other way: an unrecognised project id, status, platform or
+ * content kind can only ever REMOVE rows, so honouring it would show LESS than
+ * the reader may see. Dropping it shows exactly what they asked for minus a
+ * meaningless term.
+ *
+ * The practical case is not an attack, it is a bookmark: somebody saves a link
+ * with a project in the filter, that project is later archived and deleted, and
+ * the link should still open a report rather than an error page.
+ *
+ * ⚠️ Project ids are checked against what the reader can SEE, so a filter naming
+ * a project outside their scope is dropped rather than being used to confirm the
+ * project exists. Statuses and content kinds are checked against the enums;
+ * platform slugs are not checked at all, because an unknown slug simply matches
+ * no placement and the platform list is data rather than a closed set.
+ */
+function cleanFilters(
+  filters: ReportFilters | undefined,
+  visibleProjectIds: readonly string[],
+): ReportFilters {
+  if (!filters) return EMPTY_FILTERS;
+  const visible = new Set(visibleProjectIds);
+  return {
+    projectIds: filters.projectIds.filter((id) => visible.has(id)),
+    statuses: filters.statuses.filter((s) => s in STATUS_META),
+    platforms: filters.platforms.filter((slug) => /^[a-z0-9_-]{1,40}$/.test(slug)),
+    contentKinds: filters.contentKinds.filter(
+      (k) => k === 'none' || (CONTENT_KINDS as readonly string[]).includes(k),
+    ),
+  };
+}
+
+/**
+ * The filters, as prose for the PDF header.
+ *
+ * ⚠️ ON THE PRINTED SHEET, NOT OPTIONAL. A report of one project and a report of
+ * thirteen look identical once they are on paper, and the reader holding it has no
+ * control panel to check. This is the line that stops a filtered figure being
+ * quoted in a meeting as the division's total.
+ *
+ * Names, not ids — the point is that a person can read it. A project whose id is
+ * no longer resolvable is skipped rather than printed as a UUID, because the
+ * summary is either useful or it is noise.
+ */
+/**
+ * Monday, as `yyyy-mm-dd`.
+ *
+ * ⚠️ MONDAY, not Sunday. `getUTCDay()` calls Sunday 0, and taking it as the week
+ * start would put Monday's posts in the previous week for every reader in a
+ * country that does not work Sunday-to-Saturday — which is this one. The same
+ * choice the posting calendar makes.
+ *
+ * For the work report's "This week" column only. The report's own period is
+ * whatever the reader picked; this column is deliberately always the current week,
+ * so a monthly report still shows what has happened in the last few days.
+ */
+function startOfWeek(nowMs: number): string {
+  const now = new Date(nowMs);
+  const day = now.getUTCDay();
+  const backToMonday = day === 0 ? 6 : day - 1;
+  return new Date(nowMs - backToMonday * 86_400_000).toISOString().slice(0, 10);
+}
+
+function describeFilters(filters: ReportFilters, options: FilterOptions): string[] {
+  const out: string[] = [];
+
+  if (filters.projectIds.length > 0) {
+    const names = filters.projectIds
+      .map((id) => options.projects.find((p) => p.id === id)?.name)
+      .filter((n): n is string => Boolean(n));
+    if (names.length > 0) out.push(`Projects: ${names.join(', ')}`);
+  }
+
+  if (filters.statuses.length > 0) {
+    out.push(`Status: ${filters.statuses.map((s) => STATUS_META[s].label).join(', ')}`);
+  }
+
+  if (filters.platforms.length > 0) {
+    const labels = filters.platforms.map(
+      (slug) => options.platforms.find((p) => p.slug === slug)?.label ?? slug,
+    );
+    out.push(`Platform: ${labels.join(', ')}`);
+  }
+
+  if (filters.contentKinds.length > 0) {
+    const labels = filters.contentKinds.map((k) =>
+      k === 'none' ? 'Not content' : CONTENT_KIND_LABEL[k],
+    );
+    out.push(`Content: ${labels.join(', ')}`);
+  }
+
+  /* ⚠️ The PERSON filter is deliberately absent from this list. It is already in
+     `report.subtitle` — "Najmulla · 2026-08-01 to 2026-08-31" — which the masthead
+     prints at the top right of every page. Repeating it in the filter band would
+     be the same fact twice, and the band exists to carry what nothing else says. */
+
+  return out;
 }
 
 function toReportTask(row: {
@@ -173,6 +389,11 @@ function toReportTask(row: {
   timeLimitMinutes: number | null;
   timeSpentMinutes: number;
   extensionMinutesGranted: number;
+  contentKind: ReportTask['contentKind'];
+  platforms: readonly string[];
+  publishedOn: string | null;
+  assigneeAvatarUrl: string | null;
+  updatedAt: string;
 }): ReportTask {
   return {
     reference: row.reference,
@@ -190,6 +411,11 @@ function toReportTask(row: {
     timeLimitMinutes: row.timeLimitMinutes,
     timeSpentMinutes: row.timeSpentMinutes,
     extensionMinutesGranted: row.extensionMinutesGranted,
+    contentKind: row.contentKind,
+    platforms: row.platforms,
+    publishedOn: row.publishedOn,
+    assigneeAvatarUrl: row.assigneeAvatarUrl,
+    updatedAt: row.updatedAt,
   };
 }
 
@@ -299,11 +525,11 @@ export interface ReportExport {
  */
 export async function exportReportAction(
   request: ReportRequest,
-  format: 'csv' | 'xlsx',
+  format: 'csv' | 'xlsx' | 'pdf',
 ): Promise<ReportExport | ReportFailure> {
   const user = await requireRole('team_coordinator');
 
-  if (format !== 'csv' && format !== 'xlsx') {
+  if (format !== 'csv' && format !== 'xlsx' && format !== 'pdf') {
     return { ok: false, error: 'Unknown export format.' };
   }
 
@@ -316,10 +542,36 @@ export async function exportReportAction(
   const file =
     format === 'csv'
       ? { content: reportToCsv(report), encoding: 'text' as const }
-      : {
-          content: (await reportToXlsx(report)).toString('base64'),
-          encoding: 'base64' as const,
-        };
+      : format === 'xlsx'
+        ? {
+            content: (await reportToXlsx(report)).toString('base64'),
+            encoding: 'base64' as const,
+          }
+        : {
+            content: Buffer.from(
+              await composeReportSheet({
+                report,
+                /* ⚠️ The rich rows, so the PDF can draw avatars, brand marks and
+                   status pills. `Report` is typed cells and cannot express any of
+                   the three — see lib/pdf/report-sheet.ts. Null for the four
+                   analytical types, which fall back to the generic table. */
+                work: built.work,
+                /* ⚠️ The SAME charts the screen is showing, from the same build.
+                   Re-deriving them here would let a reader export a PDF whose
+                   graphs differ from the ones they were just looking at. */
+                charts: built.charts,
+                filterSummary: describeFilters(
+                  cleanFilters(request.filters, built.options.projects.map((p) => p.id)),
+                  built.options,
+                ),
+                /* The server's clock, formatted as a date only — see the note on
+                   determinism in lib/pdf/report-sheet.ts. */
+                generatedOn: new Date(nowMs()).toISOString().slice(0, 10),
+                generatedBy: user.fullName,
+              }),
+            ).toString('base64'),
+            encoding: 'base64' as const,
+          };
 
   await withUser(user.id, (tx) =>
     audit(tx, user, {
@@ -331,6 +583,11 @@ export async function exportReportAction(
         period: report.period,
         subjectId: request.subjectId ?? null,
         rowCount: report.rows.length,
+        /* ⚠️ The FILTERS are part of what left the building. "A spreadsheet of the
+           division's work turned up somewhere it should not have" is answerable
+           only if the audit says which slice of it was taken — an export of one
+           project and an export of everything are very different disclosures. */
+        filters: request.filters ?? null,
       },
     }),
   ).catch(() => {

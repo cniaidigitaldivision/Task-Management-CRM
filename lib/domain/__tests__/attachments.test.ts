@@ -61,9 +61,25 @@ describe('validateUpload — type', () => {
   });
 
   it('refuses a type that is not on it', () => {
-    for (const mimeType of ['video/mp4', 'application/x-msdownload', 'audio/mpeg', '']) {
+    /* ⚠️ `''` WAS IN THIS LIST AND WAS DELIBERATELY REMOVED, 2026-08-24. An empty
+       type used to be a refusal on its own; it is now a refusal only when the
+       extension is also unrecognised. The reason is the PowerPoint report at the
+       foot of this file — an absent `file.type` is the browser saying "I don't
+       know", not the file saying "I am not allowed", and treating the two the
+       same was refusing ordinary Office documents.
+
+       The informative types below are unchanged: a type that says something and
+       is not on the list is still refused, whatever the extension claims. */
+    for (const mimeType of ['video/mp4', 'application/x-msdownload', 'audio/mpeg']) {
       expect(validateUpload({ ...ok, mimeType }).ok, mimeType).toBe(false);
     }
+  });
+
+  it('an empty type on an UNRECOGNISED extension is still refused', () => {
+    /* The other half of that change, so the pair reads as one rule rather than
+       as a hole. */
+    expect(validateUpload({ ...ok, fileName: 'thing.iso', mimeType: '' }).ok).toBe(false);
+    expect(validateUpload({ ...ok, fileName: 'noextension', mimeType: '' }).ok).toBe(false);
   });
 
   it('refuses an executable extension even when the type looks respectable', () => {
@@ -251,5 +267,78 @@ describe('kindOf', () => {
 
   it('has a sensible last resort', () => {
     expect(kindOf(null, 'mystery')).toBe('document');
+  });
+});
+
+/* ============================================================================
+ * A POWERPOINT WITH NO MIME TYPE — owner report, 2026-08-24
+ * ----------------------------------------------------------------------------
+ * *"When I try to upload a PowerPoint file, it is not accepting it."*
+ *
+ * `file.type` is the operating system's guess from the extension, not a reading
+ * of the file, and for Office formats it is routinely absent — no Office install,
+ * a file out of a zip, a network share, a phone download. The allow-list had both
+ * PowerPoint types in it and never got to compare them, because the browser had
+ * supplied nothing to compare.
+ * ========================================================================= */
+
+describe('a file whose type the browser could not determine', () => {
+  const nameOnly = (fileName: string, mimeType = '') =>
+    validateUpload({ fileName, mimeType, sizeBytes: 4096 });
+
+  it('accepts a .pptx reported with no type at all', () => {
+    expect(nameOnly('Q3 pitch.pptx').ok).toBe(true);
+  });
+
+  it('accepts a .pptx reported as application/octet-stream', () => {
+    /* What Windows reports with no Office association — the exact case. */
+    expect(nameOnly('Q3 pitch.pptx', 'application/octet-stream').ok).toBe(true);
+  });
+
+  it('accepts the older .ppt the same way', () => {
+    expect(nameOnly('deck.ppt').ok).toBe(true);
+  });
+
+  it('accepts .docx and .xlsx too, for the same reason', () => {
+    expect(nameOnly('brief.docx').ok).toBe(true);
+    expect(nameOnly('budget.xlsx', 'application/octet-stream').ok).toBe(true);
+  });
+
+  it('still refuses an unlisted extension with no type', () => {
+    /* The fallback is an allow-list, not a bypass. */
+    const result = nameOnly('archive.iso');
+    expect(result.ok).toBe(false);
+  });
+
+  it('⚠️ still refuses an executable, whatever it claims to be', () => {
+    /* The security property this must not cost. `FORBIDDEN_EXTENSIONS` runs
+       first and on the extension, so a respectable-looking type cannot buy an
+       .exe past it — and neither can an absent one. */
+    expect(validateUpload({ fileName: 'setup.exe', mimeType: '', sizeBytes: 4096 }).ok).toBe(false);
+    expect(
+      validateUpload({ fileName: 'setup.exe', mimeType: 'application/pdf', sizeBytes: 4096 }).ok,
+    ).toBe(false);
+    expect(
+      validateUpload({ fileName: 'run.bat', mimeType: 'application/octet-stream', sizeBytes: 4096 })
+        .ok,
+    ).toBe(false);
+  });
+
+  it('names the extension in the refusal when there is no type to name', () => {
+    /* "That kind of file is not something this system stores" told somebody
+       holding a rejected file nothing about what was wrong with it. */
+    const result = nameOnly('disk.iso');
+    expect(result.ok === false && result.message).toContain('.iso');
+  });
+
+  it('a real MIME type is still honoured over the extension', () => {
+    /* The extension is a fallback, never an override: an informative type that
+       is not on the list is still a refusal. */
+    const result = validateUpload({
+      fileName: 'thing.pdf',
+      mimeType: 'application/x-msdownload',
+      sizeBytes: 4096,
+    });
+    expect(result.ok).toBe(false);
   });
 });

@@ -2,6 +2,8 @@ import type { TaskRow } from '@/lib/db/queries/types';
 import {
   EFFORT_POINTS,
   STATUS_META,
+  SYSTEM_DEFAULTS,
+  type ContentKind,
   type EffortSize,
   type Priority,
   type ProjectType,
@@ -54,6 +56,30 @@ export interface TaskView {
   readonly commentCount?: number;
   readonly attachmentCount?: number;
   readonly checklist?: { done: number; total: number };
+
+  /* ── WHAT THE BOARD NEEDS TO REFUSE A DROP BEFORE IT HAPPENS ───────────────
+     The publish gate lives in `evaluateTransition`, and the board asks it the
+     same question the server does (see tasks-workspace's `canMove`). It can only
+     ask honestly if the card knows what kind of deliverable it is and whether a
+     link has been recorded — otherwise the drag succeeds optimistically, the
+     server refuses, and the card snaps back with an error, which teaches people
+     the board is unreliable rather than that the rule exists. */
+  readonly contentKind: ContentKind | null;
+  /** Placements carrying a URL — `TaskRow.placementLiveCount`, passed through. */
+  readonly placementUrlCount: number;
+
+  /* ── "CLOSED, BUT RECENTLY" — COMPUTED HERE, NEVER IN THE COMPONENT ────────
+     The tasks board shows recent completions and hides older ones, so the Done
+     column fills the moment somebody closes something without becoming an
+     archive of every task ever (SYSTEM_DEFAULTS.closedVisibleDays).
+
+     ⚠️ A BOOLEAN FROM THE SERVER'S CLOCK, NOT A DATE FOR THE CLIENT TO COMPARE.
+     Exactly the reasoning `overdue` is a field: a client-side `Date.now()` here
+     would put the server and the browser on different days at midnight and
+     around any timezone difference, which React reports as a hydration mismatch.
+     False for anything still open — an open task is not "recently closed", and
+     the filter must not have to special-case that. */
+  readonly recentlyClosed: boolean;
 }
 
 /** The nearest named size, for a task whose points were entered directly. */
@@ -126,6 +152,34 @@ export function dueLabelFor(
   return { label: `Due ${label}`, overdue: false };
 }
 
+/**
+ * Was this task closed recently enough to still belong on the board?
+ *
+ * ⚠️ TWO DIFFERENT TIMESTAMPS, BECAUSE THERE IS NO `cancelled_at`. Migration 012
+ * constrains `completed_at is not null` to mean exactly `status = 'done'`, so a
+ * cancelled task has no completion stamp at all and `updated_at` is the only
+ * thing left to date it by. That is an approximation and worth naming: any edit
+ * touches `updated_at`, so commenting on an old cancelled task can pull it back
+ * onto the board for a fortnight. Accepted — cancelling is normally the last
+ * thing that happens to a task, and the alternative is a migration to add a
+ * column whose only reader would be this line.
+ */
+function closedRecently(row: TaskRow, nowMs: number): boolean {
+  const category = STATUS_META[row.status].category;
+  if (category !== 'done' && category !== 'cancelled') return false;
+
+  const closedAt = row.completedAt ?? row.updatedAt;
+  if (!closedAt) return false;
+
+  const at = new Date(closedAt).getTime();
+  /* An unparseable stamp must not hide finished work — the board erring toward
+     showing something is recoverable, erring toward hiding it is the bug this
+     whole field exists to fix. */
+  if (Number.isNaN(at)) return true;
+
+  return startOfDay(nowMs) - startOfDay(at) <= SYSTEM_DEFAULTS.closedVisibleDays * DAY;
+}
+
 export function toTaskView(row: TaskRow, nowMs: number): TaskView {
   const { label, overdue } = dueLabelFor(row.dueDate, row.status, row.completedAt, nowMs);
 
@@ -159,5 +213,8 @@ export function toTaskView(row: TaskRow, nowMs: number): TaskView {
     checklist: row.checklistTotal > 0
       ? { done: row.checklistDone, total: row.checklistTotal }
       : undefined,
+    contentKind: row.contentKind,
+    placementUrlCount: row.placementLiveCount,
+    recentlyClosed: closedRecently(row, nowMs),
   };
 }

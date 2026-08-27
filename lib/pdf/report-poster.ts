@@ -14,6 +14,7 @@ import {
   type ReportContent,
 } from '@/lib/domain/report-content';
 import { PLATFORM_MARKS, LINKEDIN_SHAPES, slugForPlatformName } from '@/lib/brand/platform-marks';
+import { APP_NAME, DIVISION_NAME } from '@/lib/domain/constants';
 
 /* ============================================================================
  * THE REPORT PAGE, DRAWN — owner request 2026-08-20
@@ -391,6 +392,8 @@ export async function composeReportPdf(
   const pdf = await PDFDocument.create();
 
   pdf.setTitle(`${content.projectName} — ${content.periodLabel}`);
+  /* Metadata, not the visible header — left as the organisation deliberately. The
+     company IS the author of a client-facing document; only the masthead changed. */
   pdf.setAuthor('Crescent Nova International · AI & Digital Division');
   pdf.setSubject(`${content.kindLabel} for ${content.projectName}`);
   pdf.setProducer('CNI CRM');
@@ -447,14 +450,20 @@ function drawHeader(kit: Kit, content: ReportContent, logo: PDFImage | null): vo
   }
 
   const textX = M + 2 + (logo ? (logo.width / logo.height) * logoH : 0) + 12;
-  draw(kit, 'Crescent Nova International', {
+  /* ⚠️ THE TOOL'S NAME, MATCHING THE ON-SCREEN SHEET. Owner, 2026-08-24, of the
+     report header: *"instead of writing this: my tool name, Taskly, over there. AI
+     Digital Division is fine."* This was hard-coded rather than read from the
+     constants, which is why the screen and the PDF could have drifted — they now
+     read the same two values. See the note in project-report-sheet.tsx: this
+     reverses a decision of mine from 2026-08-23, at the owner's direction. */
+  draw(kit, APP_NAME, {
     x: textX,
     baseline: 36,
     size: 16.5,
     bold: true,
     color: NAVY,
   });
-  draw(kit, 'AI & Digital Division', { x: textX, baseline: 52, size: 11, color: TEAL });
+  draw(kit, DIVISION_NAME, { x: textX, baseline: 52, size: 11, color: TEAL });
 
   /* The badge. Right-aligned to the margin so it does not move when the label changes
      length — "ANNUAL REPORT" is four characters wider than "DAILY REPORT". */

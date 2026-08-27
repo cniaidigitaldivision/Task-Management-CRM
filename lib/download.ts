@@ -66,6 +66,40 @@ export function downloadXlsxFromBase64(fileName: string, base64: string): void {
 }
 
 /**
+ * Save a PDF, which arrives base64 for the same reason the spreadsheet does — a
+ * server action returns JSON, and JSON has no bytes.
+ *
+ * ⚠️ The correct MIME matters here beyond tidiness: with `application/octet-stream`
+ * a browser saves the file but will not preview it, and the reports PDF is meant to
+ * be opened and looked at before it is circulated.
+ */
+export function openPdfInTab(fileName: string, base64: string): boolean {
+  const blob = new Blob([base64ToBytes(base64)], { type: 'application/pdf' });
+  const url = URL.createObjectURL(blob);
+
+  /* ⚠️ The tab is opened SYNCHRONOUSLY inside the click handler that led here, or
+     every browser blocks it as a popup. That is why this is a plain function and
+     not something awaited after a fetch — by the time a promise resolves, the
+     user-gesture flag is gone. */
+  const tab = window.open(url, '_blank');
+
+  if (!tab) {
+    /* Blocked anyway (an aggressive setting, an extension). Falling back to a
+       download is better than the button appearing to do nothing at all. */
+    save(blob, fileName);
+    URL.revokeObjectURL(url);
+    return false;
+  }
+
+  /* ⚠️ NOT revoked immediately. The new tab is still loading from this URL, and
+     revoking it on the next tick gives a blank viewer — the classic version of
+     this bug. A minute is far longer than any load and the blob is released when
+     the opening tab goes anyway. */
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  return true;
+}
+
+/**
  * base64 → bytes.
  *
  * Typed `Uint8Array<ArrayBuffer>` rather than the default `ArrayBufferLike`: a

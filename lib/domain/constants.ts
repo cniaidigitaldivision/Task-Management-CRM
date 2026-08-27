@@ -249,6 +249,78 @@ export const COUNTS_AS_ASSET: readonly ContentKind[] = [
   'video',
 ];
 
+/* ── THE KINDS THAT CANNOT BE CLOSED ON SOMEBODY'S WORD ───────────────────────
+ * For these, "done" is not a claim — it is a link. Nothing enters Done until a
+ * placement carries a URL, at any rank. Everything else goes through the
+ * ordinary status machine untouched.
+ *
+ * ── WIDENED TO ALL FIVE, 2026-08-24 ──────────────────────────────────────────
+ * It started as the two the owner first named — static post and reel — and was
+ * left deliberately narrow, because the cost of guessing wrong is somebody
+ * unable to close finished work. Asked the same day:
+ *
+ *   *"The static post, reel, carousel, story, and reel, along with all these
+ *   kinds of things that are published, must have some URL … let them move to
+ *   the done status only when their URL will be provided. The website, ads, and
+ *   reports and the other things will be available. For now it will behave the
+ *   same as a normal task."*
+ *
+ * So the rule was never about two formats; it is about anything that gets
+ * PUBLISHED. That is exactly `COUNTS_AS_ASSET`.
+ *
+ * ── ⚠️ THIS LIST MUST NOT OUTGROW `PLACEMENT_KINDS` ──────────────────────────
+ * A kind can only be gated if there is somewhere to put the URL.
+ * `PLACEMENT_KINDS` in components/task/placements-panel.tsx offers these same
+ * five and deliberately omits `website`, `report` and `ad` — nobody publishes
+ * those TO a platform. Gate a kind the panel will not accept a row for and the
+ * task becomes permanently unclosable: refused, with the refusal pointing at a
+ * panel that has no row for it. Not "blocked until you act" — genuinely stuck.
+ *
+ * `ad` is the honest edge case. An ad creative is published, so by the sentence
+ * above it arguably belongs — but it cannot be recorded today, so adding it here
+ * without first adding it to the panel would build exactly that dead end. Left
+ * out on purpose; see the test that pins the two lists together.
+ *
+ * See `evaluateTransition` in ./task-machine.ts for the gate itself. */
+export const PUBLISH_PROOF_KINDS: readonly ContentKind[] = COUNTS_AS_ASSET;
+
+/** The formats worth offering for a published destination.
+ *
+ *  ⚠️ Lives here rather than in the panel that renders it, because
+ *  `PUBLISH_PROOF_KINDS` must be a subset of it — see the warning above — and an
+ *  invariant between two lists cannot be tested while one of them is a private
+ *  const inside a client component. components/task/placements-panel.tsx imports
+ *  this; it does not define its own.
+ *
+ *  `website`, `report` and `ad` are real content kinds but nobody publishes them
+ *  *to a platform*, so offering them here would only invite a nonsense row. */
+/* ── WHAT SOMEBODY DOES ON A PROJECT ──────────────────────────────────────────
+ * `project_members.role` — distinct from `users.role`, which is their rank in the
+ * division. A Team Coordinator can be the Design person on one project and the
+ * Manager on another; rank travels with the person, this travels with the pairing.
+ *
+ * ⚠️ Lives here rather than in the component that renders the dropdown, because
+ * three surfaces now read it — the Overview's roster card, the Team tab and the
+ * project roster on a report. A private const in one component meant the other
+ * two printed the raw enum with its underscores. */
+export const PROJECT_ROLE_LABEL: Readonly<Record<string, string>> = {
+  manager: 'Manager',
+  content: 'Content',
+  design: 'Design',
+  development: 'Development',
+  ads: 'Ads',
+  video: 'Video',
+  other: 'Other',
+};
+
+export const PLACEMENT_KINDS: readonly ContentKind[] = [
+  'static',
+  'reel',
+  'carousel',
+  'story',
+  'video',
+];
+
 export const PRIORITY_LABEL: Readonly<Record<Priority, string>> = {
   urgent: 'Urgent',
   high: 'High',
@@ -680,6 +752,20 @@ export const SYSTEM_DEFAULTS = {
   workingHoursStart: DEFAULT_WORKING_HOURS_START,
   workingHoursEnd: DEFAULT_WORKING_HOURS_END,
   digestTime: '09:00',
+
+  /* -- Boards --
+     ⚠️ HOW LONG A CLOSED TASK STAYS ON THE TASKS BOARD. Owner, 2026-08-24, on
+     closing a static post inside a project and then not finding it: *"that
+     project is showing that one post is done but on the task page it's not
+     showing as done."*
+
+     It was `hideClosed = true` with no window at all, so the Done column was
+     permanently empty and the board disagreed with the project page about work
+     that had genuinely been finished. Zero would restore that bug; no window at
+     all makes Done the longest column on the board by month three. Fourteen days
+     is "the fortnight I can still remember", which is the span somebody actually
+     goes looking for a thing they closed. */
+  closedVisibleDays: 14,
 
   /* -- Appearance -- */
   defaultTheme: 'system' as Theme,

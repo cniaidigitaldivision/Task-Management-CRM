@@ -10,7 +10,7 @@ import { ProgressBar } from '@/components/ui/progress';
 import type { ProjectRow } from '@/lib/db/queries/types';
 import type { ReportAsset } from '@/lib/db/queries/project-report';
 import type { ProjectReport } from '@/lib/domain/project-report';
-import { DIVISION_NAME, ORGANISATION_NAME } from '@/lib/domain/constants';
+import { APP_NAME, DIVISION_NAME } from '@/lib/domain/constants';
 import { REPORT_KIND_LABEL, dayTitle } from '@/lib/domain/report-periods';
 import { cn } from '@/lib/utils';
 
@@ -99,8 +99,21 @@ export function ProjectReportSheet({
           <div className="flex items-center gap-3">
             <LogoMark />
             <div>
+              {/* ── ⚠️ `APP_NAME`, AND THIS REVERSES A DECISION FROM 2026-08-23 ──
+                  The note beside `APP_NAME` in constants.ts says the organisation
+                  constants "still label reports, which are sent to clients and must
+                  carry the company's name, not the tool's" — and warns that changing
+                  the wrong one would put "Taskly" on a client-facing document.
+
+                  Owner, 2026-08-24, looking at exactly that: *"the Crescent Nova
+                  International is written at the top of the report… instead of
+                  writing this: my tool name, Taskly, over there. AI Digital Division
+                  is fine."* So the earlier reasoning was mine, the reversal is
+                  theirs, and it is deliberate rather than the mistake that note was
+                  guarding against. `ORGANISATION_NAME` itself is untouched — the
+                  sign-in page and the emails still carry it. */}
               <p className="text-body font-semibold leading-tight text-text-primary">
-                {ORGANISATION_NAME}
+                {APP_NAME}
               </p>
               <p className="text-caption text-text-secondary">{DIVISION_NAME}</p>
             </div>
@@ -346,7 +359,7 @@ export function ProjectReportSheet({
         <footer className="space-y-1 border-t border-border-subtle pt-4 text-micro text-text-tertiary">
           <p>
             Generated on {dayTitle(generatedOn)} by {generatedBy} from{' '}
-            {ORGANISATION_NAME}&rsquo;s own records. An asset counts in the period it was{' '}
+            {DIVISION_NAME}&rsquo;s own records. An asset counts in the period it was{' '}
             <em>published</em>, not the period it was finished. Reels are counted inside
             the asset total rather than on top of it. The target is calculated from the
             agreed posting rhythm across the days this period actually contains, so rest
@@ -454,7 +467,11 @@ function Figure({
 }
 
 const TH =
-  'px-2 py-1.5 text-left text-micro font-semibold uppercase tracking-[0.06em] text-text-tertiary';
+  'px-2.5 py-2 text-left text-micro font-semibold uppercase tracking-[0.06em] text-text-tertiary';
 const TH_R = `${TH} text-right`;
-const TD = 'px-2 py-1.5 align-top text-caption text-text-secondary';
+/* ⚠️ `align-middle`, not `align-top`. Every cell in these tables is one line, and
+   top-aligning single-line content in a taller row leaves the numbers floating
+   above the label they belong to — which is half of why the rows read as
+   congested even after the padding grew. */
+const TD = 'px-2.5 py-2.5 align-middle text-caption text-text-secondary';
 const TD_R = `${TD} text-right tabular-nums`;

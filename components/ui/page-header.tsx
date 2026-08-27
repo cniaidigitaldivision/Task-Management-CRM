@@ -56,8 +56,16 @@ export function PageHeader({
 
        Negative insets let the light bleed past the header's box, which is what
        makes it read as light falling on the page rather than as a rectangle
-       somebody drew behind the title. */
-    <div className={cn('relative isolate space-y-4', className)}>
+       somebody drew behind the title.
+
+       ⚠️ `z-10`, because `isolate` alone put the header's own dropdowns BEHIND
+       the page. The isolated context traps any child's z-index inside it, the
+       header itself stayed at `z-auto`, and every positioned card later in the
+       DOM (Card and StatCard are both `relative`) painted over an open menu —
+       seen on Attendance, where the period picker disappeared behind the
+       Late-arrivals card. z-10 lifts the whole context above in-flow content
+       while staying under the sticky topbar (z-30) and dialogs (z-50). */
+    <div className={cn('relative isolate z-10 space-y-4', className)}>
       <span
         aria-hidden="true"
         className="glow-header pointer-events-none absolute -inset-x-8 -top-10 -bottom-4 -z-10"

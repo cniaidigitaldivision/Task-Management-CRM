@@ -57,7 +57,19 @@ export interface AuditEntry {
     /* Separate from 'document' because sharing a FOLDER is a different act from
        approving a file, and an audit reader filtering on one must not be handed
        the other. */
-    | 'drive_folder';
+    | 'drive_folder'
+    /* Separate from 'user' for the same reason. Correcting somebody's check-out
+       time and changing their role are both writes to a person's record, but an
+       auditor asking "who has been editing timesheets" must not have to read
+       every profile edit to find out — and the answer to that question is the
+       one somebody will want months later, during a disagreement about pay. */
+    | 'attendance'
+    /* Separate again, and for the sharpest version of the same reason. Money is
+       the thing an auditor is most likely to be asked about specifically — "who
+       filed that expense", "who changed what somebody is paid", "who exported
+       the ledger" — and those questions must be answerable without reading
+       every project and user edit to find them. */
+    | 'finance';
   readonly entityId: string | null;
   /** Dotted and stable — `user.role_changed`, not "changed role". */
   readonly action: string;

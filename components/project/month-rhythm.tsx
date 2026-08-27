@@ -1,3 +1,17 @@
+/* ⚠️ CURRENTLY UNREFERENCED — 2026-08-24.
+ *
+ * The project Calendar tab used to render this for its "Posting month" view and now
+ * renders `posting-calendar.tsx` instead: the owner asked for a grid that lists each
+ * day's actual posts as chips, which one tint per day cannot do.
+ *
+ * Kept rather than deleted, deliberately and against the usual rule. This is a
+ * FEATURE — the plan-only view of an agreed cadence — not a redundant calculation,
+ * and it is a plausible third tab rather than something superseded. `monthPlan`, the
+ * domain function it is built on, is still very much in use: the new calendar calls it
+ * to mark a day the rhythm wanted and which has nothing filed.
+ *
+ * If it is not wanted back, delete the file — nothing imports it.
+ */
 'use client';
 
 import * as React from 'react';

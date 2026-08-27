@@ -128,13 +128,29 @@ export function Avatar({
  * Overlapping stack, for "who is on this" without a list
  * ------------------------------------------------------------------------ */
 
+/**
+ * ⚠️ AN ITEM MAY BE A STRING **OR** A PERSON WITH A PICTURE, and the union is
+ * deliberate rather than lazy. This took `readonly string[]` and therefore drew
+ * initials only — so the one thing a stack of faces is for, recognising people
+ * without reading, it could not do. Every existing call site passes plain strings
+ * (there were none at all when this changed, which is why the signature could
+ * move), and a caller that has avatar URLs passes objects.
+ *
+ * Keyed by index, not by name: two people called "Ali" is a real thing in this
+ * division and a duplicate React key would drop one of the faces.
+ */
+export type StackPerson = string | { readonly name: string; readonly src?: string | null };
+
+const nameOf = (person: StackPerson) => (typeof person === 'string' ? person : person.name);
+const srcOf = (person: StackPerson) => (typeof person === 'string' ? null : person.src ?? null);
+
 export function AvatarStack({
   names,
   max = 4,
   size = 'sm',
   className,
 }: {
-  names: readonly string[];
+  names: readonly StackPerson[];
   max?: number;
   size?: keyof typeof SIZES;
   className?: string;
@@ -144,10 +160,11 @@ export function AvatarStack({
 
   return (
     <span className={cn('inline-flex items-center', className)}>
-      {shown.map((name, i) => (
+      {shown.map((person, i) => (
         <Avatar
-          key={name}
-          name={name}
+          key={i}
+          name={nameOf(person)}
+          src={srcOf(person)}
           size={size}
           ring
           className={i > 0 ? '-ml-2' : undefined}

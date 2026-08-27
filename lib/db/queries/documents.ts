@@ -35,6 +35,25 @@ export interface DocumentRow {
   readonly driveWebLink: string | null;
   readonly uploadedById: string;
   readonly uploadedByName: string | null;
+  /** For the Files table's "Added by" column. A row of faces is only
+   *  recognisable if it has faces in it. */
+  readonly uploadedByAvatarUrl: string | null;
+  /**
+   * Which upload of this name-and-project this row is, oldest first.
+   *
+   * ⚠️ COUNTED, NOT STORED. There is no version column in the schema — see the
+   * note in `SELECT`. So `version` is 1 for a file uploaded once, and the newest
+   * of three uploads of the same name is 3.
+   */
+  readonly version: number;
+  /** How many uploads share this name and project. `version === versionCount`
+   *  means this is the current one. */
+  readonly versionCount: number;
+  /** The uploader's role on this project, as a raw enum. Null when they are not a
+   *  member of it — which happens, and reads as no role rather than an error. */
+  readonly uploadedByProjectRole: string | null;
+  /** The project's type, for the second line under its name. */
+  readonly projectType: string | null;
   readonly decidedByName: string | null;
   readonly decidedAt: string | null;
   readonly decisionReason: string | null;
@@ -50,12 +69,55 @@ const SELECT = `
          f.name as folder_name,
          coalesce(f.member_access, 'none'::public.folder_access) as folder_access,
          u.full_name as uploaded_by_name,
-         dc.full_name as decided_by_name
+         u.avatar_url as uploaded_by_avatar_url,
+         dc.full_name as decided_by_name,
+         p.type as project_type,
+         /* ── VERSION, DERIVED FROM THE UPLOAD HISTORY THAT ALREADY EXISTS ────
+            The owner's layout shows a version under each file name. There is no
+            version column anywhere in this schema and inventing one on the row
+            would be a made-up number printed as a fact.
+
+            But the history is real: uploading "Project Plan" into GC Royal three
+            times IS three rows, and the third one is version 3. So it is counted
+            rather than stored — a window function over name-and-project, oldest
+            first.
+
+            ⚠️ MATCHED ON A NORMALISED NAME. "project plan.pdf", "Project Plan.pdf"
+            and " Project Plan.pdf " are the same document to a person, and treating
+            them as three separate v1s would make the column useless the first time
+            somebody typed a capital differently. 'btrim' and 'lower' are the
+            cheapest defence that does not also merge genuinely different files.
+
+            ⚠️ PARTITIONED BY project_id, so the same brief filed under two clients
+            does not become v2 of the other. 'coalesce' to a constant uuid keeps
+            unfiled documents partitioned together rather than each in a null
+            partition of its own — nulls never group in a window.
+
+            ⚠️ RUNS OVER WHAT THE READER MAY SEE, because 'documents' is behind RLS.
+            So a version is "the Nth of these you can see", which is the same
+            honesty the folder counts carry and the only thing it could truthfully
+            be without a stored column. */
+         row_number() over (
+           partition by lower(btrim(d.name)),
+                        coalesce(d.project_id, '00000000-0000-0000-0000-000000000000'::uuid)
+           order by d.created_at
+         ) as version,
+         count(*) over (
+           partition by lower(btrim(d.name)),
+                        coalesce(d.project_id, '00000000-0000-0000-0000-000000000000'::uuid)
+         ) as version_count,
+         /* What the uploader does ON THIS PROJECT — "Manager", "Design" — rather
+            than their system rank. The owner's layout shows a job under the name,
+            and a project role is the honest source: PROJECT_ROLE_LABEL already
+            turns these into words for three other screens. */
+         pm.role as uploaded_by_project_role
     from public.documents d
     left join public.projects p  on p.id = d.project_id
     left join public.drive_folders f on f.id = d.folder_id
     left join public.users    u  on u.id = d.uploaded_by_id
     left join public.users    dc on dc.id = d.decided_by_id
+    left join public.project_members pm
+           on pm.project_id = d.project_id and pm.user_id = d.uploaded_by_id
 `;
 
 function toRow(row: Record<string, unknown>): DocumentRow {
@@ -76,6 +138,14 @@ function toRow(row: Record<string, unknown>): DocumentRow {
     driveWebLink: (row.drive_web_link as string | null) ?? null,
     uploadedById: row.uploaded_by_id as string,
     uploadedByName: (row.uploaded_by_name as string | null) ?? null,
+    uploadedByAvatarUrl: (row.uploaded_by_avatar_url as string | null) ?? null,
+    /* ⚠️ Defaulted to 1, not 0. Every path that reads a document row goes through
+       here, and `getDocument` does not compute the window — a document is at least
+       its own first version, and 0 would print as "v0". */
+    version: Number(row.version ?? 1),
+    versionCount: Number(row.version_count ?? 1),
+    uploadedByProjectRole: (row.uploaded_by_project_role as string | null) ?? null,
+    projectType: (row.project_type as string | null) ?? null,
     decidedByName: (row.decided_by_name as string | null) ?? null,
     decidedAt: isoOrNull(row.decided_at),
     decisionReason: (row.decision_reason as string | null) ?? null,
@@ -190,7 +260,78 @@ export async function createApprovedDocument(
  * once the bytes are safely there — so a row can never claim to be in Drive
  * because an approval was attempted.
  */
-export async function markApproved(
+/**
+ * File a document that needs no approval, already accepted.
+ *
+ * Owner, 2026-08-24: *"anything uploaded by admin, anything uploaded by the team
+ * coordinator, will not be sent to approval. It will be automatically
+ * uploaded."*
+ *
+ * ── ⚠️ WHY THIS IS A SEPARATE INSERT AND NOT insert-then-approve ─────────────
+ * Two statements would leave a window in which the row is `pending`, and that
+ * window is visible: the approver queue is a live count, so a Coordinator's own
+ * upload would flash into everybody's notifications and out again. Worse, if the
+ * second statement failed the file would sit in the queue for its own author to
+ * approve — which is the one thing `document.approve` exists to prevent.
+ *
+ * `decided_by_id` is the uploader, and that is honest rather than convenient:
+ * they did decide, by having the authority to. The audit trail says
+ * `document.uploaded` rather than `document.approved` so the two cases stay
+ * distinguishable afterwards.
+ *
+ * ⚠️ Requires migration 048. Before it, `documents_state_is_coherent` demanded a
+ * `drive_file_id` on any approved row and this insert would be refused outright.
+ */
+export async function createDocumentApproved(
+  actorId: string,
+  input: {
+    name: string;
+    description: string | null;
+    projectId: string | null;
+    folderId: string | null;
+    storagePath: string;
+    mimeType: string;
+    sizeBytes: number;
+  },
+): Promise<string> {
+  const rows = await withUser(actorId, (tx) => tx`
+    insert into public.documents
+      (name, description, project_id, folder_id, storage_path, mime_type,
+       size_bytes, uploaded_by_id, state, decided_by_id, decided_at)
+    values
+      (${input.name}, ${input.description}, ${input.projectId}, ${input.folderId},
+       ${input.storagePath}, ${input.mimeType}, ${input.sizeBytes}, ${actorId},
+       'approved'::public.document_state, ${actorId}, now())
+    returning id
+  `);
+  return rows[0].id as string;
+}
+
+/**
+ * Accept a pending document, leaving the file where it is.
+ *
+ * Owner, 2026-08-24: *"I will accept it and then it will be added to the
+ * bucket."* It is already in the bucket — so acceptance is a state change and
+ * nothing else. No bytes move, nothing is deleted, and no Google OAuth client
+ * needs to exist.
+ *
+ * ⚠️ REPLACES THE DRIVE-COPYING VERSION. That one pulled the object back out of
+ * Supabase, pushed it to Drive, cleared `storage_path` and deleted the object —
+ * because `documents_state_is_coherent` required exactly that shape. Migration
+ * 048 relaxed the constraint; `markApprovedIntoDrive` below keeps the old path
+ * available for the case where somebody genuinely wants a copy in Drive.
+ */
+export async function markApproved(actorId: string, id: string): Promise<void> {
+  await withUser(actorId, (tx) => tx`
+    update public.documents
+       set state = 'approved'::public.document_state,
+           decided_by_id = ${actorId},
+           decided_at = now()
+     where id = ${id} and state = 'pending'::public.document_state
+  `);
+}
+
+export async function markApprovedIntoDrive(
   actorId: string,
   id: string,
   drive: { fileId: string; webLink: string | null },
@@ -237,6 +378,35 @@ export async function markRejected(
            decision_reason = ${reason}
      where id = ${id} and state = 'pending'::public.document_state
   `);
+}
+
+/**
+ * Change only the name.
+ *
+ * ── ⚠️ WHY THIS IS NOT `updateDocument` WITH TWO FIELDS OMITTED ──────────────
+ * `updateDocument` SETS `description` and `project_id` from whatever it is handed,
+ * so calling it to rename a file — with nothing to say about the other two —
+ * writes `null` into both. On the project Files tab that would silently unfile the
+ * document from the project whose page you renamed it on, and it would disappear
+ * from the tab as a result of a rename. Found by reading what the `set` clause
+ * does rather than what the function is called.
+ *
+ * Returns whether a row was actually renamed, so the action can tell "no longer
+ * there" from "done" instead of reporting success either way. A row invisible under
+ * RLS updates nothing and returns nothing, which is the correct answer to give.
+ */
+export async function renameDocument(
+  actorId: string,
+  id: string,
+  name: string,
+): Promise<boolean> {
+  const rows = await withUser(actorId, (tx) => tx`
+    update public.documents
+       set name = ${name}
+     where id = ${id}
+    returning id
+  `);
+  return rows.length > 0;
 }
 
 export async function updateDocument(

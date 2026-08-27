@@ -213,3 +213,86 @@ export function ThemeSetting({ className }: { className?: string }) {
     </section>
   );
 }
+
+/* --------------------------------------------------------------------------
+ * Switch — the top bar, on every page
+ * ------------------------------------------------------------------------ */
+
+/**
+ * A two-position switch for the top bar.
+ *
+ * Owner: *"I want this switch to be present in the above navbar with the clock
+ * icon or the timer icon. I want to add a small switch button or, you can say, a
+ * radio icon to each page where I can simply switch from light to dark and dark to
+ * light themes."*
+ *
+ * ── ⚠️ WHY NOT `ThemeToggle`, WHICH ALREADY EXISTED FOR THE TOP BAR ─────────
+ * That one is a single icon button that CYCLES: it shows a sun and, when pressed,
+ * becomes a moon. It was written for this slot and never wired in, and putting it
+ * there now would not answer what was asked. Two reasons:
+ *
+ *   · A cycling icon shows the CURRENT state, so the thing you press is the thing
+ *     you already have. Half the people who meet it read the sun as "press for
+ *     light" and press it while already in light.
+ *   · The owner asked for a switch — *"a small switch button or… a radio icon"* —
+ *     which means both options visible and one of them marked. That is a
+ *     radiogroup, not a button.
+ *
+ * ── ⚠️ WHY NOT `ThemeSegmented`, WHICH IS ALREADY A RADIOGROUP ──────────────
+ * It carries text labels ("Light", "Dark") and sits at `h-9` with `px-2.5` a cell —
+ * about 150px. The top bar strip already holds a search box, a timer, a bell and an
+ * avatar, and 150px of duplicated words is what makes a header feel cramped. This
+ * is the same control with the labels dropped to `aria-label`, so it costs 56px and
+ * still announces itself properly.
+ *
+ * ── THE HYDRATION RULE ─────────────────────────────────────────────────────
+ * ⚠️ Neither cell is marked until `isHydrated`. The stored preference lives in the
+ * browser, so on the server there is nothing to check — and rendering a checked
+ * radio that the client then unchecks is a hydration mismatch AND a moment where
+ * the control lies about which theme you are in. It renders unmarked and settles.
+ */
+export function ThemeSwitch({ className }: { className?: string }) {
+  const { resolved, setTheme, isHydrated } = useTheme();
+
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Colour theme"
+      className={cn(
+        'inline-flex shrink-0 items-center gap-0.5 rounded-lg border border-border-default',
+        'bg-bg-subtle p-0.5',
+        className,
+      )}
+    >
+      {OPTIONS.map((option) => {
+        const Icon = option.icon;
+        /* ⚠️ Against RESOLVED, not `preference`. Somebody who has never chosen has
+           a null preference while looking at a real theme, and marking neither cell
+           would leave the switch looking broken on a first visit. */
+        const isActive = isHydrated && resolved === option.value;
+
+        return (
+          <button
+            key={option.value}
+            type="button"
+            role="radio"
+            aria-checked={isActive}
+            aria-label={`${option.label} theme`}
+            title={`${option.label} theme`}
+            onClick={(event) => setTheme(option.value, pressOrigin(event))}
+            className={cn(
+              'inline-flex size-7 items-center justify-center rounded-md',
+              'transition-[background-color,color,box-shadow] duration-[120ms]',
+              'focus-visible:outline-none',
+              isActive
+                ? 'bg-bg-surface text-text-primary shadow-xs'
+                : 'text-text-tertiary hover:text-text-primary',
+            )}
+          >
+            <Icon className="size-4" strokeWidth={2} aria-hidden="true" />
+          </button>
+        );
+      })}
+    </div>
+  );
+}

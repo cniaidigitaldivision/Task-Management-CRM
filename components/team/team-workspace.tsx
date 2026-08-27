@@ -353,6 +353,8 @@ export function TeamWorkspace({
         onClose={() => setInviting(false)}
         assignableRoles={assignableRoles}
         actorRoleLabel={ROLE_LABEL[currentUser.role]}
+        /* Admin+ — see the note at the salary field. */
+        canSetPay={currentUser.role === 'admin' || currentUser.role === 'super_admin'}
       />
 
       {editing && (

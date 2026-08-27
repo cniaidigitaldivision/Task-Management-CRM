@@ -7,6 +7,7 @@ import { completeStepUp, type StepUpState } from '@/app/actions/step-up';
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
 import { Field, Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
 
 /* ============================================================================
  * STEP-UP CHALLENGE — FR-149
@@ -104,10 +105,9 @@ export function StepUpDialog({
         </p>
 
         <Field label="Your password" htmlFor="step-up-password">
-          <Input
+          <PasswordInput
             id="step-up-password"
             name="password"
-            type="password"
             autoComplete="current-password"
             required
             autoFocus={!state.needsTotp}

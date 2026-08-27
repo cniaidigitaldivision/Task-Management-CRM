@@ -27,7 +27,7 @@ import {
 import { StepUpDialog } from '@/components/security/step-up-dialog';
 import { Button, IconButton } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
 import { Select } from '@/components/ui/select';
 
 import { ResetTrailDialog } from './reset-trail-dialog';
@@ -440,9 +440,8 @@ export function PersonActions({
               htmlFor={`purge-password-${person.id}`}
             >
               Your password
-              <Input
+              <PasswordInput
                 id={`purge-password-${person.id}`}
-                type="password"
                 size="md"
                 className="mt-1.5 w-full"
                 autoComplete="current-password"

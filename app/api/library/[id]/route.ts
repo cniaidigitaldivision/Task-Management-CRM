@@ -1,5 +1,6 @@
 import { requireUser } from '@/lib/auth/current-user';
 import { withUser } from '@/lib/db/client';
+import { contentDisposition, nameWithExtension } from '@/lib/domain/content-disposition';
 import { signedLibraryUrl } from '@/lib/storage/library';
 
 /* ============================================================================
@@ -75,12 +76,32 @@ export async function GET(
   const wantsDownload =
     new URL(request.url).searchParams.get('download') === '1' || !doc.is_viewable;
 
-  /* The filename is user-controlled text going into a response header, so quotes
-     and newlines are stripped — a newline there is header injection. */
-  const safeName = String(doc.title).replace(/["\\\r\n]/g, '_');
+  /* ── ⚠️ THIS LINE IS WHY NOTHING IN THE LIBRARY OPENED ────────────────────
+     It used to be
+
+         const safeName = String(doc.title).replace(/["\\\r\n]/g, '_');
+         headers.set('Content-Disposition', `…; filename="${safeName}.pdf"`);
+
+     and it THREW on four of the five library documents. A header value is a
+     ByteString, so `Headers.set` refuses any character above U+00FF — and the
+     titles contain an em dash (U+2014). The route died before returning, Next
+     answered 500, and the tab the person had just opened showed nothing. Only
+     "Full Package Deck" worked, because it is the one title with no dash.
+
+     Two bugs in one line, in fact: the `.pdf` was also unconditional, so a
+     download-only design source arrived named `.pdf`. `contentDisposition` emits
+     an ASCII fallback plus RFC 5987 `filename*`, and `nameWithExtension` takes the
+     suffix from the stored path. See lib/domain/content-disposition.ts. */
   headers.set(
     'Content-Disposition',
-    `${wantsDownload ? 'attachment' : 'inline'}; filename="${safeName}.pdf"`,
+    contentDisposition(
+      nameWithExtension(
+        String(doc.title),
+        String(doc.storage_path),
+        (doc.mime_type as string | null) ?? null,
+      ),
+      !wantsDownload,
+    ),
   );
 
   /* Private: this passed a per-user check, so no shared cache may keep it. */

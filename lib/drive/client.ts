@@ -187,6 +187,48 @@ export interface DriveChildren {
   /** True when the folder holds more children than one page can report, so
    *  `fileCount` is a floor rather than the true number. */
   readonly truncated: boolean;
+
+  /* ── What the folder table shows, taken from Drive itself ───────────────
+     Owner: *"the things should be real. Even the real drive size, folder size,
+     anything should be real… Google Drive is integrated with it so go and get
+     everything."* So these come from the same single request that already
+     counted the files — no extra round trips. */
+
+  /**
+   * Bytes of the files directly in this folder.
+   *
+   * ── ⚠️ A DRIVE FOLDER HAS NO SIZE OF ITS OWN ──────────────────────────
+   * Google does not report one; a folder's size is the sum of what is in it.
+   * This sums the DIRECT children only, matching `fileCount` — a recursive total
+   * would mean walking every subtree on every sync, and the two numbers in the
+   * same row would then be counting different things.
+   *
+   * ⚠️ GOOGLE-NATIVE FILES HAVE NO `size`. Docs, Sheets and Slides are stored in
+   * Google's own format and the API omits the field, so they contribute 0 here
+   * while still counting in `fileCount`. That is why a folder can honestly read
+   * "12 files, 0 B" — it is twelve Google Docs. `sizedFileCount` below is what
+   * lets the screen say so rather than looking broken.
+   */
+  readonly sizeBytes: number;
+  /** How many of `fileCount` actually reported a size. */
+  readonly sizedFileCount: number;
+  /** The most recent `modifiedTime` among the direct children, or null. */
+  readonly lastModified: string | null;
+  /**
+   * Distinct owners of the files in here, most recently active first, capped.
+   *
+   * ⚠️ OWNERS OF THE FILES, not of the folder. The folder has exactly one owner
+   * and a column of identical single avatars says nothing; who has actually put
+   * work in here is the useful answer and the one the design is asking for.
+   */
+  readonly owners: readonly DriveOwner[];
+}
+
+export interface DriveOwner {
+  readonly name: string;
+  readonly email: string | null;
+  /** Google's own avatar URL. Null when the account has no picture. */
+  readonly photo: string | null;
 }
 
 /**
@@ -218,7 +260,12 @@ export async function listChildren(
     q: query,
     /* `mimeType` is now part of the projection rather than the filter, because
        the partition happens here. */
-    fields: 'nextPageToken, files(id,name,mimeType,createdTime,webViewLink)',
+    /* ⚠️ `size`, `modifiedTime` and `owners` added to a projection that was
+       already being fetched — the sync makes exactly as many requests as before.
+       `owners` is a list because a shared drive file can have several. */
+    fields:
+      'nextPageToken, files(id,name,mimeType,createdTime,webViewLink,size,modifiedTime,' +
+      'owners(displayName,emailAddress,photoLink))',
     orderBy: 'folder,createdTime desc',
     pageSize: '1000',
     supportsAllDrives: 'true',
@@ -226,7 +273,17 @@ export async function listChildren(
   })}`;
 
   const result = await driveFetch<{
-    files?: Array<DriveFolder & { mimeType?: string }>;
+    files?: Array<
+      DriveFolder & {
+        mimeType?: string;
+        /** ⚠️ A STRING. Drive returns int64 fields as JSON strings because a file
+         *  can exceed 2^53 bytes; `Number` on it is right for anything real, and
+         *  parsing it as a number in the type would be a lie about the wire. */
+        size?: string;
+        modifiedTime?: string;
+        owners?: Array<{ displayName?: string; emailAddress?: string; photoLink?: string }>;
+      }
+    >;
     nextPageToken?: string;
   }>(url, { method: 'GET' });
   if (!result.ok) return result;
@@ -234,6 +291,12 @@ export async function listChildren(
   const children = result.value.files ?? [];
   const folders: DriveFolder[] = [];
   let fileCount = 0;
+  let sizeBytes = 0;
+  let sizedFileCount = 0;
+  let lastModified: string | null = null;
+  /** Keyed by email where there is one, else by name — two accounts can share a
+   *  display name, and de-duplicating on the name alone would merge them. */
+  const owners = new Map<string, { owner: DriveOwner; recent: string }>();
 
   for (const child of children) {
     if (child.mimeType === FOLDER_MIME) {
@@ -243,17 +306,64 @@ export async function listChildren(
         createdTime: child.createdTime,
         webViewLink: child.webViewLink,
       });
-    } else {
-      /* Google Docs, Sheets and Slides have their own mime types and are files
-         as far as anybody looking at the folder is concerned. Anything that is
-         not a folder counts. */
-      fileCount += 1;
+      /* ⚠️ A subfolder's own modifiedTime is deliberately NOT folded into the
+         parent's. Drive touches a folder when its contents change, so including
+         children would make every ancestor look edited whenever anything deep
+         inside moved — and the column is meant to say when the files HERE
+         changed. */
+      continue;
+    }
+
+    /* Google Docs, Sheets and Slides have their own mime types and are files as
+       far as anybody looking at the folder is concerned. Anything not a folder
+       counts. */
+    fileCount += 1;
+
+    if (child.size !== undefined) {
+      const bytes = Number(child.size);
+      if (Number.isFinite(bytes) && bytes >= 0) {
+        sizeBytes += bytes;
+        sizedFileCount += 1;
+      }
+    }
+
+    if (child.modifiedTime && (lastModified === null || child.modifiedTime > lastModified)) {
+      lastModified = child.modifiedTime;
+    }
+
+    for (const owner of child.owners ?? []) {
+      const name = owner.displayName?.trim();
+      if (!name) continue;
+      const key = owner.emailAddress ?? name;
+      const stamp = child.modifiedTime ?? child.createdTime ?? '';
+      const held = owners.get(key);
+      if (!held) {
+        owners.set(key, {
+          owner: { name, email: owner.emailAddress ?? null, photo: owner.photoLink ?? null },
+          recent: stamp,
+        });
+      } else if (stamp > held.recent) {
+        held.recent = stamp;
+      }
     }
   }
 
   return {
     ok: true,
-    value: { folders, fileCount, truncated: Boolean(result.value.nextPageToken) },
+    value: {
+      folders,
+      fileCount,
+      truncated: Boolean(result.value.nextPageToken),
+      sizeBytes,
+      sizedFileCount,
+      lastModified,
+      owners: [...owners.values()]
+        .sort((a, b) => b.recent.localeCompare(a.recent))
+        /* Five: two more than the stack draws, so "+2" is a real count in the
+           common cases and only elides beyond that. */
+        .slice(0, 5)
+        .map((entry) => entry.owner),
+    },
   };
 }
 

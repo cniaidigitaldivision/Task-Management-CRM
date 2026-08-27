@@ -16,6 +16,7 @@ import {
 import { markAllReadAction } from '@/app/actions/notifications';
 import { GlobalSearch } from '@/components/layout/global-search';
 import { Button, IconButton } from '@/components/ui/button';
+import { ThemeSwitch } from '@/components/brand/theme-toggle';
 import type { NotificationRow } from '@/lib/db/queries/types';
 import { APP_NAME } from '@/lib/domain/constants';
 import { cn } from '@/lib/utils';
@@ -58,6 +59,7 @@ export function Topbar({
   notifications,
   unreadCount,
   timerBar,
+  checkInButton,
 }: {
   title: string;
   subtitle?: string;
@@ -67,9 +69,14 @@ export function Topbar({
    *
    * ── WHY THE CONTROL IS HERE AND NOT IN THE RAIL (owner, 2026-08-15) ─────────
    * It was in the rail's brand block and, collapsed, overlapped the logo by
-   * about 9px. That block is a fixed 76px on purpose — a changing height dragged
-   * every nav item with it — and 76px will not hold a 25.6px logo above a 28px
-   * button with the padding the lockup needs.
+   * about 9px. That block is a FIXED height on purpose — a changing one dragged
+   * every nav item with it — and it will not hold the logo above a 28px button
+   * with the padding the lockup needs.
+   *
+   * ⚠️ "Then make the block taller" does not help, and the logo growing on
+   * 2026-08-27 (42 → 52) did not change that: the block stayed at 76px, because
+   * its height is set by the two lines of TYPE beside the mark rather than by
+   * the artwork. A bigger logo buys no clearance here.
    *
    * Out here the two can never collide whatever either becomes, and the toggle
    * sits at the far left of the bar, immediately above the rail it controls,
@@ -98,6 +105,15 @@ export function Topbar({
    * component can do it, and keeps this file about the top bar's arrangement.
    */
   timerBar?: React.ReactNode;
+  /**
+   * The check-in / check-out pill, passed in for the same reason as `timerBar`.
+   *
+   * ⚠️ It needs today's attendance row, which only a server component can read,
+   * and this file is a client component. Handing the rendered element down keeps
+   * the query in the layout — where it joins the wave of reads that already
+   * happens on every navigation, costing no extra round trip.
+   */
+  checkInButton?: React.ReactNode;
 }) {
   const router = useRouter();
   const [bellOpen, setBellOpen] = React.useState(false);
@@ -181,6 +197,31 @@ export function Topbar({
         </div>
 
         <div className="flex shrink-0 items-center gap-1">
+          {/* ---- Theme ----
+               Owner: *"I want to add a small switch button… to each page where I
+               can simply switch from light to dark."* This bar is rendered by the
+               app shell, so "each page" is satisfied by putting it here once.
+
+               ⚠️ FIRST IN THE GROUP, LEFT OF THE TIMER. The three controls to its
+               right are all about WORK — what is running, what happened, who you
+               are. The theme is about the window. Dropping it between the timer and
+               the bell would put a display preference in the middle of a workflow
+               strip, and it is the one control here that never carries a number or
+               a badge, so it belongs at the quiet end.
+
+               It stays beside the timer as asked rather than being pushed out to
+               the far edge, where it would read as part of the account menu. */}
+          {/* ---- Check in / check out ----
+               ⚠️ FIRST in the group, before the theme switch. Owner asked for it
+               *"on the side where the notifications and clock are appearing and
+               the theme switch radio button is appearing"* — and of the four it is
+               the only one that is pressed on a schedule rather than when
+               something prompts you, so it must be the one you can find without
+               looking. */}
+          {checkInButton}
+
+          <ThemeSwitch className="mr-1" />
+
           {/* ---- Running timers ----
                Left of the bell, so the thing that is happening NOW sits before
                the record of things that happened. Renders nothing when no timer

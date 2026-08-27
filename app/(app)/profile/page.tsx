@@ -5,6 +5,7 @@ import { KeyRound, Shield, ShieldCheck, Smartphone } from 'lucide-react';
 import { ThemeSetting } from '@/components/brand/theme-toggle';
 import { AvatarForm } from '@/components/team/avatar-form';
 import { EmailForm } from '@/components/team/email-form';
+import { MyTools } from '@/components/team/my-tools';
 import { ProfileForm } from '@/components/team/profile-form';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -16,6 +17,7 @@ import { PageHeader, PageSection } from '@/components/ui/page-header';
 import { ProgressBar } from '@/components/ui/progress';
 import { requireUser } from '@/lib/auth/current-user';
 import { listUserSkills } from '@/lib/db/queries/people';
+import { mySubscriptions } from '@/lib/db/queries/subscriptions';
 import { teamWorkload } from '@/lib/db/queries/workload';
 import { MFA_REQUIRED_ROLES, ROLE_LABEL, WORKLOAD_BAND_META } from '@/lib/domain/constants';
 import { nowMs } from '@/lib/now';
@@ -42,9 +44,12 @@ export default async function ProfilePage() {
   const user = await requireUser();
   const now = nowMs();
 
-  const [{ people }, skills] = await Promise.all([
+  const [{ people }, skills, myTools] = await Promise.all([
     teamWorkload(user.id, now),
     listUserSkills(user.id),
+    /* Their own seats. The policy in migration 063 is what makes this "their
+       own" — passing another id would simply return nothing. */
+    mySubscriptions(user.id, user.id),
   ]);
 
   const mine = people.find((p) => p.userId === user.id);
@@ -193,7 +198,24 @@ export default async function ProfilePage() {
         </Card>
       </PageSection>
 
-      <PageSection step={3} title="Security">
+      {/* ── ⚠️ NO COST APPEARS HERE, AND NOT BECAUSE THIS HIDES ONE ──────────
+          Owner, 2026-08-26: *"each person can see which subscriptions they have,
+          for example Gemini, but the subscription cost is not compulsory to show
+          them."*
+
+          `mySubscriptions` never selects a price, and migration 063 keeps every
+          price in `subscription_costs`, which a Member's role cannot read at
+          all. So there is nothing on this page to redact — see the note in
+          components/team/my-tools.tsx. */}
+      <PageSection
+        step={3}
+        title="Your tools"
+        description="The AI and creative tools the division has assigned to you. An Admin manages these from the Finance page."
+      >
+        <MyTools tools={myTools} isSelf />
+      </PageSection>
+
+      <PageSection step={4} title="Security">
         {/* The email card sits full width above the other three because it is the
             only one here you can act on — the rest report a state. */}
         <div className="space-y-4">
@@ -278,7 +300,7 @@ export default async function ProfilePage() {
       </PageSection>
 
       <PageSection
-        step={4}
+        step={5}
         title="What reaches you"
         description="A feed nobody can quieten becomes wallpaper, and wallpaper is how the important one gets missed. A few cannot be turned off — each says why."
       >

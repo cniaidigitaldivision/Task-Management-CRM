@@ -674,3 +674,111 @@ export function welcomeEmail(input: { fullName: string; appUrl: string; roleLabe
     attachments: attach(INVITE_BADGE, ROLE, MAIL),
   };
 }
+
+/* --------------------------------------------------------------------------
+ * ATTENDANCE — owner instruction, 2026-08-25
+ * ------------------------------------------------------------------------
+ * Two messages, and both are reminders rather than reprimands.
+ *
+ * ⚠️ NEITHER OF THEM TELLS ANYBODY OFF. The owner asked for a nudge — *"send a
+ * reminder and auto-send mail to them: 'You didn't check out today'"* — and a
+ * system that scolds people about a button gets its mail filtered within a week,
+ * at which point it reminds nobody of anything. Both say what was recorded, what
+ * to do, and stop.
+ * ---------------------------------------------------------------------- */
+
+export function missedCheckoutEmail(input: {
+  fullName: string;
+  /** The day, already written out — see lib/now.ts on formatting. */
+  dayLabel: string;
+  checkedInLabel: string;
+  appUrl: string;
+}): Email {
+  const firstName = input.fullName.split(' ')[0];
+
+  return {
+    subject: `You did not check out on ${input.dayLabel}`,
+    html: shell(
+      `${badge(SHIELD_NOTE)}
+       ${headline('Your day is still open')}
+       ${para(`Dear <strong style="color:${INK};">${firstName}</strong>,`)}
+       ${para(
+         `You checked in on <strong style="color:${INK};">${input.dayLabel}</strong> and the day was
+          never closed, so no hours are recorded against it.`,
+       )}
+       ${chip('Checked in at:', input.checkedInLabel)}
+       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 4px 0;">
+         <tr><td bgcolor="${PANEL}" style="background:${PANEL};border:1px solid ${BORDER};border-radius:7px;padding:14px 16px;font:400 14px/1.7 ${SANS};color:${BODY};">
+           If you have already left, an <strong style="color:${INK};">Admin</strong> can set the time you
+           actually went — nobody else can, so ask rather than trying to fix it yourself.<br />
+           If you are still working, the button is in the top bar whenever you finish.
+         </td></tr>
+       </table>
+       ${button(`${input.appUrl}/attendance`, 'Open Attendance')}`,
+      `You checked in on ${input.dayLabel} but never checked out.`,
+    ),
+    text: [
+      `Dear ${firstName},`,
+      '',
+      `You checked in on ${input.dayLabel} at ${input.checkedInLabel} and never checked out, so no`,
+      'hours are recorded against that day.',
+      '',
+      'If you have already left, ask an Admin to set the time you actually went.',
+      'If you are still working, the check-out button is in the top bar.',
+      '',
+      `${input.appUrl}/attendance`,
+    ].join('\n'),
+    attachments: attach(SHIELD_NOTE, MAIL),
+  };
+}
+
+export function lateArrivalsEmail(input: {
+  fullName: string;
+  lateCount: number;
+  monthLabel: string;
+  /** The rule, stated rather than implied — 10:30 today, editable tomorrow. */
+  lateAfterLabel: string;
+  appUrl: string;
+}): Email {
+  const firstName = input.fullName.split(' ')[0];
+  /* ⚠️ "third time" is what the owner asked to say, but the number is whatever it
+     actually is: a message claiming "third" to somebody on their fifth is a message
+     they stop believing. */
+  const ordinal =
+    input.lateCount === 3 ? 'third' : input.lateCount === 4 ? 'fourth' : `${input.lateCount}th`;
+
+  return {
+    subject: `You have arrived late ${input.lateCount} times in ${input.monthLabel}`,
+    html: shell(
+      `${badge(SHIELD_RULE)}
+       ${headline('A note about your arrival time')}
+       ${para(`Dear <strong style="color:${INK};">${firstName}</strong>,`)}
+       ${para(
+         `This is the <strong style="color:${INK};">${ordinal}</strong> late arrival recorded against
+          you in ${input.monthLabel}.`,
+       )}
+       ${chip('Counted as late after:', input.lateAfterLabel)}
+       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 4px 0;">
+         <tr><td bgcolor="${PANEL}" style="background:${PANEL};border:1px solid ${BORDER};border-radius:7px;padding:14px 16px;font:400 14px/1.7 ${SANS};color:${BODY};">
+           The count resets on the first of each month. You can see every day of it on your
+           attendance page, including the exact times.<br />
+           If a time is wrong, an <strong style="color:${INK};">Admin</strong> can correct it.
+         </td></tr>
+       </table>
+       ${button(`${input.appUrl}/attendance`, 'See your attendance')}`,
+      `${input.lateCount} late arrivals recorded in ${input.monthLabel}.`,
+    ),
+    text: [
+      `Dear ${firstName},`,
+      '',
+      `This is the ${ordinal} late arrival recorded against you in ${input.monthLabel}.`,
+      `Anything after ${input.lateAfterLabel} counts as late. The count resets on the 1st.`,
+      '',
+      'You can see every day of it, with the exact times, on your attendance page.',
+      'If a time is wrong, an Admin can correct it.',
+      '',
+      `${input.appUrl}/attendance`,
+    ].join('\n'),
+    attachments: attach(SHIELD_RULE, MAIL),
+  };
+}

@@ -241,6 +241,15 @@ export async function createFolderAction(
       parentDriveId: parentDriveId === 'root' ? null : parentDriveId,
       fileCount: 0,
       filePartial: false,
+      /* ⚠️ Zero size and no owners, not null: this folder was created a second ago
+         and is genuinely empty. Null would mean "never counted" and would make the
+         row read "—" until the next sync, which for a folder somebody just made
+         looks like the creation half-failed. `lastModified` IS null though — an
+         empty folder has no file to have modified. */
+      sizeBytes: 0,
+      sizedFileCount: 0,
+      lastModified: null,
+      owners: [],
     },
   ]).catch(() => undefined);
 

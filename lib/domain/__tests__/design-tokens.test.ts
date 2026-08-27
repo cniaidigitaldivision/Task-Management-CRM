@@ -394,3 +394,125 @@ describe('the typography utilities the control scale depends on', () => {
     expect(referenced.filter((t) => !defined.has(t))).toEqual([]);
   });
 });
+
+/* ============================================================================
+ * A SELECTION MUST BE MORE EMPHATIC THAN A HOVER
+ * ----------------------------------------------------------------------------
+ * Owner, after raising it on three separate controls: *"make the selection more
+ * prominent. First of all it's a major flaw and I am dealing with it
+ * everywhere."*
+ *
+ * It was not the controls. The ramp in tokens.css was INVERTED in both themes:
+ *
+ *   light   hover #eaf2f2 · active #dfebec · selected #e9f6f6  ← palest of the three
+ *   dark    hover #163a40 · active #1c464c · selected #0e3a3f  ← nearest the surface
+ *
+ * So a selected row was tinted LESS than the same row under the cursor, and every
+ * per-component "make it prominent" fix was fighting a token that had already
+ * given the state away.
+ *
+ * ⚠️ THIS IS THE TEST THAT STOPS IT COMING BACK. Seventeen components read
+ * `--bg-selected`, so the failure is diffuse and shows up as "the UI feels wrong"
+ * rather than as a bug in any one file — which is exactly how it survived three
+ * rounds of fixing something else.
+ *
+ * The measure is distance from the SURFACE the state sits on, which is what
+ * "prominent" means on either theme: darker on white, brighter on near-black.
+ * ========================================================================= */
+
+/** `#rrggbb` → relative luminance, 0–1. */
+function luminance(hex: string): number {
+  const n = parseInt(hex.replace('#', ''), 16);
+  const channel = (v: number) => {
+    const c = v / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  return (
+    0.2126 * channel((n >> 16) & 255) +
+    0.7152 * channel((n >> 8) & 255) +
+    0.0722 * channel(n & 255)
+  );
+}
+
+/**
+ * Resolve one token to a hex.
+ *
+ * ⚠️ TWO SOURCES, ON PURPOSE. The theme-specific declaration is read from
+ * `block` — the light or dark half — because taking the first match in the file
+ * would test the light value twice. But a `var(--teal-100)` indirection is
+ * resolved against the WHOLE file, because the colour ramp is declared once at the
+ * top and is theme-independent. Resolving both against the slice is what made the
+ * first version of this test fail on `--neutral-0`: the dark slice does not
+ * contain line 54.
+ */
+function resolve(block: string, whole: string, name: string): string {
+  /* ⚠️ `\\s`, not `\s`. Inside a template literal `\s` is just `s`, so the pattern
+     silently became `--bg-selected:s*(...)` and matched nothing — and because the
+     helper threw a clear error only for a MISSING token, a mangled one looked like
+     a value of zero. Every escape in a `new RegExp` built from a template string
+     needs doubling. */
+  const found = [...block.matchAll(new RegExp(`--${name}:\\s*([^;]+);`, 'g'))];
+  if (found.length === 0) throw new Error(`no --${name} in this theme`);
+  const value = found[found.length - 1][1].trim();
+
+  /* ⚠️ The parens are ESCAPED — `\(` and `\)`, matching the literal brackets of
+     `var(--x)`. Unescaped they become a capture group, nothing matches, and the
+     helper quietly returns `var(--teal-100)` as if it were a colour. `luminance`
+     then parses that to NaN, every channel reads 0, and the token measures as pure
+     black — which is why this test first reported a perfectly good palette as
+     inverted. A resolver that fails by returning a plausible-looking wrong answer
+     is worse than one that throws. */
+  const indirect = /var\(--([a-z0-9-]+)\)/.exec(value);
+  if (!indirect) {
+    /* Not an indirection, so it must already be a colour. Anything else is a
+       mangled pattern rather than a palette problem, and saying so here beats
+       reporting it as a contrast failure. */
+    if (!/^#[0-9a-fA-F]{3,8}$/.test(value)) {
+      throw new Error(`--${name} resolved to "${value}", which is not a hex colour`);
+    }
+    return value;
+  }
+
+  const ramp = new RegExp(`--${indirect[1]}:\\s*(#[0-9a-fA-F]{3,8})`).exec(whole);
+  if (!ramp) throw new Error(`no --${indirect[1]} anywhere`);
+  return ramp[1];
+}
+
+describe('the interaction ramp', () => {
+  const css = readFileSync(join(ROOT, 'styles', 'tokens.css'), 'utf8');
+  /* Split at the dark block so each theme is measured against its own surface. */
+  const darkAt = css.indexOf('--bg-base: #04161a');
+  expect(darkAt).toBeGreaterThan(0);
+  const light = css.slice(0, darkAt);
+  const dark = css.slice(darkAt - 400);
+
+  for (const [theme, block] of [
+    ['light', light],
+    ['dark', dark],
+  ] as const) {
+    it(`${theme}: selected is further from the surface than hover`, () => {
+      const surface = luminance(resolve(block, css, 'bg-surface'));
+      const hover = Math.abs(luminance(resolve(block, css, 'bg-hover')) - surface);
+      const selected = Math.abs(luminance(resolve(block, css, 'bg-selected')) - surface);
+
+      expect(
+        selected,
+        `--bg-selected is closer to the surface than --bg-hover in ${theme} mode, so a ` +
+          'selected row reads as less emphatic than one merely under the cursor',
+      ).toBeGreaterThan(hover);
+    });
+
+    it(`${theme}: selected is at least as far as active`, () => {
+      const surface = luminance(resolve(block, css, 'bg-surface'));
+      const active = Math.abs(luminance(resolve(block, css, 'bg-active')) - surface);
+      const selected = Math.abs(luminance(resolve(block, css, 'bg-selected')) - surface);
+
+      /* A pressed control may match a selected one, but must never beat it: a
+         transient state outshouting a persistent one is what made every selection
+         on the Documents and Reports pages read as unselected. */
+      expect(selected, `--bg-active outshouts --bg-selected in ${theme} mode`).toBeGreaterThanOrEqual(
+        active,
+      );
+    });
+  }
+});

@@ -123,7 +123,19 @@ export function ProjectTasksTab({
      manager the answer to "what am I doing" is almost always today's posts. The
      full list is one click away for the times it is not. */
   const [view, setView] = React.useState<'today' | 'all'>('today');
-  const [status, setStatus] = React.useState<StatusFilter>('open');
+  /* ── ⚠️ EVERYTHING, NOT ONLY WHAT IS STILL OPEN ────────────────────────────
+     Owner, 2026-08-24: *"when I click on the task, today's due task is nothing
+     but all work is also showing nothing. Najmullah also did one task today
+     already but maybe that is in Done. By default when I open Work, everything
+     should open by default."*
+
+     Exactly that: the default was `'open'`, and `OPEN_STATUSES` excludes done and
+     cancelled. So on a project whose only work so far had been finished, the
+     All-work view opened empty — and an empty list reads as "this tab is broken"
+     rather than as "your filter excludes the three things you did". Filtering to
+     open work is still one click away, and now it is a choice somebody made
+     rather than a state they arrived in without being told. */
+  const [status, setStatus] = React.useState<StatusFilter>('all');
   const [adding, setAdding] = React.useState(false);
   const [moving, setMoving] = React.useState<string | null>(null);
   const [flash, setFlash] = React.useState<{ ok: boolean; text: string } | null>(null);

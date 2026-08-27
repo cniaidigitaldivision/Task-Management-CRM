@@ -11,6 +11,7 @@ import {
   indexFraction,
   nearestIndex,
   niceScale,
+  ringSectorPath,
   smoothPath,
   valueFraction,
 } from '@/lib/view/chart-geometry';
@@ -18,7 +19,7 @@ import {
 /* ============================================================================
  * THE CHART KIT — hand-built SVG, no charting dependency
  * ----------------------------------------------------------------------------
- * `TrendChart` · `DonutChart` · `GaugeArc`
+ * `TrendChart` · `DonutChart` · `Donut3D` · `GaugeArc` · `BarChart`
  *
  * Owner instruction, and the reason this file exists at all:
  *   *"If I move my cursor in a chart, the chart should follow my cursor and it
@@ -138,6 +139,8 @@ export function TrendChart({
   fill = true,
   caption,
   legend = true,
+  animate = false,
+  animationKey = '',
   className,
 }: {
   series: readonly ChartSeries[];
@@ -153,6 +156,18 @@ export function TrendChart({
   /** Names the chart for a screen reader and captions its hidden table. */
   caption: string;
   legend?: boolean;
+  /**
+   * Draw each line on, left to right, when it arrives.
+   *
+   * ⚠️ OPT-IN, default off. This component is on the dashboard, the reports page
+   * and inside a project — the owner's standing instruction is *"do not disturb
+   * any other working thing"*, and a shared chart that silently gains motion
+   * everywhere is exactly that. Only callers that ask for it, and have been
+   * looked at, get it.
+   */
+  animate?: boolean;
+  /** Changing this replays the draw — pass the filter signature. */
+  animationKey?: string;
   className?: string;
 }) {
   /* Bound once. The prop is a name so it can arrive from a Server Component;
@@ -323,7 +338,12 @@ export function TrendChart({
               const pts = pointsOf(s);
               const line = smoothPath(pts);
               return (
-                <g key={s.label}>
+                /* ⚠️ Keyed on the selection as well as the label, so a changed
+                   filter REMOUNTS the path and the draw runs again. A CSS
+                   animation fires on element creation and never on a prop
+                   change, so without the key the line would snap to its new
+                   shape in one frame. */
+                <g key={animate ? `${s.label}-${animationKey}` : s.label}>
                   {/* ── AREA FILLS NOW DRAW FOR EVERY SERIES ─────────────────
                       This was `drawable.length === 1`, so the dashboard's main
                       chart — Completed AND Created — rendered as two bare lines
@@ -341,6 +361,12 @@ export function TrendChart({
                       fill={`url(#${gradientId}-${i})`}
                       stroke="none"
                       opacity={drawable.length === 1 ? 1 : 0.35}
+                      {...(animate
+                        ? {
+                            className: 'fade-in',
+                            style: { '--fade-index': i } as React.CSSProperties,
+                          }
+                        : {})}
                     />
                   )}
                   <path
@@ -351,6 +377,18 @@ export function TrendChart({
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     vectorEffect="non-scaling-stroke"
+                    /* ⚠️ `pathLength={1}` normalises the path to a length of 1,
+                       so the dash arithmetic needs no measurement — no ref, no
+                       `getTotalLength()`, no effect that runs after first paint
+                       and no re-run on resize. The line is 1 unit long by
+                       declaration, at any width. */
+                    {...(animate
+                      ? {
+                          pathLength: 1,
+                          className: 'line-draw',
+                          style: { '--line-length': 1, '--line-index': i } as React.CSSProperties,
+                        }
+                      : {})}
                   />
                 </g>
               );
@@ -605,6 +643,297 @@ export function DonutChart({
 }
 
 /* ==========================================================================
+ * Donut3D — the same proportions, seen from above at an angle
+ * ==========================================================================
+ * Owner, 2026-08-25, of the attendance distribution card: *"I want a circular
+ * chart or a bar. This circular bar should be in a 3D view."*
+ *
+ * ── ⚠️ WHY THIS IS A SEPARATE COMPONENT AND NOT A PROP ON DonutChart ────────
+ * `DonutChart` is a stroked circle — one `<circle>` per slice with a dash offset,
+ * which is why it is twenty lines and never wrong. None of that survives the
+ * projection: a stroke cannot follow an ellipse at a constant width, and a solid
+ * body needs filled paths. Bolting a `dimensional` flag onto it would mean two
+ * unrelated renderers behind one signature, in a component the dashboard and the
+ * reports page depend on. The owner's standing instruction is *"do not disturb
+ * any other working thing"*, so the flat one is left exactly as it is.
+ *
+ * ── ⚠️ THE BODY IS THE SAME FACE, STAMPED DOWNWARDS ─────────────────────────
+ * The obvious way to draw the side wall is to work out which slices face the
+ * viewer and give each one a quadrilateral. That needs the front/back split, the
+ * two silhouette edges, and a per-slice z-order — three chances to get a seam
+ * wrong at some particular set of values.
+ *
+ * Instead the top face is drawn once per slice and repeated at increasing depth,
+ * deepest first. The union of those copies IS the solid: the outer wall appears
+ * at the front, the inner wall appears inside the hole at the back, and both are
+ * hidden exactly where the top face covers them. No case analysis, and it is
+ * correct for one slice or for six.
+ *
+ * The stamps darken towards the bottom, which is what makes it read as a lit
+ * object rather than as a stack of rings.
+ * ========================================================================== */
+
+export function Donut3D({
+  slices,
+  centreLabel,
+  centreValue,
+  size = 160,
+  /**
+   * How far the ring is tilted. 1 is face-on; lower is a shallower angle.
+   *
+   * ⚠️ This and `innerRatio` together decide whether the centre readout FITS.
+   * The hole is an ellipse, so tilting harder shortens it — at 0.66 with a 0.6
+   * hole the two lines were taller than the gap they sit in and the figure landed
+   * on top of the ring. Lower either of these and check the centre again.
+   */
+  squash = 0.7,
+  /** How thick the ring's body is, in the same units as the 100-wide viewBox. */
+  depth = 9,
+  /** The hole, as a fraction of the outer radius. See `squash`. */
+  innerRatio = 0.7,
+  format = 'integer',
+  caption,
+  className,
+}: {
+  slices: readonly { label: string; value: number; token: string }[];
+  centreLabel: string;
+  centreValue: string;
+  size?: number;
+  squash?: number;
+  depth?: number;
+  innerRatio?: number;
+  /** A NAMED format — a function cannot cross the server/client boundary. */
+  format?: NumberFormat;
+  caption: string;
+  className?: string;
+}) {
+  const [active, setActive] = React.useState<number | null>(null);
+  const sheenId = React.useId();
+
+  const print = (n: number) => formatNumber(n, format);
+
+  const geometry = donutSlices(slices.map((s) => s.value));
+  const total = slices.reduce((a, s) => a + (Number.isFinite(s.value) ? s.value : 0), 0);
+  const drawn = geometry.filter((g) => g.length > 0).length;
+
+  /* ── The projection, in viewBox units ──────────────────────────────────── */
+  const CX = 50;
+  const RX = 46;
+  const ry = RX * squash;
+  const irx = RX * innerRatio;
+  const iry = ry * innerRatio;
+  const cy = 2 + ry;
+  /* The box has to hold the tilted ring AND the body hanging below it. */
+  const boxHeight = cy + ry + depth + 2;
+
+  /* A sliver of background between neighbours, so two slices of similar colour
+     still read as two. Dropped for a single slice, where it would show as a nick
+     in an otherwise complete ring. */
+  const gapDeg = drawn > 1 ? 1.4 : 0;
+
+  /* ── ⚠️ THE HOLE YOU CAN SEE IS NOT THE HOLE OF THE TOP FACE ──────────────
+     The body is the top face stamped from `depth` down to 0, so what stays empty
+     is the INTERSECTION of all those holes, not any one of them. The deepest
+     stamp's hole is `depth` units lower than the shallowest, so the visible gap
+     is shorter by exactly `depth` and its middle sits `depth / 2` BELOW the
+     ring's own centre.
+
+     Centring the readout on `cy` therefore pushes it up against the ring's inner
+     edge — measured in the browser at the first attempt: the block sat 5px above
+     the opening and "99.2%" was drawn across the Late slice. These two numbers
+     are the opening as it actually appears. */
+  const holeCy = cy + depth / 2;
+  const holeHeight = Math.max(0, 2 * iry - depth);
+
+  const faces = slices.map((slice, i) => {
+    const g = geometry[i];
+    const from = g.offset * 360;
+    const to = from + g.length * 360;
+    return {
+      token: slice.token,
+      d:
+        g.length === 0
+          ? ''
+          : ringSectorPath({
+              cx: CX,
+              cy,
+              rx: RX,
+              ry,
+              irx,
+              iry,
+              /* ⚠️ The gap is only taken from slices wide enough to give it. A
+                 1.4° inset on a 1° slice would invert the sector, and an inverted
+                 sector fills as the whole rest of the ring. */
+              startDeg: g.length * 360 > gapDeg * 2 ? from + gapDeg / 2 : from,
+              endDeg: g.length * 360 > gapDeg * 2 ? to - gapDeg / 2 : to,
+            }),
+    };
+  });
+
+  /* Deepest first: each shallower stamp paints over the one below, which is what
+     leaves the wall visible at the front and hidden at the back. */
+  const stamps = Array.from({ length: Math.max(0, Math.round(depth)) }, (_, k) => depth - k);
+
+  const wholeRing = ringSectorPath({
+    cx: CX,
+    cy,
+    rx: RX,
+    ry,
+    irx,
+    iry,
+    startDeg: 0,
+    endDeg: 360,
+  });
+
+  return (
+    <figure className={cn('flex flex-wrap items-center gap-x-4 gap-y-3', className)}>
+      <div
+        className="relative shrink-0"
+        style={{ width: size, height: (size * boxHeight) / 100 }}
+      >
+        <svg
+          viewBox={`0 0 100 ${boxHeight}`}
+          className="h-full w-full overflow-visible"
+          aria-hidden="true"
+        >
+          <defs>
+            <linearGradient id={sheenId} x1="0" y1="0" x2="0.35" y2="1">
+              <stop offset="0%" stopColor="rgb(255 255 255 / 0.26)" />
+              <stop offset="52%" stopColor="rgb(255 255 255 / 0.04)" />
+              <stop offset="100%" stopColor="rgb(255 255 255 / 0)" />
+            </linearGradient>
+          </defs>
+
+          {/* ── The body ──────────────────────────────────────────────────── */}
+          {stamps.map((dy) => (
+            <g key={dy} transform={`translate(0 ${dy.toFixed(2)})`}>
+              {faces.map((face, i) =>
+                face.d === '' ? null : (
+                  <path
+                    key={slices[i].label}
+                    d={face.d}
+                    fill={`color-mix(in oklab, ${tok(face.token)} ${(
+                      62 -
+                      (dy / Math.max(depth, 1)) * 20
+                    ).toFixed(1)}%, black)`}
+                    opacity={active !== null && active !== i ? 0.32 : 1}
+                  />
+                ),
+              )}
+            </g>
+          ))}
+
+          {/* ── The top face ──────────────────────────────────────────────── */}
+          {faces.map((face, i) =>
+            face.d === '' ? null : (
+              <path
+                key={slices[i].label}
+                d={face.d}
+                fill={tok(face.token)}
+                opacity={active !== null && active !== i ? 0.32 : 1}
+                className="transition-opacity duration-150 motion-reduce:transition-none"
+              />
+            ),
+          )}
+
+          {/* The light. Painted over the whole ring rather than per slice, so the
+              highlight runs across the object instead of restarting at every
+              boundary — which is what would make it read as flat colour again. */}
+          {total > 0 && <path d={wholeRing} fill={`url(#${sheenId})`} />}
+
+          {/* Nothing recorded yet: the ring still draws, in the gridline colour,
+              so the card reads as "no data" rather than as a failed render. */}
+          {total === 0 && <path d={wholeRing} fill={tok('chart-grid')} />}
+        </svg>
+
+        {/* ── ⚠️ THE CENTRE IS SIZED AND PLACED FROM THE VISIBLE OPENING ──────
+            `holeCy` and `holeHeight` above, not `cy` and the inner radius — see
+            the note there. `overflow-hidden` is the backstop for a label longer
+            than the opening can hold: it clips inside the hole rather than
+            spilling onto the ring, which is the failure this whole block exists
+            to prevent. The readout stays legible whether the caption fits on one
+            line or wraps to two. */}
+        <div
+          className="pointer-events-none absolute flex -translate-x-1/2 -translate-y-1/2 flex-col justify-center overflow-hidden text-center"
+          style={{
+            left: '50%',
+            top: `${(holeCy / boxHeight) * 100}%`,
+            /* The viewBox is rendered at a uniform scale — `size` px per 100
+               units on BOTH axes — so one conversion serves both. */
+            width: `${(irx * 1.78 * size) / 100}px`,
+            height: `${(holeHeight * 0.94 * size) / 100}px`,
+          }}
+        >
+          <p className="tabular text-body leading-none font-semibold text-text-primary">
+            {active === null ? centreValue : print(slices[active].value)}
+          </p>
+          <p className="mt-0.5 line-clamp-2 text-micro leading-tight text-text-tertiary">
+            {active === null ? centreLabel : slices[active].label}
+          </p>
+        </div>
+      </div>
+
+      {/* The legend is the interaction, for the same reason as the flat donut:
+          a tilted slice is an even fiddlier target than a flat one, and on a
+          touch screen it is no target at all. */}
+      {/* ⚠️ `6rem`, which is what "On leave / 0 (0%)" needs and not a pixel more.
+          This minimum is half of the wrap threshold: at 7rem the legend dropped
+          below the ring as soon as the sidebar was expanded, because that takes
+          about 43px out of a card on 3 of 12 columns. */}
+      <figcaption className="min-w-[6rem] flex-1 space-y-0.5">
+        {slices.map((s, i) => (
+          <button
+            key={s.label}
+            type="button"
+            onPointerEnter={() => setActive(i)}
+            onPointerLeave={() => setActive(null)}
+            onFocus={() => setActive(i)}
+            onBlur={() => setActive(null)}
+            className={cn(
+              'flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left',
+              'transition-colors duration-150 hover:bg-bg-hover motion-reduce:transition-none',
+              'focus-visible:ring-2 focus-visible:ring-accent-primary/50 focus-visible:outline-none',
+              active === i && 'bg-bg-hover',
+            )}
+          >
+            <span
+              aria-hidden="true"
+              className="size-2.5 shrink-0 rounded-full"
+              style={{ backgroundColor: tok(s.token) }}
+            />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-caption leading-tight text-text-secondary">
+                {s.label}
+              </span>
+              <span className="tabular block text-micro leading-tight font-semibold text-text-primary">
+                {print(s.value)}
+                <span className="font-normal text-text-tertiary">
+                  {' '}
+                  ({total > 0 ? Math.round(geometry[i].share * 100) : 0}%)
+                </span>
+              </span>
+            </span>
+          </button>
+        ))}
+
+        <table className="sr-only">
+          <caption>{caption}</caption>
+          <tbody>
+            {slices.map((s, i) => (
+              <tr key={s.label}>
+                <th scope="row">{s.label}</th>
+                <td>{print(s.value)}</td>
+                <td>{total > 0 ? `${Math.round(geometry[i].share * 100)}%` : '0%'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </figcaption>
+    </figure>
+  );
+}
+
+/* ==========================================================================
  * GaugeArc — one figure against its ceiling
  * ========================================================================== */
 
@@ -697,5 +1026,127 @@ export function GaugeArc({
         </span>
       </figcaption>
     </figure>
+  );
+}
+
+/* ==========================================================================
+ * BarChart — a ranked comparison, horizontal
+ * ==========================================================================
+ * Added for the reports page: *"which project has how much posting, which person
+ * is doing which task"*. Both are comparisons across a handful of NAMED things,
+ * which is the one shape the other three charts in this file cannot draw — a
+ * trend needs an ordered axis, and a donut answers "what share" rather than
+ * "how many".
+ *
+ * ── ⚠️ HORIZONTAL, AND NOT NEGOTIABLE ───────────────────────────────────────
+ * The labels are people's names and project names. Vertical bars would have to
+ * rotate them 45°, truncate them, or drop every other one — and this chart exists
+ * to be read across a meeting table. Horizontal bars give each label a full line
+ * of ordinary left-to-right text at any width.
+ *
+ * ── ⚠️ HTML, NOT SVG, UNLIKE THE REST OF THIS FILE ──────────────────────────
+ * The other three charts are SVG because they draw curves and arcs. A horizontal
+ * bar is a rectangle with a label, i.e. a list — and as HTML it wraps, it scales
+ * with the reader's font size, the labels are selectable text, and it prints
+ * without the anisotropic-viewBox problem documented at the top of this file.
+ * Reaching for SVG here would be consistency for its own sake at the cost of all
+ * four of those.
+ *
+ * The bars are `<div>`s rather than a `<progress>` each: a progress element is a
+ * task's completion, semantically, and eleven of them stacked is not what this is.
+ * The hidden table carries the meaning instead, as it does for every chart here.
+ * ========================================================================== */
+
+export function BarChart({
+  bars,
+  format = 'integer',
+  caption,
+  /** Shown against each bar, to the right of the value. */
+  showNotes = true,
+  max,
+  className,
+}: {
+  bars: readonly { label: string; value: number; token: string; note?: string }[];
+  /** A NAMED format — a function cannot cross the server/client boundary. */
+  format?: NumberFormat;
+  caption: string;
+  showNotes?: boolean;
+  /**
+   * The value a full-width bar represents. Defaults to the largest bar, which
+   * makes this a RANKING; pass 100 for a percentage chart, where a full bar has
+   * to mean 100% rather than "the highest of these".
+   */
+  max?: number;
+  className?: string;
+}) {
+  const print = (n: number) => formatNumber(n, format);
+
+  const drawable = bars.filter((b) => Number.isFinite(b.value));
+  const largest = drawable.reduce((peak, b) => Math.max(peak, b.value), 0);
+  /* ⚠️ Never zero. A zero ceiling makes every width `0/0` — NaN% — and the row
+     collapses to nothing, so an all-zero chart would look like a broken one
+     rather than like a quiet month. */
+  const ceiling = Math.max(max ?? largest, 1);
+
+  if (drawable.length === 0) {
+    return (
+      <p className={cn('py-6 text-center text-caption text-text-tertiary', className)}>
+        Nothing to compare in this period.
+      </p>
+    );
+  }
+
+  return (
+    <div className={cn('space-y-2', className)}>
+      {/* Same accessibility contract as the other three: the visual is decorative
+          and the hidden table is the real content. */}
+      <div aria-hidden="true" className="space-y-2">
+        {drawable.map((bar, index) => {
+          const fraction = Math.min(1, Math.max(0, bar.value / ceiling));
+          return (
+            <div key={bar.label + index} className="space-y-1">
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="truncate text-caption text-text-primary">{bar.label}</span>
+                <span className="flex shrink-0 items-baseline gap-2">
+                  {showNotes && bar.note && (
+                    <span className="text-micro text-text-tertiary">{bar.note}</span>
+                  )}
+                  <span className="text-caption font-medium tabular-nums text-text-primary">
+                    {print(bar.value)}
+                  </span>
+                </span>
+              </div>
+              {/* The track, so a short bar still reads as a share of something
+                  rather than as a stray mark. */}
+              <div
+                className="h-2 overflow-hidden rounded-full"
+                style={{ backgroundColor: 'var(--bg-subtle)' }}
+              >
+                <div
+                  className="h-full rounded-full transition-[width] duration-500"
+                  style={{
+                    /* A hairline minimum, so a non-zero value is never invisible.
+                       A bar of exactly zero width and a bar of one worth the same
+                       thing on screen is a chart that hides the difference between
+                       "none" and "barely any". */
+                    width: bar.value > 0 ? `max(2px, ${fraction * 100}%)` : 0,
+                    backgroundColor: tok(bar.token),
+                  }}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <DataTable
+        caption={caption}
+        labels={drawable.map((b) => b.label)}
+        /* One row per bar, so the table reads label → value. The trend charts use
+           the transpose of this, which is why `series` takes an array. */
+        series={[{ label: 'Value', token: 'accent-primary', points: drawable.map((b) => b.value) }]}
+        print={print}
+      />
+    </div>
   );
 }

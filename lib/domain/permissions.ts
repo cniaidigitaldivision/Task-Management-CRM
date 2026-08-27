@@ -374,36 +374,67 @@ export const PERMISSIONS = {
    * Third-party logins held for clients and projects. NOT user account
    * passwords, which are one-way digests nothing can read.
    *
-   * ── `view` AND `reveal` ARE 'allow' FOR EVERYBODY, AND THAT IS NOT A HOLE ──
-   * The real rule is relational — a project you own, or a login issued to you —
-   * and no `Rule` in this file can express that, because it depends on two joins
-   * rather than on the actor's role. **Row-level security enforces it**
-   * (migration 023, `app.can_read_credential`), exactly as it does for the
-   * calendar: a Member opening the vault sees only what was issued to them,
-   * which is usually nothing.
+   * ── ⚠️ COORDINATOR AND ABOVE. A MEMBER SEES NOTHING. REVISED 2026-08-24 ────
+   * Owner: *"it is only shown to team coordinators and admins. Not even the
+   * person who is working on this project can show that credential to them. This
+   * control is given only to coordinators and admins."*
    *
-   * Inventing a rule kind here would have put a second, weaker copy of that
-   * logic in front of the real one — and a permission matrix that looks like it
-   * decides row visibility, but does not, is worse than one that plainly says
-   * "the database decides".
+   * `view` and `reveal` were `allow` for all four roles, on the reasoning that
+   * the real rule was relational — a project you own, or a login issued to you —
+   * and that row-level security expressed it (migration 023). That reasoning was
+   * sound and the rule it deferred to is the one that has now been withdrawn:
+   * migration 047 replaces `app.can_read_credential` with the same rank test
+   * written here. The two layers now agree, which is the point.
    *
-   * ── `reveal` IS SEPARATE FROM `view` ON PURPOSE ────────────────────────────
+   * ⚠️ THE "ISSUED TO ME" ROUTE IS GONE, AND IT WAS THE ONE THAT MATTERED. It
+   * read as generous and it was the leak: `issued_to_id` records who HOLDS an
+   * account, and it was being spent as a permanent grant to read that account's
+   * password. Custody and access are different things.
+   *
+   * ⚠️ AND THIS REVOKES SOMETHING PEOPLE WERE USING. A Member who read a client
+   * login here to do their work can no longer. That is intended — stated twice,
+   * in those words — and is written down because the failure mode is somebody
+   * blocked on a Monday morning wondering what broke.
+   *
+   * ── `reveal` IS STILL SEPARATE FROM `view` ─────────────────────────────────
    * Seeing that an account exists, who holds it and when it was last rotated is a
    * different act from reading the password. Only the second needs step-up;
    * merging them would mean re-authenticating to look at a list.
-   *
-   * `manage` and `delete` ARE role-decidable, so they say so: a Coordinator may
-   * maintain credentials (RLS narrows it to projects they own) and may not
-   * destroy the record of one.
    */
-  'credential.view': M('allow', 'allow', 'allow', 'allow'),
-  'credential.reveal': M('allow', 'allow', 'allow', 'allow'),
-  'credential.manage': M('allow', 'allow', 'allow', 'deny'),
-  /* Coordinator too, since 2026-08-23 — *"he can also manage all these
-     things."* A person who adds a client's Instagram login is the person who
-     removes it when the client changes it. RLS still narrows both to projects
-     they own (`app.can_read_credential`). */
-  'credential.delete': M('allow', 'allow', 'allow', 'deny'),
+  'credential.view': M('allow', 'allow', 'allow', 'deny'),
+  'credential.reveal': M('allow', 'allow', 'allow', 'deny'),
+  /* ── ⚠️ ADMIN AND ABOVE. THIS WAS COORDINATOR UNTIL 2026-08-25 ─────────────
+     Owner: *"only the admin is able to assign, add, delete, or manage who can
+     view this whole project: credential plus any specific credential."*
+
+     ⚠️ THIS REVERSES 2026-08-23 — *"he can also manage all these things"* — and
+     the reversal is deliberate, not a regression. Both instructions are recorded
+     because the older one is what the previous value was for.
+
+     ⚠️ IT ALSO FIXES A MISMATCH THAT WAS ALREADY THERE. `credentials_delete` in
+     the database has been admin-only since migration 023, while this line said
+     Coordinator — so a Coordinator was shown a Delete button and got an RLS
+     refusal when they used it. An application more permissive than its policies
+     leaks nothing; it just lies to somebody about what they can do. Migration 058
+     tightens insert and update to match, and both halves now say admin. */
+  'credential.manage': M('allow', 'allow', 'deny', 'deny'),
+  'credential.delete': M('allow', 'allow', 'deny', 'deny'),
+  /**
+   * Giving a NAMED person access to one credential, and taking it back.
+   * Migration 050.
+   *
+   * ── ⚠️ ADMIN AND ABOVE, AND THIS IS THE ONE VAULT ACT A COORDINATOR CANNOT DO
+   * Owner, 2026-08-24, of the "Who can see this credential" modal: *"only admins
+   * and super admins can add someone and can delete someone from here."*
+   *
+   * Every other credential permission above allows a Coordinator. This one does
+   * not, and the asymmetry is right rather than arbitrary: `credential.manage`
+   * changes a stored value, and a value changed in error can be changed back.
+   * Handing read access to a third person cannot be undone by revoking it — they
+   * have already seen the password. So the act that is irreversible is the act
+   * that needs the higher rank.
+   */
+  'credential.grant': M('allow', 'allow', 'deny', 'deny'),
 
   /* ---- Google Drive documents — owner request 2026-08-13 -----------------
    * Owner: *"every time a user or anybody comes, they should have a place where
@@ -445,6 +476,100 @@ export const PERMISSIONS = {
      documents (`document.manage`, already theirs) is a different act from
      re-pointing the whole division's Drive. */
   'drive.configure': M('allow', 'allow', 'deny', 'deny'),
+
+  /* ---- Attendance — owner instruction, 2026-08-25 ----------------------- */
+
+  /* ⚠️ EVERYBODY, INCLUDING THE SUPER ADMIN. Checking yourself in is not a
+     privilege and there is no rank at which it stops applying — the owner asked
+     for the button to be *"appearing throughout this whole dashboard"*, which
+     means on everybody's. Enforced again by the trigger in migration 060, which
+     only lets somebody open their own row, for today. */
+  'attendance.check_in': M('allow', 'allow', 'allow', 'allow'),
+
+  /* Whose attendance you can see. Owner: *"the CEO, or you can say the super
+     admin or admin, and the team coordinator can see who is coming on time and
+     who is coming late."* A Member sees their own record and no one else's,
+     which is the RLS policy in 060 rather than this line. */
+  'attendance.view_all': M('allow', 'allow', 'allow', 'deny'),
+
+  /* ⚠️ ADMIN AND ABOVE ONLY, AND THE COORDINATOR IS DELIBERATELY OUT — the one
+     place attendance diverges from every other permission in this file. Owner,
+     naming him: *"he forgot to check out, he can add their checkout time but you
+     can say Kashif or any team coordinator could not do that."*
+
+     A Coordinator can therefore SEE everything and change nothing. That is the
+     right split: the person who notices you were late should not be the person
+     who can quietly make you on time. Migration 060's trigger refuses the write
+     as well, so this line is the sentence and not the boundary. */
+  'attendance.edit': M('allow', 'allow', 'deny', 'deny'),
+
+  /* ---- Finance — owner instruction, 2026-08-26 -------------------------- */
+
+  /* The ledger, its totals, its charts, its report. Owner: *"in the admin panel
+     the admin and the super admin can view where we have spent and what we have
+     spent [...] the list of expenses, their report, or their analysis should
+     only be visible to the admin and the super admin."*
+
+     ⚠️ NOT reusing `project.view_finance`, whose own comment argues against
+     exactly that: the two happen to agree today, and sharing a key means a later
+     decision about project fees silently changes who can read the payroll. */
+  'finance.view': M('allow', 'allow', 'deny', 'deny'),
+
+  /* ⚠️ THE COORDINATOR IS IN, AND THIS IS THE ONLY FINANCE LINE WHERE HE IS.
+     Owner, same message: *"the team coordinator can also add expenses."* He
+     files a bill and sees nothing back — no list, no total, no report.
+
+     That asymmetry is enforced by migration 064, which gives `public.expenses`
+     an INSERT policy admitting `team_coordinator` and a SELECT policy admitting
+     only `admin`. This line is the sentence; the policy is the boundary. */
+  'finance.record_expense': M('allow', 'allow', 'allow', 'deny'),
+
+  /* Editing or deleting a ledger row, recording income, pricing a tool, and
+     posting a month. Admin and above — correcting the books is a different act
+     from filing a receipt into them. */
+  'finance.manage': M('allow', 'allow', 'deny', 'deny'),
+
+  /* ⚠️ EVERYBODY, MEMBER INCLUDED. Owner: *"each person can see which
+     subscriptions they have, for example Gemini, but the subscription cost is
+     not compulsory to show them."*
+
+     Seeing your own seat is not a privilege. WHOSE seats you can see is decided
+     by the policy in migration 063 (`user_id = app.current_user_id() or
+     acting_at_least('admin')`), not by this line — and the cost is not merely
+     hidden from a Member, it is in a table their role cannot select at all. */
+  'subscription.view_own': M('allow', 'allow', 'allow', 'allow'),
+
+  /* Assigning a tool to somebody, ending a seat, and setting what it costs. */
+  'subscription.manage': M('allow', 'allow', 'deny', 'deny'),
+
+  /* ---- The assistant — owner instruction, 2026-08-26 -------------------- */
+
+  /* ⚠️ THE ROLE DEFAULT, NOT THE WHOLE ANSWER. Owner: *"I'm not providing this
+     facility to all of the company. This facility will only be provided to
+     upper levels, like this super admin, admin, or team coordinator [...] Later
+     on maybe I can have a radio button for each member [...] that I can switch
+     on and off at my choice."*
+
+     A row in `public.assistant_access` OVERRIDES this line in either direction —
+     an `allow` row turns one Member on, a `deny` row turns one Coordinator off.
+     So this matrix is the floor somebody falls back to, and `mayUseAssistant()`
+     in lib/domain/assistant-access.ts is the function that decides. Reading this
+     row alone will give the wrong answer for anybody who has been switched. */
+  'assistant.use': M('allow', 'allow', 'allow', 'deny'),
+
+  /* Turning the assistant on or off for one person. Admin and above — the
+     owner was explicit that it is *"on admin or super admin choice."* */
+  'assistant.manage_access': M('allow', 'allow', 'deny', 'deny'),
+
+  /* ⚠️ SEEING WHAT OTHER PEOPLE ASKED AND WHAT IT COST. Owner: *"maybe one
+     person uses all the credits and someone didn't use it so I should have some
+     check and balance."*
+
+     This governs the usage SCREEN. What it can actually show is narrower and is
+     set by RLS, not here: migration 069's select policy admits an Admin to rows
+     with `role = 'user'` only, so questions are visible and other people's
+     answers are not. Widening this line would not widen that. */
+  'assistant.view_usage': M('allow', 'allow', 'deny', 'deny'),
 } as const satisfies Record<string, Readonly<Record<Role, Rule>>>;
 
 export type Action = keyof typeof PERMISSIONS;
@@ -494,11 +619,38 @@ export const STEP_UP_ACTIONS = [
   'settings.project_type_priority',
   'settings.security',
   'data.export_all',
-  /* Reading a stored credential is the one act in this system that hands over a
-     working secret. A valid session is not enough for that — the whole reason
-     step-up exists (FR-149) is that a hijacked session must not be able to do
-     what a stolen password could, and a vault is precisely where that matters. */
-  'credential.reveal',
+  /* ── ⚠️ `credential.reveal` IS DELIBERATELY ABSENT — OWNER'S DECISION ─────
+     Owner, 2026-08-25: *"don't require confirming the password again. I don't
+     need that. Just decrypt the credential and let me watch. Keep the access
+     level and all these things."* Asked, and reaffirmed in the same breath.
+
+     What this gives up, stated plainly so nobody has to rediscover it: FR-149
+     existed because a HIJACKED SESSION must not be able to do what a stolen
+     password could. Reading a credential is the one act here that hands over a
+     working secret, so an attacker with a live session cookie can now read the
+     vault without ever knowing the password. That is the cost.
+
+     What still holds, and is why this is a narrowing rather than an opening:
+       · The permission matrix is untouched — Member is still `deny`, and rank or
+         a named grant is still required (see `revealCredentialAction`).
+       · Every reveal is still written to the audit log AND to
+         `security_events` with the reader's name. The trail is the control that
+         remains, and it is now the only one, which makes it more important
+         rather than less.
+       · `credential.grant` KEEPS its step-up, below. Reading hands one secret to
+         the person at the keyboard; granting hands it to a third party, standing,
+         until somebody notices. The owner asked about viewing, not about granting.
+
+     ⚠️ Do not "restore consistency" by re-adding this. It was removed on purpose
+     and putting it back reintroduces the prompt the owner twice said they did not
+     want. */
+  /* ⚠️ AND SO IS GIVING SOMEBODY ELSE THAT ABILITY. `credential.reveal` hands over
+     one secret, once, to the person at the keyboard. `credential.grant` hands it
+     over to a third party, standing, until somebody notices — so a hijacked
+     session that cannot read a password must certainly not be able to grant
+     itself a colleague who can. It is the more dangerous of the two and would be
+     an odd thing to protect less. Migration 050. */
+  'credential.grant',
 ] as const satisfies readonly Action[];
 
 const STEP_UP_SET: ReadonlySet<string> = new Set(STEP_UP_ACTIONS);

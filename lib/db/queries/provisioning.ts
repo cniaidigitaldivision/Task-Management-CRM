@@ -1,5 +1,6 @@
 import 'server-only';
 
+import type { OfficeTeam } from '@/lib/domain/attendance';
 import type { Role } from '@/lib/domain/constants';
 import type { PersonFootprint } from '@/lib/domain/permissions';
 
@@ -64,21 +65,33 @@ export async function createPerson(
     roleTitle: string | null;
     weeklyCapacityPoints: number;
     maxConcurrentTasks: number;
+    /**
+     * Which office they sit in — decides which weekdays are days off (060).
+     *
+     * ⚠️ OPTIONAL, defaulting to the column's own default. Making it required
+     * would break every existing caller (the setup route, the tests) for no
+     * benefit: the database already has a default, and this simply lets the
+     * invite form override it.
+     */
+    officeTeam?: OfficeTeam;
+    phone?: string | null;
   },
 ): Promise<string> {
   const rows = await withUser(actorId, (tx) => tx`
     insert into public.users (
-      full_name, email, role, role_title, account_state, is_active,
-      weekly_capacity_points, max_concurrent_tasks, created_by_id
+      full_name, email, phone, role, role_title, account_state, is_active,
+      weekly_capacity_points, max_concurrent_tasks, office_team, created_by_id
     ) values (
       ${input.fullName.trim()},
       ${input.email.trim().toLowerCase()},
+      ${input.phone?.trim() || null},
       ${input.role}::public.user_role,
       ${input.roleTitle?.trim() || null},
       'pending_activation',
       true,
       ${input.weeklyCapacityPoints},
       ${input.maxConcurrentTasks},
+      ${input.officeTeam ?? 'blue_area'}::public.office_team,
       ${actorId}
     )
     returning id

@@ -23,7 +23,7 @@ import {
   weekOf,
   type PipelineTask,
 } from '@/lib/domain/content-pipeline';
-import type { ContentKind } from '@/lib/domain/constants';
+import { PROJECT_ROLE_LABEL, type ContentKind } from '@/lib/domain/constants';
 import { WEEKDAY_LABEL, monthPlan } from '@/lib/domain/cadence';
 import { generateScheduleAction } from '@/app/actions/schedule';
 import { PlatformIcon } from '@/components/brand/platform-icon';
@@ -184,6 +184,70 @@ export function ProjectOverview({
 
   const monthPct = Math.round((dayOfMonth / monthDays) * 100);
   const onTrack = target === null || donePct >= monthPct - 10;
+
+  /* ── EVERYBODY ON THIS PROJECT, EACH ONCE ──────────────────────────────────
+     The owner and `project_members` are two different tables answering two
+     different questions, and one person is routinely in both — see the card
+     below for what that looked like.
+
+     Keyed by `userId`, so the merge is by identity and not by name: two people
+     called Ali would stay two rows, and one person recorded twice collapses to
+     one. Matching on `fullName` would get both of those backwards.
+
+     ⚠️ The owner is kept FIRST rather than sorted in. Accountability is the
+     first thing this card is read for, and an alphabetical list buries it. */
+  const roster = React.useMemo(() => {
+    const ownerMembership = project.ownerId
+      ? members.find((m) => m.userId === project.ownerId)
+      : undefined;
+
+    const detailFor = (m: ProjectMemberRow) =>
+      [
+        PROJECT_ROLE_LABEL[m.projectRole] ?? m.projectRole.replace(/_/g, ' '),
+        m.addedByName ? `added by ${m.addedByName}` : null,
+      ]
+        .filter(Boolean)
+        .join(' · ');
+
+    const rows: Array<{
+      userId: string;
+      name: string;
+      avatarUrl: string | null;
+      isOwner: boolean;
+      detail: string;
+    }> = [];
+
+    if (project.ownerId && project.ownerName) {
+      rows.push({
+        userId: project.ownerId,
+        name: project.ownerName,
+        /* The owner's picture arrives as its own prop because the people list is
+           empty for a reader without `project.edit`; their membership row has one
+           too, so prefer whichever is actually set. */
+        avatarUrl: ownerAvatarUrl ?? ownerMembership?.avatarUrl ?? null,
+        isOwner: true,
+        /* If they are also named on the project, say both things on the one line
+           rather than dropping the role — "answers for this project" alone would
+           lose the fact that they are the Manager on it too. */
+        detail: ownerMembership
+          ? `Answers for this project · ${detailFor(ownerMembership)}`
+          : 'Answers for this project',
+      });
+    }
+
+    for (const m of members) {
+      if (m.userId === project.ownerId) continue;
+      rows.push({
+        userId: m.userId,
+        name: m.fullName,
+        avatarUrl: m.avatarUrl,
+        isOwner: false,
+        detail: detailFor(m),
+      });
+    }
+
+    return rows;
+  }, [members, project.ownerId, project.ownerName, ownerAvatarUrl]);
 
   return (
     /* ── ⚠️ DENSITY PASS — owner request 2026-08-20 ────────────────────────────
@@ -477,58 +541,64 @@ export function ProjectOverview({
         <CardBody className="p-3.5">
           <p className="text-body-sm font-semibold text-text-primary">Accountable / Team</p>
 
-          <ul className="mt-2 space-y-2">
-            {/* ⚠️ The owner FIRST, and labelled — owner, 2026-08-19: *"He is not the
-                owner; he is assigned."* Accountability and assignment are different
-                facts and this list keeps them apart. */}
-            <li className="flex items-center gap-2.5">
-              {/* ⚠️ `src` as well as `name`. Owner, 2026-08-20: *"maybe the image is
-                  not present but once present it should show the image with it."*
-                  `Avatar` already falls back to initials, so passing the URL costs
-                  nothing and the moment somebody uploads a picture it appears. */}
-              <Avatar name={project.ownerName ?? 'Unassigned'} src={ownerAvatarUrl} size="sm" />
-              <span className="min-w-0 flex-1">
-                <span className="flex items-center gap-1.5">
-                  <span className="truncate text-caption font-semibold text-text-primary">
-                    {project.ownerName ?? 'Nobody yet'}
-                  </span>
-                  <span
-                    className="shrink-0 rounded px-1 text-micro font-bold"
-                    style={{
-                      backgroundColor:
-                        'color-mix(in oklab, var(--accent-primary) var(--tint-strong), var(--bg-surface))',
-                      color: 'color-mix(in oklab, var(--accent-primary) 88%, var(--text-primary))',
-                    }}
-                    title="Accountable for this project"
-                  >
-                    OWNER
-                  </span>
-                </span>
-                <span className="block truncate text-micro text-text-tertiary">
-                  answers for this project
-                </span>
-              </span>
-            </li>
+          {/* ── ⚠️ ONE ROW PER PERSON, NOT ONE ROW PER FACT ────────────────────
+              Owner, 2026-08-24: *"Najmullah is only one member while the same
+              person is showing two times in Accountable or Team… The purpose of
+              this card is to show how many people are working on this one
+              project. Just show their name once not twice."*
 
-            {members.map((member) => (
-              <li key={member.userId} className="flex items-center gap-2.5">
-                <Avatar name={member.fullName} src={member.avatarUrl} size="sm" />
+              The card used to render the owner from `project.ownerId`, then
+              EVERY row of `project_members` underneath. Being accountable for a
+              project and being named on it are two different facts, and most
+              owners are both — so the owner appeared twice, once as OWNER and
+              once as their project role. Read as two people, which is precisely
+              wrong for a card whose job is "how many people are on this".
+
+              The two facts are still kept apart, as the 2026-08-19 note asks —
+              they are just kept apart WITHIN one row now: the OWNER badge and
+              the project role sit on the same person. */}
+          <ul className="mt-2 space-y-2">
+            {roster.map((person) => (
+              <li key={person.userId} className="flex items-center gap-2.5">
+                {/* ⚠️ `src` as well as `name`. Owner, 2026-08-20: *"maybe the
+                    image is not present but once present it should show the
+                    image with it."* `Avatar` already falls back to initials. */}
+                <Avatar name={person.name} src={person.avatarUrl} size="sm" />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-caption font-medium text-text-primary">
-                    {member.fullName}
+                  <span className="flex items-center gap-1.5">
+                    <span
+                      className={cn(
+                        'truncate text-caption text-text-primary',
+                        person.isOwner ? 'font-semibold' : 'font-medium',
+                      )}
+                    >
+                      {person.name}
+                    </span>
+                    {person.isOwner && (
+                      <span
+                        className="shrink-0 rounded px-1 text-micro font-bold"
+                        style={{
+                          backgroundColor:
+                            'color-mix(in oklab, var(--accent-primary) var(--tint-strong), var(--bg-surface))',
+                          color: 'color-mix(in oklab, var(--accent-primary) 88%, var(--text-primary))',
+                        }}
+                        title="Accountable for this project"
+                      >
+                        OWNER
+                      </span>
+                    )}
                   </span>
                   <span className="block truncate text-micro text-text-tertiary">
-                    {member.projectRole.replace(/_/g, ' ')}
-                    {member.addedByName && ` · added by ${member.addedByName}`}
+                    {person.detail}
                   </span>
                 </span>
               </li>
             ))}
           </ul>
 
-          {members.length === 0 && (
+          {roster.length === 0 && (
             <p className="mt-2 text-micro text-text-secondary">
-              Nobody else on it yet — add people in the Team tab.
+              Nobody on it yet — add people in the Team tab.
             </p>
           )}
         </CardBody>

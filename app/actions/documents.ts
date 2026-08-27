@@ -9,6 +9,13 @@ import * as D from '@/lib/db/queries/documents';
 import * as F from '@/lib/db/queries/drive-folders';
 import { notify, notifySelf } from '@/lib/db/queries/feed';
 import { accessAtLeast } from '@/lib/domain/folder-access';
+import { validateUpload } from '@/lib/domain/attachments';
+import {
+  MAX_BYTES,
+  maxLabel,
+  toDestination,
+  type UploadDestination,
+} from '@/lib/domain/document-storage';
 import { can } from '@/lib/domain/permissions';
 import * as Drive from '@/lib/drive/client';
 import { clearConnection, connectionStatus } from '@/lib/db/queries/drive';
@@ -77,23 +84,23 @@ function str(form: FormData, key: string): string {
  * ── SO THE TWO PATHS HAVE DIFFERENT, HONEST CEILINGS ─────────────────────────
  * They pass through different systems, so one number cannot be right for both:
  *
- *   queued for approval   bytes land in Supabase Storage first → 50 MB, the
- *                         project ceiling. Raising it needs a paid plan, not a
- *                         code change.
- *   straight to Drive     never touches Supabase → bounded instead by what one
- *                         request may carry and hold in memory.
+ *   destination 'bucket'  bytes land in Supabase Storage → 50 MB, the project
+ *                         ceiling. Raising it needs a paid plan, not a code
+ *                         change.
+ *   destination 'drive'   never touches Supabase → bounded instead by
+ *                         `documents_size_sane` (100 MB) and by what one request
+ *                         may carry and hold in memory.
  *
  * ⚠️ NEITHER SUITS RAW VIDEO. Both buffer the whole file server-side, so real
  * footage needs a resumable upload sent from the browser DIRECTLY to Drive, with
  * the server only minting the session. That is not built yet; until it is, the
  * message below says so rather than just refusing.
+ *
+ * ⚠️ BOTH NUMBERS NOW LIVE IN `lib/domain/document-storage.ts`, with `maxLabel`
+ * beside them, because the upload FORM has to state the same ceiling this action
+ * enforces. They were a private const here and a hard-coded sentence in the
+ * dialog, which is two places to correct and one of them always gets missed.
  * ========================================================================= */
-
-/** Supabase project ceiling. Not ours to raise from here. */
-const MAX_BYTES_QUEUED = 50 * 1024 * 1024;
-
-/** Straight to Drive: no Supabase involved, so the limit is the request itself. */
-const MAX_BYTES_DIRECT = 100 * 1024 * 1024;
 
 /* ==========================================================================
  * READ
@@ -118,6 +125,12 @@ export async function listDocumentsAction(): Promise<
  */
 export async function pendingFileUrlAction(
   id: string,
+  /* ⚠️ When true the URL is signed with `?download=<the file's own name>`, which
+     is what makes the browser SAVE it rather than navigate to it. Without it a PDF
+     opens in a tab titled `1756...-contract.pdf` — the storage path, which is not a
+     name anybody recognises. Two buttons, one action, because the permission check
+     and the signing are identical and only the header differs. */
+  download = false,
 ): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
   const user = await requireUser();
 
@@ -129,7 +142,7 @@ export async function pendingFileUrlAction(
     return { ok: false, error: 'That file is no longer held here — it is in Drive.' };
   }
 
-  const signed = await signedUrl(document.storagePath);
+  const signed = await signedUrl(document.storagePath, download ? document.name : undefined);
   if (!signed.ok) return { ok: false, error: signed.message };
   return { ok: true, url: signed.value };
 }
@@ -155,77 +168,220 @@ export async function requestDocumentAction(
   const name = str(form, 'name') || file.name;
   if (!name) return fail('Give the document a name.');
 
-  /* ── WHICH FOLDER, AND WHETHER THIS NEEDS APPROVING AT ALL ────────────────
-     Owner, 2026-08-16: *"it shouldn't be required approval because an admin is
-     assigning access to some folder… the access level is defined at the time of
-     giving."* So the folder's level decides the whole shape of what follows:
+  /* ── ⚠️ WHO UPLOADED IT DECIDES WHETHER IT NEEDS APPROVING ────────────────
+     Owner, 2026-08-24: *"anything uploaded by admin, anything uploaded by
+     Kashif — or anything uploaded by the team coordinator — will not be sent to
+     approval. It will be automatically uploaded. For all the members anything
+     they upload will be sent to admin for approval."*
 
-       none / view   cannot file here at all
-       upload +      goes STRAIGHT to Drive — the grant was the approval
-       no folder     the old path: our storage, then the approval queue
+     THE RULE IS NOW RANK, NOT FOLDER ACCESS. It used to be the inverse of this,
+     and the inversion is the whole bug: `straightToDrive` was true only for a
+     MEMBER who had been granted upload access to a registered Drive folder, and
+     false for everybody senior — so a Coordinator's own upload went into the
+     approval queue for a Coordinator to approve, and an Admin filing a contract
+     waited on somebody else.
 
-     Checked BEFORE the bytes go anywhere. Refusing afterwards would leave an
-     orphaned object to clean up for a mistake we could have caught first. */
+     `document.approve` is exactly the right question to ask: the person who
+     would be allowed to approve this does not need to ask themselves. Coordinator
+     and above, Member denied — the same predicate the queue uses, so the two can
+     never disagree about who is exempt.
+
+     ⚠️ AND IT NO LONGER MEANS "GOES TO GOOGLE DRIVE". That is now the separate,
+     explicit `destination` below — see the note there for why the two must not be
+     the same switch. */
   const folderId = str(form, 'folderId') || null;
-  const canManageFolders = can(actor, 'document.share');
+  const skipsApproval = can(actor, 'document.approve');
+
+  /* ── ⚠️ WHERE THE BYTES GO IS NOW ASKED, NOT INFERRED ─────────────────────
+     Owner, 2026-08-24: *"When I create and want to upload something on the
+     document page, how can I manage or select whether I want to save it in Google
+     Drive or whether it is going to be saved in the Supabase bucket?"*
+
+     It could not be selected because nothing asked. Between migration 048 and
+     this change every upload went to the bucket, and before 048 every APPROVAL
+     went to Drive — in both cases the store was a consequence of the flow rather
+     than a decision. Now the form posts it.
+
+     `toDestination` treats anything unrecognised as 'bucket' rather than
+     erroring, because a missing field is exactly what a cached older client
+     posts, and the safe reading of "I did not say" is "keep it here". */
+  const destination: UploadDestination = toDestination(str(form, 'destination'));
 
   let folder: F.DriveFolderRow | null = null;
   if (folderId) {
     folder = await F.getFolder(user.id, folderId);
     if (!folder) return fail('That folder is not in the registry.');
-    if (!canManageFolders && folder.memberAccess === 'none') {
+    /* Folder access still governs whether somebody may file INTO a named folder —
+       that is a separate question from whether their upload needs approving, and
+       conflating the two is what produced the inverted rule above. */
+    if (!skipsApproval && folder.memberAccess === 'none') {
       return fail(`You do not have access to ${folder.name}, so you cannot file into it.`);
     }
-    if (!canManageFolders && !accessAtLeast(folder.memberAccess, 'upload')) {
+    if (!skipsApproval && !accessAtLeast(folder.memberAccess, 'upload')) {
       return fail(
         `You can view ${folder.name} but not add to it. Ask a Team Coordinator for upload access.`,
       );
     }
   }
 
-  /* Coordinator+ still uses the approval queue when they file into a folder —
-     their own upload is exactly the one that most needs a second pair of eyes,
-     and `upload` access describes what MEMBERS were granted, not a bypass for
-     whoever granted it. A Member with `upload` skips the queue; that is the
-     asymmetry the owner asked for. */
-  const straightToDrive =
-    folder !== null && !canManageFolders && accessAtLeast(folder.memberAccess, 'upload');
+  /* ── ⚠️ GOING TO DRIVE REQUIRES A DRIVE FOLDER, AND HAS TO ────────────────
+     `uploadFile` accepts a null parent and would drop the file in the root of the
+     connected account's My Drive. That is not a destination anybody chose — it is
+     where a file goes to be lost, and it is the one outcome worse than a refusal.
+     The registry is also the only place a permission for Drive can be checked, so
+     without a folder there is nothing to check against either.
 
-  /* ── SIZE IS CHECKED AFTER THE PATH IS KNOWN, BECAUSE IT DEPENDS ON IT ─────
-     See the note at the top. Checked before the bytes are read, so an oversized
-     file is refused without being pulled into memory first. */
-  const limit = straightToDrive ? MAX_BYTES_DIRECT : MAX_BYTES_QUEUED;
-  if (file.size > limit) {
+     ⚠️ THE ACCESS CHECK IS THE `if (folderId)` BLOCK ABOVE, deliberately reused
+     rather than repeated: whatever governs filing INTO a folder must govern
+     writing bytes into it, and a second copy of that rule would be the one that
+     drifts. This only ensures the block ran.
+
+     ⚠️ AND IT NARROWS INTO A LOCAL rather than checking `folder` again further
+     down. The write needs both of the folder's ids, and re-deriving them at the
+     call site would need a non-null assertion — which is where a refactor
+     eventually puts a crash. */
+  let driveTarget: { readonly folderId: string; readonly parentDriveId: string } | null = null;
+  if (destination === 'drive') {
+    if (!folder) {
+      return fail(
+        'Choose the Drive folder it goes into. Nothing is written to the top of Drive, because a file there is a file nobody finds again.',
+      );
+    }
+    driveTarget = { folderId: folder.id, parentDriveId: folder.driveFolderId };
+  }
+
+  /* ── SIZE IS CHECKED AFTER THE DESTINATION IS KNOWN, BECAUSE IT DEPENDS ON IT
+     See the note at the top: 50 MB through our bucket, 100 MB straight to Drive,
+     and they differ because the paths do. Checked before the bytes are read, so an
+     oversized file is refused without being pulled into memory first. */
+  if (file.size > MAX_BYTES[destination]) {
     const mb = Math.round(file.size / 1_048_576);
-    const limitMb = Math.round(limit / 1_048_576);
+    const other: UploadDestination = destination === 'bucket' ? 'drive' : 'bucket';
     return fail(
-      straightToDrive
-        ? `That file is ${mb} MB and the limit is ${limitMb} MB. For anything larger it has to go into Google Drive directly for now.`
-        : `That file is ${mb} MB. Files waiting for approval are held here first, and that storage caps at ${limitMb} MB. A video this size has to go into Google Drive directly for now.`,
+      `That file is ${mb} MB and the limit for ${
+        destination === 'drive' ? 'Google Drive' : "this system's storage"
+      } is ${maxLabel(destination)}.${
+        file.size <= MAX_BYTES[other]
+          ? ` It would fit in ${other === 'drive' ? 'Google Drive' : "this system's storage"} — change where it goes.`
+          : ' Put something this large in shared storage and file the link instead.'
+      }`,
     );
   }
 
-  const bytes = new Uint8Array(await file.arrayBuffer());
+  /* ── ⚠️ THE SAME CHECK THE TASK ATTACHMENTS USE ───────────────────────────
+     This path had NO type validation at all: it handed whatever arrived to the
+     bucket and translated the resulting HTTP 415 into a sentence afterwards. That
+     is why a PowerPoint reported by the browser as `application/octet-stream`
+     produced "Files of this type () are not accepted" — a refusal naming nothing,
+     after a pointless round trip.
 
-  if (straightToDrive && folder) {
-    return uploadStraightToDrive({
-      user,
-      folder,
+     `validateUpload` refuses executables by extension, accepts an Office file
+     whose MIME type the browser could not determine, and always says which file
+     and why. See lib/domain/attachments.ts. */
+  const check = validateUpload({
+    fileName: file.name,
+    mimeType: file.type,
+    sizeBytes: file.size,
+  });
+  if (!check.ok) return fail(check.message);
+
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const mimeType = file.type || 'application/octet-stream';
+  const description = str(form, 'description') || null;
+  const projectId = str(form, 'projectId') || null;
+
+  /* ══ DESTINATION: GOOGLE DRIVE ═══════════════════════════════════════════
+     The bytes never touch our bucket, so there is no object to orphan and no
+     `storage_path` on the row — which is why this returns early rather than
+     joining the path below. */
+  if (driveTarget !== null) {
+    const sent = await Drive.uploadFile({
       name,
-      description: str(form, 'description') || null,
-      projectId: str(form, 'projectId') || null,
-      mimeType: file.type || 'application/octet-stream',
-      sizeBytes: file.size,
+      mimeType,
       bytes,
+      parentFolderId: driveTarget.parentDriveId,
     });
+
+    if (!sent.ok) {
+      /* ⚠️ `configured` separates two failures with two different fixes — the
+         same distinction the Drive settings panel makes. "Drive refused it" is
+         something to read; "nobody has connected Drive" is something to do. */
+      return fail(
+        sent.configured
+          ? `Google Drive did not accept the file: ${sent.reason}`
+          : 'Google Drive is not connected, so nothing can be written there. An Admin connects it in Documents → Drive settings — or change where it goes and keep the file here instead.',
+      );
+    }
+
+    let driveDocumentId: string;
+    try {
+      driveDocumentId = await D.createApprovedDocument(user.id, {
+        name,
+        description,
+        projectId,
+        folderId: driveTarget.folderId,
+        mimeType,
+        sizeBytes: file.size,
+        driveFileId: sent.value.id,
+        driveWebLink: sent.value.webViewLink,
+      });
+    } catch {
+      /* ⚠️ THE FILE IS IN DRIVE AND THE ROW IS NOT. Deliberately NOT trashed to
+         "clean up": the bytes are safely in the company's own store, which is
+         where the person asked them to go, and deleting somebody's file because
+         our register insert failed is the unrecoverable half of this pair. So it
+         says exactly where the file is, by name, and stops. */
+      return fail(
+        `${name} is in Google Drive, in ${folder?.name ?? 'the chosen folder'}, but it could not be recorded in the register here. The file is safe — file it again from the Drive folder list, or ask an Admin to re-sync.`,
+      );
+    }
+
+    await withUser(user.id, (tx) =>
+      audit(tx, user, {
+        entityType: 'document',
+        entityId: driveDocumentId,
+        /* Not `document.requested`: nothing was requested, and an audit reader
+           filtering for the approval queue must not be handed this. */
+        action: 'document.uploaded',
+        after: {
+          name,
+          sizeBytes: file.size,
+          projectId,
+          destination: 'drive',
+          driveFolder: folder?.name ?? null,
+          driveFileId: sent.value.id,
+        },
+      }),
+    ).catch(() => console.error('[documents] audit write failed for a Drive upload'));
+
+    revalidatePath('/documents');
+    revalidatePath('/projects');
+    return {
+      ok: true,
+      message: `${name} is in Google Drive, in ${folder?.name ?? 'the chosen folder'}. No approval was needed — it is already there.`,
+    };
   }
+
+  /* ══ DESTINATION: THIS SYSTEM'S PRIVATE STORAGE ══════════════════════════
+     ── WHAT HAPPENED, DECIDED ONCE ──────────────────────────────────────────
+     The Drive path has returned by here, so there are two outcomes left and
+     everything downstream — the audit action, whether approvers are notified, what
+     the person is told — reads this one value rather than each re-deriving it from
+     `skipsApproval` and getting it subtly wrong.
+
+     ⚠️ THE BUG THAT MOTIVATED NAMING IT: the approver notification fired on every
+     upload and told everybody "it is waiting for approval before it goes to Google
+     Drive". For a Coordinator's own upload — approved on arrival — that was two
+     falsehoods in one sentence. */
+  const outcome: 'filed' | 'queued' = skipsApproval ? 'filed' : 'queued';
+
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, '-').slice(-80);
   const path = `documents/${user.id}/${Date.now()}-${safeName}`;
 
   const stored = await uploadObject({
     path,
     body: bytes,
-    contentType: file.type || 'application/octet-stream',
+    contentType: mimeType,
   });
   if (!stored.ok) {
     /* ── ⚠️ THE RAW MESSAGE IS A JSON BLOB, AND THE OWNER SAW IT ──────────────
@@ -243,14 +399,14 @@ export async function requestDocumentAction(
 
     if (/invalid_mime_type|InvalidMimeType/.test(raw)) {
       return fail(
-        `Files of this type (${file.type || 'unknown'}) are not accepted by the CRM's own storage, so it cannot be held for approval. An Admin can allow the type, or put the file into Google Drive directly.`,
+        `Files of this type (${file.type || 'unknown'}) are not accepted by this system's own storage. An Admin can allow the type — or change where it goes to Google Drive, which takes it as it is.`,
       );
     }
     if (/Payload too large|exceeded the maximum allowed size|413/.test(raw)) {
       return fail(
-        `That file is larger than the CRM's storage accepts. Anything over ${Math.round(
-          MAX_BYTES_QUEUED / 1_048_576,
-        )} MB has to go into Google Drive directly for now.`,
+        `That file is larger than this system's storage accepts. Anything over ${maxLabel(
+          'bucket',
+        )} has to go to Google Drive instead — change where it goes on the form.`,
       );
     }
 
@@ -259,15 +415,21 @@ export async function requestDocumentAction(
 
   let documentId: string;
   try {
-    documentId = await D.createDocumentRequest(user.id, {
+    const row = {
       name,
-      description: str(form, 'description') || null,
-      projectId: str(form, 'projectId') || null,
+      description,
+      projectId,
       folderId,
       storagePath: path,
-      mimeType: file.type || 'application/octet-stream',
+      mimeType,
       sizeBytes: file.size,
-    });
+    };
+    /* The only difference between the two bucket paths — see the rank note
+       above. Both write the same object to the same bucket; one lands `approved`
+       and one lands `pending`. */
+    documentId = skipsApproval
+      ? await D.createDocumentApproved(user.id, row)
+      : await D.createDocumentRequest(user.id, row);
   } catch {
     /* The row failed, so the object is orphaned. Removed here rather than left,
        because nothing else will ever refer to it. */
@@ -279,8 +441,12 @@ export async function requestDocumentAction(
     await audit(tx, user, {
       entityType: 'document',
       entityId: documentId,
-      action: 'document.requested',
-      after: { name, sizeBytes: file.size, projectId: str(form, 'projectId') || null },
+      /* ⚠️ The two are distinguishable afterwards on purpose. `document.requested`
+         means it entered the queue; `document.uploaded` means rank made a queue
+         unnecessary. An audit reader asking "what went through approval" was
+         previously handed both. */
+      action: outcome === 'queued' ? 'document.requested' : 'document.uploaded',
+      after: { name, sizeBytes: file.size, projectId, destination: 'bucket' },
     });
 
     /* ── EVERY APPROVER IS TOLD, AND KEEPS BEING TOLD ────────────────────────
@@ -294,7 +460,15 @@ export async function requestDocumentAction(
 
        ⚠️ The uploader is excluded. A Coordinator can now approve their own
        upload, and telling somebody their own file is waiting for them is noise
-       that trains people to ignore the notification. */
+       that trains people to ignore the notification.
+
+       ⚠️ AND ONLY WHEN SOMETHING IS ACTUALLY WAITING. This block used to run for
+       every upload, so a Coordinator filing a contract — approved on arrival —
+       sent every other approver a notification saying it was "waiting for
+       approval before it goes to Google Drive". Two falsehoods in one sentence:
+       nothing was waiting, and nothing was going to Drive. */
+    if (outcome !== 'queued') return;
+
     const approvers = await tx`
       select id from public.users
        where is_active
@@ -306,7 +480,7 @@ export async function requestDocumentAction(
         userId: approver.id as string,
         kind: 'security_alert',
         title: `${user.fullName} uploaded ${name}`,
-        body: 'It is waiting for approval before it goes to Google Drive.',
+        body: 'It is held in private storage and waiting for you to accept it.',
         linkTo: '/documents',
         entityId: documentId,
       });
@@ -316,99 +490,18 @@ export async function requestDocumentAction(
   });
 
   revalidatePath('/documents');
+  /* The project Files tab reads the same rows. Without this a file uploaded from
+     a project page would not appear there until something else invalidated it. */
+  revalidatePath('/projects');
   return {
     ok: true,
-    message: `${name} is uploaded and waiting for approval. It is not in Drive yet.`,
+    message:
+      outcome === 'filed'
+        ? `${name} is filed in this system's storage. Your rank means it needed no approval.`
+        : `${name} is uploaded and waiting for an Admin to accept it. It is not in Google Drive.`,
   };
 }
 
-/**
- * The no-queue path: bytes go to Drive, then a row is written already approved.
- *
- * ── THE ORDER IS THE OPPOSITE WAY ROUND FROM THE QUEUE, FOR THE SAME REASON ──
- * The queued path stores locally first because the file must NOT reach Drive
- * until somebody says yes. Here somebody already has, so the file goes to Drive
- * first and the row is written only once Google confirms it. Both orders exist
- * to make the same guarantee: a row never claims a file that is not there.
- *
- * Nothing is written to our own storage at all. A local copy would have to be
- * deleted immediately, and a delete that fails leaves rubbish behind for no gain.
- */
-async function uploadStraightToDrive(input: {
-  /* The whole current user, because `audit` wants the actor's role and email as
-     they were at the time — not a lookup that would report today's values. */
-  user: Awaited<ReturnType<typeof requireUser>>;
-  folder: F.DriveFolderRow;
-  name: string;
-  description: string | null;
-  projectId: string | null;
-  mimeType: string;
-  sizeBytes: number;
-  bytes: Uint8Array;
-}): Promise<DocumentResult> {
-  const { user, folder } = input;
-
-  const connection = await connectionStatus();
-  if (!connection.connected) {
-    return fail(
-      `${folder.name} is set to accept uploads directly, but Google Drive is not connected — so there is nowhere to put it. Ask an Admin to connect Drive.`,
-    );
-  }
-
-  const uploaded = await Drive.uploadFile({
-    name: input.name,
-    mimeType: input.mimeType,
-    bytes: input.bytes,
-    parentFolderId: folder.driveFolderId,
-  });
-  if (!uploaded.ok) return fail(uploaded.reason);
-
-  let documentId: string;
-  try {
-    documentId = await D.createApprovedDocument(user.id, {
-      name: input.name,
-      description: input.description,
-      projectId: input.projectId,
-      folderId: folder.id,
-      mimeType: input.mimeType,
-      sizeBytes: input.sizeBytes,
-      driveFileId: uploaded.value.id,
-      driveWebLink: uploaded.value.webViewLink ?? null,
-    });
-  } catch {
-    /* ⚠️ The file IS in Drive and the register does not know about it. Not
-       silently swallowed and not retried: deleting it again could destroy
-       somebody's only copy, and claiming success would hide a real
-       inconsistency. The person is told exactly what to do about it. */
-    console.error('[documents] a direct Drive upload succeeded but its row failed');
-    return fail(
-      `${input.name} reached Drive but could not be recorded here. It is in ${folder.name} — tell an Admin so the register can be corrected.`,
-    );
-  }
-
-  await withUser(user.id, async (tx) => {
-    await audit(tx, user, {
-      entityType: 'document',
-      entityId: documentId,
-      action: 'document.uploaded_directly',
-      /* The folder and its level are recorded, because "why did this skip the
-         queue" has to be answerable a year later, when whoever granted the
-         access has forgotten. */
-      after: {
-        name: input.name,
-        folder: folder.name,
-        folderAccess: folder.memberAccess,
-        driveFileId: uploaded.value.id,
-      },
-    });
-  }).catch(() => console.error('[documents] audit write failed for a direct upload'));
-
-  revalidatePath('/documents');
-  return {
-    ok: true,
-    message: `${input.name} is in ${folder.name} in Google Drive. No approval was needed — you have upload access to that folder.`,
-  };
-}
 
 /* ==========================================================================
  * APPROVE — Coordinator and above
@@ -418,10 +511,8 @@ export async function approveDocumentAction(id: string): Promise<DocumentResult>
   const user = await requireUser();
   const actor = { role: user.role, id: user.id };
 
-  /* A Coordinator may edit and delete documents but not approve one — including
-     their own. That is what keeps the queue meaningful. */
   if (!can(actor, 'document.approve')) {
-    return fail('Only a Team Coordinator or above can approve a document into Drive.');
+    return fail('Only a Team Coordinator or above can accept a document.');
   }
 
   const document = await D.getDocument(user.id, id);
@@ -429,101 +520,55 @@ export async function approveDocumentAction(id: string): Promise<DocumentResult>
   if (document.state !== 'pending') return fail(`That document is already ${document.state}.`);
   if (!document.storagePath) return fail('That file is missing from storage.');
 
-  const drive = Drive.describeDrive();
-  if (!drive.configured) {
-    return fail(
-      'No Google OAuth client is configured, so nothing can be approved into Drive. See docs/GOOGLE-DRIVE-SETUP.md.',
-    );
-  }
+  /* ── ⚠️ ACCEPTANCE MOVES NOTHING. IT IS A STATE CHANGE. ────────────────────
+     Owner, 2026-08-24: *"I will accept it and then it will be added to the
+     bucket."* It is already in the bucket — a pending document has always been a
+     real object in private Supabase storage. So the whole of what follows used to
+     be ceremony with a cost:
 
-  /* Configured but nobody has consented is a different problem with a different
-     fix, and saying "not configured" for both is how an approver ends up editing
-     environment variables that were already correct. */
-  const connection = await connectionStatus();
-  if (!connection.connected) {
-    return fail('Google Drive is not connected yet. Connect it on this screen, then approve again.');
-  }
+       · it required a configured Google OAuth client, and refused outright
+         without one — "No Google OAuth client is configured, so nothing can be
+         approved into Drive";
+       · it required somebody to have consented to that client;
+       · it downloaded the bytes through a signed URL and re-uploaded them;
+       · it then DELETED the object from our bucket, because
+         `documents_state_is_coherent` demanded `storage_path is null` on an
+         approved row.
 
-  /* Read it back out of our own storage. A signed URL rather than a direct read
-     because that is the only interface `lib/storage/bucket.ts` exposes, and it is
-     the same path an approver's browser uses to preview the file. */
-  const signed = await signedUrl(document.storagePath);
-  if (!signed.ok) return fail(`The stored file could not be read: ${signed.message}`);
+     Which is the opposite of "it will be saved in Supabase". Migration 048
+     relaxed the constraint; this is now three lines and cannot fail for a reason
+     that has nothing to do with the document.
 
-  let bytes: Uint8Array;
-  try {
-    const response = await fetch(signed.value, { signal: AbortSignal.timeout(60_000) });
-    if (!response.ok) return fail('The stored file could not be read back.');
-    bytes = new Uint8Array(await response.arrayBuffer());
-  } catch {
-    return fail('The stored file could not be read back.');
-  }
-
-  /* ── WHERE IT LANDS, MOST SPECIFIC FIRST ──────────────────────────────────
-       the folder the uploader chose  — they said where it belongs
-       the project's own Drive folder — the project says where it belongs
-       the watched parent             — the division says where things go
-       the Drive root                 — nowhere left to fall
-
-     Falling back rather than refusing: a document with no folder and no project
-     still has to go somewhere, and an approval that fails because nobody picked a
-     folder would strand a file that is already accepted. */
-  const sync = await D.getDriveSync(user.id);
-  const chosenFolder = document.folderId
-    ? await F.getFolder(user.id, document.folderId)
-    : null;
-  const projectFolder = document.projectId
-    ? await projectDriveFolder(user.id, document.projectId)
-    : null;
-
-  const uploaded = await Drive.uploadFile({
-    name: document.name,
-    mimeType: document.mimeType ?? 'application/octet-stream',
-    bytes,
-    parentFolderId:
-      chosenFolder?.driveFolderId ?? projectFolder ?? sync?.watchedFolderId ?? null,
-  });
-
-  if (!uploaded.ok) return fail(uploaded.reason);
-
-  /* Only now is it approved. See the note at the top about the order. */
-  await D.markApproved(user.id, id, {
-    fileId: uploaded.value.id,
-    webLink: uploaded.value.webViewLink ?? null,
-  });
-
-  /* Last, and non-fatal: the file is in Drive either way, and an orphaned object
-     costs storage whereas failing here would cost the truth. */
-  const removed = await removeObject(document.storagePath).catch(() => ({ ok: false }) as const);
+     ⚠️ THE DRIVE-COPYING CODE IS GONE RATHER THAN LEFT DISABLED. It was ~90
+     lines across this file — `uploadStraightToDrive`, `projectDriveFolder` and a
+     second size limit — and none of it had a caller once the rule became "the
+     bucket is where documents live". Code with no caller is not a spare wheel; it
+     is what stops compiling six months from now and gets deleted in a hurry by
+     somebody who does not know what it was for. Git remembers it, and
+     `lib/drive/*` still exists for the folder registry and the sync, which are
+     genuinely still used. */
+  await D.markApproved(user.id, id);
 
   await withUser(user.id, async (tx) => {
     await audit(tx, user, {
       entityType: 'document',
       entityId: id,
       action: 'document.approved',
-      after: { name: document.name, driveFileId: uploaded.value.id },
+      after: { name: document.name },
     });
     await notify(tx, user.id, {
       userId: document.uploadedById,
       kind: 'security_alert',
-      title: `${document.name} is in Drive`,
-      body: `${user.fullName} approved it.`,
+      title: `${document.name} was accepted`,
+      body: `${user.fullName} accepted it. It is filed and everybody on the project can open it.`,
       linkTo: '/documents',
       entityId: id,
     });
   }).catch(() => console.error('[documents] audit write failed for an approval'));
 
   revalidatePath('/documents');
-  return {
-    ok: true,
-    message: `${document.name} is in Google Drive.`,
-    ...(removed.ok
-      ? {}
-      : {
-          warning:
-            'The file is in Drive, but the temporary copy could not be removed from storage. Harmless — it is just using space.',
-        }),
-  };
+  revalidatePath('/projects');
+  return { ok: true, message: `${document.name} is filed.` };
 }
 
 export async function rejectDocumentAction(
@@ -607,7 +652,75 @@ export async function updateDocumentAction(
   ).catch(() => console.error('[documents] audit write failed for an update'));
 
   revalidatePath('/documents');
+  revalidatePath('/projects');
   return { ok: true, message: 'Saved.' };
+}
+
+/**
+ * Rename a file. Admin, Super Admin and Team Coordinator.
+ *
+ * Owner, 2026-08-24: *"only in the admin and team coordinator access, I want
+ * that… he can delete it, change the name of the file, view it."*
+ *
+ * `document.manage` is exactly that set — allow for Super Admin, Admin and Team
+ * Coordinator, deny for Member (permissions.ts) — so the gate is the existing
+ * permission rather than a role list written out again here. Row-level security
+ * decides WHICH documents; this decides whether the verb is available at all.
+ *
+ * ── ⚠️ WHY NOT `updateDocumentAction` WITH A NAME-ONLY FORM ──────────────────
+ * That action reads `description` and `projectId` off the form and writes both.
+ * Posted from a rename box with neither field, it would blank the description and
+ * detach the document from its project — on the project page whose Files tab you
+ * renamed it from, so the row would vanish from the list as a side effect of being
+ * renamed. See `renameDocument` in the query layer.
+ *
+ * ── ⚠️ WHAT THIS DOES *NOT* RENAME ──────────────────────────────────────────
+ * The file in Google Drive, for a row that has one. Drive is the company's own
+ * store and this is our register's label for it; quietly renaming somebody's Drive
+ * file from a CRM list is a surprise in a place people do not look. The message
+ * says so rather than leaving it to be discovered.
+ */
+export async function renameDocumentAction(
+  id: string,
+  name: string,
+): Promise<DocumentResult> {
+  const user = await requireUser();
+  if (!can({ role: user.role, id: user.id }, 'document.manage')) {
+    return fail('Only an Admin or a Team Coordinator can rename a file.');
+  }
+
+  const trimmed = name.trim();
+  if (!trimmed) return fail('Give the file a name.');
+  /* `documents.name` is text with no length cap, so this is a sanity bound rather
+     than a database rule: a name longer than a line is unreadable in every list
+     that shows it. */
+  if (trimmed.length > 200) return fail('That name is too long — keep it under 200 characters.');
+
+  const document = await D.getDocument(user.id, id);
+  if (!document) return fail('That document is no longer there.');
+  if (document.name === trimmed) return { ok: true, message: 'That is already its name.' };
+
+  const renamed = await D.renameDocument(user.id, id, trimmed);
+  if (!renamed) return fail('That file could not be renamed.');
+
+  await withUser(user.id, (tx) =>
+    audit(tx, user, {
+      entityType: 'document',
+      entityId: id,
+      action: 'document.renamed',
+      before: { name: document.name },
+      after: { name: trimmed },
+    }),
+  ).catch(() => console.error('[documents] audit write failed for a rename'));
+
+  revalidatePath('/documents');
+  revalidatePath('/projects');
+  return {
+    ok: true,
+    message: document.driveFileId
+      ? `Renamed to ${trimmed} here. The file in Google Drive keeps its own name.`
+      : `Renamed to ${trimmed}.`,
+  };
 }
 
 /**
@@ -642,11 +755,13 @@ export async function deleteDocumentAction(id: string): Promise<DocumentResult> 
   ).catch(() => console.error('[documents] audit write failed for a delete'));
 
   revalidatePath('/documents');
+  /* The project Files tab lists the same rows — see the note on the upload. */
+  revalidatePath('/projects');
   return {
     ok: true,
     message: document.driveFileId
       ? `${document.name} is off the list. The file itself is still in Google Drive.`
-      : `${document.name} is deleted.`,
+      : `${document.name} is deleted, and the file with it.`,
   };
 }
 
@@ -861,10 +976,3 @@ export async function syncDriveFoldersAction(): Promise<DocumentResult> {
   };
 }
 
-/** The Drive folder a project is linked to, if any. */
-async function projectDriveFolder(actorId: string, projectId: string): Promise<string | null> {
-  const rows = await withUser(actorId, (tx) => tx`
-    select drive_folder_id from public.projects where id = ${projectId}
-  `);
-  return (rows[0]?.drive_folder_id as string | null) ?? null;
-}

@@ -85,6 +85,24 @@
   --cyan-deep-l: #0e7490; --cyan-deep-d: #22d3ee;
   --emerald-deep-l: #059669; --emerald-deep-d: #34d399;
   --slate-deep-l: #475569; --slate-deep-d: #94a3b8;
+
+  /* ---- Text-safe semantic inks --------------------------------------------
+     ⚠️ EVERY HUE ABOVE IS A CHART FILL, NOT A TEXT COLOUR. On white they run
+     2.8–3.8:1 and fail WCAG's 4.5:1 for body text. Measured in the browser on
+     2026-08-26: a figure set in `--load-warning` came out at 2.80:1, and the
+     waterfall's own amounts at 3.76:1 — while the DARK theme passed everywhere,
+     which is exactly how this stays invisible in review.
+
+     This is the same trap the gold scale documents at the top of this file.
+     These four are the darkened variants that pass, for the one thing that must
+     be legible before anything else on a finance screen: the figure.
+
+     ⚠️ Light theme only. In dark theme the `-d` hues sit on a dark surface and
+     already clear 4.5:1, so the mapping below points back at them. */
+  --emerald-text-l: #047857; /* 5.5:1 on white */
+  --red-text-l: #b91c1c;     /* 6.5:1 */
+  --orange-text-l: #c2410c;  /* 5.2:1 */
+  --blue-text-l: #1d4ed8;    /* 6.7:1 */
 }
 
 /* ==========================================================================
@@ -234,11 +252,37 @@
   --bg-surface-sunken: #f4f8f9;
   --bg-hover: #eaf2f2;
   --bg-active: #dfebec;
-  --bg-selected: var(--teal-50);
+  /* ── ⚠️ SELECTED MUST BE THE STRONGEST OF THE THREE. IT WAS THE WEAKEST. ────
+     Owner, having raised it on three separate controls: *"the selection more
+     prominent. First of all it's a major flaw and I am dealing with it
+     everywhere."*
+
+     They were right, and it was not the components — it was this line. The ramp
+     was inverted:
+
+         hover     #eaf2f2
+         active    #dfebec   ← darker than the selection below it
+         selected  #e9f6f6   ← teal-50, PALER than hover
+
+     So a selected row was tinted less than the same row under the cursor. Every
+     "make it more prominent" fix applied to a component was working against a
+     token that had already given the state away — the platform chips ended up
+     needing a solid fill to overcome it, and the tab cards read as unselected.
+
+     teal-100 puts the three in the only order that means anything: a selection is
+     more emphatic than a hover, and a hover is more emphatic than nothing. Seventeen
+     components read this token, which is why fixing it here rather than in each of
+     them is the point. */
+  --bg-selected: var(--teal-100);
   --bg-brand-subtle: var(--teal-50);
   --bg-gold-subtle: var(--gold-50);
   --bg-inverse: var(--neutral-950);
-  --bg-scrim: rgb(6 20 23 / 0.55);
+  /* ⚠️ NEARLY BLACK, AND DARKER THAN IT WAS (0.55 teal-black → 0.68 black).
+     Owner, 2026-08-25, of the credential modal: *"make the modal background,
+     hover, and back black."* At 0.55 over a light page the scrim read as a grey
+     wash, and a modal that does not visibly darken what is behind it looks like
+     part of the page rather than on top of it. The dark theme was already 0.7. */
+  --bg-scrim: rgb(2 6 7 / 0.68);
 
   /* A whisper of brand light behind the content area, so the page is a lit
      surface rather than a flat slab of colour. */
@@ -251,6 +295,20 @@
   --border-subtle: #e3ecec;
   --border-strong: #b9cdcf;
   --border-brand: var(--teal-700);
+  /* ⚠️ A DELIBERATELY STRONGER BRAND BORDER, for a selected card.
+     Owner, 2026-08-24, of the credential list: *"its border color should be dark
+     green, like our theme color… that's our logo color or you can say the left
+     sidebar color."*
+
+     `--border-brand` is teal-700, which IS dark — but at 1px on a teal-50
+     background it reads as light, which is what the owner was looking at. This is
+     one step deeper so a 2px selected border looks chosen rather than incidental.
+
+     ⚠️ It goes the OTHER WAY in dark mode, and it has to: a darker teal on a
+     near-black surface is invisible. Stronger here means "further from the
+     background", not "darker" — which is why this is a token and not a hex in a
+     component. */
+  --border-brand-strong: var(--teal-800);
   --border-gold: var(--gold-500);
 
   /* ---- Text ---- */
@@ -345,6 +403,21 @@
   --feedback-error: var(--red-deep-l);
   --feedback-info: var(--teal-700);
 
+  /* ---- Money, as TEXT ------------------------------------------------------
+     ⚠️ Named for what the figure MEANS, not for its colour — the same rule the
+     KPI row above follows. A component reaching for `--red-text-l` directly
+     would tie the markup to a hue and put the light and dark values back in the
+     component instead of here.
+
+     These exist because the chart tokens are unreadable as text in the light
+     theme; see the note beside `--emerald-text-l` in the palette. Use them for
+     any FIGURE. Bars, dots and ring segments keep the chart tokens — a filled
+     shape has no contrast requirement to meet. */
+  --money-in: var(--emerald-text-l); /* income, a positive delta */
+  --money-out: var(--red-text-l); /* a loss, an overspend */
+  --money-due: var(--orange-text-l); /* owed but not yet paid */
+  --money-wait: var(--blue-text-l); /* invoiced but not yet received */
+
   /* ---- Tint strengths for soft badges and accent washes ----
      A component mixes a semantic colour with the surface at these strengths
      via color-mix(), which keeps colour vivid without a hex ever appearing in
@@ -365,7 +438,15 @@
   --bg-surface-sunken: #061a1e;
   --bg-hover: #163a40;
   --bg-active: #1c464c;
-  --bg-selected: #0e3a3f;
+  /* ⚠️ The same inversion was here, and worse: #0e3a3f sat between the SURFACE
+     (#0c2429) and hover, so a selected row in dark mode was almost exactly the
+     colour of an unselected one. Stepped past active for the same reason as light
+     mode — selected has to be the strongest of the three or the state is decoration.
+
+     ⚠️ Brighter, not darker. "Stronger" means further from the background, and on a
+     dark ground that is upward. Going darker is the mistake that made the original
+     value read as no change at all. */
+  --bg-selected: #235860;
   --bg-brand-subtle: #0a3035;
   --bg-gold-subtle: #2b2413;
   --bg-inverse: var(--neutral-50);
@@ -380,6 +461,8 @@
   --border-subtle: #17383d;
   --border-strong: #2f5c63;
   --border-brand: var(--teal-400);
+  /* Brighter, not darker — see the note in the light block. */
+  --border-brand-strong: var(--teal-300);
   --border-gold: var(--gold-400);
 
   /* ---- Text ---- */
@@ -460,6 +543,17 @@
   --feedback-warning: var(--orange-d);
   --feedback-error: var(--red-d);
   --feedback-info: var(--teal-400);
+
+  /* ---- Money, as TEXT ------------------------------------------------------
+     ⚠️ These point back at the ORDINARY chart hues, unlike the light theme. On
+     a dark surface the `-d` variants are the light end of their scale and
+     already clear 4.5:1 — measured across the whole finance page on 2026-08-26,
+     zero failures. Darkening them here would make them harder to read, not
+     easier, which is the mistake this note exists to prevent. */
+  --money-in: var(--emerald-deep-d);
+  --money-out: var(--red-d);
+  --money-due: var(--orange-d);
+  --money-wait: var(--blue-d);
 
   /* ---- Tint strengths — a touch stronger on dark, where washes read fainter */
   --tint-soft: 14%;
@@ -1279,6 +1373,1635 @@ body,
 @keyframes orbit {
   to {
     --orbit-angle: 360deg;
+  }
+}
+
+/* ==========================================================================
+   THE DASHBOARD'S MOVING PARTS
+   ==========================================================================
+   Owner, 2026-08-25: "full of animations, 3D views, moving charts… everything
+   should be live over there".
+
+   All four below animate `transform`, `opacity` or `stroke-dashoffset` ONLY —
+   the three properties the compositor can run without laying the page out
+   again. A dashboard carrying twelve panels and five charts is exactly where an
+   animated `height` turns a redesign into something slower than what it
+   replaced, and the note on `.reveal` above already records that rule.
+   ========================================================================== */
+
+/* A 3D column growing out of its own baseline. `transform-origin` is set per
+   column in the component, in viewBox units, because every column stands on the
+   same baseline but at its own x — `bottom` alone would scale each one towards
+   the middle of its own box and they would rise out of step. */
+@keyframes bar-rise {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+/* A line that draws itself left to right. The component sets --line-length to
+   the path's own measured length, so this works at any width without knowing
+   one. */
+@keyframes line-draw {
+  from {
+    stroke-dashoffset: var(--line-length, 1000);
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* The live pulse: a ring that expands and fades out of a dot, forever. Two
+   rings 1.1s apart read as a heartbeat rather than as a spinner, which is the
+   distinction between "this is current" and "this is loading". */
+@keyframes live-ping {
+  0% {
+    transform: scale(0.55);
+    opacity: 0.75;
+  }
+  70% {
+    transform: scale(2.3);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(2.3);
+    opacity: 0;
+  }
+}
+
+/* A row arriving in a feed — from the side, so it reads as "this just came in"
+   rather than as the page still loading. */
+@keyframes slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.bar-rise {
+  animation: bar-rise 620ms var(--ease-reveal) both;
+  animation-delay: calc(var(--bar-index, 0) * 70ms);
+}
+
+/* The wash under a drawn line. Deliberately BEHIND the line it belongs to —
+   an area already sitting at full strength while its own line is still being
+   drawn reads as two unrelated shapes. */
+.fade-in {
+  animation: fade-in 760ms var(--ease-out) both;
+  animation-delay: calc(var(--fade-index, 0) * 160ms + 240ms);
+}
+
+.line-draw {
+  stroke-dasharray: var(--line-length, 1000);
+  animation: line-draw 1100ms var(--ease-reveal) both;
+  animation-delay: calc(var(--line-index, 0) * 160ms);
+}
+
+.live-ping {
+  animation: live-ping 2.2s var(--ease-in-out) infinite;
+}
+
+.slide-in {
+  animation: slide-in-right 380ms var(--ease-reveal) both;
+  animation-delay: calc(var(--slide-index, 0) * 45ms);
+}
+
+/* ⚠️ Every one of them off under reduced motion, pinned to the END state. A
+   `bar-rise` left at `scaleY(0)` is an invisible chart, and a `line-draw` left
+   at full dashoffset is an invisible line — both would read as no data rather
+   than as no animation. */
+@media (prefers-reduced-motion: reduce) {
+  .bar-rise,
+  .line-draw,
+  .live-ping,
+  .slide-in,
+  .fade-in {
+    animation: none !important;
+  }
+
+  .bar-rise,
+  .slide-in,
+  .fade-in {
+    opacity: 1;
+    transform: none;
+  }
+
+  .line-draw {
+    stroke-dasharray: none;
+    stroke-dashoffset: 0;
+  }
+
+  /* The dot stays; only its ring stops. A live badge that has stopped moving
+     must still say it is live. */
+  .live-ping {
+    opacity: 0;
+  }
+}
+
+/* ==========================================================================
+   THE DASHBOARD HERO — aurora, particles, orbit, ticker
+   ==========================================================================
+   Owner, 2026-08-25: *"a high level of animated moving articles, moving
+   particles, or a moving globe… I want to make this dashboard not classic
+   gray."* The hero is one dark brand-coloured panel that carries all of the
+   ambient motion, so the rest of the page can stay legible: charts animate
+   when DATA changes, the hero moves all the time. Mixing those two kinds of
+   motion in one place is how a dashboard becomes tiring instead of alive.
+
+   Everything here is `transform`/`opacity` on its own layer. The blobs carry
+   `will-change: transform` because `filter: blur(70px)` repaints are the one
+   genuinely expensive thing in this file, and promoting the three of them to
+   layers means the blur is computed once and then only moved.
+   ========================================================================== */
+
+/* A soft colour mass drifting inside the hero. Each blob sets its own travel
+   (--ax/--ay) and tempo (--at), so three of them never visibly loop together —
+   a synchronised loop is what makes ambient motion read as a GIF. */
+@keyframes aurora-drift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(var(--ax, 40px), var(--ay, -28px), 0) scale(1.18);
+  }
+}
+
+.aurora {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(70px);
+  pointer-events: none;
+  will-change: transform;
+  animation: aurora-drift var(--at, 16s) var(--ease-in-out) infinite;
+}
+
+/* Motes rising through the panel. Born at the bottom edge, faded in and out so
+   none ever pops into or out of existence, each with its own column, size,
+   tempo and start offset — a negative delay, so the field is already mid-flow
+   at first paint rather than all launching from the floor together. */
+@keyframes particle-rise {
+  0% {
+    transform: translateY(0) scale(1);
+    opacity: 0;
+  }
+  12% {
+    opacity: var(--po, 0.55);
+  }
+  85% {
+    opacity: var(--po, 0.55);
+  }
+  100% {
+    transform: translateY(-15rem) scale(0.55);
+    opacity: 0;
+  }
+}
+
+.hero-particle {
+  position: absolute;
+  bottom: -4px;
+  left: var(--px, 50%);
+  width: var(--pw, 4px);
+  height: var(--pw, 4px);
+  border-radius: 9999px;
+  background: var(--pc, rgb(255 255 255 / 0.85));
+  pointer-events: none;
+  animation: particle-rise var(--pt, 9s) linear infinite;
+  animation-delay: var(--pd, 0s);
+}
+
+/* The module orbit — the "moving globe": every part of the product circling
+   the core. The ring spins one way and each tile spins the other at the same
+   tempo, which is what keeps the icons upright; both start at mount so they
+   cannot drift apart. Hover pauses the whole assembly, because an orbiting
+   link is a moving target and a moving target is not a link. */
+@keyframes spin-360 {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes spin-minus-360 {
+  to {
+    transform: rotate(-360deg);
+  }
+}
+
+.orbit-spin {
+  animation: spin-360 var(--orbit-t, 46s) linear infinite;
+}
+
+.orbit-unspin {
+  animation: spin-minus-360 var(--orbit-t, 46s) linear infinite;
+}
+
+.orbit-hub:hover .orbit-spin,
+.orbit-hub:hover .orbit-unspin {
+  animation-play-state: paused;
+}
+
+/* The stats ticker — the "moving articles". The track holds two identical
+   halves and travels exactly half its own width, so the loop is seamless at
+   any content length. Paused on hover: nobody should have to chase a number. */
+@keyframes ticker-scroll {
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.ticker {
+  overflow: hidden;
+}
+
+.ticker-track {
+  display: flex;
+  width: max-content;
+  animation: ticker-scroll var(--ticker-t, 40s) linear infinite;
+}
+
+.ticker:hover .ticker-track {
+  animation-play-state: paused;
+}
+
+/* ⚠️ Reduced motion, and what each piece becomes:
+     aurora    — a still colour wash; the tint IS the design, only the drift goes
+     particles — REMOVED, not frozen: motionless dots on the floor read as dirt
+     orbit     — a still ring of links, icons upright (the static counter-rotate
+                 is on its own element, so freezing the animations keeps it)
+     ticker    — a wrapped list; the duplicate half is display:none because two
+                 copies of every figure standing still is a page saying
+                 everything twice */
+@media (prefers-reduced-motion: reduce) {
+  .aurora,
+  .orbit-spin,
+  .orbit-unspin,
+  .ticker-track {
+    animation: none !important;
+  }
+
+  .hero-particle {
+    display: none;
+  }
+
+  .ticker-track {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .ticker-dup {
+    display: none;
+  }
+}
+
+/* ==========================================================================
+   THE GLOBE — and the lesson of the theme island that preceded it
+   ==========================================================================
+   Owner, 2026-08-25, from the "Executive Holographic Command Center"
+   reference. The first build took the mockup literally: a `data-theme` island
+   that forced the whole dashboard into fixed deep-navy and electric cyan,
+   in both themes. Owner, same day, with a screenshot of it sitting in their
+   light UI: *"Keep the theme the same… right now it's totally looking out of
+   theme. Make the theme keep working."*
+
+   So the rule, learned the direct way: THE HOLOGRAM IS A SHAPE, NOT A
+   PALETTE. The globe, the floating chips, the ticker and the panels all stay
+   — drawn in the theme's own tokens (`--accent-primary`, the feedback
+   colours, the real surfaces), so the deck is teal-on-light in light mode and
+   teal-on-dark in dark, and the toggle keeps working. Nothing on the
+   dashboard may fix its own colours again.
+
+   A wireframe sphere: the parallels are still; each MERIDIAN is an ellipse
+   whose horizontal scale runs 1 → −1 → 1, which is precisely the projection
+   of a circle of longitude on a turning sphere — three of them a third of a
+   period apart read as continuous rotation. `transform-box: fill-box` because
+   an SVG child's transform-origin is otherwise the viewport corner, and a
+   meridian scaling about the corner leaves the sphere entirely.
+   ========================================================================== */
+
+@keyframes meridian-turn {
+  0% {
+    transform: scaleX(1);
+  }
+  50% {
+    transform: scaleX(-1);
+  }
+  100% {
+    transform: scaleX(1);
+  }
+}
+
+.globe-meridian {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: meridian-turn var(--gt, 10s) linear infinite;
+  animation-delay: var(--gd, 0s);
+}
+
+/* A floating stat chip, bobbing on its own tempo. Gentle: ±6px. */
+@keyframes chip-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+.chip-float {
+  animation: chip-float var(--cf, 5.5s) var(--ease-in-out) infinite;
+  animation-delay: var(--cd, 0s);
+}
+
+/* The platform's expanding ring. */
+@keyframes ring-pulse {
+  0% {
+    transform: scale(0.62);
+    opacity: 0.65;
+  }
+  100% {
+    transform: scale(1.45);
+    opacity: 0;
+  }
+}
+
+.ring-pulse {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: ring-pulse 3.2s var(--ease-out) infinite;
+}
+
+/* ⚠️ Reduced motion: the globe stands still as a complete wireframe (the
+   meridians are full ellipses at rest, so a static globe still reads as a
+   globe), the chips sit still, and the pulse ring goes entirely — a frozen
+   expanding ring is a stain on the platform. */
+@media (prefers-reduced-motion: reduce) {
+  .globe-meridian,
+  .chip-float {
+    animation: none !important;
+    transform: none;
+  }
+
+  .ring-pulse {
+    animation: none !important;
+    opacity: 0;
+  }
+}
+
+/* ==========================================================================
+   THE CONTROL ROOM
+   ==========================================================================
+   Owner, 2026-08-25: the dashboard rebuilt to a "Holographic Control Room"
+   reference — a bright projector chamber, a rotating globe on a lit dais, and
+   glass panels arranged around it.
+
+   ── ⚠️ TOKENS, NOT A FIXED PALETTE ────────────────────────────────────────
+   The owner's previous correction stands and is the rule this section obeys:
+   *"Keep the theme the same… make the theme keep working."* Every colour below
+   is either a token or a mix of one, so the room is a bright chamber in light
+   mode and a dark one in dark mode, and the toggle governs it. The hologram is
+   the SHAPE; the palette is always the theme's.
+   ========================================================================== */
+
+/* ── The chamber ────────────────────────────────────────────────────────────
+   The owner supplied a photographic room per theme (2026-08-25): a white
+   projector hall and a blue-lit one. `--room` is set per theme below and the
+   wrapper paints it; the accent washes stay on top so the room still tints with
+   the brand.
+
+   ── ⚠️ FIXED, NOT SCROLLING, AND FADED AT THE FOOT ────────────────────────
+   `background-attachment: fixed` keeps the room still while the panels scroll
+   over it — a photographic backdrop that scrolls with the content reads as a
+   very tall picture rather than as a room you are standing in. The mask fades
+   the image out below the fold so a short page does not show its bottom edge,
+   and a long one dissolves into the page's own surface instead of ending.
+
+   ⚠️ The image is a BACKDROP, never a surface: every panel above it is an
+   opaque themed card, so contrast is unaffected in either theme. */
+.control-room {
+  position: relative;
+  isolation: isolate;
+  background-image:
+    radial-gradient(56rem 22rem at 50% -6rem, color-mix(in oklab, var(--accent-primary) 16%, transparent), transparent 66%),
+    radial-gradient(30rem 18rem at 6% 30%, color-mix(in oklab, var(--accent-primary) 8%, transparent), transparent 60%),
+    radial-gradient(30rem 18rem at 94% 30%, color-mix(in oklab, var(--accent-gold) 7%, transparent), transparent 60%);
+}
+
+/* ⚠️ The photograph goes on a ::before at -1, NOT on the element's own
+   background: the wrapper's accent gradients have to sit ON TOP of it, and a
+   single background-image list cannot mix `fixed` attachment for one layer with
+   scrolling for the others. `isolation: isolate` above keeps this negative
+   layer from sliding behind the page background entirely — the same trap the
+   grain and header-glow utilities document.
+
+   ── ⚠️ IT COVERS THE WHOLE PAGE, NOT THE TOP OF IT ────────────────────────
+   This was `height: 62rem` with a mask fading out by 92% of that, and the owner
+   sent a zoomed-out screenshot of the result: the room filled the top half and
+   everything below it — the whole bottom row of panels — sat on flat white.
+   *"Is it possible for you to put all these cards on the image so that this
+   white space is covered?"*
+
+   `inset: 0` now covers the wrapper's ENTIRE box, so every card sits in the room
+   however tall the page is or how far it is zoomed out.
+
+   ⚠️ ABSOLUTE, not fixed. `position: fixed` would be the nicer effect — a room
+   that stays still while the panels scroll over it — but `.reveal-children > *`
+   puts a transform on this very element, and a transformed ancestor becomes the
+   containing block for a fixed child, so `fixed` here silently behaves as
+   `absolute` anyway. Written as what it actually is, rather than as a promise
+   the layout cannot keep.
+
+   ⚠️ `cover`, never `100% 100%`. Cover keeps the render's aspect ratio and crops
+   it; stretching a 16:9 room to a 3000px-tall page is a smear. */
+.control-room::before {
+  content: '';
+  position: absolute;
+  inset: -2rem -2.5rem;
+  z-index: -1;
+  pointer-events: none;
+  background-image: var(--room, none);
+  background-size: cover;
+  background-position: center 22%;
+  background-repeat: no-repeat;
+  opacity: var(--room-opacity, 0.5);
+}
+
+/* The white hall for light, the blue one for dark. Opacity differs because the
+   two plates do not carry the same weight: the white room is nearly the page
+   colour already and can sit stronger, while the blue one is high-contrast and
+   would fight the panels at the same value. */
+:root .control-room,
+[data-theme='light'] .control-room {
+  --room: url('/dashboard/room-light.png');
+  --room-opacity: 0.72;
+}
+
+[data-theme='dark'] .control-room {
+  --room: url('/dashboard/room-dark.png');
+  --room-opacity: 0.42;
+}
+
+/* A panel in the room: glass with a lit top edge. The `::after` hairline is
+   what sells "projected surface" rather than "card with a border". */
+.holo-panel {
+  position: relative;
+  border-radius: var(--radius-xl, 0.875rem);
+  border: 1px solid var(--border-default);
+  background-color: color-mix(in oklab, var(--bg-surface) 92%, transparent);
+  backdrop-filter: blur(6px);
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--accent-primary) 5%, transparent),
+    0 1px 2px rgb(0 0 0 / 0.04),
+    0 18px 40px -28px color-mix(in oklab, var(--accent-primary) 45%, transparent);
+}
+
+.holo-panel::after {
+  content: '';
+  position: absolute;
+  inset-inline: 12%;
+  top: -1px;
+  height: 1px;
+  border-radius: 9999px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in oklab, var(--accent-primary) 55%, transparent),
+    transparent
+  );
+  pointer-events: none;
+}
+
+/* ── Which globe is on screen ───────────────────────────────────────────────
+   Two cuts are mounted; CSS picks. The light cut is the DEFAULT so that the
+   attribute-less "system" state shows something correct at first paint, and the
+   dark rule then covers an explicit dark choice. `display` rather than opacity,
+   so the hidden element has no `offsetParent` — which is exactly what
+   holo-globe.tsx tests to decide which one to pause. */
+.globe-cut[data-globe='dark'] {
+  display: none;
+}
+
+[data-theme='dark'] .globe-cut[data-globe='light'] {
+  display: none;
+}
+
+[data-theme='dark'] .globe-cut[data-globe='dark'] {
+  display: block;
+}
+
+/* ── Rings that draw themselves ──────────────────────────────────────────────
+   Owner, 2026-08-25: *"In Progress is basically a bar that will move or load at
+   the time of refresh"* and, of the workload donut, *"a round progressive bar"*.
+
+   `stroke-dashoffset` is the one property that fills an arc without touching
+   layout, so this runs on the compositor. Each ring sets `--ring-len` (its own
+   circumference) and `--ring-to` (the offset its value lands on); the keyframe
+   sweeps from empty to there.
+
+   ⚠️ `--ring-to` has to be a real length, so the component computes it — a
+   percentage would be resolved against the viewBox, not the path. */
+@keyframes ring-fill {
+  from {
+    stroke-dashoffset: var(--ring-len, 999);
+  }
+  to {
+    stroke-dashoffset: var(--ring-to, 0);
+  }
+}
+
+.ring-fill {
+  animation: ring-fill 1100ms var(--ease-reveal) both;
+  animation-delay: calc(var(--ring-index, 0) * 90ms);
+}
+
+/* A bar that grows from its left edge, for the progress rows. */
+@keyframes bar-grow {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.bar-grow {
+  transform-origin: left center;
+  animation: bar-grow 900ms var(--ease-reveal) both;
+  animation-delay: calc(var(--bar-index, 0) * 70ms);
+}
+
+/* The same growth for a STANDING column: out of its own baseline, not its left
+   edge. Same keyframe, different origin and axis — a column scaled on x would
+   grow sideways out of its own middle. */
+@keyframes bar-grow-y {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+.bar-grow-y {
+  transform-origin: bottom center;
+  animation: bar-grow-y 760ms var(--ease-reveal) both;
+  animation-delay: calc(var(--bar-index, 0) * 60ms);
+}
+
+/* ⚠️ Both pinned at their FINISHED state under reduced motion. A ring left at
+   its start offset is an empty ring, and a bar left at scaleX(0) is an invisible
+   bar — either would read as "no data" rather than as "no animation". */
+@media (prefers-reduced-motion: reduce) {
+  .ring-fill {
+    animation: none !important;
+    stroke-dashoffset: var(--ring-to, 0);
+  }
+
+  .bar-grow,
+  .bar-grow-y {
+    animation: none !important;
+    transform: none;
+  }
+}
+
+/* ==========================================================================
+   THE BENTO SURFACE
+   ==========================================================================
+   The dashboard's tile: a glass panel that leans towards the cursor, carries a
+   sheen where the pointer is, and arrives in sequence.
+
+   ⚠️ `--tilt-x` / `--tilt-y` are declared with @property so they INTERPOLATE.
+   A plain custom property is a string to the compositor, so a transition on it
+   jumps between values instead of easing — the tilt would snap back on
+   pointer-out rather than settling. This is the same reason the orbit border
+   declares its own angle.
+   ========================================================================== */
+
+@property --tilt-x {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+@property --tilt-y {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+@keyframes tile-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ── The stage tiles arrive OUTWARD FROM THE GLOBE ───────────────────────────
+   Owner, 2026-08-26: *"when the page loads the cards on the left and right will
+   pop up one by one."*
+
+   Left-hand tiles slide in from the left, right-hand ones from the right, so
+   the pair reads as the panels parting to reveal the globe between them rather
+   than as a list appearing. `--tile-index` still spaces them, and a slightly
+   springy ease gives the arrival its snap.
+
+   ⚠️ Only `opacity` and `transform` move. Animating width or margin would
+   reflow the whole grid once per frame per tile — on a page of thirteen panels
+   that is the difference between a redesign that feels quick and one that feels
+   slower than what it replaced. */
+@keyframes tile-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(-26px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes tile-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(26px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ⚠️ `animation-name` and the easing ONLY — never the `animation` shorthand.
+   The shorthand resets every sub-property it omits, including the
+   `animation-delay: calc(var(--tile-index) * 65ms)` that `.bento-tile` sets —
+   so a shorthand here would land every tile in the stack at once and quietly
+   destroy the one-by-one arrival this rule exists to create. */
+.stage-left > .bento-tile {
+  animation-name: tile-in-left;
+  animation-timing-function: var(--ease-spring);
+}
+
+.stage-right > .bento-tile {
+  animation-name: tile-in-right;
+  animation-timing-function: var(--ease-spring);
+}
+
+/* ── THE CURTAIN ─────────────────────────────────────────────────────────────
+   Owner, 2026-08-26: *"when the preloaded video comes, then one by one each
+   card will pop up."*
+
+   Every tile is created PAUSED on its first frame. `StageDirector` flips
+   `data-stage` to `ready` when the backdrop can play — or after a hard timeout,
+   so a blocked video can never leave the page blank. Releasing them lets the
+   existing per-tile delay do the one-by-one arrival.
+
+   ⚠️ Paused, not hidden. The tiles are laid out from the first paint, so
+   curtain-up changes one compositor property rather than reflowing the grid. */
+[data-stage='waiting'] .bento-tile {
+  animation-play-state: paused;
+}
+
+[data-stage='ready'] .bento-tile {
+  animation-play-state: running;
+}
+
+/* ── ON APPROACH ─────────────────────────────────────────────────────────────
+   *"when I scroll to the progress, these bars will load."* Anything carrying
+   `data-reveal` holds its first frame until it is properly on screen.
+
+   ⚠️ The scale is on the X axis only and the origin is the left edge: these are
+   progress bars, and a bar that grows from its middle does not read as filling
+   up. */
+[data-reveal='out'] .reveal-bar {
+  transform: scaleX(0);
+}
+
+/* ── ⚠️ THE CURVE MATTERS MORE THAN THE DURATION ────────────────────────────
+   Owner, 2026-08-26: *"the animation is very fast… I can't even see the
+   movement of the bar."* The duration was already 900–1100ms, which sounds
+   slow — but the easing was `--ease-reveal`, `cubic-bezier(0.16, 1, 0.3, 1)`.
+   That curve is built for ARRIVALS: it covers about 90% of the distance in the
+   first fifth of its time, so a "1100ms" ring was visually finished in roughly
+   250ms and only crept the last hair afterwards.
+
+   These now use `--ease-in-out`, which spreads the movement evenly across the
+   whole duration, and the durations are roughly doubled. The result is motion
+   you can actually follow rather than a jump with a long tail.
+
+   ⚠️ The delay is not cosmetic either. A transition only interpolates if the
+   browser has PAINTED the start state first; when a card is already on screen
+   the observer can flip `data-reveal` in the same frame as the first paint, and
+   the value simply snaps. Holding for 260ms guarantees a painted start — and it
+   also lets the tile finish arriving before its contents begin filling, which
+   is the order the owner asked for. */
+.reveal-bar {
+  transform-origin: left center;
+  transform: scaleX(1);
+  transition: transform 1600ms var(--ease-in-out) 260ms;
+}
+
+/* A ring that draws itself on approach, for the donuts and dials. The component
+   sets `--ring-len` and `--ring-to`; this only decides WHEN. */
+[data-reveal='out'] .reveal-ring {
+  stroke-dashoffset: var(--ring-len, 999);
+}
+
+.reveal-ring {
+  transition: stroke-dashoffset 2200ms var(--ease-in-out) 300ms;
+}
+
+/* A column that grows out of its own baseline. */
+[data-reveal='out'] .reveal-column {
+  transform: scaleY(0);
+}
+
+.reveal-column {
+  transform-origin: bottom center;
+  transform: scaleY(1);
+  transition: transform 1400ms var(--ease-in-out) 260ms;
+}
+
+/* ── A waterfall step ────────────────────────────────────────────────────────
+   Each bar grows to `--step-width`, which the component computes as a share of
+   the chart's single shared scale.
+
+   ⚠️ WIDTH, not `transform: scaleX()`, and this is the one place in this file
+   that departs from the rule. A waterfall bar is positioned by `left` at its
+   own offset and must grow FROM that offset — but scaleX with a left origin
+   scales about the element's own box, so a step starting at 60% would grow
+   leftward across the steps above it. Width is the property that behaves.
+   It costs a layout on an element inside its own `overflow-hidden` track, which
+   is a contained and cheap reflow at these sizes.
+
+   The per-step delay is set inline, so the steps fall in sequence and the eye
+   follows the descent rather than meeting eleven finished bars at once. */
+[data-reveal='out'] .waterfall-step {
+  width: 0;
+}
+
+.waterfall-step {
+  width: var(--step-width, 0%);
+  transition: width 1500ms var(--ease-in-out);
+}
+
+/* ⚠️ Every one of these lands at its FINISHED state under reduced motion, and
+   the director marks each `data-reveal` as `in` immediately — a bar left at
+   scaleX(0) is an invisible bar, which reads as "no data" rather than as "no
+   animation". */
+@media (prefers-reduced-motion: reduce) {
+  .reveal-bar,
+  .reveal-ring,
+  .reveal-column,
+  .waterfall-step {
+    transition: none !important;
+  }
+
+  [data-reveal='out'] .reveal-bar,
+  [data-reveal='out'] .reveal-column {
+    transform: none;
+  }
+
+  [data-reveal='out'] .reveal-ring {
+    stroke-dashoffset: var(--ring-to, 0);
+  }
+
+  /* A step left at zero width is an invisible step, which reads as "nothing was
+     spent" rather than as "no animation". */
+  [data-reveal='out'] .waterfall-step {
+    width: var(--step-width, 0%);
+  }
+}
+
+.bento-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: 1rem;
+  /* ── ⚠️ GLASS, NOT A PANEL ────────────────────────────────────────────────
+     Owner, 2026-08-26: *"right now all the cards are white so make them
+     transparent so that the video in the background is visible."*
+
+     `--tile-veil` is the surface mixed with transparency, set per theme below.
+     It is a `color-mix` of `--bg-surface` rather than a fixed rgba so the glass
+     still follows the theme — the light card stays warm-white and the dark one
+     stays deep teal, both simply thinner.
+
+     ⚠️ The blur is what makes this legible. A translucent card over a MOVING
+     video is unreadable without it: the text would sit on a surface whose
+     brightness changes frame to frame. Blur turns the clip behind each tile
+     into a soft field of colour, so the contrast under the type is steady even
+     though the picture is not. Transparency and blur are one decision here, not
+     two. */
+  border: 1px solid var(--border-default);
+  background-color: var(--tile-veil, color-mix(in oklab, var(--bg-surface) 62%, transparent));
+  backdrop-filter: blur(18px) saturate(1.25);
+  /* ── ⚠️ FOUR LAYERS, EACH DOING ONE JOB ─────────────────────────────────
+     Owner, 2026-08-26: *"add some box shadow, as shown in the image."* The
+     reference's cards are lifted off the surface, not outlined.
+
+       1  a tight contact shadow — the edge the card sits on
+       2  a wide soft drop — the actual sense of height
+       3  a tinted bloom in the tile's own tone, so the lift is coloured
+       4  an inset top highlight — light catching the glass rim
+
+     ⚠️ The two dark layers use plain rgb, not a token. A shadow is an absence
+     of light: it is the same near-black in both themes, and mixing it from
+     `--bg-base` would make it invisible on the dark page — exactly where a
+     lifted card needs it most. */
+  box-shadow:
+    0 1px 2px rgb(2 8 23 / 0.06),
+    0 12px 28px -12px rgb(2 8 23 / 0.18),
+    0 22px 48px -30px color-mix(in oklab, var(--tile-glow, var(--accent-primary)) 70%, transparent),
+    inset 0 1px 0 color-mix(in oklab, white 30%, transparent);
+  animation: tile-in 520ms var(--ease-reveal) both;
+  animation-delay: calc(var(--tile-index, 0) * 65ms);
+  transition:
+    transform 260ms var(--ease-out),
+    border-color 200ms var(--ease-out),
+    box-shadow 260ms var(--ease-out);
+}
+
+/* The lean. `perspective` on the transform itself rather than on the grid, so a
+   tile can be moved between containers without losing its depth. */
+.bento-tile:hover {
+  border-color: color-mix(in oklab, var(--tile-glow, var(--accent-primary)) 42%, var(--border-default));
+  box-shadow:
+    0 1px 2px rgb(2 8 23 / 0.07),
+    0 18px 38px -14px rgb(2 8 23 / 0.22),
+    0 30px 62px -32px color-mix(in oklab, var(--tile-glow, var(--accent-primary)) 85%, transparent),
+    inset 0 1px 0 color-mix(in oklab, white 36%, transparent);
+  transform: perspective(60rem) rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg)) translateZ(0);
+}
+
+/* A lit edge along the top — the panel catching the room's light. */
+.bento-tile::after {
+  content: '';
+  position: absolute;
+  inset-inline: 14%;
+  top: -1px;
+  height: 1px;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in oklab, var(--tile-glow, var(--accent-primary)) 65%, transparent),
+    transparent
+  );
+}
+
+/* The sheen that follows the pointer. Zero opacity until the tile is hovered,
+   so it never shows at the default 50%/50% before the pointer has arrived. */
+.bento-gleam {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 240ms var(--ease-out);
+  background: radial-gradient(
+    16rem 12rem at var(--gleam-x, 50%) var(--gleam-y, 50%),
+    color-mix(in oklab, var(--tile-glow, var(--accent-primary)) 16%, transparent),
+    transparent 70%
+  );
+}
+
+.bento-tile:hover .bento-gleam {
+  opacity: 1;
+}
+
+/* ⚠️ Entrance pinned to its END state, and the lean removed entirely. `both`
+   fill holds the FROM frame during the delay, so cancelling without this leaves
+   every tile invisible — the whole dashboard would be blank for anybody who has
+   asked for less motion. */
+@media (prefers-reduced-motion: reduce) {
+  .bento-tile {
+    animation: none !important;
+    opacity: 1;
+    transform: none;
+  }
+
+  .bento-tile:hover {
+    transform: none;
+  }
+
+  .bento-gleam {
+    display: none;
+  }
+}
+
+/* ── The team constellation ──────────────────────────────────────────────────
+   Each avatar arrives on its own beat, then holds. The seat's transform already
+   carries its position, so the entrance may only animate OPACITY and a scale
+   applied to an inner element — animating the seat's own transform would throw
+   the person across the panel.
+
+   ⚠️ Which is why `.orbit-seat` animates opacity alone. It looked like an
+   oversight; it is the constraint. */
+@keyframes seat-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.orbit-seat {
+  animation: seat-in 520ms var(--ease-out) both;
+  animation-delay: calc(var(--seat-index, 0) * 110ms + 250ms);
+}
+
+/* The outer contour turns, very slowly, so the constellation is never quite
+   static without anything actually moving position. */
+@keyframes orbit-ring-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.orbit-ring {
+  border-style: dashed !important;
+  animation: orbit-ring-turn 90s linear infinite;
+}
+
+/* ── THE CONSTELLATION TURNS ─────────────────────────────────────────────────
+   Owner, 2026-08-26: *"in the team concentration you can see all these circles
+   are static. I want to make them rotate."*
+
+   The whole field of avatars rotates about the core, and each avatar
+   COUNTER-rotates at the same tempo so the faces and the percentages stay
+   upright. Both start together and share a duration, so they cannot drift apart.
+
+   ⚠️ Deliberately very slow — a 120-second lap is about 3° a second. Fast
+   enough that the panel is alive whenever the eye returns to it, slow enough
+   that nobody is chasing a moving face while reading a number.
+
+   ⚠️ Paused on hover, because an orbiting avatar is a moving target and the
+   percentages beside them are meant to be read. */
+@keyframes constellation-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes constellation-unturn {
+  to {
+    transform: rotate(-360deg);
+  }
+}
+
+/* ⚠️ `transform-origin: center` on BOTH, explicitly. The field is `inset-0` so
+   it inherits the default 50% 50% and turns true — but each seat is a
+   zero-size element positioned at `top/left: 50%`, so its natural origin is its
+   own top-left corner. Left alone, the counter-rotation swung each avatar
+   around a point beside itself and the whole constellation appeared to drift
+   off-centre as it turned. Stated on both so neither can drift again. */
+.constellation-field {
+  transform-origin: center;
+  animation: constellation-turn var(--constellation-t, 120s) linear infinite;
+}
+
+.constellation-upright {
+  transform-origin: center;
+  animation: constellation-unturn var(--constellation-t, 120s) linear infinite;
+}
+
+.constellation:hover .constellation-field,
+.constellation:hover .constellation-upright {
+  animation-play-state: paused;
+}
+
+/* ── DEPTH ON THE RINGS ──────────────────────────────────────────────────────
+   *"This circular bar, or circle, should be in a 3D view."* A slight tilt away
+   from the viewer plus a lift, so a donut reads as a disc lying in space rather
+   than a flat ring drawn on the card.
+
+   ⚠️ Small: 12° and a 40rem perspective. Past about 20° a circle projects to a
+   visibly squashed ellipse and the arc lengths stop reading as proportions,
+   which is the one thing these rings exist to show. */
+/* ── ⚠️ DEPTH IS AN EXTRUSION, NOT JUST A TILT ──────────────────────────────
+   A `rotateX` alone gives a disc lying back — which is a projection, not a
+   solid. The reference's donut has a visible BODY.
+
+   So the ring is drawn twice: `.ring-3d-body` is the same arcs shifted down and
+   darkened, `.ring-3d` is the lit top face over it. The pair reads as one
+   extruded object, and because both are the same geometry they can never
+   disagree about where a segment starts — which a hand-drawn side wall would.
+
+   ⚠️ Both faces share the tilt. If only the top were tilted, the body would
+   show as a flat shadow behind a tipped ring. */
+.ring-3d,
+.ring-3d-body,
+.ring-3d-base {
+  transform: perspective(34rem) rotateX(22deg);
+  transform-style: preserve-3d;
+}
+
+.ring-3d {
+  filter: drop-shadow(0 6px 10px color-mix(in oklab, var(--accent-primary) 26%, transparent));
+}
+
+/* The body sits under the top face and slightly lower — that offset IS the
+   thickness. `brightness(0.55)` darkens whatever colours the segments use, so
+   it stays correct however the caller tones them. */
+/* ⚠️ 9px, not 5. At 5 the body barely cleared the face and the ring read as a
+   flat disc with a soft shadow rather than a solid — the owner's *"not looking
+   3D"*. The offset IS the apparent thickness, so it has to be a visible
+   fraction of the stroke width (15 units here). */
+.ring-3d-body {
+  position: absolute;
+  inset: 0;
+  translate: 0 9px;
+  filter: brightness(0.42) saturate(1.35) blur(0.4px);
+  pointer-events: none;
+}
+
+/* A second, deeper copy — three layers read as a continuous wall where two read
+   as two stacked rings. Cheap: it is the same geometry again, no new maths. */
+.ring-3d-base {
+  position: absolute;
+  inset: 0;
+  translate: 0 15px;
+  filter: brightness(0.26) saturate(1.2) blur(1px);
+  opacity: 0.75;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orbit-seat {
+    animation: none !important;
+    opacity: 1;
+  }
+
+  .orbit-ring,
+  .constellation-field,
+  .constellation-upright {
+    animation: none !important;
+  }
+}
+
+/* ── The pulse ───────────────────────────────────────────────────────────────
+   A short bright dash running along the trace, over and over. With
+   `pathLength="1"` on the path, every length here is a FRACTION of the curve —
+   so `0.06 0.94` is a dash covering six per cent of it, and sweeping the offset
+   from 1 to 0 walks that dash from the start to the end exactly once.
+
+   Ease-in-out rather than linear: a heartbeat accelerates through the peak and
+   settles, and a constant-speed dot reads as a loading bar. */
+@keyframes pulse-run {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.pulse-run {
+  stroke-dasharray: 0.06 0.94;
+  filter: drop-shadow(0 0 5px color-mix(in oklab, var(--accent-gold) 70%, transparent));
+  animation: pulse-run 3.6s var(--ease-in-out) infinite;
+  /* Starts after the line has drawn itself, so the pulse never runs along a
+     curve that is not there yet. */
+  animation-delay: 900ms;
+}
+
+/* ⚠️ Removed entirely under reduced motion, not frozen. A stationary bright
+   dash sitting somewhere on the trace looks like a data point that means
+   something, which is worse than no pulse at all. */
+@media (prefers-reduced-motion: reduce) {
+  .pulse-run {
+    animation: none !important;
+    display: none;
+  }
+}
+
+/* ── The dashboard's video backdrop ──────────────────────────────────────────
+   Owner-supplied clips, one per theme (2026-08-26). Which one shows is decided
+   here rather than in React so the right cut is painted on the first frame, and
+   so the hidden one is never painted at all — see the component's own header
+   for why it is also explicitly paused.
+
+   ⚠️ Light is the DEFAULT and dark is the exception, because `:root` in this
+   file is the light palette. */
+.room-cut[data-room='dark'] {
+  display: none;
+}
+
+[data-theme='dark'] .room-cut[data-room='light'] {
+  display: none;
+}
+
+[data-theme='dark'] .room-cut[data-room='dark'] {
+  display: block;
+}
+
+/* ── How thin the glass is, per theme ────────────────────────────────────────
+   ⚠️ The two themes need DIFFERENT values, and averaging them would fail both.
+   The light clip is a pale studio, so a card can go to 52% and stay readable —
+   dark text on a light blur. The dark clip is a bright globe on near-black, and
+   light text over it needs more body under it, so dark holds at 68%. Both are
+   thin enough for the video to read through; neither is thin enough to lose the
+   type. */
+/* ⚠️ 0% — the owner's own value (2026-08-26), set in devtools and adopted here.
+   The light card carries NO fill at all: the only thing between the text and the
+   moving video is `backdrop-filter`. That is legible against this particular
+   clip because it is a pale, low-contrast studio, and because the blur is heavy
+   enough to flatten it — but it is the edge of the envelope, not the middle of
+   it. Swap in a darker or busier light-theme clip and this needs a few per cent
+   back. */
+:root,
+[data-theme='light'] {
+  --tile-veil: color-mix(in oklab, var(--bg-surface) 0%, transparent);
+}
+
+/* ── ⚠️ WITH NO FILL, THE INK HAS TO CARRY THE CONTRAST ─────────────────────
+   Measured on the live page at 0% veil: the tile eyebrows came out at 1.6:1
+   against the blurred studio — the WCAG minimum for body text is 4.5:1, and
+   even the large-text allowance is 3:1. They were legible-ish in a screenshot
+   and genuinely poor in use.
+
+   The fill is what the owner asked to remove, so the fill stays gone and the
+   TEXT changes instead: the two quiet tokens are darkened inside dashboard
+   tiles only, which lifts those labels past 4.5:1 while the card itself stays
+   completely clear.
+
+   ⚠️ Plus a faint light halo. A video backdrop is not one colour — its
+   brightness changes frame to frame, so no fixed ink can be guaranteed against
+   every frame. The halo is what holds the letterforms when a bright highlight
+   drifts under them, and it is the only reason this is safe on a moving
+   background rather than merely safe on the frame I measured. */
+/* ── ⚠️ `:root` IS NOT "THE LIGHT THEME" — IT IS ALWAYS ─────────────────────
+   This was written as `[data-theme='light'] .bento-tile, :root .bento-tile`,
+   and `:root` matches `<html>` whatever `data-theme` says. So the dark page got
+   the LIGHT ink (#24383b, near-black) and a WHITE text halo on dark glass, and
+   every label went muddy — which is exactly what the owner reported.
+
+   Specificity is why it won, too: `:root .bento-tile` scores 0-1-1 against the
+   0-1-0 of the `[data-theme='dark']` token block, so it overrode the dark
+   palette rather than losing to it.
+
+   `:not([data-theme='dark'])` is the correct spelling of "light, including the
+   attribute-less default" — the same guard the theme blocks at the top of this
+   file use. */
+:root:not([data-theme='dark']) .bento-tile {
+  /* Measured, not guessed: #33484c landed at 3.8:1 against the brightest part
+     of the clip — over the 3:1 large-text bar but under the 4.5:1 body-text
+     one. These clear 4.5:1 on every label sampled. */
+  --text-tertiary: #24383b;
+  --text-secondary: #16282b;
+}
+
+:root:not([data-theme='dark']) .bento-tile :is(p, span, h2, h3, li, dt, dd) {
+  text-shadow: 0 1px 2px color-mix(in oklab, white 78%, transparent);
+}
+
+/* ── The same problem, solved the other way round, for dark ─────────────────
+   Owner: *"the text has a shade and is not easily visible. Make it a white
+   colour."* Dark glass over a bright globe needs the opposite treatment —
+   brighter ink and a DARK halo, so the letterforms hold when a highlight from
+   the clip drifts under them. */
+[data-theme='dark'] .bento-tile {
+  --text-primary: #f2f8ff;
+  --text-secondary: #cfe2ee;
+  --text-tertiary: #a7c2d3;
+}
+
+[data-theme='dark'] .bento-tile :is(p, span, h2, h3, li, dt, dd) {
+  text-shadow: 0 1px 3px rgb(2 8 23 / 0.75);
+}
+
+[data-theme='dark'] {
+  --tile-veil: color-mix(in oklab, var(--bg-surface) 68%, transparent);
+}
+
+/* ── The scrim: dark theme only ──────────────────────────────────────────────
+   Owner, 2026-08-26: *"remove overlay in light theme."* Hidden by default
+   (which IS the light case, since `:root` is the light palette here) and shown
+   only under dark, where the light text in the lower half genuinely needs it —
+   see the component's own note. */
+.room-scrim {
+  display: none;
+}
+
+[data-theme='dark'] .room-scrim {
+  display: block;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   THE ASSISTANT'S BRAIN BACKDROP
+   ══════════════════════════════════════════════════════════════════════════
+   Owner, 2026-08-26, supplying a clip per theme for the assistant page.
+
+   ⚠️ THERE IS NO `[data-brain]` SELECTOR HERE, unlike `.room-cut` above, and
+   the absence is deliberate. That pattern mounts both cuts and hides one in
+   CSS — which is right at 1.4 MB a clip and wrong at 6, because hiding a video
+   does not stop it downloading. Measured: 19.55 MB transferred. The component
+   mounts only the active cut instead and swaps it on the theme change, so
+   there is nothing for CSS to pick between. See its header.
+
+   The clip is mounted a frame late, so this wash is what the hero looks like
+   until one arrives — and what it keeps looking like if autoplay is refused. A
+   gradient rather than a flat fill, so the headline sits on something with
+   shape either way. */
+.brain-wash {
+  background:
+    radial-gradient(
+      70% 90% at 50% 12%,
+      color-mix(in oklab, var(--accent-primary) 22%, transparent) 0%,
+      transparent 68%
+    ),
+    linear-gradient(to bottom, var(--bg-surface-sunken) 0%, var(--bg-base) 100%);
+}
+
+[data-theme='dark'] .brain-wash {
+  background:
+    radial-gradient(
+      70% 90% at 50% 12%,
+      color-mix(in oklab, var(--accent-primary) 30%, transparent) 0%,
+      transparent 68%
+    ),
+    linear-gradient(to bottom, var(--bg-surface-sunken) 0%, var(--bg-base) 100%);
+}
+
+/* ⚠️ THERE IS NO `.brain-scrim` ANY MORE. Owner, 2026-08-27: *"Don't add any
+   overlay."* The gradient that used to sit over the clip is gone entirely.
+
+   Contrast is held on the TEXT instead — see `.brain-hero` below — and the chat
+   card is an opaque surface that needs no help. Re-measured after removing it:
+   both themes still clear WCAG. If somebody is tempted to reintroduce a wash
+   for legibility, strengthen the ink and the halo first; the owner wants to see
+   the video. */
+
+/* ⚠️ The clip fades IN when it starts, so the swap from wash to video is not a
+   flash. `animation`, not `transition`: there is no start state to interpolate
+   from — the element does not exist until the frame it appears on. */
+.brain-cut {
+  animation: brain-fade 900ms var(--ease-in-out) both;
+}
+
+@keyframes brain-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Lands at the finished state. A clip left at opacity 0 is an invisible
+     backdrop, which reads as a broken page rather than as "no animation". */
+  .brain-cut {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+/* ── ⚠️ TEXT ON THE CLIP: INK AND HALO, NOT A FILL ──────────────────────────
+   The headline and its line sit directly on a moving, glowing brain. Measured
+   on the first build: the subtitle was illegible in both themes, and worst in
+   LIGHT — grey secondary text over a pale studio mock.
+
+   This is the same fix `.bento-tile` uses over the dashboard clip, and the
+   reasoning is identical: darkening the video would lose the brain, so the TEXT
+   is strengthened instead. A halo in the page's own background colour separates
+   every glyph from whatever frame happens to be behind it, without putting a
+   panel over the artwork.
+
+   ⚠️ `:root:not([data-theme='dark'])`, never a bare `:root` — a bare one
+   matches `<html>` whatever the attribute says, and at specificity 0-1-1 it
+   would beat the dark block below. That exact mistake made the dashboard's dark
+   text muddy and took a browser measurement to find. */
+:root:not([data-theme='dark']) .brain-hero :is(h2, p) {
+  text-shadow:
+    0 1px 2px color-mix(in oklab, var(--bg-base) 92%, transparent),
+    0 0 14px color-mix(in oklab, var(--bg-base) 78%, transparent);
+}
+
+:root:not([data-theme='dark']) .brain-hero p {
+  color: #16282b;
+}
+
+[data-theme='dark'] .brain-hero :is(h2, p) {
+  text-shadow:
+    0 1px 3px rgb(2 8 23 / 0.9),
+    0 0 16px rgb(2 8 23 / 0.7);
+}
+
+[data-theme='dark'] .brain-hero p {
+  color: #cfe2ee;
+}
+
+/* ── The assistant's brain mark ──────────────────────────────────────────────
+   Owner, 2026-08-27: *"You have added a circle and a gradient or something like
+   that. I don't want that. Just a brain is enough. Don't make a circle around it
+   or a boundary around it. Make some glow in the back. That will be fine but it
+   should be the same color as the brain."*
+
+   ⚠️ THE GLOW IS THE BRAIN'S OWN CYAN, NOT `--accent-primary`. That distinction
+   is the whole instruction. The brand accent is a deep teal; the artwork is a
+   bright electric cyan. A teal glow behind a cyan subject reads as a shadow
+   somebody forgot to remove, which is what the ringed version looked like.
+
+   ⚠️ A TOKEN rather than a literal in the component. `lib/domain/__tests__/design-tokens.test.ts`
+   holds the line that colour lives in this file; a component that hardcodes
+   `rgb(96 200 235)` is one that cannot be re-themed and will not be found by
+   anybody looking for it here.
+
+   The same hue in both themes, deliberately: it is the colour of a fixed PNG,
+   so a glow that changed with the theme would match the artwork in one and miss
+   it in the other. Only the STRENGTH changes — a dark surface needs less of it
+   to read as light. */
+:root {
+  --brain-glow: 96 200 235;
+  --brain-glow-strength: 0.5;
+}
+
+[data-theme='dark'] {
+  --brain-glow-strength: 0.62;
+}
+
+/* ── The assistant panel rising from the corner ──────────────────────────────
+   Owner, 2026-08-27: *"I want a very slow popup location. When you click on the
+   AI button in the bottom right, it will pop up but not very instantly. You can
+   see that it is opening from the bottom. This animation is not too fast, not
+   too slow, but it should be like that. It would be visible."*
+
+   And on seeing the first attempt: *"the animation you have created is good but
+   it is very fast. Make it a little slow and a little bumpy, like a bouncing
+   situation. When clicked it should bounce on the screen but a little slowly."*
+
+   ⚠️ 620ms, up from 380ms, and hand-keyed rather than eased. The house easing
+   tokens cannot express a bounce — a single cubic-bézier gives one overshoot at
+   best — so the settle is written as explicit keyframes: rise past the mark,
+   fall back a little, come to rest. Three beats, decreasing.
+
+   ⚠️ THE OVERSHOOT IS UPWARD AND IN SCALE ONLY. NEVER DOWNWARD. This panel's
+   bottom edge sits 1rem off the bottom of the window, so a bounce that
+   overshoots DOWN pushes it off the screen and drags it back — which reads as a
+   rendering glitch at exactly the moment somebody is looking at it. Every
+   `translateY` below is zero or negative. That constraint is why a stock spring
+   easing was not used: a spring overshoots symmetrically and has no idea there
+   is an edge there.
+
+   ⚠️ The travel is 28px — a short hop, not a slide from off screen. A panel
+   that flies the height of the viewport draws attention to the animation rather
+   than to where the panel came from.
+
+   ⚠️ Opacity finishes at 55%, long before the movement does. A panel still
+   fading while it settles looks unresponsive; one that is solid and then bounces
+   looks like an object. Same reason a real thing does not become opaque as it
+   lands.
+
+   ⚠️ `transform`/`opacity` ONLY — both composited, so this cannot cause layout
+   work while the panel's own content is still being laid out. */
+@keyframes drawer-panel-in {
+  0% {
+    opacity: 0;
+    transform: translateY(28px) scale(0.94);
+  }
+  55% {
+    opacity: 1;
+    /* Past the resting point — the bump. */
+    transform: translateY(-10px) scale(1.02);
+  }
+  75% {
+    transform: translateY(4px) scale(0.995);
+  }
+  90% {
+    transform: translateY(-2px) scale(1.002);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.drawer-panel-in {
+  /* ⚠️ `ease-out` on top of hand-keyed frames, NOT `linear` and NOT a spring.
+     The keyframes carry the bounce; the easing only smooths the travel between
+     them so each beat decelerates into the next instead of arriving flat. */
+  animation: drawer-panel-in 620ms var(--ease-out) both;
+  /* The corner it grows from, so the scale reads as the panel expanding out of
+     the launcher rather than inflating around its own middle. */
+  transform-origin: bottom right;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* ⚠️ Lands at the FINISHED state, not `animation: none` alone. A `both` fill
+     holds the 0% frame, so cancelling the animation without restoring opacity
+     leaves an invisible panel — the trap `.chip-pop` records below. */
+  .drawer-panel-in {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ── The floating launcher ───────────────────────────────────────────────────
+   Owner, 2026-08-26: *"add the AI assistance icon in the bottom right."*
+
+   ⚠️ The gradient is the brand ramp, so this reads as part of the product
+   rather than as a bolted-on widget — BR-024 permits gradients on brand chrome
+   and this is exactly that. The glow is what separates it from whatever page
+   content happens to sit underneath at the bottom-right corner. */
+/* ── ⚠️ TWO CLASSES, AND THE SPLIT IS NOT COSMETIC ──────────────────────────
+   `.assistant-orb` is the LOOK: the brand ramp, the border, the glow, the focus
+   ring. Both round brand buttons wear it — the floating launcher and the chat's
+   send button.
+
+   `.assistant-launcher` adds the pulsing halo, and is worn ONLY by the floating
+   button.
+
+   The send button used to wear `.assistant-launcher` with `after:hidden` bolted
+   on to suppress that halo, which was wrong twice: a class named for one
+   control was styling two, and "the launcher" stopped being findable — a
+   browser probe looking for `.assistant-launcher` matched the send button
+   inside the chat and reported the floating launcher as present on a page that
+   deliberately hides it. If a selector cannot tell two things apart, neither
+   can the next person. */
+.assistant-orb {
+  background: var(--gradient-brand);
+  color: var(--text-on-brand);
+  border: 1px solid color-mix(in oklab, var(--accent-primary) 55%, transparent);
+  box-shadow:
+    0 8px 24px -8px color-mix(in oklab, var(--accent-primary) 70%, transparent),
+    0 2px 6px -2px rgb(6 35 42 / 0.3);
+}
+
+.assistant-orb:hover {
+  background: var(--gradient-brand-hover);
+}
+
+.assistant-orb:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 3px;
+}
+
+/* ⚠️ A slow, quiet pulse on the shadow only — never on `transform`, which would
+   move a fixed button under the cursor and make it hard to click. It exists so
+   a new feature is noticed once; it is not a spinner and must not read as one. */
+.assistant-launcher::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 9999px;
+  border: 1px solid color-mix(in oklab, var(--accent-primary) 45%, transparent);
+  animation: launcher-halo 3.4s var(--ease-in-out) infinite;
+  pointer-events: none;
+}
+
+@keyframes launcher-halo {
+  0%,
+  100% {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.06);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* The halo is pure decoration, so it simply goes. The button keeps its own
+     shadow and is no less findable. */
+  .assistant-launcher::after {
+    animation: none;
+    opacity: 0;
+  }
+}
+
+/* ── The AI panel's brain ────────────────────────────────────────────────────
+   The asset is a blue brain on a near-white field. In LIGHT mode `multiply`
+   drops that field away entirely — white is multiply's identity — so no plate
+   is needed and the brain floats on the card exactly as the reference draws it.
+
+   In DARK mode multiply cannot help: a dark card multiplied by anything stays
+   dark and the brain would vanish along with its background. There the light
+   plate stays and the image is painted normally on top of it. */
+/* ⚠️ NOTHING IS NEEDED HERE ANY MORE, and that is the point of the note.
+   The brain asset used to be a glowing subject on a WHITE field, which meant a
+   pile of workarounds: a light "pod" behind it to disguise the field on a dark
+   card, then `mix-blend-mode: multiply` to drop the white in light mode, then an
+   `invert(1) hue-rotate(180deg)` + `screen` to do the same in dark. Each fixed
+   one theme and had to be undone for the other.
+
+   The owner supplied a transparent PNG on 2026-08-26 and every one of those
+   rules was deleted. The image simply sits on the tile in both themes. Worth
+   remembering the next time an asset "nearly" works: the cheap fix is a better
+   asset, not a stack of blend modes. */
+
+/* ── The globe's orbiting pop-ups ────────────────────────────────────────────
+   Owner, 2026-08-25: *"instead of showing a bar below … show these pop-ups
+   around the globe. When the page loads these pop-ups will come up one by one,
+   which will look better or more live."*
+
+   Each arrives with its own delay and then keeps a slow float, so the group
+   never settles into stillness. The float is a SEPARATE animation on a child
+   element rather than a second keyframe on the same one: an entrance and an
+   idle loop on one element means the idle has to re-state the entrance's end
+   position, and the two drift apart the moment either is retimed. */
+@keyframes chip-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.72) translateY(10px);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.04) translateY(-2px);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.chip-pop {
+  animation: chip-pop 620ms var(--ease-spring) both;
+  animation-delay: calc(var(--pop-index, 0) * 260ms + 400ms);
+}
+
+/* ⚠️ Pinned VISIBLE under reduced motion. `both` fill holds the 0% frame during
+   the delay, so cancelling the animation without this leaves every pop-up at
+   opacity 0 — the figures would simply never appear. */
+@media (prefers-reduced-motion: reduce) {
+  .chip-pop {
+    animation: none !important;
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* The dais the globe stands on: concentric rings of light. */
+@keyframes dais-sweep {
+  0% {
+    transform: translateX(-50%) scaleX(0.7);
+    opacity: 0;
+  }
+  35% {
+    opacity: 0.75;
+  }
+  100% {
+    transform: translateX(-50%) scaleX(1.5);
+    opacity: 0;
+  }
+}
+
+.dais-ring {
+  animation: dais-sweep 3.4s var(--ease-out) infinite;
+  animation-delay: var(--dr, 0s);
+}
+
+/* The projector beam, breathing. */
+@keyframes beam-breathe {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.beam {
+  animation: beam-breathe 4.6s var(--ease-in-out) infinite;
+}
+
+/* ⚠️ Reduced motion: the dais rings go entirely (a frozen expanding ring is a
+   stain on the floor) and the beam holds at a steady middle opacity. The globe
+   VIDEO is paused from the component, which also drops its decode cost. */
+@media (prefers-reduced-motion: reduce) {
+  .dais-ring {
+    animation: none !important;
+    opacity: 0;
+  }
+
+  .beam {
+    animation: none !important;
+    opacity: 0.5;
   }
 }
 

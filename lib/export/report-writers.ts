@@ -254,6 +254,6 @@ function widthFor(kind: Cell['kind']): number {
 }
 
 /** `cni-completion-2026-08-01-to-2026-08-31.xlsx` */
-export function reportFileName(stem: string, extension: 'csv' | 'xlsx'): string {
+export function reportFileName(stem: string, extension: 'csv' | 'xlsx' | 'pdf'): string {
   return `${stem}.${extension}`;
 }

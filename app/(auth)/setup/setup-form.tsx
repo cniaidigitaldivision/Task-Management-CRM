@@ -6,6 +6,7 @@ import { AlertTriangle, KeyRound, Printer, ShieldCheck } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Field, Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
 import { minLengthFor } from '@/lib/domain/password-policy';
 
 import { completeSetup, type SetupState } from './actions';
@@ -149,23 +150,11 @@ export function SetupForm() {
         htmlFor="password"
         hint={`At least ${minLengthFor('super_admin')} characters. A phrase of four unrelated words is easier to remember and far harder to guess than a mangled word.`}
       >
-        <Input
-          id="password"
-          name="password"
-          type="password"
-          autoComplete="new-password"
-          required
-        />
+        <PasswordInput id="password" name="password" autoComplete="new-password" required />
       </Field>
 
       <Field label="Confirm password" htmlFor="confirm">
-        <Input
-          id="confirm"
-          name="confirm"
-          type="password"
-          autoComplete="new-password"
-          required
-        />
+        <PasswordInput id="confirm" name="confirm" autoComplete="new-password" required />
       </Field>
 
       {/* type="submit" — Button defaults to type="button". */}

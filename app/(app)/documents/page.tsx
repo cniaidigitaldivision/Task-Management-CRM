@@ -10,6 +10,9 @@ import { listLibraryDocuments } from '@/lib/db/queries/library';
 import { listProjects } from '@/lib/db/queries/projects';
 import { can } from '@/lib/domain/permissions';
 import { describeDrive } from '@/lib/drive/client';
+import { nowMs } from '@/lib/now';
+import { CheckCircle2, XCircle } from 'lucide-react';
+import { PlatformIcon } from '@/components/brand/platform-icon';
 
 export const metadata: Metadata = { title: 'Documents' };
 
@@ -52,21 +55,38 @@ const DRIVE_OUTCOME: Record<string, { tone: 'ok' | 'warn'; text: string }> = {
  */
 function DriveStatusPill({ connected }: { connected: boolean }) {
   const token = connected ? 'feedback-success' : 'feedback-error';
+
   return (
     <span
-      className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-caption font-semibold"
+      className="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-caption font-semibold"
       style={{
-        borderColor: `color-mix(in oklab, var(--${token}) 45%, transparent)`,
-        backgroundColor: `color-mix(in oklab, var(--${token}) 12%, transparent)`,
+        borderColor: `color-mix(in oklab, var(--${token}) 40%, transparent)`,
+        backgroundColor: `color-mix(in oklab, var(--${token}) 10%, transparent)`,
         color: `var(--${token})`,
       }}
     >
-      <span
-        aria-hidden="true"
-        className="h-2 w-2 rounded-full"
-        style={{ backgroundColor: `var(--${token})` }}
-      />
+      {/* ── ⚠️ THE REAL DRIVE LOGO, NOT A COLOURED DOT ────────────────────────
+          Owner: *"there is a Google Drive icon. Please use that icon in the same
+          way… I want to use the exact same icons."*
+
+          It is the tri-colour triangle from `lib/brand/service-marks.ts`, which
+          carries the brand's own six paths in the brand's own viewBox — the
+          clipped-layers form used for Gmail cannot cut a triangle into three
+          diagonal wedges, so a new mark shape exists for logos like this.
+
+          The mark identifies WHICH service; the ring and the words carry the
+          state, which is why the logo is not tinted green or red. */}
+      <PlatformIcon slug="googledrive" size={18} />
       {connected ? 'Google Drive connected' : 'Google Drive not connected'}
+      {/* ⚠️ Colour is never the only signal. The words say "connected" or "not
+          connected" too, and the tick or cross is a third — red-versus-green alone
+          fails for the ~8% of men with red-green colour blindness, and this is the
+          status they most need to read. */}
+      {connected ? (
+        <CheckCircle2 className="size-4" strokeWidth={2.5} aria-hidden="true" />
+      ) : (
+        <XCircle className="size-4" strokeWidth={2.5} aria-hidden="true" />
+      )}
     </span>
   );
 }
@@ -113,7 +133,6 @@ export default async function DocumentsPage({
   return (
     <div className="mx-auto max-w-[var(--content-max)] space-y-6">
       <PageHeader
-        eyebrow="AI & Digital Division"
         title="Documents"
         /* ── THE CONNECTION STATE BELONGS BESIDE THE TITLE ───────────────────
            Owner, 2026-08-18: *"the connector button should be at the top with the
@@ -128,21 +147,30 @@ export default async function DocumentsPage({
            connected" too. Red-versus-green alone fails for the ~8% of men with
            red-green colour blindness, and this is the status they most need. */
         actions={<DriveStatusPill connected={drive.configured && connection.connected} />}
+        /* ── ⚠️ ONE LINE. THE PARAGRAPH IS GONE. ──────────────────────────────
+           Owner: *"don't use extra paragraphs, text, and content like right now."*
+
+           What was here explained the whole upload-and-approval flow in four
+           sentences — where a file is held, what a Member's upload waits for, that
+           accepting does not move it. All true, and all of it read once and then
+           read past forever, at the top of every visit.
+
+           Each of those facts is now stated where it is acted on: the upload
+           dialogue says where the file will go, the register says what a decision
+           does, and the access dialogue says what a level means. This line says
+           what the page is. The pending count stays, because it is the one thing
+           here that asks somebody to do something. */
         description={
-          <>
-            Anybody can upload; an{' '}
-            <span className="font-semibold text-text-primary">Admin approves</span> before anything
-            reaches the company Google Drive. Nothing is sent until then — a refused file never
-            arrives there at all.
-            {pending > 0 && (
-              <>
-                {' '}
-                <span className="font-semibold" style={{ color: 'var(--feedback-warning)' }}>
-                  {pending} waiting.
-                </span>
-              </>
-            )}
-          </>
+          pending > 0 ? (
+            <>
+              Store, organise and share files.{' '}
+              <span className="font-semibold" style={{ color: 'var(--feedback-warning)' }}>
+                {pending} waiting for a decision.
+              </span>
+            </>
+          ) : (
+            'Store, organise and share files across projects and the company library.'
+          )
         }
       />
 
@@ -171,6 +199,7 @@ export default async function DocumentsPage({
         canManage={can(actor, 'document.manage')}
         canConfigure={canConfigure}
         canShare={canShare}
+        nowMs={nowMs()}
         folders={folders}
         library={library}
         drive={{
@@ -200,6 +229,24 @@ export default async function DocumentsPage({
             : null,
           sync,
           drafts,
+          /* When the account was linked. Already returned by `connectionStatus` —
+             it reads `app.drive_connection_status()`, which cannot reach the
+             token. Only shown to somebody who may configure Drive, like the
+             address above it. */
+          connectedAt: canConfigure ? connection.connectedAt : null,
+          /* ⚠️ COUNTED FROM THE REGISTRY, not estimated and not hard-coded. This is
+             what the last sync recorded, which is exactly what the panel claims it
+             is. `driveFileCount` is null on a folder never looked inside, so those
+             contribute nothing rather than counting as zero. */
+          registry: {
+            folders: folders.length,
+            files: folders.reduce((sum, f) => sum + (f.driveFileCount ?? 0), 0),
+          },
+          /* The watched folder's NAME, so the panel can print something a person
+             recognises instead of a Drive id. Null when no folder is watched — with
+             none set the walk reads the whole Drive, and the panel says so. */
+          watchedFolderName:
+            folders.find((f) => f.driveFolderId === sync?.watchedFolderId)?.name ?? null,
         }}
       />
     </div>

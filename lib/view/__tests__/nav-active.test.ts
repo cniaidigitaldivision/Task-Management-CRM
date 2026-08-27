@@ -27,6 +27,12 @@ import { activeHref } from '../nav-active';
    wrong entry here (`/vault`, `/profile`) was caught the first time. */
 const ADMIN_NAV = [
   '/dashboard',
+  /* Added 2026-08-26 with the assistant. ⚠️ Offered to LEAD_UP, but that is the
+     DEFAULT and not the rule: a row in `public.assistant_access` switches one
+     person on or off, and a switched-on Member reaches it from the floating
+     launcher rather than from this list. The real gate is `mayUseAssistant` in
+     the route's own layout; this fixture only describes the offered links. */
+  '/assistant',
   /* ⚠️ `/my-work` is NOT here and `/today` never should have been.
      My Work became Member-only on 2026-08-22 — a Coordinator and above have
      Tasks, which is the same rows plus everyone else's. `/today` was a page for
@@ -38,8 +44,21 @@ const ADMIN_NAV = [
   '/team',
   '/reports',
   '/monthly-report',
+  /* Added 2026-08-26 with the finance feature, and moved to the System section
+     the same day on owner instruction — Attendance went the other way, into
+     Team. This fixture is a SET, not an order, so the move does not show here;
+     it is recorded because the reasoning below refers to a section.
+
+     Offered to a Coordinator as well as an Admin: the owner gave the
+     Coordinator the expense FORM while keeping the ledger, its reports and its
+     analysis for Admins. Hiding the link would take away the one thing they
+     were given; what differs by rank is what the page builds, on the server. */
+  '/finance',
   '/workload',
   '/documents',
+  /* Added 2026-08-25 with the attendance feature. Open to every role: what
+     differs by rank is the CONTENTS of the page, not whether it is offered. */
+  '/attendance',
   '/vault',
   '/settings',
   /* Reached the Admin's rail on 2026-08-22 — owner decision, see migration 040. */
@@ -58,6 +77,19 @@ describe('activeHref', () => {
        of its own, so "Projects" stays current while the reader is inside one. */
     expect(activeHref(ADMIN_NAV, '/projects/abc-123')).toBe('/projects');
     expect(activeHref(ADMIN_NAV, '/projects/abc-123/anything')).toBe('/projects');
+  });
+
+  it('keeps AI Assistant lit on its activity sub-route', () => {
+    /* ⚠️ Added 2026-08-27 with the activity screen, which is a real page at
+        with NO nav item of its own — reached from a button
+       in the corner of the assistant page. The rail must therefore keep AI
+       Assistant lit while somebody is on it, or the reader is told they are
+       nowhere.
+
+       This is the first genuinely nested route under an existing nav item since
+       the rule was written, which is exactly the case the fixture above was kept
+       alive for. */
+    expect(activeHref(ADMIN_NAV, '/assistant/activity')).toBe('/assistant');
   });
 
   it('prefers the child when the child is itself a nav item', () => {

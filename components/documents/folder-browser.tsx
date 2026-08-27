@@ -3,16 +3,11 @@
 import * as React from 'react';
 import {
   ArrowLeft,
-  ChevronRight,
   FileText,
   Film,
-  FolderPlus,
-  Folder as FolderIcon,
   Image as ImageIcon,
   Loader2,
   Music,
-  RefreshCw,
-  Search,
   Trash2,
   Upload as FileUp,
   Users,
@@ -28,9 +23,7 @@ import {
 } from '@/app/actions/folders';
 import type { DocumentResult } from '@/app/actions/documents';
 import type { DriveFolderRow } from '@/lib/db/queries/drive-folders';
-import { ACCESS_META } from '@/lib/domain/folder-access';
-import { Badge } from '@/components/ui/badge';
-import { Button, IconButton } from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
 import { Card, CardBody } from '@/components/ui/card';
 import { Dialog } from '@/components/ui/dialog';
 import { Field, Input } from '@/components/ui/input';
@@ -38,6 +31,7 @@ import { cn } from '@/lib/utils';
 
 import { FileViewer, formatFileSize, openPdf } from './file-viewer';
 import { FolderAccessDialog } from './folder-access-dialog';
+import { FolderTable } from './folder-table';
 
 /* ============================================================================
  * FOLDERS, AND WHAT IS IN THEM — owner request 2026-08-18
@@ -71,6 +65,7 @@ export function FolderBrowser({
   canShare,
   canConfigure,
   watchedDriveId,
+  nowMs,
   onUploadHere,
   onDone,
 }: {
@@ -78,22 +73,18 @@ export function FolderBrowser({
   canShare: boolean;
   canConfigure: boolean;
   watchedDriveId: string | null;
-  /** Opens the upload dialog with this folder already chosen. */
-  onUploadHere: (folder: DriveFolderRow) => void;
+  /** The server's clock, for the date labels. See lib/now.ts. */
+  nowMs: number;
+  /** Opens the upload dialog with this folder already chosen. Null for "ask me". */
+  onUploadHere: (folder: DriveFolderRow | null) => void;
   onDone: (result: DocumentResult) => void;
 }) {
-  const [query, setQuery] = React.useState('');
   const [openFolder, setOpenFolder] = React.useState<DriveFolderRow | null>(null);
   const [accessFor, setAccessFor] = React.useState<DriveFolderRow | null>(null);
   const [creating, setCreating] = React.useState(false);
   const [trashingFolder, setTrashingFolder] = React.useState<DriveFolderRow | null>(null);
   const [busy, setBusy] = React.useState<string | null>(null);
 
-  const shown = React.useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    if (!needle) return folders;
-    return folders.filter((f) => f.name.toLowerCase().includes(needle));
-  }, [folders, query]);
 
   if (openFolder) {
     return (
@@ -120,184 +111,47 @@ export function FolderBrowser({
     );
   }
 
+  /* ── ⚠️ NO CARD, NO PARAGRAPHS ──────────────────────────────────────────────
+     Owner: *"The UI should be very sleek and beautiful, and don't use extra
+     paragraphs, text, and content like right now."*
+
+     What was here: a Card wrapper, a "Folders — 0 of 33 open to members" heading,
+     two ghost buttons, a conditional search box, and a closing paragraph
+     explaining what "can upload" means. Five pieces of furniture around a list.
+
+     The explanation was not wrong, it was in the wrong place — it belongs in the
+     access dialogue, where somebody is actually choosing a level and can act on
+     it. On this screen it was read once and then re-read past forever.
+
+     `FolderTable` is the whole view now: a search box, Filters, sort, New folder,
+     Upload, and the table. Every control maps to an action that already existed —
+     nothing here is new behaviour, it is the same actions in the owner's layout. */
   return (
-    <Card>
-      <CardBody className="space-y-3 p-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-body-sm font-semibold text-text-primary">
-            Folders
-            {folders.length > 0 && (
-              <span className="ml-2 font-normal text-text-tertiary">
-                {folders.filter((f) => f.memberAccess !== 'none').length} of {folders.length} open
-                to members
-              </span>
-            )}
-          </p>
-
-          {canShare && (
-            <div className="flex flex-wrap items-center gap-2">
-              <Button variant="ghost" size="sm" onClick={() => setCreating(true)}>
-                <FolderPlus className="h-4 w-4" strokeWidth={2.25} aria-hidden="true" />
-                New folder
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={busy !== null}
-                onClick={async () => {
-                  setBusy('sync');
-                  try {
-                    onDone(await syncFoldersAction());
-                  } finally {
-                    setBusy(null);
-                  }
-                }}
-              >
-                {busy === 'sync' ? (
-                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-                ) : (
-                  <RefreshCw className="h-4 w-4" strokeWidth={2.25} aria-hidden="true" />
-                )}
-                Read folders from Drive
-              </Button>
-            </div>
-          )}
-        </div>
-
-        {folders.length > 6 && (
-          <div className="relative">
-            <Search
-              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-tertiary"
-              strokeWidth={2.25}
-              aria-hidden="true"
-            />
-            <Input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder={`Find among ${folders.length} folders…`}
-              aria-label="Filter folders"
-              className="pl-9"
-            />
-          </div>
-        )}
-
-        {folders.length === 0 ? (
-          <p className="text-caption text-text-secondary">
-            {canShare
-              ? 'No folders recorded yet. Press "Read folders from Drive" — with no watched folder set it reads My Drive, so you do not need an id to get started.'
-              : 'No folders have been opened to members yet.'}
-          </p>
-        ) : shown.length === 0 ? (
-          <p className="text-caption text-text-secondary">
-            No folder matches &ldquo;{query}&rdquo;.
-          </p>
-        ) : (
-          <ul className="divide-y divide-border-subtle">
-            {shown.map((folder) => {
-              const meta = ACCESS_META[folder.memberAccess];
-              return (
-                <li key={folder.id} className="flex flex-wrap items-center gap-2 py-2">
-                  {/* The whole name is the control. A folder that looks like a
-                      folder should open when clicked — the owner's first
-                      complaint was that it did not. */}
-                  <button
-                    type="button"
-                    onClick={() => setOpenFolder(folder)}
-                    className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1 py-1 text-left hover:bg-bg-hover"
-                  >
-                    <FolderIcon
-                      className="h-4 w-4 shrink-0"
-                      strokeWidth={2.25}
-                      aria-hidden="true"
-                      style={{ color: `var(--${meta.token})` }}
-                    />
-                    <span className="min-w-0">
-                      <span className="block truncate text-body-sm text-text-primary">
-                        {folder.name}
-                      </span>
-                      <span className="block text-micro text-text-tertiary">
-                        {folder.projectName ? `${folder.projectName} · ` : ''}
-                        {folder.driveFileCount === null
-                          ? 'not counted yet'
-                          : `${folder.driveFileCount}${folder.fileCountPartial ? '+' : ''} ${
-                              folder.driveFileCount === 1 && !folder.fileCountPartial
-                                ? 'file'
-                                : 'files'
-                            }`}
-                        {folder.documentCount > 0 && ` · ${folder.documentCount} via the CRM`}
-                      </span>
-                    </span>
-                    <ChevronRight
-                      className="ml-auto h-4 w-4 shrink-0 text-text-tertiary"
-                      strokeWidth={2.25}
-                      aria-hidden="true"
-                    />
-                  </button>
-
-                  <Badge token={meta.token} size="sm" variant="outline">
-                    {meta.label}
-                  </Badge>
-
-                  {/* ── ICONS, NOT WORDS ──────────────────────────────────────
-                      Owner, 2026-08-18: *"if you can use something like icons,
-                      they are enough. The text is not looking good."* Right —
-                      "Access" and "Auto-project" repeated down thirty-two rows
-                      was most of the visual noise. `title` and `aria-label` carry
-                      the meaning for a mouse and a screen reader respectively, so
-                      nothing is lost but the clutter.
-
-                      ⚠️ AUTO-PROJECT IS GONE ENTIRELY. Owner: *"I accidentally
-                      clicked on Auto project and it created a new subfolder
-                      project so I don't know why it created it."* It set the
-                      watched folder, and the scheduled Drive sync then turned
-                      that folder's subfolders into draft projects — a
-                      consequential, non-obvious action sitting one stray click
-                      away on every row. It belongs in Drive settings, once, not
-                      thirty-two times. */}
-                  {canShare && (
-                    <>
-                      <IconButton
-                        variant="ghost"
-                        size="sm"
-                        label={`Who can see ${folder.name}`}
-                        icon={Users}
-                        onClick={() => setAccessFor(folder)}
-                      />
-                      {/* Red, because it destroys. The owner asked for the colour
-                          language and this is the one place it is unambiguous. */}
-                      <IconButton
-                        variant="deleteGhost"
-                        size="sm"
-                        label={`Move ${folder.name} to the Drive bin`}
-                        icon={Trash2}
-                        disabled={busy !== null}
-                        onClick={() => setTrashingFolder(folder)}
-                      />
-                    </>
-                  )}
-
-                  {/* Only a marker now — never a control. Choosing the watched
-                      folder happens in Drive settings, deliberately once. */}
-                  {canConfigure && folder.driveFolderId === watchedDriveId && (
-                    <Badge token="accent-primary" size="sm" variant="outline">
-                      Auto-projects
-                    </Badge>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-
-        {canShare && folders.length > 0 && (
-          <p className="text-micro text-text-tertiary">
-            <span className="font-semibold text-text-secondary">Can upload</span> and above mean a
-            member&rsquo;s file goes straight to Drive without waiting for approval — granting the
-            access is the approval. Access applies to that folder only, never the folders inside
-            it.
-          </p>
-        )}
-      </CardBody>
+    <>
+      <FolderTable
+        folders={folders}
+        canShare={canShare}
+        canConfigure={canConfigure}
+        watchedDriveId={watchedDriveId}
+        nowMs={nowMs}
+        busy={busy}
+        onOpen={setOpenFolder}
+        onAccess={setAccessFor}
+        onTrash={setTrashingFolder}
+        onUploadHere={onUploadHere}
+        onNewFolder={() => setCreating(true)}
+        /* Upload with no folder chosen: the dialogue asks for one. Uploading from
+           a ROW pre-selects it, which is why they are separate handlers. */
+        onUpload={() => onUploadHere(null)}
+        onSync={async () => {
+          setBusy('sync');
+          try {
+            onDone(await syncFoldersAction());
+          } finally {
+            setBusy(null);
+          }
+        }}
+      />
 
       {accessFor && (
         <FolderAccessDialog
@@ -379,7 +233,7 @@ export function FolderBrowser({
           </p>
         </Dialog>
       )}
-    </Card>
+    </>
   );
 }
 
