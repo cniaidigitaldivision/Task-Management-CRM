@@ -1,14 +1,17 @@
 'use client';
 
 import * as React from 'react';
-import { Download, ExternalLink, Search } from 'lucide-react';
+import { Download, ExternalLink, Plus, Search } from 'lucide-react';
 
+import type { LibraryResult } from '@/app/actions/library';
 import type { LibraryDocumentRow } from '@/lib/db/queries/library';
 import { LIBRARY_CATEGORY_LABEL, type LibraryCategory } from '@/lib/domain/library';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 import { FileTypeIcon, fileIconName } from './file-type-icon';
 import { formatFileSize } from './file-viewer';
+import { LibraryUploadDialog } from './library-upload-dialog';
 
 /* ============================================================================
  * THE COMPANY LIBRARY — the owner's layout
@@ -53,9 +56,25 @@ import { formatFileSize } from './file-viewer';
 
 const ALL = '__all__';
 
-export function LibraryPanel({ documents }: { documents: readonly LibraryDocumentRow[] }) {
+export function LibraryPanel({
+  documents,
+  canManage,
+  onDone,
+}: {
+  documents: readonly LibraryDocumentRow[];
+  /** `library.manage` — Admin+, matching `library_documents_write` in migration
+   *  035. False hides the button entirely rather than disabling it: a control
+   *  that exists to say no teaches people to press it and be refused, and the
+   *  library reads perfectly well without one. */
+  canManage: boolean;
+  /** Bubbles the outcome up to the workspace's own note strip, which is where
+   *  every other result on this screen is already reported. A second banner here
+   *  would be a second place to keep consistent. */
+  onDone: (result: LibraryResult) => void;
+}) {
   const [query, setQuery] = React.useState('');
   const [category, setCategory] = React.useState<LibraryCategory | typeof ALL>(ALL);
+  const [adding, setAdding] = React.useState(false);
 
   /* Only the categories actually present, in the order the enum declares them so
      the chips do not reshuffle as the library grows. */
@@ -80,24 +99,38 @@ export function LibraryPanel({ documents }: { documents: readonly LibraryDocumen
 
   return (
     <div className="space-y-3">
-      {/* ---- Search ---------------------------------------------------------- */}
-      <div className="relative max-w-[26rem]">
-        <Search
-          className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-text-tertiary"
-          strokeWidth={2.25}
-          aria-hidden="true"
-        />
-        <input
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search company library…"
-          aria-label="Search the company library"
-          className={cn(
-            'h-10 w-full rounded-xl border border-border-default bg-bg-surface pl-9 pr-3',
-            'text-body-sm text-text-primary placeholder:text-text-tertiary',
-            'focus-visible:border-border-brand focus-visible:outline-none',
-          )}
-        />
+      {/* ---- Search, and the one control that writes here --------------------
+          ⚠️ THE BUTTON SITS ON THIS ROW RATHER THAN IN THE PAGE HEADER. The
+          header already carries the Drive connection pill, which belongs to every
+          tab; this writes to one tab's bucket only. Owner, 2026-08-29: *"let me
+          upload ONLY to this company library"* — a control in the shared header
+          would read as applying to whichever tab is open. */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative min-w-[16rem] flex-1 basis-[22rem] sm:max-w-[26rem]">
+          <Search
+            className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-text-tertiary"
+            strokeWidth={2.25}
+            aria-hidden="true"
+          />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search company library…"
+            aria-label="Search the company library"
+            className={cn(
+              'h-10 w-full rounded-xl border border-border-default bg-bg-surface pl-9 pr-3',
+              'text-body-sm text-text-primary placeholder:text-text-tertiary',
+              'focus-visible:border-border-brand focus-visible:outline-none',
+            )}
+          />
+        </div>
+
+        {canManage && (
+          <Button variant="primary" size="md" onClick={() => setAdding(true)}>
+            <Plus className="size-4" strokeWidth={2.5} aria-hidden="true" />
+            Add document
+          </Button>
+        )}
       </div>
 
       {/* ---- Category chips -------------------------------------------------- */}
@@ -119,11 +152,28 @@ export function LibraryPanel({ documents }: { documents: readonly LibraryDocumen
         ))}
 
         {shown.length === 0 && (
-          <p className="px-4 py-12 text-center text-body-sm text-text-secondary">
-            {documents.length === 0
-              ? 'The library is empty.'
-              : `Nothing matches ${query ? `“${query}”` : 'that category'}.`}
-          </p>
+          <div className="px-4 py-12 text-center">
+            <p className="text-body-sm text-text-secondary">
+              {documents.length === 0
+                ? 'The library is empty.'
+                : `Nothing matches ${query ? `“${query}”` : 'that category'}.`}
+            </p>
+            {/* ⚠️ Only on a genuinely EMPTY library, not on an empty filter. On a
+                search that found nothing the next act is to clear the search, and
+                offering "add one" there invites a duplicate of a document that is
+                sitting three characters away. */}
+            {documents.length === 0 && canManage && (
+              <Button
+                variant="secondary"
+                size="md"
+                className="mt-3"
+                onClick={() => setAdding(true)}
+              >
+                <Plus className="size-4" strokeWidth={2.5} aria-hidden="true" />
+                Add the first document
+              </Button>
+            )}
+          </div>
         )}
       </div>
 
@@ -133,6 +183,22 @@ export function LibraryPanel({ documents }: { documents: readonly LibraryDocumen
             ? `${documents.length} document${documents.length === 1 ? '' : 's'}`
             : `${shown.length} of ${documents.length} documents`}
         </p>
+      )}
+
+      {/* ⚠️ Rendered only while open, so the form is thrown away on close rather
+          than kept with half-typed text in it — the same reason `Dialog` unmounts
+          its children. `canManage` guards it a second time: the state can only be
+          set by controls that are already behind that check, but a dialogue that
+          writes to the library must not be one refactor away from opening for
+          somebody who may not. */}
+      {adding && canManage && (
+        <LibraryUploadDialog
+          onClose={() => setAdding(false)}
+          onDone={(result) => {
+            setAdding(false);
+            onDone(result);
+          }}
+        />
       )}
     </div>
   );

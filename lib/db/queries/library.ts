@@ -77,3 +77,63 @@ export async function libraryDocumentPath(
       }
     : null;
 }
+
+/* ==========================================================================
+ * WRITING — owner request 2026-08-29
+ * ========================================================================== */
+
+export interface NewLibraryDocument {
+  readonly title: string;
+  readonly category: LibraryCategory;
+  readonly storagePath: string;
+  readonly mimeType: string;
+  readonly sizeBytes: number;
+  readonly summary: string | null;
+  readonly pageCount: number | null;
+  readonly isViewable: boolean;
+}
+
+/**
+ * Record one document that is already in the bucket.
+ *
+ * ⚠️ THE ORDER IS BYTES FIRST, ROW SECOND, and the caller undoes the bytes if
+ * this throws. The other order — row first — would leave the library listing a
+ * document that cannot be opened, which is worse than an orphaned object nobody
+ * can see: the panel would offer a working-looking link to a 502.
+ *
+ * ⚠️ NO PERMISSION CHECK HERE, DELIBERATELY. `library_documents_write` is
+ * Admin+ (migration 035) and this runs through `withUser`, so a Coordinator's
+ * insert is refused by the database whatever the caller believed. The action
+ * checks `library.manage` as well — two layers, per doc 16 §7 — and this is the
+ * one that cannot be forgotten.
+ */
+export async function createLibraryDocument(
+  actorId: string,
+  input: NewLibraryDocument,
+): Promise<string> {
+  const rows = await withUser(actorId, (tx) => tx`
+    insert into public.library_documents (
+      title, category, storage_path, mime_type, size_bytes,
+      summary, page_count, is_viewable, uploaded_by_id
+    ) values (
+      ${input.title},
+      ${input.category}::public.library_category,
+      ${input.storagePath},
+      ${input.mimeType},
+      ${input.sizeBytes},
+      ${input.summary},
+      ${input.pageCount},
+      ${input.isViewable},
+      ${actorId}
+    )
+    returning id
+  `);
+
+  const id = rows[0]?.id as string | undefined;
+  /* RLS refuses by returning no rows rather than by raising, so a silent zero-row
+     insert is exactly what a Member's attempt looks like. Throwing here is what
+     turns that into the caller's rollback instead of a "saved" message about a
+     row that does not exist. */
+  if (!id) throw new Error('The library row was not written.');
+  return id;
+}

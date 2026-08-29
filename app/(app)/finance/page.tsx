@@ -13,6 +13,12 @@ import {
   payrollMonth,
   postedMonths,
 } from '@/lib/db/queries/finance';
+import {
+  companyLetterhead,
+  listBillingProfiles,
+  listInvoices,
+  signerProfile,
+} from '@/lib/db/queries/invoices';
 import { listTools, toolBoard } from '@/lib/db/queries/subscriptions';
 import { listPeople } from '@/lib/db/queries/people';
 import { can } from '@/lib/domain/permissions';
@@ -146,6 +152,10 @@ export default async function FinancePage({
     team,
     reviews,
     payrollByMonth,
+    invoices,
+    billing,
+    company,
+    signer,
   ] = await Promise.all([
     listExpenses(user.id, range.from, range.to),
     listRevenue(user.id, range.from, range.to),
@@ -161,6 +171,20 @@ export default async function FinancePage({
     listPeople(user.id),
     reviewsDue(user.id),
     Promise.all(months.map((m) => payrollMonth(user.id, m))),
+    /* ── ⚠️ EVERY INVOICE, NOT JUST THE RANGE'S ─────────────────────────────
+       Deliberately outside `range`. An invoice raised in June and still unpaid
+       has to be visible in September — the tab exists to chase money, and
+       filtering it to the month on the toolbar would hide exactly the debts
+       worth chasing. Same call the client accounts page makes.
+
+       ⚠️ AND ALL FOUR ARE INSIDE THE `canView` BRANCH, like everything above.
+       They are figures, and this file's header explains at length why a
+       Coordinator is never handed a board: every prop crosses into the RSC
+       payload and is readable with view-source. */
+    listInvoices(user.id),
+    listBillingProfiles(user.id),
+    companyLetterhead(user.id),
+    signerProfile(user.id),
   ]);
 
   const board = buildFinanceBoard({
@@ -194,6 +218,19 @@ export default async function FinancePage({
         today={today}
         thisMonth={thisMonth}
         canManage={canManage}
+        invoices={invoices}
+        billing={billing}
+        company={company}
+        /* ⚠️ Only whether a signature EXISTS, never the path to it. A storage
+           key is useless to a browser and handing one out invites somebody to
+           build a URL from it — the same rule receipts and library documents
+           follow. */
+        signer={{ name: signer.fullName, title: signer.roleTitle, has: signer.signaturePath !== null }}
+        /* ⚠️ `invoice.issue`, NOT `canManage`. They resolve to the same people
+           today and are separate actions on purpose — the owner said this list
+           will change, and widening who may bill a client must not widen who
+           may read the payroll. */
+        canIssue={can(actor, 'invoice.issue')}
         people={team.map((person) => ({
           id: person.id,
           name: person.fullName,

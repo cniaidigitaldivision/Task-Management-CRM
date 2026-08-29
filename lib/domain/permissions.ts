@@ -477,6 +477,25 @@ export const PERMISSIONS = {
      re-pointing the whole division's Drive. */
   'drive.configure': M('allow', 'allow', 'deny', 'deny'),
 
+  /* ── THE COMPANY LIBRARY IS NOT THE UPLOAD QUEUE — owner request 2026-08-29 ─
+     *"There is no button to upload any file in this category or in this company
+     library… add a modal which will pop up to let me add any documentation."*
+
+     ⚠️ ADMIN+, WHICH IS ONE RUNG HIGHER THAN `document.manage`, AND THAT IS THE
+     POINT OF HAVING A SEPARATE ACTION. `document.*` governs the approval queue:
+     material somebody submits, that is checked, that belongs to one project. The
+     library is the agency's OWN collateral — the rate card, the package deck, the
+     thing a client is quoted from — and it is read by everybody signed in with no
+     approval step in front of it. Whoever may write here publishes to the whole
+     company directly.
+
+     ⚠️ AND IT MATCHES `library_documents_write` IN MIGRATION 035, which is
+     `app.acting_at_least('admin')`. That policy is the enforcement; this line is
+     what stops the screen offering a Coordinator a button whose only possible
+     outcome is a database refusal. Widening one without the other produces
+     exactly that. */
+  'library.manage': M('allow', 'allow', 'deny', 'deny'),
+
   /* ---- Attendance — owner instruction, 2026-08-25 ----------------------- */
 
   /* ⚠️ EVERYBODY, INCLUDING THE SUPER ADMIN. Checking yourself in is not a
@@ -528,6 +547,39 @@ export const PERMISSIONS = {
      posting a month. Admin and above — correcting the books is a different act
      from filing a receipt into them. */
   'finance.manage': M('allow', 'allow', 'deny', 'deny'),
+
+  /* ── ISSUING AN INVOICE — owner request 2026-08-29 ─────────────────────────
+     *"When someone invoices, only super admin and admin can generate an invoice
+     over here. For right now — later on, maybe I will add some other people."*
+
+     ⚠️ ITS OWN ACTION RATHER THAN REUSING `finance.manage`, WHICH TODAY HAS THE
+     IDENTICAL ROW. That looks like duplication and is the opposite: the owner
+     said outright that this list will change, and `finance.manage` also governs
+     editing the ledger, running payroll and reading the P&L. Widening "who may
+     bill a client" must not silently widen "who may see what everyone is paid",
+     and with one action it would.
+
+     An invoice is also the only thing in this product that LEAVES THE COMPANY
+     under its own letterhead and signature. That is a different kind of act
+     from any other finance write, and it deserves a line of its own to point at
+     when it changes.
+
+     ⚠️ `revenue_entries` RLS is Admin+ (migration 064) and stays the
+     enforcement. When this widens past Admin, that policy has to widen with it
+     or the new person gets a button and a database refusal. */
+  'invoice.issue': M('allow', 'allow', 'deny', 'deny'),
+
+  /* Sending it is separated from creating it, because the owner chose "issue,
+     preview, then send" — and because an email to a client cannot be recalled.
+     Same rank today; separate so a future "a coordinator may draft, an admin
+     sends" needs no new concept. */
+  'invoice.send': M('allow', 'allow', 'deny', 'deny'),
+
+  /* ⚠️ VOIDING IS THE ONLY WAY TO CORRECT A SENT INVOICE (migration 076 freezes
+     them), so it is the one destructive act in this feature — and it is
+     deliberately NOT wider than issuing. Somebody who may not bill a client
+     must not be able to un-bill one. */
+  'invoice.void': M('allow', 'allow', 'deny', 'deny'),
 
   /* ⚠️ EVERYBODY, MEMBER INCLUDED. Owner: *"each person can see which
      subscriptions they have, for example Gemini, but the subscription cost is

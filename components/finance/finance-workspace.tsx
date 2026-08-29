@@ -4,8 +4,8 @@ import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ArrowDownRight, ArrowUpRight, Banknote, Bell, CalendarClock, Check, Circle,
-  Download, Loader2, Plus, Receipt, RefreshCw, Sparkles, TrendingDown,
-  TrendingUp, Users, Wallet,
+  Download, FileText, Loader2, Plus, Receipt, RefreshCw, Settings2, Sparkles,
+  TrendingDown, TrendingUp, Users, Wallet,
 } from 'lucide-react';
 
 import {
@@ -20,6 +20,8 @@ import { Reveal } from '@/components/finance/reveal';
 import { EntryDialog } from '@/components/finance/entry-dialog';
 import { ExpenseTable } from '@/components/finance/expense-table';
 import { IncomeTable } from '@/components/finance/income-table';
+import { InvoiceSettings } from '@/components/finance/invoice-settings';
+import { InvoiceTable } from '@/components/finance/invoice-table';
 import { SubscriptionBoard } from '@/components/finance/subscription-board';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -31,6 +33,8 @@ import { downloadCsv, downloadXlsxFromBase64, openPdfInTab } from '@/lib/downloa
 import { monthLabel, type SettlementState } from '@/lib/domain/finance';
 import { pkr, pkrCompact, signed } from '@/lib/domain/money';
 import type { ProjectOption } from '@/lib/db/queries/finance';
+import type { BillingProfile, InvoiceRow } from '@/lib/db/queries/invoices';
+import type { CompanyLetterhead } from '@/lib/domain/invoice';
 import {
   RANGE_KEYS,
   RANGE_LABEL,
@@ -69,7 +73,7 @@ import { cn } from '@/lib/utils';
    OVERVIEW is the ONLY place they meet, and that is deliberate: *"if you are
    giving this analysis over here, then give me some place [...] that comparison
    you should give me in the Overview page. I don't want this in other pages."* */
-type Tab = 'overview' | 'expenses' | 'income' | 'payroll' | 'tools';
+type Tab = 'overview' | 'expenses' | 'income' | 'invoices' | 'payroll' | 'tools' | 'invoice_setup';
 
 const TABS: readonly {
   key: Tab;
@@ -80,8 +84,22 @@ const TABS: readonly {
   { key: 'overview', label: 'Overview', icon: TrendingUp },
   { key: 'expenses', label: 'Expenses', icon: Receipt },
   { key: 'income', label: 'Revenue', icon: Banknote },
+  /* ── ⚠️ INVOICES ARE THEIR OWN TAB, BESIDE REVENUE AND NOT INSIDE IT ──────
+     Owner request 2026-08-29. Revenue is a LEDGER — one row per piece of income
+     in the month being looked at, which is the right shape for "what did August
+     earn". Invoices are DOCUMENTS with their own lifecycle: raised, sent,
+     chased, paid or voided, and none of that is bounded by a month. A client
+     asking about CNI-2026-0004 is not asking a question about a date range.
+
+     They are the same underlying rows (migration 076 — an invoice IS billed
+     income, with a number and a recipient), which is exactly why the two views
+     never disagree about a total. */
+  { key: 'invoices', label: 'Invoices', icon: FileText },
   { key: 'payroll', label: 'Payroll', icon: Users },
   { key: 'tools', label: 'Subscriptions', icon: Sparkles },
+  /* Last, because it is set up once and then forgotten — see the panel's own
+     header for why it is here rather than on the Settings page. */
+  { key: 'invoice_setup', label: 'Invoice setup', icon: Settings2 },
 ];
 
 export function FinanceWorkspace({
@@ -92,6 +110,11 @@ export function FinanceWorkspace({
   canManage,
   people,
   projects,
+  invoices,
+  billing,
+  company,
+  signer,
+  canIssue,
 }: {
   board: FinanceBoard;
   range: Range;
@@ -100,6 +123,19 @@ export function FinanceWorkspace({
   canManage: boolean;
   people: readonly { id: string; name: string; roleTitle: string | null }[];
   projects: readonly ProjectOption[];
+  /* ── Invoicing — owner request 2026-08-29 ────────────────────────────────
+     ⚠️ DELIBERATELY NOT BOUNDED BY THE PAGE'S DATE RANGE, unlike everything in
+     `board`. An invoice raised in June and still unpaid has to be visible in
+     September, or the one screen for chasing money hides the debts worth
+     chasing. Same reasoning as the client accounts page. */
+  invoices: readonly InvoiceRow[];
+  billing: readonly BillingProfile[];
+  company: CompanyLetterhead;
+  /** Whose name and signature go on an invoice this person issues. */
+  signer: { name: string; title: string | null; has: boolean };
+  /** `invoice.issue` — Admin+, and deliberately a different action from
+   *  `finance.manage`. See lib/domain/permissions.ts. */
+  canIssue: boolean;
 }) {
   const router = useRouter();
   const [tab, setTab] = React.useState<Tab>('overview');
@@ -195,7 +231,16 @@ export function FinanceWorkspace({
             </>
           )}
 
-          {/* Exports exactly what this tab is showing — see `ExportMenu`. */}
+          {/* Exports exactly what this tab is showing — see `ExportMenu`.
+
+              ⚠️ HIDDEN ON THE TWO INVOICE TABS. `exportFinanceAction` builds a
+              report for five named scopes and knows nothing about invoices, so
+              offering the button there would produce the Overview export under
+              a label promising invoices — silently exporting something other
+              than what is on screen, which is the exact failure the owner
+              raised when this menu was built. Nothing is exported rather than
+              the wrong thing. */}
+          {tab !== 'invoices' && tab !== 'invoice_setup' && (
           <ExportMenu
             range={range}
             tab={tab}
@@ -203,6 +248,7 @@ export function FinanceWorkspace({
             incomeStatus={incomeStatus}
             thisMonth={thisMonth}
           />
+          )}
         </div>
       </div>
 
@@ -339,6 +385,34 @@ export function FinanceWorkspace({
              database that just recalculated them in a trigger. */
           onChanged={() => router.refresh()}
         />
+      )}
+
+      {/* ---- INVOICES ------------------------------------------------------
+          Everything about the document: raise it, read the PDF, send it, void
+          it. The money against it is still recorded on the Revenue tab, which
+          is the same rows seen as a ledger. */}
+      {tab === 'invoices' && (
+        <InvoiceTable
+          invoices={invoices}
+          projects={billing}
+          today={today}
+          canIssue={canIssue}
+          signerName={signer.name}
+          signerTitle={signer.title}
+          hasSavedSignature={signer.has}
+          defaultTaxRatePct={company.defaultTaxRatePct}
+          taxLabel={company.taxLabel}
+          /* ⚠️ Reuses this screen's own notice strip rather than growing a
+             second one. Two places reporting outcomes is two places to keep
+             consistent, and the one nobody is looking at goes stale. */
+          onDone={(result) =>
+            setNotice({ ok: result.ok, text: result.error ?? result.warning ?? result.message ?? '' })
+          }
+        />
+      )}
+
+      {tab === 'invoice_setup' && (
+        <InvoiceSettings company={company} projects={billing} signature={signer} />
       )}
 
       {tab === 'payroll' && (
@@ -952,7 +1026,11 @@ function ExportMenu({
   thisMonth,
 }: {
   range: Range;
-  tab: Tab;
+  /** ⚠️ Narrower than `Tab` on purpose: these are the five scopes
+   *  `exportFinanceAction` can actually build. The caller does not render this
+   *  menu on the others, and this type is what makes forgetting that a compile
+   *  error rather than a wrong export. */
+  tab: Exclude<Tab, 'invoices' | 'invoice_setup'>;
   expenseFilter: ExpenseFilter;
   incomeStatus: 'all' | SettlementState;
   thisMonth: string;

@@ -125,6 +125,7 @@ export function DocumentsWorkspace({
   projects,
   canApprove,
   canManage,
+  canManageLibrary,
   canConfigure,
   canShare,
   nowMs,
@@ -136,6 +137,9 @@ export function DocumentsWorkspace({
   projects: ReadonlyArray<{ id: string; name: string }>;
   canApprove: boolean;
   canManage: boolean;
+  /** `library.manage` — Admin+, and deliberately NOT `canManage`. See the note
+   *  where it is used, and the entry in lib/domain/permissions.ts. */
+  canManageLibrary: boolean;
   canConfigure: boolean;
   /** Coordinator and above: may share a folder with members, and may file into
    *  any folder rather than only the shared ones. */
@@ -466,10 +470,26 @@ export function DocumentsWorkspace({
         </div>
       )}
 
-      {/* ---- COMPANY LIBRARY ----------------------------------------------- */}
+      {/* ---- COMPANY LIBRARY -----------------------------------------------
+          ⚠️ `canManageLibrary`, NOT `canManage`. The two are one rung apart on
+          purpose — `document.manage` reaches the Coordinator and `library.manage`
+          stops at Admin, because the library is company collateral published to
+          everybody with no approval in front of it. Passing the wrong one here
+          would put a button in front of a Coordinator whose only possible outcome
+          is a refusal from `library_documents_write`. */}
       {activeTab === 'library' && (
         <div role="tabpanel" id="documents-panel-library" aria-labelledby="documents-tab-library">
-          <LibraryPanel documents={library} />
+          <LibraryPanel
+            documents={library}
+            canManage={canManageLibrary}
+            /* The same handler every other panel uses: the note strip above is
+               already where this screen reports what happened, and `refresh` is
+               what puts the new row in the list. */
+            onDone={(r) => {
+              setNote(r);
+              router.refresh();
+            }}
+          />
         </div>
       )}
 

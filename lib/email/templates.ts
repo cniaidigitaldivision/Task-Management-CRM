@@ -782,3 +782,180 @@ export function lateArrivalsEmail(input: {
     attachments: attach(SHIELD_RULE, MAIL),
   };
 }
+
+/* ==========================================================================
+ * Invoice — owner request 2026-08-29
+ * ==========================================================================
+ * *"With the proper email template — right now we are using an email template,
+ * follow that template also, in which the PDF will be attached."*
+ *
+ * So this is the same shell, the same band, the same gold rule and the same
+ * `cid:` PNG icons as every other message. Nothing new was designed for it.
+ *
+ * ── ⚠️ THE ONE MESSAGE IN THIS FILE THAT GOES OUTSIDE THE COMPANY ──────────
+ * Every other template addresses a colleague who has an account. This one goes
+ * to a client, and three things follow from that:
+ *
+ *   1. NO LINK INTO THE APPLICATION. Every other message ends in a button to a
+ *      page; a client has no account and a sign-in screen is a dead end that
+ *      reads as a broken invoice. The PDF is the payload, so the message's job
+ *      is to say what it is and get out of the way.
+ *   2. NOTHING INTERNAL LEAKS. No project code, no note, no who-recorded-it.
+ *      The client note is passed separately and deliberately — `note` on the
+ *      row is internal and never reaches here.
+ *   3. EVERY INTERPOLATED VALUE IS ESCAPED. See `esc` below.
+ *
+ * ── ⚠️ THE AMOUNT AND THE DUE DATE ARE IN THE BODY, NOT ONLY IN THE PDF ────
+ * A client reading on a phone will not open an attachment to find out what they
+ * owe and by when. Those two facts are the message; the PDF is the record.
+ */
+
+/**
+ * ⚠️ HTML-ESCAPED, unlike every other interpolation in this file, and the
+ * difference is not inconsistency.
+ *
+ * Elsewhere the values are a colleague's own name and a role label — data this
+ * system generated. Here they are a client name and address typed by an Admin
+ * into a form, and the output is sent to a third party. An `&` in "Smith & Co"
+ * renders as a broken entity without this; an angle bracket would put whatever
+ * follows it into the markup. Neither is a likely attack and both are a badly
+ * rendered invoice, which is enough.
+ */
+const esc = (value: string): string =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+
+export function invoiceEmail(input: {
+  /** Who it is addressed to — the contact person, or the company. */
+  greetingName: string;
+  invoiceNo: string;
+  /** Already formatted, e.g. `PKR 139,200`. See lib/domain/money.ts. */
+  amountLabel: string;
+  /** Already written out, e.g. `11 Sep 2026` — the server formats dates. */
+  dueDateLabel: string;
+  issuedDateLabel: string;
+  /** "Monthly invoice", "Project add-on invoice"… */
+  kindLabel: string;
+  /** What it is for, in one line — the first invoice line's description. */
+  forWhat: string;
+  companyName: string;
+  /** The Admin's own note to the client, or null. Never the internal note. */
+  clientNote: string | null;
+  /** How to reach a person about it. Omitted when the company has no address set. */
+  replyTo: string | null;
+  /** True on a second or later send, so the client is told rather than confused. */
+  isResend: boolean;
+}): Email {
+  const firstName = esc(input.greetingName.split(' ')[0] || input.greetingName);
+
+  return {
+    /* ⚠️ The number is IN THE SUBJECT. It is how a client's accounts department
+       files it, how they search for it six weeks later, and how a reply gets
+       matched back to it. */
+    subject: input.isResend
+      ? `Reminder: invoice ${input.invoiceNo} from ${input.companyName}`
+      : `Invoice ${input.invoiceNo} from ${input.companyName}`,
+
+    html: shell(
+      `${badge(INVITE_BADGE)}
+       ${headline(input.isResend ? 'A reminder of your invoice' : 'Your invoice is attached')}
+       ${para(`Dear <strong style="color:${INK};">${firstName}</strong>,`)}
+       ${para(
+         input.isResend
+           ? `This is a reminder of invoice <strong style="color:${INK};">${esc(input.invoiceNo)}</strong>,
+              issued on ${esc(input.issuedDateLabel)}. The original is attached again below.`
+           : `Please find invoice <strong style="color:${INK};">${esc(input.invoiceNo)}</strong> attached,
+              covering ${esc(input.forWhat)}.`,
+       )}
+
+       <!-- ⚠️ THE TWO FACTS A CLIENT ACTUALLY NEEDS, before any attachment is
+            opened: what is owed, and by when. Laid out as a table because
+            flexbox is unreliable in mail clients, and painted with both a
+            bgcolor attribute and a CSS background so the panel survives a
+            client that strips one of them. -->
+       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:20px 0 18px 0;">
+         <tr>
+           <td bgcolor="${PANEL}" style="background:${PANEL};border:1px solid ${BORDER};border-radius:9px;padding:18px 20px;">
+             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+               <tr>
+                 <td style="font:600 10px/1 ${SANS};color:${MUTED};letter-spacing:.1em;text-transform:uppercase;padding-bottom:7px;">
+                   Amount due
+                 </td>
+                 <td align="right" style="font:600 10px/1 ${SANS};color:${MUTED};letter-spacing:.1em;text-transform:uppercase;padding-bottom:7px;">
+                   Due by
+                 </td>
+               </tr>
+               <tr>
+                 <td style="font:700 22px/1.15 ${SANS};color:${BRAND};">${esc(input.amountLabel)}</td>
+                 <td align="right" style="font:700 15px/1.15 ${SANS};color:${INK};">${esc(input.dueDateLabel)}</td>
+               </tr>
+             </table>
+           </td>
+         </tr>
+       </table>
+
+       ${chip('Invoice type:', esc(input.kindLabel))}
+
+       ${
+         input.clientNote
+           ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 18px 0;">
+                <tr><td bgcolor="${PANEL}" style="background:${PANEL};border:1px solid ${BORDER};border-radius:7px;padding:14px 16px;font:400 14px/1.7 ${SANS};color:${BODY};">
+                  ${esc(input.clientNote)}
+                </td></tr>
+              </table>`
+           : ''
+       }
+
+       ${para(
+         `The full invoice, with the payment details, is attached as a PDF.${
+           input.replyTo
+             ? ` If anything looks wrong, reply to this message or write to
+                 <a href="mailto:${esc(input.replyTo)}" style="color:${LINK};text-decoration:underline;">${esc(input.replyTo)}</a>.`
+             : ' If anything looks wrong, reply to this message.'
+         }`,
+       )}
+
+       ${shieldRule()}
+
+       <!-- ⚠️ NO BUTTON INTO THE APPLICATION. A client has no account here, and
+            a link to a sign-in screen on an invoice reads as a broken document.
+            Every other template in this file ends in one; this is the exception,
+            on purpose. -->
+       <p style="margin:0;font:400 13px/1.6 ${SANS};color:${MUTED};">
+         ${esc(input.companyName)} &middot; Invoice ${esc(input.invoiceNo)}
+       </p>`,
+      /* The inbox preview line. The amount and the date again, because for many
+         readers this is the only part they will see before deciding to open it. */
+      `${esc(input.amountLabel)} due by ${esc(input.dueDateLabel)}. Invoice ${esc(input.invoiceNo)} is attached.`,
+    ),
+
+    text: [
+      `Dear ${input.greetingName.split(' ')[0] || input.greetingName},`,
+      '',
+      input.isResend
+        ? `This is a reminder of invoice ${input.invoiceNo}, issued on ${input.issuedDateLabel}.`
+        : `Please find invoice ${input.invoiceNo} attached, covering ${input.forWhat}.`,
+      '',
+      `Amount due:  ${input.amountLabel}`,
+      `Due by:      ${input.dueDateLabel}`,
+      `Type:        ${input.kindLabel}`,
+      ...(input.clientNote ? ['', input.clientNote] : []),
+      '',
+      'The full invoice, with the payment details, is attached as a PDF.',
+      input.replyTo
+        ? `If anything looks wrong, reply to this message or write to ${input.replyTo}.`
+        : 'If anything looks wrong, reply to this message.',
+      '',
+      `${input.companyName} · Invoice ${input.invoiceNo}`,
+    ].join('\n'),
+
+    /* ⚠️ The PDF is NOT in here. These are the inline `cid:` images the shell
+       references; the document is appended by the caller, with no content id, so
+       it arrives as a paperclip rather than as hidden inline content. See the
+       note on `sendEmail`'s `attachments`. */
+    attachments: attach(INVITE_BADGE, ROLE, SHIELD_RULE, MAIL),
+  };
+}

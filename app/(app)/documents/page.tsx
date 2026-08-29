@@ -197,6 +197,13 @@ export default async function DocumentsPage({
         projects={projects.map((p) => ({ id: p.id, name: p.name }))}
         canApprove={can(actor, 'document.approve')}
         canManage={can(actor, 'document.manage')}
+        /* ⚠️ A SEPARATE PERMISSION, ONE RUNG HIGHER — owner request 2026-08-29.
+           `document.manage` reaches the Coordinator; `library.manage` stops at
+           Admin, because the library is the agency's own collateral published to
+           everybody the moment it is added, with no approval step. Migration
+           035's `library_documents_write` is the enforcement — this decides
+           whether the button is drawn at all. */
+        canManageLibrary={can(actor, 'library.manage')}
         canConfigure={canConfigure}
         canShare={canShare}
         nowMs={nowMs()}

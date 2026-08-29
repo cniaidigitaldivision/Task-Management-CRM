@@ -173,6 +173,12 @@ export async function listRevenue(
       from public.revenue_entries r
       left join public.projects p on p.id = r.project_id
      where r.earned_on >= ${from} and r.earned_on <= ${to}
+       /* ⚠️ A VOIDED INVOICE IS NOT INCOME AND IS NOT A DEBT — migration 076.
+          It is a clerical reversal: the number is kept so an accountant can see
+          the series has no gap, and the row is excluded from every total. It is
+          still visible on the Invoices tab under its own filter, which is where
+          somebody goes to ask what happened to it. */
+       and r.voided_at is null
      order by r.earned_on desc, r.amount_pkr desc
   `);
 
@@ -960,6 +966,9 @@ export async function listClientAccounts(actorId: string): Promise<ClientAccount
           from public.revenue_payments rp
          where rp.revenue_id = r.id
       ) pay on true
+     /* Voided invoices are excluded here too — a balance that counted them
+        would have somebody chasing money nobody was ever billed for. */
+     where r.voided_at is null
      group by r.project_id, r.client_name, p.name, p.code, p.type, p.monthly_fee_pkr
      /* Whoever owes the most, first — the order somebody chasing money reads in. */
      order by (coalesce(sum(r.amount_pkr), 0) - coalesce(sum(r.amount_paid_pkr), 0)) desc,
@@ -1014,6 +1023,9 @@ export async function clientInvoices(
          ? tx`r.project_id = ${key.projectId}`
          : tx`r.project_id is null and r.client_name = ${key.clientName}`
      }
+       /* Same rule as the ledger: a statement that listed voided invoices would
+          not add up to the balance on the account page above it. */
+       and r.voided_at is null
      order by r.earned_on desc, r.amount_pkr desc
   `);
   return (rows as Array<Record<string, unknown>>).map(toRevenue);

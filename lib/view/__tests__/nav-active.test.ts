@@ -43,7 +43,10 @@ const ADMIN_NAV = [
   '/projects',
   '/team',
   '/reports',
-  '/monthly-report',
+  /* ⚠️ `/monthly-report` IS DELIBERATELY ABSENT since 2026-08-29 — owner
+     instruction, of the item in the left sidebar. The ROUTE still exists and
+     still works; only the link was withdrawn. This fixture describes the offered
+     links, so it is the right place for that to show. */
   /* Added 2026-08-26 with the finance feature, and moved to the System section
      the same day on owner instruction — Attendance went the other way, into
      Team. This fixture is a SET, not an order, so the move does not show here;
@@ -180,14 +183,26 @@ describe('the real navigation tree', () => {
     }
   });
 
-  it('offers the monthly report to an Admin and not to a Coordinator', () => {
-    /* The nav mirrors the rank floor that `requireRole` enforces in the route's
-       layout and page. Offering a link that only redirects would be a dead end;
-       the floor itself is not this file's job (NFR-006). */
-    expect(hrefsForRole('admin')).toContain('/monthly-report');
-    expect(hrefsForRole('team_coordinator')).toContain('/reports');
+  it('offers the monthly report to nobody, and Reports to a Coordinator', () => {
+    /* ── ⚠️ THIS ASSERTION WAS INVERTED ON 2026-08-29 ───────────────────────
+       It used to require `/monthly-report` in an Admin's sidebar. Owner: *"only
+       the report page is all working… so this monthly report page, remove it"* —
+       of the sidebar item. So the link is offered to no rank now.
+
+       ⚠️ AND IT IS NOT A PERMISSION CHANGE. The route still exists, still works,
+       and still refuses anybody below Admin — `requireRole('admin')` in its own
+       layout AND page is the floor, and this file has never been one (NFR-006).
+       An unlinked page is a page you have to know the URL of, not a private one.
+       If the item ever comes back, this test goes back with it. */
+    expect(hrefsForRole('admin')).not.toContain('/monthly-report');
+    expect(hrefsForRole('super_admin')).not.toContain('/monthly-report');
     expect(hrefsForRole('team_coordinator')).not.toContain('/monthly-report');
     expect(hrefsForRole('member')).not.toContain('/monthly-report');
+
+    /* Reports is the one that stays, and for the Coordinator too — the owner's
+       reason for withdrawing the other was that this one already works. */
+    expect(hrefsForRole('team_coordinator')).toContain('/reports');
+    expect(hrefsForRole('admin')).toContain('/reports');
   });
 
   it('keeps Reports lit for a Coordinator, who is offered no child item', () => {

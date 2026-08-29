@@ -236,6 +236,14 @@ const EXPECTED: Readonly<Record<Action, Row>> = {
   'document.share': ['allow', 'allow', 'allow', 'deny'],
   'drive.configure': ['allow', 'allow', 'deny', 'deny'],
 
+  /* The company library — owner request 2026-08-29. Admin+, one rung ABOVE
+     `document.manage`, because this is the agency's own collateral read by
+     everybody with no approval step in front of it, not one project's upload
+     queue. Mirrors `library_documents_write` in migration 035, which is the
+     enforcement; a Coordinator granted this here would get a button whose only
+     possible outcome is a database refusal. */
+  'library.manage': ['allow', 'allow', 'deny', 'deny'],
+
   /* Attendance — owner instruction, 2026-08-25, transcribed from the request and
      not from permissions.ts:
        "the check-in button appearing throughout this whole dashboard"  → everyone
@@ -259,6 +267,16 @@ const EXPECTED: Readonly<Record<Action, Row>> = {
   'finance.view': ['allow', 'allow', 'deny', 'deny'],
   'finance.record_expense': ['allow', 'allow', 'allow', 'deny'],
   'finance.manage': ['allow', 'allow', 'deny', 'deny'],
+
+  /* Invoicing — owner, 2026-08-29: *"only super admin and admin can generate an
+     invoice over here. For right now — later on, maybe I will add some other
+     people."* Three actions with the same row today, on purpose: the owner said
+     this list will change, and widening "who may bill a client" must not drag
+     "who may read what everyone is paid" along with it. Voiding is deliberately
+     no wider than issuing — somebody who may not bill must not un-bill. */
+  'invoice.issue': ['allow', 'allow', 'deny', 'deny'],
+  'invoice.send': ['allow', 'allow', 'deny', 'deny'],
+  'invoice.void': ['allow', 'allow', 'deny', 'deny'],
   'subscription.view_own': ['allow', 'allow', 'allow', 'allow'],
   'subscription.manage': ['allow', 'allow', 'deny', 'deny'],
 

@@ -1,6 +1,5 @@
 import {
   BarChart3,
-  FileBarChart,
   CalendarClock,
   CalendarDays,
   FolderKanban,
@@ -130,11 +129,21 @@ export const NAV_SECTIONS: readonly NavSection[] = [
     items: [
       { label: 'Team', href: '/team', icon: Users, roles: ADMIN_UP },
       { label: 'Reports', href: '/reports', icon: BarChart3, roles: LEAD_UP },
-      /* The monthly board report. Admin+, one rank above the Reports screen above
-         it, because it totals recurring fees across every client — the floor is
-         enforced by `requireRole` in the route's own layout and page, and this
-         list only decides whether the link is offered (NFR-006). */
-      { label: 'Monthly report', href: '/monthly-report', icon: FileBarChart, roles: ADMIN_UP },
+      /* ── ⚠️ 'MONTHLY REPORT' WAS TAKEN OUT OF THIS LIST ON 2026-08-29 ───────
+         Owner: *"only the report page is all working, everything is working over
+         there, so this monthly report page, remove it"* — of the item in the left
+         sidebar. Two entries under one heading, both called some form of
+         "report", is a choice somebody has to make before they can read either.
+
+         ⚠️ THE ROUTE IS STILL THERE AND STILL WORKS. Only the link is gone, by
+         the owner's instruction: `/monthly-report` still loads for Admin+, still
+         has its own `requireRole('admin')` floor in layout AND page, and the
+         project detail screen still links to it as the division-wide report. This
+         file has never been a security boundary (NFR-006) and removing an item
+         from it grants nobody anything — so nothing about who may read that page
+         changed here. Putting the item back is one line.
+
+         `FileBarChart` is no longer imported above for the same reason. */
       /* ⚠️ MOVED HERE FROM System, 2026-08-26, on owner instruction. Attendance
          is about the people, not about the machinery — it sits with Team and
          Reports, which are the other two screens read about who is doing what.

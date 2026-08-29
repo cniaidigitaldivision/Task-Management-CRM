@@ -90,10 +90,21 @@ export async function sendEmail(input: {
      arrives as a normal file and the cid: reference in the HTML resolves to
      nothing, which is a broken image with no error anywhere to explain it. The
      mapping below is the whole reason this is not a straight pass-through. */
+  /* ── ⚠️ `contentId` IS OPTIONAL, AND THE DIFFERENCE IS VISIBLE TO A READER ──
+     Added 2026-08-29 with invoices. Every attachment before this one was an
+     inline image referenced by `cid:` from the HTML — the header mark, the
+     badges — and those MUST carry a content id or the reference resolves to
+     nothing.
+
+     An invoice PDF is the other kind: a document the recipient is meant to
+     download. Giving it a content id declares it as inline content belonging to
+     the message body, and mail clients then hide it from the attachment list —
+     so the client receives an email that says "your invoice is attached" with no
+     visible attachment. Omitted, it arrives as a paperclip, which is what it is. */
   attachments?: readonly {
     filename: string;
     content: string;
-    contentId: string;
+    contentId?: string;
     contentType: string;
   }[];
 }): Promise<EmailResult> {
@@ -127,7 +138,11 @@ export async function sendEmail(input: {
               attachments: input.attachments.map((file) => ({
                 filename: file.filename,
                 content: file.content,
-                content_id: file.contentId,
+                /* Spread rather than set to undefined: `content_id: undefined`
+                   survives JSON.stringify as an absent key here, but relying on
+                   that is a footgun the moment somebody switches serialisers.
+                   An attachment with no content id is a real file — see above. */
+                ...(file.contentId ? { content_id: file.contentId } : {}),
                 content_type: file.contentType,
               })),
             }
