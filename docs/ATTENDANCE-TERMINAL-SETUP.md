@@ -15,7 +15,7 @@ that scanning at the wall writes straight into Taskly attendance.
 |---|---|
 | Branch | `device-attendance` |
 | Migration | `078_attendance_from_a_terminal.sql` — **applied to the database** |
-| Endpoint | `POST /api/attendance/device` — **written and tested locally** |
+| Endpoint | `POST /api/attendance/device` — **live and verified in production** |
 | Live site | `https://taskly.aidigitaldivision.com` |
 | Terminal | **registered** in the database, serial `GB4571046`, nobody enrolled yet |
 | Tests | 2500 passing, typecheck and lint clean |
@@ -41,16 +41,21 @@ that scanning at the wall writes straight into Taskly attendance.
 
 ---
 
-## ⚠️ STEP 0 — PUSH FIRST, OR NOTHING WORKS
+## ✅ STEP 0 — DONE, 2026-08-29 19:47 PKT
 
-The endpoint exists only on the local machine. Until this is pushed and Vercel
-finishes deploying, the live site does not have it.
+Pushed (`c7ca25e..0dd1b15`), Vercel deployed, and the live endpoint was tested
+end to end from the production URL:
 
-```bash
-git push origin device-attendance:main
-```
+- a wrong secret → **401**
+- a scan shaped exactly as the terminal sends → **accepted**, recorded as
+  `unmatched` because nobody is enrolled yet
+- the same scan sent twice → **`duplicate`**, ignored
+- the recognition method was read correctly as **face** from the event code
+- the time landed correctly in Karachi
 
-This also carries the invoicing work, which is not live either.
+**The chain works.** The only untested link is the terminal itself, which is what
+tomorrow is for. The test scan was deleted afterwards, so the first row in the
+log will be a real one.
 
 ---
 
