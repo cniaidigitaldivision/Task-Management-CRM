@@ -234,12 +234,14 @@ export async function POST(request: Request): Promise<Response> {
      trips and the predicate controls writes. */
   if (!anyStored && serialFromUrl && Math.random() < 0.05) {
     try {
+      /* ⚠️ THROUGH THE FUNCTION, NOT A PLAIN UPDATE. The first version of this
+         ran the UPDATE directly and silently did nothing every time: writing to
+         `attendance_devices` needs Admin rank, and this endpoint has no
+         signed-in user by design. RLS refused it, the catch below swallowed the
+         refusal, and the card went on saying "2 hours ago" while the wall was
+         posting twice a second. Migration 080 has the measurement. */
       await withAppRole((tx) => tx`
-        update public.attendance_devices
-           set last_seen_at = now()
-         where upper(btrim(serial_no)) = upper(btrim(${serialFromUrl}))
-           and is_active
-           and (last_seen_at is null or last_seen_at < now() - interval '1 minute')
+        select app.touch_device_seen(${serialFromUrl}, ${secret})
       `);
     } catch {
       /* A missed heartbeat is cosmetic. It must never fail a scan. */
