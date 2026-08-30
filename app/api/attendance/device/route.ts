@@ -1,6 +1,6 @@
 import { withAppRole } from '@/lib/db/client';
 import { eventsFrom, parseScan } from '@/lib/domain/hikvision';
-import type { ScanOutcome } from '@/lib/domain/attendance-device';
+import { isStaleScan, STALE_SCAN_DAYS, type ScanOutcome } from '@/lib/domain/attendance-device';
 
 /* ============================================================================
  * WHERE THE WALL POSTS — owner request 2026-08-29
@@ -50,7 +50,7 @@ const MAX_BODY_BYTES = 2 * 1024 * 1024;
 
 interface Applied {
   readonly employeeNo: string;
-  readonly outcome: ScanOutcome | 'unreadable';
+  readonly outcome: ScanOutcome | 'unreadable' | 'stale';
   readonly reason?: string;
 }
 
@@ -116,6 +116,9 @@ export async function POST(request: Request): Promise<Response> {
 
   const results: Applied[] = [];
   let unauthorised = false;
+  /* One clock reading for the whole batch. Reading it per event would let a
+     slow batch straddle the boundary and treat two identical scans differently. */
+  const nowMs = Date.now();
 
   try {
     await withAppRole(async (tx) => {
@@ -127,6 +130,25 @@ export async function POST(request: Request): Promise<Response> {
              Counted so the response is honest about what arrived, but there is
              nobody to file it against so nothing is stored. */
           results.push({ employeeNo: '—', outcome: 'unreadable', reason: parsed.reason });
+          continue;
+        }
+
+        /* ── ⚠️ TOO OLD TO MATTER — SKIPPED BEFORE THE DATABASE IS TOUCHED ──
+           Added 2026-08-30, minutes after the terminal was first connected: it
+           immediately began replaying seven months of stored events, ~45,000 of
+           them, each costing a round trip to Singapore. The database refuses
+           anything over a week old anyway (`out_of_range`), so every one of
+           those writes was provably pointless — and they were queued ahead of
+           the scans that mattered.
+
+           Acknowledged rather than refused, because the terminal treats a
+           non-2xx as a failure worth retrying. See `STALE_SCAN_DAYS`. */
+        if (isStaleScan(parsed.scan.scannedAt, nowMs)) {
+          results.push({
+            employeeNo: parsed.scan.employeeNo,
+            outcome: 'stale',
+            reason: `Older than ${STALE_SCAN_DAYS} days — too old to become attendance.`,
+          });
           continue;
         }
 
@@ -189,6 +211,7 @@ export async function POST(request: Request): Promise<Response> {
       ok: true,
       received: events.length,
       applied: results.filter((r) => r.outcome === 'opened_day' || r.outcome === 'closed_day').length,
+      stale: results.filter((r) => r.outcome === 'stale').length,
       results,
     },
     { status: 200, headers: { 'Cache-Control': 'no-store' } },

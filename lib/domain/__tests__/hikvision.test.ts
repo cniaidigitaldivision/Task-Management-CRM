@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { eventsFrom, parseScan, readMethod, readScannedAt } from '../hikvision';
+import { isStaleScan } from '../attendance-device';
 
 /* ============================================================================
  * READING A TERMINAL'S MESSAGES
@@ -212,5 +213,55 @@ describe('how many events arrived', () => {
   it('takes nothing from nothing', () => {
     expect(eventsFrom(null)).toHaveLength(0);
     expect(eventsFrom('')).toHaveLength(0);
+  });
+});
+
+/* ============================================================================
+ * TOO OLD TO MATTER
+ * ----------------------------------------------------------------------------
+ * ⚠️ THIS RULE WAS WRITTEN AGAINST A LIVE INCIDENT. Connecting the Wah terminal
+ * made it replay seven months of stored events — ~45,000 of them — each costing
+ * a database round trip, while the scans that mattered queued behind. The
+ * database already refuses anything over a week old; this lets the route work
+ * that out before paying for the round trip.
+ * ========================================================================= */
+
+describe('scans too old to become attendance', () => {
+  /* A fixed "now" so the boundary is a fact rather than a race. */
+  const now = Date.parse('2026-08-30T10:00:00Z');
+  const daysAgo = (n: number) => new Date(now - n * 86_400_000).toISOString();
+
+  it('keeps anything recent enough to still be filed', () => {
+    expect(isStaleScan(daysAgo(0), now)).toBe(false);
+    expect(isStaleScan(daysAgo(1), now)).toBe(false);
+    expect(isStaleScan(daysAgo(7), now)).toBe(false);
+  });
+
+  /* ⚠️ THE MARGIN IS THE POINT. The database's limit is seven days; this is ten.
+     Days 8 and 9 are kept here even though the database will refuse them, so
+     that a rounding or a few minutes of clock drift can never make this discard
+     something the database would have accepted. */
+  it('keeps the three days of margin over the database rule', () => {
+    expect(isStaleScan(daysAgo(8), now)).toBe(false);
+    expect(isStaleScan(daysAgo(9), now)).toBe(false);
+  });
+
+  it('drops what is genuinely historical', () => {
+    expect(isStaleScan(daysAgo(11), now)).toBe(true);
+    expect(isStaleScan(daysAgo(60), now)).toBe(true);
+    /* The real backlog: January events replayed at the end of August. */
+    expect(isStaleScan('2026-01-25T12:22:06+05:00', now)).toBe(true);
+  });
+
+  /* ⚠️ A FUTURE DATE IS A FAULT, NOT NOISE. A terminal whose clock has drifted
+     forward needs somebody to look at it, so those are kept and recorded as
+     `out_of_range` — dropping them here would hide the problem. */
+  it('never drops a scan dated in the future', () => {
+    expect(isStaleScan(daysAgo(-1), now)).toBe(false);
+    expect(isStaleScan(daysAgo(-400), now)).toBe(false);
+  });
+
+  it('keeps anything it cannot read a date from', () => {
+    expect(isStaleScan('not a date', now)).toBe(false);
   });
 });

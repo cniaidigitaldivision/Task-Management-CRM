@@ -173,3 +173,43 @@ export function checkEmployeeNo(value: string): { ok: true } | { ok: false; mess
   }
   return { ok: true };
 }
+
+/* ==========================================================================
+ * HOW OLD IS TOO OLD — added 2026-08-30, during the first live connection
+ * ==========================================================================
+ * ⚠️ WRITTEN AGAINST A REAL INCIDENT, not a hypothetical. The moment the Wah
+ * terminal was pointed at Taskly it began replaying its ENTIRE stored event
+ * log — seven months, roughly 45,000 scans for 55 people, at about 0.6 a
+ * second because each one cost a database round trip. Twenty hours of writing
+ * rows that could never become attendance, while the scans that mattered
+ * queued up behind them.
+ *
+ * `app.record_device_scan` already refuses anything older than seven days —
+ * it answers `out_of_range` and files nothing. So these rows were provably
+ * worthless before they were written. This lets the route work that out
+ * BEFORE the round trip, which is the whole saving.
+ *
+ * ⚠️ TEN DAYS, NOT SEVEN, AND THE GAP IS DELIBERATE. The database's limit is
+ * seven. If this matched it exactly, a scan sitting on the boundary could be
+ * dropped here that the database would have accepted — a timezone rounding or
+ * a few minutes' clock drift is enough to move it. Three days of margin means
+ * this can only ever discard things the database was going to refuse anyway.
+ * Widen the database's rule and this must widen further, never the reverse.
+ */
+export const STALE_SCAN_DAYS = 10;
+
+/**
+ * Whether a scan is too old to ever become attendance.
+ *
+ * Pure, and takes `now` rather than reading a clock, so the boundary can be
+ * tested rather than hoped for.
+ */
+export function isStaleScan(scannedAtIso: string, nowMs: number): boolean {
+  const at = Date.parse(scannedAtIso);
+  if (Number.isNaN(at)) return false;
+  /* ⚠️ Only the PAST is stale. A scan dated in the future is a terminal whose
+     clock is wrong, and that is worth recording and showing somebody — it is a
+     fault to fix, not noise to discard. The database marks those
+     `out_of_range`; dropping them here would hide the problem. */
+  return nowMs - at > STALE_SCAN_DAYS * 86_400_000;
+}
