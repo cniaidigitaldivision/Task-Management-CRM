@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { Mail, ShieldCheck, UserPlus, Users } from 'lucide-react';
 
+import { TerminalMapping } from '@/components/attendance/terminal-panel';
 import { TeamWorkspace } from '@/components/team/team-workspace';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardBody, CardToolbar } from '@/components/ui/card';
@@ -21,6 +22,10 @@ import { ROLE_LABEL } from '@/lib/domain/constants';
 import { listPendingInvitations } from '@/lib/db/queries/provisioning';
 import { assignableRolesFor } from '@/app/actions/team';
 import { describeSender } from '@/lib/email/send';
+import {
+  listEnrolments,
+  listUnmatched,
+} from '@/lib/db/queries/attendance-devices';
 import { can } from '@/lib/domain/permissions';
 import { weekWindow } from '@/lib/domain/workload';
 import { nowMs } from '@/lib/now';
@@ -57,6 +62,11 @@ export default async function TeamPage() {
      from teamWorkload — and that window is `weekWindow(now)`, a pure function
      of the clock, so it can be computed here without waiting for a query. */
   const canProvision = can({ role: user.role, id: user.id }, 'user.create');
+  /* Owner, 2026-08-30: *"the mapping should be on the team page"* — and *"only in
+     admin and superadmin"*. One rung narrower than `attendance.view_all`;
+     migration 079 narrows the tables to match, so this only decides whether the
+     section is drawn. */
+  const canManageTerminals = can({ role: user.role, id: user.id }, 'attendance.manage_devices');
   const window = weekWindow(now);
 
   const [
@@ -68,6 +78,8 @@ export default async function TeamPage() {
     pending,
     assignableRoles,
     trails,
+    unmatchedScans,
+    enrolments,
   ] = await Promise.all([
     listPeople(user.id, { includeInactive: true }),
     teamWorkload(user.id, now),
@@ -84,6 +96,11 @@ export default async function TeamPage() {
     canProvision
       ? getForcedResetTrails(user.id)
       : Promise.resolve(new Map<string, ResetTrail>()),
+    /* The terminal mapping. Admin+ only, and not even queried otherwise — RLS
+       would return empty (079), but a round trip for data the page will not draw
+       is a round trip for nothing. */
+    canManageTerminals ? listUnmatched(user.id) : Promise.resolve([]),
+    canManageTerminals ? listEnrolments(user.id) : Promise.resolve([]),
   ]);
   const pendingUserIds = pending.map((p) => p.userId);
 
@@ -232,6 +249,27 @@ export default async function TeamPage() {
           resetTrails={resetTrails}
         />
       </PageSection>
+
+      {/* ── THE ATTENDANCE TERMINAL ──────────────────────────────────────────
+          Owner, 2026-08-30: *"the mapping should be on the team page."* Right —
+          linking somebody to a terminal is done once when they join, in the same
+          sitting as creating their account and setting their role. The wall's own
+          health stays on Attendance, where it explains the record.
+
+          ⚠️ A SECTION OF ITS OWN, AFTER the team list rather than inside it. The
+          first attempt nested it in "Everybody", which put two panels between that
+          heading and the people it names — the page announced the team and then
+          showed something else. It is also the right order by frequency: the
+          roster is read constantly, this is touched when somebody joins. */}
+      {canManageTerminals && (
+        <PageSection
+          step={2}
+          title="Attendance terminal"
+          description="Who the terminal knows, and who it does not. Anybody working remotely does not need to be on it."
+        >
+          <TerminalMapping unmatched={unmatchedScans} enrolments={enrolments} nowMs={now} />
+        </PageSection>
+      )}
     </div>
   );
 }

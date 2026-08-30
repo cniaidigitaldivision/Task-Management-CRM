@@ -2,14 +2,10 @@ import type { Metadata } from 'next';
 
 import { AttendanceRangePicker } from '@/components/attendance/attendance-range-picker';
 import { AttendanceWorkspace } from '@/components/attendance/attendance-workspace';
-import { TerminalPanel } from '@/components/attendance/terminal-panel';
+import { TerminalHealth } from '@/components/attendance/terminal-panel';
 import { PageHeader } from '@/components/ui/page-header';
 import { requireUser } from '@/lib/auth/current-user';
-import {
-  listEnrolments,
-  listTerminals,
-  listUnmatched,
-} from '@/lib/db/queries/attendance-devices';
+import { listTerminals } from '@/lib/db/queries/attendance-devices';
 import {
   attendanceNow,
   listApprovedLeave,
@@ -90,7 +86,7 @@ export default async function AttendancePage({
           now.today,
         );
 
-  const [attendees, records, leave, mine, terminals, unmatched, enrolments] = await Promise.all([
+  const [attendees, records, leave, mine, terminals] = await Promise.all([
     listAttendees(user.id),
     listAttendance(user.id, range),
     listApprovedLeave(user.id, range),
@@ -99,8 +95,6 @@ export default async function AttendancePage({
        anyway (079), but a query issued for data the page will not draw is a
        round trip for nothing — the same rule the finance page follows. */
     canManageTerminals ? listTerminals(user.id) : Promise.resolve([]),
-    canManageTerminals ? listUnmatched(user.id) : Promise.resolve([]),
-    canManageTerminals ? listEnrolments(user.id) : Promise.resolve([]),
   ]);
 
   /* See the header. */
@@ -131,19 +125,14 @@ export default async function AttendancePage({
         actions={<AttendanceRangePicker range={range} today={now.today} />}
       />
 
-      {/* ── THE TERMINALS ────────────────────────────────────────────────
-          Admin and Super Admin only. Above the grid because it is where somebody
-          goes to FIX something — an unmapped colleague, a wall that has gone
-          quiet — and the grid below is the thing they were reading when they
-          noticed. */}
-      {canManageTerminals && (
-        <TerminalPanel
-          terminals={terminals}
-          unmatched={unmatched}
-          enrolments={enrolments}
-          nowMs={nowMs()}
-        />
-      )}
+      {/* ── IS THE WALL WORKING ───────────────────────────────────────────
+          Admin+ only, and only the terminal's HEALTH. Owner, 2026-08-30: *"the
+          number of scans today, that's fine, that could be on the attendance
+          page but the mapping should be on the team page."* Right — this is read
+          while looking at today's attendance and noticing somebody missing, so
+          it belongs beside the record it explains. Mapping is a people job and
+          lives on Team. */}
+      {canManageTerminals && <TerminalHealth terminals={terminals} nowMs={nowMs()} />}
 
       <AttendanceWorkspace
         board={board}

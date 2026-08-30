@@ -67,17 +67,42 @@ import { cn } from '@/lib/utils';
 
 const EMPTY: DeviceResult = { ok: false };
 
-export function TerminalPanel({
+/* ⚠️ TWO EXPORTS, ON TWO DIFFERENT PAGES — owner, 2026-08-30: *"the mapping
+   should be on the team page"*, with the terminal's health left on Attendance.
+
+   That is the right cut, and not only because it was asked for. The two answer
+   different questions to different people at different moments:
+
+     TerminalHealth   "is the wall working?" — read while looking at today's
+                      attendance and noticing somebody missing. Belongs beside
+                      the record it explains.
+     TerminalMapping  "who is this person?" — done once when somebody joins, in
+                      the same sitting as creating their account and setting
+                      their role. Belongs with the people, not with the times.
+
+   They share `ago()` and the row components below rather than being split into
+   two files, because the shared piece is the thing most likely to drift. */
+
+/** The terminals and whether they are alive. For the Attendance page. */
+export function TerminalHealth({
   terminals,
+  nowMs,
+}: {
+  terminals: readonly TerminalRow[];
+  nowMs: number;
+}) {
+  if (terminals.length === 0) return null;
+  return <TerminalStrip terminals={terminals} nowMs={nowMs} />;
+}
+
+/** The queue and the roster — everything about who is who. For the Team page. */
+export function TerminalMapping({
   unmatched,
   enrolments,
   nowMs,
 }: {
-  terminals: readonly TerminalRow[];
   unmatched: readonly UnmatchedRow[];
   enrolments: readonly EnrolmentRow[];
-  /** The server clock. A component that reads its own renders one string on the
-   *  server and another in the browser — see lib/now.ts. */
   nowMs: number;
 }) {
   const [note, setNote] = React.useState<DeviceResult | null>(null);
@@ -105,15 +130,7 @@ export function TerminalPanel({
         </p>
       )}
 
-      <TerminalStrip terminals={terminals} nowMs={nowMs} />
-
-      <UnmatchedQueue
-        unmatched={unmatched}
-        people={enrolments}
-        nowMs={nowMs}
-        onDone={setNote}
-      />
-
+      <UnmatchedQueue unmatched={unmatched} people={enrolments} nowMs={nowMs} onDone={setNote} />
       <Roster mapped={mapped} unmapped={unmappedPeople} nowMs={nowMs} onDone={setNote} />
     </div>
   );
@@ -142,18 +159,6 @@ function TerminalStrip({
   terminals: readonly TerminalRow[];
   nowMs: number;
 }) {
-  if (terminals.length === 0) {
-    return (
-      <Card>
-        <CardBody>
-          <p className="text-body-sm text-text-secondary">
-            No attendance terminal is registered yet.
-          </p>
-        </CardBody>
-      </Card>
-    );
-  }
-
   return (
     <div className="grid gap-3 sm:grid-cols-2">
       {terminals.map((t) => {
