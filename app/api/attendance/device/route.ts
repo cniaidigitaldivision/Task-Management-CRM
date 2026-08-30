@@ -144,6 +144,15 @@ export async function POST(request: Request): Promise<Response> {
            Acknowledged rather than refused, because the terminal treats a
            non-2xx as a failure worth retrying. See `STALE_SCAN_DAYS`. */
         if (isStaleScan(parsed.scan.scannedAt, nowMs)) {
+          /* ⚠️ TEMPORARY, added 2026-08-30 while the first backlog drains. The
+             replay is invisible from the database precisely because these are
+             not stored, so there is no way to answer "how far has it got" or
+             "how much longer" without looking at what is being discarded.
+             Sampled at 1-in-50 to keep it out of the way. Remove once the
+             terminal has caught up. */
+          if (Math.random() < 0.02) {
+            console.log(`[attendance-device] replaying ${parsed.scan.scannedAt} (stale)`);
+          }
           results.push({
             employeeNo: parsed.scan.employeeNo,
             outcome: 'stale',
