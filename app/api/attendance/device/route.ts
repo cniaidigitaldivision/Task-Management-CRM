@@ -116,6 +116,10 @@ export async function POST(request: Request): Promise<Response> {
 
   const results: Applied[] = [];
   let unauthorised = false;
+  /* Whether this request was ALL stale. If so nothing below touches the
+     database, and the terminal's "last heard from" would go stale with it —
+     see the heartbeat at the end. */
+  let anyStored = false;
   /* One clock reading for the whole batch. Reading it per event would let a
      slow batch straddle the boundary and treat two identical scans differently. */
   const nowMs = Date.now();
@@ -189,6 +193,7 @@ export async function POST(request: Request): Promise<Response> {
         `;
 
         const outcome = (rows as Array<Record<string, unknown>>)[0]?.outcome as ScanOutcome;
+        anyStored = true;
         results.push({ employeeNo: parsed.scan.employeeNo, outcome });
       }
     });
@@ -209,6 +214,36 @@ export async function POST(request: Request): Promise<Response> {
 
   if (unauthorised) {
     return Response.json({ ok: false, error: 'Not a known terminal.' }, { status: 401 });
+  }
+
+  /* ── ⚠️ A HEARTBEAT, BECAUSE THE FAST PATH MADE THE TERMINAL LOOK DEAD ────
+     Found by the owner watching the screen during the first backlog replay: the
+     terminal card said "last heard from 2 hours ago" while the device was posting
+     2.5 times a second. `last_seen_at` is written inside `record_device_scan`,
+     which stale events never reach — so the one number somebody checks to answer
+     "is the wall working" went stale exactly when the wall was busiest. A health
+     indicator that reads dead during heavy traffic is worse than none.
+
+     ⚠️ SAMPLED AT 1-IN-20, and the sampling is the whole point. Updating on
+     every stale event would put back the round trip that skipping them removed.
+     One write per twenty requests is ~5% of that cost and, at this rate, keeps
+     the timestamp fresh to within about ten seconds.
+
+     ⚠️ The UPDATE is also self-throttling: the WHERE clause means a row is only
+     written when it is actually out of date, so the sampling controls round
+     trips and the predicate controls writes. */
+  if (!anyStored && serialFromUrl && Math.random() < 0.05) {
+    try {
+      await withAppRole((tx) => tx`
+        update public.attendance_devices
+           set last_seen_at = now()
+         where upper(btrim(serial_no)) = upper(btrim(${serialFromUrl}))
+           and is_active
+           and (last_seen_at is null or last_seen_at < now() - interval '1 minute')
+      `);
+    } catch {
+      /* A missed heartbeat is cosmetic. It must never fail a scan. */
+    }
   }
 
   /* ⚠️ The response is READ BY A PERSON, not by the device — the terminal
