@@ -253,6 +253,12 @@ const EXPECTED: Readonly<Record<Action, Row>> = {
         coordinator could not do that"                                  → not the Coordinator */
   'attendance.check_in': ['allow', 'allow', 'allow', 'allow'],
   'attendance.view_all': ['allow', 'allow', 'allow', 'deny'],
+
+  /* Owner, 2026-08-30, on where the terminal mapping screen should live: *"only
+     in admin and superadmin."* Deliberately one rung narrower than
+     `attendance.view_all` — reading who was late is not the same act as deciding
+     whose attendance a face opens. Migration 079 narrows the tables to match. */
+  'attendance.manage_devices': ['allow', 'allow', 'deny', 'deny'],
   'attendance.edit': ['allow', 'allow', 'deny', 'deny'],
 
   /* Finance — owner instruction, 2026-08-26, transcribed from the request and

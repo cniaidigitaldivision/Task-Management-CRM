@@ -2,8 +2,14 @@ import type { Metadata } from 'next';
 
 import { AttendanceRangePicker } from '@/components/attendance/attendance-range-picker';
 import { AttendanceWorkspace } from '@/components/attendance/attendance-workspace';
+import { TerminalPanel } from '@/components/attendance/terminal-panel';
 import { PageHeader } from '@/components/ui/page-header';
 import { requireUser } from '@/lib/auth/current-user';
+import {
+  listEnrolments,
+  listTerminals,
+  listUnmatched,
+} from '@/lib/db/queries/attendance-devices';
 import {
   attendanceNow,
   listApprovedLeave,
@@ -12,6 +18,7 @@ import {
   todayFor,
 } from '@/lib/db/queries/attendance';
 import { can } from '@/lib/domain/permissions';
+import { nowMs } from '@/lib/now';
 import {
   RANGE_KEYS,
   buildAttendanceBoard,
@@ -63,6 +70,11 @@ export default async function AttendancePage({
 
   const canViewAll = can(actor, 'attendance.view_all');
   const canEdit = can(actor, 'attendance.edit');
+  /* ⚠️ ONE RUNG NARROWER THAN `view_all`, and deliberately so. Owner, 2026-08-30:
+     *"only in admin and superadmin."* A Coordinator may read who was late and may
+     not decide whose attendance a face opens. Migration 079 narrows the tables to
+     match, so this only decides whether the panel is drawn. */
+  const canManageTerminals = can(actor, 'attendance.manage_devices');
 
   const params = await searchParams;
 
@@ -78,11 +90,17 @@ export default async function AttendancePage({
           now.today,
         );
 
-  const [attendees, records, leave, mine] = await Promise.all([
+  const [attendees, records, leave, mine, terminals, unmatched, enrolments] = await Promise.all([
     listAttendees(user.id),
     listAttendance(user.id, range),
     listApprovedLeave(user.id, range),
     todayFor(user.id),
+    /* ⚠️ Only fetched for somebody who may see them. RLS would return empty
+       anyway (079), but a query issued for data the page will not draw is a
+       round trip for nothing — the same rule the finance page follows. */
+    canManageTerminals ? listTerminals(user.id) : Promise.resolve([]),
+    canManageTerminals ? listUnmatched(user.id) : Promise.resolve([]),
+    canManageTerminals ? listEnrolments(user.id) : Promise.resolve([]),
   ]);
 
   /* See the header. */
@@ -112,6 +130,20 @@ export default async function AttendancePage({
            workspace so it sits level with the title, as drawn. */
         actions={<AttendanceRangePicker range={range} today={now.today} />}
       />
+
+      {/* ── THE TERMINALS ────────────────────────────────────────────────
+          Admin and Super Admin only. Above the grid because it is where somebody
+          goes to FIX something — an unmapped colleague, a wall that has gone
+          quiet — and the grid below is the thing they were reading when they
+          noticed. */}
+      {canManageTerminals && (
+        <TerminalPanel
+          terminals={terminals}
+          unmatched={unmatched}
+          enrolments={enrolments}
+          nowMs={nowMs()}
+        />
+      )}
 
       <AttendanceWorkspace
         board={board}

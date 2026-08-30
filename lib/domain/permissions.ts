@@ -511,6 +511,21 @@ export const PERMISSIONS = {
      which is the RLS policy in 060 rather than this line. */
   'attendance.view_all': M('allow', 'allow', 'allow', 'deny'),
 
+  /* ── THE ATTENDANCE TERMINALS — owner instruction, 2026-08-30 ─────────────
+     Asked where the mapping screen should live, the owner answered: *"only in
+     admin and superadmin."*
+
+     ⚠️ NARROWER THAN `attendance.view_all`, WHICH THE COORDINATOR HAS. Seeing
+     who came in late is reading a record; mapping an employee number decides
+     WHOSE attendance a face opens, and registering a terminal hands out a key to
+     the whole record. Those are different acts and the owner drew the line
+     between them.
+
+     ⚠️ Mirrored by migration 079, which narrows the two tables' select policies
+     to match. Widening this line without widening those gives an Admin-only
+     screen backed by data a Coordinator can still read. */
+  'attendance.manage_devices': M('allow', 'allow', 'deny', 'deny'),
+
   /* ⚠️ ADMIN AND ABOVE ONLY, AND THE COORDINATOR IS DELIBERATELY OUT — the one
      place attendance diverges from every other permission in this file. Owner,
      naming him: *"he forgot to check out, he can add their checkout time but you
