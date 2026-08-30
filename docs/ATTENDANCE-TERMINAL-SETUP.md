@@ -1,65 +1,97 @@
-# 🚪 ATTENDANCE TERMINAL — SETUP AND FIRST TEST
+# 🚪 ATTENDANCE TERMINAL — CONNECTED AND WORKING
 
-> **Written 2026-08-29, end of session.** Everything below is what to do the next
-> morning. If you have lost the conversation this came from, this file is the
-> whole state — you do not need it.
+> **Connected 2026-08-30 at 15:33 PKT.** The terminal in the Wah office is live
+> and posting scans to Taskly over HTTPS. This file is the record of how it was
+> set up and what was learned doing it.
 
-Connecting the **Hikvision DS-K1T320MFWX** face terminal in the **Wah office** so
-that scanning at the wall writes straight into Taskly attendance.
+Hikvision **DS-K1T320MFWX**, Wah office → `taskly.aidigitaldivision.com`.
 
 ---
 
-## WHERE WE GOT TO
+## STATUS
 
 | | |
 |---|---|
-| Branch | `device-attendance` |
-| Migration | `078_attendance_from_a_terminal.sql` — **applied to the database** |
-| Endpoint | `POST /api/attendance/device` — **live and verified in production** |
-| Live site | `https://taskly.aidigitaldivision.com` |
-| Terminal | **registered** in the database, serial `GB4571046`, nobody enrolled yet |
-| Tests | 2500 passing, typecheck and lint clean |
+| Terminal | **live** — serial `GB4571046`, posting over HTTPS |
+| Wired IP | **`192.168.1.99`** ← use this one for the settings page |
+| Wi-Fi IP | `192.168.1.7` — configured but inactive while the cable is in |
+| Web page | `https://192.168.1.99` (admin) — self-signed cert, the browser warning is normal |
+| Clock | GMT+05:00 Karachi, NTP on, DST off — **already correct, do not change** |
+| People on device | 55, in departments incl. **Ai & Digital Division** |
+| Mapped to Taskly | **none yet** — every scan lands as `unmatched` until mapped |
+| Migration | `078_attendance_from_a_terminal.sql`, applied |
 
-**What is built**
+### The settings that made it work
 
-- The whole receiving side: schema, parser, endpoint, dedup, clock handling.
-- Every scan is stored whether or not it matched somebody.
-- `check_in_source` / `check_out_source` — who came through the wall, who used
-  the button in Taskly.
-- `check_in_method` / `check_out_method` — face, fingerprint, card or PIN.
-- `users.attendance_mode` — **Terminal only** or **Terminal or Taskly**, and
-  **only an Admin or Super Admin can change it** (enforced by a database
-  trigger, not just the screen).
+**Configuration → Network → Advanced Settings → HTTP Listening**
 
-**What is NOT built yet**
+| Field | Value |
+|---|---|
+| Event Alarm IP/Domain Name | `taskly.aidigitaldivision.com` |
+| URL | `/api/attendance/device?serial=GB4571046&k=<SECRET>` |
+| Port | `443` |
+| Protocol | **HTTPS** ✅ *(it does support it — this was the open question)* |
 
-- **The admin screen.** Registering terminals, mapping employee numbers and the
-  unmatched-scan queue all have to be done in SQL for now. The terminal itself
-  is already registered, so tomorrow is not blocked.
-- **The bridge.** Only needed if the terminal cannot do HTTPS, or once you want
-  attendance to survive an internet outage — see *The Wi-Fi limitation* below.
+The secret is in `.env.terminal-secret.local` — never committed, this repo is public.
 
 ---
 
-## ✅ STEP 0 — DONE, 2026-08-29 19:47 PKT
+## ⚠️ WHAT WE LEARNED ON THE DAY
 
-Pushed (`c7ca25e..0dd1b15`), Vercel deployed, and the live endpoint was tested
-end to end from the production URL:
+Things that were guesses beforehand and are now facts.
 
-- a wrong secret → **401**
-- a scan shaped exactly as the terminal sends → **accepted**, recorded as
-  `unmatched` because nobody is enrolled yet
-- the same scan sent twice → **`duplicate`**, ignored
-- the recognition method was read correctly as **face** from the event code
-- the time landed correctly in Karachi
+**1. The terminal replays its ENTIRE stored history when first connected.**
+The moment HTTP Listening was saved it began pushing seven months of events —
+roughly 45,000 scans for 55 people. This contradicts what was assumed while
+planning (that Hikvision push is fire-and-forget), and it is *good* news: it
+means an internet outage is far less damaging than feared.
 
-**The chain works.** The only untested link is the terminal itself, which is what
-tomorrow is for. The test scan was deleted afterwards, so the first row in the
-log will be a real one.
+**2. That backlog had to be filtered out.** Every replayed event cost a database
+round trip — 0.6 a second, about 20 hours to finish, filling the table with rows
+that could never become attendance. The route now discards anything older than
+**10 days** before touching the database. Throughput went to ~2.6 a second and
+the table stopped growing. See `STALE_SCAN_DAYS`.
+
+**3. Employee numbers carry leading zeros.** The device sends `"003"`, not `"3"`,
+and matching is exact. Take the number from a real scan, never by retyping.
+
+**4. Recognition method arrives correctly.** `subEventType: 75` = face,
+`38` = fingerprint. The `currentVerifyMode` field describes what the door
+*accepts*, not what was used, so it is only a fallback.
+
+**5. Times arrive correct.** The terminal sends `+05:00` with every event and
+they land accurate to the second in Karachi time.
+
+**6. "Checking in failed" on the device screen is unrelated to Taskly.** That is
+the terminal's own Time & Attendance module, which has no shifts configured
+(`attendanceStatus: "undefined"`). It does not stop events being sent.
+
+**7. Only ~8 of the 55 people on the device have Taskly accounts.** The rest will
+scan as `unmatched` indefinitely. Harmless, but worth a decision.
 
 ---
 
-## STEP 1 — YOU, FROM ANYWHERE (2 minutes)
+## ✉️ EMAIL — FIXED 2026-08-30, NEEDS ONE RETEST
+
+Creating an invitation failed with a Resend **403**: *"You can only send testing
+emails to your own email address."*
+
+**The cause was not DNS.** `aidigitaldivision.com` was verified in Resend 11 days
+ago. But `EMAIL_FROM` on Vercel was set **15 days ago** — before the domain
+existed — so it still pointed at the sandbox sender, and Resend treats those as
+test-only.
+
+**Fixed:** `EMAIL_FROM` on Vercel production is now
+`Taskly <admin@aidigitaldivision.com>`, and production was redeployed.
+
+⚠️ **Still to verify:** create one invitation and confirm the email actually
+arrives. **This also affects invoices** — an invoice to a real client would have
+failed the same way. The invoice test on 2026-08-29 only succeeded because it was
+sent to `habibaminhas989@gmail.com`, the one address the sandbox allowed.
+
+---
+
+## REFERENCE — CHECKING IT IS ALIVE (2 minutes)
 
 Open this in a browser:
 
