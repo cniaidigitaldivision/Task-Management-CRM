@@ -1,4 +1,5 @@
 import { sql, withUser } from '@/lib/db/client';
+import type { AttendanceSource, ScanMethod } from '@/lib/domain/attendance-device';
 
 /* ============================================================================
  * ATTENDANCE — READS AND THE TWO WRITES
@@ -28,6 +29,13 @@ export interface AttendanceDayRow {
   readonly onDate: string;
   readonly checkedInAt: string | null;
   readonly checkedOutAt: string | null;
+  /* ── Owner, 2026-09-01: *"I want a proper column that should mention whether
+     this check-in is from a device or from the system."* Two of each, because
+     arriving and leaving are separate events and can legitimately differ. */
+  readonly checkInSource: AttendanceSource;
+  readonly checkOutSource: AttendanceSource;
+  readonly checkInMethod: ScanMethod | null;
+  readonly checkOutMethod: ScanMethod | null;
   readonly editedByName: string | null;
   readonly editedAt: string | null;
   readonly editNote: string | null;
@@ -69,6 +77,10 @@ function toRow(row: Record<string, unknown>): AttendanceDayRow {
     onDate: dateOnly(row.on_date),
     checkedInAt: iso(row.checked_in_at),
     checkedOutAt: iso(row.checked_out_at),
+    checkInSource: (row.check_in_source as AttendanceSource) ?? 'self',
+    checkOutSource: (row.check_out_source as AttendanceSource) ?? 'self',
+    checkInMethod: (row.check_in_method as ScanMethod | null) ?? null,
+    checkOutMethod: (row.check_out_method as ScanMethod | null) ?? null,
     editedByName: (row.edited_by_name as string | null) ?? null,
     editedAt: iso(row.edited_at),
     editNote: (row.edit_note as string | null) ?? null,
@@ -136,6 +148,8 @@ export async function listAttendance(
 ): Promise<AttendanceDayRow[]> {
   const rows = await withUser(actorId, (tx) => tx`
     select a.id, a.user_id, a.on_date, a.checked_in_at, a.checked_out_at,
+           a.check_in_source, a.check_out_source,
+           a.check_in_method, a.check_out_method,
            a.edited_at, a.edit_note,
            u.full_name as user_name, u.role, u.role_title, u.avatar_url, u.office_team,
            e.full_name as edited_by_name,

@@ -32,6 +32,12 @@ import {
   exportAttendanceAction,
 } from '@/app/actions/attendance';
 import { AttendanceColumns } from '@/components/attendance/attendance-columns';
+import {
+  METHOD_LABEL,
+  SOURCE_META,
+  type AttendanceSource,
+  type ScanMethod,
+} from '@/lib/domain/attendance-device';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody } from '@/components/ui/card';
@@ -540,7 +546,12 @@ export function AttendanceWorkspace({
                         </span>
                       </Td>
                       <Td>
-                        <Stamp iso={row.checkedInAt} late={row.status === 'late'} />
+                        <Stamp
+                          iso={row.checkedInAt}
+                          late={row.status === 'late'}
+                          source={row.checkInSource}
+                          method={row.checkInMethod}
+                        />
                       </Td>
                       <Td>
                         {row.checkedInAt && !row.checkedOutAt ? (
@@ -552,7 +563,11 @@ export function AttendanceWorkspace({
                             No check-out
                           </span>
                         ) : (
-                          <Stamp iso={row.checkedOutAt} />
+                          <Stamp
+                            iso={row.checkedOutAt}
+                            source={row.checkOutSource}
+                            method={row.checkOutMethod}
+                          />
                         )}
                       </Td>
                       <Td>
@@ -1497,16 +1512,59 @@ function TeamChip({ team, label }: { team: string; label: string }) {
   );
 }
 
-function Stamp({ iso, late }: { iso: string | null; late?: boolean }) {
+/**
+ * A time, and where it came from.
+ *
+ * ⚠️ THE SOURCE IS SHOWN AS A SMALL LABEL UNDER THE TIME, not as another column.
+ * Owner, 2026-09-01: *"I want a proper column that should mention whether this
+ * check-in is from a device or from the system."* Two more columns would have
+ * been the literal reading and the wrong one — the table already carries eight
+ * and scrolls sideways on a laptop, and the source belongs TO a time rather than
+ * beside it. Under the stamp it is unambiguous which half it describes, and the
+ * table stays the same width.
+ *
+ * ⚠️ THE METHOD RIDES ALONG where the terminal reported one, so a row reads
+ * "Wall · Face" rather than making somebody open a detail panel to find out.
+ * The button has no method, and prints none rather than inventing "Other".
+ */
+function Stamp({
+  iso,
+  late,
+  source,
+  method,
+}: {
+  iso: string | null;
+  late?: boolean;
+  source?: AttendanceSource;
+  method?: ScanMethod | null;
+}) {
   if (!iso) return <span className="text-caption text-text-tertiary">—</span>;
+
+  const meta = source ? SOURCE_META[source] : null;
+
   return (
-    <span className="flex items-center gap-1.5 whitespace-nowrap text-caption text-text-primary">
-      <span
-        aria-hidden="true"
-        className="size-1.5 shrink-0 rounded-full"
-        style={{ backgroundColor: late ? 'var(--feedback-warning)' : 'var(--feedback-success)' }}
-      />
-      {clockLabel(iso)}
+    <span className="whitespace-nowrap">
+      <span className="flex items-center gap-1.5 text-caption text-text-primary">
+        <span
+          aria-hidden="true"
+          className="size-1.5 shrink-0 rounded-full"
+          style={{ backgroundColor: late ? 'var(--feedback-warning)' : 'var(--feedback-success)' }}
+        />
+        {clockLabel(iso)}
+      </span>
+      {meta && (
+        <span
+          className="mt-0.5 block text-micro font-medium"
+          style={{ color: `var(--${meta.token})` }}
+          /* The long form on hover: the label is two words at most so the row
+             stays narrow, and "At the terminal, by face" is the sentence
+             somebody actually wants when they stop to look. */
+          title={`${meta.label}${method ? `, by ${METHOD_LABEL[method].toLowerCase()}` : ''}`}
+        >
+          {meta.short}
+          {method ? ` · ${METHOD_LABEL[method]}` : ''}
+        </span>
+      )}
     </span>
   );
 }

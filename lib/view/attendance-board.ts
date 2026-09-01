@@ -1,3 +1,4 @@
+import type { AttendanceSource, ScanMethod } from '@/lib/domain/attendance-device';
 import {
   type AttendanceStatus,
   type StatusedDay,
@@ -50,6 +51,13 @@ export interface BoardRecord {
   readonly onDate: string;
   readonly checkedInAt: string | null;
   readonly checkedOutAt: string | null;
+  /* Owner, 2026-09-01: the table has to say whether a time came from the wall or
+     from the button. Optional so a caller that does not have them — a test
+     fixture, an older shape — still type-checks; the cell defaults to `self`. */
+  readonly checkInSource?: AttendanceSource;
+  readonly checkOutSource?: AttendanceSource;
+  readonly checkInMethod?: ScanMethod | null;
+  readonly checkOutMethod?: ScanMethod | null;
   readonly editedByName: string | null;
   readonly editNote: string | null;
 }
@@ -79,6 +87,12 @@ export interface BoardCell {
   readonly settled: boolean;
   readonly checkedInAt: string | null;
   readonly checkedOutAt: string | null;
+  /* Where each time came from, and how the terminal recognised them. Owner,
+     2026-09-01 — see AttendanceDayRow. */
+  readonly checkInSource: AttendanceSource;
+  readonly checkOutSource: AttendanceSource;
+  readonly checkInMethod: ScanMethod | null;
+  readonly checkOutMethod: ScanMethod | null;
   readonly minutes: number | null;
   readonly overtime: number | null;
   readonly editedByName: string | null;
@@ -185,6 +199,13 @@ export function buildAttendanceBoard(input: BoardInput): AttendanceBoard {
         settled: isSettled({ onDate: date, today: input.today, nowMinutes: input.nowMinutes }),
         checkedInAt: record?.checkedInAt ?? null,
         checkedOutAt: record?.checkedOutAt ?? null,
+        /* ⚠️ Defaults to `self` where there is no record, and that is the honest
+           reading: a day nobody recorded came from nothing, and the button is
+           what every existing row was. It is never shown for an empty cell. */
+        checkInSource: record?.checkInSource ?? 'self',
+        checkOutSource: record?.checkOutSource ?? 'self',
+        checkInMethod: record?.checkInMethod ?? null,
+        checkOutMethod: record?.checkOutMethod ?? null,
         minutes: record ? minutesWorked(record) : null,
         overtime: record ? overtimeMinutes(record) : null,
         editedByName: record?.editedByName ?? null,
