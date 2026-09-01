@@ -34,6 +34,15 @@ function toPerson(row: Record<string, unknown>): PersonRow {
     weeklyCapacityPoints: Number(row.weekly_capacity_points ?? 36),
     maxConcurrentTasks: Number(row.max_concurrent_tasks ?? 5),
     timezone: row.timezone as string,
+    phone: (row.phone as string | null) ?? null,
+    officeTeam: (row.office_team as 'blue_area' | 'wah') ?? 'blue_area',
+    devicePersonNo: (row.device_person_no as string | null) ?? null,
+    attendanceMode: (row.attendance_mode as 'either' | 'terminal_only') ?? 'either',
+    /* Absent unless the query asked for it — see the join in `listPeople`. */
+    monthlySalary:
+      row.monthly_salary === null || row.monthly_salary === undefined
+        ? null
+        : Number(row.monthly_salary),
     lastLoginAt: iso(row.last_login_at),
     lockedAt: iso(row.locked_at),
     createdAt: iso(row.created_at) ?? '',
@@ -50,18 +59,34 @@ export async function listPeople(
   options: { includeInactive?: boolean } = {},
 ): Promise<PersonRow[]> {
   const rows = await withUser(actorId, (tx) => tx`
-    select * from public.users
-     where ${options.includeInactive ? tx`true` : tx`is_active`}
+    /* THE SALARY JOIN IS THE PERMISSION BOUNDARY, NOT A CONVENIENCE.
+       employee_compensation is Admin-only by its own RLS policy (062), so for a
+       Coordinator this join finds nothing and monthly_salary comes back null.
+       That matters more than it looks: PersonRow is serialised into the RSC
+       payload for the Team page, so a figure fetched here is readable with
+       view-source by whoever loaded the page. The database withholding it is
+       what keeps the payload honest, not the dialog declining to render a
+       field. Same lesson as lib/view/project-finance.ts.
+       (No backticks: this sits inside a JS template literal.) */
+    select u.*, c.monthly_salary
+      from public.users u
+      left join public.employee_compensation c on c.user_id = u.id
+     where ${options.includeInactive ? tx`true` : tx`u.is_active`}
      order by
-       case role when 'super_admin' then 0 when 'admin' then 1
-                 when 'team_coordinator' then 2 else 3 end,
-       full_name
+       case u.role when 'super_admin' then 0 when 'admin' then 1
+                   when 'team_coordinator' then 2 else 3 end,
+       u.full_name
   `);
   return rows.map(toPerson);
 }
 
 export async function getPerson(actorId: string, userId: string): Promise<PersonRow | null> {
-  const rows = await withUser(actorId, (tx) => tx`select * from public.users where id = ${userId}`);
+  const rows = await withUser(actorId, (tx) => tx`
+    select u.*, c.monthly_salary
+      from public.users u
+      left join public.employee_compensation c on c.user_id = u.id
+     where u.id = ${userId}
+  `);
   return rows[0] ? toPerson(rows[0]) : null;
 }
 
@@ -182,21 +207,83 @@ export async function setTheme(actorId: string, theme: Theme): Promise<void> {
  * Capacity and concurrency. Admin+ only — RLS on `users` enforces the downward
  * rule (an Admin manages below themselves; nobody edits the Super Admin).
  */
+export interface ProfileEdit {
+  weeklyCapacityPoints?: number;
+  maxConcurrentTasks?: number;
+  roleTitle?: string | null;
+  /* ── Owner, 2026-09-01: *"if I want all the options, like name change, salary
+     change, or anything like their office change, give me all the options."*
+     Everything below was editable in the database and reachable from nowhere. */
+  fullName?: string;
+  phone?: string | null;
+  officeTeam?: 'blue_area' | 'wah';
+  devicePersonNo?: string | null;
+  attendanceMode?: 'either' | 'terminal_only';
+}
+
+/**
+ * Change what is true about a person.
+ *
+ * ⚠️ EVERY FIELD IS OPTIONAL AND ABSENCE MEANS "LEAVE IT ALONE", which is what
+ * the `case when has(...)` shape is for. A caller that sends only a phone number
+ * must not blank the job title, and a form that renders half its fields for a
+ * Coordinator must not wipe the half it did not show. That is not hypothetical
+ * here: the salary and terminal fields are Admin-only on the same dialog.
+ *
+ * ⚠️ THE DATABASE STILL DECIDES. `office_team`, `attendance_mode` and
+ * `device_person_no` each have a trigger refusing anybody below Admin
+ * (migrations 060 and 078), and they run whatever this function is told. This
+ * only assembles the update; it is not the permission boundary.
+ */
 export async function updateCapacity(
   actorId: string,
   userId: string,
-  input: { weeklyCapacityPoints?: number; maxConcurrentTasks?: number; roleTitle?: string | null },
+  input: ProfileEdit,
 ): Promise<void> {
-  const has = (k: keyof typeof input) => Object.hasOwn(input, k);
+  const has = (k: keyof ProfileEdit) => Object.hasOwn(input, k);
   await withUser(actorId, (tx) => tx`
     update public.users set
       weekly_capacity_points = case when ${has('weeklyCapacityPoints')}
         then ${input.weeklyCapacityPoints ?? null}::integer else weekly_capacity_points end,
       max_concurrent_tasks = case when ${has('maxConcurrentTasks')}
         then ${input.maxConcurrentTasks ?? null}::integer else max_concurrent_tasks end,
-      role_title = case when ${has('roleTitle')} then ${input.roleTitle ?? null} else role_title end
+      role_title = case when ${has('roleTitle')} then ${input.roleTitle ?? null} else role_title end,
+      full_name = case when ${has('fullName')}
+        then coalesce(${input.fullName ?? null}, full_name) else full_name end,
+      phone = case when ${has('phone')} then ${input.phone ?? null} else phone end,
+      office_team = case when ${has('officeTeam')}
+        then ${input.officeTeam ?? null}::public.office_team else office_team end,
+      device_person_no = case when ${has('devicePersonNo')}
+        then ${input.devicePersonNo ?? null} else device_person_no end,
+      attendance_mode = case when ${has('attendanceMode')}
+        then ${input.attendanceMode ?? null}::public.attendance_mode else attendance_mode end
     where id = ${userId}
   `);
+}
+
+/** What somebody is paid. Admin-only by the table's own policy (062). */
+export async function setSalary(
+  actorId: string,
+  userId: string,
+  monthlySalary: number | null,
+): Promise<void> {
+  await withUser(actorId, (tx) => tx`
+    insert into public.employee_compensation (user_id, monthly_salary, updated_by_id)
+    values (${userId}, ${monthlySalary}, ${actorId})
+    on conflict (user_id) do update
+      set monthly_salary = excluded.monthly_salary,
+          updated_by_id  = excluded.updated_by_id,
+          updated_at     = now()
+  `);
+}
+
+/** Their current pay, for the edit form. Returns null where none is recorded. */
+export async function getSalary(actorId: string, userId: string): Promise<number | null> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select monthly_salary from public.employee_compensation where user_id = ${userId}
+  `);
+  const value = (rows as Array<Record<string, unknown>>)[0]?.monthly_salary;
+  return value === null || value === undefined ? null : Number(value);
 }
 
 /* ---- Availability (FR-014) ---- */

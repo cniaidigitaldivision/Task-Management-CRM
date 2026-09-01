@@ -196,6 +196,15 @@ export interface PersonRow {
   readonly weeklyCapacityPoints: number;
   readonly maxConcurrentTasks: number;
   readonly timezone: string;
+  /* ── Owner, 2026-09-01: everything about a person, editable in one place. ──
+     These were all in the database and reachable from no screen. `monthlySalary`
+     is null for anybody the caller may not see it for — the query only joins it
+     for an Admin, so a Coordinator's payload never carries a pay figure. */
+  readonly phone: string | null;
+  readonly officeTeam: 'blue_area' | 'wah';
+  readonly devicePersonNo: string | null;
+  readonly attendanceMode: 'either' | 'terminal_only';
+  readonly monthlySalary: number | null;
   readonly lastLoginAt: string | null;
   readonly lockedAt: string | null;
   readonly createdAt: string;

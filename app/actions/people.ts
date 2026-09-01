@@ -13,6 +13,7 @@ import {
   removeUserSkill,
   setOwnAvatar,
   setTheme,
+  setSalary,
   setUserSkill,
   updateCapacity,
   updateOwnProfile,
@@ -25,6 +26,7 @@ import {
   type Theme,
 } from '@/lib/domain/constants';
 import { sameEmail, validateEmailAddress } from '@/lib/domain/email-address';
+import { checkEmployeeNo } from '@/lib/domain/attendance-device';
 import { can } from '@/lib/domain/permissions';
 import { notifyEmailChanged } from '@/lib/email/notify';
 import {
@@ -118,12 +120,71 @@ export async function updateCapacityAction(
     return fail('The concurrent-task limit has to be between 1 and 20.');
   }
 
+  /* ── ⚠️ WHAT AN ADMIN MAY EDIT THAT A COORDINATOR MAY NOT ─────────────────
+     Owner, 2026-09-01, asked for every field in one dialog and chose to keep
+     salary Admin-only. Office, terminal number and attendance mode belong on
+     the same side of that line: each has a database trigger refusing anybody
+     below Admin (060, 078), so a Coordinator submitting them would meet a raw
+     Postgres error instead of a sentence.
+
+     ⚠️ AND THE FIELDS ARE SKIPPED, NOT REJECTED. A Coordinator's dialog does
+     not render them, so a well-behaved form never posts them — but a stale tab
+     or a hand-built request might. Ignoring what they may not set lets their
+     legitimate edits go through, where refusing the whole submission would lose
+     the name change they actually made. */
+  const isAdmin = can({ role: user.role, id: user.id }, 'attendance.manage_devices');
+
+  const fullName = str(form, 'fullName');
+  if (fullName && fullName.trim().length < 2) {
+    return fail('A name needs at least two characters.');
+  }
+
+  const salaryRaw = str(form, 'monthlySalary');
+  let salary: number | null | undefined;
+  if (isAdmin && form.has('monthlySalary')) {
+    if (salaryRaw === '') {
+      salary = null;
+    } else {
+      const parsed = Number(salaryRaw);
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        return fail('A salary has to be a number of rupees, or left empty.');
+      }
+      salary = parsed;
+    }
+  }
+
+  const employeeNo = str(form, 'devicePersonNo');
+  if (isAdmin && employeeNo) {
+    const shape = checkEmployeeNo(employeeNo);
+    if (!shape.ok) return fail(shape.message);
+  }
+
   try {
     await updateCapacity(user.id, userId, {
       weeklyCapacityPoints: capacity,
       maxConcurrentTasks: maxTasks,
       roleTitle: str(form, 'roleTitle') || null,
+      ...(fullName ? { fullName } : {}),
+      ...(form.has('phone') ? { phone: str(form, 'phone') || null } : {}),
+      ...(isAdmin && form.has('officeTeam')
+        ? { officeTeam: str(form, 'officeTeam') === 'wah' ? ('wah' as const) : ('blue_area' as const) }
+        : {}),
+      ...(isAdmin && form.has('devicePersonNo')
+        ? { devicePersonNo: employeeNo || null }
+        : {}),
+      ...(isAdmin && form.has('attendanceMode')
+        ? {
+            attendanceMode:
+              str(form, 'attendanceMode') === 'terminal_only'
+                ? ('terminal_only' as const)
+                : ('either' as const),
+          }
+        : {}),
     });
+
+    if (salary !== undefined) {
+      await setSalary(user.id, userId, salary);
+    }
 
     await withUser(user.id, async (tx) => {
       await audit(tx, user, {

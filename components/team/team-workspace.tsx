@@ -358,7 +358,14 @@ export function TeamWorkspace({
       />
 
       {editing && (
-        <CapacityDialog person={editing} onClose={() => setEditing(null)} />
+        <CapacityDialog
+          person={editing}
+          /* ⚠️ `canManage` is `user.set_capacity_and_skills` — Admin+, the same
+             rank the pay and terminal fields need. Passing it rather than
+             re-deriving keeps one answer to "may this person edit everything". */
+          canManageAll={canManage}
+          onClose={() => setEditing(null)}
+        />
       )}
       {leaveFor && <LeaveDialog person={leaveFor} onClose={() => setLeaveFor(null)} />}
       {skillsFor && (
@@ -400,7 +407,37 @@ function ActionError({ error }: { error?: string }) {
   );
 }
 
-function CapacityDialog({ person, onClose }: { person: PersonRow; onClose: () => void }) {
+/**
+ * Everything true about one person, editable in one place.
+ *
+ * ⚠️ IT USED TO BE THREE FIELDS. Owner, 2026-09-01: *"when I click it, it shows
+ * me just a few options. If I want all the options, like name change, salary
+ * change, or anything like their office change, give me all the options."*
+ * Fair — job title, capacity and concurrency were the only things reachable,
+ * while name, phone, office, salary and the terminal number were all editable in
+ * the database and reachable from nowhere.
+ *
+ * ⚠️ THE ADMIN-ONLY HALF IS NOT RENDERED, NOT DISABLED. A greyed-out salary box
+ * still tells a Coordinator that one exists and roughly where it sits; more to
+ * the point, `PersonRow` crosses into the RSC payload, so the only thing that
+ * actually keeps a pay figure away from them is the query not fetching it
+ * (see `listPeople`). This component draws what it was given.
+ *
+ * ⚠️ ROLE IS DELIBERATELY ABSENT. Owner's choice, and the right one: changing
+ * somebody's permissions is a different kind of act from correcting their phone
+ * number, and it keeps its own confirmation on the row's ⋯ menu.
+ */
+function CapacityDialog({
+  person,
+  canManageAll,
+  onClose,
+}: {
+  person: PersonRow;
+  /** `attendance.manage_devices` — Admin and Super Admin. Decides whether the
+   *  pay and terminal fields exist at all on this form. */
+  canManageAll: boolean;
+  onClose: () => void;
+}) {
   const router = useRouter();
   const [state, formAction, pending] = React.useActionState(updateCapacityAction, EMPTY);
 
@@ -415,9 +452,9 @@ function CapacityDialog({ person, onClose }: { person: PersonRow; onClose: () =>
     <Dialog
       open
       onClose={onClose}
-      title={`${person.fullName} — capacity`}
-      description="These two numbers decide what the system will let anybody give this person."
-      size="sm"
+      title={`Edit ${person.fullName}`}
+      description="Their details, what the system will let anybody give them, and how they record attendance."
+      size="md"
       footer={
         <>
           <Button variant="ghost" size="md" onClick={onClose} disabled={pending}>
@@ -430,43 +467,164 @@ function CapacityDialog({ person, onClose }: { person: PersonRow; onClose: () =>
         </>
       }
     >
-      <form id="capacity-form" action={formAction} className="space-y-4">
+      <form id="capacity-form" action={formAction} className="space-y-5">
         <input type="hidden" name="userId" value={person.id} />
         <ActionError error={state.error} />
 
-        <Field label="Job title" htmlFor="roleTitle" hint="What they actually do, in their words.">
-          <Input id="roleTitle" name="roleTitle" defaultValue={person.roleTitle ?? ''} />
-        </Field>
+        {/* ══ WHO THEY ARE ══════════════════════════════════════════════════ */}
+        <div className="space-y-4">
+          <p className="text-micro font-semibold uppercase tracking-wide text-text-tertiary">
+            Who they are
+          </p>
 
-        <Field
-          label="Weekly capacity, in points"
-          htmlFor="weeklyCapacityPoints"
-          hint="36 is the default. Not 48 — attendance hours are not productive hours, and setting it to 48 leaves every threshold permanently silent (ADR-004)."
-        >
-          <Input
-            id="weeklyCapacityPoints"
-            name="weeklyCapacityPoints"
-            type="number"
-            min="1"
-            max="48"
-            defaultValue={person.weeklyCapacityPoints}
-          />
-        </Field>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Full name" htmlFor="fullName">
+              <Input id="fullName" name="fullName" defaultValue={person.fullName} required />
+            </Field>
 
-        <Field
-          label="Concurrent tasks"
-          htmlFor="maxConcurrentTasks"
-          hint="The second guard. Somebody at 40% capacity juggling twelve things is still in trouble (doc 06 §1)."
-        >
-          <Input
-            id="maxConcurrentTasks"
-            name="maxConcurrentTasks"
-            type="number"
-            min="1"
-            max="20"
-            defaultValue={person.maxConcurrentTasks}
-          />
-        </Field>
+            <Field label="Job title" htmlFor="roleTitle" hint="What they actually do.">
+              <Input id="roleTitle" name="roleTitle" defaultValue={person.roleTitle ?? ''} />
+            </Field>
+
+            <Field label="Phone" htmlFor="phone" hint="Optional.">
+              <Input id="phone" name="phone" defaultValue={person.phone ?? ''} placeholder="03xx xxxxxxx" />
+            </Field>
+
+            {/* ⚠️ Shown, never editable here. Changing an address is an identity
+                change — it needs the person to confirm the new inbox, which is
+                what the separate email flow does. A quiet edit in this dialog
+                would let an Admin take over an account. */}
+            <Field label="Email" hint="Changed from their own profile, with confirmation.">
+              <Input value={person.email} readOnly disabled />
+            </Field>
+          </div>
+        </div>
+
+        {canManageAll && (
+          <>
+            {/* ══ WHERE THEY WORK ═══════════════════════════════════════════ */}
+            <div className="space-y-4 border-t border-border-subtle pt-4">
+              <p className="text-micro font-semibold uppercase tracking-wide text-text-tertiary">
+                Where they work
+              </p>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                {/* ⚠️ This decides which days count as absences, not just a
+                    label: Blue Area rests on Sunday and Wah on Friday. Getting
+                    it wrong marks somebody absent on the days they work. */}
+                <Field
+                  label="Office"
+                  htmlFor="officeTeam"
+                  hint="Decides their days off — Blue Area rests Sunday, Wah rests Friday."
+                >
+                  <Select
+                    id="officeTeam"
+                    name="officeTeam"
+                    defaultValue={person.officeTeam}
+                    options={[
+                      { value: 'blue_area', label: 'Blue Area — Islamabad' },
+                      { value: 'wah', label: 'Wah — Headquarters' },
+                    ]}
+                  />
+                </Field>
+
+                <Field
+                  label="Monthly salary"
+                  htmlFor="monthlySalary"
+                  hint="PKR. Leave empty for anybody not on payroll."
+                >
+                  <Input
+                    id="monthlySalary"
+                    name="monthlySalary"
+                    type="number"
+                    min="0"
+                    step="1000"
+                    defaultValue={person.monthlySalary ?? ''}
+                    placeholder="85000"
+                  />
+                </Field>
+              </div>
+            </div>
+
+            {/* ══ ATTENDANCE ════════════════════════════════════════════════ */}
+            <div className="space-y-4 border-t border-border-subtle pt-4">
+              <p className="text-micro font-semibold uppercase tracking-wide text-text-tertiary">
+                How they record attendance
+              </p>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field
+                  label="Terminal number"
+                  htmlFor="devicePersonNo"
+                  hint="Their employee number on the reader. Empty for remote staff."
+                >
+                  <Input
+                    id="devicePersonNo"
+                    name="devicePersonNo"
+                    defaultValue={person.devicePersonNo ?? ''}
+                    placeholder="019"
+                    className="font-mono"
+                  />
+                </Field>
+
+                <Field
+                  label="Allowed to"
+                  htmlFor="attendanceMode"
+                  hint="Terminal only refuses the button in Taskly."
+                >
+                  <Select
+                    id="attendanceMode"
+                    name="attendanceMode"
+                    defaultValue={person.attendanceMode}
+                    options={[
+                      { value: 'either', label: 'Terminal or Taskly' },
+                      { value: 'terminal_only', label: 'Terminal only' },
+                    ]}
+                  />
+                </Field>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* ══ WHAT THEY CAN BE GIVEN ════════════════════════════════════════ */}
+        <div className="space-y-4 border-t border-border-subtle pt-4">
+          <p className="text-micro font-semibold uppercase tracking-wide text-text-tertiary">
+            What the system will let anybody give them
+          </p>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field
+              label="Weekly capacity, in points"
+              htmlFor="weeklyCapacityPoints"
+              hint="36 is the default. Not 48 — attendance hours are not productive hours (ADR-004)."
+            >
+              <Input
+                id="weeklyCapacityPoints"
+                name="weeklyCapacityPoints"
+                type="number"
+                min="1"
+                max="48"
+                defaultValue={person.weeklyCapacityPoints}
+              />
+            </Field>
+
+            <Field
+              label="Concurrent tasks"
+              htmlFor="maxConcurrentTasks"
+              hint="Somebody at 40% capacity juggling twelve things is still in trouble."
+            >
+              <Input
+                id="maxConcurrentTasks"
+                name="maxConcurrentTasks"
+                type="number"
+                min="1"
+                max="20"
+                defaultValue={person.maxConcurrentTasks}
+              />
+            </Field>
+          </div>
+        </div>
       </form>
     </Dialog>
   );
