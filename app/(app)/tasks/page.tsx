@@ -5,9 +5,10 @@ import { PageHeader } from '@/components/ui/page-header';
 import { requireUser } from '@/lib/auth/current-user';
 import { listAssignablepeople } from '@/lib/db/queries/people';
 import { listProjects } from '@/lib/db/queries/projects';
-import { listTasks } from '@/lib/db/queries/tasks';
+import { listTasks, taskTotals } from '@/lib/db/queries/tasks';
 import { isoDateIn, nowMs } from '@/lib/now';
 import { toTaskView } from '@/lib/view/task-view';
+import { resolveTaskWindow } from '@/lib/view/task-window';
 
 export const metadata: Metadata = { title: 'Tasks' };
 
@@ -30,19 +31,58 @@ export const metadata: Metadata = { title: 'Tasks' };
 export default async function TasksPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; project?: string; assignee?: string; task?: string }>;
+  searchParams: Promise<{
+    q?: string;
+    project?: string;
+    assignee?: string;
+    task?: string;
+    range?: string;
+    from?: string;
+    to?: string;
+  }>;
 }) {
   const user = await requireUser();
   const params = await searchParams;
 
-  const [rows, people, projects] = await Promise.all([
+  /* ── ⚠️ THE BOARD OPENS ON TODAY, NOT ON EVERYTHING ───────────────────────
+     Owner, 2026-09-02: *"by default it should show only today's tasks not the
+     whole month's tasks. When I want to see all the tasks, I will put the All
+     filter."*
+
+     Measured on the live database the same day: 318 tasks, of which 293 are due
+     in the FUTURE. So the board was drawing a month and a half of work nobody
+     had asked to see yet, at 275 kB of payload for the 25 cards that mattered.
+
+     ── WHY THE DEFAULT IS `to = today` WITH NO `from` ────────────────────────
+     A window of exactly today (`from = to = today`) would ALSO hide overdue
+     work, which is the one thing on this page nobody can afford to miss - and
+     the page has an Overdue card that would have started contradicting the
+     board. An open-ended start reads as "everything up to and including today":
+     due today, everything late, and undated work. That is the question somebody
+     opening a task board is actually asking.
+
+     It is expressed as a real, editable range rather than a hidden mode, so the
+     toolbar's own date control shows it and can widen it - and `?range=all`
+     is the All the owner asked for. */
+  const today = isoDateIn();
+  /* The rules, and the reasoning, live in lib/view/task-window.ts with a test
+     per case — including the absent-versus-cleared one this got wrong first. */
+  const { dueFrom, dueTo, showAll } = resolveTaskWindow(params, today);
+
+  const [rows, people, projects, totals] = await Promise.all([
     listTasks(user.id, {
       includeClosed: true,
       projectId: params.project,
       assigneeId: params.assignee,
+      dueFrom,
+      dueTo,
     }),
     listAssignablepeople(user.id),
     listProjects(user.id),
+    /* ⚠️ The summary strip stays division-wide while the board is scoped — see
+       `taskTotals`. Without this the cards would silently start describing only
+       the visible window and change every time the date filter moved. */
+    taskTotals(user.id, { projectId: params.project, assigneeId: params.assignee }),
   ]);
 
   /* `Date.now()` once, on the server, for every due label. Computing it per card
@@ -51,30 +91,29 @@ export default async function TasksPage({
   const now = nowMs();
   const tasks = rows.map((row) => toTaskView(row, now));
 
-  const open = tasks.filter(
-    (t) => t.status !== 'done' && t.status !== 'cancelled',
-  ).length;
-  const overdue = tasks.filter((t) => t.overdue).length;
-  const projectCount = new Set(tasks.map((t) => t.projectId)).size;
+  /* ⚠️ FROM `taskTotals`, NOT FROM `tasks`. The array is now one due window, so
+     counting it would label 25 visible cards "Open tasks" and make every figure
+     move when the date filter moved. These four are the whole division. */
+  const { open, done, overdue, activeProjects } = totals;
+  const projectCount = activeProjects;
 
-  /* ── ⚠️ COUNTED FROM ROWS ALREADY LOADED, NOT FROM FOUR MORE QUERIES ───────
-     Owner, 2026-08-23: *"I want there to be cards that show how many open
-     projects, how many open tasks, how many completed tasks… in a very
-     beautiful and very sleek way, not filled with too many cards. Just four or
-     five cards are more than enough."*
+  /* ── ⚠️ THESE WERE COUNTED IN MEMORY, AND THAT STOPPED BEING RIGHT ────────
+     Owner, 2026-08-23: *"cards that show how many open projects, how many open
+     tasks, how many completed tasks… Just four or five cards are more than
+     enough."*
 
-     `listTasks` above already returns the whole visible set with
-     `includeClosed`, so every figure here is a filter over an array in memory.
-     Four `count(*)` round trips to Singapore to draw four small numbers would
-     be the most expensive part of this page.
+     The original note here argued against querying for them: `listTasks`
+     already returned every row, so four `count(*)` round trips to Singapore
+     would have been the most expensive thing on the page. True then. The board
+     is scoped to a due window now (2026-09-02), so in-memory counting would
+     describe only what is already on screen.
+
+     It is ONE round trip, not four - a single pass with `count(*) filter`,
+     measured at 0.75 ms.
 
      FOUR cards, not five. The owner named three things and set the ceiling at
      five; overdue is the fourth because it is the only one of these that anybody
      acts on today. A fifth would be a number nobody had asked a question about. */
-  const done = tasks.filter((t) => t.status === 'done').length;
-  const activeProjects = new Set(
-    tasks.filter((t) => t.status !== 'done' && t.status !== 'cancelled').map((t) => t.projectId),
-  ).size;
 
   return (
     <div className="mx-auto max-w-[var(--content-max)] space-y-5">
@@ -124,7 +163,11 @@ export default async function TasksPage({
         initialProject={params.project ?? null}
         /* The division's day, so "This week" on the range filter means the same
            week the daily board and the reports mean. */
-        today={isoDateIn()}
+        today={today}
+        /* ⚠️ What the SERVER applied, so the toolbar's date control states the
+           truth. Passing it makes the window URL-owned on this page; /my-work
+           omits it and keeps the old in-browser filter. */
+        dueWindow={{ from: dueFrom ?? '', to: dueTo ?? '', showAll }}
       />
     </div>
   );

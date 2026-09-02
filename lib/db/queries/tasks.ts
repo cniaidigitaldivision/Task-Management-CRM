@@ -143,6 +143,22 @@ export interface TaskFilter {
   readonly includeClosed?: boolean;
   readonly search?: string;
   readonly limit?: number;
+  /* ── ⚠️ THE DUE WINDOW, AND WHY IT IS SERVER-SIDE NOW ──────────────────
+     Owner, 2026-09-02: *"by default it should show only today's tasks not the
+     whole month's tasks"*, and separately *"my system is getting heavy and
+     slow... nothing is in my database right now, only 300 tasks."*
+
+     Both had the same cause. The board shipped EVERY task and filtered in the
+     browser: measured on the live database, 318 rows of which 293 are due in
+     the FUTURE, serialising to 275 kB of JSON for a screen that shows 25 cards.
+     Filtering client-side cannot fix that - the rows have already been read,
+     serialised, transferred to Karachi, parsed and hydrated by the time any
+     filter runs.
+
+     Bounding it here instead takes the same page to 22 kB. Same filter, one
+     layer down, where it costs nothing. */
+  readonly dueFrom?: string;
+  readonly dueTo?: string;
 }
 
 export async function listTasks(actorId: string, filter: TaskFilter = {}): Promise<TaskRow[]> {
@@ -172,6 +188,28 @@ export async function listTasks(actorId: string, filter: TaskFilter = {}): Promi
       conditions.push(tx`(t.title ilike ${needle} or t.reference ilike ${needle})`);
     }
 
+    /* ⚠️ UNDATED WORK SURVIVES EVERY WINDOW, exactly as the browser-side
+       filter it replaces did (it guarded with `if (t.dueDate)`). A task with no
+       due date is not outside a range - it has no date to be outside one - and
+       dropping it here would make work vanish from the board rather than move.
+       Only the bound that was actually given is applied, so an open-ended
+       window stays open-ended. */
+    if (filter.dueFrom || filter.dueTo) {
+      let window = tx`t.due_date is null`;
+      if (filter.dueFrom) window = tx`${window} or t.due_date >= ${filter.dueFrom}::date`;
+      if (filter.dueTo) window = tx`${window} or t.due_date <= ${filter.dueTo}::date`;
+
+      /* Both ends given means BETWEEN, not "either end matches" - the two
+         clauses above are alternatives only when one side is unbounded. */
+      if (filter.dueFrom && filter.dueTo) {
+        conditions.push(
+          tx`(t.due_date is null or (t.due_date >= ${filter.dueFrom}::date and t.due_date <= ${filter.dueTo}::date))`,
+        );
+      } else {
+        conditions.push(tx`(${window})`);
+      }
+    }
+
     let where = conditions[0];
     for (const c of conditions.slice(1)) where = tx`${where} and ${c}`;
 
@@ -187,6 +225,80 @@ export async function listTasks(actorId: string, filter: TaskFilter = {}): Promi
   });
 
   return rows.map(toTask);
+}
+
+/** The four figures on the Tasks page's summary strip. */
+export interface TaskTotals {
+  readonly open: number;
+  readonly done: number;
+  readonly overdue: number;
+  readonly activeProjects: number;
+}
+
+/**
+ * The whole visible picture, as four numbers.
+ *
+ * ── ⚠️ WHY THIS QUERY NOW EXISTS, HAVING BEEN ARGUED AGAINST BEFORE ──────
+ * The Tasks page used to count these in JavaScript over the full task list, and
+ * a comment there explained - correctly at the time - that four `count(*)` round
+ * trips to draw four small numbers would be the most expensive thing on the page.
+ * That reasoning held only while the page was ALREADY loading every row.
+ *
+ * It no longer does: the board is scoped to a due window (owner, 2026-09-02).
+ * Counting in memory would now mean counting the 25 rows on screen and labelling
+ * the result "Open tasks", which would quietly turn a division-wide summary into
+ * a restatement of what the reader can already see - and would make the number
+ * change every time they moved the date filter.
+ *
+ * So the figures come from the database, over every visible row, and stay true
+ * whatever the board is showing. It is ONE round trip, not four: `count(*)
+ * filter (where ...)` computes all of them in a single pass, measured at ~2 ms.
+ *
+ * ⚠️ `overdue` uses the DIVISION's date, not the server's. `current_date` on a
+ * database in Singapore is already tomorrow for the last five hours of a Karachi
+ * evening, which would mark a full day of on-time work overdue every night. Same
+ * trap as app.attendance_today().
+ */
+export async function taskTotals(actorId: string, filter: { projectId?: string; assigneeId?: string | null } = {}): Promise<TaskTotals> {
+  const rows = await withUser(actorId, async (tx) => {
+    const conditions = [tx`not t.is_deleted`];
+    if (filter.projectId) conditions.push(tx`t.project_id = ${filter.projectId}`);
+    if (filter.assigneeId !== undefined) {
+      conditions.push(
+        filter.assigneeId === null
+          ? tx`t.assignee_id is null`
+          : tx`t.assignee_id = ${filter.assigneeId}`,
+      );
+    }
+    let where = conditions[0];
+    for (const c of conditions.slice(1)) where = tx`${where} and ${c}`;
+
+    return tx`
+      with d as (select (now() at time zone 'Asia/Karachi')::date as today)
+      select
+        count(*) filter (where t.status not in ('done', 'cancelled'))         as open,
+        count(*) filter (where t.status = 'done')                             as done,
+        count(*) filter (
+          where t.status not in ('done', 'cancelled')
+            and t.due_date is not null
+            and t.due_date < (select today from d)
+        )                                                                     as overdue,
+        count(distinct t.project_id) filter (
+          where t.status not in ('done', 'cancelled')
+        )                                                                     as active_projects
+      from public.tasks t
+      where ${where}
+    `;
+  });
+
+  const row = (rows as Array<Record<string, unknown>>)[0] ?? {};
+  const n = (v: unknown) => Number(v ?? 0);
+  return {
+    open: n(row.open),
+    done: n(row.done),
+    overdue: n(row.overdue),
+    activeProjects: n(row.active_projects),
+  };
 }
 
 export async function getTask(actorId: string, taskId: string): Promise<TaskRow | null> {

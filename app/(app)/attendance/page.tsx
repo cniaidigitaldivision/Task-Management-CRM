@@ -52,7 +52,7 @@ export const metadata: Metadata = { title: 'Attendance' };
  * Owner asked for named ranges, a single day and a date range. All three arrive
  * here as `?range=`, plus `?from=&to=` for the custom case — so the period is
  * shareable, survives a refresh, and comes back from the Back button. Anything
- * unrecognised falls back to this month rather than erroring: a mistyped URL should
+ * unrecognised falls back to TODAY rather than erroring: a mistyped URL should
  * show a page, not a stack trace.
  * ========================================================================= */
 
@@ -82,7 +82,22 @@ export default async function AttendancePage({
     params.range === 'custom'
       ? customRange(params.from ?? now.today, params.to ?? now.today, now.today)
       : resolveRange(
-          RANGE_KEYS.includes(params.range as RangeKey) ? (params.range as RangeKey) : 'this_month',
+          /* ── ⚠️ OPENS ON TODAY, NOT ON THE MONTH ──────────────────────────
+             Owner, 2026-09-02: *"for attendees, by default it should show only
+             today's attendees. If I want to see all the attendees, I will put
+             the All filter."*
+
+             The board is people × dates, so a month meant reading and drawing
+             roughly thirty cells per person before anybody had asked for
+             history — and the question somebody opens this page with is "who is
+             in today". The range picker in the header is one press away from
+             the month, and `?range=` keeps that shareable.
+
+             Safe as a default because a single day is not a special case here:
+             `resolveRange('today')` returns a range whose ends are equal, and
+             the chart, the counters, the table and the export all already
+             handle that shape without a branch (see resolveRange's own note). */
+          RANGE_KEYS.includes(params.range as RangeKey) ? (params.range as RangeKey) : 'today',
           now.today,
         );
 

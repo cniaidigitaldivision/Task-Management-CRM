@@ -19,6 +19,47 @@ const nextConfig: NextConfig = {
 
   experimental: {
     /**
+     * ── ⚠️ WHY LEAVING TAB, COMING BACK, AND WAITING AGAIN WAS THE DEFAULT ──
+     * Owner, 2026-09-02: *"when I switch from tabs and switch back to the same
+     * page, it instantly loads... The thing is definitely missing because each
+     * page is taking the same time to load."*
+     *
+     * It was missing. This is Next's Client Cache, and since v15 the `dynamic`
+     * stale time DEFAULTS TO 0 - meaning a page already visited is never
+     * reusable, so every return to /tasks re-ran the server render, the queries
+     * and the payload transfer from Singapore. Nothing about this application
+     * asked for that; it is simply the framework default.
+     *
+     * Every link in the sidebar leaves `prefetch` unspecified, which per Next's
+     * docs is exactly the case `dynamic` governs - so this one number decides
+     * whether switching tabs is instant.
+     *
+     * ── ⚠️ WHY 60 SECONDS AND NOT MORE ────────────────────────────────────
+     * A cache means somebody can read a figure that has since changed, and this
+     * product has writers other than the reader: a colleague moving a task, and
+     * the attendance terminal on the wall pushing a scan every few seconds. Those
+     * cannot invalidate a browser's cache.
+     *
+     * What CAN is any write made through the application: every server action
+     * here ends in `revalidatePath`, which drops this cache for those routes
+     * immediately. So the owner's own mental model - *"cached unless there are
+     * some new changes in the database"* - holds for their own edits, and 60
+     * seconds bounds how stale somebody ELSE's change can look. Long enough that
+     * a trip to Finance and back is free; short enough that nobody plans a day
+     * around a minute-old attendance board.
+     *
+     * NOT `cacheComponents`/`cachedNavigations`, which is the newer Next 16 route
+     * to the same feeling: it requires `use cache` and Suspense boundaries
+     * through every page that reads the database, and the owner's constraint for
+     * this change was *"please do not break anything."* This is three lines of
+     * configuration and no change to a single query.
+     */
+    staleTimes: {
+      dynamic: 60,
+      static: 300,
+    },
+
+    /**
      * ⚠️ WITHOUT THIS, EVERY UPLOAD OVER 1 MB FAILS. Observed 2026-08-24:
      *
      *     ⨯ Error: Body exceeded 1 MB limit.

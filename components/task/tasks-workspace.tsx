@@ -109,6 +109,7 @@ export function TasksWorkspace({
   initialAssignee = null,
   initialProject = null,
   today,
+  dueWindow,
 }: {
   initialTasks: readonly TaskView[];
   currentUser: { id: string; name: string; role: Role };
@@ -125,6 +126,20 @@ export function TasksWorkspace({
   /** Resolved on the server in the division's zone, so the range shortcuts agree
    *  with what the rest of the system calls today. */
   today: string;
+  /* ── ⚠️ PRESENT ⇒ THE SERVER OWNS THE DUE WINDOW AND IT LIVES IN THE URL ───
+     The Tasks board reads every task in the division, so WHICH rows are read is
+     the whole performance question (owner, 2026-09-02: 318 rows, 275 kB, for 25
+     cards worth looking at). There the window is a URL parameter, applied by
+     `listTasks` before a row is sent, and these values are what the server
+     actually did — so the control shows the truth rather than a hopeful local
+     copy.
+
+     ABSENT ⇒ the window stays local React state, which is what /my-work wants:
+     it reads one person's own tasks, was never the slow page, and the owner did
+     not ask for it to change. Same filter either way — only the setters differ,
+     so there is one definition of what a due window means and no second copy to
+     drift out of step. */
+  dueWindow?: { readonly from: string; readonly to: string; readonly showAll: boolean };
 }) {
   const router = useRouter();
 
@@ -183,9 +198,16 @@ export function TasksWorkspace({
      page, second in the product detail page, the task tab."* The board had no
      date filter at all, so "what is due this week across everything" could only
      be answered by reading the columns. */
-  const [dueFrom, setDueFrom] = React.useState('');
-  const [dueTo, setDueTo] = React.useState('');
   const [pending, setPending] = React.useState(false);
+  /* Marks the board as busy while the server re-reads a new window. Without it
+     a date change looks like nothing happened until the rows swap. */
+  const [, startRange] = React.useTransition();
+
+  /* Only used when the parent does not own the window — see `dueWindow`. */
+  const [localFrom, setLocalFrom] = React.useState('');
+  const [localTo, setLocalTo] = React.useState('');
+  const dueFrom = dueWindow ? dueWindow.from : localFrom;
+  const dueTo = dueWindow ? dueWindow.to : localTo;
   const [flash, setFlash] = React.useState<{ tone: 'error' | 'warn' | 'ok'; text: string } | null>(null);
   /* Seeded from `?task=…` so a notification, an email or the Admin's extension
      queue can link straight to the task rather than to a list the person then
@@ -217,6 +239,51 @@ export function TasksWorkspace({
      lived only in the URL, so it survived every reload and quietly kept the page
      narrowed to one person long after that was wanted. */
   const [refreshing, setRefreshing] = React.useState(false);
+
+  /* ── Changing the due window means asking the server a new question ────────
+     Every other filter on this toolbar is a narrowing of rows already present,
+     so it stays in React state. The date window decides which rows are READ, so
+     it belongs in the URL: it survives a refresh, comes back from the Back
+     button, and is a link somebody can send. `replace`, not `push`, so nudging
+     the range five times does not bury the page under five history entries.
+
+     ⚠️ Only the three date keys are rewritten. `?project=`, `?assignee=`,
+     `?task=` and `?q=` are other people's parameters and clearing one of them
+     here would silently undo the filter somebody arrived with. */
+  const setWindow = React.useCallback(
+    (next: { from?: string; to?: string; all?: boolean }) => {
+      /* ⚠️ /my-work DOES NOT OWN A URL WINDOW, and must not be navigated away
+         from. The first cut of this always pushed to `/tasks`, which would have
+         thrown a member off their own page the moment they touched the date
+         box. No `dueWindow` prop means the window is local state, so keep it
+         local. */
+      if (!dueWindow) {
+        setLocalFrom(next.all ? '' : (next.from ?? ''));
+        setLocalTo(next.all ? '' : (next.to ?? ''));
+        return;
+      }
+
+      const params = new URLSearchParams(window.location.search);
+      params.delete('range');
+      params.delete('from');
+      params.delete('to');
+
+      if (next.all) {
+        params.set('range', 'all');
+      } else {
+        if (next.from) params.set('from', next.from);
+        /* An explicit empty end has to be recorded, or the server would fall
+           back to its default of today and the box would refill itself. */
+        params.set('to', next.to ?? '');
+      }
+
+      const query = params.toString();
+      startRange(() => {
+        router.replace(query ? `/tasks?${query}` : '/tasks', { scroll: false });
+      });
+    },
+    [router, dueWindow],
+  );
 
   const refreshAll = React.useCallback(() => {
     setRefreshing(true);
@@ -276,7 +343,12 @@ export function TasksWorkspace({
         if (assignee !== 'all' && (t.assigneeId ?? 'unassigned') !== assignee) return false;
         if (projectFilter !== 'all' && t.projectId !== projectFilter) return false;
         /* Either end may be empty and means unbounded there. Undated work is
-           kept whatever the range — it has no date to be outside one. */
+           kept whatever the range — it has no date to be outside one.
+
+           ⚠️ When the server owns the window it has ALREADY applied exactly
+           this, so this pass is a no-op there rather than a second, subtly
+           different definition of the same filter. That is deliberate: one rule
+           in one place, and /my-work still gets it applied in the browser. */
         if (t.dueDate) {
           if (dueFrom && t.dueDate < dueFrom) return false;
           if (dueTo && t.dueDate > dueTo) return false;
@@ -557,12 +629,11 @@ export function TasksWorkspace({
           from={dueFrom}
           to={dueTo}
           today={today}
-          onFrom={setDueFrom}
-          onTo={setDueTo}
-          onClear={() => {
-            setDueFrom('');
-            setDueTo('');
-          }}
+          onFrom={(from) => setWindow({ from, to: dueTo })}
+          onTo={(to) => setWindow({ from: dueFrom, to })}
+          /* Clearing the window IS the owner's "All": no date bound at all,
+             which is what this page used to do on every single load. */
+          onClear={() => setWindow({ all: true })}
         />
 
         {/* ⚠️ THE LABEL SAYS WHAT IS ON THE BOARD, NOT WHAT THE BUTTON DOES.
