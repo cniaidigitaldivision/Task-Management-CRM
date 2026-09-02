@@ -92,7 +92,7 @@ export function dailyState(task: DailyTask, today: string): DailyState {
 }
 
 /**
- * May this be marked as posted right now?
+ * May this be PUBLISHED right now — a link pasted and the post sent onward?
  *
  * False once the day has passed, which is the owner's rule made enforceable
  * rather than merely displayed — without it, "missed" would be a label somebody
@@ -102,8 +102,37 @@ export function dailyState(task: DailyTask, today: string): DailyState {
  * ⚠️ Also false when it is already done. Marking done twice is not idempotent
  * here: the second one would overwrite the first person's name and timestamp.
  */
-export function canComplete(task: DailyTask, today: string): boolean {
+export function canPublish(task: DailyTask, today: string): boolean {
   return dailyState(task, today) === 'pending';
+}
+
+/**
+ * May this be marked COMPLETE — either published straight to Done by whoever
+ * raised it, or approved after review?
+ *
+ * ── ⚠️ WHY THIS IS NOT THE SAME QUESTION AS `canPublish`, AS OF 2026-09-02 ───
+ * It used to be one function, and splitting them is a bug fix. When publishing
+ * started submitting for review, `in_review` gained its own daily state — and
+ * `canComplete` asked only whether the state was `pending`, so EVERY post
+ * awaiting approval became impossible to approve. The owner hit it within the
+ * hour on a post due that same day, and the refusal it produced was worse than
+ * the block: it read *"the day has passed, so it counts as a blank day"* about
+ * today's date.
+ *
+ * ⚠️ AND A SUBMITTED POST STAYS APPROVABLE AFTER ITS DAY. Deliberate. It went
+ * out on time — the live link proves it — and the only thing that happened
+ * overnight is that nobody signed it off yet. Refusing then would mean a post
+ * published on time can never be completed because the reviewer was asleep,
+ * which would understate delivery to a client for somebody else's delay.
+ *
+ * The missed-day rule is not weakened by that, because a post can no longer be
+ * SUBMITTED after its day either — see `canPublish` and the guard in
+ * changeStatusAction. Nothing can enter review late, so nothing can be approved
+ * out of a day that was genuinely blank.
+ */
+export function canComplete(task: DailyTask, today: string): boolean {
+  const state = dailyState(task, today);
+  return state === 'pending' || state === 'submitted';
 }
 
 /**

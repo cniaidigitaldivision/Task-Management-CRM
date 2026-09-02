@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { dailyBoard, dailyState, canComplete, publishTarget } from '../daily';
+import { dailyBoard, dailyState, canComplete, canPublish, publishTarget } from '../daily';
 import { evaluateTransition } from '../task-machine';
 import type { Role } from '../constants';
 
@@ -137,8 +137,40 @@ describe('the daily board after publishing', () => {
     expect(board.pending).toHaveLength(0);
   });
 
-  it('will not offer to mark a submitted post as posted again', () => {
-    expect(canComplete(post('in_review'), TODAY)).toBe(false);
+  it('will not offer to publish a submitted post again', () => {
+    expect(canPublish(post('in_review'), TODAY)).toBe(false);
+  });
+
+  /* ── ⚠️ THE REGRESSION THIS BLOCK EXISTS FOR ──────────────────────────────
+     Owner, 2026-09-02, within the hour of the review flow shipping: a post due
+     THAT DAY sat in In Review and would not move to Done, refused with *"the
+     day has passed, so it counts as a blank day"* about today's own date.
+
+     Cause: `canComplete` asked only whether the daily state was `pending`, and
+     adding a `submitted` state for In Review quietly made every post awaiting
+     approval fail it. The earlier version of this very test asserted the broken
+     behaviour as correct — it was written thinking `canComplete` gated only the
+     publish button, when it also gates approval to Done. Hence two functions
+     now, and hence this case named after what it is. */
+  it('KEEPS a submitted post approvable — approving is not publishing again', () => {
+    expect(canComplete(post('in_review'), TODAY)).toBe(true);
+  });
+
+  it('still lets whoever raised it complete an unpublished post today', () => {
+    expect(canComplete(post('todo'), TODAY)).toBe(true);
+  });
+
+  /* Went out on time; the reviewer was simply late. Refusing here would mean a
+     post published on time can never be completed because somebody slept. */
+  it('approves a post submitted before midnight and reviewed the next day', () => {
+    expect(canComplete(post('in_review', '2026-08-28'), TODAY)).toBe(true);
+  });
+
+  /* And the missed-day rule is not weakened by that, because nothing can ENTER
+     review late — so nothing can be approved out of a genuinely blank day. */
+  it('refuses to publish a post whose day went blank', () => {
+    expect(canPublish(post('todo', '2026-08-28'), TODAY)).toBe(false);
+    expect(canComplete(post('todo', '2026-08-28'), TODAY)).toBe(false);
   });
 
   /* Like `done`, ahead of the date checks: a post submitted at 11pm and

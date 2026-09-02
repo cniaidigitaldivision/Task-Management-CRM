@@ -41,6 +41,7 @@ import { can, canAssignTo, deleteRefusal } from '@/lib/domain/permissions';
 import {
   canChangeStatus,
   canComplete,
+  canPublish,
   isDailyDeliverable,
   publishTarget,
 } from '@/lib/domain/daily';
@@ -802,10 +803,28 @@ export async function changeStatusAction(
       );
     }
 
-    if (to === 'done' && !canComplete(daily, todayIso())) {
+    /* ── ⚠️ SUBMITTING IS WHERE THE MISSED-DAY RULE NOW BITES ──────────────
+       It used to bite only on `done`, which was enough while publishing WAS
+       closing the task. Now that publishing submits for review, the rule has to
+       be enforced at the submission — otherwise a post whose day went blank
+       could be pushed into review a week later and approved out the far side,
+       back-filling exactly the delivery figure this rule protects. */
+    if (to === 'in_review' && !canPublish(daily, todayIso())) {
       return fail(
         `That post was due on ${task.dueDate} and the day has passed, so it counts as a blank day. ` +
-          'It cannot be marked as published now.',
+          'It cannot be published now.',
+      );
+    }
+
+    /* ⚠️ `canComplete`, NOT `canPublish`. A post already in review is
+       approvable — it went out on time and the live link proves it, and the only
+       thing that happened since is that nobody signed it off. Asking the
+       stricter question here is the bug the owner hit on 2026-09-02: every post
+       awaiting approval was refused, and told that today had passed. */
+    if (to === 'done' && !canComplete(daily, todayIso())) {
+      return fail(
+        `That post was due on ${task.dueDate} and the day has passed with nothing posted, ` +
+          'so it counts as a blank day and cannot be marked as published now.',
       );
     }
   }
