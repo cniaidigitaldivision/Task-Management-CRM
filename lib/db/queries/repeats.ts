@@ -21,6 +21,28 @@ import { sql } from '@/lib/db/client';
  * written themselves.
  * ========================================================================= */
 
+/**
+ * A `date` column as 'YYYY-MM-DD'.
+ *
+ * ── ⚠️ WHY THIS EXISTS RATHER THAN `String(value).slice(0, 10)` ─────────────
+ * That is what this file did first, and it broke the runner completely without
+ * erroring. postgres.js hands a `date` column back as a JS **Date** at UTC
+ * midnight, so `String(date)` is `'Wed Sep 02 2026 05:00:00 GMT+0500…'` and
+ * slicing ten characters gives `'Wed Sep 02'`. `occursOn` cannot parse that, so
+ * it answered "not one of this series' days" for every series on every night —
+ * caught only by calling the live endpoint and reading the response, because
+ * nothing threw and nothing was logged.
+ *
+ * `toISOString()`, never `toLocaleDateString`: the value is already UTC
+ * midnight and formatting it in a zone behind UTC moves it to the previous day.
+ * Same helper and same reasoning as `dateOnly` in ./attendance.ts.
+ */
+function dateOnly(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  return String(value).slice(0, 10);
+}
+
 export interface RepeatingSeries {
   readonly seriesId: string;
   /** The most recent instance — what the next one is copied from. */
@@ -96,8 +118,8 @@ export async function listRepeatingSeries(day: string): Promise<RepeatingSeries[
     seriesId: row.recurrence_series_id as string,
     latestTaskId: row.id as string,
     recurrenceRule: row.recurrence_rule as string,
-    anchorDate: row.due_date ? String(row.due_date).slice(0, 10) : null,
-    startDate: row.start_date ? String(row.start_date).slice(0, 10) : null,
+    anchorDate: dateOnly(row.due_date),
+    startDate: dateOnly(row.start_date),
     title: row.title as string,
     description: (row.description as string | null) ?? null,
     projectId: row.project_id as string,
