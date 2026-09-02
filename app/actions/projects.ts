@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 
 import { requireUser } from '@/lib/auth/current-user';
 import { withUser } from '@/lib/db/client';
+import { audit } from '@/lib/db/queries/audit';
 import { record } from '@/lib/db/queries/feed';
 import {
   listClients,
@@ -56,9 +57,47 @@ export interface ProjectActionResult {
   readonly ok: boolean;
   readonly error?: string;
   readonly projectId?: string;
+  /* ── ⚠️ WHAT THE PERSON HAD TYPED, HANDED BACK ────────────────────────────
+     Owner, 2026-09-02: *"in the same way some other information also goes and I
+     have to fill the form again in case of any error. Don't do this."*
+
+     A server action re-renders the form when it returns, and every uncontrolled
+     input takes its `defaultValue` again — so a refusal wiped everything the
+     person had typed and made them start over. On a four-section form asking
+     for a dozen fields, that turns one missing value into several minutes of
+     retyping, and it is why the same error kept being hit.
+
+     So a refusal carries the submission back with it, and the dialog seeds its
+     inputs from this instead of from an empty project. Only on failure: on
+     success the dialog closes and nothing needs restoring. */
+  readonly submitted?: Readonly<Record<string, string | string[]>>;
+}
+
+/** Everything the form posted, so a refusal can hand it straight back.
+ *
+ *  ⚠️ `getAll` for every key, because `postingDays` is a set of checkboxes and
+ *  `FormData.get` would silently return only the first — which would drop every
+ *  day but Monday when a form is redisplayed. Single values are unwrapped so the
+ *  dialog can use them directly. */
+function submittedValues(form: FormData): Record<string, string | string[]> {
+  const out: Record<string, string | string[]> = {};
+  for (const key of new Set(form.keys())) {
+    const values = form.getAll(key).filter((v): v is string => typeof v === 'string');
+    if (values.length === 0) continue;
+    out[key] = values.length === 1 ? values[0] : values;
+  }
+  return out;
 }
 
 const fail = (error: string): ProjectActionResult => ({ ok: false, error });
+
+/** A refusal that keeps the person's typing. Used by everything in the create
+ *  and edit paths that can reject a submission. */
+const refuse = (error: string, form: FormData): ProjectActionResult => ({
+  ok: false,
+  error,
+  submitted: submittedValues(form),
+});
 
 /** Doc 15 §3 — the only keys each type may carry. An allowlist, not a filter.
  *
@@ -230,12 +269,25 @@ const REQUIRED_TYPE_FIELDS: Readonly<
     ['venue', 'Venue'],
     ['expected_attendance', 'Expected attendance'],
   ],
+  /* ── ⚠️ THREE CONTACT FIELDS WERE DROPPED FROM THIS LIST, 2026-09-02 ──────
+     Owner: *"remove the client name, person, and this information. Each time I
+     have to put it in again."*
+
+     They were compulsory here and NOT marked required in the form, so a person
+     filled in what the form asked for, pressed Create, and was refused for a
+     field the form never said was needed. That is the error being reported, and
+     it is a fault in this list rather than in the form: contact details belong
+     to BILLING now (migration 076 gave projects real billing_contact,
+     billing_email and billing_phone columns), and demanding them twice at
+     creation is asking for the same facts in two places.
+
+     `client_name` and `contract_end` stay — a client project with no client is
+     not a client project, and the owner asked for the contract to be
+     compulsory. Everything the form marks required, this list requires, and
+     nothing more. */
   client: [
     ['client_name', 'Client name'],
     ['contract_end', 'Contract end'],
-    ['contact_person', 'Contact person'],
-    ['contact_email', 'Contact email'],
-    ['contact_phone', 'Contact phone'],
   ],
   business: [['target_completion', 'Target completion']],
   self_promotion: [['target_publish_date', 'Target publish date']],
@@ -386,7 +438,7 @@ export async function createProjectAction(
   const user = await requireUser();
 
   if (!can({ role: user.role, id: user.id }, 'project.create')) {
-    return fail('Only an Admin can create a project (doc 03 §3.2).');
+    return refuse('Only an Admin can create a project (doc 03 §3.2).', form);
   }
 
   const name = str(form, 'name');
@@ -394,12 +446,12 @@ export async function createProjectAction(
   const status = (str(form, 'status') || 'active') as ProjectStatus;
   const statusReason = str(form, 'statusReason');
 
-  if (!name) return fail('Give the project a name.');
-  if (!PROJECT_TYPES.includes(type)) return fail('Choose a project type.');
-  if (!PROJECT_STATUSES.includes(status)) return fail('That is not a valid status.');
+  if (!name) return refuse('Give the project a name.', form);
+  if (!PROJECT_TYPES.includes(type)) return refuse('Choose a project type.', form);
+  if (!PROJECT_STATUSES.includes(status)) return refuse('That is not a valid status.', form);
 
   if (PROJECT_STATUS_REQUIRES_REASON.includes(status) && !statusReason) {
-    return fail('Putting a project on hold or cancelling it requires a written reason.');
+    return refuse('Putting a project on hold or cancelling it requires a written reason.', form);
   }
 
   /* ── ⚠️ WHAT IS COMPULSORY, AND WHY THE END IS NOT ─────────────────────────
@@ -422,20 +474,20 @@ export async function createProjectAction(
     ['description', 'Write one line describing what this project is for.'],
   ];
   for (const [key, message] of required) {
-    if (!str(form, key)) return fail(message);
+    if (!str(form, key)) return refuse(message, form);
   }
 
   /* The rhythm is the commitment now, so a project without one has agreed to
      nothing — which the monthly report would show as untargeted for ever. */
   if (!str(form, 'staticPostsPerDay') && !str(form, 'reelsPerWeek')) {
-    return fail('Set the posting rhythm — static posts a day, reels a week, or both.');
+    return refuse('Set the posting rhythm — static posts a day, reels a week, or both.', form);
   }
   if (form.getAll('postingDays').length === 0) {
-    return fail('Pick at least one day of the week the project posts on.');
+    return refuse('Pick at least one day of the week the project posts on.', form);
   }
 
   const cadenceError = cadenceRefusal(form);
-  if (cadenceError) return fail(cadenceError);
+  if (cadenceError) return refuse(cadenceError, form);
 
   /* The type's own questions are compulsory too — they are what the type exists to
      ask, and a Client project with no client name is the shape being complained
@@ -447,7 +499,7 @@ export async function createProjectAction(
      is deliberately the narrower "what the form asks for". */
   for (const [key, label] of REQUIRED_TYPE_FIELDS[type]) {
     if (!str(form, key)) {
-      return fail(`${label} is required for a ${PROJECT_TYPE_META[type].label} project.`);
+      return refuse(`${label} is required for a ${PROJECT_TYPE_META[type].label} project.`, form);
     }
   }
 
@@ -527,7 +579,7 @@ export async function createProjectAction(
     revalidatePath('/dashboard');
     return { ok: true, projectId };
   } catch (error) {
-    return fail(readable(error));
+    return refuse(readable(error), form);
   }
 }
 
@@ -609,32 +661,33 @@ export async function updateProjectAction(
   const projectId = str(form, 'projectId');
 
   const existing = await getProject(user.id, projectId);
-  if (!existing) return fail('That project is no longer available.');
+  if (!existing) return refuse('That project is no longer available.', form);
 
   if (!can({ role: user.role, id: user.id }, 'project.edit')) {
-    return fail('Only an Admin can edit a project (doc 03 §3.2).');
+    return refuse('Only an Admin can edit a project (doc 03 §3.2).', form);
   }
 
   const status = (str(form, 'status') || existing.status) as ProjectStatus;
   const statusReason = str(form, 'statusReason');
 
   if (PROJECT_STATUS_REQUIRES_REASON.includes(status) && !statusReason && !existing.statusReason) {
-    return fail(`Moving a project to ${status.replace('_', ' ')} requires a written reason.`);
+    return refuse(`Moving a project to ${status.replace('_', ' ')} requires a written reason.`, form);
   }
 
   /* Q-024: the catch-all project has to keep existing. If it could be archived,
      ad-hoc work would have nowhere to land and would go back to being invisible,
      which is the problem doc 15 exists to solve. */
   if (existing.isPermanent && (status === 'archived' || status === 'cancelled')) {
-    return fail(
+    return refuse(
       'The Misc / Ad-hoc project cannot be archived — ad-hoc work has to have somewhere to land (Q-024).',
+      form,
     );
   }
 
   /* The same rhythm rules as on create. An edit that broke the cadence would
      otherwise surface as a raw constraint violation from migration 036. */
   const cadenceError = cadenceRefusal(form);
-  if (cadenceError) return fail(cadenceError);
+  if (cadenceError) return refuse(cadenceError, form);
 
   try {
     await updateProject(user.id, projectId, {
@@ -682,7 +735,7 @@ export async function updateProjectAction(
     revalidatePath('/dashboard');
     return { ok: true, projectId };
   } catch (error) {
-    return fail(readable(error));
+    return refuse(readable(error), form);
   }
 }
 
@@ -701,4 +754,102 @@ function readable(error: unknown): string {
     return 'You do not have permission to change that.';
   }
   return 'That could not be saved. Nothing was changed.';
+}
+
+/* ============================================================================
+ * DELETING A PROJECT — owner request 2026-09-02
+ * ----------------------------------------------------------------------------
+ * *"Also add delete project option for admin and superadmin."*
+ *
+ * ── ⚠️ WHY THIS IS A HARD DELETE AND NOT `deleted_at` ───────────────────────
+ * `project.soft_delete` has existed in the permission matrix since doc 03, and
+ * migration 053 was written to add the column it implies — but the column IS NOT
+ * IN THE DATABASE. Checked in information_schema rather than assumed from the
+ * file on disk. A soft delete written today would either need that migration
+ * applied first or would quietly no-op.
+ *
+ * More to the point, it is not what was asked for. The owner has spent this
+ * afternoon removing test projects outright and wants the button to do what they
+ * were doing by hand.
+ *
+ * ── ⚠️ SO THE GUARDS ARE WHAT MAKE IT SAFE, NOT REVERSIBILITY ──────────────
+ * There is no undo, so the refusals matter more than usual:
+ *
+ *   · Admin and Super Admin only, and the database agrees (013's RLS).
+ *   · The permanent Misc / Ad-hoc project cannot go — Q-024: ad-hoc work has to
+ *     have somewhere to land.
+ *   · A SENT invoice blocks it. That is migration 076's freeze doing its job:
+ *     the client holds a copy, so the invoice is voided rather than erased, and
+ *     a project cannot take one with it silently.
+ *
+ * Everything else filed under the project — tasks, documents, unsent revenue —
+ * goes with it, and the confirmation says so with counts before anybody presses.
+ * ========================================================================= */
+
+export async function deleteProjectAction(projectId: string): Promise<ProjectActionResult> {
+  const user = await requireUser();
+
+  if (!can({ role: user.role, id: user.id }, 'project.soft_delete')) {
+    return fail('Only an Admin can delete a project (doc 03 §3.2).');
+  }
+
+  const project = await getProject(user.id, projectId);
+  if (!project) return fail('That project is no longer available.');
+
+  if (project.isPermanent) {
+    return fail(
+      'The Misc / Ad-hoc project cannot be deleted — ad-hoc work has to have somewhere to land (Q-024).',
+    );
+  }
+
+  try {
+    await withUser(user.id, async (tx) => {
+      /* ⚠️ REFUSED, NOT FORCED. A sent invoice is a document a client is holding;
+         deleting the project would erase our copy of something they can still
+         produce. Voiding is the sanctioned route, and it keeps the number. */
+      const sent = await tx`
+        select invoice_no from public.revenue_entries
+         where project_id = ${projectId} and sent_at is not null
+         limit 1
+      `;
+      if ((sent as unknown[]).length > 0) {
+        const no = (sent as Array<Record<string, unknown>>)[0].invoice_no;
+        throw new Error(
+          `SENT_INVOICE:Invoice ${no} has already been sent to the client. Void it first — a sent invoice cannot be erased by deleting its project.`,
+        );
+      }
+
+      /* Inward out: lines and payments reference the revenue rows, which
+         reference the project. */
+      await tx`
+        delete from public.invoice_lines
+         where revenue_id in (select id from public.revenue_entries where project_id = ${projectId})
+      `;
+      await tx`
+        delete from public.revenue_payments
+         where revenue_id in (select id from public.revenue_entries where project_id = ${projectId})
+      `;
+      await tx`delete from public.revenue_entries where project_id = ${projectId}`;
+      await tx`delete from public.documents where project_id = ${projectId}`;
+      await tx`delete from public.tasks where project_id = ${projectId}`;
+      await tx`delete from public.projects where id = ${projectId}`;
+
+      await audit(tx, user, {
+        entityType: 'project',
+        entityId: projectId,
+        action: 'project.deleted',
+        before: { name: project.name, code: project.code, type: project.type },
+      });
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.startsWith('SENT_INVOICE:')) return fail(message.slice('SENT_INVOICE:'.length));
+    console.error('[projects] delete failed', message);
+    return fail('That project could not be deleted.');
+  }
+
+  revalidatePath('/projects');
+  revalidatePath('/dashboard');
+  revalidatePath('/finance');
+  return { ok: true };
 }

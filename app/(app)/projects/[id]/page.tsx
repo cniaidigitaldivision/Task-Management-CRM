@@ -204,6 +204,10 @@ export default async function ProjectPage({
         /* Money stripped before it can reach the payload — see the projects list
            page for the leak this closes. */
         project={redactOne(project, canSeeFinance)}
+        /* `project.soft_delete` — Admin and Super Admin. One rung above
+           `canManage`, which reaches the Coordinator: running a project is not
+           the same as being able to destroy it. */
+        canDelete={can(actor, 'project.soft_delete')}
         canSeeFinance={canSeeFinance}
         canGenerateSchedule={canGenerateSchedule}
         /* So the Tasks tab can open the create form in place instead of sending

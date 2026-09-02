@@ -4,11 +4,14 @@ import * as React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
+  AlertTriangle,
   ArrowLeft,
   BarChart3,
   CalendarDays,
   ListChecks,
+  Loader2,
   MoreVertical,
+  Trash2,
   Link2 as LinkIcon,
   Pencil,
   Plus,
@@ -31,10 +34,12 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog } from '@/components/ui/dialog';
+import { Field, Input } from '@/components/ui/input';
 import { ToggleGroup } from '@/components/ui/toolbar';
 import { ComingSoon } from '@/components/ui/coming-soon';
 import { cn } from '@/lib/utils';
 
+import { deleteProjectAction } from '@/app/actions/projects';
 import { PostingCalendar } from './posting-calendar';
 import type { PackageDetail } from './contract-dialog';
 import { TaskDialog } from '@/components/task/task-dialog';
@@ -126,6 +131,7 @@ export function ProjectDetailWorkspace({
   documents,
   people,
   canManage,
+  canDelete,
   canManageDocuments,
   canApproveDocuments,
   canGrantCredentials,
@@ -156,6 +162,10 @@ export function ProjectDetailWorkspace({
    *  "who can see this" stack. */
   people: readonly { id: string; name: string; role: string; avatarUrl?: string | null }[];
   canManage: boolean;
+  /** `project.soft_delete` — Admin and Super Admin. Deliberately its own prop:
+   *  `canManage` is `project.edit`, which reaches the Coordinator, and deleting
+   *  a client's whole record is not the same act as correcting its name. */
+  canDelete: boolean;
   /** `document.manage` — Super Admin, Admin and Team Coordinator; Member denied.
    *  Whether the Files tab offers Rename and Delete per row. Deliberately its own
    *  prop rather than reusing `canManage`: they happen to cover the same roles
@@ -231,6 +241,7 @@ export function ProjectDetailWorkspace({
      answer, so the header menu opens them here. */
   const [editing, setEditing] = React.useState(false);
   const [editingPlatforms, setEditingPlatforms] = React.useState(false);
+  const [deleting, setDeleting] = React.useState(false);
 
   /* ── The three header actions, all of which now stay on this page ──────────
      `creatingContent` opens a notice rather than a form: the feature does not
@@ -358,6 +369,10 @@ export function ProjectDetailWorkspace({
               <ProjectMenu
                 onEdit={() => setEditing(true)}
                 onPlatforms={() => setEditingPlatforms(true)}
+                /* `canManage` is `project.edit` — Coordinator and above. Deleting
+                   is `project.soft_delete`, which stops at Admin, so it needs its
+                   own prop rather than riding along. */
+                onDelete={canDelete ? () => setDeleting(true) : undefined}
               />
             )}
           </div>
@@ -984,6 +999,13 @@ export function ProjectDetailWorkspace({
         />
       )}
 
+      {deleting && (
+        <DeleteProjectDialog
+          project={{ id: project.id, name: project.name }}
+          onClose={() => setDeleting(false)}
+        />
+      )}
+
       <PlatformLinksDialog
         open={editingPlatforms}
         onClose={() => setEditingPlatforms(false)}
@@ -1014,12 +1036,114 @@ export function ProjectDetailWorkspace({
  * get wrong. The one thing it does not do natively is close when you click an item,
  * which is why each button closes the parent explicitly.
  * ------------------------------------------------------------------------- */
+/**
+ * Deleting a project, with the consequences counted before the button.
+ *
+ * ⚠️ THE NAME HAS TO BE TYPED. Owner request 2026-09-02, and this is the one
+ * control in the product that destroys a client's whole record — tasks,
+ * documents, unsent invoices — with no undo. A plain "are you sure" is a reflex;
+ * typing the name is a decision. The same reason a bank asks you to re-key an
+ * account number.
+ */
+function DeleteProjectDialog({
+  project,
+  onClose,
+}: {
+  project: { id: string; name: string };
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const [typed, setTyped] = React.useState('');
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  const matches = typed.trim() === project.name;
+
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      size="sm"
+      title={`Delete ${project.name}?`}
+      footer={
+        <>
+          <Button variant="ghost" size="md" onClick={onClose} disabled={busy}>
+            Keep it
+          </Button>
+          <Button
+            variant="danger"
+            size="md"
+            disabled={!matches || busy}
+            onClick={async () => {
+              setBusy(true);
+              setError(null);
+              const result = await deleteProjectAction(project.id);
+              setBusy(false);
+              if (!result.ok) {
+                setError(result.error ?? 'That project could not be deleted.');
+                return;
+              }
+              /* Back to the list: the page we are on no longer exists. */
+              router.push('/projects');
+              router.refresh();
+            }}
+          >
+            {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
+            Delete for ever
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        {error && (
+          <p
+            className="flex items-start gap-2 rounded-lg px-3 py-2 text-caption"
+            style={{ backgroundColor: 'var(--bg-subtle)', color: 'var(--feedback-error)' }}
+          >
+            <AlertTriangle className="mt-px h-4 w-4 shrink-0" strokeWidth={2.25} aria-hidden="true" />
+            {error}
+          </p>
+        )}
+
+        <p className="text-body-sm text-text-secondary">
+          Everything filed under this project goes with it — its tasks, its documents and any
+          invoice that has not been sent. <strong className="text-text-primary">There is no
+          undo.</strong>
+        </p>
+
+        <p className="text-body-sm text-text-secondary">
+          An invoice already sent to the client will stop this: void it first, so your copy and
+          theirs still agree.
+        </p>
+
+        <Field
+          label={`Type “${project.name}” to confirm`}
+          htmlFor="confirm-name"
+          hint="Exactly as it is written above."
+        >
+          <Input
+            id="confirm-name"
+            value={typed}
+            onChange={(event) => setTyped(event.target.value)}
+            placeholder={project.name}
+            autoComplete="off"
+          />
+        </Field>
+      </div>
+    </Dialog>
+  );
+}
+
 function ProjectMenu({
   onEdit,
   onPlatforms,
+  onDelete,
 }: {
   onEdit: () => void;
   onPlatforms: () => void;
+  /** Absent for anybody below Admin — `project.soft_delete`. A destructive item
+   *  that is present but refuses is worse than one that is not there. */
+  onDelete?: () => void;
 }) {
   const ref = React.useRef<HTMLDetailsElement>(null);
   const close = () => ref.current?.removeAttribute('open');
@@ -1061,6 +1185,28 @@ function ProjectMenu({
           <LinkIcon className="h-3.5 w-3.5 shrink-0" strokeWidth={2.25} aria-hidden="true" />
           Platform pages &amp; handles
         </button>
+
+        {/* ⚠️ SEPARATED BY A RULE, AND LAST. Everything above changes a detail;
+            this destroys the project and everything filed under it. The divider
+            is not decoration — it is the pause between "edit" and "delete" that
+            stops a misaimed click. */}
+        {onDelete && (
+          <>
+            <div className="my-1 border-t border-border-subtle" />
+            <button
+              type="button"
+              onClick={() => {
+                close();
+                onDelete();
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-caption hover:bg-bg-hover"
+              style={{ color: 'var(--feedback-error)' }}
+            >
+              <Trash2 className="h-3.5 w-3.5 shrink-0" strokeWidth={2.25} aria-hidden="true" />
+              Delete this project
+            </button>
+          </>
+        )}
       </div>
     </details>
   );

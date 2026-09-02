@@ -70,6 +70,12 @@ const TYPE_FIELD_FORMS: Record<
     placeholder?: string;
     /** Present ⇒ rendered as a `<select>` rather than a free-text box. */
     options?: readonly string[];
+    /** ⚠️ Must match REQUIRED_TYPE_FIELDS in app/actions/projects.ts exactly.
+        When the two disagreed, the form let somebody submit and the server
+        refused for a field that carried no asterisk — which is precisely the
+        "it shows some error although I have filled those things" the owner
+        reported. */
+    required?: boolean;
   }>
 > = {
   event: [
@@ -85,15 +91,21 @@ const TYPE_FIELD_FORMS: Record<
     },
   ],
   client: [
-    { name: 'client_name', label: 'Client name', placeholder: 'ABC Traders' },
-    { name: 'contract_end', label: 'Contract end', type: 'date' },
-    { name: 'contact_person', label: 'Contact person' },
-    { name: 'contact_email', label: 'Contact email', type: 'email' },
-    { name: 'contact_phone', label: 'Contact phone' },
+    { name: 'client_name', label: 'Client name', placeholder: 'ABC Traders', required: true },
+    /* Owner, 2026-09-02: *"the contract is not compulsory. Make it
+       compulsory."* It already was on the server and was not marked here. */
+    { name: 'contract_end', label: 'Contract end', type: 'date', required: true },
+    /* Optional now: billing carries the real contact details (076), and asking
+       for them twice is what made this form refuse a filled-in submission. */
+    { name: 'contact_person', label: 'Contact person', hint: 'Optional.' },
+    { name: 'contact_email', label: 'Contact email', type: 'email', hint: 'Optional.' },
+    { name: 'contact_phone', label: 'Contact phone', hint: 'Optional.' },
   ],
-  business: [{ name: 'target_completion', label: 'Target completion', type: 'date' }],
+  business: [
+    { name: 'target_completion', label: 'Target completion', type: 'date', required: true },
+  ],
   self_promotion: [
-    { name: 'target_publish_date', label: 'Target publish date', type: 'date' },
+    { name: 'target_publish_date', label: 'Target publish date', type: 'date', required: true },
   ],
   other: [{ name: 'requested_by', label: 'Who asked for this?' }],
 };
@@ -268,6 +280,24 @@ export function ProjectDialog({
     EMPTY,
   );
 
+  /* ── ⚠️ WHAT WAS TYPED, WHEN THE SERVER REFUSED ─────────────────────────
+     Owner, 2026-09-02: *"in the same way some other information also goes and I
+     have to fill the form again in case of any error. Don't do this."*
+
+     A server action re-renders this form when it returns, and every uncontrolled
+     input re-reads its `defaultValue` — so a refusal emptied the whole thing.
+     The action now hands the submission back on failure (see `refuse` in
+     app/actions/projects.ts) and `was()` prefers it over the project.
+
+     ⚠️ THE ORDER IS: what they just typed, then the project being edited, then
+     empty. On a create there is no project, so it is simply "what they typed". */
+  const was = (key: string, fallback = ''): string => {
+    const value = state.submitted?.[key];
+    if (typeof value === 'string') return value;
+    if (Array.isArray(value)) return value[0] ?? fallback;
+    return fallback;
+  };
+
   const [type, setType] = React.useState<ProjectType>(project?.type ?? 'client');
   const [status, setStatus] = React.useState<ProjectStatus>(project?.status ?? 'active');
 
@@ -285,14 +315,20 @@ export function ProjectDialog({
      date was when the dialog opened, so changing the date would silently move
      the start without moving the end. */
   const [startDate, setStartDate] = React.useState(
-    project?.startDate ?? (isEdit ? '' : today),
+    was('startDate', project?.startDate ?? (isEdit ? '' : today)),
   );
+  /* ⚠️ THE CONTROLLED PAIR NEED A KEY, NOT AN EFFECT. `name` and `startDate` are
+     React state, so a refusal arriving later cannot change them from a
+     `defaultValue` — and setting them inside an effect is a cascading render
+     that eslint rightly refuses. Instead the whole form is re-keyed on the
+     refusal below, which remounts it and lets every initialiser read the
+     submitted values. One mechanism for controlled and uncontrolled alike. */
 
   /* The live reference preview needs the name as it is typed, so this one field is
      controlled where the rest are `defaultValue`. Worth the exception: watching
      "CLI-101 · ABC Traders" assemble itself is the difference between filling in a
      form and building something. */
-  const [name, setName] = React.useState(project?.name ?? '');
+  const [name, setName] = React.useState(was('name', project?.name ?? ''));
 
   React.useEffect(() => {
     if (state.ok) {
@@ -330,7 +366,17 @@ export function ProjectDialog({
       {/* `space-y-6` between plates and `space-y-3` inside them — the sections have
           to read as separate questions rather than as one continuous list, which is
           what the flat `space-y-4` produced. */}
-      <form id="project-form" action={formAction} className="space-y-6">
+      <form
+        id="project-form"
+        action={formAction}
+        className="space-y-6"
+        /* Remounts the form when a refusal arrives, so every field — controlled
+           and uncontrolled — re-reads its initial value from `was()` and the
+           person's typing comes back. Without this the uncontrolled inputs reset
+           to empty and the controlled ones keep stale state, which is the worst
+           of both. */
+        key={state.ok ? 'clean' : (state.error ?? 'clean')}
+      >
         {isEdit && <input type="hidden" name="projectId" value={project?.id} />}
         {isEdit && <input type="hidden" name="type" value={project?.type} />}
 
@@ -443,7 +489,7 @@ export function ProjectDialog({
                 easily understandable who is leading the project."* Label only; the
                 column stays `owner_id` and nothing downstream changes. */}
             <Field label="Lead" htmlFor="ownerId" hint="Who is leading this project.">
-              <Select size="md" id="ownerId" name="ownerId" defaultValue={project?.ownerId ?? ''}>
+              <Select size="md" id="ownerId" name="ownerId" defaultValue={was('ownerId', project?.ownerId ?? '')}>
                 <option value="">You</option>
                 {people.map((person) => (
                   <option key={person.id} value={person.id}>
@@ -480,7 +526,7 @@ export function ProjectDialog({
                 id="statusReason"
                 name="statusReason"
                 rows={2}
-                defaultValue={project?.statusReason ?? ''}
+                defaultValue={was('statusReason', project?.statusReason ?? '')}
                 required
               />
             </Field>
@@ -537,7 +583,7 @@ export function ProjectDialog({
               id="startTime"
               name="startTime"
               type="time"
-              defaultValue={project?.startTime ?? (isEdit ? '' : nowTime)}
+              defaultValue={was('startTime', project?.startTime ?? (isEdit ? '' : nowTime))}
             />
           </Field>
 
@@ -552,7 +598,7 @@ export function ProjectDialog({
                 id="targetEndDate"
                 name="targetEndDate"
                 type="date"
-                defaultValue={project?.targetEndDate ?? ''}
+                defaultValue={was('targetEndDate', project?.targetEndDate ?? '')}
               />
             </Field>
           )}
@@ -566,7 +612,7 @@ export function ProjectDialog({
               id="targetEndTime"
               name="targetEndTime"
               type="time"
-              defaultValue={project?.targetEndTime ?? ''}
+              defaultValue={was('targetEndTime', project?.targetEndTime ?? '')}
             />
           </Field>
         </div>
@@ -619,7 +665,7 @@ export function ProjectDialog({
                     size="md"
                     id={field.name}
                     name={field.name}
-                    defaultValue={String(project?.typeFields?.[field.name] ?? '')}
+                    defaultValue={was(field.name, String(project?.typeFields?.[field.name] ?? ''))}
                   >
                     <option value="">Not set</option>
                     {field.options.map((option) => (
@@ -634,24 +680,31 @@ export function ProjectDialog({
                     name={field.name}
                     type={field.type ?? 'text'}
                     placeholder={field.placeholder}
-                    defaultValue={String(project?.typeFields?.[field.name] ?? '')}
+                    required={field.required}
+                    defaultValue={was(field.name, String(project?.typeFields?.[field.name] ?? ''))}
                   />
                 )}
               </Field>
             ))}
           </div>
 
+          {/* ⚠️ REQUIRED, and it always was on the server — the hint said
+              "Optional" while `createProjectAction` refused without it. Owner,
+              2026-09-02: *"description is not compulsory. Make it
+              compulsory."* Now both agree, and the form says so before somebody
+              presses the button rather than after. */}
           <Field
             label="Description"
             htmlFor="description"
-            hint="Optional. What it is for, in a sentence."
+            hint="What this project is for, in a sentence."
           >
             <Textarea
               id="description"
               name="description"
               rows={2}
+              required
               placeholder="Monthly social retainer — two platforms, reels weekly."
-              defaultValue={project?.description ?? ''}
+              defaultValue={was('description', project?.description ?? '')}
             />
           </Field>
         </Section>
