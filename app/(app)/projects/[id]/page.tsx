@@ -18,6 +18,9 @@ import { listFolders } from '@/lib/db/queries/drive-folders';
 import { listPlacementsForProject } from '@/lib/db/queries/placements';
 import { tasksInRange } from '@/lib/db/queries/search';
 import { can } from '@/lib/domain/permissions';
+import { contentCountsFor } from '@/lib/db/queries/content-tracker';
+import { dayStanding } from '@/lib/domain/content-tracker';
+import type { Weekday } from '@/lib/domain/cadence';
 import { redactOne } from '@/lib/view/project-finance';
 import { isoDateIn, isoMonthIn, nowMs } from '@/lib/now';
 import { monthLabel as cadenceMonthLabel } from '@/lib/domain/ceo-report';
@@ -170,10 +173,33 @@ export default async function ProjectPage({
      The package is looked up from the full list rather than by id: it is eight rows,
      already cached by the catalogue query, and a dedicated getter would be a second
      place for the package shape to drift. */
-  const [publishedTodayPlatformIds, packages] = await Promise.all([
+  const [publishedTodayPlatformIds, packages, contentCounts] = await Promise.all([
     platformsPublishedOn(user.id, id, today),
     project.packageId ? listPackages(user.id) : Promise.resolve([]),
+    /* ⚠️ Only asked for when there is a rhythm to measure. A website build or a
+       one-off event has no daily target, so the query would be a round trip to
+       learn nothing — the same call the finance page makes about figures a
+       Coordinator will never be shown. */
+    project.staticPostsPerDay !== null || project.reelsPerWeek !== null
+      ? contentCountsFor(user.id, id, today)
+      : Promise.resolve(null),
   ]);
+
+  /* Where the posting rhythm stands today and this week. Computed from the same
+     pure function the create-time cap uses, so the Overview and the refusal a
+     person meets cannot disagree about whether the day is covered. */
+  const todayStanding = contentCounts
+    ? dayStanding(
+        {
+          staticPostsPerDay: project.staticPostsPerDay,
+          reelsPerWeek: project.reelsPerWeek,
+          reelDays: project.reelDays as readonly Weekday[],
+          postingDays: project.postingDays as readonly Weekday[],
+        },
+        contentCounts,
+        today,
+      )
+    : null;
 
   const chosenPackage = packages.find((pkg) => pkg.id === project.packageId) ?? null;
   const packageDetail = chosenPackage
@@ -225,6 +251,7 @@ export default async function ProjectPage({
         ownerAvatarUrl={ownerAvatar}
         publishedTodayPlatformIds={publishedTodayPlatformIds}
         packageDetail={packageDetail}
+        todayStanding={todayStanding}
         members={members}
         tasks={tasks}
         /* Filtered here rather than in SQL because both lists are already scoped

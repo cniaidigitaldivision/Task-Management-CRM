@@ -42,11 +42,20 @@ describe('canAssignTo — the full cross product', () => {
       team_coordinator: true,
       member: true,
     },
+    /* ── ⚠️ member → member BECAME FALSE, 2026-09-03 ────────────────────────
+       Owner: *"all the team members who is creating their task they will not
+       assign to anyone as they have to do by there by himself."* Equal ranks
+       used to make this true, so one Member could put work on another — rank
+       was the wrong instrument for that pair.
+
+       Raising your OWN work is unaffected: that is settled by identity before
+       rank is consulted (`rankGate` returns early on assigneeId === actorId),
+       and a function given only two roles cannot tell "me" from "a peer". */
     member: {
       super_admin: false,
       admin: false,
       team_coordinator: false,
-      member: true,
+      member: false,
     },
   };
 
@@ -82,11 +91,22 @@ describe('the rules the owner stated in words', () => {
     expect(canAssignTo('admin', 'admin')).toBe(true);
   });
 
-  it('a Member may still take their own work', () => {
-    /* They are denied `task.create_for_other` separately, so in practice this
-       only ever resolves to themselves — but the rank rule must not be the thing
-       that stops a Member owning a task. */
-    expect(canAssignTo('member', 'member')).toBe(true);
+  /* ── ⚠️ THIS ASSERTION WAS REVERSED, 2026-09-03 ─────────────────────────
+     It read: *"a Member may still take their own work"*, asserting
+     canAssignTo('member','member') === true, and reasoned that the rank rule
+     must not be the thing that stops a Member owning a task.
+
+     Sound while rank was the only gate. It is not any more: `rankGate` settles
+     self-assignment by IDENTITY and returns before rank is consulted, so rank
+     refusing the member/member PAIR no longer refuses a Member their own work
+     — it refuses one Member putting work on another, which is what the owner
+     asked for: *"all the team members who is creating their task they will not
+     assign to anyone as they have to do by there by himself."*
+
+     `assignableTo` below proves the other half: a Member is still offered
+     themselves, and only themselves. */
+  it('one Member may not put work on another', () => {
+    expect(canAssignTo('member', 'member')).toBe(false);
   });
 });
 
@@ -96,28 +116,39 @@ describe('assignableTo', () => {
     { id: '2', name: 'Umm-e-Habiba', role: 'admin' as Role },
     { id: '3', name: 'Kashif', role: 'team_coordinator' as Role },
     { id: '4', name: 'Najmulla', role: 'member' as Role },
+    { id: '5', name: 'Rafay', role: 'member' as Role },
   ];
 
+  const KASHIF = { id: '3', role: 'team_coordinator' as Role };
+  const HABIBA = { id: '2', role: 'admin' as Role };
+  const AMMAR = { id: '1', role: 'super_admin' as Role };
+  const NAJMULLA = { id: '4', role: 'member' as Role };
+
   it('offers a Coordinator everyone at or below them', () => {
-    expect(assignableTo('team_coordinator', people).map((p) => p.name)).toEqual([
+    expect(assignableTo(KASHIF, people).map((p) => p.name)).toEqual([
       'Kashif',
       'Najmulla',
+      'Rafay',
     ]);
   });
 
   it('hides the Super Admin from an Admin', () => {
-    expect(assignableTo('admin', people).map((p) => p.name)).toEqual([
+    expect(assignableTo(HABIBA, people).map((p) => p.name)).toEqual([
       'Umm-e-Habiba',
       'Kashif',
       'Najmulla',
+      'Rafay',
     ]);
   });
 
   it('offers the Super Admin everybody', () => {
-    expect(assignableTo('super_admin', people)).toHaveLength(4);
+    expect(assignableTo(AMMAR, people)).toHaveLength(5);
   });
 
-  it('leaves a Member with only their own rank', () => {
-    expect(assignableTo('member', people).map((p) => p.name)).toEqual(['Najmulla']);
+  /* ⚠️ THEMSELVES, AND NOBODY ELSE — not "everybody at their own rank". Rafay is
+     the same rank as Najmulla and must not be offered; without the identity
+     arm the list would be empty and a Member could not raise their own work. */
+  it('leaves a Member with only themselves', () => {
+    expect(assignableTo(NAJMULLA, people).map((p) => p.name)).toEqual(['Najmulla']);
   });
 });

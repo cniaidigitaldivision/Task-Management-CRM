@@ -15,6 +15,10 @@ import { teamWorkload } from '@/lib/db/queries/workload';
 import { WORKLOAD_BAND_META } from '@/lib/domain/constants';
 import { isoDateIn, nowMs } from '@/lib/now';
 import { toTaskView } from '@/lib/view/task-view';
+import { OwedToday } from '@/components/task/owed-today';
+import { projectsOwingToday } from '@/lib/db/queries/content-tracker';
+import { owedLines } from '@/lib/domain/content-tracker';
+import type { Weekday } from '@/lib/domain/cadence';
 import { getSettings } from '@/lib/settings/current';
 
 export const metadata: Metadata = { title: 'My Work' };
@@ -38,8 +42,11 @@ export default async function MyWorkPage() {
   const user = await requireUser();
   const now = nowMs();
 
-  const [rows, workload, people, projects, settings] = await Promise.all([
+  const [rows, cadences, workload, people, projects, settings] = await Promise.all([
     listTasks(user.id, { assigneeId: user.id, includeClosed: true }),
+    /* One query for every project they are on, with today's counts — see
+       `projectsOwingToday`. Joined in SQL rather than a call per project. */
+    projectsOwingToday(user.id, isoDateIn()),
     teamWorkload(user.id, now),
     listAssignablepeople(user.id),
     listProjects(user.id),
@@ -49,6 +56,29 @@ export default async function MyWorkPage() {
   const otherWarningPct = Number(settings.otherWorkWarningPct);
 
   const tasks = rows.map((row) => toTaskView(row, now));
+
+  /* ⚠️ Flattened through `owedLines`, the same pure function the tests cover and
+     the create-time cap shares — so what the list offers and what the server
+     accepts cannot drift apart. */
+  const today = isoDateIn();
+  const owed = cadences.flatMap((project) =>
+    owedLines(
+      {
+        staticPostsPerDay: project.staticPostsPerDay,
+        reelsPerWeek: project.reelsPerWeek,
+        reelDays: project.reelDays as readonly Weekday[],
+        postingDays: project.postingDays as readonly Weekday[],
+      },
+      project.counts,
+      today,
+    ).map((line) => ({
+      projectId: project.projectId,
+      projectName: project.projectName,
+      kind: line.kind,
+      count: line.count,
+      note: line.note,
+    })),
+  );
   const mine = workload.people.find((p) => p.userId === user.id);
   const band = mine ? WORKLOAD_BAND_META[mine.workload.band] : null;
 
@@ -178,8 +208,26 @@ export default async function MyWorkPage() {
         </div>
       )}
 
+      {/* ── ⚠️ WHAT REPLACED THE PRE-CREATED MONTH ────────────────────────────
+          Owner, 2026-09-03: *"you will not create any automatic task. You will
+          just set a tracker."* Removing the generated month also removed the
+          thing that told people what to do — the rhythm is agreed with the
+          client and recorded on the project, and was invisible to the person
+          expected to deliver it.
+
+          So it goes FIRST, above the queue: the day starts by seeing what is
+          outstanding, then working the board. Nothing in this section exists in
+          the database yet, which is the point of it. */}
       <PageSection
         step={1}
+        title="Owed today"
+        description="What the projects you are on still need for today. One press takes it on and puts it in your queue."
+      >
+        <OwedToday items={owed} />
+      </PageSection>
+
+      <PageSection
+        step={2}
         title="Your queue"
         description="Drag a card to change its status. Anything you cannot do says why rather than going quiet."
       >

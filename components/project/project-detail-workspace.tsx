@@ -55,6 +55,7 @@ import type { CalendarTask } from '@/lib/db/queries/search';
 import { CalendarView } from '@/components/calendar/calendar-view';
 import type { Role } from '@/lib/domain/constants';
 import { canAssignTo } from '@/lib/domain/permissions';
+import type { DayStanding } from '@/lib/domain/content-tracker';
 
 import { DailyBoard } from './daily-board';
 import { ProjectOverview } from './project-overview';
@@ -150,6 +151,7 @@ export function ProjectDetailWorkspace({
   ownerAvatarUrl,
   publishedTodayPlatformIds,
   packageDetail,
+  todayStanding,
 }: {
   project: ProjectRow;
   members: readonly ProjectMemberRow[];
@@ -224,6 +226,9 @@ export function ProjectDetailWorkspace({
   publishedTodayPlatformIds: readonly string[];
   /** The chosen package's terms, for the contract dialog. Null on a custom deal. */
   packageDetail: PackageDetail | null;
+  /** Where the posting rhythm stands today and this week — see `dayStanding`.
+   *  Null when the project has no agreed rhythm. */
+  todayStanding: DayStanding | null;
 }) {
   const [tab, setTab] = React.useState<Tab>('overview');
   const router = useRouter();
@@ -261,9 +266,11 @@ export function ProjectDetailWorkspace({
   const assignablePeople = React.useMemo(
     () =>
       members
-        .filter((m) => canAssignTo(currentUser.role, m.role as Role))
+        /* Self OR somebody they may hand work to — a Member may only ever
+           pick themselves, and must still be offered. */
+        .filter((m) => m.userId === currentUser.id || canAssignTo(currentUser.role, m.role as Role))
         .map((m) => ({ id: m.userId, name: m.fullName, roleTitle: m.projectRole })),
-    [members, currentUser.role],
+    [members, currentUser.role, currentUser.id],
   );
 
   /* Which of the calendar tab's two grids is showing. 'rhythm' first: it is the
@@ -546,6 +553,7 @@ export function ProjectDetailWorkspace({
           ownerAvatarUrl={ownerAvatarUrl}
           publishedTodayPlatformIds={publishedTodayPlatformIds}
           packageDetail={packageDetail}
+          todayStanding={todayStanding}
           onAddContent={() => setTab('tasks')}
         />
       )}

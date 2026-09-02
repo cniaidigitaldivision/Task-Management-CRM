@@ -27,10 +27,10 @@ import { PROJECT_ROLE_LABEL, type ContentKind } from '@/lib/domain/constants';
 import { WEEKDAY_LABEL, monthPlan } from '@/lib/domain/cadence';
 import { PlatformIcon } from '@/components/brand/platform-icon';
 import { Avatar } from '@/components/ui/avatar';
-import { Button } from '@/components/ui/button';
 import { Card, CardBody } from '@/components/ui/card';
 import { ProgressBar } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
+import type { DayStanding } from '@/lib/domain/content-tracker';
 
 import { ContractDialog, type PackageDetail } from './contract-dialog';
 
@@ -113,6 +113,7 @@ export function ProjectOverview({
   ownerAvatarUrl,
   publishedTodayPlatformIds,
   packageDetail,
+  todayStanding,
   onAddContent,
 }: {
   project: ProjectRow;
@@ -133,6 +134,10 @@ export function ProjectOverview({
   /** The chosen package's own terms, for the contract dialog. Null when the project
    *  is on a customised arrangement rather than a listed package. */
   packageDetail: PackageDetail | null;
+  /** ⚠️ Where the rhythm stands TODAY and THIS WEEK — the two periods the month
+   *  card above cannot show. Null when no rhythm was agreed, which is not the
+   *  same as everything being met. See `dayStanding`. */
+  todayStanding: DayStanding | null;
   /** Opens the task dialog. Passed in so this component owns no dialog state. */
   onAddContent: () => void;
 }) {
@@ -445,6 +450,43 @@ export function ProjectOverview({
                 </span>
               </div>
             </>
+          )}
+
+          {/* ── ⚠️ THE TRACKER, WHERE THE GENERATE BUTTON USED TO BE ──────────
+              Owner, 2026-09-03: *"this tracker will also definitely showing on
+              a overview of that project, definitely."*
+
+              The card above measures the MONTH. These two lines are the periods
+              the targets are actually agreed in — one static post a day, two
+              reels a week — and they are what somebody checks before asking why
+              a client's feed looks thin. Same numbers the create-time cap uses,
+              from the same function, so the page and the refusal cannot
+              disagree. */}
+          {todayStanding !== null && todayStanding.staticTarget !== null && (
+            <div className="space-y-1 border-t border-border-subtle pt-2.5">
+              <TrackerLine
+                label="Today"
+                met={todayStanding.staticOwed === 0}
+                text={
+                  todayStanding.isOffDay
+                    ? 'Off day — nothing scheduled'
+                    : todayStanding.staticOwed === 0
+                      ? `Static post done (${todayStanding.staticHave} of ${todayStanding.staticTarget})`
+                      : `${todayStanding.staticOwed} static post${todayStanding.staticOwed === 1 ? '' : 's'} still to create`
+                }
+              />
+              {todayStanding.reelWeekTarget !== null && (
+                <TrackerLine
+                  label="This week"
+                  met={todayStanding.reelsOwedThisWeek === 0}
+                  text={`${todayStanding.reelsInWeek} of ${todayStanding.reelWeekTarget} reel${todayStanding.reelWeekTarget === 1 ? '' : 's'}${
+                    todayStanding.reelsOwedThisWeek === 0
+                      ? ' — target met'
+                      : `, ${todayStanding.reelsOwedThisWeek} to go`
+                  }`}
+                />
+              )}
+            </div>
           )}
 
           {/* ── ⚠️ "GENERATE SCHEDULE" USED TO SIT HERE, AND IS GONE ───────────
@@ -977,6 +1019,28 @@ function MonthSelect({
  * actually arrived. A manual boolean would clear the moment the promise
  * resolved, leaving the button idle beside numbers that had not updated yet.
  * ------------------------------------------------------------------------- */
+/* ----------------------------------------------------------------------------
+ * ONE LINE OF THE TRACKER
+ * ------------------------------------------------------------------------- */
+function TrackerLine({ label, met, text }: { label: string; met: boolean; text: string }) {
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+      <span className="text-micro font-semibold uppercase tracking-wide text-text-tertiary">
+        {label}
+      </span>
+      <span
+        className="text-caption"
+        /* Colour only where it means something: met is quiet, outstanding is
+           the one worth an eye. A green tick on every line trains people to
+           stop reading them. */
+        style={{ color: met ? 'var(--text-secondary)' : 'var(--feedback-warning)' }}
+      >
+        {text}
+      </span>
+    </div>
+  );
+}
+
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',

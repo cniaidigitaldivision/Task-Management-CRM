@@ -7,10 +7,15 @@ import { withUser } from '@/lib/db/client';
 import { audit } from '@/lib/db/queries/audit';
 import { notify, record, notifySelf } from '@/lib/db/queries/feed';
 import { getPerson, listAvailability } from '@/lib/db/queries/people';
+import { getProject } from '@/lib/db/queries/projects';
+import { contentCountsFor } from '@/lib/db/queries/content-tracker';
+import { contentCapRefusal, dayStanding } from '@/lib/domain/content-tracker';
+import type { Weekday } from '@/lib/domain/cadence';
 import * as R from '@/lib/db/queries/task-relations';
 import * as T from '@/lib/db/queries/tasks';
 import {
   CONTENT_KINDS,
+  CONTENT_KIND_LABEL,
   EFFORT_POINTS,
   PRIORITIES,
   PUBLISH_PROOF_KINDS,
@@ -454,6 +459,137 @@ export async function getTaskDetailAction(taskId: string): Promise<TaskDetailPay
  * CREATE
  * ========================================================================== */
 
+/** Static is S/2pts, a reel M/4pts, both medium — the figures the retired
+ *  generator used for 304 tasks, so the team's sense of what a post costs does
+ *  not change under them. Read off those rows rather than invented. */
+const OWED_SHAPE = {
+  static: { size: 'S' as const, points: 2 },
+  reel: { size: 'M' as const, points: 4 },
+};
+
+/**
+ * Take on a post the project still owes today.
+ *
+ * ── ⚠️ THIS IS WHAT REPLACED PRE-CREATING THE MONTH ─────────────────────────
+ * Owner, 2026-09-03: *"you will not create any automatic task. You will just
+ * set a tracker"*, and *"everyone will create his or her task by himself. If his
+ * or her task created by himself, then they will can move their status from to
+ * do to done."*
+ *
+ * So the tracker says what a project still owes and this is the one click that
+ * turns it into a task — raised BY the person and assigned TO them, which is
+ * what lets them close it themselves without a review pass.
+ *
+ * ⚠️ EVERY GUARD IS RE-CHECKED HERE. The list only offers what is owed, and
+ * that is convenience (registry C-21): membership, the cap and the rhythm are
+ * all confirmed server-side, because two people clicking the same prompt a
+ * second apart is the ordinary case, not the exotic one.
+ */
+export async function claimOwedContentAction(
+  projectId: string,
+  contentKind: 'static' | 'reel',
+): Promise<ActionResult> {
+  const user = await requireUser();
+
+  if (contentKind !== 'static' && contentKind !== 'reel') {
+    return fail('That is not a kind of post this tracker follows.');
+  }
+
+  const day = isoDateIn();
+
+  const project = await getProject(user.id, projectId);
+  if (!project) return fail('That project does not exist, or you cannot see it.');
+
+  /* ⚠️ MEMBERSHIP, not visibility. `app.project_is_visible` also admits
+     somebody who merely holds one task in the project, and taking on a
+     client's daily post is a thing you do for a project you are ON. */
+  const onTheTeam = await withUser(
+    user.id,
+    (tx) => tx`
+      select 1 from public.project_members
+       where project_id = ${projectId} and user_id = ${user.id}
+    `,
+  );
+  if (onTheTeam.length === 0) {
+    return fail(`You are not on the team for ${project.name}, so this is not yours to take on.`);
+  }
+
+  const cadence = {
+    staticPostsPerDay: project.staticPostsPerDay,
+    reelsPerWeek: project.reelsPerWeek,
+    reelDays: project.reelDays as readonly Weekday[],
+    postingDays: project.postingDays as readonly Weekday[],
+  };
+
+  const counts = await contentCountsFor(user.id, projectId, day);
+
+  /* The same sentence the create form would show — one rule, one wording. */
+  const refusal = contentCapRefusal({
+    cadence,
+    contentKind,
+    dueDate: day,
+    counts,
+    projectName: project.name,
+  });
+  if (refusal) return fail(refusal);
+
+  /* ⚠️ And it must actually be owed. The cap answers "is the quota full"; this
+     answers "was any of it ever asked for today" — an off day, or a reel on a
+     weekday the rhythm does not put reels on. */
+  const standing = dayStanding(cadence, counts, day);
+  if (contentKind === 'static' && standing.staticOwed === 0) {
+    return fail(`${project.name} does not owe a static post today.`);
+  }
+  if (contentKind === 'reel' && standing.reelsOwedThisWeek === 0) {
+    return fail(`${project.name} does not owe another reel this week.`);
+  }
+
+  const shape = OWED_SHAPE[contentKind];
+  const label = CONTENT_KIND_LABEL[contentKind];
+
+  try {
+    const created = await T.createTask(user.id, {
+      /* The same title shape the generated posts carried, so the board reads
+         the way the team is used to: "Static post — 3 Sep". */
+      title: `${label} — ${shortDay(day)}`,
+      projectId,
+      assigneeId: user.id,
+      /* To Do, not Backlog: they have just said they are doing it. */
+      status: 'todo',
+      priority: 'medium',
+      effortSize: shape.size,
+      effortPoints: shape.points,
+      dueDate: day,
+      contentKind,
+    });
+
+    await withUser(user.id, (tx) =>
+      record(tx, user.id, {
+        entityType: 'task',
+        entityId: created.id,
+        action: 'created',
+        summary: `took on ${created.reference} — ${project.name} owed it today`,
+        after: { contentKind, dueDate: day },
+      }),
+    );
+
+    revalidateWork();
+    return { ok: true, taskId: created.id };
+  } catch (error) {
+    return fail(readableDbError(error));
+  }
+}
+
+/** '2026-09-03' → '3 Sep'. Matches the generated titles it replaces. */
+function shortDay(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    timeZone: 'UTC',
+  });
+}
+
 export async function createTaskAction(_prev: ActionResult, form: FormData): Promise<ActionResult> {
   const user = await requireUser();
 
@@ -509,6 +645,48 @@ export async function createTaskAction(_prev: ActionResult, form: FormData): Pro
     warning = gate.warning;
   }
 
+  /* ── ⚠️ THE PROJECT'S AGREED RHYTHM IS A CEILING, NOT A SUGGESTION ────────
+     Owner, 2026-09-03: *"if someone of the team member that is working on that
+     project is trying to create a third reel task. It would not let them create
+     and give them a message or a error that the target of a week is achieved"*,
+     and *"no other static post task will be created for that project on a same
+     day by any other member of that project."*
+
+     This is what replaces pre-creating the month. Nothing is written ahead of
+     time; instead the day's quota is filled once, by whoever gets there first,
+     and the next person is told who already covered it.
+
+     ⚠️ COUNTED ACROSS EVERY MEMBER'S WORK, via app.count_project_content. A
+     count through the caller's own eyes would return zero for a day a colleague
+     had already covered — migration 084 stops a Member seeing a colleague's
+     task — and the cap would never fire. Migration 087 has the argument.
+
+     ⚠️ AFTER the permission and capacity gates. "You may not assign to them at
+     all" and "that puts them over their limit" are answers about the person;
+     this one is about the project, and somebody who was never allowed to create
+     the task should not first be told the week is full. */
+  const deliverable = deliverableFrom(form);
+  const dueDate = optional(form, 'dueDate');
+
+  if (deliverable.contentKind === 'static' || deliverable.contentKind === 'reel') {
+    const project = await getProject(user.id, projectId);
+    if (project) {
+      const refusal = contentCapRefusal({
+        cadence: {
+          staticPostsPerDay: project.staticPostsPerDay,
+          reelsPerWeek: project.reelsPerWeek,
+          reelDays: project.reelDays as readonly Weekday[],
+          postingDays: project.postingDays as readonly Weekday[],
+        },
+        contentKind: deliverable.contentKind,
+        dueDate,
+        counts: await contentCountsFor(user.id, projectId, dueDate ?? ''),
+        projectName: project.name,
+      });
+      if (refusal) return fail(refusal);
+    }
+  }
+
   try {
     const created = await T.createTask(user.id, {
       title,
@@ -522,13 +700,13 @@ export async function createTaskAction(_prev: ActionResult, form: FormData): Pro
       effortPoints: effort.points,
       startDate: optional(form, 'startDate'),
       startTime: optional(form, 'startTime'),
-      dueDate: optional(form, 'dueDate'),
+      dueDate,
       dueTime: optional(form, 'dueTime'),
       blockedReason: optional(form, 'blockedReason'),
       timeLimitMinutes: minutesFrom(form),
       assignmentOverrideReason: overrideReason,
       recurrenceRule: repeat.rule,
-      ...deliverableFrom(form),
+      ...deliverable,
     });
 
     await withUser(user.id, async (tx) => {

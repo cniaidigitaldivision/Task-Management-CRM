@@ -860,6 +860,25 @@ function isSame(actorId: string, candidate: string | undefined): boolean {
  * user record rather than about handing work to one.
  */
 export function canAssignTo(actorRole: Role, assigneeRole: Role): boolean {
+  /* ── ⚠️ A MEMBER HANDS WORK TO NOBODY, NARROWED 2026-09-03 ────────────────
+     Owner: *"all the team members who is creating their task they will not
+     assign to anyone as they have to do by there by himself"*, and only a
+     Coordinator or above may hand work down: *"if I say that if a team
+     coordinator he can assign tasks to lower team members, all the team
+     members, not to admin."*
+
+     The rank comparison alone returned TRUE for member → member, because their
+     ranks are equal — so one Member could put work on another. Rank was the
+     wrong instrument for that pair: what separates them is not seniority.
+
+     ⚠️ THIS DOES NOT STOP A MEMBER RAISING THEIR OWN WORK, and the distinction
+     matters. Assigning to yourself is settled by IDENTITY, not rank, and every
+     caller checks it first — `rankGate` returns early on
+     `assigneeId === actorId`. A function that only knows two roles cannot tell
+     "me" from "a peer", so it answers the question it can and leaves the other
+     to the code that has the ids. */
+  if (actorRole === 'member') return false;
+
   return ROLE_RANK[actorRole] >= ROLE_RANK[assigneeRole];
 }
 
@@ -870,11 +889,18 @@ export function canAssignTo(actorRole: Role, assigneeRole: Role): boolean {
  * offered. The server checks `canAssignTo` again — this is convenience, never
  * the boundary (registry C-21).
  */
-export function assignableTo<T extends { readonly role: Role }>(
-  actorRole: Role,
+export function assignableTo<T extends { readonly id: string; readonly role: Role }>(
+  actor: { readonly id: string; readonly role: Role },
   people: readonly T[],
 ): T[] {
-  return people.filter((person) => canAssignTo(actorRole, person.role));
+  /* ⚠️ Takes the actor's ID as well as their role, because since 2026-09-03 a
+     Member may assign only to THEMSELVES — which is an identity question that
+     `canAssignTo` cannot answer from a role alone. Without the id here the
+     picker would offer a Member nobody at all, including themselves, and they
+     could not raise their own work from it. */
+  return people.filter(
+    (person) => person.id === actor.id || canAssignTo(actor.role, person.role),
+  );
 }
 
 /* ============================================================================
