@@ -113,6 +113,23 @@ export function DailyBoard({
     ];
   }, [driveFolders, projectId]);
 
+  /* ── ⚠️ THE TYPED LINKS LIVE HERE, NOT IN EACH ROW ────────────────────────
+     Owner, 2026-09-03, having typed two URLs and pressed Mark as published:
+     *"I am putting a URL in the URL field and marked as publish. When I click it
+     shows me this error."*
+
+     The refusal was correct and the interface was not. Each row kept what was
+     typed in its OWN state and only wrote it to the database when its Save
+     button was pressed, so the publish button saw a task with no placements and
+     said so — while the links sat on screen in front of them. CLI-1568 had two
+     visible URLs and zero placements.
+
+     Holding the drafts on the card means "Mark as published" can commit
+     anything unsaved before it publishes, which is what the person plainly
+     meant by pressing it. Save per row still works and is still useful for a
+     link that goes out before the rest. */
+  const [drafts, setDrafts] = React.useState<Record<string, string>>({});
+
   const run = async (key: string, fn: () => Promise<{ ok: boolean; error?: string }>) => {
     setBusy(key);
     setFlash(null);
@@ -125,6 +142,18 @@ export function DailyBoard({
     } finally {
       setBusy(null);
     }
+  };
+
+  /* One description of how a link is saved, used by the row's Save button and by
+     the publish button below. Two copies is how they would drift. */
+  const savePlacement = (taskId: string, platformId: string, url: string, kind?: string | null) => {
+    const data = new FormData();
+    data.set('taskId', taskId);
+    data.set('platformId', platformId);
+    data.set('contentKind', kind ?? 'static');
+    data.set('url', url);
+    data.set('publishedOn', today);
+    return savePlacementAction({ ok: false }, data);
   };
 
   const nothingAtAll =
@@ -245,17 +274,11 @@ export function DailyBoard({
                             busy={busy === key}
                             platform={platform}
                             initialUrl={existing?.url ?? ''}
-                            onSave={(url) =>
-                              run(key, async () => {
-                                const data = new FormData();
-                                data.set('taskId', t.id);
-                                data.set('platformId', platform.id);
-                                data.set('contentKind', task.contentKind ?? 'static');
-                                data.set('url', url);
-                                data.set('publishedOn', today);
-                                return savePlacementAction({ ok: false }, data);
-                              })
+                            value={drafts[key] ?? existing?.url ?? ''}
+                            onChange={(next) =>
+                              setDrafts((current) => ({ ...current, [key]: next }))
                             }
+                            onSave={(url) => run(key, () => savePlacement(t.id, platform.id, url))}
                           />
                         );
                       })
@@ -295,7 +318,40 @@ export function DailyBoard({
                          Before today this button closed the task outright, which
                          skipped BR-002 entirely on the one board where most of
                          the division's work actually happens. */
-                      onClick={() => run(`${t.id}:review`, () => publishPostAction(t.id))}
+                      onClick={() =>
+                        run(`${t.id}:review`, async () => {
+                          /* ── ⚠️ COMMIT WHAT IS TYPED BEFORE PUBLISHING ─────
+                             The owner pressed this with two URLs on screen and
+                             was told the post had no link. Both were true: the
+                             links were in the inputs and not in the database,
+                             because each row only saved on its own Save button.
+
+                             So anything unsaved is saved first, in the order it
+                             appears, and only then does the task move. If a
+                             link is refused — a typo, say — that refusal is
+                             what the person sees, and the status does NOT move,
+                             which is the honest outcome: the publish gate is
+                             about evidence, and the evidence did not land. */
+                          for (const platform of platforms) {
+                            const key = `${t.id}:${platform.id}`;
+                            const typed = drafts[key];
+                            if (typed === undefined) continue;
+
+                            const saved = rows.find((r) => r.platformId === platform.id)?.url ?? '';
+                            if (typed.trim() === saved.trim()) continue;
+
+                            const result = await savePlacement(
+                              t.id,
+                              platform.id,
+                              typed.trim(),
+                              task.contentKind,
+                            );
+                            if (!result.ok) return result;
+                          }
+
+                          return publishPostAction(t.id);
+                        })
+                      }
                     >
                       {busy === `${t.id}:review` ? (
                         <Loader2 className="size-4 animate-spin" aria-hidden="true" />
@@ -482,16 +538,23 @@ function SectionHead({
 function PlatformRow({
   platform,
   initialUrl,
+  value,
   busy,
+  onChange,
   onSave,
 }: {
   platform: DailyPlatform;
+  /** What is in the database. `value` minus this is what still needs saving. */
   initialUrl: string;
+  /* ⚠️ Controlled by the card, not by this row. The row used to own what was
+     typed, which meant the publish button could not see it — see the note on
+     `drafts`. */
+  value: string;
   busy: boolean;
+  onChange: (next: string) => void;
   onSave: (url: string) => void;
 }) {
-  const [url, setUrl] = React.useState(initialUrl);
-  const dirty = url.trim() !== initialUrl.trim();
+  const dirty = value.trim() !== initialUrl.trim();
 
   return (
     <div className="flex items-center gap-2">
@@ -502,8 +565,8 @@ function PlatformRow({
       <Input
         aria-label={`Live link on ${platform.name}`}
         placeholder="Paste the live link…"
-        value={url}
-        onChange={(e) => setUrl(e.target.value)}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
         className="h-8 flex-1 text-caption"
       />
       <Button
@@ -512,7 +575,7 @@ function PlatformRow({
         /* Only offered once there is something to save. A row of always-active
            Save buttons invites clicking one that does nothing. */
         disabled={!dirty || busy}
-        onClick={() => onSave(url.trim())}
+        onClick={() => onSave(value.trim())}
       >
         {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : 'Save'}
       </Button>

@@ -56,6 +56,7 @@ import { CalendarView } from '@/components/calendar/calendar-view';
 import type { Role } from '@/lib/domain/constants';
 import { canAssignTo } from '@/lib/domain/permissions';
 import type { DayStanding } from '@/lib/domain/content-tracker';
+import { useToast } from '@/components/ui/toast';
 
 import { DailyBoard } from './daily-board';
 import { ProjectOverview } from './project-overview';
@@ -427,7 +428,13 @@ export function ProjectDetailWorkspace({
               : entry.key === 'tasks'
                 ? tasks.length
                 : entry.key === 'team'
-                  ? members.length + 1 // + the owner, who is on the team but not a member row
+                  /* ⚠️ NO `+ 1` ANY MORE. It read `members.length + 1` with the
+                     note "+ the owner, who is on the team but not a member row",
+                     which was true until 2026-09-02 — the fix that put a
+                     project's owner in `project_members` made the owner a member
+                     row, so the +1 started counting them twice. Test Project
+                     showed Team 3 with two people on it. */
+                  ? members.length
                   : entry.key === 'access'
                     ? credentials.length
                     : entry.key === 'files'
@@ -1056,6 +1063,7 @@ function DeleteProjectDialog({
   onClose: () => void;
 }) {
   const router = useRouter();
+  const toast = useToast();
   const [typed, setTyped] = React.useState('');
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -1082,11 +1090,30 @@ function DeleteProjectDialog({
               setError(null);
               const result = await deleteProjectAction(project.id);
               setBusy(false);
+
               if (!result.ok) {
+                /* ── ⚠️ RED, AND IN THE DIALOG TOO ────────────────────────────
+                   Owner, 2026-09-03: *"show a notification in the bottom right
+                   which will tell whether the project is deleted successfully
+                   or not."* The notice is the red one; the inline message stays
+                   because a refusal here is something to act on — void the
+                   invoice, ask an Admin — and a sentence that vanishes after
+                   five seconds is a poor place for an instruction. */
                 setError(result.error ?? 'That project could not be deleted.');
+                toast({ tone: 'error', text: result.error ?? 'That project could not be deleted.' });
                 return;
               }
-              /* Back to the list: the page we are on no longer exists. */
+
+              /* ⚠️ Announced BEFORE navigating. This dialog is about to unmount
+                 with the whole page, and a notice raised after that would be
+                 raised by a component that no longer exists. The provider lives
+                 above the router, so the notice survives the navigation. */
+              toast({ tone: 'ok', text: `${project.name} is deleted.` });
+
+              /* `push` then `refresh`: the project page we are on no longer
+                 exists, and the list we land on has to be re-read rather than
+                 served from the client cache — which is what made the old
+                 figures look unchanged. */
               router.push('/projects');
               router.refresh();
             }}

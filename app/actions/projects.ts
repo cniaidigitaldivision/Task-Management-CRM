@@ -22,6 +22,7 @@ import {
   setPlatformLinks,
   setProjectPlatforms,
   updateProject,
+  deleteProjectRow,
 } from '@/lib/db/queries/projects';
 import {
   PROJECT_STATUSES,
@@ -795,51 +796,47 @@ export async function deleteProjectAction(projectId: string): Promise<ProjectAct
     );
   }
 
+  /* ── ⚠️ ONE CALL, AND IT REPORTS WHAT ACTUALLY HAPPENED ───────────────────
+     This used to be six DELETE statements in a transaction here, and it lied.
+     `public.projects` has RLS with NO DELETE POLICY, so its delete affected zero
+     rows — which is not an error — while the invoice and revenue deletes above
+     it succeeded (Admin+) and the task delete did not (Super Admin only). The
+     result was a project stripped of its invoices, still present, reported as
+     deleted. Owner, 2026-09-03: *"it shows me the delete but it is actually not
+     deleting."*
+
+     Migration 088 moved the whole cascade into `app.delete_project`, which is
+     the only thing that may do it, does it atomically, and RETURNS whether the
+     row went. Nothing here guesses. */
+  let outcome: { deleted: boolean; refusal: string | null };
+
   try {
-    await withUser(user.id, async (tx) => {
-      /* ⚠️ REFUSED, NOT FORCED. A sent invoice is a document a client is holding;
-         deleting the project would erase our copy of something they can still
-         produce. Voiding is the sanctioned route, and it keeps the number. */
-      const sent = await tx`
-        select invoice_no from public.revenue_entries
-         where project_id = ${projectId} and sent_at is not null
-         limit 1
-      `;
-      if ((sent as unknown[]).length > 0) {
-        const no = (sent as Array<Record<string, unknown>>)[0].invoice_no;
-        throw new Error(
-          `SENT_INVOICE:Invoice ${no} has already been sent to the client. Void it first — a sent invoice cannot be erased by deleting its project.`,
-        );
-      }
-
-      /* Inward out: lines and payments reference the revenue rows, which
-         reference the project. */
-      await tx`
-        delete from public.invoice_lines
-         where revenue_id in (select id from public.revenue_entries where project_id = ${projectId})
-      `;
-      await tx`
-        delete from public.revenue_payments
-         where revenue_id in (select id from public.revenue_entries where project_id = ${projectId})
-      `;
-      await tx`delete from public.revenue_entries where project_id = ${projectId}`;
-      await tx`delete from public.documents where project_id = ${projectId}`;
-      await tx`delete from public.tasks where project_id = ${projectId}`;
-      await tx`delete from public.projects where id = ${projectId}`;
-
-      await audit(tx, user, {
-        entityType: 'project',
-        entityId: projectId,
-        action: 'project.deleted',
-        before: { name: project.name, code: project.code, type: project.type },
-      });
-    });
+    outcome = await deleteProjectRow(user.id, projectId);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (message.startsWith('SENT_INVOICE:')) return fail(message.slice('SENT_INVOICE:'.length));
-    console.error('[projects] delete failed', message);
+    console.error('[projects] delete failed', error);
     return fail('That project could not be deleted.');
   }
+
+  if (!outcome.deleted) {
+    /* The function's own sentence — it knows whether this was rank, a sent
+       invoice or the permanent project, and each needs a different answer. */
+    return fail(outcome.refusal ?? 'That project could not be deleted.');
+  }
+
+  await withUser(user.id, (tx) =>
+    audit(tx, user, {
+      entityType: 'project',
+      entityId: projectId,
+      action: 'project.deleted',
+      before: { name: project.name, code: project.code, type: project.type },
+    }),
+  ).catch((error) => {
+    /* ⚠️ AFTER the delete, and never allowed to undo it. The project is gone;
+       failing the whole action over an audit write would report a failure for
+       something that plainly succeeded, which is the mistake this file is being
+       fixed for in the first place. */
+    console.error('[projects] delete audit failed', error);
+  });
 
   revalidatePath('/projects');
   revalidatePath('/dashboard');

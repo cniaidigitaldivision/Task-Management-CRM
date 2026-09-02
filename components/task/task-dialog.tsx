@@ -366,6 +366,28 @@ export function TaskDialog({
     ? people.filter((p) => p.id === currentUser.id)
     : people;
 
+  /* ── ⚠️ A NEW TASK DEFAULTS TO THE PERSON RAISING IT ──────────────────────
+     Owner, 2026-09-03: *"when he creates a task auto select should be Kashif…
+     but by default the Kashif himself is selected."*
+
+     It defaulted to Unassigned, which is the wrong bet: the common case is
+     somebody writing down work they are about to do, and an unassigned task
+     belongs to nobody, appears on nobody's board, and — since the review flow
+     of 2026-09-02 — has no assignee for BR-002 to hold apart from the reviewer.
+     Handing it to somebody else is the deliberate act and stays one choice away.
+
+     ⚠️ ONLY ON CREATE. On an edit the task's own assignee wins, INCLUDING when
+     that is deliberately nobody: `task?.assigneeId ?? self` would have quietly
+     assigned every unassigned task to whoever opened it to change a due date.
+
+     ⚠️ AND ONLY IF THEY ARE ACTUALLY ASSIGNABLE. On a project they are not a
+     member of, the creator is not in `assignable`, and defaulting to a name the
+     select cannot show would submit an id the server then refuses. */
+  const defaultAssignee = isEdit
+    ? (task?.assigneeId ?? '')
+    : (defaultAssigneeId ??
+      (assignable.some((person) => person.id === currentUser.id) ? currentUser.id : ''));
+
   return (
     <Dialog
       open={open}
@@ -491,12 +513,16 @@ export function TaskDialog({
               <input type="hidden" name="assigneeId" value={currentUser.id} />
             </Field>
           ) : (
-            <Field label="Assigned to" htmlFor="assigneeId" hint="Leave unassigned to plan it first.">
+            <Field
+              label="Assigned to"
+              htmlFor="assigneeId"
+              hint="You, unless you hand it to somebody on this project."
+            >
               <Select
                 size="md"
                 id="assigneeId"
                 name="assigneeId"
-                defaultValue={task?.assigneeId ?? defaultAssigneeId ?? ''}
+                defaultValue={defaultAssignee}
               >
                 <option value="">Unassigned</option>
                 {assignable.map((person) => (

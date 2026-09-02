@@ -202,6 +202,32 @@ export async function getProject(actorId: string, projectId: string): Promise<Pr
   return rows[0] ? toProject(rows[0] as Record<string, unknown>) : null;
 }
 
+/**
+ * Delete a project and everything that hangs off it, or learn why not.
+ *
+ * ⚠️ GOES THROUGH `app.delete_project` RATHER THAN A DELETE STATEMENT, and that
+ * is the whole reason it exists. `public.projects` has RLS enabled and no DELETE
+ * policy, so a plain delete affects zero rows — no error, nothing removed — and
+ * the previous version of this reported success anyway while having already
+ * removed the project's invoices through their own more permissive policy.
+ * Migration 088 has the argument in full; this is the same trap as
+ * `claimTask` and the one the memory file calls "upsert needs an UPDATE policy".
+ */
+export async function deleteProjectRow(
+  actorId: string,
+  projectId: string,
+): Promise<{ deleted: boolean; refusal: string | null }> {
+  const rows = await withUser(
+    actorId,
+    (tx) => tx`select deleted, refusal from app.delete_project(${projectId}::uuid)`,
+  );
+  const row = (rows as Array<Record<string, unknown>>)[0];
+  return {
+    deleted: row?.deleted === true,
+    refusal: (row?.refusal as string | null) ?? null,
+  };
+}
+
 export interface CreateProjectInput {
   readonly name: string;
   readonly type: ProjectType;

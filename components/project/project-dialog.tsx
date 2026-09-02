@@ -332,8 +332,26 @@ export function ProjectDialog({
   const [name, setName] = React.useState(was('name', project?.name ?? ''));
   const toast = useToast();
 
+  /* ── ⚠️ FIRES ONCE, AND IT HAS TO BE A REF ────────────────────────────────
+     Owner, 2026-09-03, with a screenshot of TEN identical notices stacked down
+     the right-hand side from one project: *"why is a lot of notification coming
+     though instead of only one notification?"*
+
+     `useRouter()` returns a NEW object identity on each render, so `router` in
+     the dependency array below makes this effect eligible to re-run on every
+     render — and `router.refresh()` inside it causes renders. `state.ok` is
+     still true each time, so it announced again, and again, until the dialog
+     unmounted.
+
+     It was latent before the notice existed: re-running `refresh()` and
+     `onClose()` is idempotent, so nothing looked wrong. Adding something that
+     ACCUMULATES is what exposed it. A ref, not state — flipping state here
+     would itself cause the render that re-runs the effect. */
+  const announced = React.useRef(false);
+
   React.useEffect(() => {
-    if (state.ok) {
+    if (state.ok && !announced.current) {
+      announced.current = true;
       /* ── ⚠️ THE NOTICE, AND WHY IT CARRIES A LINK ─────────────────────────
          Owner, 2026-09-03: *"when a new project is created there is no
          notification coming. I want a light notification to come in from the
@@ -348,6 +366,7 @@ export function ProjectDialog({
          has to hunt for it. */
       if (!isEdit && state.projectId) {
         toast({
+          tone: 'ok',
           text: `${name.trim() || 'The project'} is created.`,
           href: `/projects/${state.projectId}`,
           linkLabel: 'Open it',

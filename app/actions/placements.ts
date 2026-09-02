@@ -63,12 +63,22 @@ export async function savePlacementAction(
     return fail('Choose what it was published as.');
   }
 
-  /* ⚠️ Checked here as well as by the database constraint, because the message
-     matters. Postgres would refuse `done` with a check-violation the UI would
-     have to translate; saying it plainly costs one line. A dead link in a board
-     report is worse than a blank — the report looks complete and is not. */
-  if (url && !/^https?:\/\/\S+$/.test(url)) {
-    return fail('That does not look like a link. It should start with https://');
+  /* ── ⚠️ A BARE DOMAIN IS A LINK, AND WAS BEING REFUSED ────────────────────
+     Owner, 2026-09-03, pasted `www.facebook.com` and `www.instagram.com`. Both
+     would have been rejected with "it should start with https://" — technically
+     correct and useless: nobody copying a post URL out of a browser thinks about
+     the scheme, and the fix is one line here rather than a habit thirteen people
+     have to learn.
+
+     So a value with no scheme gains `https://`. Refusal is kept for things that
+     are not links at all, because the reason the check exists still holds: a
+     dead link in a client report is worse than a blank one, since the report
+     looks complete and is not. */
+  const normalised = normaliseUrl(url);
+  if (url && normalised === null) {
+    return fail(
+      'That does not look like a link. Paste the address of the live post, for example https://www.facebook.com/…',
+    );
   }
 
   try {
@@ -76,7 +86,7 @@ export async function savePlacementAction(
       taskId,
       platformId,
       contentKind: kind as ContentKind,
-      url: url || null,
+      url: normalised,
       publishedOn: str(form, 'publishedOn') || null,
       notes: str(form, 'notes') || null,
     });
@@ -156,4 +166,32 @@ export async function removePlacementAction(id: string): Promise<ActionResult> {
 
   revalidatePath('/tasks');
   return { ok: true };
+}
+
+/**
+ * A pasted address as something storable, or null when it is not an address.
+ *
+ * ⚠️ `https`, not `http`: every platform this product posts to redirects to TLS
+ * anyway, and storing the insecure form means a client report full of links that
+ * bounce through a redirect.
+ *
+ * ⚠️ Deliberately NOT `new URL()` alone — `new URL('not a link')` throws, but
+ * `new URL('a:b')` does not, and neither does a value with no dot in it. The
+ * shape is checked explicitly: something, a dot, something, and no spaces.
+ */
+function normaliseUrl(raw: string): string | null {
+  const text = raw.trim();
+  if (!text) return null;
+
+  const withScheme = /^https?:\/\//i.test(text) ? text : `https://${text}`;
+
+  /* A host with at least one dot and no whitespace anywhere. `www.facebook.com`
+     and `facebook.com/p/123` both pass; `hello world` and `notalink` do not. */
+  if (!/^https?:\/\/[^\s/?#.]+\.[^\s]+$/i.test(withScheme)) return null;
+
+  try {
+    return new URL(withScheme).toString();
+  } catch {
+    return null;
+  }
 }

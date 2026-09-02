@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { AlertTriangle, Check, X } from 'lucide-react';
+import { AlertTriangle, Check, X, XCircle } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 
@@ -37,9 +37,26 @@ import { cn } from '@/lib/utils';
  *  short enough that it is gone before it becomes furniture. */
 const DWELL_MS = 5000;
 
+/* ── ⚠️ THREE TONES, AND THE COLOUR IS THE FEEDBACK TOKEN ─────────────────
+   Owner, 2026-09-03: *"make a colored notification, like a new project created
+   successfully in a green color, not successful in a red color, a warning in an
+   orange color."*
+
+   Each maps to the theme's own semantic token rather than a literal green, red
+   or orange — so the notice keeps its meaning in both light and dark, and moves
+   with the palette instead of drifting out of step with every other success and
+   error in the product. `--feedback-warning` IS the orange. */
+const TONES = {
+  ok: { token: 'feedback-success', Icon: Check },
+  error: { token: 'feedback-error', Icon: XCircle },
+  warn: { token: 'feedback-warning', Icon: AlertTriangle },
+} as const;
+
+export type ToastTone = keyof typeof TONES;
+
 export interface ToastInput {
   readonly text: string;
-  readonly tone?: 'ok' | 'warn';
+  readonly tone?: ToastTone;
   /** An optional place to go — "View project". */
   readonly href?: string;
   readonly linkLabel?: string;
@@ -99,9 +116,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         className="pointer-events-none fixed bottom-4 right-4 z-[60] flex w-[min(22rem,calc(100vw-2rem))] flex-col gap-2"
       >
         {items.map((item) => {
-          const warn = item.tone === 'warn';
-          const token = warn ? 'feedback-warning' : 'feedback-success';
-          const Icon = warn ? AlertTriangle : Check;
+          const { token, Icon } = TONES[item.tone ?? 'ok'];
 
           return (
             <div
@@ -120,8 +135,14 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
                 'slide-in',
               )}
               style={{
-                borderColor: `color-mix(in oklab, var(--${token}) 35%, transparent)`,
-                backgroundColor: 'var(--bg-surface)',
+                borderColor: `color-mix(in oklab, var(--${token}) 42%, transparent)`,
+                /* ⚠️ A TINT OF THE SURFACE, not the raw token. A saturated
+                   green panel with dark text fails contrast in the light theme
+                   and glares in the dark one; mixing a little of the token into
+                   the surface reads as coloured at a glance while the text
+                   above it stays the body colour it is designed against —
+                   exactly what every other tinted card in this product does. */
+                backgroundColor: `color-mix(in oklab, var(--${token}) var(--tint-soft), var(--bg-surface))`,
               }}
             >
               <Icon
