@@ -10,6 +10,7 @@ import { APP_NAME, ROLE_LABEL, type Role, type Theme } from '@/lib/domain/consta
 import { assignableRolesFor } from '@/lib/domain/permissions';
 import type { NotificationRow } from '@/lib/db/queries/types';
 import { cn } from '@/lib/utils';
+import { ToastProvider } from '@/components/ui/toast';
 
 import { NAV_SECTIONS } from './nav-config';
 import { Sidebar } from './sidebar';
@@ -319,7 +320,22 @@ export function AppShell({
   }, []);
 
   return (
-    /* ── The rail PUSHES the content, it does not cover it ──────────────────
+    /* ── ⚠️ THE NOTICE PROVIDER WRAPS EVERYTHING ─────────────────────────────
+       Owner, 2026-09-03: *"I want a light notification to come in from the right
+       bottom for some time to indicate that a new project has been created."*
+
+       It has to sit ABOVE the three create dialogs below, because each of them
+       unmounts the instant it succeeds — which is exactly when the notice
+       appears. A notice owned by the dialog would be destroyed along with it,
+       which is why this is a context and not a prop.
+
+       ⚠️ AND THE COMMENT BELOW IS A JSX COMMENT, NOT A BARE ONE. Inside JSX a
+       bare block comment is a TEXT CHILD: the first version of this left the
+       rail note sitting between the provider and the div, which typechecked
+       cleanly and would have printed the whole paragraph at the top of every
+       page in the application.
+
+    ── The rail PUSHES the content, it does not cover it ──────────────────
        Owner decision D7. The first version had the rail expand over the page, on
        the reasoning that pushing reflows the layout on mouse-over. The owner
        tried it and was clear: covering the content is worse — hiding part of the
@@ -330,6 +346,7 @@ export function AppShell({
 
        The `has-[aside:hover]` rule that used to widen this on hover is gone —
        see the note on `pinned` above. Width now depends on one thing only. */
+    <ToastProvider>
     <div
       className={cn(
         'min-h-full bg-bg-base [--rail:0px]',
@@ -454,5 +471,6 @@ export function AppShell({
         />
       )}
     </div>
+    </ToastProvider>
   );
 }

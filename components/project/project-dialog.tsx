@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
+import { useToast } from '@/components/ui/toast';
 import {
   AlertTriangle,
   Building,
@@ -329,13 +330,38 @@ export function ProjectDialog({
      "CLI-101 · ABC Traders" assemble itself is the difference between filling in a
      form and building something. */
   const [name, setName] = React.useState(was('name', project?.name ?? ''));
+  const toast = useToast();
 
   React.useEffect(() => {
     if (state.ok) {
+      /* ── ⚠️ THE NOTICE, AND WHY IT CARRIES A LINK ─────────────────────────
+         Owner, 2026-09-03: *"when a new project is created there is no
+         notification coming. I want a light notification to come in from the
+         right bottom."*
+
+         And the link is the other half of what they reported. This dialog lives
+         in the app shell, so a project can be created from ANY page — and
+         `router.refresh()` refreshes the page you are ON, which is usually not
+         /projects. Even landing there, a new name sorts alphabetically and the
+         list pages at twelve, so "Test Project" arrived on page 2 and looked
+         missing. The link goes straight to the thing they just made, so nobody
+         has to hunt for it. */
+      if (!isEdit && state.projectId) {
+        toast({
+          text: `${name.trim() || 'The project'} is created.`,
+          href: `/projects/${state.projectId}`,
+          linkLabel: 'Open it',
+        });
+      }
       router.refresh();
       onClose();
     }
-  }, [state.ok, onClose, router]);
+    /* `name` and `toast` are deliberately absent: this must fire on the
+       transition to ok, and including a value that changes on every keystroke
+       would re-run it. The name is read at that moment, which is the moment it
+       was submitted. */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.ok, state.projectId, isEdit, onClose, router]);
 
   return (
     <Dialog

@@ -200,8 +200,12 @@ export function TaskRelationsPanel({
             <span className="font-semibold text-text-primary">
               {describeRecurrence(repeat.rule)}.
             </span>{' '}
-            The next one is created when this is marked done — not on a timer, so the series can
-            never run ahead of the work.
+            {/* Same correction as task-dialog.tsx, 2026-09-03: this described
+                spawn-on-close, which the midnight runner replaced. Two screens
+                carried the sentence and both had to change — a rule stated in
+                two places is a rule that goes stale in one of them. */}
+            A fresh one is created automatically at midnight and assigned to the same person,
+            whether or not this one is finished.
           </p>
         </div>
       )}

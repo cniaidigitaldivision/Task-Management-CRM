@@ -143,9 +143,21 @@ function RepeatField({ initial }: { initial: string | null }) {
           label="Repeats"
           htmlFor="repeatFreq"
           hint={
+            /* ── ⚠️ THIS SENTENCE DESCRIBED THE OPPOSITE BEHAVIOUR ──────────
+               It read: *"The next one appears when this is marked done — not on
+               a timer, so the series can never run ahead of the work."* True
+               until 2026-09-03, when spawn-on-close was replaced by the
+               midnight runner at the owner's instruction — and then it was a
+               screen actively telling people the wrong rule.
+
+               The owner caught it from the form itself: *"I told you that
+               whether the previous task is completed or not, if it said that
+               daily this task should generate then you have to generate daily.
+               Then why are you showing this message?"* Nothing was wrong with
+               the behaviour; the label had been left behind by it. */
             freq === 'none'
               ? 'A one-off.'
-              : 'The next one appears when this is marked done — not on a timer, so the series can never run ahead of the work.'
+              : 'A fresh one is created automatically at midnight and assigned to the same person — whether or not the previous one is finished.'
           }
         >
           <Select
