@@ -219,6 +219,10 @@ export interface ProfileEdit {
   officeTeam?: 'blue_area' | 'wah';
   devicePersonNo?: string | null;
   attendanceMode?: 'either' | 'terminal_only';
+  /* ⚠️ Written in the SAME transaction as the rest, deliberately - see the
+     note in updateCapacity. null means "not on payroll", which is the absence of
+     a compensation row rather than a row holding null. */
+  monthlySalary?: number | null;
 }
 
 /**
@@ -241,7 +245,16 @@ export async function updateCapacity(
   input: ProfileEdit,
 ): Promise<void> {
   const has = (k: keyof ProfileEdit) => Object.hasOwn(input, k);
-  await withUser(actorId, (tx) => tx`
+
+  /* ⚠️ ONE TRANSACTION, BECAUSE TWO OF THEM LIED TO THE OWNER ─────────────
+     Pay used to be a second withUser call in the action, after this one. So on
+     2026-09-02 the profile half committed, the pay half was refused, and the
+     page showed a failure for a change that had in fact been saved - Kashif's
+     job title had already become "Lead Manager/Coodinator" while the owner was
+     being told the edit was rejected. An error message can only honestly say
+     "nothing about them was altered" if nothing about them was altered. */
+  await withUser(actorId, async (tx) => {
+    await tx`
     update public.users set
       weekly_capacity_points = case when ${has('weeklyCapacityPoints')}
         then ${input.weeklyCapacityPoints ?? null}::integer else weekly_capacity_points end,
@@ -258,23 +271,40 @@ export async function updateCapacity(
       attendance_mode = case when ${has('attendanceMode')}
         then ${input.attendanceMode ?? null}::public.attendance_mode else attendance_mode end
     where id = ${userId}
-  `);
-}
+  `;
 
-/** What somebody is paid. Admin-only by the table's own policy (062). */
-export async function setSalary(
-  actorId: string,
-  userId: string,
-  monthlySalary: number | null,
-): Promise<void> {
-  await withUser(actorId, (tx) => tx`
-    insert into public.employee_compensation (user_id, monthly_salary, updated_by_id)
-    values (${userId}, ${monthlySalary}, ${actorId})
-    on conflict (user_id) do update
-      set monthly_salary = excluded.monthly_salary,
-          updated_by_id  = excluded.updated_by_id,
-          updated_at     = now()
-  `);
+    if (!has('monthlySalary')) return;
+    /* Narrowed to a local: `has` is a runtime check on the object, so it tells
+       the compiler nothing about the property's type. Undefined cannot reach
+       here, and folding it into null keeps the two branches below exhaustive. */
+    const pay = input.monthlySalary ?? null;
+
+    /* ⚠️ NOT ON PAYROLL IS THE ABSENCE OF A ROW, NOT A ROW SAYING NOTHING.
+       The dialog's hint reads "leave empty for anybody not on payroll"; an empty
+       box arrives as null, and this used to insert that null into
+       monthly_salary, which migration 062 declares NOT NULL. Every save of a
+       person with no pay on file was therefore refused - whoever was editing,
+       and whatever they had actually changed. That was the owner's report.
+
+       Do not relax the constraint to fix it. 062 is right: a compensation row
+       states what somebody is paid, and "not null check (>= 0)" is what stops a
+       payroll total silently summing an unknown. A nullable column would give
+       "not on payroll" two spellings, and every later query would have to
+       remember both. */
+    if (pay === null) {
+      await tx`delete from public.employee_compensation where user_id = ${userId}`;
+      return;
+    }
+
+    await tx`
+      insert into public.employee_compensation (user_id, monthly_salary, updated_by_id)
+      values (${userId}, ${pay}, ${actorId})
+      on conflict (user_id) do update
+        set monthly_salary = excluded.monthly_salary,
+            updated_by_id  = excluded.updated_by_id,
+            updated_at     = now()
+    `;
+  });
 }
 
 /** Their current pay, for the edit form. Returns null where none is recorded. */

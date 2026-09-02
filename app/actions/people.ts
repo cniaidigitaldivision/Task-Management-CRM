@@ -13,7 +13,6 @@ import {
   removeUserSkill,
   setOwnAvatar,
   setTheme,
-  setSalary,
   setUserSkill,
   updateCapacity,
   updateOwnProfile,
@@ -180,11 +179,10 @@ export async function updateCapacityAction(
                 : ('either' as const),
           }
         : {}),
+      /* Part of the same call, and so the same transaction: a refused pay write
+         must not leave a committed name change behind it. */
+      ...(salary !== undefined ? { monthlySalary: salary } : {}),
     });
-
-    if (salary !== undefined) {
-      await setSalary(user.id, userId, salary);
-    }
 
     await withUser(user.id, async (tx) => {
       await audit(tx, user, {
@@ -222,12 +220,33 @@ export async function updateCapacityAction(
     revalidatePath('/workload');
     revalidatePath('/dashboard');
     return { ok: true };
-  } catch {
-    /* The most likely cause is the migration-005 trigger refusing a write to the
-       Super Admin row. Say what happened rather than leaking the SQL. */
-    return fail(
-      `That change was refused. The Super Admin row cannot be altered by anyone else (BR-027), and an ${ROLE_LABEL[user.role]} can only manage people below them.`,
-    );
+  } catch (error) {
+    /* ── ⚠️ THIS USED TO BLAME BR-027 FOR EVERY FAILURE ────────────────────
+       And it was wrong most of the time. The old handler caught everything and
+       reported the Super Admin rule regardless of what had actually happened, so
+       an Admin editing a Coordinator - a thing they are plainly allowed to do -
+       was told they lacked the rank. The owner hit exactly that on 2026-09-02
+       and reasonably replied "while I am an admin I can do it". A guessed cause
+       stated confidently is worse than no cause: it sends somebody looking at
+       their permissions when the real fault was a null salary.
+
+       So: the rules in migrations 005 and 060 raise their own sentences (P0001,
+       "Refused: only the Super Admin may modify an Admin account.") and those
+       are already written for a reader - pass them through. Anything else is a
+       fault rather than a rule, and says so instead of inventing a rule. */
+    const { code, message } = error as { code?: string; message?: string };
+
+    if (code === 'P0001' && message) {
+      return fail(message.replace(/^Refused:\s*/i, ''));
+    }
+    if (code === '42501') {
+      return fail(
+        `That change was refused. The Super Admin row cannot be altered by anyone else (BR-027), and an ${ROLE_LABEL[user.role]} can only manage people below them.`,
+      );
+    }
+
+    console.error('updateCapacityAction', error);
+    return fail('That change could not be saved. Nothing about them was altered.');
   }
 }
 
