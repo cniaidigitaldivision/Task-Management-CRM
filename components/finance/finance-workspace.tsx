@@ -402,6 +402,7 @@ export function FinanceWorkspace({
           hasSavedSignature={signer.has}
           defaultTaxRatePct={company.defaultTaxRatePct}
           taxLabel={company.taxLabel}
+          thisMonth={thisMonth}
           /* ⚠️ Reuses this screen's own notice strip rather than growing a
              second one. Two places reporting outcomes is two places to keep
              consistent, and the one nobody is looking at goes stale. */

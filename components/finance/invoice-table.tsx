@@ -82,6 +82,7 @@ export function InvoiceTable({
   hasSavedSignature,
   defaultTaxRatePct,
   taxLabel,
+  thisMonth,
   onDone,
 }: {
   invoices: readonly InvoiceRow[];
@@ -93,6 +94,8 @@ export function InvoiceTable({
   hasSavedSignature: boolean;
   defaultTaxRatePct: number;
   taxLabel: string;
+  /** The division's current month, `YYYY-MM`, resolved on the server in Karachi. */
+  thisMonth: string;
   onDone: (result: InvoiceResult) => void;
 }) {
   const router = useRouter();
@@ -101,6 +104,16 @@ export function InvoiceTable({
   const [voiding, setVoiding] = React.useState<InvoiceRow | null>(null);
   const [query, setQuery] = React.useState('');
   const [filter, setFilter] = React.useState<Filter>('all');
+  /* ── ⚠️ OPENS ON THIS MONTH ────────────────────────────────────────────────
+     Owner, 2026-09-02: *"for invoices or subscription, by default it should show
+     this month's... There should be a dropdown or a filter over there so I can
+     see previous month or a range of months."*
+
+     Client-side, unlike the task board's window, and deliberately: there are
+     single figures here, not hundreds of rows, so nothing is gained by making
+     the server re-read and everything is gained by the period switching
+     instantly. `'all'` is the escape hatch. */
+  const [period, setPeriod] = React.useState<string>(thisMonth);
 
   const decorated = React.useMemo(
     () =>
@@ -127,6 +140,10 @@ export function InvoiceTable({
   const shown = React.useMemo(() => {
     const needle = query.trim().toLowerCase();
     return decorated.filter(({ invoice, dispatch, settlement }) => {
+      /* Billed by the month it was ISSUED, which is the month it appears in a
+         client's own records — not `earnedOn`, which the ledger uses and which
+         can sit in a different month from the paperwork. */
+      if (period !== 'all' && invoice.issuedOn.slice(0, 7) !== period) return false;
       if (filter === 'paid' ? settlement !== 'received' : filter !== 'all' && dispatch !== filter) {
         return false;
       }
@@ -135,7 +152,36 @@ export function InvoiceTable({
         .toLowerCase()
         .includes(needle);
     });
-  }, [decorated, filter, query]);
+  }, [decorated, filter, query, period]);
+
+  /* ── ⚠️ MONEY OWED FROM AN EARLIER MONTH IS NAMED, NEVER JUST HIDDEN ───────
+     This tab exists to chase payment, and the code that loaded every invoice
+     regardless of the range said so explicitly: an invoice raised in June and
+     still unpaid has to be visible in September, or the filter hides exactly
+     the debts worth chasing.
+
+     A month default and that requirement are only in conflict if the hiding is
+     silent. So the rows stay scoped to the month the owner asked for, and
+     anything still outstanding beyond it gets counted and offered in one line.
+     Nothing disappears; it just stops being in the way. */
+  const owedOutside = React.useMemo(() => {
+    if (period === 'all') return 0;
+    return decorated.filter(
+      ({ invoice, dispatch, settlement }) =>
+        invoice.issuedOn.slice(0, 7) !== period &&
+        dispatch !== 'void' &&
+        dispatch !== 'draft' &&
+        settlement !== 'received',
+    ).length;
+  }, [decorated, period]);
+
+  /* Every month that actually carries an invoice, newest first, plus the current
+     one so the default is always a real option even before anything is raised. */
+  const months = React.useMemo(() => {
+    const seen = new Set<string>([thisMonth]);
+    for (const { invoice } of decorated) seen.add(invoice.issuedOn.slice(0, 7));
+    return [...seen].sort().reverse();
+  }, [decorated, thisMonth]);
 
   /* Only the states actually present, so no chip ever returns nothing — the same
      rule the library panel and the register follow. `all` is always offered. */
@@ -171,6 +217,27 @@ export function InvoiceTable({
           />
         </div>
 
+        {/* The period. A plain select rather than a rail of chips: the list grows
+            by one every month and a rail would eventually wrap past the search
+            box, while a select stays one control however long the history. */}
+        <select
+          value={period}
+          onChange={(event) => setPeriod(event.target.value)}
+          aria-label="Invoice month"
+          className={cn(
+            'h-10 rounded-xl border border-border-default bg-bg-surface px-3',
+            'text-body-sm text-text-primary',
+            'focus-visible:border-border-brand focus-visible:outline-none',
+          )}
+        >
+          {months.map((month) => (
+            <option key={month} value={month}>
+              {month === thisMonth ? 'This month' : monthLabel(month)}
+            </option>
+          ))}
+          <option value="all">All time</option>
+        </select>
+
         {canIssue && (
           <Button variant="primary" size="md" onClick={() => setCreating(true)}>
             <Plus className="size-4" strokeWidth={2.5} aria-hidden="true" />
@@ -178,6 +245,28 @@ export function InvoiceTable({
           </Button>
         )}
       </div>
+
+      {/* See `owedOutside`. One line, and it is a button, so the money is one
+          press away rather than a thing somebody has to remember to look for. */}
+      {owedOutside > 0 && (
+        <button
+          type="button"
+          onClick={() => setPeriod('all')}
+          className={cn(
+            'flex w-full items-center gap-2 rounded-xl border px-3 py-2 text-left text-caption',
+            'border-border-default hover:bg-bg-hover',
+          )}
+          style={{ color: 'var(--feedback-warning)' }}
+        >
+          <AlertTriangle className="size-4 shrink-0" strokeWidth={2.25} aria-hidden="true" />
+          <span>
+            {owedOutside === 1
+              ? '1 invoice from another month is still unpaid.'
+              : `${owedOutside} invoices from other months are still unpaid.`}{' '}
+            <span className="underline">Show all time</span>
+          </span>
+        </button>
+      )}
 
       <div role="radiogroup" aria-label="Invoice state" className="flex flex-wrap items-center gap-1.5">
         <Chip on={filter === 'all'} onClick={() => setFilter('all')}>
@@ -644,4 +733,15 @@ function VoidDialog({
       </form>
     </Dialog>
   );
+}
+
+/** `2026-08` → `Aug 2026`. Written out so the select never shows a bare number
+ *  somebody has to decode. */
+function monthLabel(month: string): string {
+  const [year, m] = month.split('-').map(Number);
+  return `${new Date(Date.UTC(year, m - 1, 1)).toLocaleDateString('en-GB', {
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'UTC',
+  })}`;
 }
