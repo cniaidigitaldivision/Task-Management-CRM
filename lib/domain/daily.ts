@@ -37,6 +37,16 @@ export type DailyState =
   | 'pending'
   /** Posted. Final — the status can never move off this. */
   | 'done'
+  /* ── ⚠️ PUBLISHED AND WAITING FOR A REVIEWER, ADDED 2026-09-02 ────────────
+     Owner: *"when it is marked as published it should automatically move to in
+     review. Then I review it."* Publishing no longer closes a post, so there is
+     now a real state between the two and the board has to name it.
+
+     Without this the submitted post falls through to `pending` — its status is
+     not `done`, its day is today — and reappears under "to post today" with a
+     publish button that cannot fire, which is precisely the dead control this
+     change set was raised to fix. */
+  | 'submitted'
   /** Its day has passed with nothing posted. A blank day; no longer fillable. */
   | 'missed'
   /** Its day has not arrived. Visible, not yet actionable. */
@@ -71,6 +81,10 @@ export function isDailyDeliverable(task: DailyTask): boolean {
  */
 export function dailyState(task: DailyTask, today: string): DailyState {
   if (task.status === 'done') return 'done';
+  /* ⚠️ Before the date checks, like `done`, and for the same reason: it has
+     already gone out. A post submitted at 11pm and reviewed tomorrow was not a
+     blank day, and calling it missed would understate delivery to a client. */
+  if (task.status === 'in_review') return 'submitted';
   if (!task.dueDate) return 'upcoming';
   if (task.dueDate > today) return 'upcoming';
   if (task.dueDate < today) return 'missed';
@@ -112,12 +126,14 @@ export function canChangeStatus(task: DailyTask): boolean {
 
 export interface DailyBoard {
   readonly pending: readonly DailyTask[];
+  /** Published, waiting for a reviewer to approve. */
+  readonly submitted: readonly DailyTask[];
   readonly done: readonly DailyTask[];
   readonly missed: readonly DailyTask[];
 }
 
 /**
- * Split a project's deliverables into the three columns the daily view shows.
+ * Split a project's deliverables into the columns the daily view shows.
  *
  * `missed` deliberately reaches BACK beyond today — a manager arriving on
  * Wednesday needs to see that Monday was blank, not just that today is empty.
@@ -129,6 +145,7 @@ export function dailyBoard(
   missedSince: string,
 ): DailyBoard {
   const pending: DailyTask[] = [];
+  const submitted: DailyTask[] = [];
   const done: DailyTask[] = [];
   const missed: DailyTask[] = [];
 
@@ -138,6 +155,12 @@ export function dailyBoard(
     switch (dailyState(task, today)) {
       case 'pending':
         pending.push(task);
+        break;
+      case 'submitted':
+        /* Not date-bounded like `done`: a post still awaiting review is
+           outstanding work whatever day it went out on, and dropping it after
+           midnight would leave it approved by nobody and visible to nobody. */
+        submitted.push(task);
         break;
       case 'done':
         /* Only today's, or the board becomes an archive of every post ever. */
@@ -151,5 +174,5 @@ export function dailyBoard(
     }
   }
 
-  return { pending, done, missed };
+  return { pending, submitted, done, missed };
 }

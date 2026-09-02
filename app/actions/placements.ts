@@ -6,10 +6,11 @@ import { requireUser } from '@/lib/auth/current-user';
 import { withUser } from '@/lib/db/client';
 import { listPlatforms, type PlatformRow } from '@/lib/db/queries/catalogue';
 import * as P from '@/lib/db/queries/placements';
+import * as T from '@/lib/db/queries/tasks';
 import { record } from '@/lib/db/queries/feed';
 import { CONTENT_KINDS, type ContentKind } from '@/lib/domain/constants';
 
-import type { ActionResult } from './tasks';
+import { changeStatusAction, type ActionResult } from './tasks';
 
 /* ============================================================================
  * PUBLISHED DESTINATIONS — owner request 2026-08-19
@@ -92,6 +93,51 @@ export async function savePlacementAction(
       after: { platformId, contentKind: kind, hasUrl: Boolean(url) },
     }),
   ).catch(() => console.error('[placements] activity write failed'));
+
+  /* ── ⚠️ PASTING THE FIRST LIVE LINK CLAIMS AND STARTS THE TASK ─────────────
+     Owner, 2026-09-02, on how the content flow should run: *"someone starts
+     their to-do process. Put the link of Facebook and Instagram and mark as
+     published."*
+
+     Two things had to become true for that to be possible at all, and both are
+     done here rather than asked of the person:
+
+     1. SOMEBODY HAS TO OWN IT. Every auto-created post carries no assignee, so
+        without this the rule that an assignee may not approve their own
+        submission never engages — the review step the owner asked for would be
+        approvable by the person who did the work. Whoever pastes the live link
+        is, by evidence, who did it.
+
+     2. IT HAS TO LEAVE BACKLOG. All sixteen of today's posts sit in Backlog,
+        and Backlog reaches only To Do or Cancelled — so "Mark as published"
+        could never work from there, which is exactly the refusal the owner
+        photographed. Pasting a live link IS starting the work, so the task
+        stops being a plan at the moment there is a URL to show for it.
+
+     ⚠️ ONLY WHEN THERE IS A URL. A placement with no link is a planned
+     destination, not published work: claiming on that would hand somebody a
+     task for opening a dropdown.
+
+     ⚠️ AND NEITHER FAILURE IS FATAL TO THE SAVE. The link is the thing the
+     person came to record and it is already committed. If the claim loses a
+     race, or the start is refused, the placement still stands and the worst
+     outcome is that the task keeps its old owner and status — recoverable by
+     hand, unlike a lost link. */
+  if (url) {
+    try {
+      await T.claimTask(user.id, taskId);
+
+      const task = await T.getTask(user.id, taskId);
+      if (task?.status === 'backlog') {
+        /* Through the ordinary action, so the transition is judged by the same
+           state machine and lands in the same audit trail as a manual move.
+           Duplicating that logic here is how the two would drift apart. */
+        await changeStatusAction(taskId, 'todo');
+      }
+    } catch {
+      console.error('[placements] claim or start failed; the link is saved');
+    }
+  }
 
   revalidatePath('/tasks');
   return {

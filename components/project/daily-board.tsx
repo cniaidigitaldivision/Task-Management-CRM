@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { CalendarX2, Check, CircleSlash, ExternalLink, FolderOpen, Loader2 } from 'lucide-react';
+import { CalendarX2, Check, CircleSlash, Clock, ExternalLink, FolderOpen, Loader2 } from 'lucide-react';
 
 import { changeStatusAction } from '@/app/actions/tasks';
 import { savePlacementAction } from '@/app/actions/placements';
@@ -128,7 +128,10 @@ export function DailyBoard({
   };
 
   const nothingAtAll =
-    board.pending.length === 0 && board.done.length === 0 && board.missed.length === 0;
+    board.pending.length === 0 &&
+    board.submitted.length === 0 &&
+    board.done.length === 0 &&
+    board.missed.length === 0;
 
   if (nothingAtAll) {
     return (
@@ -277,11 +280,25 @@ export function DailyBoard({
                       size="sm"
                       variant="primary"
                       disabled={busy !== null}
+                      /* ── ⚠️ IN REVIEW, NOT DONE ────────────────────────────
+                         Owner, 2026-09-02: *"when it is marked as published it
+                         should automatically move to in review. Then I review
+                         it and give me a notification that this task is in
+                         review."*
+
+                         This button used to close the task outright, which
+                         quietly skipped the review rule altogether — the whole
+                         of BR-002, that whoever did the work does not sign it
+                         off, was unreachable on the one board where most of the
+                         division's work actually happens. Submitting to Review
+                         puts it back, and the notification the owner asked for
+                         already exists: moving to In Review alerts every Admin
+                         and Coordinator except the person submitting. */
                       onClick={() =>
-                        run(`${t.id}:done`, () => changeStatusAction(t.id, 'done'))
+                        run(`${t.id}:review`, () => changeStatusAction(t.id, 'in_review'))
                       }
                     >
-                      {busy === `${t.id}:done` ? (
+                      {busy === `${t.id}:review` ? (
                         <Loader2 className="size-4 animate-spin" aria-hidden="true" />
                       ) : (
                         <Check className="size-4" aria-hidden="true" />
@@ -290,6 +307,80 @@ export function DailyBoard({
                     </Button>
                   </div>
                 </article>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* ══ WAITING FOR REVIEW ══════════════════════════════════════════════
+          Owner, 2026-09-02: publishing submits, it no longer closes. So there
+          is a state between the two now, and it needs to be visible to BOTH
+          sides — the person who posted needs to see it left their hands, and
+          the reviewer needs somewhere to find it other than the notification.
+
+          Sits above Published and below the fillable cards: reading down the
+          page goes "still to do → waiting on somebody → finished", which is
+          the order the day actually moves in. */}
+      {board.submitted.length > 0 && (
+        <section className="space-y-2">
+          <SectionHead
+            icon={Clock}
+            tone="var(--feedback-warning)"
+            title={`${board.submitted.length} waiting for review`}
+            note="Published. A reviewer approves it — and it cannot be the person who posted it."
+          />
+          <div className="space-y-1.5">
+            {board.submitted.map((t) => {
+              const task = full.get(t.id);
+              if (!task) return null;
+              const rows = (byTask.get(t.id) ?? []).filter((r) => r.url);
+
+              return (
+                <div
+                  key={t.id}
+                  className="rounded-lg border px-3 py-2"
+                  style={{
+                    borderColor: 'color-mix(in oklab, var(--feedback-warning) 30%, transparent)',
+                    backgroundColor:
+                      'color-mix(in oklab, var(--feedback-warning) var(--tint-soft), var(--bg-surface))',
+                  }}
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Clock
+                      className="size-4 shrink-0"
+                      style={{ color: 'var(--feedback-warning)' }}
+                      aria-hidden="true"
+                    />
+                    <span className="min-w-0 flex-1 truncate text-body-sm text-text-primary">
+                      {task.title}
+                    </span>
+                    {/* Who posted it — which since 083 is whoever pasted the
+                        first live link, and is exactly the person the reviewer
+                        must not be. */}
+                    <span className="shrink-0 text-micro text-text-secondary">
+                      {task.assigneeName ?? 'unattributed'}
+                    </span>
+                  </div>
+
+                  {rows.length > 0 && (
+                    <div className="mt-1.5 flex flex-wrap gap-1.5 pl-6">
+                      {rows.map((r) => (
+                        <a
+                          key={r.id}
+                          href={r.url ?? '#'}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 rounded bg-bg-surface px-1.5 py-0.5 text-micro text-text-brand hover:underline"
+                        >
+                          <PlatformIcon slug={r.platformSlug} className="size-3" />
+                          {r.platformName}
+                          <ExternalLink className="size-2.5" aria-hidden="true" />
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                </div>
               );
             })}
           </div>

@@ -124,6 +124,22 @@ export const TRANSITIONS: Readonly<Record<TaskStatus, readonly TransitionRule[]>
 
   todo: [
     { to: 'in_progress', allow: ['assignee', 'coordinator'] },
+    /* ── ⚠️ STRAIGHT TO REVIEW, ADDED 2026-09-02 ────────────────────────────
+       Owner, on the daily content board: *"if I move it to Review and if I skip
+       the In Progress part, it should be working, right?"* It was not — To Do
+       reached In Progress, Backlog, Done or Cancelled, and Review was
+       unreachable without passing through In Progress first.
+
+       For a static post or a reel that is ceremony with no information in it:
+       the work is done in Canva and on the platform, not in this tool, so "In
+       Progress" is a state nobody was ever going to sit in. Publishing submits
+       the work, and submitting means Review.
+
+       Allowed for the assignee — which, since 083, is whoever pasted the live
+       link — or any Coordinator. NOT the creator as such: this is submitting
+       work, not signing it off, and the sign-off rule lives on in_review below
+       where it forbids the assignee. */
+    { to: 'in_review', allow: ['assignee', 'coordinator'] },
     { to: 'backlog', allow: ['coordinator'], note: 'Deprioritised' },
     /* ⚠️ Straight to Done, and only for the person who raised it — owner,
        2026-08-24: *"Tasks that are created by a team member themselves can be

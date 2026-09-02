@@ -301,6 +301,25 @@ export async function taskTotals(actorId: string, filter: { projectId?: string; 
   };
 }
 
+/**
+ * Take an unassigned task for yourself. Returns false if it was already taken,
+ * already closed, or not visible to the caller.
+ *
+ * ⚠️ GOES THROUGH `app.claim_task` RATHER THAN A PLAIN UPDATE, and that is the
+ * whole point of the function existing. `tasks_update` (013) permits a write
+ * only to somebody who already holds the task, raised it, or is Coordinator and
+ * above — so a Member claiming an unassigned post would match no rows and this
+ * would return quietly, having done nothing. Migration 083 has the argument in
+ * full; this is the trap that memory file calls "upsert needs an UPDATE policy".
+ */
+export async function claimTask(actorId: string, taskId: string): Promise<boolean> {
+  const rows = await withUser(
+    actorId,
+    (tx) => tx`select app.claim_task(${taskId}::uuid) as claimed`,
+  );
+  return (rows as Array<Record<string, unknown>>)[0]?.claimed === true;
+}
+
 export async function getTask(actorId: string, taskId: string): Promise<TaskRow | null> {
   const rows = await withUser(
     actorId,
