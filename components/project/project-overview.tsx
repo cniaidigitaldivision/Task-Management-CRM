@@ -25,7 +25,6 @@ import {
 } from '@/lib/domain/content-pipeline';
 import { PROJECT_ROLE_LABEL, type ContentKind } from '@/lib/domain/constants';
 import { WEEKDAY_LABEL, monthPlan } from '@/lib/domain/cadence';
-import { generateScheduleAction } from '@/app/actions/schedule';
 import { PlatformIcon } from '@/components/brand/platform-icon';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -111,7 +110,6 @@ export function ProjectOverview({
   months,
   today,
   canSeeFinance,
-  canGenerateSchedule,
   ownerAvatarUrl,
   publishedTodayPlatformIds,
   packageDetail,
@@ -128,7 +126,6 @@ export function ProjectOverview({
   today: string;
   canSeeFinance: boolean;
   /** `task.create_for_other` — Coordinator and above. */
-  canGenerateSchedule: boolean;
   /** The owner's uploaded picture, or null. */
   ownerAvatarUrl: string | null;
   /** Platform ids that got a live placement TODAY — migration 034's placements. */
@@ -450,20 +447,20 @@ export function ProjectOverview({
             </>
           )}
 
-          {/* ── ⚠️ THE CONTROL THAT MAKES THE RHYTHM REAL ─────────────────────
-              Owner, 2026-08-22: *"daily tasks should be automatically created."*
+          {/* ── ⚠️ "GENERATE SCHEDULE" USED TO SIT HERE, AND IS GONE ───────────
+              Owner, 2026-09-03: *"further when a new project is created, no auto
+              static post or a real post task should not create automatically."*
 
-              Everything above this line is a PLAN — `monthPlan()` computing what
-              the agreed rhythm implies. Until this button existed, none of it
-              ever became a task, which is why a project on a 22-asset package
-              opened onto `Today 0/3` and a week of dashes.
+              Pressing it on 2026-09-02 across eleven projects produced 304
+              unassigned Backlog posts dated to 30 September — the reason the
+              board was slow and the reason nobody but Kashif could act on a
+              given day's work. Migration 085 retired them.
 
-              It sits inside the progress card on purpose: the figures it moves
-              are the ones directly above it. Hidden from a Member, who cannot
-              create work for anybody else. */}
-          {canGenerateSchedule && target !== null && (
-            <GenerateSchedule projectId={project.id} monthStart={monthStart} />
-          )}
+              Everything above this line is still a PLAN, and that is now the
+              whole point: the rhythm is a TARGET to be tracked, not a month to
+              be pre-written. The tracker that reads it lands in this same spot
+              (see the approved plan, §B/§D) — people create the day's work and
+              the tracker says whether the target is being met. */}
         </CardBody>
       </Card>
 
@@ -980,50 +977,6 @@ function MonthSelect({
  * actually arrived. A manual boolean would clear the moment the promise
  * resolved, leaving the button idle beside numbers that had not updated yet.
  * ------------------------------------------------------------------------- */
-function GenerateSchedule({ projectId, monthStart }: { projectId: string; monthStart: string }) {
-  const [pending, start] = React.useTransition();
-  const [message, setMessage] = React.useState<{ ok: boolean; text: string } | null>(null);
-
-  return (
-    <div className="flex flex-wrap items-center gap-2 border-t border-border-subtle pt-2.5">
-      <Button
-        size="sm"
-        variant="secondary"
-        disabled={pending}
-        onClick={() => {
-          setMessage(null);
-          start(async () => {
-            const result = await generateScheduleAction(projectId, monthStart);
-            setMessage({
-              ok: result.ok,
-              /* `warning` carries the summary on success — the shared ActionResult
-                 has no `message` field and inventing one would touch every action. */
-              text: result.ok
-                ? (result.warning ?? 'Schedule generated.')
-                : (result.error ?? 'That did not work.'),
-            });
-          });
-        }}
-      >
-        <CalendarClock className="size-4" aria-hidden="true" />
-        {pending ? 'Generating…' : 'Generate schedule'}
-      </Button>
-
-      {message && (
-        <span
-          role="status"
-          className={cn(
-            'text-micro',
-            message.ok ? 'text-text-secondary' : 'text-feedback-error',
-          )}
-        >
-          {message.text}
-        </span>
-      )}
-    </div>
-  );
-}
-
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',

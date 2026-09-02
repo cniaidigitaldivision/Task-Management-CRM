@@ -105,7 +105,6 @@ export default async function ProjectPage({
      so it asks the same question as "may this person create a task that is not
      their own". Coordinator and above; a Member is refused. The action re-checks
      it server-side; this only decides whether the control is rendered. */
-  const canGenerateSchedule = can(actor, 'task.create_for_other');
 
   /* ⚠️ The month and today are resolved HERE and passed down. A client component
      that read the clock would not be a pure render, and the browser can disagree
@@ -209,7 +208,6 @@ export default async function ProjectPage({
            the same as being able to destroy it. */
         canDelete={can(actor, 'project.soft_delete')}
         canSeeFinance={canSeeFinance}
-        canGenerateSchedule={canGenerateSchedule}
         /* So the Tasks tab can open the create form in place instead of sending
            somebody to /tasks to do it — owner, 2026-08-22: *"When I click Add
            Task, the form should pop up here. Don't bring me to that task table

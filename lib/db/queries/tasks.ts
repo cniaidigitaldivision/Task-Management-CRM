@@ -433,6 +433,15 @@ export interface CreateTaskInput {
   readonly assignmentOverrideReason?: string | null;
   readonly blockedReason?: string | null;
   readonly recurrenceRule?: string | null;
+  /* ── ⚠️ WHICH SERIES THIS INSTANCE BELONGS TO — migration 086 ─────────────
+     Omit it and a task carrying a rule becomes the ROOT of a new series (its own
+     id). Pass it and the task joins an existing series, which is what the
+     nightly repeat runner does for every instance after the first.
+
+     Never set without `recurrenceRule`: a check constraint refuses a rule with
+     no series, and a series with no rule would be a task the runner counts and
+     never generates from. */
+  readonly recurrenceSeriesId?: string | null;
 
   /* ── The deliverable — migrations 033/034 ─────────────────────────────────
      What this task produces, and where the files live. `contentKind` is what
@@ -490,7 +499,7 @@ export async function createTask(actorId: string, input: CreateTaskInput): Promi
         id, reference, title, description, project_id, other_description, parent_task_id,
         assignee_id, created_by_id, status, priority, effort_size, effort_points,
         start_date, start_time, due_date, due_time, blocked_reason, time_limit_minutes,
-        assignment_override_reason, recurrence_rule,
+        assignment_override_reason, recurrence_rule, recurrence_series_id,
         content_kind, source_drive_url, asset_drive_url, published_on
       ) values (
         ${id},
@@ -514,6 +523,9 @@ export async function createTask(actorId: string, input: CreateTaskInput): Promi
         ${input.timeLimitMinutes ?? null},
         ${input.assignmentOverrideReason?.trim() || null},
         ${input.recurrenceRule ?? null},
+        /* A repeating task with no series given starts one, and is its own root.
+           No rule means no series at all — see the constraint in 086. */
+        ${input.recurrenceRule ? (input.recurrenceSeriesId ?? id) : null},
         ${input.contentKind ?? null}::public.content_kind,
         ${input.sourceDriveUrl?.trim() || null},
         ${input.assetDriveUrl?.trim() || null},

@@ -222,6 +222,50 @@ export function nextOccurrence(rule: RecurrenceRule, fromIso: string): string | 
   return toIso(y, m, Math.min(wantedDay, daysInMonth(y, m)));
 }
 
+/* ⚠️ A daily series anchored two years back needs ~730 steps to walk forward.
+   800 is comfortably past that and still trivial to compute; a series older
+   than that has stopped being a series anybody is running. The cap exists so a
+   corrupt anchor cannot spin the nightly runner forever. */
+const MAX_WALK_STEPS = 800;
+
+/**
+ * Does `target` fall on an occurrence of this rule, walking forward from
+ * `anchor`?
+ *
+ * ── WHY THE RUNNER NEEDS THIS AND `nextOccurrence` IS NOT ENOUGH ─────────────
+ * Owner, 2026-09-03: *"exactly 12 AM on every day that task will be
+ * generated."* The nightly runner holds a series' most recent instance and asks
+ * one question — is TODAY one of this series' days? `nextOccurrence` answers
+ * "what comes after this date", which is the same question only when the last
+ * instance is exactly one step behind. It usually is not: a weekly Monday /
+ * Thursday series looked at on a Wednesday is two steps from its last instance,
+ * and a series nobody has touched for a week is seven.
+ *
+ * So this walks. It does NOT backfill: the runner creates today and only today,
+ * because filling days that have already passed manufactures overdue work
+ * nobody was asked to do — the same rule the retired schedule generator held.
+ *
+ * `target` on or before `anchor` is false: the anchor is an instance that
+ * already exists, not a day still owed.
+ */
+export function occursOn(rule: RecurrenceRule, anchorIso: string, targetIso: string): boolean {
+  if (!toParts(anchorIso) || !toParts(targetIso)) return false;
+  if (targetIso <= anchorIso) return false;
+
+  let cursor = anchorIso;
+  for (let step = 0; step < MAX_WALK_STEPS; step += 1) {
+    const next = nextOccurrence(rule, cursor);
+    /* An unparseable cursor or a rule that cannot advance: refuse rather than
+       loop. Returning false means "no task tonight", which is recoverable;
+       spinning is not. */
+    if (!next || next <= cursor) return false;
+    if (next === targetIso) return true;
+    if (next > targetIso) return false;
+    cursor = next;
+  }
+  return false;
+}
+
 /**
  * The dates for the next instance of a task that has just been completed.
  *

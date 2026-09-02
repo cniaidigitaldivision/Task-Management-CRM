@@ -33,8 +33,6 @@ import {
 } from '@/lib/domain/constants';
 import { cadenceProblem, contractTargets, type Cadence } from '@/lib/domain/cadence';
 import { can } from '@/lib/domain/permissions';
-import { isoDateIn } from '@/lib/now';
-import { generateForProject } from '@/lib/schedule/run';
 
 /* ============================================================================
  * PROJECT ACTIONS — LAYER 3
@@ -542,38 +540,33 @@ export async function createProjectAction(
       }),
     );
 
-    /* ── ⚠️ THE DAILY POSTS ARE CREATED WITH THE PROJECT ─────────────────────
-       Owner, 2026-08-22: *"by default for every project create a daily task. I
-       don't want anybody to add it for the first time. At the time of project
-       creation please note it. I will not repeat this same thing again and
-       again… The daily tasks will be created on the basis of a package: how many
-       posts will be done every day and how many reels will be done every week."*
+    /* ── ⚠️ A NEW PROJECT NO LONGER ARRIVES WITH A MONTH OF POSTS ────────────
+       This block used to generate the rest of the month from the project's
+       agreed rhythm, on the instruction of 2026-08-22: *"by default for every
+       project create a daily task. I don't want anybody to add it for the first
+       time. At the time of project creation please note it."*
 
-       So a project with an agreed rhythm arrives with the rest of its month
-       already on the board. Nobody has to know a Generate button exists, which
-       was the flaw in doing this only on demand — a project could sit for a week
-       looking empty because the one person who knew about the button was away.
+       Reversed by the owner on 2026-09-03, naming this exact behaviour: *"each
+       time a new project is created, its target for a month is set… After
+       setting this target what you are doing right now is creating all these
+       tasks automatically. Right now I am changing it so that you will not
+       create any automatic task. You will just set a tracker."* And, plainly:
+       *"further when a new project is created, no auto static post or a real
+       post task should not create automatically."*
 
-       ── WHY A FAILURE HERE DOES NOT FAIL THE PROJECT ────────────────────────
-       The project IS created by this point and its row is committed. If the
-       generator throws — an incoherent rhythm, a database blip — the honest
-       outcome is a project with no tasks yet, not a "creation failed" message
-       for something that plainly succeeded. The Generate schedule button on the
-       Overview tab remains, and it is now the retry.
+       Eleven projects created this way on 2026-09-02 produced 304 unassigned
+       Backlog posts dated to 30 September. They were invisible to every Member
+       (no assignee), they made the board slow, and Kashif ended up doing every
+       one himself. Migration 085 retired them.
 
-       A project with no rhythm (a website build, a one-off) generates nothing
-       and is not an error; `generateForProject` reports that as a skip. */
-    try {
-      const from = isoDateIn();
-      const pad = (n: number) => String(n).padStart(2, '0');
-      const [fy, fm] = from.split('-').map(Number);
-      const last = new Date(Date.UTC(fy, fm, 0));
-      const to = `${fy}-${pad(fm)}-${pad(last.getUTCDate())}`;
-
-      await generateForProject(user.id, projectId, from, to);
-    } catch {
-      /* Deliberately swallowed — see above. */
-    }
+       ⚠️ THE TARGET IS STILL RECORDED, and that is the replacement rather than
+       a loss: `static_posts_per_day`, `reels_per_week`, `reel_days` and
+       `posting_days` are written by `createProject` exactly as before. What
+       changed is that the rhythm is now a TARGET a tracker watches, not a month
+       written ahead of anybody asking for it. The 2026-08-22 concern — that a
+       project sits looking empty because nobody knew about a button — is
+       answered by the tracker telling each person what their projects still owe
+       today, not by pre-creating work nobody owns. */
 
     revalidatePath('/projects');
     revalidatePath('/dashboard');

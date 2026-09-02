@@ -136,7 +136,6 @@ export function ProjectDetailWorkspace({
   canApproveDocuments,
   canGrantCredentials,
   canSeeFinance,
-  canGenerateSchedule,
   placements,
   driveFolders,
   dailyLookbackFrom,
@@ -182,9 +181,6 @@ export function ProjectDetailWorkspace({
   /** `project.view_finance` — Admin and above. The fee is ALSO stripped server-side
    *  before it reaches this component; see lib/view/project-finance.ts for why both. */
   canSeeFinance: boolean;
-  /** `task.create_for_other` — Coordinator and above. Decides whether the
-   *  "Generate schedule" control appears; the action checks it again. */
-  canGenerateSchedule: boolean;
   /** Published links per platform, for the Today view. Fetched once on the page
    *  rather than per task — see `listPlacementsForProject`. */
   placements: readonly PlacementRow[];
@@ -547,7 +543,6 @@ export function ProjectDetailWorkspace({
           months={months}
           today={today}
           canSeeFinance={canSeeFinance}
-          canGenerateSchedule={canGenerateSchedule}
           ownerAvatarUrl={ownerAvatarUrl}
           publishedTodayPlatformIds={publishedTodayPlatformIds}
           packageDetail={packageDetail}

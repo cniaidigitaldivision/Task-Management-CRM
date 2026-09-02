@@ -48,7 +48,6 @@ import {
 import { isoDateIn, nowMs } from '@/lib/now';
 import {
   formatRecurrence,
-  nextInstanceDates,
   parseRecurrence,
 } from '@/lib/domain/recurrence';
 import { evaluateTransition, taskLoad } from '@/lib/domain/task-machine';
@@ -909,19 +908,30 @@ export async function changeStatusAction(
       }
     });
 
-    /* ── A repeating task creates its successor when it closes ──────────────
-       Not on a schedule. Spawning here means the series can never outrun the
-       person doing it: a weekly report three weeks late is ONE task three weeks
-       old, which is the truth, rather than four tasks implying four separate
-       pieces of work — and four tasks' worth of capacity load nobody owes. */
-    let spawned: string | null = null;
-    /* ── AND THE HANDOFF CHAIN (E-004 / R4a) ────────────────────────────────
-       Sequential, not `Promise.all`. Both write tasks, and a repeating task
-       that is ALSO a chain step would have the two racing to read and update
-       the same rows. At one completion per click the ordering costs nothing. */
+    /* ── ⚠️ A REPEAT NO LONGER SPAWNS ITS SUCCESSOR HERE ────────────────────
+       It used to, and the reasoning was good: spawning on close meant the
+       series could never outrun the person doing it — *"a weekly report three
+       weeks late is ONE task three weeks old, which is the truth, rather than
+       four tasks implying four separate pieces of work, and four tasks' worth of
+       capacity load nobody owes."*
+
+       Owner, 2026-09-03, chose otherwise having been shown that exact
+       consequence: *"exactly 12 AM on every day that task will be generated…
+       next morning when he go to the office he will see that now yeah this is
+       my task."* Somebody arriving in the morning needs today's work whether or
+       not they finished yesterday's.
+
+       So generation moved to `lib/schedule/repeats.ts`, run by the cron at
+       Karachi midnight. It must NOT also happen here — two mechanisms for one
+       series is two copies of every task, which is worse than either choice.
+       The retired argument is preserved in that file so the trade-off stays
+       visible rather than becoming folklore. */
+
+    /* ── THE HANDOFF CHAIN (E-004 / R4a) ────────────────────────────────────
+       Stays on close, because a handoff is caused BY the completion rather than
+       by the calendar: the next stage cannot start until this one is finished. */
     let handed: string | null = null;
     if (to === 'done') {
-      spawned = await spawnNextOccurrence(user.id, taskId);
       handed = await spawnHandoff(user.id, taskId);
     }
 
@@ -932,7 +942,6 @@ export async function changeStatusAction(
        report only one of the two things that just happened. */
     const notes = [
       advisory ?? null,
-      spawned ? `Next in the series created: ${spawned}.` : null,
       handed ? `Handed off: ${handed} created and assigned.` : null,
     ].filter((line): line is string => line !== null);
 
@@ -943,67 +952,6 @@ export async function changeStatusAction(
     };
   } catch (error) {
     return fail(readableDbError(error));
-  }
-}
-
-/**
- * Create the next instance of a repeating task, if this one repeats.
- *
- * ── EVERYTHING HERE IS BEST-EFFORT, AND DELIBERATELY SO ──────────────────────
- * The task the person just completed IS completed. If the successor cannot be
- * created — a malformed rule, no date to anchor on, a database hiccup — that
- * must not undo their completion or show them an error about a task they did
- * not ask for. It returns null and the caller says nothing.
- */
-async function spawnNextOccurrence(actorId: string, taskId: string): Promise<string | null> {
-  try {
-    const rows = await withUser(actorId, (tx) => tx`
-      select recurrence_rule, title, description, project_id, other_description,
-             assignee_id, priority, effort_size, effort_points,
-             start_date, due_date, time_limit_minutes
-        from public.tasks where id = ${taskId}
-    `);
-
-    const row = rows[0];
-    if (!row?.recurrence_rule) return null;
-
-    const parsed = parseRecurrence(row.recurrence_rule as string);
-    if (!parsed.ok) return null;
-
-    const asDate = (value: unknown) => (value ? String(value).slice(0, 10) : null);
-    const dates = nextInstanceDates(parsed.rule, {
-      startDate: asDate(row.start_date),
-      dueDate: asDate(row.due_date),
-    });
-    if (!dates) return null;
-
-    const created = await T.createTask(actorId, {
-      title: row.title as string,
-      description: (row.description as string | null) ?? undefined,
-      projectId: row.project_id as string,
-      otherDescription: (row.other_description as string | null) ?? undefined,
-      /* Same person by default. A recurring task is usually somebody's standing
-         responsibility, and reassigning it to nobody every period would make
-         the series need re-planning each time. */
-      assigneeId: (row.assignee_id as string | null) ?? undefined,
-      priority: row.priority as Priority,
-      effortSize: (row.effort_size as EffortSize | null) ?? undefined,
-      effortPoints: Number(row.effort_points),
-      startDate: dates.startDate ?? undefined,
-      dueDate: dates.dueDate ?? undefined,
-      timeLimitMinutes: (row.time_limit_minutes as number | null) ?? undefined,
-      status: 'todo',
-    });
-
-    /* The rule travels with the new instance, or the series stops after one. */
-    await withUser(actorId, (tx) => tx`
-      update public.tasks set recurrence_rule = ${formatRecurrence(parsed.rule)}
-       where id = ${created.id}
-    `);
-
-    return created.reference;
-  } catch {
-    return null;
   }
 }
 
