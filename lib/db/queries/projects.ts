@@ -239,11 +239,35 @@ export interface CreateProjectInput {
   readonly postingDays?: readonly number[];
 }
 
+/**
+ * Create a project, and put its owner on it.
+ *
+ * ── ⚠️ THE OWNER IS ADDED TO `project_members`, AND THAT IS NEW ─────────────
+ * Owner report, 2026-09-02: *"I add only Kashif… when I click on that project
+ * the Overview tab shows Kashif is working but when I click on Team, that tab is
+ * not showing anything."*
+ *
+ * The cause: `projects.owner_id` and `project_members` are two different
+ * statements about a person, and creating a project only ever wrote the first.
+ * So Overview read the owner and found Kashif, the Team tab read the members and
+ * found nobody, and the same screen said two things.
+ *
+ * ⚠️ AND IT IS NOT ONLY COSMETIC. `app.project_is_visible` (migration 033)
+ * consults `project_members` — so a Coordinator who owns a project but is not a
+ * member of it cannot see the project they own once they stop being an Admin's
+ * responsibility. Fixing the display and fixing the visibility are the same
+ * one-row fix.
+ *
+ * ⚠️ ONE TRANSACTION. `withUser` wraps the callback, so a membership row that is
+ * refused takes the project with it rather than leaving a project whose owner is
+ * not on it — which is the state this is here to prevent.
+ */
 export async function createProject(
   actorId: string,
   input: CreateProjectInput,
 ): Promise<string> {
-  const rows = await withUser(actorId, (tx) => tx`
+  return withUser(actorId, async (tx) => {
+  const rows = await tx`
     insert into public.projects (
       name, type, code, description, status, status_reason, owner_id,
       start_date, start_time, target_end_date, target_end_time, type_fields, created_by_id,
@@ -283,8 +307,28 @@ export async function createProject(
       ${input.postingDays ?? null}::smallint[]
     )
     returning id
-  `);
-  return rows[0].id as string;
+  `;
+
+    const projectId = rows[0].id as string;
+
+    /* ⚠️ 'manager', not 'lead': `public.project_role` is (manager, content,
+       design, development, ads, video, other), read off the enum rather than
+       guessed — a wrong value is an invalid-input error at the moment somebody
+       creates a project.
+
+       ⚠️ `on conflict do nothing` so an owner who is also added as a member by
+       some future path cannot make creation fail on a duplicate key.
+
+       (Both notes sit outside the template literal: a backtick inside one ends
+       the string, which is a mistake this file has now made twice.) */
+    await tx`
+      insert into public.project_members (project_id, user_id, role, added_by_id)
+      values (${projectId}, ${input.ownerId}, 'manager', ${actorId})
+      on conflict (project_id, user_id) do nothing
+    `;
+
+    return projectId;
+  });
 }
 
 /**
