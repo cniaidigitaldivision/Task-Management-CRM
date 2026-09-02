@@ -124,6 +124,25 @@ export function canChangeStatus(task: DailyTask): boolean {
   return task.status !== 'done';
 }
 
+/**
+ * Where "Mark as published" should send a post: Review, or straight to Done?
+ *
+ * Owner, 2026-09-02, on self-raised work: *"if somebody creates his own task,
+ * you do not need to approve it. It can be moved directly to the done status."*
+ * That is the rule the task board has followed since 2026-08-24 — whoever raised
+ * the work signs it off, and where requester and doer are the same person there
+ * is nobody to separate. The publish button was ignoring it and routing every
+ * post through a review the same person then approved: two clicks, no second
+ * pair of eyes, and two screens disagreeing about one rule.
+ *
+ * ⚠️ A DESTINATION, NOT A PERMISSION. Whether the mover may actually go there
+ * is `evaluateTransition`'s decision and is unchanged — a creator with no live
+ * link still meets the publish-proof refusal. This only answers "which way".
+ */
+export function publishTarget(task: { createdById: string }, actorId: string): 'done' | 'in_review' {
+  return task.createdById === actorId ? 'done' : 'in_review';
+}
+
 export interface DailyBoard {
   readonly pending: readonly DailyTask[];
   /** Published, waiting for a reviewer to approve. */

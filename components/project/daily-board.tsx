@@ -4,7 +4,7 @@ import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { CalendarX2, Check, CircleSlash, Clock, ExternalLink, FolderOpen, Loader2 } from 'lucide-react';
 
-import { changeStatusAction } from '@/app/actions/tasks';
+import { publishPostAction } from '@/app/actions/tasks';
 import { savePlacementAction } from '@/app/actions/placements';
 import { PlatformIcon } from '@/components/brand/platform-icon';
 import { Badge } from '@/components/ui/badge';
@@ -280,23 +280,22 @@ export function DailyBoard({
                       size="sm"
                       variant="primary"
                       disabled={busy !== null}
-                      /* ── ⚠️ IN REVIEW, NOT DONE ────────────────────────────
+                      /* ── ⚠️ THE DESTINATION IS THE SERVER'S TO CHOOSE ──────
                          Owner, 2026-09-02: *"when it is marked as published it
                          should automatically move to in review. Then I review
-                         it and give me a notification that this task is in
-                         review."*
+                         it"* — and then, on self-raised work: *"if somebody
+                         creates his own task, you do not need to approve it."*
 
-                         This button used to close the task outright, which
-                         quietly skipped the review rule altogether — the whole
-                         of BR-002, that whoever did the work does not sign it
-                         off, was unreachable on the one board where most of the
-                         division's work actually happens. Submitting to Review
-                         puts it back, and the notification the owner asked for
-                         already exists: moving to In Review alerts every Admin
-                         and Coordinator except the person submitting. */
-                      onClick={() =>
-                        run(`${t.id}:review`, () => changeStatusAction(t.id, 'in_review'))
-                      }
+                         So it is Review for delegated work and Done for your
+                         own, and `publishPostAction` decides which by reading
+                         who raised the task. Not decided here: this is a Client
+                         Component, and "am I the person who raised this?" is not
+                         a claim the browser gets to make about itself.
+
+                         Before today this button closed the task outright, which
+                         skipped BR-002 entirely on the one board where most of
+                         the division's work actually happens. */
+                      onClick={() => run(`${t.id}:review`, () => publishPostAction(t.id))}
                     >
                       {busy === `${t.id}:review` ? (
                         <Loader2 className="size-4 animate-spin" aria-hidden="true" />

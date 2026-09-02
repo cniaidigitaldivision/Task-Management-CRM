@@ -42,6 +42,7 @@ import {
   canChangeStatus,
   canComplete,
   isDailyDeliverable,
+  publishTarget,
 } from '@/lib/domain/daily';
 import { isoDateIn, nowMs } from '@/lib/now';
 import {
@@ -702,6 +703,45 @@ export async function updateTaskAction(_prev: ActionResult, form: FormData): Pro
  * here. One judgement, three call sites — which is the reason the machine is a
  * separate module and not a switch inside a component.
  */
+/**
+ * Publish a dated deliverable — the daily board's "Mark as published".
+ *
+ * ── ⚠️ WHERE IT LANDS DEPENDS ON WHO RAISED IT ──────────────────────────────
+ * Owner, 2026-09-02, after being shown that the button sent EVERY post through
+ * Review: *"if somebody creates his own task, you do not need to approve it. It
+ * can be moved directly to the done status."*
+ *
+ * Which is the rule the task board has followed since 2026-08-24 — whoever
+ * raised the work signs it off, and where the requester and the doer are the
+ * same person there is nobody to separate. The publish button was ignoring it
+ * and routing self-raised posts through a review step the same person then
+ * approved: two clicks, no second pair of eyes, and the two screens disagreeing
+ * about the same rule.
+ *
+ *   somebody else raised it  → in_review  (a real gate; Admins and
+ *                                          Coordinators are notified)
+ *   you raised it yourself   → done       (one click)
+ *
+ * ⚠️ DECIDED HERE, NOT IN THE BUTTON. The board is a Client Component, so a
+ * target chosen there would be a value the browser sends — and "am I the person
+ * who raised this?" is exactly the kind of claim a client must not make about
+ * itself. This reads `created_by_id` from the row the server just fetched.
+ *
+ * ⚠️ AND IT DELEGATES RATHER THAN DECIDING ANYTHING ELSE. Every rule that
+ * applies — the publish-proof gate, BR-002, done being final, a missed day
+ * staying missed — is `changeStatusAction`'s, unchanged. This picks a
+ * destination; it does not grant permission to reach it. A creator with no live
+ * link still gets the publish-proof refusal.
+ */
+export async function publishPostAction(taskId: string): Promise<ActionResult> {
+  const user = await requireUser();
+
+  const task = await T.getTask(user.id, taskId);
+  if (!task) return fail('That task no longer exists.');
+
+  return changeStatusAction(taskId, publishTarget(task, user.id));
+}
+
 export async function changeStatusAction(
   taskId: string,
   to: TaskStatus,

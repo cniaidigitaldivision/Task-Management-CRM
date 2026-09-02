@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { dailyBoard, dailyState, canComplete } from '../daily';
+import { dailyBoard, dailyState, canComplete, publishTarget } from '../daily';
 import { evaluateTransition } from '../task-machine';
 import type { Role } from '../constants';
 
@@ -161,5 +161,34 @@ describe('the daily board after publishing', () => {
     const board = dailyBoard([post('revisions')], TODAY, '2026-08-25');
     expect(board.pending).toHaveLength(1);
     expect(board.submitted).toHaveLength(0);
+  });
+});
+
+/* ============================================================================
+ * WHERE PUBLISHING SENDS IT — owner rule, 2026-09-02
+ * ----------------------------------------------------------------------------
+ * *"If somebody creates his own task, you do not need to approve it. It can be
+ * moved directly to the done status."*
+ *
+ * The publish button originally sent EVERY post to Review, including posts the
+ * clicker had raised themselves — two clicks by one person, no second pair of
+ * eyes, and the daily board contradicting the task board about the same rule.
+ * ========================================================================= */
+describe('publishTarget', () => {
+  it('sends delegated work to Review', () => {
+    expect(publishTarget({ createdById: KASHIF }, POSTER)).toBe('in_review');
+  });
+
+  it('sends work you raised yourself straight to Done', () => {
+    expect(publishTarget({ createdById: KASHIF }, KASHIF)).toBe('done');
+  });
+
+  /* The realistic case for the auto-created posts: Kashif set up each project's
+     posting schedule, so he is the creator of all 269 of them. A member posting
+     one is therefore always the delegated path. */
+  it('treats every auto-created post as delegated for anybody but its raiser', () => {
+    expect(publishTarget({ createdById: KASHIF }, 'user-abdul-moiz')).toBe('in_review');
+    expect(publishTarget({ createdById: HABIBA }, 'user-rafay')).toBe('in_review');
+    expect(publishTarget({ createdById: HABIBA }, HABIBA)).toBe('done');
   });
 });
