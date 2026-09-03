@@ -34,23 +34,32 @@ export const metadata: Metadata = { title: 'Reports' };
 export default async function ReportsPage() {
   const user = await requireRole('team_coordinator');
 
-  /* ── ⚠️ `this_month`, THOUGH THE MOCKUP'S PERIOD READS "THIS WEEK" ────────
-     The one place this deliberately departs from the drawing, and the reason is
-     the drawing's own data: it shows a rich week — 18 tasks, 22 posts a person —
-     because its numbers were invented. Against the real database a Tuesday-morning
-     "this week" is Monday and today, which is a table of ones and zeroes.
+  /* ── ⚠️ `today`, CHANGED FROM `this_month` ON 2026-09-03 ──────────────────
+     Owner: *"report page should display Today record by default."*
 
-     A reporting page that opens looking empty reads as broken, and the owner's
-     actual instruction was that the numbers be real: *"make sure that the data is
-     according to my database."* A month is also what this page is for — *"At the
-     end of the month… every meeting is held in which we put a report on the front
-     of the table."*
+     ── WHY IT USED TO BE A MONTH, AND WHY THAT ARGUMENT NO LONGER HOLDS ─────
+     The note replaced here reasoned that a short period against the real
+     database is "a table of ones and zeroes", and that a reporting page opening
+     empty reads as broken. That was written when the shortest option in the
+     dropdown was "This week" — `today` and `yesterday` did not exist as presets
+     until earlier today. The argument was really about the DEFAULT being a
+     period nobody had asked for; it is not a reason to override a period the
+     owner has now asked for by name.
 
-     "This week" is the next option in the same dropdown and one click away. */
+     It also matches how the rest of the system now opens. Tasks default to
+     today, attendance defaults to today (`lib/view/task-window.ts`, same
+     instruction), and a reports page that alone opened on a month made the
+     division's own screens disagree about what "now" means.
+
+     ⚠️ THE HONEST COST: a quiet morning shows a short table, and the month is
+     two clicks away rather than zero. That trade is the owner's to make and they
+     have made it — and unlike the old default, a reader who sees three rows today
+     is seeing the truth about today rather than a month's worth of rows that
+     answer a question they did not ask. */
   const initialRequest: ReportRequest = {
     work: true,
     type: 'completion',
-    preset: 'this_month',
+    preset: 'today',
     subjectId: null,
     workSort: 'posts',
     workDirection: 'desc',
