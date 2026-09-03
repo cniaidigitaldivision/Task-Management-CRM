@@ -189,16 +189,30 @@ export function WorkReportTables({
  * what pushed Last Active off the page.
  */
 const COLUMN_SHARES = [
-  11, // Project
-  15, // Person — the widest, because it carries an avatar, a name and a badge
-  8, // Role
+  10, // Project
+  12, // Person — an avatar and a name. It was 15 to also fit the top-poster badge,
+  //     which is gone; those 3 points went to the tasks.
+  /* ── ⚠️ 21, UP FROM THE 8 THE ROLE COLUMN NEEDED, 2026-09-03 ─────────────
+     A role was one short word and 8% held it. Task titles are sentences, and at
+     8% every one of them rendered as eight characters and an ellipsis —
+     "Social Med…", "Photoshoo…" — which is the column present but not doing the
+     job it was given: *"Task name should mention a list of all tasks names that
+     should display."* A name that does not display is not a name.
+
+     The 13 points come from Person (3, above) and from Content Type and Activity
+     Summary (10). That is deliberate and not arbitrary: those two columns say
+     "Static post" and "1 post" about the very tasks now listed by name beside
+     them, so they are the two that lost the least by narrowing. Same trade as the
+     PDF, made for the same reason. */
+  21, // Tasks
   7, // Platform
   6, // Tasks Assigned
   6, // Tasks Done
   6, // Tasks Pending
   6, // Posts Published
-  11, // Content Type
-  11, // Activity Summary
+  7, // Content Type
+  6, // Activity Summary
+  /* 7, not 6: the pill reads "Completed", and 6% leaves 52px after padding. */
   7, // Status
   /* ⚠️ 6, not 5. At `--content-max` (1520px) five per cent is 76px, and after the
      cell padding that leaves 52px — enough for "11h ago" and NOT for "just now",
