@@ -131,10 +131,20 @@ export const OUTCOME_META: Readonly<
     token: 'feedback-error',
     needsAttention: true,
   },
+  /* ── ⚠️ HISTORICAL ONLY SINCE 2026-09-03 (migration 090) ──────────────────
+     No scan is given this outcome any more. A day an Admin has corrected now
+     still accepts a later departure, because the old rule turned away the one
+     fact nobody else could supply: the Team Coordinator scanned out at 19:24 on
+     2 September and his day recorded no departure at all.
+
+     The value stays in the enum and this entry stays with it — three real rows
+     carry it, and a scan history that renders a blank where an outcome used to
+     be is worse than one that explains a rule the system has since dropped. The
+     wording is past tense on purpose. */
   locked: {
-    label: 'Day was corrected',
+    label: 'Refused (old rule)',
     explains:
-      'An Admin had already corrected this day by hand, so the scan was recorded but not applied.',
+      'An Admin had corrected this day by hand, and until 3 September that made the terminal refuse every later scan for it. Recorded, never applied. The rule is gone — a corrected day now still accepts a later departure.',
     token: 'status-review',
     needsAttention: false,
   },
