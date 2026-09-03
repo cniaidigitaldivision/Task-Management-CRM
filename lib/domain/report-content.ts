@@ -45,6 +45,16 @@ export interface PublishedRow {
   readonly status: string;
   /** Every platform it went to, joined — "Facebook, Instagram, TikTok". */
   readonly platform: string;
+  /* ── ⚠️ THE SLUGS AS WELL, FOR THE BRAND MARKS ────────────────────────────
+     Owner, 2026-09-03: the PDF should draw the Facebook, Instagram and TikTok
+     icons rather than write their names. `PLATFORM_MARKS` is keyed on the SLUG,
+     and a lookup on the display name would fall back to a grey initial the day
+     "X (Twitter)" is reworded again — which has already happened once.
+
+     Both are stored: the names for the screen and the .xlsx export, the slugs
+     for the marks. A stored report from before today has no `platformSlugs`,
+     so the parser defaults it to empty and the PDF falls back to the text. */
+  readonly platformSlugs: readonly string[];
   /** 'HH:MM' or ''. Only the daily layouts have a column for it. */
   readonly time: string;
   /** The live link, or '' where none was recorded. */
@@ -257,6 +267,7 @@ export function parseReportContent(value: unknown): ReportContent | null {
         person: str(row.person),
         status: str(row.status),
         platform: str(row.platform),
+        platformSlugs: list(row.platformSlugs).map((slug) => str(slug)),
         time: str(row.time),
         url: str(row.url),
       };

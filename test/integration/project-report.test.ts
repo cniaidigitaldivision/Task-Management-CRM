@@ -110,6 +110,13 @@ async function contentFor(
         reference: asset.reference,
         platform:
           data.placements.find((placement) => placement.taskId === asset.id)?.platformName ?? '—',
+        platformSlugs: [
+          ...new Set(
+            data.placements
+              .filter((placement) => placement.taskId === asset.id)
+              .map((placement) => placement.platformSlug),
+          ),
+        ],
         contentType: asset.contentKind === 'reel' ? 'Reel' : 'Static Post',
         person: asset.assigneeName ?? asset.createdByName ?? '—',
         status: asset.status,

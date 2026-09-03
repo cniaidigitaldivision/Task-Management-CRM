@@ -6,7 +6,7 @@ import { getProjectReport } from '@/lib/db/queries/report-files';
 import { buildReportPdf } from '@/lib/pdf/report-pdf';
 import { composeReportPdf } from '@/lib/pdf/report-poster';
 import { composeReportSheet } from '@/lib/pdf/report-sheet';
-import { buildProjectReportSheet } from '@/lib/domain/project-report-sheet';
+import { buildProjectReportSheet, projectBanner } from '@/lib/domain/project-report-sheet';
 import { parseReportContent } from '@/lib/domain/report-content';
 import { signedLibraryUrl } from '@/lib/storage/library';
 import { REPORT_KIND_LABEL, isReportKind } from '@/lib/domain/report-periods';
@@ -130,6 +130,17 @@ export async function GET(
         index: 6,
         hrefs: content.published.map((row) => row.url || null),
       },
+      /* ⚠️ Brand marks instead of the words "Facebook, Instagram". Owner,
+         2026-09-03 — the work report has always drawn them and the generic
+         table drew whatever text the row carried. Index 4 is Platforms. */
+      markColumn: {
+        index: 4,
+        slugs: content.published.map((row) => row.platformSlugs),
+      },
+      /* The project's name in bold at the centre, with the agreed rhythm under
+         it — so the target figures have the promise they are measured against
+         sitting directly above them. */
+      banner: projectBanner(content),
     });
   } else {
     if (!report.imagePath) {

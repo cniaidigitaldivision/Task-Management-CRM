@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { PDFArray, PDFDict, PDFDocument, PDFName, PDFString } from 'pdf-lib';
 
 import { composeReportSheet } from '../report-sheet';
-import { buildProjectReportSheet } from '@/lib/domain/project-report-sheet';
+import { buildProjectReportSheet, projectBanner } from '@/lib/domain/project-report-sheet';
 import type { ReportContent } from '@/lib/domain/report-content';
 
 /* ============================================================================
@@ -41,6 +41,7 @@ const content = (over: Partial<ReportContent> = {}): ReportContent => ({
       person: 'Abdul Moiz',
       status: 'Done',
       platform: 'Facebook, Instagram',
+      platformSlugs: ['facebook', 'instagram'],
       time: '',
       url: 'https://facebook.com/story.php?story_fbid=123',
     },
@@ -51,6 +52,7 @@ const content = (over: Partial<ReportContent> = {}): ReportContent => ({
       person: 'Kashif',
       status: 'In Review',
       platform: 'TikTok',
+      platformSlugs: ['tiktok'],
       time: '',
       url: '',
     },
@@ -128,9 +130,9 @@ describe('buildProjectReportSheet', () => {
     expect(report.figures[0].value.value).toBe(5);
   });
 
-  it('says what each person did in the notes', () => {
+  it('names who did the work in the notes', () => {
     const report = buildProjectReportSheet(content(), PERIOD);
-    expect(report.notes.some((note) => note.includes('Abdul Moiz published 1 post'))).toBe(true);
+    expect(report.notes.some((note) => note.includes('Abdul Moiz'))).toBe(true);
   });
 
   it('shows a dash rather than an empty cell for a post with no link', () => {
@@ -161,5 +163,78 @@ describe('the sheet keeps the links clickable', () => {
 
   it('writes no annotation for the row that has no link', async () => {
     expect(await urisIn(await build())).toHaveLength(1);
+  });
+});
+
+/* ============================================================================
+ * THE SUMMARY, AND WHAT IT MUST NOT DO — owner, 2026-09-03
+ * ----------------------------------------------------------------------------
+ * *"you are repeating the same thing again and again. Give a proper report or
+ * you can say a summary… some tips."*
+ * ========================================================================= */
+describe('the notes block', () => {
+  /* ⚠️ The promise itself lives in the BANNER, above the figure cards. The notes
+     open with the comparison against it, not with a second copy of it. */
+  it('opens with what the period asked for and what came of it', () => {
+    const report = buildProjectReportSheet(content(), PERIOD);
+    expect(report.notes[0]).toContain('asked for 2');
+    expect(report.notes[0]).toContain('2 went out');
+  });
+
+  /* ⚠️ THE REGRESSION THIS EXISTS FOR. The first version poured in glance AND
+     people AND notes, and the per-person lines were already in glance — so
+     every name appeared twice in slightly different words. */
+  it('names each person at most once', () => {
+    const report = buildProjectReportSheet(content(), PERIOD);
+    const mentions = report.notes.filter((note) => note.includes('Abdul Moiz')).length;
+    expect(mentions).toBeLessThanOrEqual(1);
+  });
+
+  it('does not repeat the figure cards as prose', () => {
+    const report = buildProjectReportSheet(content(), PERIOD);
+    /* "All targets achieved." is a glance line and a figure card. It must not
+       also be a note. */
+    expect(report.notes).not.toContain('All targets achieved.');
+  });
+
+  /* Advice appears only where a figure asks for it. */
+  it('offers a tip about missing links when one is missing', () => {
+    const report = buildProjectReportSheet(content(), PERIOD);
+    expect(report.notes.some((note) => note.includes('no live link recorded'))).toBe(true);
+  });
+
+  it('offers no tips at all when nothing is outstanding', () => {
+    const clean = content({
+      headline: [
+        { label: 'TARGET FOR THIS PERIOD', value: '1', sub: '' },
+        { label: 'ACHIEVED', value: '1', sub: '' },
+        { label: 'REMAINING', value: '0', sub: '' },
+      ],
+      published: [
+        {
+          task: 'Eid sale post',
+          reference: 'CLI-1568',
+          contentType: 'Static Post',
+          person: 'Abdul Moiz',
+          status: 'Done',
+          platform: 'Facebook',
+          platformSlugs: ['facebook'],
+          time: '',
+          url: 'https://facebook.com/p/1',
+        },
+      ],
+    });
+
+    const report = buildProjectReportSheet(clean, PERIOD);
+    expect(report.notes.some((note) => note.includes('Nothing outstanding'))).toBe(true);
+    expect(report.notes.some((note) => note.includes('no live link'))).toBe(false);
+  });
+});
+
+describe('projectBanner', () => {
+  it('carries the project name and the agreed rhythm', () => {
+    const banner = projectBanner(content());
+    expect(banner.title).toBe('Test Project 2');
+    expect(banner.lines.join(' ')).toContain('STARTER package');
   });
 });

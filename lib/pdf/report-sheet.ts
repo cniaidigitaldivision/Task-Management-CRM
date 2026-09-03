@@ -159,6 +159,38 @@ export interface ReportSheetInput {
     readonly index: number;
     readonly hrefs: readonly (string | null)[];
   } | null;
+
+  /* ── ⚠️ ONE COLUMN DRAWN AS BRAND MARKS — ADDED 2026-09-03 ────────────────
+     Owner: *"in a platform you write the name Facebook, TikTok, Instagram.
+     Instead… they should display Facebook icon, Instagram icon and TikTok
+     icon."* The work report's own table has done this from the start; the
+     generic table drew whatever text the row carried, so a project report listed
+     "Facebook, Instagram" as words.
+
+     SLUGS, not display names: `PLATFORM_MARKS` is keyed on the slug, and "X
+     (Twitter)" has already been reworded once — a lookup on a label silently
+     falls back to a grey initial the day somebody edits it. */
+  readonly markColumn?: {
+    readonly index: number;
+    /** One list of slugs per row, in the order they should be drawn. */
+    readonly slugs: readonly (readonly string[])[];
+  } | null;
+
+  /* ── ⚠️ THE SUBJECT, STATED IN THE BODY — ADDED 2026-09-03 ────────────────
+     Owner: *"make the project name more prominent… it should be in the center
+     but in bold"*, and *"show what the promise or target is, that is, 1 post
+     daily or 2 posts a week. That should be displayed."*
+
+     The masthead carries the report's TYPE ("Project report") and a small
+     subtitle. For a document that will be read next to three others about three
+     other clients, which client it is about should not be the smallest line on
+     the page — and the target figures below mean nothing without the promise
+     they are measured against. */
+  readonly banner?: {
+    readonly title: string;
+    /** The rhythm, and anything else that frames the figures. */
+    readonly lines: readonly string[];
+  } | null;
 }
 
 /**
@@ -486,12 +518,22 @@ export async function composeReportSheet(input: ReportSheetInput): Promise<Uint8
   };
 
   let cursor = drawMasthead(kit, input, logo);
+  /* Before the filter bar: the reader should know WHICH project and WHAT was
+     promised before being told what was filtered out of it. */
+  cursor = drawBanner(kit, input, cursor);
   cursor = drawFilterBar(kit, input, cursor);
   cursor = drawCards(kit, report, cursor);
 
   cursor = input.work
     ? drawWorkTable(kit, input.work, cursor, newPage)
-    : drawGenericTable(kit, report, cursor, newPage, input.linkColumn ?? null);
+    : drawGenericTable(
+        kit,
+        report,
+        cursor,
+        newPage,
+        input.linkColumn ?? null,
+        input.markColumn ?? null,
+      );
 
   drawNotes(kit, report, cursor, newPage);
 
@@ -568,6 +610,56 @@ const safeTitle = (input: ReportSheetInput) => (input.work ? 'Work report' : inp
  * check. This line is what stops a filtered figure being quoted in a meeting as
  * the division's total.
  */
+/**
+ * The subject of the report, centred, and the promise it is measured against.
+ *
+ * ⚠️ Returns `top` untouched when there is no banner, so every caller that does
+ * not pass one is unaffected — attendance and finance both print through here.
+ */
+function drawBanner(kit: Kit, input: ReportSheetInput, top: number): number {
+  const banner = input.banner;
+  if (!banner) return top;
+
+  const centre = M + CONTENT_W / 2;
+  let cursor = top + 6;
+
+  text(kit, banner.title, {
+    x: centre,
+    baseline: cursor + 17,
+    size: 19,
+    bold: true,
+    color: INK.text,
+    align: 'centre',
+  });
+  cursor += 26;
+
+  /* A hairline the width of the title, centred under it — enough to read as a
+     masthead for this section without becoming a second full-width rule beside
+     the one the filter bar already draws. */
+  const titleW = widthOf(kit.bold, banner.title, 19);
+  kit.page.drawRectangle({
+    x: centre - titleW / 2,
+    y: up(cursor),
+    width: titleW,
+    height: 1,
+    color: INK.brand,
+  });
+  cursor += 10;
+
+  for (const line of banner.lines) {
+    text(kit, line, {
+      x: centre,
+      baseline: cursor + 8,
+      size: 8.4,
+      color: INK.soft,
+      align: 'centre',
+    });
+    cursor += 12;
+  }
+
+  return cursor + 6;
+}
+
 function drawFilterBar(kit: Kit, input: ReportSheetInput, top: number): number {
   const h = 26;
   const line =
@@ -988,6 +1080,7 @@ function drawGenericTable(
   newPage: () => number,
   /* One column of real links, or nothing — see `ReportSheetInput.linkColumn`. */
   linkColumn: ReportSheetInput['linkColumn'] = null,
+  markColumn: ReportSheetInput['markColumn'] = null,
 ): number {
   const columns = genericColumns(kit, report);
   const boxes = columnBoxes(columns);
@@ -1021,6 +1114,36 @@ function drawGenericTable(
       const { x, w } = boxes[i];
       /* The link column, if this report has one — see `linkColumn`. */
       const href = linkColumn?.index === i ? (linkColumn.hrefs[rowIndex] ?? null) : null;
+
+      /* ── ⚠️ MARKS INSTEAD OF WORDS ───────────────────────────────────────
+         Drawn here and the text SKIPPED — not drawn on top of it. The row still
+         carries the platform names so the .xlsx export and the on-screen table
+         stay readable; only this renderer swaps them for the brand marks the
+         owner asked for. Wraps onto further lines when a post reached more
+         platforms than fit, exactly as the work table does. */
+      const marks = markColumn?.index === i ? (markColumn.slugs[rowIndex] ?? []) : null;
+      if (marks) {
+        if (marks.length === 0) {
+          text(kit, '-', {
+            x: x + CELL_PAD,
+            baseline: top + 13,
+            size: BODY_SIZE,
+            color: INK.faint,
+          });
+        } else {
+          const perRow = Math.max(1, Math.floor((w - CELL_PAD * 2) / 15));
+          marks.forEach((slug, at) => {
+            drawMark(
+              kit,
+              slug,
+              x + CELL_PAD + (at % perRow) * 15,
+              top + 6 + Math.floor(at / perRow) * 15,
+              12,
+            );
+          });
+        }
+        return;
+      }
 
       block.forEach((line, index) => {
         const anchor = column.align === 'right' ? x + w - CELL_PAD : x + CELL_PAD;

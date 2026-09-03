@@ -238,6 +238,10 @@ export async function generateProjectReportAction(
            repeats — a post cross-posted twice to one platform is still one
            platform as far as a reader is concerned. */
         const platforms = [...new Set(mine.map((p) => p.platformName))];
+        /* Slugs in the same order, for the PDF's brand marks. Deduped on the
+           slug rather than on the name so two spellings of one platform cannot
+           produce two icons. */
+        const slugs = [...new Set(mine.map((p) => p.platformSlug))];
         const live = mine.find((p) => p.url !== null);
 
         return {
@@ -249,6 +253,7 @@ export async function generateProjectReportAction(
           person: asset.assigneeName ?? asset.createdByName ?? '—',
           status: STATUS_META[asset.status as TaskStatus]?.label ?? asset.status,
           platform: platforms.length > 0 ? platforms.join(', ') : '—',
+          platformSlugs: slugs,
           time: '',
           url: live?.url ?? '',
         };
