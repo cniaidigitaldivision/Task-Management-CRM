@@ -106,7 +106,23 @@ export function ProjectReportSheet({
       </div>
 
       {/* ══ THE SHEET ═══════════════════════════════════════════════════════ */}
-      <article className="space-y-5 rounded-2xl border border-border-default bg-bg-surface p-6 print:rounded-none print:border-0 print:p-0">
+      {/* == THE SAME SHAPE AS /reports ======================================
+          Owner, 2026-09-03, asked three times: *"I want the same template that
+          is used in the report page."*
+
+          It WAS one <article> - a single bordered sheet with everything inside
+          it, laid out like a letter. /reports is not that: it is a stack of
+          SEPARATE cards on the page background, each block its own surface, with
+          a tinted header row on every table. Read side by side that is the whole
+          visible difference, and it is why this kept reading as a different
+          product however similar the contents were.
+
+          ⚠️ `print:` undoes all of it. On paper the borders, the surfaces and
+          the padding disappear and the blocks run together as a document again -
+          which is right for ink, where a page full of boxes spends a third of
+          the sheet on rules nobody reads. The PDF a client receives is drawn by
+          lib/pdf/report-poster.ts and is untouched by any of this. */}
+      <div className="space-y-4">
         {/* ---- Masthead ----
             The division's own mark, its name, and the period. Owner: *"always use this
             AI and Digital DIVA icon in a proper format, like the logo."* `LogoMark` is
@@ -147,7 +163,7 @@ export function ProjectReportSheet({
         </header>
 
         {/* ---- The introduction the owner asked for ---- */}
-        <section className="space-y-2">
+        <section className="space-y-2 rounded-2xl border border-border-default bg-bg-surface p-4 print:rounded-none print:border-0 print:bg-transparent print:p-0">
           <div className="flex flex-wrap items-baseline gap-x-2.5">
             <h1 className="text-h2 font-semibold text-text-primary">{project.name}</h1>
             <span className="font-mono text-caption font-semibold text-text-tertiary">
@@ -180,7 +196,7 @@ export function ProjectReportSheet({
         </section>
 
         {/* ---- Target · achieved · remaining ---- */}
-        <section className="grid gap-3 sm:grid-cols-3">
+        <section className="grid gap-3 sm:grid-cols-3 rounded-2xl border border-border-default bg-bg-surface p-4 print:rounded-none print:border-0 print:bg-transparent print:p-0">
           <Figure
             icon={Target}
             token="kpi-target"
@@ -223,7 +239,7 @@ export function ProjectReportSheet({
         )}
 
         {/* ---- The breakdown the owner described per kind ---- */}
-        <section className="space-y-2">
+        <section className="space-y-2 rounded-2xl border border-border-default bg-bg-surface p-4 print:rounded-none print:border-0 print:bg-transparent print:p-0">
           <h2 className="text-body-sm font-semibold text-text-primary">
             {period.granularity === 'day'
               ? 'Day by day'
@@ -234,7 +250,7 @@ export function ProjectReportSheet({
 
           <table className="w-full border-collapse">
             <thead>
-              <tr className="border-b border-border-default">
+              <tr className="border-b border-border-default bg-bg-subtle print:bg-transparent">
                 <th className={TH}>
                   {period.granularity === 'day'
                     ? 'Day'
@@ -293,7 +309,7 @@ export function ProjectReportSheet({
         </section>
 
         {/* ---- Reach per platform ---- */}
-        <section className="space-y-2">
+        <section className="space-y-2 rounded-2xl border border-border-default bg-bg-surface p-4 print:rounded-none print:border-0 print:bg-transparent print:p-0">
           <h2 className="text-body-sm font-semibold text-text-primary">Where it went</h2>
 
           {report.platforms.length === 0 ? (
@@ -304,7 +320,7 @@ export function ProjectReportSheet({
             <>
               <table className="w-full border-collapse">
                 <thead>
-                  <tr className="border-b border-border-default">
+                  <tr className="border-b border-border-default bg-bg-subtle print:bg-transparent">
                     <th className={TH}>Platform</th>
                     <th className={TH_R}>Posts</th>
                     <th className={TH_R}>With a live link</th>
@@ -344,14 +360,14 @@ export function ProjectReportSheet({
             A day or a week is a readable list; a year of assets is not a report, it is
             a data dump, and the breakdown table above is the answer for those. */}
         {assets.length > 0 && assets.length <= 60 && (
-          <section className="space-y-2">
+          <section className="space-y-2 rounded-2xl border border-border-default bg-bg-surface p-4 print:rounded-none print:border-0 print:bg-transparent print:p-0">
             <h2 className="text-body-sm font-semibold text-text-primary">
               What went out
               <span className="ml-2 font-normal text-text-tertiary">{assets.length}</span>
             </h2>
             <table className="w-full border-collapse">
               <thead>
-                <tr className="border-b border-border-default">
+                <tr className="border-b border-border-default bg-bg-subtle print:bg-transparent">
                   <th className={TH}>Date</th>
                   <th className={TH}>Asset</th>
                   <th className={TH}>Kind</th>
@@ -381,7 +397,7 @@ export function ProjectReportSheet({
             against the package. This is ACTIVITY, and the two are not the same
             report: a week where the team worked hard on things not yet
             published looks empty above and busy here, and both are true. */}
-        <section className="space-y-2">
+        <section className="space-y-2 rounded-2xl border border-border-default bg-bg-surface p-4 print:rounded-none print:border-0 print:bg-transparent print:p-0">
           <h2 className="text-body-sm font-semibold text-text-primary">
             Tasks raised
             <span className="ml-2 font-normal text-text-tertiary">{report.tasksCreated}</span>
@@ -445,7 +461,7 @@ export function ProjectReportSheet({
 
                       <table className="w-full border-collapse">
                         <thead>
-                          <tr className="border-b border-border-default">
+                          <tr className="border-b border-border-default bg-bg-subtle print:bg-transparent">
                             <th className={TH}>Task</th>
                             <th className={TH}>Category</th>
                             <th className={TH}>Raised by</th>
@@ -504,7 +520,7 @@ export function ProjectReportSheet({
             evidence, and a reader who disagrees with it has just passed every
             figure it was drawn from. */}
         <section
-          className="space-y-2 rounded-xl border p-4"
+          className="space-y-2 rounded-2xl border p-4 print:rounded-none print:border-0"
           style={{
             borderColor: `color-mix(in oklab, var(--${VERDICT_TOKEN[report.verdict.tone]}) 35%, transparent)`,
             backgroundColor: `color-mix(in oklab, var(--${VERDICT_TOKEN[report.verdict.tone]}) var(--tint-soft), var(--bg-surface))`,
@@ -545,7 +561,7 @@ export function ProjectReportSheet({
         </section>
 
         {/* ---- Provenance ---- */}
-        <footer className="space-y-1 border-t border-border-subtle pt-4 text-micro text-text-tertiary">
+        <footer className="space-y-1 rounded-2xl border border-border-default bg-bg-surface p-4 print:rounded-none print:border-0 print:bg-transparent print:p-0 text-micro text-text-tertiary">
           <p>
             Generated on {dayTitle(generatedOn)} by {generatedBy} from{' '}
             {DIVISION_NAME}&rsquo;s own records. An asset counts in the period it was{' '}
@@ -555,7 +571,7 @@ export function ProjectReportSheet({
             days carry no target.
           </p>
         </footer>
-      </article>
+      </div>
     </div>
   );
 }
@@ -655,8 +671,13 @@ function Figure({
   );
 }
 
+/* ⚠️ MATCHED TO /reports, 2026-09-03. This was uppercase micro type with letter
+   spacing - a letterhead's small caps. The reports page uses ordinary caption
+   type in sentence case, and against a tinted header row that is the difference
+   between a table that looks like part of the product and one that looks like a
+   printed form pasted into it. */
 const TH =
-  'px-2.5 py-2 text-left text-micro font-semibold uppercase tracking-[0.06em] text-text-tertiary';
+  'px-2.5 py-2 text-left align-bottom text-caption font-medium leading-tight text-text-secondary';
 const TH_R = `${TH} text-right`;
 /* ⚠️ `align-middle`, not `align-top`. Every cell in these tables is one line, and
    top-aligning single-line content in a taller row leaves the numbers floating

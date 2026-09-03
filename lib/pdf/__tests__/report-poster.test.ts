@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
+import { PDFArray, PDFDict, PDFDocument, PDFName, PDFString } from 'pdf-lib';
+
 import { composeReportPdf } from '../report-poster';
 import type { ReportContent } from '@/lib/domain/report-content';
 import type { ReportKind } from '@/lib/domain/report-periods';
@@ -294,5 +296,85 @@ describe('composeReportPdf', () => {
       const pdf = await composeReportPdf(content({ kind }), META);
       expect(isPdf(pdf), kind).toBe(true);
     }
+  });
+});
+
+/* ============================================================================
+ * THE POST LINKS ARE ACTUALLY CLICKABLE — owner request, 2026-09-03
+ * ----------------------------------------------------------------------------
+ * *"the post URL which is shown, so put a proper URL and that could be a
+ * clickable right in the PDF."*
+ *
+ * ⚠️ THIS TEST EXISTS BECAUSE THE COMMENT LIED. The renderer carried a note
+ * reading "A real link annotation, not blue text… the difference between a
+ * picture of a link and a link" above code that drew teal text, an underline and
+ * a chain icon and nothing else. It LOOKED right in every preview, and a
+ * screenshot could never have caught it.
+ *
+ * So the assertion is on the bytes: a /Link annotation with a /URI action
+ * carrying the exact address. Nothing else proves a link is a link.
+ * ========================================================================= */
+describe('post links in the PDF', () => {
+  const withLinks = () =>
+    content({
+      kind: 'today',
+      kindLabel: 'DAILY REPORT',
+      periodLabel: '23 Aug 2026',
+      rows: [],
+      published: [
+        {
+          platform: 'Facebook',
+          contentType: 'Static Post',
+          time: '10:00',
+          url: 'https://facebook.com/daniyalmarketing/posts/12345',
+        },
+        {
+          platform: 'Instagram',
+          contentType: 'Reel',
+          time: '15:30',
+          url: 'https://instagram.com/reel/Cuabc12345',
+        },
+      ],
+    });
+
+  /* ⚠️ THE PDF IS READ BACK, NOT GREPPED. The first version of this searched the
+     raw bytes for '/Link' and failed — pdf-lib compresses object streams, so the
+     structure is not there as text. Parsing it is also the better assertion: it
+     proves a READER can find the link, which is the actual claim. */
+  const urisIn = async (pdf: Uint8Array): Promise<string[]> => {
+    const doc = await PDFDocument.load(pdf);
+    const found: string[] = [];
+
+    for (const page of doc.getPages()) {
+      const annots = page.node.lookupMaybe(PDFName.of('Annots'), PDFArray);
+      if (!annots) continue;
+
+      for (let i = 0; i < annots.size(); i += 1) {
+        const annot = annots.lookup(i, PDFDict);
+        const action = annot.lookupMaybe(PDFName.of('A'), PDFDict);
+        const uri = action?.lookupMaybe(PDFName.of('URI'), PDFString);
+        if (uri) found.push(uri.asString());
+      }
+    }
+    return found;
+  };
+
+  it('gives every posted link a real annotation a reader can follow', async () => {
+    const uris = await urisIn(await composeReportPdf(withLinks(), META));
+
+    /* The FULL address, not the shortened label drawn on the page — a link that
+       opens `facebook.com/...` without its scheme goes nowhere. */
+    expect(uris).toContain('https://facebook.com/daniyalmarketing/posts/12345');
+    expect(uris).toContain('https://instagram.com/reel/Cuabc12345');
+  });
+
+  /* A period with nothing published must not carry a dangling annotation — an
+     empty clickable rectangle on a sheet is worse than no link at all. */
+  it('writes no link annotation when nothing was published', async () => {
+    const pdf = await composeReportPdf(
+      content({ kind: 'today', kindLabel: 'DAILY REPORT', rows: [], published: [] }),
+      META,
+    );
+    expect(await urisIn(pdf)).toEqual([]);
   });
 });

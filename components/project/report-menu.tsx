@@ -6,6 +6,7 @@ import { CalendarRange, ChevronDown, FileText, Loader2 } from 'lucide-react';
 
 import { generateProjectReportAction } from '@/app/actions/project-report';
 import { Button } from '@/components/ui/button';
+import { LogoMark } from '@/components/brand/logo';
 import { Dialog } from '@/components/ui/dialog';
 import { Field } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
@@ -113,6 +114,40 @@ export function ReportMenu({
 
   return (
     <div className="relative">
+      {/* ── ⚠️ THE LOADER, AND WHY IT IS HERE RATHER THAN IN loading.tsx ──────
+          Owner, 2026-09-03: *"I am telling you about the loader. I can't see the
+          loader."* They could not, and a route-level `loading.tsx` was never
+          going to show it: ALL the work happens in the server ACTION above —
+          figures, content, poster, upload — and only then does a new tab open.
+          There is no navigation for Next to show a loading state during. The
+          only thing that was on screen was a 14px spinner inside a button, at
+          the top-right of a wide page, which is not something anybody notices.
+
+          So the wait is covered where the wait actually is: a full overlay, the
+          division's own mark flipping, and wording that says what is being
+          built. It blocks the page deliberately — pressing Generate twice would
+          record two reports for the same period. */}
+      {busy && (
+        <div
+          className="fixed inset-0 z-[70] flex flex-col items-center justify-center gap-4 backdrop-blur-sm"
+          style={{ backgroundColor: 'color-mix(in oklab, var(--bg-base) 78%, transparent)' }}
+          role="status"
+          aria-live="polite"
+        >
+          <div className="logo-flip-stage">
+            <LogoMark width={56} className="logo-flip" />
+          </div>
+          <div className="space-y-1 text-center">
+            <p className="text-body-sm font-semibold text-text-primary">
+              Building the {REPORT_KIND_LABEL[busy].toLowerCase()} for {projectName}
+            </p>
+            <p className="text-caption text-text-secondary">
+              Reading everything published and worked on in the period.
+            </p>
+          </div>
+        </div>
+      )}
+
       <details ref={ref} className={cn('relative', className)}>
         <summary
           title={`Generate a report for ${projectName}`}

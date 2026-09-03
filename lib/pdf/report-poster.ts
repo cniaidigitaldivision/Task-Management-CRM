@@ -3,7 +3,17 @@ import 'server-only';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFImage, type PDFPage } from 'pdf-lib';
+import {
+  PDFDocument,
+  PDFName,
+  type PDFArray,
+  PDFString,
+  StandardFonts,
+  rgb,
+  type PDFFont,
+  type PDFImage,
+  type PDFPage,
+} from 'pdf-lib';
 
 import {
   activityTitle,
@@ -174,6 +184,63 @@ interface Kit {
   readonly page: PDFPage;
   readonly bold: PDFFont;
   readonly regular: PDFFont;
+}
+
+/**
+ * Make a rectangle of the page an actual clickable link.
+ *
+ * ── ⚠️ THE COMMENT HERE USED TO CLAIM THIS WAS ALREADY HAPPENING ────────────
+ * It read *"A real link annotation, not blue text… making it clickable is the
+ * difference between a picture of a link and a link"* — above code that drew
+ * teal text, an underline and a chain icon and stopped. It was a picture of a
+ * link. Owner, 2026-09-03: *"the post URL which is shown, so put a proper URL
+ * and that could be a clickable right in the PDF."*
+ *
+ * pdf-lib has no helper for this, so the annotation is built by hand: a /Link
+ * with a /URI action, pushed onto the page's own Annots array.
+ *
+ * ⚠️ `/Rect` is in PDF user space — origin BOTTOM-left, y increasing upwards —
+ * which is the same space `draw` already works in, so the baseline can be used
+ * directly. Getting that upside down puts the clickable box at the top of the
+ * page instead of on the text, and nothing about the rendered file looks wrong.
+ *
+ * ⚠️ `/Border [0 0 0]` because the visible styling is already drawn: without it
+ * most readers add their own black rectangle around the link and the sheet grows
+ * boxes the design never asked for.
+ */
+function linkTo(
+  kit: Kit,
+  url: string,
+  rect: { x: number; y: number; width: number; height: number },
+): void {
+  const doc = kit.page.doc;
+
+  const annotation = doc.context.obj({
+    Type: 'Annot',
+    Subtype: 'Link',
+    Rect: [rect.x, rect.y, rect.x + rect.width, rect.y + rect.height],
+    Border: [0, 0, 0],
+    A: doc.context.obj({
+      Type: 'Action',
+      S: 'URI',
+      /* ⚠️ PDFString, not a bare JS string. A raw string is written as a name
+         and the reader silently ignores the action — the link renders, does
+         nothing when clicked, and looks like the bug this replaces. */
+      URI: PDFString.of(url),
+    }),
+  });
+
+  /* ⚠️ `PDFArray` is reached through `unknown`: pdf-lib types `get` as the
+     PDFObject base, which has no `push`, and a direct cast is refused. Narrowed
+     rather than silenced — if the page ever holds a non-array under Annots the
+     check below leaves it alone instead of corrupting it. */
+  const existing = kit.page.node.get(PDFName.of('Annots')) as unknown;
+
+  if (existing && typeof (existing as PDFArray).push === 'function') {
+    (existing as PDFArray).push(annotation);
+  } else {
+    kit.page.node.set(PDFName.of('Annots'), doc.context.obj([annotation]));
+  }
 }
 
 /**
@@ -1111,6 +1178,17 @@ function drawPublishedCard(
       });
       hairline(kit, columns[3].x, columns[3].x + width, baseline + 1.6, TEAL, 0.5);
       strokeIcon(kit, ICON.link, LEFT_X + LEFT_W - 30, baseline - 8.5, 10, TEAL, 1.6);
+
+      /* ⚠️ The annotation the comment above always promised. Sized to the text
+         that was actually drawn — `draw` returns its width — plus a little
+         height either side of the baseline so the target matches what the eye
+         sees rather than a hairline nobody can hit. */
+      linkTo(kit, row.url, {
+        x: columns[3].x,
+        y: baseline - 2.5,
+        width: width,
+        height: 11,
+      });
     } else {
       draw(kit, 'no link recorded', {
         x: columns[3].x,
