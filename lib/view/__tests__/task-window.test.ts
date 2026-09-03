@@ -13,21 +13,34 @@ import { resolveTaskWindow } from '../task-window';
 const TODAY = '2026-09-02';
 
 describe('resolveTaskWindow', () => {
-  it('opens on today when nothing is in the URL', () => {
+  /* ── ⚠️ REVERSED ON 2026-09-03, ON THE OWNER'S CORRECTION ────────────────
+     This asserted `dueFrom: undefined` — an open start, so the board showed
+     everything up to and including today. That was my choice, made to keep
+     overdue work visible, and it was not what was asked for: *"by default the
+     tasks page should show the today task only… It should only display today's
+     task."*
+
+     Overdue is still reachable: the Overdue card is counted division-wide
+     rather than from the window, so a non-zero count shows on the page as it
+     opens, and clearing the start date widens the board backwards. */
+  it('opens on exactly today when nothing is in the URL', () => {
     expect(resolveTaskWindow({}, TODAY)).toEqual({
-      dueFrom: undefined,
+      dueFrom: TODAY,
       dueTo: TODAY,
       showAll: false,
     });
   });
 
-  /* The whole point of the default. A window of exactly today would drop
-     yesterday's unfinished work off the board while the Overdue card above it
-     kept counting it. */
-  it('leaves the start unbounded, so overdue and undated work still arrive', () => {
+  it('bounds BOTH ends, so yesterday is not on the board by default', () => {
     const w = resolveTaskWindow({}, TODAY);
-    expect(w.dueFrom).toBeUndefined();
+    expect(w.dueFrom).toBe(TODAY);
     expect(w.dueTo).toBe(TODAY);
+  });
+
+  /* Clearing the start is how somebody opens it backwards — an empty string is
+     a choice, an absent parameter is not. */
+  it('treats a CLEARED start date as unbounded, not as today', () => {
+    expect(resolveTaskWindow({ from: '' }, TODAY).dueFrom).toBeUndefined();
   });
 
   it('drops every bound for the owner’s All filter', () => {

@@ -39,13 +39,26 @@ export interface TaskWindowParams {
 /**
  * Resolve the board's due window from the URL.
  *
- * ── ⚠️ THE DEFAULT IS `to = today` WITH NO `from`, NOT `from = to = today` ───
- * A window of exactly today would also hide OVERDUE work, which is the one
- * thing on a task board nobody can afford to miss — and the page carries an
- * Overdue card that would then have contradicted the board sitting beneath it.
- * An open-ended start reads as "everything up to and including today": due
- * today, everything late, and undated work. That is the question somebody
- * opening a task board is actually asking.
+ * ── ⚠️ THE DEFAULT IS EXACTLY TODAY: `from = to = today` ────────────────────
+ * It was `to = today` with an OPEN START, so the board opened on "everything up
+ * to and including today" — today's work plus everything still late. That was
+ * my call and not what was asked for, and the owner corrected it on 2026-09-03:
+ * *"by default the tasks page should show the today task only… when I open the
+ * page it shows all the tasks till today. It should only display today's task."*
+ *
+ * The reason for the open start was real and is worth keeping on the record:
+ * overdue work no longer appears on the board by default. Two things stop that
+ * being a hole. The Overdue card above the board is counted division-wide by
+ * `taskTotals` and NOT by the window, so a non-zero count is still visible on
+ * the page the moment it opens — the number says "look", and the range control
+ * beside it is one press from showing what it counted. And clearing the start
+ * date reopens the window backwards without touching anything else.
+ *
+ * ── UNDATED WORK STILL APPEARS ──────────────────────────────────────────────
+ * `listTasks` keeps `due_date is null` in every window, deliberately: a task
+ * with no date can never match any range, so excluding it here would make it
+ * reachable ONLY through All — work that exists and is invisible. It has always
+ * behaved this way, browser-side before the window moved to SQL.
  *
  * ── ⚠️ ABSENT AND EMPTY ARE DIFFERENT ANSWERS ───────────────────────────────
  * This is the bug this file exists to prevent. The first cut read the end date
@@ -61,8 +74,11 @@ export function resolveTaskWindow(params: TaskWindowParams, today: string): Task
     return { dueFrom: undefined, dueTo: undefined, showAll: true };
   }
 
+  /* Absent means nobody has chosen yet, so today — on BOTH ends now. An empty
+     string is somebody's deliberate choice and stays unbounded on that side, so
+     clearing the start date is how the board is opened backwards. */
   return {
-    dueFrom: params.from || undefined,
+    dueFrom: params.from === undefined ? today : params.from || undefined,
     dueTo: params.to === undefined ? today : params.to || undefined,
     showAll: false,
   };
