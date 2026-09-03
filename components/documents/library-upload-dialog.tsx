@@ -154,7 +154,10 @@ export function LibraryUploadDialog({
         <Field
           label="File"
           htmlFor="library-file"
-          hint={`PDF, image, design source (.ai, .eps) or a zip, up to ${LIBRARY_MAX_LABEL}.`}
+          /* Kept to one line rather than listing twenty extensions: the picker's
+             own `accept` already filters, and this is the reassurance somebody
+             reads before clicking, not the specification. */
+          hint={`Document (PDF, Word, Excel, PowerPoint, text), image, design source (.ai, .eps) or a zip, up to ${LIBRARY_MAX_LABEL}.`}
           error={problem ?? undefined}
         >
           <input

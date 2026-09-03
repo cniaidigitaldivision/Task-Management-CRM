@@ -50,23 +50,36 @@ export const LIBRARY_CATEGORY_LABEL: Readonly<Record<LibraryCategory, string>> =
  * company library."*
  *
  * ── ⚠️ WHY THE LIBRARY DOES NOT REUSE `validateUpload` ───────────────────────
- * `lib/domain/attachments.ts` is the rule for the OTHER bucket, and the two
- * buckets deliberately hold different things (see lib/storage/library.ts). The
- * lists genuinely disagree in both directions:
+ * `lib/domain/attachments.ts` is the rule for the OTHER bucket. The two lists
+ * are now nearly identical, and the one real difference is the reason this file
+ * still exists separately:
  *
- *   only the library      .ai and .eps — a design SOURCE is a first-class
+ *   only the library      .ai, .eps and .ps — a design SOURCE is a first-class
  *                         category here (migration 035) and is not attachable
  *                         to a task at all
- *   only attachments      Word, Excel, PowerPoint, csv, md, txt, gif — the
- *                         `cni-library` bucket's own allow-list has none of
- *                         them, so offering one would produce a 415 after the
- *                         person had already chosen the file
+ *   only attachments      audio and video, which belong against a task rather
+ *                         than in a reference library
+ *
+ * ── ⚠️ OFFICE WAS THE OTHER DIFFERENCE, UNTIL 2026-09-03 ────────────────────
+ * This note used to record that Word, Excel and PowerPoint were attachments-only
+ * because *"the `cni-library` bucket's own allow-list has none of them, so
+ * offering one would produce a 415 after the person had already chosen the
+ * file."* That was an accurate description of the bucket and a poor description
+ * of what the library is for. The owner, trying to file a .pptx: *"all text,
+ * PowerPoint, PDF, Word, Excel, any file that I want to keep it in a safer
+ * place."* A company library that takes the rate card as a PDF but refuses the
+ * deck it was built from is a library with a gap in it.
+ *
+ * The BUCKET was widened first and the list below second — in that order,
+ * deliberately. Widening the bucket alone only makes storage more permissive
+ * than the form, which refuses politely; widening the form alone is precisely
+ * the 415-after-choosing failure described above.
  *
  * ⚠️ THE LIST BELOW IS THE `cni-library` BUCKET'S ALLOW-LIST, TRANSCRIBED. The
  * bucket is the enforcement; this exists so the refusal is a sentence rather
  * than an HTTP status. Changing one without the other reintroduces exactly the
  * failure this is here to prevent — a file the form accepted and storage did
- * not.
+ * not. A test asserts the two stay in step.
  * ========================================================================= */
 
 /** 50 MB — `file_size_limit` on the `cni-library` bucket, to the byte. */
@@ -82,6 +95,7 @@ const LIBRARY_MIME: ReadonlySet<string> = new Set([
   'image/png',
   'image/jpeg',
   'image/webp',
+  'image/gif',
   'image/svg+xml',
   /* .eps and .ps */
   'application/postscript',
@@ -89,6 +103,25 @@ const LIBRARY_MIME: ReadonlySet<string> = new Set([
   'application/illustrator',
   'application/zip',
   'application/x-zip-compressed',
+  /* ── Office and plain text, added 2026-09-03 ──────────────────────────────
+     Owner, with a .pptx in hand: *"I want to add PowerPoint files and it is not
+     letting me upload… all text, PowerPoint, PDF, Word, Excel, any file that I
+     want to keep it in a safer place."*
+
+     Two types per Office format, and both are needed: the `vnd.ms-*` pair are
+     the pre-2007 binaries (.doc, .xls, .ppt) and the `openxmlformats` triplet
+     are the modern zipped ones (.docx, .xlsx, .pptx). A machine reporting
+     either is telling the truth about a real file. */
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'text/plain',
+  'text/csv',
+  'text/markdown',
+  'application/rtf',
 ]);
 
 /**
@@ -103,13 +136,25 @@ const LIBRARY_MIME: ReadonlySet<string> = new Set([
  */
 const LIBRARY_EXTENSIONS: ReadonlySet<string> = new Set([
   'pdf',
-  'png', 'jpg', 'jpeg', 'webp', 'svg',
+  'png', 'jpg', 'jpeg', 'webp', 'gif', 'svg',
   'ai', 'eps', 'ps',
   'zip',
+  /* ⚠️ THE OFFICE ENTRIES ARE THE MAIN PATH, NOT A SAFETY NET. The file that
+     prompted this — Taskly_Final_AutoPlay_Working (2).pptx — is exactly the case
+     the note above describes: a .pptx arrives from a machine with no Office
+     install, or out of a zip, or off a phone, and the browser reports an empty
+     type. Without these the extension fallback has nothing to match and an
+     ordinary PowerPoint is refused twice over. */
+  'doc', 'docx',
+  'xls', 'xlsx',
+  'ppt', 'pptx',
+  'txt', 'csv', 'md', 'rtf',
 ]);
 
 /** For the file picker. Extensions, because that is what `accept` wants. */
-export const LIBRARY_ACCEPT = '.pdf,.png,.jpg,.jpeg,.webp,.svg,.ai,.eps,.ps,.zip';
+export const LIBRARY_ACCEPT =
+  '.pdf,.png,.jpg,.jpeg,.webp,.gif,.svg,.ai,.eps,.ps,.zip,' +
+  '.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.md,.rtf';
 
 /** Types that mean "the browser could not tell", not "this is binary rubbish". */
 const UNINFORMATIVE: ReadonlySet<string> = new Set([
@@ -174,7 +219,7 @@ export function validateLibraryUpload(input: {
         : input.mimeType;
       return {
         ok: false,
-        message: `${what} cannot go in the company library. PDFs, images (PNG, JPEG, WebP, SVG), design sources (.ai, .eps) and zip archives can.`,
+        message: `${what} cannot go in the company library. Documents (PDF, Word, Excel, PowerPoint, text, CSV, Markdown, RTF), images (PNG, JPEG, WebP, GIF, SVG), design sources (.ai, .eps) and zip archives can.`,
       };
     }
   }

@@ -54,6 +54,7 @@ Read in this order if you are new to the project:
 | 18 | [`18-DESIGN-SYSTEM-AND-BRANDING.md`](18-DESIGN-SYSTEM-AND-BRANDING.md) | ★ Logo, brand palette, light/dark themes. **Every colour in the system.** |
 | 19 | [`19-MASTER-SPECIFICATION-REGISTRY.md`](19-MASTER-SPECIFICATION-REGISTRY.md) | ⭐ **The canonical index.** Every requirement, rule, enum and setting — and which doc owns it. Read this to resolve any disagreement. |
 | 20 | [`20-IMPLEMENTATION-CONTRACTS.md`](20-IMPLEMENTATION-CONTRACTS.md) | ⭐ **Build safety.** Module boundaries, dependency order, frozen interfaces, integration seams. |
+| — | [`META-INTEGRATION-PLAN.md`](META-INTEGRATION-PLAN.md) | 📊 **Planning only, not built.** Linking projects to Facebook Pages and Instagram to read reach, views, engagement and follower growth — and judge whether the posting is working. TikTok deferred. |
 | — | [`SESSION-STATE.md`](SESSION-STATE.md) | 🔄 **Resume point.** Read this first if a session was interrupted. |
 | — | [`PROGRESS-TRACKER.md`](PROGRESS-TRACKER.md) | **The full checklist.** Every phase, every task, permanent record. |
 | — | [`templates/FIRST-RUN-SETUP-GUIDE.md`](templates/FIRST-RUN-SETUP-GUIDE.md) | Day-one walkthrough. **No roster needed** — the Admin builds the team in-app. |
