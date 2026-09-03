@@ -184,6 +184,25 @@ export interface ReportTask {
   readonly assigneeAvatarUrl: string | null;
   /** ISO timestamp of the last change, for "Last active". */
   readonly updatedAt: string;
+
+  /* ── ⚠️ FOR THE ROW DETAIL — ADDED 2026-09-03 ─────────────────────────────
+     Owner: *"when I click on any row it will pop up… display all related to
+     that task, like this project, this person, he done this, these are the
+     platforms, these are the platform URLs… The task description must display
+     over there. Don't just put dummy data in the pop-up."*
+
+     Neither was on this shape, so a panel built from it could only have shown
+     what the row already showed. `platforms` above is slugs, which draws an
+     icon and cannot be read or opened. */
+  readonly description: string | null;
+  readonly links: readonly TaskLink[];
+}
+
+/** One placement of a task, named and openable. Mirrors the query's own shape. */
+export interface TaskLink {
+  readonly slug: string;
+  readonly platformName: string;
+  readonly url: string | null;
 }
 
 export interface ReportPerson {
@@ -866,10 +885,30 @@ function overrun(task: ReportTask): number {
  * a report whose period depends on the machine's clock cannot be tested.
  * ========================================================================== */
 
-export const PERIOD_PRESETS = ['this_week', 'last_week', 'this_month', 'last_month', 'this_quarter', 'this_year'] as const;
+/* ── ⚠️ TODAY AND YESTERDAY LEAD THE LIST — ADDED 2026-09-03 ────────────────
+   Owner: *"this month, this last week, this week, all these queries are
+   showing. There is a 'today' query not present and a 'yesterday' query not
+   present so add them."*
+
+   They go FIRST rather than at the end: the shortest period is the one somebody
+   reaches for most often on a Monday morning, and a list that opens with "this
+   week" makes the daily question the hardest one to ask. The project report's
+   own menu has had both from the start, which is where the gap showed. */
+export const PERIOD_PRESETS = [
+  'today',
+  'yesterday',
+  'this_week',
+  'last_week',
+  'this_month',
+  'last_month',
+  'this_quarter',
+  'this_year',
+] as const;
 export type PeriodPreset = (typeof PERIOD_PRESETS)[number];
 
 export const PERIOD_LABEL: Readonly<Record<PeriodPreset, string>> = {
+  today: 'Today',
+  yesterday: 'Yesterday',
   this_week: 'This week',
   last_week: 'Last week',
   this_month: 'This month',
@@ -884,6 +923,16 @@ export function presetPeriod(preset: PeriodPreset, nowMs: number): ReportPeriod 
   const m = d.getUTCMonth();
 
   switch (preset) {
+    /* ⚠️ A single day is a range whose ends are equal, not a special case —
+       every reader downstream (the table, the charts, the export) already
+       handles that shape, and a separate "day mode" would be four more
+       branches. The same call `resolveRange` makes for attendance. */
+    case 'today':
+      return { start: iso(Date.UTC(y, m, d.getUTCDate())), end: iso(Date.UTC(y, m, d.getUTCDate())) };
+    case 'yesterday': {
+      const at = Date.UTC(y, m, d.getUTCDate() - 1);
+      return { start: iso(at), end: iso(at) };
+    }
     case 'this_week':
       return weekOf(nowMs, 0);
     case 'last_week':

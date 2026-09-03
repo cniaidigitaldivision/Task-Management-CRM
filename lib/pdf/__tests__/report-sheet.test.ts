@@ -113,7 +113,8 @@ const workRow = (over: Partial<WorkRow>): WorkRow => ({
   userId: 'u1',
   personName: 'Kashif Ahmed',
   avatarUrl: null,
-  role: 'Manager',
+  /* `role` became `tasks` on 2026-09-03 — see WorkRow. */
+  tasks: [],
   platforms: ['facebook', 'instagram'],
   tasksAssigned: 20,
   tasksDone: 18,
@@ -318,12 +319,11 @@ describe('composeReportSheet', () => {
       ...base,
       report: report({ columns: [], rows: [] }),
       work: {
-        topPosterId: 'u1',
         posters: [],
         rows: [
           workRow({}),
           workRow({ key: 'b', status: 'completed', platforms: ['linkedin', 'tiktok', 'x'] }),
-          workRow({ key: 'c', status: 'pending', platforms: [], role: null, contentTypes: [], activitySummary: '' }),
+          workRow({ key: 'c', status: 'pending', platforms: [], tasks: [], contentTypes: [], activitySummary: '' }),
           workRow({ key: 'd', status: 'active', personName: 'Unassigned', userId: null, lastActive: null }),
         ],
       },
@@ -338,7 +338,6 @@ describe('composeReportSheet', () => {
       ...base,
       report: report({ columns: [], rows: [] }),
       work: {
-        topPosterId: null,
         posters: [],
         rows: [workRow({ platforms: ['some-new-network', 'facebook'] })],
       },
@@ -360,7 +359,7 @@ describe('composeReportSheet', () => {
     const bytes = await composeReportSheet({
       ...base,
       report: report({ columns: [], rows: [] }),
-      work: { topPosterId: null, posters: [], rows },
+      work: { posters: [], rows },
     });
 
     expect(isPdf(bytes)).toBe(true);
@@ -371,7 +370,7 @@ describe('composeReportSheet', () => {
     const bytes = await composeReportSheet({
       ...base,
       report: report({ columns: [], rows: [], figures: [], notes: [] }),
-      work: { topPosterId: null, posters: [], rows: [] },
+      work: { posters: [], rows: [] },
     });
     expect(isPdf(bytes)).toBe(true);
   });

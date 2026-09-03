@@ -25,6 +25,9 @@ function task(over: Partial<ReportTask> = {}): ReportTask {
   return {
     reference: 'CNI-001',
     title: 'Design the launch deck',
+    /* Added 2026-09-03 with the report's row detail — see `ReportTask`. */
+    description: null,
+    links: [],
     projectId: 'p1',
     projectName: 'Project One',
     projectType: 'client',

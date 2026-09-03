@@ -33,6 +33,9 @@ function task(over: Partial<ReportTask> = {}): ReportTask {
   return {
     reference: 'CNI-001',
     title: 'A task',
+    /* Added 2026-09-03 with the report's row detail — see `ReportTask`. */
+    description: null,
+    links: [],
     projectId: 'p1',
     projectName: 'GC Royal Emporium',
     projectType: 'client',
@@ -190,9 +193,34 @@ describe('work report rows', () => {
     expect(work.rows[0].activitySummary).toBe('3 posts, 2 reels, 1 story');
   });
 
-  it('resolves the project role for the pairing, not the person', () => {
-    const work = buildWorkReport(input(), options({ roles: new Map([['p1:u1', 'design']]) }));
-    expect(work.rows[0].role).toBe('Design');
+  /* ── ⚠️ REPLACED ON 2026-09-03 ────────────────────────────────────────────
+     This asserted the project role resolved for the pairing. The column is gone:
+     owner, *"Instead of a role I don't need roles right? Role and top poster
+     here should mention the task."* The role was the same word on every row a
+     person appeared in and told a reader nothing they could act on.
+
+     What replaces it is the work itself, which is what the row was always
+     missing — "3 assigned, 2 done" never said what the three were. */
+  it('carries every one of the pairing\'s tasks, finished first', () => {
+    const work = buildWorkReport(
+      input({
+        tasks: [
+          task({ reference: 'A', title: 'Open one', status: 'todo' }),
+          task({ reference: 'B', title: 'Finished one', status: 'done' }),
+        ],
+      }),
+      options(),
+    );
+
+    expect(work.rows[0].tasks.map((t) => t.title)).toEqual(['Finished one', 'Open one']);
+  });
+
+  it('calls work with no content kind a Task rather than leaving it blank', () => {
+    const work = buildWorkReport(
+      input({ tasks: [task({ reference: 'A', contentKind: null })] }),
+      options(),
+    );
+    expect(work.rows[0].tasks[0].category).toBe('Task');
   });
 });
 
@@ -253,32 +281,13 @@ describe('posting performance by member', () => {
     expect(work.posters[1].totalPosts).toBe(1);
   });
 
-  it('awards Top poster to one person, and to nobody on a tie', () => {
-    /* ⚠️ A badge handed to whichever of two equals the sort happened to put first
-       is a claim the data does not support. */
-    const clear = buildWorkReport(
-      input({
-        tasks: [
-          task({ reference: 'A' }),
-          task({ reference: 'B' }),
-          task({ reference: 'C', assigneeId: 'u2', assigneeName: 'Najmulla' }),
-        ],
-      }),
-      options(),
-    );
-    expect(clear.topPosterId).toBe('u1');
+  /* ── ⚠️ THE TOP-POSTER TEST IS GONE WITH THE BADGE, 2026-09-03 ──────────
+     It asserted that one person carried a "Top poster" badge and that a tie
+     gave it to nobody. Both were correct about a superlative computed over a
+     report somebody had already FILTERED — so "top" meant "top of what is left
+     on screen", which changed with the filter and was never a fact about the
+     division. The ranking still exists as the order of `posters`. */
 
-    const tied = buildWorkReport(
-      input({
-        tasks: [
-          task({ reference: 'A' }),
-          task({ reference: 'C', assigneeId: 'u2', assigneeName: 'Najmulla' }),
-        ],
-      }),
-      options(),
-    );
-    expect(tied.topPosterId).toBeNull();
-  });
 
   it('counts This Week from the current week, not from the report period', () => {
     /* The period may be a whole quarter; the column is deliberately always the
@@ -450,5 +459,87 @@ describe('the export shape', () => {
       '2026-08-25T09:00:00Z',
     );
     expect(report.rows[0][3]).toEqual({ kind: 'text', value: 'Facebook, Instagram' });
+  });
+});
+
+/* ============================================================================
+ * THE TASK LINES A ROW CARRIES — owner request, 2026-09-03
+ * ----------------------------------------------------------------------------
+ * *"Task name should mention a list of all tasks names that should display…
+ * each row should display the task related to that person"*, and for the row
+ * detail: *"the task description must display over there. Don't just put dummy
+ * data in the pop-up."*
+ * ========================================================================= */
+describe('task lines on a work row', () => {
+  it('carries the description and the live links the detail panel needs', () => {
+    const work = buildWorkReport(
+      input({
+        tasks: [
+          task({
+            description: 'Two frames, teal on white, Eid greeting.',
+            links: [
+              { slug: 'facebook', platformName: 'Facebook', url: 'https://facebook.com/p/1' },
+              /* A destination with no link. The panel must not offer this as
+                 something to open — that is the "dummy data" to avoid. */
+              { slug: 'tiktok', platformName: 'TikTok', url: null },
+            ],
+          }),
+        ],
+      }),
+      options(),
+    );
+
+    const line = work.rows[0].tasks[0];
+    expect(line.description).toBe('Two frames, teal on white, Eid greeting.');
+    expect(line.links.filter((link) => link.url)).toHaveLength(1);
+  });
+
+  /* ⚠️ Uncapped. The screen shows three and a "+N more" because the detail panel
+     is one click behind it; the PDF has nothing behind it and prints them all,
+     so the row has to carry them all. */
+  it('lists every task rather than a capped few', () => {
+    const many = Array.from({ length: 7 }, (_, i) =>
+      task({ reference: `CNI-10${i}`, title: `Task ${i}` }),
+    );
+    const work = buildWorkReport(input({ tasks: many }), options());
+    expect(work.rows[0].tasks).toHaveLength(7);
+  });
+
+  it('puts finished work first, which is what a row is opened to see', () => {
+    const work = buildWorkReport(
+      input({
+        tasks: [
+          task({ reference: 'A', title: 'Still going', status: 'in_progress', completedAt: null }),
+          task({ reference: 'B', title: 'Delivered', status: 'done' }),
+        ],
+      }),
+      options(),
+    );
+    expect(work.rows[0].tasks[0].title).toBe('Delivered');
+  });
+
+  it('calls work with no content kind a Task rather than leaving it blank', () => {
+    const work = buildWorkReport(
+      input({ tasks: [task({ contentKind: null, publishedOn: null })] }),
+      options(),
+    );
+    expect(work.rows[0].tasks[0].category).toBe('Task');
+  });
+
+  /* A row is one project-and-person pairing, so its task list must not leak a
+     colleague's work into it. */
+  it('keeps one person’s tasks out of another’s row', () => {
+    const work = buildWorkReport(
+      input({
+        tasks: [
+          task({ reference: 'A', title: 'Kashif work' }),
+          task({ reference: 'B', title: 'Moiz work', assigneeId: 'u2', assigneeName: 'Abdul Moiz' }),
+        ],
+      }),
+      options(),
+    );
+
+    expect(work.rows).toHaveLength(2);
+    for (const row of work.rows) expect(row.tasks).toHaveLength(1);
   });
 });

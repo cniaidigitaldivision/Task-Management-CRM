@@ -821,17 +821,26 @@ interface Column {
  * their HEADINGS that are two words, and headings wrap. Giving each the width its
  * label wanted is what pushed Last Activity off the first version's page.
  */
+/* ── ⚠️ SHARES SUM TO 100, AND TASKS TOOK THE ROOM IT NEEDED ────────────────
+   The Role column was 7 because one word fitted in it. Task TITLES do not: at 7
+   every line wrapped to two or three and the rows grew tall enough to push a
+   twelve-row report onto three pages.
+
+   The 9 points came off Content Type and Activity Summary, which are the two
+   columns that summarise what the Tasks column now states outright — "3 posts,
+   2 reels" beside the three post titles is the same fact twice, so the summary
+   is the one that can afford to be tighter. */
 const WORK_COLUMNS: readonly Column[] = [
-  { label: 'Project', share: 11 },
-  { label: 'Person', share: 13 },
-  { label: 'Role', share: 7 },
+  { label: 'Project', share: 10 },
+  { label: 'Person', share: 12 },
+  { label: 'Tasks', share: 16 },
   { label: 'Platform', share: 8 },
   { label: 'Tasks Assigned', share: 6, align: 'centre' },
   { label: 'Tasks Done', share: 6, align: 'centre' },
   { label: 'Tasks Pending', share: 6, align: 'centre' },
   { label: 'Posts Published', share: 6, align: 'centre' },
-  { label: 'Content Type', share: 11 },
-  { label: 'Activity Summary', share: 11 },
+  { label: 'Content Type', share: 8 },
+  { label: 'Activity Summary', share: 7 },
   { label: 'Status', share: 8 },
   { label: 'Last Activity', share: 7, align: 'centre' },
 ];
@@ -904,7 +913,20 @@ function measureWorkRow(kit: Kit, row: WorkRow, boxes: { x: number; w: number }[
     wrap(kit.bold, row.projectName, BODY_SIZE, inner(0)),
     /* The name shares its cell with a 15pt disc. */
     wrap(kit.regular, row.personName, BODY_SIZE, inner(1) - 19),
-    w(2, row.role ?? '-'),
+    /* ── ⚠️ THE TASKS, WHERE THE ROLE WAS — 2026-09-03 ─────────────────────
+       Owner asked for the report to name the work rather than repeat a role
+       word, and asked for the PDF to carry the same: *"these all things should
+       also be exported, like the tasks, whoever done which task should also be
+       exported in the PDF."*
+
+       Every task, one per line, wrapped — NOT capped at three the way the screen
+       caps it. The screen has a detail panel one click behind it; a printed
+       sheet has nothing behind it, so an export that said "and 4 more" would be
+       a document with information deliberately withheld. The row grows and the
+       page break moves with it, which `measureWorkRow` already handles. */
+    row.tasks.length > 0
+      ? row.tasks.flatMap((task) => wrap(kit.regular, task.title, BODY_SIZE, inner(2)))
+      : ['-'],
     [''], // platform marks, measured separately below
     [String(row.tasksAssigned)],
     [String(row.tasksDone)],

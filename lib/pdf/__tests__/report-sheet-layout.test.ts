@@ -40,7 +40,8 @@ const row = (over: Partial<WorkRow> = {}): WorkRow => ({
   userId: 'u1',
   personName: 'Kashif Ahmed',
   avatarUrl: null,
-  role: 'Manager',
+  /* `role` became `tasks` on 2026-09-03 — see WorkRow. */
+  tasks: [],
   platforms: ['facebook', 'instagram'],
   tasksAssigned: 20,
   tasksDone: 18,
@@ -150,7 +151,7 @@ describe('row height', () => {
       row({ activitySummary: '10 posts, 3 reels, 2 stories, 4 carousels, 2 website updates, 1 ad' }),
       row({ projectName: 'A Project With A Very Long Name Indeed For Testing' }),
       row({ platforms: ['facebook', 'instagram', 'linkedin', 'tiktok', 'x'] }),
-      row({ platforms: [], contentTypes: [], activitySummary: '', role: null }),
+      row({ platforms: [], contentTypes: [], activitySummary: '', tasks: [] }),
     ]) {
       const measured = measureWorkRow(kit as never, sample, boxes);
       const tallest = Math.max(...measured.lines.map((l) => l.length));

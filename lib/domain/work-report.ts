@@ -1,10 +1,17 @@
 import {
   CONTENT_KIND_LABEL,
-  PROJECT_ROLE_LABEL,
   STATUS_META,
   type ContentKind,
 } from './constants';
-import { taskInPeriod, type Cell, type Report, type ReportInput, type ReportTask } from './reports';
+import {
+  taskInPeriod,
+  type Cell,
+  type Report,
+  type ReportInput,
+  type ReportTask,
+  type TaskLink,
+} from './reports';
+import type { TaskStatus } from './constants';
 
 /* ============================================================================
  * THE WORK REPORT — a row per person, per project
@@ -56,8 +63,16 @@ export interface WorkRow {
   readonly userId: string | null;
   readonly personName: string;
   readonly avatarUrl: string | null;
-  /** The label, already resolved. Null where they hold no role on this project. */
-  readonly role: string | null;
+  /* ── ⚠️ `role` IS GONE, AND THE TASKS TOOK ITS COLUMN — 2026-09-03 ────────
+     Owner: *"Instead of a role I don't need roles right? Role and top poster
+     here should mention the task, what the task is, and who done which task…
+     Task name should mention a list of all tasks names that should display."*
+
+     The project role — Manager, Design, Content — was the same word on every row
+     a person appeared in and told a reader nothing they could act on. What was
+     missing was the work itself: a row said "3 assigned, 2 done" and never what
+     the three were. */
+  readonly tasks: readonly WorkTaskLine[];
   readonly platforms: readonly string[];
   readonly tasksAssigned: number;
   readonly tasksDone: number;
@@ -69,6 +84,20 @@ export interface WorkRow {
   readonly status: WorkStatus;
   /** ISO, or null. The screen turns it into "1h ago" with its own clock. */
   readonly lastActive: string | null;
+}
+
+/** One task inside a row, and everything the detail panel shows about it. */
+export interface WorkTaskLine {
+  readonly reference: string;
+  readonly title: string;
+  readonly description: string | null;
+  /** "Static post", "Reel / short video", or "Task" for work that is not content. */
+  readonly category: string;
+  readonly status: TaskStatus;
+  readonly statusLabel: string;
+  readonly dueDate: string | null;
+  readonly publishedOn: string | null;
+  readonly links: readonly TaskLink[];
 }
 
 export interface PosterRow {
@@ -85,14 +114,12 @@ export interface PosterRow {
 export interface WorkReport {
   readonly rows: readonly WorkRow[];
   readonly posters: readonly PosterRow[];
-  /**
-   * Whose name carries the "Top poster" badge.
-   *
-   * ⚠️ ONE person across the whole report, not one per row. The mockup shows the
-   * badge beside a single name in each table, and a badge that appeared on eight
-   * rows would say nothing — "top" is a superlative or it is decoration.
-   */
-  readonly topPosterId: string | null;
+  /* ── ⚠️ `topPosterId` IS GONE — 2026-09-03 ────────────────────────────────
+     Owner: *"Role and top poster here should mention the task."* The badge was
+     a superlative over a report somebody had already filtered, so "top" meant
+     "top of what is left on screen" — which changes as the filter changes and
+     was never a fact about the division. The names are all in the rows; who did
+     most is a column a reader can sort. */
 }
 
 export const WORK_SORTS = [
@@ -248,9 +275,28 @@ export function buildWorkReport(input: ReportInput, options: WorkReportOptions):
       userId: first.assigneeId,
       personName: first.assigneeName ?? 'Unassigned',
       avatarUrl: first.assigneeAvatarUrl,
-      role: first.assigneeId
-        ? (PROJECT_ROLE_LABEL[options.roles.get(key) ?? ''] ?? null)
-        : null,
+      /* ── ⚠️ THE WORK ITSELF, IN THE COLUMN THE ROLE HELD ─────────────────
+         Owner, 2026-09-03: *"Task name should mention a list of all tasks names
+         that should display… each row should display the task related to that
+         person."* Sorted so the finished work reads first — the question a row
+         is opened to answer is usually "what did they actually deliver". */
+      tasks: [...mine]
+        .sort((a, b) => Number(isDone(b)) - Number(isDone(a)))
+        .map(
+          (task): WorkTaskLine => ({
+            reference: task.reference,
+            title: task.title,
+            description: task.description,
+            /* "Task" for work that is not content — the same word the project
+               report uses, so the two do not describe one thing two ways. */
+            category: task.contentKind ? CONTENT_KIND_LABEL[task.contentKind] : 'Task',
+            status: task.status,
+            statusLabel: STATUS_META[task.status].label,
+            dueDate: task.dueDate,
+            publishedOn: task.publishedOn,
+            links: task.links,
+          }),
+        ),
       platforms,
       tasksAssigned: mine.length,
       tasksDone: mine.filter(isDone).length,
@@ -307,13 +353,10 @@ export function buildWorkReport(input: ReportInput, options: WorkReportOptions):
        ranking — re-ordering it alphabetically would leave it with no meaning. */
     .sort((a, b) => b.totalPosts - a.totalPosts);
 
-  /* ⚠️ A tie means NOBODY is top. Two people on 22 posts and a badge on whichever
-     the sort happened to put first is a claim the data does not support. */
-  const best = posters[0];
-  const tied = best !== undefined && posters.filter((p) => p.totalPosts === best.totalPosts).length > 1;
-  const topPosterId = best && best.totalPosts > 0 && !tied ? best.userId : null;
-
-  return { rows: sortRows(rows, options.sort, options.direction), posters, topPosterId };
+  /* The top-poster badge is gone — see the note on `WorkReport`. The ranking it
+     came from is still the order of `posters`, which is the whole point of that
+     table. */
+  return { rows: sortRows(rows, options.sort, options.direction), posters };
 }
 
 /** "4 reels, 10 posts, 8 stories" — largest first, so the headline number leads. */
@@ -435,7 +478,10 @@ export function workReportToReport(
     rows: work.rows.map((row) => [
       text(row.projectName),
       text(row.personName),
-      text(row.role ?? '—'),
+      /* Every task name, semicolon-separated: a spreadsheet cell cannot carry
+         the stacked rows the screen draws, and truncating to three here would
+         make the export quietly less complete than the page. */
+      text(row.tasks.map((task) => task.title).join('; ') || '—'),
       /* Slugs capitalised. The spreadsheet has no brand marks, so the column has
          to carry the same fact as words. */
       text(row.platforms.map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join(', ')),

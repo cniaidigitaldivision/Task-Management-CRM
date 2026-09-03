@@ -7,7 +7,7 @@ import { audit } from '@/lib/db/queries/audit';
 import { listPeople, projectRolesByPerson } from '@/lib/db/queries/people';
 import { listProjects } from '@/lib/db/queries/projects';
 import { listTasks } from '@/lib/db/queries/tasks';
-import { platformSlugsByTask } from '@/lib/db/queries/placements';
+import { placementLinksByTask, platformSlugsByTask } from '@/lib/db/queries/placements';
 import { teamWorkload } from '@/lib/db/queries/workload';
 import { computeWorkload, weekWindow } from '@/lib/domain/workload';
 import {
@@ -173,7 +173,7 @@ export async function buildReportAction(
     return { ok: false, error: 'That period is not a valid pair of dates. Pick a start and an end.' };
   }
 
-  const [taskRows, projectRows, people, platformsByTask] = await Promise.all([
+  const [taskRows, projectRows, people, platformsByTask, linksByTask] = await Promise.all([
     /* 5000 matches the CSV export's ceiling. A report over a period will be far
        under it; the bound exists so one enormous query cannot be provoked. */
     listTasks(user.id, { includeClosed: true, limit: 5000 }),
@@ -182,6 +182,10 @@ export async function buildReportAction(
     /* In parallel with the tasks, not after them: it does not depend on which
        tasks came back, because RLS narrows both to the same reader. */
     platformSlugsByTask(user.id),
+    /* Read alongside the slugs rather than after them — see the note above. The
+       detail panel needs the platform NAME and the live link, which a slug
+       cannot supply. */
+    placementLinksByTask(user.id),
   ]);
 
   const subjectId = request.subjectId?.trim() || null;
@@ -202,7 +206,11 @@ export async function buildReportAction(
        clock on the reader's machine. See ReportInput.today. */
     today: new Date(now).toISOString().slice(0, 10),
     tasks: taskRows.map((row) =>
-      toReportTask({ ...row, platforms: platformsByTask.get(row.id) ?? [] }),
+      toReportTask({
+        ...row,
+        platforms: platformsByTask.get(row.id) ?? [],
+        links: linksByTask.get(row.id) ?? [],
+      }),
     ),
     people: await reportPeople(user.id, period, now),
     projects: projectRows.map((p) => ({
@@ -394,10 +402,14 @@ function toReportTask(row: {
   publishedOn: string | null;
   assigneeAvatarUrl: string | null;
   updatedAt: string;
+  description: string | null;
+  links: readonly ReportTask['links'][number][];
 }): ReportTask {
   return {
     reference: row.reference,
     title: row.title,
+    description: row.description,
+    links: row.links,
     projectId: row.projectId,
     projectName: row.projectName,
     projectType: row.projectType,

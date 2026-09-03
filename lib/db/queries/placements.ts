@@ -163,6 +163,52 @@ export async function listPlacementsForProject(
  * is the common case for anything unpublished — the caller should read a missing
  * key as an empty list, not as unknown.
  */
+/** One placement, with enough to name it and open it. */
+export interface TaskLink {
+  readonly slug: string;
+  readonly platformName: string;
+  /** Null where the destination is recorded but the link has not been. */
+  readonly url: string | null;
+}
+
+/**
+ * Every placement, grouped by task, with its platform name and live link.
+ *
+ * ── ⚠️ WHY THIS EXISTS BESIDE `platformSlugsByTask` ─────────────────────────
+ * That one returns slugs, which is all the work report's Platform column needs —
+ * it draws icons. Owner, 2026-09-03, asked the report's row detail to show
+ * *"these are the platforms, these are the platform URLs"*, and a slug cannot
+ * be opened or read aloud.
+ *
+ * Kept as a separate function rather than widening the other: the table renders
+ * for every row on every load and wants the narrow shape, while this is read
+ * once for a detail panel. Making the common path carry the rare path's columns
+ * is how a list query gets slow.
+ */
+export async function placementLinksByTask(actorId: string): Promise<Map<string, TaskLink[]>> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select tp.task_id, pl.slug, pl.name, tp.url
+      from public.task_placements tp
+      join public.platforms pl on pl.id = tp.platform_id
+      join public.tasks t on t.id = tp.task_id
+     where t.is_deleted = false
+     order by tp.task_id, pl.sort_order
+  `);
+
+  const byTask = new Map<string, TaskLink[]>();
+  for (const row of rows as Array<Record<string, unknown>>) {
+    const id = row.task_id as string;
+    const list = byTask.get(id) ?? [];
+    list.push({
+      slug: row.slug as string,
+      platformName: row.name as string,
+      url: (row.url as string | null) ?? null,
+    });
+    byTask.set(id, list);
+  }
+  return byTask;
+}
+
 export async function platformSlugsByTask(actorId: string): Promise<Map<string, string[]>> {
   const rows = await withUser(actorId, (tx) => tx`
     select tp.task_id, pl.slug

@@ -6,6 +6,8 @@ import { PlatformIcon } from '@/components/brand/platform-icon';
 import { Avatar } from '@/components/ui/avatar';
 import { Pagination, usePagination } from '@/components/ui/pagination';
 import { WORK_STATUS_META, type PosterRow, type WorkReport, type WorkRow } from '@/lib/domain/work-report';
+import { STATUS_META } from '@/lib/domain/constants';
+import { WorkRowDetail } from './work-row-detail';
 import { relativeAge } from '@/lib/view/relative-age';
 import { cn } from '@/lib/utils';
 
@@ -62,6 +64,12 @@ export function WorkReportTables({
   nowMs: number;
 }) {
   const pager = usePagination(work.rows);
+  /* ── ⚠️ THE OPEN ROW, BY KEY RATHER THAN BY OBJECT ────────────────────────
+     Owner, 2026-09-03: *"when I click on any row it will pop up."* Held as a
+     key so a refresh that rebuilds `work.rows` re-resolves to the same pairing
+     instead of pinning a stale copy of it open. */
+  const [openKey, setOpenKey] = React.useState<string | null>(null);
+  const open = openKey ? work.rows.find((row) => row.key === openKey) ?? null : null;
 
   return (
     <div className="space-y-6">
@@ -78,7 +86,7 @@ export function WorkReportTables({
               <tr className="border-b border-border-default bg-bg-subtle">
                 <Th>Project</Th>
                 <Th>Person</Th>
-                <Th>Role</Th>
+                <Th>Tasks</Th>
                 <Th>Platform</Th>
                 <Th numeric>Tasks Assigned</Th>
                 <Th numeric>Tasks Done</Th>
@@ -92,7 +100,7 @@ export function WorkReportTables({
             </thead>
             <tbody>
               {pager.visible.map((row) => (
-                <Row key={row.key} row={row} topPosterId={work.topPosterId} nowMs={nowMs} />
+                <Row key={row.key} row={row} nowMs={nowMs} onOpen={() => setOpenKey(row.key)} />
               ))}
               {work.rows.length === 0 && (
                 <tr>
@@ -105,6 +113,8 @@ export function WorkReportTables({
           </table>
         </div>
       </div>
+
+      {open && <WorkRowDetail row={open} onClose={() => setOpenKey(null)} />}
 
       <section className="space-y-3">
         <h2 className="text-body font-semibold text-text-primary">Posting performance by member</h2>
@@ -129,11 +139,7 @@ export function WorkReportTables({
               </thead>
               <tbody>
                 {work.posters.map((poster) => (
-                  <PosterLine
-                    key={poster.userId ?? '@unassigned'}
-                    poster={poster}
-                    topPosterId={work.topPosterId}
-                  />
+                  <PosterLine key={poster.userId ?? '@unassigned'} poster={poster} />
                 ))}
                 {work.posters.length === 0 && (
                   <tr>
@@ -228,17 +234,36 @@ const TD = 'px-3 py-3 align-middle text-caption';
 
 function Row({
   row,
-  topPosterId,
   nowMs,
+  onOpen,
 }: {
   row: WorkRow;
-  topPosterId: string | null;
   nowMs: number;
+  onOpen: () => void;
 }) {
   const status = WORK_STATUS_META[row.status];
 
   return (
-    <tr className="border-b border-border-subtle last:border-0 hover:bg-bg-hover">
+    /* ── ⚠️ THE WHOLE ROW OPENS THE DETAIL, AND IT IS KEYBOARD-REACHABLE ─────
+        `onClick` on a `<tr>` alone is a mouse-only control. `tabIndex` plus the
+        Enter/Space handler gives it the behaviour a button has, which matters
+        here because this table is twelve columns wide and somebody navigating it
+        with a keyboard has no other way in.
+
+        Not a real <button>: one cannot wrap a table row, and a button inside
+        every cell would be twelve tab stops per row. */
+    <tr
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onOpen();
+        }
+      }}
+      title={`Open ${row.personName} on ${row.projectName}`}
+      className="cursor-pointer border-b border-border-subtle last:border-0 hover:bg-bg-hover focus-visible:bg-bg-hover focus-visible:outline-none">
       <td className={cn(TD, 'text-text-primary')}>
         <span className="block truncate" title={row.projectName}>
           {row.projectName}
@@ -253,14 +278,44 @@ function Row({
           <span className="min-w-0 flex-1 truncate text-text-primary" title={row.personName}>
             {row.personName}
           </span>
-          {row.userId !== null && row.userId === topPosterId && <TopPoster />}
         </span>
       </td>
 
+      {/* ── ⚠️ THE TASKS, WHERE THE ROLE USED TO BE ──────────────────────────
+          Owner, 2026-09-03: *"Task name should mention a list of all tasks names
+          that should display… each row should display the task related to that
+          person."*
+
+          Capped at three with a count for the rest: a person with fourteen tasks
+          would otherwise make one row taller than the screen, and the full list
+          is one click away in the detail panel. Three is enough to recognise
+          what the row is about. */}
       <td className={cn(TD, 'text-text-secondary')}>
-        <span className="block truncate" title={row.role ?? undefined}>
-          {row.role ?? '—'}
-        </span>
+        {row.tasks.length === 0 ? (
+          <span className="text-text-tertiary">—</span>
+        ) : (
+          <span className="block space-y-0.5">
+            {row.tasks.slice(0, 3).map((task) => (
+              <span key={task.reference} className="flex items-baseline gap-1.5">
+                {/* A dot in the status colour, so what is finished reads at a
+                    glance without a word per line. */}
+                <span
+                  aria-hidden="true"
+                  className="mt-[0.35em] size-1.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: `var(--${STATUS_META[task.status].token})` }}
+                />
+                <span className="min-w-0 flex-1 truncate text-text-primary" title={task.title}>
+                  {task.title}
+                </span>
+              </span>
+            ))}
+            {row.tasks.length > 3 && (
+              <span className="block text-micro text-text-tertiary">
+                and {row.tasks.length - 3} more
+              </span>
+            )}
+          </span>
+        )}
       </td>
 
       <td className={TD}>
@@ -329,14 +384,13 @@ function Num({ value, strong }: { value: number; strong?: boolean }) {
   );
 }
 
-function PosterLine({ poster, topPosterId }: { poster: PosterRow; topPosterId: string | null }) {
+function PosterLine({ poster }: { poster: PosterRow }) {
   return (
     <tr className="border-b border-border-subtle last:border-0 hover:bg-bg-hover">
       <td className={cn(TD, 'whitespace-nowrap')}>
         <span className="flex items-center gap-2">
           <Avatar name={poster.personName} src={poster.avatarUrl} size="xs" />
           <span className="text-text-primary">{poster.personName}</span>
-          {poster.userId !== null && poster.userId === topPosterId && <TopPoster />}
         </span>
       </td>
 
@@ -382,21 +436,3 @@ function PosterLine({ poster, topPosterId }: { poster: PosterRow; topPosterId: s
   );
 }
 
-/**
- * ⚠️ Rendered for ONE person across the whole report, and for nobody at all when
- * the top two are tied — see `topPosterId`. A badge on every row, or awarded by a
- * coin flip between equals, is a claim the data does not support.
- */
-function TopPoster() {
-  return (
-    <span
-      className="inline-flex items-center rounded-full px-1.5 py-0.5 text-micro font-semibold"
-      style={{
-        backgroundColor: 'color-mix(in oklab, var(--status-done) 16%, transparent)',
-        color: 'var(--status-done)',
-      }}
-    >
-      Top poster
-    </span>
-  );
-}
