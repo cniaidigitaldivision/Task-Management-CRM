@@ -833,12 +833,17 @@ interface Column {
 const WORK_COLUMNS: readonly Column[] = [
   { label: 'Project', share: 10 },
   { label: 'Person', share: 12 },
-  { label: 'Tasks', share: 16 },
+  { label: 'Tasks', share: 15 },
   { label: 'Platform', share: 8 },
   { label: 'Tasks Assigned', share: 6, align: 'centre' },
   { label: 'Tasks Done', share: 6, align: 'centre' },
   { label: 'Tasks Pending', share: 6, align: 'centre' },
-  { label: 'Posts Published', share: 6, align: 'centre' },
+  /* ⚠️ 7, NOT 6. At 6% the inner width is 34.7pt and "Published" measures 35.3pt
+     in the header face — six tenths of a point short, so the wrapper did what it
+     is built to do with a word that cannot fit and broke it: the sheet printed
+     "Posts Publishe" over "d". Visible in the rendered PDF and in nothing else.
+     The point came off Tasks, which has the most to spare. */
+  { label: 'Posts Published', share: 7, align: 'centre' },
   { label: 'Content Type', share: 8 },
   { label: 'Activity Summary', share: 7 },
   { label: 'Status', share: 8 },
@@ -848,6 +853,11 @@ const WORK_COLUMNS: readonly Column[] = [
 const CELL_PAD = 6;
 const LINE_H = 9.5;
 const BODY_SIZE = 7.6;
+/* The header face's size. Named rather than repeated as a literal in `drawHead`,
+   because a test has to measure headings against it — a column narrower than one
+   of its own heading words breaks that word in half, and only the drawn PDF shows
+   it. See the "gives every heading word room to be whole" test. */
+const HEAD_SIZE = 7.4;
 
 function columnBoxes(columns: readonly Column[]): { x: number; w: number }[] {
   const boxes: { x: number; w: number }[] = [];
@@ -869,7 +879,7 @@ function columnBoxes(columns: readonly Column[]): { x: number; w: number }[] {
 function drawHead(kit: Kit, columns: readonly Column[], top: number): number {
   const boxes = columnBoxes(columns);
   const wrapped = columns.map((column, i) =>
-    wrap(kit.bold, column.label, 7.4, boxes[i].w - CELL_PAD * 2),
+    wrap(kit.bold, column.label, HEAD_SIZE, boxes[i].w - CELL_PAD * 2),
   );
   const lines = Math.max(...wrapped.map((w) => w.length));
   const h = lines * LINE_H + 10;
@@ -888,7 +898,7 @@ function drawHead(kit: Kit, columns: readonly Column[], top: number): number {
       text(kit, line, {
         x: anchor,
         baseline: firstBaseline + index * LINE_H,
-        size: 7.4,
+        size: HEAD_SIZE,
         bold: true,
         color: INK.white,
         align: column.align ?? 'left',
@@ -1078,7 +1088,7 @@ const isNumeric = (column: ReportColumn) =>
  */
 function genericColumns(kit: Kit, report: Report): Column[] {
   const wants = report.columns.map((column, index) => {
-    let widest = widthOf(kit.bold, column.label, 7.4) * 0.6;
+    let widest = widthOf(kit.bold, column.label, HEAD_SIZE) * 0.6;
     /* Sampled: 200 rows finds the widest name without measuring 45,000 strings. */
     for (const row of report.rows.slice(0, 200)) {
       const cell = row[index];
@@ -1305,6 +1315,7 @@ export const __layout = {
   CELL_PAD,
   LINE_H,
   BODY_SIZE,
+  HEAD_SIZE,
   FLOOR,
   M,
   columnBoxes,

@@ -22,7 +22,7 @@ import type { WorkRow, WorkTaskLine } from '@/lib/domain/work-report';
  * So they get pinned here rather than re-checked by eye after every change.
  * ========================================================================= */
 
-const { WORK_COLUMNS, CONTENT_W, CELL_PAD, LINE_H, BODY_SIZE, columnBoxes, wrap, widthOf, measureWorkRow } =
+const { WORK_COLUMNS, CONTENT_W, CELL_PAD, LINE_H, BODY_SIZE, HEAD_SIZE, columnBoxes, wrap, widthOf, measureWorkRow } =
   __layout;
 
 async function fonts() {
@@ -85,6 +85,31 @@ describe('column geometry', () => {
     }
     const last = boxes[boxes.length - 1];
     expect(last.x + last.w - boxes[0].x).toBeCloseTo(CONTENT_W, 6);
+  });
+
+  /* ── ⚠️ ADDED AFTER READING A RENDERED SHEET, 2026-09-03 ─────────────────
+     The header printed "Posts Publishe" over "d". "Published" measures 35.3pt in
+     the header face and the column's inner width was 34.7 — six tenths of a
+     point, and the wrapper correctly broke a word that could not fit.
+
+     Every other test in this file passed. Nothing here reads the drawn output,
+     so a heading chopped mid-word was invisible until the PDF was decompressed
+     and its text operators decoded by hand. This is the assertion that closes
+     that gap, and it generalises: it holds for every column and re-checks itself
+     whenever a share moves. */
+  it('gives every heading word room to be whole', async () => {
+    const kit = await fonts();
+    const boxes = columnBoxes(WORK_COLUMNS);
+
+    for (const [i, column] of WORK_COLUMNS.entries()) {
+      const inner = boxes[i].w - CELL_PAD * 2;
+      for (const word of column.label.split(' ')) {
+        expect(
+          kit.bold.widthOfTextAtSize(word, HEAD_SIZE),
+          `"${word}" does not fit the ${column.label} column and will be broken mid-word`,
+        ).toBeLessThanOrEqual(inner);
+      }
+    }
   });
 
   it('gives every column room for at least a few characters', () => {
