@@ -494,6 +494,28 @@ describe('task lines on a work row', () => {
     expect(line.links.filter((link) => link.url)).toHaveLength(1);
   });
 
+  /* Seen on CLI-1556: the same sentence in the title box and the description box.
+     The panel printed it twice, once bold and once not. */
+  it('drops a description that is only the title typed again', () => {
+    const work = buildWorkReport(
+      input({
+        tasks: [task({ title: 'Set up meta ad account', description: '  Set up  META ad account ' })],
+      }),
+      options(),
+    );
+    expect(work.rows[0].tasks[0].description).toBeNull();
+  });
+
+  it('keeps a description that merely starts with the title', () => {
+    const work = buildWorkReport(
+      input({
+        tasks: [task({ title: 'AI video', description: 'AI video about home space, uploaded to socials.' })],
+      }),
+      options(),
+    );
+    expect(work.rows[0].tasks[0].description).toBe('AI video about home space, uploaded to socials.');
+  });
+
   /* ⚠️ Uncapped. The screen shows three and a "+N more" because the detail panel
      is one click behind it; the PDF has nothing behind it and prints them all,
      so the row has to carry them all. */

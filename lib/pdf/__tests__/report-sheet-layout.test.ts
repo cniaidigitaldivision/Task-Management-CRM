@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { PDFDocument, StandardFonts } from 'pdf-lib';
 
 import { __layout } from '../report-sheet';
-import type { WorkRow } from '@/lib/domain/work-report';
+import type { WorkRow, WorkTaskLine } from '@/lib/domain/work-report';
 
 /* ============================================================================
  * THE PDF'S GEOMETRY
@@ -32,6 +32,19 @@ async function fonts() {
     regular: await pdf.embedFont(StandardFonts.Helvetica),
   };
 }
+
+/** One task line, minimal — only the title affects the row's measured height. */
+const taskLine = (title: string): WorkTaskLine => ({
+  reference: title.replace(/\s+/g, '-'),
+  title,
+  description: null,
+  category: 'Task',
+  status: 'done',
+  statusLabel: 'Done',
+  dueDate: null,
+  publishedOn: null,
+  links: [],
+});
 
 const row = (over: Partial<WorkRow> = {}): WorkRow => ({
   key: 'k',
@@ -175,6 +188,38 @@ describe('row height', () => {
       boxes,
     );
     expect(long.height).toBeGreaterThan(short.height);
+  });
+
+  /* ── ⚠️ THE UNCAPPED TASK LIST, ADDED 2026-09-03 ─────────────────────────
+     The screen caps the list at three and puts the rest behind a detail panel.
+     The PDF has nothing behind it, so it prints them all: *"these all things
+     should also be exported, like the tasks, whoever done which task."*
+
+     That makes the row's height depend on a list with no upper bound, which is
+     the precise shape of the bug the first test in this block exists to catch —
+     so it needs its own sample. A person with eight tasks whose row measured the
+     height of one would print eight titles over the rows beneath, and the PDF is
+     the artefact nobody re-renders to check. */
+  it('grows to hold every task, however many the pairing has', async () => {
+    const kit = await fonts();
+    const boxes = columnBoxes(WORK_COLUMNS);
+
+    const one = measureWorkRow(kit as never, row({ tasks: [taskLine('Only one')] }), boxes);
+    const eight = measureWorkRow(
+      kit as never,
+      row({
+        tasks: Array.from({ length: 8 }, (_, i) => taskLine(`Task number ${i + 1}`)),
+      }),
+      boxes,
+    );
+
+    expect(eight.height).toBeGreaterThan(one.height);
+
+    const tallest = Math.max(...eight.lines.map((l) => l.length));
+    expect(eight.height).toBeGreaterThanOrEqual(tallest * LINE_H);
+    /* Eight one-line titles cannot measure as fewer than eight lines — that is
+       what a silently capped list would look like from here. */
+    expect(tallest).toBeGreaterThanOrEqual(8);
   });
 
   it('leaves room for the platform marks when a person posts everywhere', async () => {

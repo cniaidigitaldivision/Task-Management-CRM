@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { ExternalLink } from 'lucide-react';
 
-import { PlatformIcon } from '@/components/brand/platform-icon';
+import { PLATFORM_MARKS, PlatformIcon } from '@/components/brand/platform-icon';
 import { Avatar } from '@/components/ui/avatar';
 import { Dialog } from '@/components/ui/dialog';
 import { STATUS_META } from '@/lib/domain/constants';
@@ -86,10 +86,14 @@ export function WorkRowDetail({ row, onClose }: { row: WorkRow; onClose: () => v
                   className="inline-flex items-center gap-1.5 rounded-lg border border-border-subtle px-2 py-1 text-caption text-text-secondary"
                 >
                   <PlatformIcon slug={slug} size={14} />
-                  {/* Capitalised from the slug: this is the row's summary, and
-                      the per-task lists below carry the real platform names off
-                      each placement. */}
-                  {slug.charAt(0).toUpperCase() + slug.slice(1)}
+                  {/* ⚠️ THE MARK'S OWN LABEL, NOT THE SLUG CAPITALISED. That is
+                      what the first version did, and it printed "Tiktok" beside
+                      a TikTok logo — visibly wrong on screen, and wrong the same
+                      way for "Youtube", "Whatsapp" and "Linkedin". The slug is a
+                      database key; only the catalogue knows where the capitals
+                      go. Falls back to the slug for a platform the marks do not
+                      carry, which is better than an empty chip. */}
+                  {PLATFORM_MARKS[slug]?.label ?? slug}
                 </span>
               ))}
             </div>

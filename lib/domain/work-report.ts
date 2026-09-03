@@ -86,6 +86,19 @@ export interface WorkRow {
   readonly lastActive: string | null;
 }
 
+/**
+ * Whether two pieces of prose say the same thing, ignoring how they are spaced.
+ *
+ * Used only to stop a task's description being printed under a heading that is
+ * already the same sentence. Deliberately dumb: it is not trying to detect a
+ * paraphrase, only an exact duplicate typed into two boxes.
+ */
+function sameText(a: string | null, b: string): boolean {
+  if (!a) return false;
+  const flatten = (value: string) => value.trim().replace(/\s+/g, ' ').toLowerCase();
+  return flatten(a) === flatten(b);
+}
+
 /** One task inside a row, and everything the detail panel shows about it. */
 export interface WorkTaskLine {
   readonly reference: string;
@@ -286,7 +299,19 @@ export function buildWorkReport(input: ReportInput, options: WorkReportOptions):
           (task): WorkTaskLine => ({
             reference: task.reference,
             title: task.title,
-            description: task.description,
+            /* ── ⚠️ NOT THE DESCRIPTION WHEN IT IS THE TITLE AGAIN ────────────
+               CLI-1556's description is its title, word for word, and the detail
+               panel printed the sentence twice — once in bold as the heading and
+               again underneath as the body. Several real tasks are entered that
+               way, because the person filling the form put the same text in both
+               boxes.
+
+               Dropped rather than shown: the panel exists to add what the row
+               could not fit, and a line that repeats the line above it adds
+               nothing while making the reader check whether they differ.
+               Compared on trimmed, collapsed whitespace so a trailing newline
+               does not defeat it. */
+            description: sameText(task.description, task.title) ? null : task.description,
             /* "Task" for work that is not content — the same word the project
                report uses, so the two do not describe one thing two ways. */
             category: task.contentKind ? CONTENT_KIND_LABEL[task.contentKind] : 'Task',
