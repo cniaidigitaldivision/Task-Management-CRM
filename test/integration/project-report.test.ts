@@ -102,14 +102,21 @@ async function contentFor(
           target: bucket.target,
           isOff: bucket.target === 0 && bucket.offDays > 0,
         })),
-    published: data.placements
-      .filter((placement) => placement.url !== null)
-      .slice(0, 6)
-      .map((placement) => ({
-        platform: placement.platformName,
-        contentType: placement.contentKind === 'reel' ? 'Reel' : 'Static Post',
+    /* One row per TASK since 2026-09-03 — see PublishedRow. The integration
+       test mirrors the action's shape rather than re-deriving it. */
+    people: [],
+    published: data.assets.slice(0, 6).map((asset) => ({
+        task: asset.title,
+        reference: asset.reference,
+        platform:
+          data.placements.find((placement) => placement.taskId === asset.id)?.platformName ?? '—',
+        contentType: asset.contentKind === 'reel' ? 'Reel' : 'Static Post',
+        person: asset.assigneeName ?? asset.createdByName ?? '—',
+        status: asset.status,
         time: '',
-        url: placement.url ?? '',
+        url:
+          data.placements.find((placement) => placement.taskId === asset.id && placement.url)
+            ?.url ?? '',
       })),
     platformSummaries: project.platforms.map((platform) => {
       const row = report.platforms.find((entry) => entry.platformId === platform.id);

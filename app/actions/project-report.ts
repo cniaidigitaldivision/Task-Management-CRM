@@ -18,6 +18,12 @@ import {
   reportPeriod,
 } from '@/lib/domain/report-periods';
 import { can } from '@/lib/domain/permissions';
+import {
+  CONTENT_KIND_LABEL,
+  STATUS_META,
+  type ContentKind,
+  type TaskStatus,
+} from '@/lib/domain/constants';
 import { generatePoster, chatgptKey } from '@/lib/ai/report-image';
 import { uploadLibraryObject } from '@/lib/storage/library';
 import { nowMs } from '@/lib/now';
@@ -202,17 +208,71 @@ export async function generateProjectReportAction(
 
   /* The daily table: one row per live placement, with the time from the task. Capped —
      a busy day still has to fit the panel, and the count is stated in the glance. */
+  /* ── ⚠️ ONE ROW PER TASK, NOT PER PLACEMENT ──────────────────────────────
+     Owner, 2026-09-03, reading the generated PDF: *"if today's post should
+     mention who did this post, what the post task name is… the category, the
+     task name, and their status, and if it's a static post then their URL."*
+
+     This built a row per PLACEMENT, so two posts cross-posted to three
+     platforms came out as six identical-looking rows naming neither the work
+     nor the person. A row is a piece of work now; the platforms it reached are
+     a column on it, and the first live link is the one that goes in.
+
+     ⚠️ `assets`, not `tasks`: this table is what WENT OUT in the period, which
+     is `published_on`. `data.tasks` is what was RAISED, counted on created_at —
+     a different question with a different date, and merging them would report a
+     task somebody started today as delivery. */
+  /* A mutable array per task — `data.placements` is readonly, so the accumulator
+     has to be its element type rather than the array type itself. */
+  const placementsByTask = new Map<string, (typeof data.placements)[number][]>();
+  for (const placement of data.placements) {
+    const list = placementsByTask.get(placement.taskId) ?? [];
+    list.push(placement);
+    placementsByTask.set(placement.taskId, list);
+  }
+
   const published = isDaily
-    ? data.placements
-        .filter((placement) => placement.url !== null)
-        .slice(0, 6)
-        .map((placement) => ({
-          platform: placement.platformName,
-          contentType: placement.contentKind === 'reel' ? 'Reel' : 'Static Post',
+    ? data.assets.slice(0, 6).map((asset) => {
+        const mine = placementsByTask.get(asset.id) ?? [];
+        /* Every platform it reached, in the order they came back, without
+           repeats — a post cross-posted twice to one platform is still one
+           platform as far as a reader is concerned. */
+        const platforms = [...new Set(mine.map((p) => p.platformName))];
+        const live = mine.find((p) => p.url !== null);
+
+        return {
+          task: asset.title,
+          reference: asset.reference,
+          contentType: CONTENT_KIND_LABEL[asset.contentKind as ContentKind] ?? 'Post',
+          /* Whoever did it; falling back to whoever raised it rather than to a
+             dash, because an unassigned post still had somebody behind it. */
+          person: asset.assigneeName ?? asset.createdByName ?? '—',
+          status: STATUS_META[asset.status as TaskStatus]?.label ?? asset.status,
+          platform: platforms.length > 0 ? platforms.join(', ') : '—',
           time: '',
-          url: placement.url ?? '',
-        }))
+          url: live?.url ?? '',
+        };
+      })
     : [];
+
+  /* ── WHO DID WHAT ────────────────────────────────────────────────────────
+     Owner: *"what each person did."* Counted over the period's published
+     assets, so it answers the same question the rest of the sheet does. Sorted
+     by volume, because the reason somebody reads this panel is to see who
+     carried the period. */
+  const byPerson = new Map<string, { posts: number; done: number }>();
+  for (const asset of data.assets) {
+    const name = asset.assigneeName ?? asset.createdByName ?? 'Unattributed';
+    const entry = byPerson.get(name) ?? { posts: 0, done: 0 };
+    entry.posts += 1;
+    if (asset.status === 'done') entry.done += 1;
+    byPerson.set(name, entry);
+  }
+
+  const people = [...byPerson.entries()]
+    .map(([name, counts]) => ({ name, ...counts }))
+    .sort((a, b) => b.posts - a.posts)
+    .slice(0, 8);
 
   /* The per-platform panel. "WHERE IT WENT" on the daily and weekly layouts,
      "PLATFORM DISTRIBUTION" with a share on the monthly one.
@@ -262,6 +322,34 @@ export async function generateProjectReportAction(
     glance.push(report.totalReels + ' reel' + (report.totalReels === 1 ? '' : 's') + ' published.');
   } else if (report.totalAssets > 0) {
     glance.push('No reel published in this period.');
+  }
+
+  /* ── ⚠️ HOW MUCH IS FINISHED, AND WHO DID IT ─────────────────────────────
+     Owner, 2026-09-03: *"how many tasks are done… what each person did."*
+     Neither figure was anywhere on the sheet: the panels counted what was
+     PUBLISHED, which says nothing about whether the work behind it is closed or
+     who closed it.
+
+     Put in the glance rather than in a new panel because the glance is already
+     the page's list of plain facts, and a fourth card on a fixed A4 layout costs
+     the tables their rows. */
+  const doneCount = data.assets.filter((asset) => asset.status === 'done').length;
+  if (data.assets.length > 0) {
+    glance.push(
+      doneCount === data.assets.length
+        ? `All ${data.assets.length} ${data.assets.length === 1 ? 'task is' : 'tasks are'} done.`
+        : `${doneCount} of ${data.assets.length} tasks done.`,
+    );
+  }
+
+  /* Named, and capped at three: the glance is a list somebody reads at a glance,
+     and a division of nine would push the platform line off it. The full list is
+     in `people`, which the layout can grow into later. */
+  for (const person of people.slice(0, 3)) {
+    glance.push(
+      `${person.name}: ${person.posts} post${person.posts === 1 ? '' : 's'}` +
+        (person.done > 0 && person.done < person.posts ? ` (${person.done} done)` : ''),
+    );
   }
   const busiest = report.platforms[0];
   if (busiest && busiest.placements > 0) {
@@ -318,6 +406,7 @@ export async function generateProjectReportAction(
           isOff: bucket.target === 0 && bucket.offDays > 0,
         })),
     published,
+    people,
     platformSummaries,
     glance,
     notes,

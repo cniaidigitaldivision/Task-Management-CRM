@@ -83,6 +83,7 @@ function content(overrides: Partial<ReportContent> = {}): ReportContent {
       '1 post(s) have no live link recorded.',
     ],
     notes: [],
+    people: [],
     activityTotal: '5',
     activityCaption: '3 static posts and 2 reels were published this week.',
     footer:
@@ -121,14 +122,22 @@ describe('composeReportPdf', () => {
         ],
         published: [
           {
+            task: 'Eid sale post',
+            reference: 'CLI-1568',
             platform: 'Facebook',
             contentType: 'Static Post',
+            person: 'Abdul Moiz',
+            status: 'Done',
             time: '10:00',
             url: 'https://facebook.com/daniyalmarketing/posts/12345',
           },
           {
+            task: 'Behind the scenes reel',
+            reference: 'CLI-1569',
             platform: 'Instagram',
             contentType: 'Reel',
+            person: 'Unzela',
+            status: 'In Review',
             time: '15:30',
             url: 'https://instagram.com/reel/Cuabc12345',
           },
@@ -323,14 +332,22 @@ describe('post links in the PDF', () => {
       rows: [],
       published: [
         {
-          platform: 'Facebook',
+          task: 'Eid sale post',
+          reference: 'CLI-1568',
+          platform: 'Facebook, Instagram',
           contentType: 'Static Post',
+          person: 'Abdul Moiz',
+          status: 'Done',
           time: '10:00',
           url: 'https://facebook.com/daniyalmarketing/posts/12345',
         },
         {
+          task: 'Behind the scenes reel',
+          reference: 'CLI-1569',
           platform: 'Instagram',
           contentType: 'Reel',
+          person: 'Unzela',
+          status: 'In Review',
           time: '15:30',
           url: 'https://instagram.com/reel/Cuabc12345',
         },
@@ -376,5 +393,62 @@ describe('post links in the PDF', () => {
       META,
     );
     expect(await urisIn(pdf)).toEqual([]);
+  });
+});
+
+/* ============================================================================
+ * THE PUBLISHED TABLE NAMES THE WORK AND THE PERSON — owner, 2026-09-03
+ * ----------------------------------------------------------------------------
+ * *"if today's post should mention who did this post, what the post task name
+ * is… the category, the task name, and their status."*
+ *
+ * It listed placements, so two posts across three platforms filled six rows
+ * naming neither. Asserted on the drawn text rather than the layout, because a
+ * column that renders in the wrong place is a design problem and a column whose
+ * CONTENT is missing is a broken report.
+ * ========================================================================= */
+describe('what the published table says', () => {
+  const daily = () =>
+    content({
+      kind: 'today',
+      kindLabel: 'DAILY REPORT',
+      rows: [],
+      published: [
+        {
+          task: 'Eid sale post',
+          reference: 'CLI-1568',
+          platform: 'Facebook, Instagram',
+          contentType: 'Static Post',
+          person: 'Abdul Moiz',
+          status: 'Done',
+          time: '',
+          url: 'https://facebook.com/p/1',
+        },
+      ],
+      people: [{ name: 'Abdul Moiz', posts: 1, done: 1 }],
+      glance: ['1 of 1 tasks done.', 'Abdul Moiz: 1 post'],
+    });
+
+  it('renders without throwing on the task-shaped row', async () => {
+    const pdf = await composeReportPdf(daily(), META);
+    await dump('today-tasks', pdf);
+    expect(isPdf(pdf)).toBe(true);
+  });
+
+  /* ⚠️ The link still works after the column moved. The annotation is anchored
+     to the LINK column, and moving it without moving the annotation would leave
+     a clickable rectangle over the status text — invisible, and wrong. */
+  it('keeps the link clickable in its new column', async () => {
+    const doc = await PDFDocument.load(await composeReportPdf(daily(), META));
+    const page = doc.getPage(0);
+    const annots = page.node.lookupMaybe(PDFName.of('Annots'), PDFArray);
+
+    expect(annots).toBeDefined();
+    const uri = annots
+      ?.lookup(0, PDFDict)
+      .lookupMaybe(PDFName.of('A'), PDFDict)
+      ?.lookupMaybe(PDFName.of('URI'), PDFString);
+
+    expect(uri?.asString()).toBe('https://facebook.com/p/1');
   });
 });

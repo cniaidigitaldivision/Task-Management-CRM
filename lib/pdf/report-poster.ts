@@ -1085,11 +1085,26 @@ function drawPublishedCard(
     content.kind === 'yesterday' ? 'PUBLISHED YESTERDAY' : 'PUBLISHED TODAY',
   );
 
+  /* ── ⚠️ TASK-SHAPED, NOT PLACEMENT-SHAPED — CHANGED 2026-09-03 ───────────
+     Owner, reading the generated PDF: *"if today's post should mention who did
+     this post, what the post task name is… the category, the task name, and
+     their status, and if it's a static post then their URL."*
+
+     It read PLATFORM / CONTENT TYPE / POSTING TIME / URL, so two posts
+     cross-posted to three platforms filled six rows that named neither the work
+     nor the person. POSTING TIME is gone with it: every row showed a dash,
+     because nothing in this product records the hour a post went live, and a
+     column that is always empty is worse than no column — it reads as data that
+     failed to load.
+
+     The width it freed goes to the task name, which is the widest thing here
+     and the one somebody scans for. */
   const columns = [
-    { label: 'PLATFORM', x: LEFT_X + 16, w: 108 },
-    { label: 'CONTENT TYPE', x: LEFT_X + 128, w: 92 },
-    { label: 'POSTING TIME', x: LEFT_X + 224, w: 78 },
-    { label: 'URL / REFERENCE', x: LEFT_X + 306, w: LEFT_W - 322 },
+    { label: 'TASK', x: LEFT_X + 16, w: 150 },
+    { label: 'CATEGORY', x: LEFT_X + 172, w: 74 },
+    { label: 'WHO', x: LEFT_X + 250, w: 78 },
+    { label: 'STATUS', x: LEFT_X + 332, w: 58 },
+    { label: 'LINK', x: LEFT_X + 394, w: LEFT_W - 410 },
   ];
 
   let baseline = top + 48;
@@ -1125,77 +1140,97 @@ function drawPublishedCard(
 
   baseline = bodyTop + step * 0.72;
   for (const row of content.published.slice(0, rows)) {
-    platformTile(kit, row.platform, columns[0].x, baseline - 9.5, 12);
-    draw(kit, row.platform, {
-      x: columns[0].x + 17,
+    /* The task, and its reference underneath in smaller grey. A reference alone
+       means nothing to a client; a title alone cannot be found on the board. */
+    draw(kit, row.task, {
+      x: columns[0].x,
       baseline,
       size: 8.5,
       color: INK,
-      maxWidth: columns[0].w - 17,
+      maxWidth: columns[0].w,
     });
+    if (row.reference) {
+      draw(kit, row.reference, {
+        x: columns[0].x,
+        baseline: baseline + 8.5,
+        size: 6.5,
+        color: FAINT,
+        maxWidth: columns[0].w,
+      });
+    }
 
     const isReel = /reel|video|short/i.test(row.contentType);
     strokeIcon(kit, isReel ? ICON.play : ICON.image, columns[1].x, baseline - 9, 11, GREY, 1.6);
     draw(kit, row.contentType, {
-      x: columns[1].x + 15,
+      x: columns[1].x + 14,
+      baseline,
+      size: 8,
+      color: INK,
+      maxWidth: columns[1].w - 14,
+    });
+    /* The platforms it reached, under the category — the information the old
+       PLATFORM column carried, kept rather than dropped. */
+    if (row.platform && row.platform !== '—') {
+      draw(kit, row.platform, {
+        x: columns[1].x + 14,
+        baseline: baseline + 8.5,
+        size: 6.5,
+        color: FAINT,
+        maxWidth: columns[1].w - 14,
+      });
+    }
+
+    draw(kit, row.person, {
+      x: columns[2].x,
       baseline,
       size: 8.5,
       color: INK,
-      maxWidth: columns[1].w - 15,
+      maxWidth: columns[2].w,
     });
 
-    if (row.time) {
-      kit.page.drawCircle({
-        x: columns[2].x + 5.5,
-        y: up(baseline - 3),
-        size: 5.5,
-        borderColor: GREY,
-        borderWidth: 1,
-      });
-      strokeIcon(kit, ICON.clock, columns[2].x, baseline - 8.5, 11, GREY, 1.6);
-      draw(kit, row.time, {
-        x: columns[2].x + 15,
-        baseline,
-        size: 8.5,
-        color: INK,
-        maxWidth: columns[2].w - 15,
-      });
-    } else {
-      draw(kit, '—', { x: columns[2].x + 15, baseline, size: 8.5, color: FAINT });
-    }
+    /* ⚠️ Done is the only status drawn in the accent. Colouring every state
+       turns the column into decoration; one colour means "this one is
+       finished" and the eye can count them without reading. */
+    draw(kit, row.status, {
+      x: columns[3].x,
+      baseline,
+      size: 8,
+      color: /done|publish/i.test(row.status) ? TEAL : GREY,
+      maxWidth: columns[3].w,
+    });
 
     if (row.url) {
-      /* ⚠️ A real link annotation, not blue text. The reference shows a link and an
-         open-in-new glyph; making it clickable is the difference between a picture of a
-         link and a link. */
+      /* The address without its scheme — a column this narrow cannot afford
+         eight characters of "https://" that carry no meaning for a reader. The
+         ANNOTATION below still uses the full URL, which is what has to be
+         complete for the link to go anywhere. */
       const label = row.url.replace(/^https?:\/\//, '');
       const width = draw(kit, label, {
-        x: columns[3].x,
+        x: columns[4].x,
         baseline,
-        size: 8,
+        size: 7.5,
         color: TEAL,
-        maxWidth: columns[3].w - 14,
+        maxWidth: columns[4].w - 12,
       });
-      hairline(kit, columns[3].x, columns[3].x + width, baseline + 1.6, TEAL, 0.5);
-      strokeIcon(kit, ICON.link, LEFT_X + LEFT_W - 30, baseline - 8.5, 10, TEAL, 1.6);
+      hairline(kit, columns[4].x, columns[4].x + width, baseline + 1.6, TEAL, 0.5);
+      strokeIcon(kit, ICON.link, LEFT_X + LEFT_W - 28, baseline - 8.5, 9, TEAL, 1.6);
 
-      /* ⚠️ The annotation the comment above always promised. Sized to the text
-         that was actually drawn — `draw` returns its width — plus a little
-         height either side of the baseline so the target matches what the eye
-         sees rather than a hairline nobody can hit. */
+      /* Sized to the text that was actually drawn, plus a little either side of
+         the baseline so the target matches what the eye sees rather than a
+         hairline nobody can hit. */
       linkTo(kit, row.url, {
-        x: columns[3].x,
+        x: columns[4].x,
         y: baseline - 2.5,
-        width: width,
+        width,
         height: 11,
       });
     } else {
       draw(kit, 'no link recorded', {
-        x: columns[3].x,
+        x: columns[4].x,
         baseline,
-        size: 8,
+        size: 7.5,
         color: FAINT,
-        maxWidth: columns[3].w,
+        maxWidth: columns[4].w,
       });
     }
 

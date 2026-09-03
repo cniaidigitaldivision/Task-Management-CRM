@@ -32,9 +32,21 @@ export interface ReportAsset {
   readonly publishedOn: string;
   readonly contentKind: string;
   readonly assigneeName: string | null;
+  /* ── ⚠️ ADDED 2026-09-03, FOR THE PDF ─────────────────────────────────────
+     Owner: *"if today's post should mention who did this post, what the post
+     task name is… their status, and if it's a static post then their URL."*
+     The PDF's published table listed PLACEMENTS — platform, type, time, link —
+     and so could not name the task, the person or where it had got to. */
+  readonly reference: string;
+  readonly status: string;
+  /** Whoever raised it, for the rare asset with no assignee. */
+  readonly createdByName: string | null;
 }
 
 export interface ReportPlacement {
+  /** Which task it belongs to, so a report can list one row per TASK and hang
+   *  its platforms and link off that rather than one row per placement. */
+  readonly taskId: string;
   readonly platformId: string;
   readonly platformName: string;
   readonly platformSlug: string;
@@ -93,9 +105,11 @@ export async function projectReportData(
 ): Promise<ProjectReportData> {
   return withUser(actorId, async (tx) => {
     const assets = await tx`
-      select t.id, t.title, t.published_on, t.content_kind, u.full_name as assignee_name
+      select t.id, t.reference, t.title, t.published_on, t.content_kind, t.status,
+             u.full_name as assignee_name, c.full_name as created_by_name
         from public.tasks t
         left join public.users u on u.id = t.assignee_id
+        left join public.users c on c.id = t.created_by_id
        where t.project_id = ${projectId}
          and not t.is_deleted
          and t.content_kind is not null
@@ -111,7 +125,8 @@ export async function projectReportData(
        first is what the package target is measured against, the second is reach.
        Conflating them inflates delivery three- or four-fold. */
     const placements = await tx`
-      select tp.platform_id, pl.name as platform_name, pl.slug as platform_slug,
+      select t.id as task_id,
+             tp.platform_id, pl.name as platform_name, pl.slug as platform_slug,
              tp.published_on, tp.content_kind, tp.url
         from public.task_placements tp
         join public.tasks t on t.id = tp.task_id
@@ -172,8 +187,12 @@ export async function projectReportData(
         publishedOn: dateText(row.published_on),
         contentKind: row.content_kind as string,
         assigneeName: (row.assignee_name as string | null) ?? null,
+        reference: row.reference as string,
+        status: row.status as string,
+        createdByName: (row.created_by_name as string | null) ?? null,
       })),
       placements: placements.map((row) => ({
+        taskId: row.task_id as string,
         platformId: row.platform_id as string,
         platformName: row.platform_name as string,
         platformSlug: row.platform_slug as string,

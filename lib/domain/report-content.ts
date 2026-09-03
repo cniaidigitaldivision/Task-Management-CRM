@@ -23,13 +23,39 @@ import type { ReportKind } from './report-periods';
  * cannot be added by accident to a document a client sees.
  * ========================================================================= */
 
+/* ── ⚠️ ONE ROW PER TASK, NOT PER PLACEMENT — CHANGED 2026-09-03 ───────────
+   Owner, looking at the generated PDF: *"if today's post should mention who did
+   this post, what the post task name is… if I say that task one is the category,
+   the task name, and their status, and if it's a static post then their URL."*
+
+   It listed placements: platform, content type, time, link. Two posts
+   cross-posted to three platforms produced SIX rows that repeated the same work
+   six times and named neither the task nor the person who did it. A row is a
+   piece of work now, and the platforms it went to are a column on it. */
 export interface PublishedRow {
-  readonly platform: string;
+  /** The task's own name — what somebody actually made. */
+  readonly task: string;
+  /** 'CLI-1568', so a row can be found on the board it came from. */
+  readonly reference: string;
+  /** Static Post, Reel, Carousel… the owner's "category". */
   readonly contentType: string;
+  /** Who did it. Falls back to whoever raised it, then to a dash. */
+  readonly person: string;
+  /** Done, In Review, To Do — where it had got to when the report was run. */
+  readonly status: string;
+  /** Every platform it went to, joined — "Facebook, Instagram, TikTok". */
+  readonly platform: string;
   /** 'HH:MM' or ''. Only the daily layouts have a column for it. */
   readonly time: string;
   /** The live link, or '' where none was recorded. */
   readonly url: string;
+}
+
+/** What one person did in the period — the owner's "what each person did". */
+export interface PersonRow {
+  readonly name: string;
+  readonly posts: number;
+  readonly done: number;
 }
 
 export interface PlatformSummaryRow {
@@ -73,6 +99,8 @@ export interface ReportContent {
   readonly rows: readonly BreakdownRow[];
   /** The daily layouts' "PUBLISHED TODAY" table. Empty for week/month/year. */
   readonly published: readonly PublishedRow[];
+  /** "WHO DID WHAT" — one line per person who published in the period. */
+  readonly people: readonly PersonRow[];
   /** The "WHERE IT WENT" / "PLATFORM DISTRIBUTION" panel. */
   readonly platformSummaries: readonly PlatformSummaryRow[];
   /** The "AT A GLANCE" / "INSIGHTS" ticks. Facts only — see the header. */
@@ -223,10 +251,25 @@ export function parseReportContent(value: unknown): ReportContent | null {
     published: list(raw.published).map((entry) => {
       const row = record(entry);
       return {
-        platform: str(row.platform),
+        task: str(row.task),
+        reference: str(row.reference),
         contentType: str(row.contentType),
+        person: str(row.person),
+        status: str(row.status),
+        platform: str(row.platform),
         time: str(row.time),
         url: str(row.url),
+      };
+    }),
+    /* ⚠️ Parsed defensively like everything else here: a stored report from
+       before 2026-09-03 has no `people` key, and the PDF for it must still
+       render rather than throw. An empty list simply draws no panel. */
+    people: list(raw.people).map((entry) => {
+      const row = record(entry);
+      return {
+        name: str(row.name),
+        posts: Number(row.posts ?? 0),
+        done: Number(row.done ?? 0),
       };
     }),
     platformSummaries: list(raw.platformSummaries).map((entry) => {
