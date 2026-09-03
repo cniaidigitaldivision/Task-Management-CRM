@@ -117,3 +117,67 @@ describe('the refusal says WHICH rule applied', () => {
     expect(deleteRefusal(actor('member'), task(ME, 'in_progress'))).toBeNull();
   });
 });
+
+/* ============================================================================
+ * A COORDINATOR MAY ALSO DELETE THE WORK OF ANYBODY THEY OUTRANK — 2026-09-03
+ * ----------------------------------------------------------------------------
+ * Owner: *"the team coordinator … can delete his task, the team coordinator's
+ * task plus any team member's task."*
+ *
+ * The matrix gave a Coordinator `self_created` only, so Kashif could not remove
+ * a task a Member had raised by mistake — the case that prompted this.
+ * ========================================================================= */
+describe('rule 4 — rank, not only authorship', () => {
+  const owned = (createdById: string, status: TaskStatus, ownerRole: Role) => ({
+    createdById,
+    status,
+    ownerRole,
+  });
+
+  it('lets a Coordinator delete a Member’s task', () => {
+    expect(canDeleteTask(actor('team_coordinator'), owned(SOMEBODY_ELSE, 'todo', 'member'))).toBe(
+      true,
+    );
+  });
+
+  it('still refuses a Coordinator another Coordinator’s task — outranks is STRICT', () => {
+    expect(
+      deleteRefusal(actor('team_coordinator'), owned(SOMEBODY_ELSE, 'todo', 'team_coordinator')),
+    ).toBe('not_yours');
+  });
+
+  it('refuses a Coordinator an Admin’s task', () => {
+    expect(deleteRefusal(actor('team_coordinator'), owned(SOMEBODY_ELSE, 'todo', 'admin'))).toBe(
+      'not_yours',
+    );
+  });
+
+  /* ⚠️ One Member may not delete another's, even at equal rank — the same
+     reason canAssignTo refuses member -> member: rank is the wrong instrument
+     for a pair that is level. */
+  it('refuses a Member another Member’s task', () => {
+    expect(deleteRefusal(actor('member'), owned(SOMEBODY_ELSE, 'todo', 'member'))).toBe(
+      'not_yours',
+    );
+  });
+
+  /* ⚠️ THE STATUS BOUND IS NOT LIFTED. A Coordinator gets a wider set of
+     PEOPLE, not a wider set of statuses — erasing published work stays
+     Admin-only so a delivery record cannot vanish after a client has seen it. */
+  it('still refuses a Coordinator a Member’s DONE task', () => {
+    expect(deleteRefusal(actor('team_coordinator'), owned(SOMEBODY_ELSE, 'done', 'member'))).toBe(
+      'too_far_along',
+    );
+  });
+
+  /* Fails closed: an unknown owner is not an excuse to permit. */
+  it('refuses when the owner’s rank is unknown', () => {
+    expect(deleteRefusal(actor('team_coordinator'), task(SOMEBODY_ELSE, 'todo'))).toBe('not_yours');
+  });
+
+  it('still lets an Admin delete anything', () => {
+    expect(canDeleteTask(actor('admin'), owned(SOMEBODY_ELSE, 'done', 'team_coordinator'))).toBe(
+      true,
+    );
+  });
+});

@@ -1444,10 +1444,19 @@ export async function deleteTaskAction(taskId: string): Promise<ActionResult> {
      `deleteRefusal` composes both halves: who raised it (rules 1 and 2) and how
      far along it is (rule 3). Calling `can()` alone here would enforce the first
      and silently drop the second — which is what this used to do. */
+  /* ⚠️ The owner's RANK has to be looked up, and it is looked up on the SERVER.
+     `deleteRefusal`'s coordinator arm needs to know whose work this is, and a
+     role supplied by the browser would be a claim about somebody else. Read from
+     the row: the assignee if there is one, otherwise whoever raised it — the
+     same `coalesce` that app.task_is_visible uses for the same question. */
+  const ownerId = task.assigneeId ?? task.createdById;
+  const owner = ownerId === user.id ? { role: user.role } : await getPerson(user.id, ownerId);
+
   const refusal = deleteRefusal({ role: user.role, id: user.id }, {
     createdById: task.createdById,
     assigneeId: task.assigneeId,
     status: task.status,
+    ownerRole: (owner?.role as Role | undefined) ?? null,
   });
 
   if (refusal) {
@@ -1457,7 +1466,7 @@ export async function deleteTaskAction(taskId: string): Promise<ActionResult> {
        have no idea which door to knock on. */
     return fail(
       refusal === 'not_yours'
-        ? `${task.createdByName ?? 'Somebody else'} raised this task, so only they or an Admin can delete it.`
+        ? `${task.createdByName ?? 'Somebody else'} raised this task, so only they, a Coordinator above them, or an Admin can delete it.`
         : `This task is ${STATUS_META[task.status].label} — past the point where it can be deleted. Only an Admin can remove it now.`,
     );
   }

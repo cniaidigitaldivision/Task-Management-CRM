@@ -946,6 +946,12 @@ export interface DeletableTask {
   readonly createdById: string;
   readonly assigneeId?: string | null;
   readonly status: TaskStatus;
+  /* ── ⚠️ WHOSE TASK IT IS, FOR THE COORDINATOR ARM — 2026-09-03 ────────────
+     The rank of the person the task belongs to: the assignee if it has one,
+     otherwise whoever raised it. Optional, because most callers only need the
+     self-created rule and a missing role simply means the coordinator arm below
+     cannot apply — which fails CLOSED, refusing rather than permitting. */
+  readonly ownerRole?: Role | null;
 }
 
 /** Why a delete was refused, so the interface can say which rule applied rather
@@ -964,10 +970,28 @@ export function deleteRefusal(actor: Actor, task: DeletableTask): DeleteRefusal 
   /* Admin and above: any task, any status. Rule 3's escape hatch. */
   if (ROLE_RANK[actor.role] >= ROLE_RANK.admin) return null;
 
+  /* ── ⚠️ A COORDINATOR MAY ALSO DELETE THE WORK OF ANYBODY THEY OUTRANK ────
+     Owner, 2026-09-03: *"the team coordinator … can delete his task, the team
+     coordinator's task plus any team member's task."*
+
+     The matrix gives a Coordinator `self_created`, which is only their own — so
+     Kashif could not tidy up a task a Member raised by mistake, which is exactly
+     the case that prompted this. Rank, not the matrix, because "outranks" is the
+     same comparison `canAssignTo` and `acting_outranks` already make.
+
+     ⚠️ RULE 3 STILL APPLIES TO THEM. The status bound is NOT lifted: a
+     Coordinator gets a wider set of PEOPLE, not a wider set of statuses.
+     Deleting published or cancelled work stays Admin-only, because that is what
+     stops a delivery record being erased after a client has seen it — and the
+     owner asked to widen who, not what. */
+  const owner = task.ownerRole ?? null;
+  const outranksOwner =
+    owner !== null && ROLE_RANK[actor.role] > ROLE_RANK[owner];
+
   /* Rules 1 and 2, via the matrix — `self_created` is exactly "you raised it". */
-  if (!can(actor, 'task.soft_delete', { createdById: task.createdById })) {
-    return 'not_yours';
-  }
+  const mine = can(actor, 'task.soft_delete', { createdById: task.createdById });
+
+  if (!mine && !outranksOwner) return 'not_yours';
 
   /* Rule 3. */
   if (!DELETABLE_STATUSES.includes(task.status)) return 'too_far_along';

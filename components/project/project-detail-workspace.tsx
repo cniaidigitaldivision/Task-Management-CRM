@@ -777,6 +777,11 @@ export function ProjectDetailWorkspace({
           currentUser={currentUser}
           /* See `assignablePeople` — members only, and rank-filtered. */
           people={assignablePeople}
+          /* ⚠️ APP roles, not project roles. The delete rule compares RANK, and
+             `ShellPerson` carries only a job title — "Social Media Expert" is
+             not something ROLE_RANK can order. Passed as a map so the table can
+             ask about the one person a row belongs to without a lookup list. */
+          memberRoles={Object.fromEntries(members.map((m) => [m.userId, m.role as Role]))}
           daily={
             <DailyBoard
               tasks={tasks}

@@ -3,7 +3,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { CalendarDays, Flag, Layers, Plus, Search, Sun, User } from 'lucide-react';
+import { CalendarDays, Flag, Layers, Loader2, Plus, Search, Sun, Trash2, User } from 'lucide-react';
 
 import { changeStatusAction } from '@/app/actions/tasks';
 import type { ShellPerson, ShellProject } from '@/components/layout/app-shell';
@@ -34,6 +34,9 @@ import {
   type TaskStatus,
 } from '@/lib/domain/constants';
 import { cn } from '@/lib/utils';
+import { canDeleteTask } from '@/lib/domain/permissions';
+import { useToast } from '@/components/ui/toast';
+import { bulkDeleteAction } from '@/app/actions/task-relations';
 
 /* ============================================================================
  * A PROJECT'S TASKS — THE TAB, NOT A SPREADSHEET
@@ -103,11 +106,15 @@ export function ProjectTasksTab({
   daily,
   currentUser,
   people,
+  memberRoles,
 }: {
   tasks: readonly TaskRow[];
   project: ShellProject;
   currentUser: { id: string; role: Role };
   people: readonly ShellPerson[];
+  /** App role per member id — the delete rule orders by RANK, and a job title
+   *  cannot be ordered. See the note at the call site. */
+  memberRoles: Readonly<Record<string, Role>>;
   /** Resolved on the server — a component that reads the clock is not a pure
    *  render, and the browser can disagree about the date across midnight. */
   today: string;
@@ -123,6 +130,36 @@ export function ProjectTasksTab({
      manager the answer to "what am I doing" is almost always today's posts. The
      full list is one click away for the times it is not. */
   const [view, setView] = React.useState<'today' | 'all'>('today');
+
+  /* ── ⚠️ DELETING FROM THE PROJECT'S OWN TASK LIST ─────────────────────────
+     Owner, 2026-09-03: *"if he created any task by accident and he is in the
+     project there and he wants to delete… there should be a delete option."*
+
+     The main Tasks board has had a selection bar for a while; this table never
+     did, so somebody working inside a project had to leave it to undo a
+     mistake they had just made there.
+
+     ⚠️ WHICH ROWS OFFER A BOX IS THE SAME RULE THE SERVER ENFORCES —
+     `canDeleteTask`, not a role check written again here. A box on a row that
+     would be refused is a worse interface than no box at all, and a second copy
+     of the rule is how the two would drift. The server checks it again
+     regardless (registry C-21). */
+  const [selected, setSelected] = React.useState<readonly string[]>([]);
+  const [deleting, setDeleting] = React.useState(false);
+  const toast = useToast();
+
+  const mayDelete = React.useCallback(
+    (task: TaskRow) =>
+      canDeleteTask(currentUser, {
+        createdById: task.createdById,
+        assigneeId: task.assigneeId,
+        status: task.status,
+        /* The rank of whoever the task belongs to — assignee first, then whoever
+           raised it. Same coalesce the server makes. */
+        ownerRole: memberRoles[task.assigneeId ?? task.createdById] ?? null,
+      }),
+    [currentUser, memberRoles],
+  );
   /* ── ⚠️ EVERYTHING, NOT ONLY WHAT IS STILL OPEN ────────────────────────────
      Owner, 2026-08-24: *"when I click on the task, today's due task is nothing
      but all work is also showing nothing. Najmullah also did one task today
@@ -411,6 +448,14 @@ export function ProjectTasksTab({
             <table className="w-full min-w-[44rem] border-collapse">
               <thead>
                 <tr className="border-b border-border-default">
+                  {/* ⚠️ A column, not a hover-reveal. The owner described
+                      "holding that row then a checkbox appears"; a box that only
+                      exists on hover is unreachable on the touch devices half
+                      this team uses, and invisible to anybody scanning for it.
+                      It is quiet rather than hidden. */}
+                  <th scope="col" className={cn(TH, 'w-8 pr-0')}>
+                    <span className="sr-only">Select</span>
+                  </th>
                   <th scope="col" className={TH}>Task</th>
                   <th scope="col" className={TH}>Status</th>
                   <th scope="col" className={TH}>Who</th>
@@ -430,6 +475,28 @@ export function ProjectTasksTab({
                       key={task.id}
                       className="border-b border-border-subtle transition-colors last:border-0 hover:bg-bg-hover"
                     >
+                      <td className="w-8 pl-3 pr-0 py-2.5">
+                        {mayDelete(task) ? (
+                          <input
+                            type="checkbox"
+                            aria-label={`Select ${task.reference}`}
+                            checked={selected.includes(task.id)}
+                            onChange={(event) =>
+                              setSelected((current) =>
+                                event.target.checked
+                                  ? [...current, task.id]
+                                  : current.filter((id) => id !== task.id),
+                              )
+                            }
+                            className="size-4 cursor-pointer accent-[var(--text-brand)]"
+                          />
+                        ) : (
+                          /* ⚠️ No box rather than a disabled one. A greyed
+                             checkbox invites a click and then explains itself;
+                             an absence says "not yours" without a sentence. */
+                          <span className="block size-4" aria-hidden="true" />
+                        )}
+                      </td>
                       <td className="px-3 py-2.5">
                         <Link
                           href={`/tasks?project=${projectId}&task=${task.id}`}
@@ -547,6 +614,57 @@ export function ProjectTasksTab({
           >
             {flash.text}
           </p>
+        )}
+
+        {/* ── ⚠️ THE BAR, AND WHY IT IS FIXED TO THE VIEWPORT ────────────────
+            Owner: *"this one option should display at the bottom where he can…
+            delete that task."* A bar inside the card would scroll away from
+            somebody who selected a row near the top of a long list and then
+            scrolled to find another. Fixed keeps the action where the hand is.
+
+            ⚠️ z-50, BELOW the notice at z-60: the result of pressing Delete
+            must not appear behind the button that caused it. */}
+        {selected.length > 0 && (
+          <div className="fixed inset-x-0 bottom-4 z-50 flex justify-center px-4">
+            <div className="flex items-center gap-3 rounded-xl border border-border-default bg-bg-surface px-3.5 py-2.5 shadow-lg">
+              <span className="text-caption text-text-secondary">
+                {selected.length} selected
+              </span>
+
+              <Button
+                size="sm"
+                variant="danger"
+                disabled={deleting}
+                onClick={async () => {
+                  setDeleting(true);
+                  const result = await bulkDeleteAction(selected);
+                  setDeleting(false);
+                  setSelected([]);
+
+                  /* ⚠️ The bulk action reports per-task refusals, so the notice
+                     says what actually happened rather than "done". Deleting
+                     four and being refused one is neither a success nor a
+                     failure, and calling it either would be wrong. */
+                  toast({
+                    tone: result.failed > 0 ? 'warn' : result.ok ? 'ok' : 'error',
+                    text: result.note ?? result.error ?? 'Nothing was deleted.',
+                  });
+                  router.refresh();
+                }}
+              >
+                {deleting ? (
+                  <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                ) : (
+                  <Trash2 className="size-4" strokeWidth={2.25} aria-hidden="true" />
+                )}
+                Delete
+              </Button>
+
+              <Button size="sm" variant="ghost" onClick={() => setSelected([])} disabled={deleting}>
+                Clear
+              </Button>
+            </div>
+          </div>
         )}
 
         <p className="text-micro text-text-tertiary">
