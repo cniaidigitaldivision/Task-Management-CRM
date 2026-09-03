@@ -382,7 +382,17 @@ export function TaskDialog({
          task WAS created, so it is not an error — but "you have just put them
          over their limit" is not a success either, and colouring it green would
          hide the one sentence worth reading. */
-      if (!isEdit && state.taskId) {
+      if (isEdit) {
+        /* ⚠️ Edits announce too, because REASSIGNING is an edit. Owner,
+           2026-09-03: *"if I say it, 'Reassign to someone,' that notification
+           should display."* No link: they are already looking at the task. */
+        toast({
+          tone: state.warning ? 'warn' : 'ok',
+          text: state.warning
+            ? `${task?.reference ?? 'The task'} updated. ${state.warning}`
+            : `${task?.reference ?? 'The task'} updated.`,
+        });
+      } else if (state.taskId) {
         toast({
           tone: state.warning ? 'warn' : 'ok',
           text: state.warning
@@ -396,7 +406,17 @@ export function TaskDialog({
       router.refresh();
       onClose();
     }
-  }, [state.ok, state.taskId, state.reference, state.warning, isEdit, onClose, router, toast]);
+  }, [
+    state.ok,
+    state.taskId,
+    state.reference,
+    state.warning,
+    isEdit,
+    task?.reference,
+    onClose,
+    router,
+    toast,
+  ]);
 
   // Members cannot hand work to anyone else (doc 03 §3.3).
   const assignable = currentUser.role === 'member'

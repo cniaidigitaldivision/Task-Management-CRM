@@ -207,6 +207,43 @@ export async function listProjectActivity(
   }));
 }
 
+/**
+ * A cheap "has anything happened to me" reading, for the live refresh.
+ *
+ * ── ⚠️ WHY THIS EXISTS RATHER THAN POLLING THE PAGE ─────────────────────────
+ * Owner, 2026-09-03: *"in the team member dashboard to whom the task is
+ * assigned… without refreshing it should display silently. If he forgets to
+ * refresh, he doesn't know a new task has arrived."*
+ *
+ * Re-rendering a whole page every 25 seconds for every open tab would put a
+ * board's worth of queries behind a question that is almost always "no". This
+ * is ONE indexed count and ONE max over the caller's own notification rows, and
+ * the page is only re-read when the answer actually moves.
+ *
+ * Assignment and reassignment both write a notification (see the two `notify`
+ * calls in app/actions/tasks.ts), so a new row here is exactly the event the
+ * owner described. `unread` as well as `latest` because marking one read is
+ * also a change worth reflecting in the bell.
+ *
+ * ⚠️ Through `withUser`, so RLS scopes it to the caller. A pulse that counted
+ * everybody's notifications would leak the division's activity rate to anybody
+ * who opened the network tab.
+ */
+export async function notificationPulse(
+  actorId: string,
+): Promise<{ unread: number; latest: string | null }> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select count(*) filter (where not is_read)::int as unread,
+           max(created_at) as latest
+      from public.notifications
+  `);
+  const row = (rows as Array<Record<string, unknown>>)[0] ?? {};
+  return {
+    unread: Number(row.unread ?? 0),
+    latest: row.latest ? new Date(row.latest as string).toISOString() : null,
+  };
+}
+
 export async function listNotifications(
   actorId: string,
   limit = 30,

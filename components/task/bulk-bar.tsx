@@ -16,6 +16,8 @@ import { Button } from '@/components/ui/button';
 import { Select } from '@/components/ui/select';
 import { STATUS_META, TASK_STATUSES, type TaskStatus } from '@/lib/domain/constants';
 
+import { useToast } from '@/components/ui/toast';
+
 import { ImpactDialog, type ImpactMode } from './impact-dialog';
 
 /* ============================================================================
@@ -53,6 +55,7 @@ export function BulkBar({
   canPurge?: boolean;
 }) {
   const [busy, setBusy] = React.useState(false);
+  const toast = useToast();
   const [result, setResult] = React.useState<BulkResult | null>(null);
   const [status, setStatus] = React.useState<TaskStatus | ''>('');
   const [assignee, setAssignee] = React.useState('');
@@ -65,6 +68,20 @@ export function BulkBar({
     const outcome = await fn();
     setResult(outcome);
     setBusy(false);
+
+    /* ── ⚠️ THE HEADLINE GOES TO THE CORNER, THE DETAIL STAYS HERE ──────────
+       Owner, 2026-09-03, wanted assignment and reassignment to announce
+       themselves like everything else now does. This is the one place the
+       inline panel was NOT retired with it: a bulk action can be refused for
+       several different reasons at once, and the list below names each. A
+       notice can carry the sentence but not the list.
+
+       So the corner gets "4 assigned, 1 refused" and the panel keeps WHY. */
+    toast({
+      tone: outcome.failed > 0 ? 'warn' : outcome.ok ? 'ok' : 'error',
+      text: outcome.note ?? outcome.error ?? 'Nothing changed.',
+    });
+
     onDone();
   };
 

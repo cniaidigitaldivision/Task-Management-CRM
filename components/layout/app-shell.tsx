@@ -11,6 +11,7 @@ import { assignableRolesFor } from '@/lib/domain/permissions';
 import type { NotificationRow } from '@/lib/db/queries/types';
 import { cn } from '@/lib/utils';
 import { ToastProvider } from '@/components/ui/toast';
+import { LiveRefresh } from '@/components/layout/live-refresh';
 
 import { NAV_SECTIONS } from './nav-config';
 import { Sidebar } from './sidebar';
@@ -347,6 +348,11 @@ export function AppShell({
        The `has-[aside:hover]` rule that used to widen this on hover is gone —
        see the note on `pinned` above. Width now depends on one thing only. */
     <ToastProvider>
+    {/* ⚠️ Renders nothing. It keeps the open page current so a task assigned to
+        somebody appears on their board without them refreshing — see the note
+        in live-refresh.tsx. Mounted in the shell so it covers every page, and
+        inside the provider so a future notice from it has somewhere to go. */}
+    <LiveRefresh />
     <div
       className={cn(
         'min-h-full bg-bg-base [--rail:0px]',
