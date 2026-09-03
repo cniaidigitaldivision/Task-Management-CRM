@@ -83,10 +83,41 @@ export interface ReportTask {
   readonly completedOn: string | null;
 }
 
+/* ── ⚠️ A TASK THAT WAS FINISHED, WHICH IS NOT THE SAME AS ONE THAT WENT OUT ──
+   Owner, 2026-09-03, counting three done tasks on the board against two in the
+   report: *"All the tasks which have done status plus their category should
+   display. Display all the done tasks for that project, not only static or
+   real."*
+
+   `ReportAsset` above answers the PACKAGE question — content published in the
+   period, counted on `published_on`, which is what the target is measured
+   against. It therefore excludes two things the owner wants listed: work with no
+   content kind, and content with no publish date. The missing row was CLI-1580,
+   "other Tasks", kind `other`, finished on the day and never published — real
+   work, invisible.
+
+   So the table is built from THIS list and the figures stay on `assets`. Two
+   questions, two queries, rather than one query bent to answer both badly. */
+export interface ReportDoneTask {
+  readonly id: string;
+  readonly reference: string;
+  readonly title: string;
+  /** Null for ordinary work — the report calls that "Task". */
+  readonly contentKind: string | null;
+  readonly status: string;
+  /** Null where it was finished but never published. */
+  readonly publishedOn: string | null;
+  readonly completedOn: string;
+  readonly assigneeName: string | null;
+  readonly createdByName: string | null;
+}
+
 export interface ProjectReportData {
   readonly assets: readonly ReportAsset[];
   readonly placements: readonly ReportPlacement[];
   readonly tasks: readonly ReportTask[];
+  /** Everything finished in the period, whatever kind — see `ReportDoneTask`. */
+  readonly completed: readonly ReportDoneTask[];
 }
 
 /**
@@ -167,7 +198,39 @@ export async function projectReportData(
        order by (t.created_at at time zone 'Asia/Karachi')::date, t.reference
     `;
 
+    /* ⚠️ ON `completed_at`, IN KARACHI. A task finished at 9pm belongs to that
+       evening's report, and the server's own date would file it under the next
+       day for five hours every night — the same trap app.attendance_today()
+       exists for. */
+    const completed = await tx`
+      select t.id, t.reference, t.title, t.content_kind, t.status,
+             t.published_on,
+             (t.completed_at at time zone 'Asia/Karachi')::date as completed_on,
+             u.full_name as assignee_name, c.full_name as created_by_name
+        from public.tasks t
+        left join public.users u on u.id = t.assignee_id
+        left join public.users c on c.id = t.created_by_id
+       where t.project_id = ${projectId}
+         and not t.is_deleted
+         and t.status = 'done'
+         and t.completed_at is not null
+         and (t.completed_at at time zone 'Asia/Karachi')::date >= ${start}::date
+         and (t.completed_at at time zone 'Asia/Karachi')::date <= ${end}::date
+       order by (t.completed_at at time zone 'Asia/Karachi')::date, t.reference
+    `;
+
     return {
+      completed: (completed as Array<Record<string, unknown>>).map((row) => ({
+        id: row.id as string,
+        reference: row.reference as string,
+        title: row.title as string,
+        contentKind: (row.content_kind as string | null) ?? null,
+        status: row.status as string,
+        publishedOn: row.published_on ? dateOnly(row.published_on) : null,
+        completedOn: dateOnly(row.completed_on),
+        assigneeName: (row.assignee_name as string | null) ?? null,
+        createdByName: (row.created_by_name as string | null) ?? null,
+      })),
       tasks: (tasks as Array<Record<string, unknown>>).map((row) => ({
         id: row.id as string,
         reference: row.reference as string,

@@ -177,7 +177,6 @@ function summaryFor(content: ReportContent): string[] {
   const remaining = figure(content, /remaining/i);
 
   const tasks = content.published.length;
-  const done = content.published.filter((row) => /done|publish/i.test(row.status)).length;
   const noLink = content.published.filter((row) => !row.url).length;
 
   /* ── Where it stands ───────────────────────────────────────────────────── */
@@ -207,8 +206,12 @@ function summaryFor(content: ReportContent): string[] {
           ? ` All of it was ${owners[0]}'s.`
           : ` ${owners.slice(0, -1).join(', ')} and ${owners[owners.length - 1]} did the work.`;
 
+    /* ⚠️ "finished", not "on the list, N of them finished". Every row in this
+       table IS finished since 2026-09-03 — the table lists completed work — so
+       the second half of that sentence always read "2 of them finished" out of
+       2 and told the reader nothing. */
     notes.push(
-      `${tasks} ${tasks === 1 ? 'task' : 'tasks'} on the list, ${done} of them finished.${who}`,
+      `${tasks} ${tasks === 1 ? 'task' : 'tasks'} finished in this period.${who}`,
     );
   }
 
@@ -227,14 +230,14 @@ function summaryFor(content: ReportContent): string[] {
     );
   }
 
-  if (tasks > 0 && done < tasks) {
-    notes.push(
-      `${tasks - done} ${tasks - done === 1 ? 'task is' : 'tasks are'} still open. ` +
-        'Closing what is finished keeps the next report honest and stops the same work being counted twice.',
-    );
-  }
+  /* ⚠️ THE "STILL OPEN" TIP IS GONE. It counted `tasks - done` over a table that
+     now contains only completed work, so it could never fire — a branch that is
+     dead by construction is worse than no branch, because the next reader takes
+     it as evidence that open work appears here and it does not. Open work is
+     visible on the board and in the target figures; this table is what was
+     finished. */
 
-  if (target !== null && remaining === 0 && noLink === 0 && done === tasks && tasks > 0) {
+  if (target !== null && remaining === 0 && noLink === 0 && tasks > 0) {
     /* The one case with nothing to advise. Said plainly rather than padded — a
        clean period deserves a sentence, not a paragraph of generic tips. */
     notes.push('Nothing outstanding: the target is met, every task is closed and every post has its link.');

@@ -238,3 +238,75 @@ describe('projectBanner', () => {
     expect(banner.lines.join(' ')).toContain('STARTER package');
   });
 });
+
+/* ============================================================================
+ * EVERY FINISHED TASK, NOT ONLY WHAT WENT OUT — owner, 2026-09-03
+ * ----------------------------------------------------------------------------
+ * *"Display all the done tasks for that project, not only static or real."*
+ *
+ * The table was built from the PACKAGE list — content, published, dated — and so
+ * dropped CLI-1580: kind `other`, finished on the day, never published. Real
+ * work, invisible.
+ * ========================================================================= */
+describe('ordinary work appears too', () => {
+  const mixed = () =>
+    content({
+      published: [
+        {
+          task: '1st static Test',
+          reference: 'CLI-1574',
+          contentType: 'Static post',
+          person: 'Kashif',
+          status: 'Done',
+          platform: 'Facebook, Instagram, TikTok',
+          platformSlugs: ['facebook', 'instagram', 'tiktok'],
+          time: '',
+          url: 'https://facebook.com/p/1',
+        },
+        {
+          /* ⚠️ THE ROW THAT WAS MISSING. No content kind, no platforms, no link
+             — and still a finished piece of work somebody did that day. */
+          task: 'other Tasks',
+          reference: 'CLI-1580',
+          contentType: 'Task',
+          person: 'Abdul Moiz',
+          status: 'Done',
+          platform: '—',
+          platformSlugs: [],
+          time: '',
+          url: '',
+        },
+      ],
+    });
+
+  it('lists work with no content kind, categorised as a Task', () => {
+    const report = buildProjectReportSheet(mixed(), PERIOD);
+
+    expect(report.rows).toHaveLength(2);
+    expect(report.rows[1][0].value).toBe('other Tasks');
+    /* Named, not blank: the owner asked for the category to say whether a row is
+       a task or a static post. */
+    expect(report.rows[1][2].value).toBe('Task');
+  });
+
+  it('shows a dash for its platforms and its link rather than an empty cell', () => {
+    const report = buildProjectReportSheet(mixed(), PERIOD);
+    expect(report.rows[1][4].value).toBe('—');
+    expect(report.rows[1][6].value).toBe('-');
+  });
+
+  it('counts it in Tasks listed', () => {
+    const report = buildProjectReportSheet(mixed(), PERIOD);
+    const listed = report.figures.find((f) => f.label === 'Tasks listed');
+    expect(listed?.value.value).toBe(2);
+  });
+
+  /* ⚠️ It must NOT reach the target figures. The package counts published
+     content; a finished internal task counting towards a client's promise would
+     overstate delivery. */
+  it('does not inflate the target figures', () => {
+    const report = buildProjectReportSheet(mixed(), PERIOD);
+    const achieved = report.figures.find((f) => f.label.includes('ACHIEVED'));
+    expect(achieved?.value.value).toBe(2); // from content.headline, untouched
+  });
+});

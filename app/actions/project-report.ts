@@ -231,46 +231,59 @@ export async function generateProjectReportAction(
     placementsByTask.set(placement.taskId, list);
   }
 
-  const published = isDaily
-    ? data.assets.slice(0, 6).map((asset) => {
-        const mine = placementsByTask.get(asset.id) ?? [];
-        /* Every platform it reached, in the order they came back, without
-           repeats — a post cross-posted twice to one platform is still one
-           platform as far as a reader is concerned. */
-        const platforms = [...new Set(mine.map((p) => p.platformName))];
-        /* Slugs in the same order, for the PDF's brand marks. Deduped on the
-           slug rather than on the name so two spellings of one platform cannot
-           produce two icons. */
-        const slugs = [...new Set(mine.map((p) => p.platformSlug))];
-        const live = mine.find((p) => p.url !== null);
+  /* ── ⚠️ EVERY TASK THAT WAS FINISHED, NOT ONLY WHAT WENT OUT ─────────────
+     Owner, 2026-09-03, counting three done tasks against two in the report:
+     *"Display all the done tasks for that project, not only static or real."*
 
-        return {
-          task: asset.title,
-          reference: asset.reference,
-          contentType: CONTENT_KIND_LABEL[asset.contentKind as ContentKind] ?? 'Post',
-          /* Whoever did it; falling back to whoever raised it rather than to a
-             dash, because an unassigned post still had somebody behind it. */
-          person: asset.assigneeName ?? asset.createdByName ?? '—',
-          status: STATUS_META[asset.status as TaskStatus]?.label ?? asset.status,
-          platform: platforms.length > 0 ? platforms.join(', ') : '—',
-          platformSlugs: slugs,
-          time: '',
-          url: live?.url ?? '',
-        };
-      })
-    : [];
+     This read `data.assets`, which is the PACKAGE list: content, published, with
+     a date. It therefore dropped exactly the row the owner was pointing at —
+     CLI-1580, kind `other`, finished on the day and never published. Real work,
+     invisible, because the list it came from exists to answer a different
+     question.
+
+     `data.completed` is tasks DONE in the period, whatever their kind. The
+     target and achieved figures still come from `assets`, because the package
+     counts published content and nothing else — the two must not be merged or a
+     finished internal task would start counting towards a client's promise. */
+  const published = data.completed.slice(0, 12).map((task) => {
+    const mine = placementsByTask.get(task.id) ?? [];
+    const platforms = [...new Set(mine.map((p) => p.platformName))];
+    const slugs = [...new Set(mine.map((p) => p.platformSlug))];
+    const live = mine.find((p) => p.url !== null);
+
+    return {
+      task: task.title,
+      reference: task.reference,
+      /* ⚠️ "Task" for work with no content kind, not an empty cell or a dash.
+         The owner asked for the category to say *"whether they are tasks or
+         other tasks, static post tasks or a real task"* — so ordinary work is
+         named rather than left blank. */
+      contentType: task.contentKind
+        ? (CONTENT_KIND_LABEL[task.contentKind as ContentKind] ?? 'Post')
+        : 'Task',
+      person: task.assigneeName ?? task.createdByName ?? '—',
+      status: STATUS_META[task.status as TaskStatus]?.label ?? task.status,
+      platform: platforms.length > 0 ? platforms.join(', ') : '—',
+      platformSlugs: slugs,
+      time: '',
+      url: live?.url ?? '',
+    };
+  });
 
   /* ── WHO DID WHAT ────────────────────────────────────────────────────────
      Owner: *"what each person did."* Counted over the period's published
      assets, so it answers the same question the rest of the sheet does. Sorted
      by volume, because the reason somebody reads this panel is to see who
      carried the period. */
+  /* ⚠️ From `completed`, matching the table. Built from `assets` it counted only
+     published content, so somebody whose whole day was internal work appeared to
+     have done nothing. */
   const byPerson = new Map<string, { posts: number; done: number }>();
-  for (const asset of data.assets) {
-    const name = asset.assigneeName ?? asset.createdByName ?? 'Unattributed';
+  for (const task of data.completed) {
+    const name = task.assigneeName ?? task.createdByName ?? 'Unattributed';
     const entry = byPerson.get(name) ?? { posts: 0, done: 0 };
     entry.posts += 1;
-    if (asset.status === 'done') entry.done += 1;
+    entry.done += 1;
     byPerson.set(name, entry);
   }
 
