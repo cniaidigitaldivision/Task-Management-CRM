@@ -98,18 +98,21 @@ export interface ReportFigure {
 
 export interface Report {
   /**
-   * ⚠️ WIDER THAN `REPORT_TYPES`, deliberately. Attendance and finance each
-   * build a Report so they can reuse the print sheet in lib/pdf/report-sheet.ts
-   * — the owner asked for exactly that, twice: *"the PDF template should be the
-   * same as on the report page"* (2026-08-25) and *"make sure the report
-   * template is the same as the report pages' PDF template"* (2026-08-26) — but
-   * neither is one of the four analytical reports, and neither must appear in
-   * the Reports page's type dropdown, which is driven by `REPORT_TYPES`.
+   * ⚠️ WIDER THAN `REPORT_TYPES`, deliberately. Attendance, finance and now the
+   * per-project report each build a Report so they can reuse the print sheet in
+   * lib/pdf/report-sheet.ts — the owner asked for exactly that THREE times:
+   * *"the PDF template should be the same as on the report page"* (2026-08-25),
+   * *"make sure the report template is the same as the report pages' PDF
+   * template"* (2026-08-26) and, with the export open beside it, *"I want this
+   * template of the PDF that I have here with you as a screenshot"*
+   * (2026-09-03) — but none is one of the four analytical reports, and none must
+   * appear in the Reports page's type dropdown, which is driven by
+   * `REPORT_TYPES`.
    *
    * Adding them to that array instead would put tabs on a page whose builder
    * cannot produce them. Only `reportFileStem` reads this field.
    */
-  readonly type: ReportType | 'attendance' | 'finance';
+  readonly type: ReportType | 'attendance' | 'finance' | 'project';
   readonly title: string;
   readonly subtitle: string;
   readonly period: ReportPeriod;

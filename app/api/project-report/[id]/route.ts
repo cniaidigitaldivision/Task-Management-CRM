@@ -5,6 +5,8 @@ import { getProject } from '@/lib/db/queries/projects';
 import { getProjectReport } from '@/lib/db/queries/report-files';
 import { buildReportPdf } from '@/lib/pdf/report-pdf';
 import { composeReportPdf } from '@/lib/pdf/report-poster';
+import { composeReportSheet } from '@/lib/pdf/report-sheet';
+import { buildProjectReportSheet } from '@/lib/domain/project-report-sheet';
 import { parseReportContent } from '@/lib/domain/report-content';
 import { signedLibraryUrl } from '@/lib/storage/library';
 import { REPORT_KIND_LABEL, isReportKind } from '@/lib/domain/report-periods';
@@ -72,6 +74,8 @@ export async function GET(
 
   /* ── The drawn page. See the header on why it wins where both are present. ─── */
   const wantsPoster = request.nextUrl.searchParams.get('poster') === '1';
+  /* The bespoke A4 layout, on request. Default is the reports-page sheet. */
+  const wantsDrawnPoster = request.nextUrl.searchParams.get('layout') === 'poster';
   const content = wantsPoster ? null : parseReportContent(report.content);
 
   let pdf: Uint8Array;
@@ -82,7 +86,51 @@ export async function GET(
        — a renamed project must not silently rewrite a document already sent. The current
        name is used for the FILENAME only, below, which is a convenience and not a
        claim. */
-    pdf = await composeReportPdf(content, { generatedOn, generatedBy });
+    /* ── ⚠️ THE REPORTS-PAGE SHEET, NOT THE BESPOKE POSTER ─────────────────
+       Owner, 2026-09-03, third time of asking with the /reports export open:
+       *"I want this template of the PDF that I have here with you as a
+       screenshot. It's the same template which is in the /report page."*
+
+       So this now takes the same road attendance and finance already took —
+       build a `Report`, hand it to `composeReportSheet` — which is the masthead,
+       the figure cards, the ruled table and the notes block they were pointing
+       at. `buildProjectReportSheet` has the argument in full.
+
+       ⚠️ THE DRAWN POSTER IS STILL REACHABLE, with `?layout=poster` — and NOT
+       with `?poster=1`, which is a different flag entirely: that one serves the
+       stored PNG from the image-model path. The first version of this comment
+       said `?poster=1` and was wrong, which would have left the poster renderer
+       unreachable and dead while the comment claimed otherwise.
+
+       It is kept because it is a nicer single page for a client, and because a
+       report already sent should still open looking like the document that was
+       sent. */
+    pdf = wantsDrawnPoster
+      ? await composeReportPdf(content, { generatedOn, generatedBy })
+      : await composeReportSheet({
+      report: buildProjectReportSheet(content, {
+        start: report.periodStart,
+        end: report.periodEnd,
+      }),
+      /* Null: `work` turns on the table built for the WORK report, whose rows are
+         one per project-and-person. This report's rows are one per TASK, so it
+         takes the generic table — the same one attendance and finance print. */
+      work: null,
+      /* No charts. The period's shape is already in the table, and a chart of
+         seven bars beside seven rows is the same information drawn twice. */
+      charts: [],
+      filterSummary: [`Project: ${content.projectName}`],
+      generatedOn,
+      generatedBy,
+      /* ⚠️ The links, alongside the rows. `buildProjectReportSheet` puts the
+         address in the last column as text; these are the full hrefs that make
+         it clickable — which the owner asked for before asking for this
+         template, and which the generic table would otherwise have dropped. */
+      linkColumn: {
+        index: 6,
+        hrefs: content.published.map((row) => row.url || null),
+      },
+    });
   } else {
     if (!report.imagePath) {
       /* ⚠️ Unreachable while `project_reports_renderable` holds — but stated rather than

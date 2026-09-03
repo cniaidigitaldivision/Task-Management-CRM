@@ -3,7 +3,17 @@ import 'server-only';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFImage, type PDFPage } from 'pdf-lib';
+import {
+  PDFDocument,
+  PDFName,
+  PDFString,
+  StandardFonts,
+  rgb,
+  type PDFArray,
+  type PDFFont,
+  type PDFImage,
+  type PDFPage,
+} from 'pdf-lib';
 
 import { PLATFORM_MARKS } from '@/lib/brand/platform-marks';
 import { APP_NAME, DIVISION_NAME, ORGANISATION_NAME } from '@/lib/domain/constants';
@@ -130,6 +140,63 @@ export interface ReportSheetInput {
   /** `yyyy-mm-dd`. Also stamps the document dates. */
   readonly generatedOn: string;
   readonly generatedBy: string;
+  /* ── ⚠️ ONE COLUMN OF REAL, CLICKABLE LINKS — ADDED 2026-09-03 ────────────
+     Owner asked for two things that pulled against each other: this sheet's
+     template for the project report, AND *"the post URL… could be a clickable
+     right in the PDF."* The generic table draws text, so moving the project
+     report onto this renderer would have quietly undone the links.
+
+     The addresses ride ALONGSIDE the rows rather than inside a Cell: `Cell` is
+     also what the .xlsx writer reads, and giving it an href would put a PDF
+     concern into the spreadsheet's shape. `index` is the column; `hrefs` is one
+     entry per row, null where that row has no link.
+
+     The cell TEXT stays whatever the row says — usually the address without its
+     scheme, because a column of "https://" tells a reader nothing. The
+     annotation always carries the full href, which is what has to be complete
+     for the link to resolve. */
+  readonly linkColumn?: {
+    readonly index: number;
+    readonly hrefs: readonly (string | null)[];
+  } | null;
+}
+
+/**
+ * Make a rectangle of the page an actual clickable link.
+ *
+ * ⚠️ `/Rect` is PDF user space — origin BOTTOM-left, y upwards — which is what
+ * `up()` converts into. Getting it upside down puts the clickable box at the top
+ * of the page and nothing about the rendered file looks wrong.
+ *
+ * ⚠️ `PDFString.of`, not a bare string: a raw JS string is written as a NAME and
+ * the reader silently ignores the action, so the link renders, does nothing, and
+ * looks exactly like the bug this exists to prevent. The same helper and the
+ * same warning as lib/pdf/report-poster.ts.
+ *
+ * ⚠️ `/Border [0 0 0]` because the styling is already drawn; without it most
+ * readers add a black rectangle of their own around every link.
+ */
+function linkTo(
+  kit: Kit,
+  url: string,
+  rect: { x: number; y: number; width: number; height: number },
+): void {
+  const doc = kit.page.doc;
+
+  const annotation = doc.context.obj({
+    Type: 'Annot',
+    Subtype: 'Link',
+    Rect: [rect.x, rect.y, rect.x + rect.width, rect.y + rect.height],
+    Border: [0, 0, 0],
+    A: doc.context.obj({ Type: 'Action', S: 'URI', URI: PDFString.of(url) }),
+  });
+
+  const existing = kit.page.node.get(PDFName.of('Annots')) as unknown;
+  if (existing && typeof (existing as PDFArray).push === 'function') {
+    (existing as PDFArray).push(annotation);
+  } else {
+    kit.page.node.set(PDFName.of('Annots'), doc.context.obj([annotation]));
+  }
 }
 
 interface Kit {
@@ -424,7 +491,7 @@ export async function composeReportSheet(input: ReportSheetInput): Promise<Uint8
 
   cursor = input.work
     ? drawWorkTable(kit, input.work, cursor, newPage)
-    : drawGenericTable(kit, report, cursor, newPage);
+    : drawGenericTable(kit, report, cursor, newPage, input.linkColumn ?? null);
 
   drawNotes(kit, report, cursor, newPage);
 
@@ -919,6 +986,8 @@ function drawGenericTable(
   report: Report,
   startTop: number,
   newPage: () => number,
+  /* One column of real links, or nothing — see `ReportSheetInput.linkColumn`. */
+  linkColumn: ReportSheetInput['linkColumn'] = null,
 ): number {
   const columns = genericColumns(kit, report);
   const boxes = columnBoxes(columns);
@@ -950,16 +1019,41 @@ function drawGenericTable(
     lines.forEach((block, i) => {
       const column = columns[i];
       const { x, w } = boxes[i];
+      /* The link column, if this report has one — see `linkColumn`. */
+      const href = linkColumn?.index === i ? (linkColumn.hrefs[rowIndex] ?? null) : null;
+
       block.forEach((line, index) => {
         const anchor = column.align === 'right' ? x + w - CELL_PAD : x + CELL_PAD;
+        const baseline = top + 13 + index * LINE_H;
+
         text(kit, line, {
           x: anchor,
-          baseline: top + 13 + index * LINE_H,
+          baseline,
           size: BODY_SIZE,
           bold: i === 0,
-          color: i === 0 ? INK.text : INK.soft,
+          /* A link is drawn in the accent so it reads as one before anybody
+             hovers it. Everything else keeps the table's own two inks. */
+          color: href ? INK.brand : i === 0 ? INK.text : INK.soft,
           align: column.align,
         });
+
+        /* ⚠️ Only the FIRST line of a wrapped address gets the annotation. A
+           long URL that wraps would otherwise get one box per line, and the
+           second would sit under text that is the middle of the address — a
+           click target on half a link. The first line is where the eye goes. */
+        if (href && index === 0) {
+          /* ⚠️ MEASURED, not returned: `text()` draws and returns void, so the
+             box is sized with the same measurer the column widths use. Falling
+             back to the cell width would make the whole cell clickable, which is
+             a larger target than the thing it points at. */
+          const drawn = widthOf(kit.regular, line, BODY_SIZE);
+          linkTo(kit, href, {
+            x: anchor,
+            y: baseline - 2,
+            width: drawn > 0 ? drawn : w - CELL_PAD * 2,
+            height: LINE_H,
+          });
+        }
       });
     });
 
