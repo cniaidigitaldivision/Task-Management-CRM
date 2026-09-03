@@ -1200,6 +1200,51 @@ body,
   animation: orbit-spin 7s linear infinite;
 }
 
+/* ==========================================================================
+   THE REPORT LOADER
+   ==========================================================================
+   Owner, 2026-09-03: *"when the reports are generating, show a loader. You can
+   say the logo that will be flipping clockwise or anti-clockwise on the screen
+   so let them know that something is generating."*
+
+   A Y-axis flip rather than a flat spin: a spinning square reads as a stuck
+   graphic, while a card turning over reads as work being done — and it is the
+   division's own mark doing the turning, which a generic spinner is not.
+
+   ⚠️ `rotateY` needs a perspective on the PARENT or the flip is a flat squash
+   with no depth to it. `.logo-flip-stage` carries it; the mark itself only
+   turns.
+
+   ⚠️ 1.6s, not faster. A quick flip reads as agitation. This is a document
+   being assembled, and the pace should suggest that rather than a page that has
+   hung. */
+.logo-flip-stage {
+  perspective: 600px;
+}
+
+.logo-flip {
+  animation: logo-flip 1.6s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+  transform-style: preserve-3d;
+}
+
+@keyframes logo-flip {
+  from {
+    transform: rotateY(0deg);
+  }
+  to {
+    transform: rotateY(360deg);
+  }
+}
+
+/* An animation somebody cannot turn off is an accessibility fault. The mark
+   stays and stops moving; the wording underneath still says what is happening,
+   so nothing is lost by holding still. */
+@media (prefers-reduced-motion: reduce) {
+  .logo-flip {
+    animation: none;
+  }
+}
+
 @keyframes orbit-spin {
   to {
     --orbit-angle: 360deg;

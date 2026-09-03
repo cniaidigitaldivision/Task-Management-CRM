@@ -44,9 +44,37 @@ export interface ReportPlacement {
   readonly url: string | null;
 }
 
+/* ── ⚠️ A TASK ROW, WHICH IS NOT THE SAME THING AS AN ASSET ────────────────
+   Owner, 2026-09-03: *"you will tell me how many tasks were created today, who
+   created them, what task name, what their description is, what their category
+   is, whether they are done or pending."*
+
+   `ReportAsset` above answers "what went out" — published deliverables, counted
+   on `published_on` against the package target. This answers "what was worked
+   on", which is a different question with a different date and a different
+   audience: the first is what a client is shown, the second is what a manager
+   reads on a Monday morning. Keeping them apart is what stops a task that was
+   raised and abandoned counting as delivery. */
+export interface ReportTask {
+  readonly id: string;
+  readonly reference: string;
+  readonly title: string;
+  readonly description: string | null;
+  /** The deliverable kind, or null for ordinary work. The report's "category". */
+  readonly contentKind: string | null;
+  readonly status: string;
+  readonly createdByName: string | null;
+  readonly assigneeName: string | null;
+  /** 'YYYY-MM-DD', the day it was RAISED — what the day-by-day table groups on. */
+  readonly createdOn: string;
+  readonly dueDate: string | null;
+  readonly completedOn: string | null;
+}
+
 export interface ProjectReportData {
   readonly assets: readonly ReportAsset[];
   readonly placements: readonly ReportPlacement[];
+  readonly tasks: readonly ReportTask[];
 }
 
 /**
@@ -97,7 +125,47 @@ export async function projectReportData(
        order by pl.sort_order, tp.published_on
     `;
 
+    /* ⚠️ ON `created_at`, NOT `due_date` — the owner asked for tasks CREATED in
+       the period, and the two answer different questions. A task raised on Monday
+       for Friday belongs to Monday's report as work that was taken on, and to
+       Friday's board as work that is due. Reported in the division's own zone so
+       a task raised at 9pm in Karachi is not filed under the previous day.
+
+       ⚠️ Cancelled work is kept, unlike the asset query above. An asset that was
+       cancelled did not go out and must not count as delivery; a task that was
+       cancelled IS part of the week's story — somebody raised it and it was
+       dropped, which is exactly the sort of thing a report exists to surface. */
+    const tasks = await tx`
+      select t.id, t.reference, t.title, t.description, t.content_kind, t.status,
+             creator.full_name as created_by_name,
+             assignee.full_name as assignee_name,
+             (t.created_at at time zone 'Asia/Karachi')::date as created_on,
+             t.due_date,
+             (t.completed_at at time zone 'Asia/Karachi')::date as completed_on
+        from public.tasks t
+        left join public.users creator  on creator.id  = t.created_by_id
+        left join public.users assignee on assignee.id = t.assignee_id
+       where t.project_id = ${projectId}
+         and not t.is_deleted
+         and (t.created_at at time zone 'Asia/Karachi')::date >= ${start}::date
+         and (t.created_at at time zone 'Asia/Karachi')::date <= ${end}::date
+       order by (t.created_at at time zone 'Asia/Karachi')::date, t.reference
+    `;
+
     return {
+      tasks: (tasks as Array<Record<string, unknown>>).map((row) => ({
+        id: row.id as string,
+        reference: row.reference as string,
+        title: row.title as string,
+        description: (row.description as string | null) ?? null,
+        contentKind: (row.content_kind as string | null) ?? null,
+        status: row.status as string,
+        createdByName: (row.created_by_name as string | null) ?? null,
+        assigneeName: (row.assignee_name as string | null) ?? null,
+        createdOn: dateOnly(row.created_on),
+        dueDate: row.due_date ? dateOnly(row.due_date) : null,
+        completedOn: row.completed_on ? dateOnly(row.completed_on) : null,
+      })),
       assets: assets.map((row) => ({
         id: row.id as string,
         title: row.title as string,
@@ -131,4 +199,15 @@ function dateText(value: unknown): string {
     return `${value.getUTCFullYear()}-${pad(value.getUTCMonth() + 1)}-${pad(value.getUTCDate())}`;
   }
   return String(value).slice(0, 10);
+}
+
+/** A `date` column as 'YYYY-MM-DD'.
+ *
+ *  ⚠️ postgres.js hands a `date` back as a JS Date at UTC midnight, so
+ *  `String(value).slice(0, 10)` gives 'Wed Sep 02'. That exact mistake made the
+ *  repeat runner recognise no day as a repeat day on 2026-09-03 — it fails
+ *  silently, which is why this helper exists rather than an inline slice. */
+function dateOnly(value: unknown): string {
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  return String(value ?? '').slice(0, 10);
 }

@@ -2,7 +2,17 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Clapperboard, ImageIcon, Link2, Printer, Target } from 'lucide-react';
+import {
+  ArrowLeft,
+  CheckCircle2,
+  CircleDot,
+  Clapperboard,
+  ImageIcon,
+  Link2,
+  ListChecks,
+  Printer,
+  Target,
+} from 'lucide-react';
 
 import { LogoMark } from '@/components/brand/logo';
 import { PlatformIcon } from '@/components/brand/platform-icon';
@@ -10,7 +20,14 @@ import { ProgressBar } from '@/components/ui/progress';
 import type { ProjectRow } from '@/lib/db/queries/types';
 import type { ReportAsset } from '@/lib/db/queries/project-report';
 import type { ProjectReport } from '@/lib/domain/project-report';
-import { APP_NAME, DIVISION_NAME } from '@/lib/domain/constants';
+import {
+  APP_NAME,
+  CONTENT_KIND_LABEL,
+  DIVISION_NAME,
+  STATUS_META,
+  type ContentKind,
+  type TaskStatus,
+} from '@/lib/domain/constants';
 import { REPORT_KIND_LABEL, dayTitle } from '@/lib/domain/report-periods';
 import { cn } from '@/lib/utils';
 
@@ -355,6 +372,178 @@ export function ProjectReportSheet({
           </section>
         )}
 
+        {/* == ACTIVITY - WHAT WAS WORKED ON ==================================
+            Owner, 2026-09-03: *"you will tell me how many tasks were created
+            today, who created them, what task name, what their description is,
+            what their category is, whether they are done or pending."*
+
+            Everything above this line is DELIVERY - what went out, measured
+            against the package. This is ACTIVITY, and the two are not the same
+            report: a week where the team worked hard on things not yet
+            published looks empty above and busy here, and both are true. */}
+        <section className="space-y-2">
+          <h2 className="text-body-sm font-semibold text-text-primary">
+            Tasks raised
+            <span className="ml-2 font-normal text-text-tertiary">{report.tasksCreated}</span>
+          </h2>
+
+          {report.tasksCreated === 0 ? (
+            <p className="text-caption text-text-tertiary">
+              No task was raised on this project during {period.label.toLowerCase()}.
+            </p>
+          ) : (
+            <>
+              <div className="grid gap-3 sm:grid-cols-3">
+                {/* The sheet's own Figure, so these three read as the same kind
+                    of thing as the delivery figures above rather than as a second
+                    design that happens to sit on the same page. */}
+                <Figure
+                  icon={ListChecks}
+                  token="text-brand"
+                  label="Raised"
+                  value={report.tasksCreated}
+                  hint="in this period"
+                />
+                <Figure
+                  icon={CheckCircle2}
+                  token="feedback-success"
+                  label="Done"
+                  value={report.tasksDone}
+                  hint="closed and signed off"
+                />
+                <Figure
+                  icon={CircleDot}
+                  token={report.tasksOpen > 0 ? 'feedback-warning' : 'text-brand'}
+                  label="Still open"
+                  value={report.tasksOpen}
+                  hint={
+                    report.tasksCancelled > 0
+                      ? `${report.tasksCancelled} cancelled`
+                      : 'nothing cancelled'
+                  }
+                />
+              </div>
+
+              {/* -- GROUPED BY THE PERIOD'S OWN BUCKETS --
+                  Owner: *"what task has been done in this whole week, Monday,
+                  Tuesday, Wednesday, and who does which task."* The grouping
+                  reuses `period.buckets`, so a week reads Monday-to-Sunday and a
+                  month reads week-by-week without this component knowing which it
+                  is looking at. A day report has one bucket and reads as a plain
+                  list, which is correct rather than a special case. */}
+              <div className="space-y-3">
+                {report.taskDays
+                  .filter((day) => day.tasks.length > 0)
+                  .map((day) => (
+                    <div key={day.key} className="space-y-1.5">
+                      <p className="flex flex-wrap items-baseline gap-2 text-caption font-semibold text-text-primary">
+                        {day.label}
+                        <span className="font-normal text-text-tertiary">
+                          {day.tasks.length} raised &middot; {day.done} done &middot; {day.open} open
+                        </span>
+                      </p>
+
+                      <table className="w-full border-collapse">
+                        <thead>
+                          <tr className="border-b border-border-default">
+                            <th className={TH}>Task</th>
+                            <th className={TH}>Category</th>
+                            <th className={TH}>Raised by</th>
+                            <th className={TH}>Doing it</th>
+                            <th className={TH}>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {day.tasks.map((task) => (
+                            <tr
+                              key={task.id}
+                              className="border-b border-border-subtle last:border-0"
+                            >
+                              <td className={TD}>
+                                <span className="font-medium text-text-primary">{task.title}</span>
+                                <span className="ml-2 font-mono text-micro text-text-tertiary">
+                                  {task.reference}
+                                </span>
+                                {task.description && (
+                                  /* Truncated rather than dropped. A description is
+                                     often the only place the actual brief is
+                                     written, and a report that omitted it would
+                                     send the reader back to the board. */
+                                  <span className="mt-0.5 block max-w-[28rem] truncate text-micro text-text-secondary">
+                                    {task.description}
+                                  </span>
+                                )}
+                              </td>
+                              <td className={TD}>
+                                {task.contentKind
+                                  ? CONTENT_KIND_LABEL[task.contentKind as ContentKind]
+                                  : 'General work'}
+                              </td>
+                              <td className={TD}>{task.createdByName ?? '—'}</td>
+                              <td className={TD}>{task.assigneeName ?? 'Unassigned'}</td>
+                              <td className={TD}>
+                                <StatusPill status={task.status} />
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ))}
+              </div>
+            </>
+          )}
+        </section>
+
+        {/* == THE READING ====================================================
+            Owner: *"the target is this one: achieve this one, left this one, you
+            are lagging, you are completing your own time, you are progressing.
+            Any suggestion should be mentioned below."*
+
+            Last on the sheet on purpose: a conclusion belongs after its
+            evidence, and a reader who disagrees with it has just passed every
+            figure it was drawn from. */}
+        <section
+          className="space-y-2 rounded-xl border p-4"
+          style={{
+            borderColor: `color-mix(in oklab, var(--${VERDICT_TOKEN[report.verdict.tone]}) 35%, transparent)`,
+            backgroundColor: `color-mix(in oklab, var(--${VERDICT_TOKEN[report.verdict.tone]}) var(--tint-soft), var(--bg-surface))`,
+          }}
+        >
+          <p
+            className="text-body-sm font-semibold"
+            style={{
+              color: `color-mix(in oklab, var(--${VERDICT_TOKEN[report.verdict.tone]}) 84%, var(--text-primary))`,
+            }}
+          >
+            {report.verdict.headline}
+          </p>
+
+          {report.monthlyPromise !== null && (
+            <p className="text-caption text-text-secondary">
+              The agreed monthly promise for {project.name} is{' '}
+              <span className="font-semibold text-text-primary">
+                {report.monthlyPromise} assets
+              </span>
+              . This period&rsquo;s share of it is {report.target}.
+            </p>
+          )}
+
+          {report.verdict.suggestions.length > 0 && (
+            <ul className="space-y-1 pt-1">
+              {report.verdict.suggestions.map((line) => (
+                <li key={line} className="flex items-start gap-2 text-caption text-text-secondary">
+                  <span
+                    aria-hidden="true"
+                    className="mt-[0.45em] size-1 shrink-0 rounded-full bg-current"
+                  />
+                  {line}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
         {/* ---- Provenance ---- */}
         <footer className="space-y-1 border-t border-border-subtle pt-4 text-micro text-text-tertiary">
           <p>
@@ -475,3 +664,36 @@ const TH_R = `${TH} text-right`;
    congested even after the padding grew. */
 const TD = 'px-2.5 py-2.5 align-middle text-caption text-text-secondary';
 const TD_R = `${TD} text-right tabular-nums`;
+
+/* ----------------------------------------------------------------------------
+ * THE VERDICT'S COLOUR
+ * ----------------------------------------------------------------------------
+ * Semantic tokens, not literal colours, so the panel means the same thing in
+ * both themes and moves with the palette. `untargeted` is deliberately NEUTRAL:
+ * a project with no agreed rhythm is neither passing nor failing, and painting
+ * it amber would invent a problem the client never signed up to.
+ * ------------------------------------------------------------------------- */
+const VERDICT_TOKEN: Readonly<Record<string, string>> = {
+  ahead: 'feedback-success',
+  on_track: 'feedback-success',
+  behind: 'feedback-warning',
+  untargeted: 'border-default',
+};
+
+/** A task's status, in the same colours the boards use for it. */
+function StatusPill({ status }: { status: string }) {
+  const meta = STATUS_META[status as TaskStatus];
+  if (!meta) return <span className="text-text-tertiary">{status}</span>;
+
+  return (
+    <span
+      className="inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-micro font-semibold"
+      style={{
+        backgroundColor: `color-mix(in oklab, var(--${meta.token}) var(--tint-medium), var(--bg-surface))`,
+        color: `color-mix(in oklab, var(--${meta.token}) 84%, var(--text-primary))`,
+      }}
+    >
+      {meta.label}
+    </span>
+  );
+}

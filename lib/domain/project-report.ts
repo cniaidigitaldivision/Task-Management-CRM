@@ -74,6 +74,47 @@ export interface PlatformRow {
   readonly withLinks: number;
 }
 
+/* ── ⚠️ TASK ROWS, AND WHY THEY ARE A SEPARATE AXIS ───────────────────────
+   Owner, 2026-09-03: *"what task has been done in this whole week, Monday,
+   Tuesday, Wednesday, and who does which task."*
+
+   The buckets above count DELIVERY — what went out, against the package target.
+   These count ACTIVITY — what was raised and what became of it. A report that
+   showed only the first says nothing about a week where the team worked hard on
+   things that are not yet published, which is most weeks. */
+export interface ReportTaskInput {
+  readonly id: string;
+  readonly reference: string;
+  readonly title: string;
+  readonly description: string | null;
+  readonly contentKind: string | null;
+  readonly status: string;
+  readonly createdByName: string | null;
+  readonly assigneeName: string | null;
+  readonly createdOn: string;
+  readonly dueDate: string | null;
+  readonly completedOn: string | null;
+}
+
+/** One day (or week, or month) of activity, for the breakdown table. */
+export interface TaskDayRow {
+  readonly key: string;
+  readonly label: string;
+  readonly start: string;
+  readonly end: string;
+  readonly tasks: readonly ReportTaskInput[];
+  readonly done: number;
+  readonly open: number;
+}
+
+/** The report's own reading of how the period went, in words. */
+export interface Verdict {
+  readonly tone: 'ahead' | 'on_track' | 'behind' | 'untargeted';
+  readonly headline: string;
+  /** Acted on, not admired — each is something somebody could do next. */
+  readonly suggestions: readonly string[];
+}
+
 export interface ProjectReport {
   readonly period: ReportPeriod;
   readonly buckets: readonly BucketRow[];
@@ -91,6 +132,19 @@ export interface ProjectReport {
   readonly offDays: number;
   /** True when the project published nothing at all in the period. */
   readonly isEmpty: boolean;
+
+  /* ── Activity, alongside delivery ─────────────────────────────────────── */
+  readonly tasks: readonly ReportTaskInput[];
+  /** The same tasks arranged by the period's own buckets — the day-by-day table. */
+  readonly taskDays: readonly TaskDayRow[];
+  readonly tasksCreated: number;
+  readonly tasksDone: number;
+  readonly tasksOpen: number;
+  readonly tasksCancelled: number;
+  /** What the cadence promises in a WHOLE month, whatever period this is. The
+   *  owner asked for the monthly promise to be stated even on a daily report. */
+  readonly monthlyPromise: number | null;
+  readonly verdict: Verdict;
 }
 
 const DAY_MS = 86_400_000;
@@ -163,6 +217,7 @@ export function buildProjectReport(
   assets: readonly ReportAssetInput[],
   placements: readonly ReportPlacementInput[],
   cadence: ReportCadence,
+  tasks: readonly ReportTaskInput[] = [],
 ): ProjectReport {
   const buckets: BucketRow[] = period.buckets.map((bucket) => {
     const inside = assets.filter((asset) => inBucket(asset.publishedOn, bucket));
@@ -213,6 +268,27 @@ export function buildProjectReport(
   const totalReels = assets.filter((asset) => asset.contentKind === 'reel').length;
   const whole = planFor(cadence, period.start, period.end);
 
+  /* ── The same buckets, filled with activity instead of delivery ───────────
+     Reusing `period.buckets` rather than grouping by raw date is what makes a
+     week report read Monday-to-Sunday and a month report read week-by-week
+     without this function knowing which it is. */
+  const taskDays: TaskDayRow[] = period.buckets.map((bucket) => {
+    const inside = tasks.filter((task) => inBucket(task.createdOn, bucket));
+    return {
+      key: bucket.key,
+      label: bucket.label,
+      start: bucket.start,
+      end: bucket.end,
+      tasks: inside,
+      done: inside.filter((task) => task.status === 'done').length,
+      open: inside.filter((task) => task.status !== 'done' && task.status !== 'cancelled').length,
+    };
+  });
+
+  const tasksDone = tasks.filter((task) => task.status === 'done').length;
+  const tasksCancelled = tasks.filter((task) => task.status === 'cancelled').length;
+  const tasksOpen = tasks.length - tasksDone - tasksCancelled;
+
   return {
     period,
     buckets,
@@ -228,5 +304,149 @@ export function buildProjectReport(
     totalWithLinks: placements.filter((placement) => placement.url !== null).length,
     offDays: whole.offDays,
     isEmpty: assets.length === 0,
+
+    tasks,
+    taskDays,
+    tasksCreated: tasks.length,
+    tasksDone,
+    tasksOpen,
+    tasksCancelled,
+    monthlyPromise: monthlyPromise(cadence),
+    verdict: readVerdict({
+      target: whole.target,
+      achieved: assets.length,
+      tasksOpen,
+      tasksCancelled,
+      withoutLinks: placements.filter((placement) => placement.url === null).length,
+    }),
+  };
+}
+
+/**
+ * What the cadence promises across a WHOLE month, whatever period is being
+ * reported.
+ *
+ * ⚠️ Stated even on a daily report, because the owner asked for it: *"that
+ * project name should mention their monthly promise, like they are targeted."* A
+ * day's figure means little without the commitment it is a day of.
+ *
+ * ⚠️ Null, never 0, when nothing was agreed. `contractTargets` and
+ * `projectProgress` already depend on that distinction: a zero promise is a
+ * promise to publish nothing, which no client ever signs.
+ */
+function monthlyPromise(cadence: ReportCadence): number | null {
+  const hasStatic = cadence.staticPostsPerDay !== null;
+  const hasReels = cadence.reelsPerWeek !== null;
+  if (!hasStatic && !hasReels) return null;
+
+  /* Four whole weeks is the floor every month clears — 28 days — so it is the
+     only honest basis for a promise. The same reasoning and the same constant as
+     `contractTargets` in cadence.ts. */
+  const WEEKS = 4;
+  const postingDays = cadence.postingDays.length;
+  const staticPerMonth = hasStatic ? (cadence.staticPostsPerDay ?? 0) * postingDays * WEEKS : 0;
+  const reelsPerMonth = hasReels ? (cadence.reelsPerWeek ?? 0) * WEEKS : 0;
+  return staticPerMonth + reelsPerMonth;
+}
+
+/**
+ * The report's own reading, in words, with something to do about it.
+ *
+ * Owner, 2026-09-03: *"the target is this one: achieve this one, left this one,
+ * you are lagging, you are completing your own time, you are progressing. Any
+ * suggestion should be mentioned below."*
+ *
+ * ⚠️ EVERY SUGGESTION NAMES A NUMBER FROM THIS REPORT. A line like "consider
+ * improving consistency" is filler that survives review and helps nobody; each
+ * of these is a thing somebody could act on before lunch, and none appears
+ * unless the figure behind it says so.
+ */
+function readVerdict(input: {
+  target: number;
+  achieved: number;
+  tasksOpen: number;
+  tasksCancelled: number;
+  withoutLinks: number;
+}): Verdict {
+  /* ⚠️ JUDGED AGAINST THE PERIOD, NEVER AGAINST THE WALL CLOCK. A report is a
+     document about a span that has been chosen, and one that read "today" would
+     say something different every time it was opened — including calling a month
+     that finished last year "behind schedule". `target` is already pro-rated to
+     the period by `planFor`, so the comparison below is complete as it stands.
+     (An earlier draft carried an `elapsedFraction` helper for this and it always
+     returned 1, which is a stub wearing a comment; it is gone.) */
+  const { target, achieved, tasksOpen, tasksCancelled, withoutLinks } = input;
+  const suggestions: string[] = [];
+
+  if (withoutLinks > 0) {
+    suggestions.push(
+      `${withoutLinks} ${withoutLinks === 1 ? 'post has' : 'posts have'} no live link recorded. Paste the link on each, or the delivery figure a client is shown cannot be checked.`,
+    );
+  }
+  if (tasksOpen > 0) {
+    suggestions.push(
+      `${tasksOpen} ${tasksOpen === 1 ? 'task is' : 'tasks are'} still open from this period. Close what is finished so the next report starts clean.`,
+    );
+  }
+  if (tasksCancelled > 0) {
+    suggestions.push(
+      `${tasksCancelled} ${tasksCancelled === 1 ? 'task was' : 'tasks were'} cancelled. Worth a look if that is more than usual — cancelled work is effort that produced nothing.`,
+    );
+  }
+
+  if (target <= 0) {
+    return {
+      tone: 'untargeted',
+      headline:
+        'No posting rhythm is agreed for this project, so there is nothing to measure delivery against.',
+      suggestions: suggestions.length > 0
+        ? suggestions
+        : ['Set a rhythm under Edit project and this report will start scoring against it.'],
+    };
+  }
+
+  const short = target - achieved;
+
+  if (short <= 0) {
+    return {
+      tone: 'ahead',
+      headline:
+        achieved === target
+          ? `Target met: ${achieved} of ${target}.`
+          : `Target beaten: ${achieved} published against a target of ${target}.`,
+      suggestions,
+    };
+  }
+
+  /* ── ⚠️ THE TOLERANCE ONLY EXISTS WHERE A TENTH MEANS SOMETHING ──────────
+     Within a tenth of the promise is "nearly there" rather than "behind": a
+     report that calls one post short of thirty a failure gets ignored, and then
+     so does the one that matters.
+
+     But it must NOT round up on small targets. The first version read
+     `Math.max(1, round(target * 0.1))`, which gives a tolerance of 1 when the
+     target IS 1 — so a single day with nothing published at all was reported as
+     "on track". A day that was entirely missed is not nearly anything. Caught by
+     the test named for that case.
+
+     So: no tolerance below a target of ten, where a tenth cannot round to a
+     whole post without swallowing the entire target. */
+  const tolerance = target >= 10 ? Math.round(target * 0.1) : 0;
+
+  if (short <= tolerance) {
+    return {
+      tone: 'on_track',
+      headline: `On track: ${achieved} of ${target}, ${short} to go.`,
+      suggestions,
+    };
+  }
+
+  return {
+    tone: 'behind',
+    headline: `Behind: ${achieved} of ${target}, ${short} still owed.`,
+    suggestions: [
+      `${short} more ${short === 1 ? 'post' : 'posts'} would meet the target for this period.`,
+      ...suggestions,
+    ],
   };
 }

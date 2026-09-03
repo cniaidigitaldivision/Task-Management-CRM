@@ -74,12 +74,19 @@ export default async function ProjectReportPage({
 
   const data = await projectReportData(user.id, id, period.start, period.end);
 
-  const report = buildProjectReport(period, data.assets, data.placements, {
-    staticPostsPerDay: project.staticPostsPerDay,
-    reelsPerWeek: project.reelsPerWeek,
-    reelDays: project.reelDays,
-    postingDays: project.postingDays,
-  });
+  const report = buildProjectReport(
+    period,
+    data.assets,
+    data.placements,
+    {
+      staticPostsPerDay: project.staticPostsPerDay,
+      reelsPerWeek: project.reelsPerWeek,
+      reelDays: project.reelDays,
+      postingDays: project.postingDays,
+    },
+    /* Activity alongside delivery — owner, 2026-09-03. See `ReportTaskInput`. */
+    data.tasks,
+  );
 
   const canSeeFinance = can(actor, 'project.view_finance');
 
