@@ -6,6 +6,8 @@ import { CalendarX2, Check, CircleSlash, Clock, ExternalLink, FolderOpen, Loader
 
 import { publishPostAction } from '@/app/actions/tasks';
 import { savePlacementAction } from '@/app/actions/placements';
+import { useToast } from '@/components/ui/toast';
+import { publishTarget } from '@/lib/domain/daily';
 import { PlatformIcon } from '@/components/brand/platform-icon';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -15,7 +17,6 @@ import type { PlacementRow } from '@/lib/db/queries/placements';
 import type { TaskRow } from '@/lib/db/queries/types';
 import { dailyBoard, type DailyTask } from '@/lib/domain/daily';
 import { CONTENT_KIND_LABEL, type ContentKind } from '@/lib/domain/constants';
-import { cn } from '@/lib/utils';
 
 /* ============================================================================
  * THE DAILY BOARD — ONE DAY OF POSTING, DONE IN ONE PLACE
@@ -58,6 +59,7 @@ export function DailyBoard({
   platforms,
   driveFolders,
   projectId,
+  currentUserId,
   today,
   lookbackFrom,
 }: {
@@ -67,12 +69,21 @@ export function DailyBoard({
   platforms: readonly DailyPlatform[];
   driveFolders: readonly { id: string; name: string; projectId: string | null; driveFolderId: string }[];
   projectId: string;
+  /** ⚠️ Only so the notice can say where the post actually went. Publishing
+   *  routes by who RAISED the task — `publishTarget` — and "Saved." would be a
+   *  lie for work that has gone to somebody else for review. */
+  currentUserId: string;
   today: string;
   lookbackFrom: string;
 }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState<string | null>(null);
-  const [flash, setFlash] = React.useState<{ ok: boolean; text: string } | null>(null);
+  /* ── ⚠️ OUTCOMES GO TO THE CORNER, LIKE EVERY OTHER BOARD ────────────────
+     Owner, 2026-09-03: *"any change of status Task also show notification in
+     bottom right."* This was a bare line of text above the cards that a person
+     working down the list would scroll past without seeing. Same three tones as
+     the task board now, from the same provider. */
+  const toast = useToast();
 
   const board = React.useMemo(
     () => dailyBoard(tasks as unknown as DailyTask[], today, lookbackFrom),
@@ -130,15 +141,26 @@ export function DailyBoard({
      link that goes out before the rest. */
   const [drafts, setDrafts] = React.useState<Record<string, string>>({});
 
-  const run = async (key: string, fn: () => Promise<{ ok: boolean; error?: string }>) => {
+  const run = async (
+    key: string,
+    fn: () => Promise<{ ok: boolean; error?: string }>,
+    label?: string,
+  ) => {
     setBusy(key);
-    setFlash(null);
     try {
       const result = await fn();
-      setFlash({ ok: result.ok, text: result.ok ? 'Saved.' : (result.error ?? 'That did not work.') });
-      if (result.ok) router.refresh();
+      if (result.ok) {
+        /* `label` says what actually happened — "Saved." for a link, and the
+           real outcome for a publish, which may have gone to review rather than
+           straight to done. A single word for both would tell somebody their
+           post was filed when it is in fact waiting on a reviewer. */
+        toast({ tone: 'ok', text: label ?? 'Saved.' });
+        router.refresh();
+      } else {
+        toast({ tone: 'error', text: result.error ?? 'That did not work.' });
+      }
     } catch {
-      setFlash({ ok: false, text: 'The server did not answer. Nothing was changed.' });
+      toast({ tone: 'error', text: 'The server did not answer. Nothing was changed.' });
     } finally {
       setBusy(null);
     }
@@ -186,15 +208,6 @@ export function DailyBoard({
 
   return (
     <div className="space-y-4">
-      {flash && (
-        <p
-          role="status"
-          className={cn('text-caption', flash.ok ? 'text-text-secondary' : 'text-feedback-error')}
-        >
-          {flash.text}
-        </p>
-      )}
-
       {/* ══ MISSED ══════════════════════════════════════════════════════════
           Shown FIRST and shown at all, which is the point. A blank day that
           scrolls off the bottom is a blank day nobody learns from. */}
@@ -350,7 +363,13 @@ export function DailyBoard({
                           }
 
                           return publishPostAction(t.id);
-                        })
+                        },
+                        /* The same rule the server applies, so the sentence
+                           matches what happened rather than guessing. */
+                        publishTarget({ createdById: task.createdById ?? '' }, currentUserId) ===
+                          'done'
+                          ? 'Published.'
+                          : 'Published — sent for review.')
                       }
                     >
                       {busy === `${t.id}:review` ? (

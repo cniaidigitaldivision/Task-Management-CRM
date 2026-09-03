@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
+import { useToast } from '@/components/ui/toast';
 import { AlertTriangle, Loader2, Lock } from 'lucide-react';
 
 import { createTaskAction, updateTaskAction, type ActionResult } from '@/app/actions/tasks';
@@ -269,6 +270,7 @@ export function TaskDialog({
 }) {
   const isEdit = Boolean(task);
   const router = useRouter();
+  const toast = useToast();
 
   /* ── "Now", read on every render, which is the simplest correct thing ──────
      Not memoised. `Dialog` renders `{open && …}`, so these inputs are mounted
@@ -354,12 +356,47 @@ export function TaskDialog({
      overriding anything. */
   const overrideAsked = Boolean(state.error && /reason to proceed|reason is required/i.test(state.error));
 
+  /* ── ⚠️ FIRES ONCE — THE SAME TRAP THE PROJECT DIALOG HAD ─────────────────
+     `useRouter()` returns a new object identity on every render, so `router` in
+     the dependency array makes this eligible to re-run on each one — and
+     `router.refresh()` below causes renders. `state.ok` stays true, so anything
+     that ACCUMULATES runs again and again. The project dialog produced ten
+     stacked notices from one project before this was understood; the shape was
+     identical here and would have done the same the moment a notice was added.
+
+     A ref, not state: setting state here would itself cause the render that
+     re-runs the effect. */
+  const announced = React.useRef(false);
+
   React.useEffect(() => {
-    if (state.ok) {
+    if (state.ok && !announced.current) {
+      announced.current = true;
+
+      /* ── Only on CREATE, and the reference is the useful part ──────────────
+         Owner, 2026-09-03: *"same way when new Task created, successful
+         notification should appear."* An edit already shows its result on the
+         board behind the dialog; a new task may be filed on a page that does
+         not list it, which is why this one carries a link.
+
+         ⚠️ A capacity advisory turns the notice ORANGE rather than green. The
+         task WAS created, so it is not an error — but "you have just put them
+         over their limit" is not a success either, and colouring it green would
+         hide the one sentence worth reading. */
+      if (!isEdit && state.taskId) {
+        toast({
+          tone: state.warning ? 'warn' : 'ok',
+          text: state.warning
+            ? `${state.reference ?? 'The task'} is created. ${state.warning}`
+            : `${state.reference ?? 'The task'} is created.`,
+          href: `/tasks?task=${state.taskId}`,
+          linkLabel: 'Open it',
+        });
+      }
+
       router.refresh();
       onClose();
     }
-  }, [state.ok, onClose, router]);
+  }, [state.ok, state.taskId, state.reference, state.warning, isEdit, onClose, router, toast]);
 
   // Members cannot hand work to anyone else (doc 03 §3.3).
   const assignable = currentUser.role === 'member'

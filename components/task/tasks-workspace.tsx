@@ -2,10 +2,9 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
+import { useToast } from '@/components/ui/toast';
 import {
-  AlertTriangle,
   CalendarDays,
-  CheckCircle2,
   Columns3,
   EyeOff,
   Flag,
@@ -208,7 +207,24 @@ export function TasksWorkspace({
   const [localTo, setLocalTo] = React.useState('');
   const dueFrom = dueWindow ? dueWindow.from : localFrom;
   const dueTo = dueWindow ? dueWindow.to : localTo;
-  const [flash, setFlash] = React.useState<{ tone: 'error' | 'warn' | 'ok'; text: string } | null>(null);
+  /* ── ⚠️ EVERY OUTCOME GOES TO THE CORNER NOW ──────────────────────────────
+     Owner, 2026-09-03: *"any change of status Task also show notification in
+     bottom right."*
+
+     This used to be an inline strip above the board with its own six-second
+     timer and its own hand-written colours. The tones it already carried —
+     error, warn, ok — map exactly onto the notice's three, so the strip is gone
+     rather than duplicated: two places reporting the same outcome is two places
+     to keep consistent, and the one nobody is looking at goes stale.
+
+     `setFlash` keeps its name and its call sites; only where it lands changed. */
+  const toast = useToast();
+  const setFlash = React.useCallback(
+    (next: { tone: 'error' | 'warn' | 'ok'; text: string } | null) => {
+      if (next) toast({ tone: next.tone, text: next.text });
+    },
+    [toast],
+  );
   /* Seeded from `?task=…` so a notification, an email or the Admin's extension
      queue can link straight to the task rather than to a list the person then
      has to search. */
@@ -329,12 +345,6 @@ export function TasksWorkspace({
     if (selectedIds.length > 0) setSelectedIds([]);
   }
 
-  React.useEffect(() => {
-    if (!flash) return;
-    const timer = setTimeout(() => setFlash(null), 6000);
-    return () => clearTimeout(timer);
-  }, [flash]);
-
   const visible = React.useMemo(
     () =>
       tasks.filter((t) => {
@@ -444,7 +454,7 @@ export function TasksWorkspace({
       }
       setPending(false);
     },
-    [router],
+    [router, setFlash],
   );
 
   const move = React.useCallback(
@@ -479,7 +489,7 @@ export function TasksWorkspace({
       }
       void commit(task, to);
     },
-    [tasks, commit, canMove],
+    [tasks, commit, canMove, setFlash],
   );
 
   const assigneeOptions = React.useMemo(() => {
@@ -491,42 +501,6 @@ export function TasksWorkspace({
   return (
     <div className="space-y-4">
       {/* ---- Result of the last action ---- */}
-      {flash && (
-        <div
-          role="status"
-          className="flex items-start gap-2.5 rounded-xl border px-4 py-3"
-          style={
-            flash.tone === 'error'
-              ? {
-                  borderColor: 'color-mix(in oklab, var(--feedback-error) 35%, transparent)',
-                  backgroundColor:
-                    'color-mix(in oklab, var(--feedback-error) var(--tint-soft), var(--bg-surface))',
-                }
-              : {
-                  borderColor: 'color-mix(in oklab, var(--feedback-success) 35%, transparent)',
-                  backgroundColor:
-                    'color-mix(in oklab, var(--feedback-success) var(--tint-soft), var(--bg-surface))',
-                }
-          }
-        >
-          {flash.tone === 'error' ? (
-            <AlertTriangle
-              className="mt-px h-4 w-4 shrink-0"
-              style={{ color: 'var(--feedback-error)' }}
-              strokeWidth={2}
-              aria-hidden="true"
-            />
-          ) : (
-            <CheckCircle2
-              className="mt-px h-4 w-4 shrink-0"
-              style={{ color: 'var(--feedback-success)' }}
-              strokeWidth={2}
-              aria-hidden="true"
-            />
-          )}
-          <p className="text-caption text-text-primary">{flash.text}</p>
-        </div>
-      )}
 
       <ViewTabs
         tabs={VIEW_TABS.map((tab) =>

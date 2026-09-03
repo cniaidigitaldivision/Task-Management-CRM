@@ -784,6 +784,7 @@ export function ProjectDetailWorkspace({
               platforms={project.platforms}
               driveFolders={driveFolders}
               projectId={project.id}
+              currentUserId={currentUser.id}
               today={today}
               lookbackFrom={dailyLookbackFrom}
             />
