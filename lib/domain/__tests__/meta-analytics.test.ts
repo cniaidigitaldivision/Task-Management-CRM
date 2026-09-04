@@ -10,10 +10,12 @@ import {
   correlationWord,
   dateRange,
   engagementFunnel,
+  followerLevelSeries,
   insights,
   interactionMix,
   periodDeltas,
   platformRadar,
+  postsPerDay,
   reachVsEngagement,
   series,
 } from '../meta-analytics';
@@ -398,5 +400,124 @@ describe('against the previous period', () => {
       previous: [metric({ metricKey: IG.reach, value: 100 })],
     });
     expect(d.find((x) => x.key === 'reach')?.percent).toBeCloseTo(-20, 5);
+  });
+});
+
+describe('the follower line', () => {
+  const fb = (date: string, value: number) =>
+    metric({ platform: 'facebook', metricKey: 'page_follows', onDate: date, value });
+  const ig = (date: string, value: number) =>
+    metric({ platform: 'instagram', metricKey: IG.followers, onDate: date, value });
+
+  /* ⚠️ A LEVEL IS CARRIED FORWARD, NOT ZEROED. The followers did not cease to
+     exist on a day the sync did not run; treating a missing day as zero would
+     draw a comb instead of a line. */
+  it('carries the last reading forward across a day with no sync', () => {
+    const s = followerLevelSeries([fb('2026-09-01', 10), fb('2026-09-04', 14)], DATES);
+    expect(s.points.slice(0, 4)).toEqual([10, 10, 10, 14]);
+  });
+
+  /* Before a platform's first reading there is nothing to carry. */
+  it('reports null before anything has been read at all', () => {
+    const s = followerLevelSeries([fb('2026-09-03', 10), fb('2026-09-04', 12)], DATES);
+    expect(s.points[0]).toBeNull();
+    expect(s.points[1]).toBeNull();
+    expect(s.points[2]).toBe(10);
+  });
+
+  /* ⚠️ THE BUG THIS FUNCTION EXISTS FOR. Instagram's follower count is a profile
+     snapshot, so there is exactly one reading of it — taken today. Including it
+     would step the line up on the final day and read as a day of extraordinary
+     growth, when all that happened is that we began recording a number that had
+     been true all along. */
+  it('leaves out a platform with a single reading rather than stepping the line', () => {
+    const s = followerLevelSeries(
+      [fb('2026-09-01', 10), fb('2026-09-04', 20), ig('2026-09-04', 16)],
+      DATES,
+    );
+    expect(s.platforms).toEqual(['Facebook']);
+    expect(s.partial).toBe(true);
+    expect(s.note).toMatch(/Instagram has one reading so far/);
+    /* No 36 anywhere — the final day is Facebook's 20. */
+    expect(s.points[6]).toBe(20);
+    expect(s.points).not.toContain(36);
+  });
+
+  it('sums both platforms once each has a history', () => {
+    const s = followerLevelSeries(
+      [fb('2026-09-01', 10), fb('2026-09-04', 20), ig('2026-09-01', 5), ig('2026-09-04', 16)],
+      DATES,
+    );
+    expect(s.platforms).toEqual(['Facebook', 'Instagram']);
+    expect(s.partial).toBe(false);
+    expect(s.points[0]).toBe(15);
+    expect(s.points[6]).toBe(36);
+  });
+
+  it('says nothing at all when no platform reports followers', () => {
+    const s = followerLevelSeries([], DATES);
+    expect(s.platforms).toEqual([]);
+    expect(s.points.every((p) => p === null)).toBe(true);
+  });
+});
+
+describe('posts per day', () => {
+  /* ⚠️ THE OPPOSITE RULE TO A METRIC SERIES, deliberately. A missing metric row
+     means "we did not collect"; a day with no post inside a collected range
+     means "nothing was published", which is a measurement. */
+  it('reports a day with no post as zero rather than null', () => {
+    const days = postsPerDay([post({ postedAt: '2026-09-03T06:00:00.000Z' })], DATES);
+    expect(days[0]).toBe(0);
+    expect(days[2]).toBe(1);
+  });
+
+  it('counts several posts on one day', () => {
+    const days = postsPerDay(
+      [
+        post({ id: 'a', postedAt: '2026-09-03T06:00:00.000Z' }),
+        post({ id: 'b', postedAt: '2026-09-03T11:00:00.000Z' }),
+      ],
+      DATES,
+    );
+    expect(days[2]).toBe(2);
+  });
+
+  /* A post at 1am Karachi is the previous day in UTC. */
+  it('files a post by its Karachi day', () => {
+    const days = postsPerDay([post({ postedAt: '2026-09-02T20:00:00.000Z' })], DATES);
+    expect(days[1]).toBe(0);
+    expect(days[2]).toBe(1);
+  });
+});
+
+describe('the follower delta', () => {
+  const fb = (date: string, value: number) =>
+    metric({ platform: 'facebook', metricKey: 'page_follows', onDate: date, value });
+  const ig = (date: string, value: number) =>
+    metric({ platform: 'instagram', metricKey: IG.followers, onDate: date, value });
+
+  /* ⚠️ A PLATFORM WE ONLY STARTED MEASURING IS NOT GROWTH. Instagram is absent
+     from the earlier window entirely; counting its 16 on one side only would
+     have reported a 80% rise that never happened. */
+  it('excludes a platform the earlier window never measured', () => {
+    const d = periodDeltas({
+      current: [fb('2026-09-04', 20), ig('2026-09-04', 16)],
+      previous: [fb('2026-08-04', 20)],
+    });
+    const f = d.find((x) => x.key === 'followers');
+    /* Facebook did not move, so the percentage is zero — not +80%. */
+    expect(f?.percent).toBeCloseTo(0, 5);
+    /* ...and the headline figure is still the true total across platforms. */
+    expect(f?.value).toBe(36);
+  });
+
+  it('compares both platforms once both windows have them', () => {
+    const d = periodDeltas({
+      current: [fb('2026-09-04', 20), ig('2026-09-04', 16)],
+      previous: [fb('2026-08-04', 10), ig('2026-08-04', 10)],
+    });
+    const f = d.find((x) => x.key === 'followers');
+    expect(f?.previous).toBe(20);
+    expect(f?.percent).toBeCloseTo(80, 5);
   });
 });

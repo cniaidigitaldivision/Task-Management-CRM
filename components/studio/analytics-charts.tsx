@@ -505,81 +505,84 @@ export function ScatterChart({
 /* ---- Funnel -------------------------------------------------------------- */
 
 /**
- * Reached → views → engaged → interactions → profile views.
+ * The stages, largest first, each bar cut to a chevron on its right edge.
  *
- * ⚠️ EACH BAR IS WIDTH-SCALED AGAINST THE LARGEST STAGE, NOT AGAINST ITS
- * PREDECESSOR. A classic funnel narrows by each step's own conversion, which
- * looks tidy and misleads: two stages of 50% and 90% draw the same taper as 90%
- * and 50%. Scaling everything against the largest makes the collapse from
- * 213,000 to 237 look like the collapse it is.
+ * ⚠️ SORTED BY VALUE, WHICH IS WHAT MAKES THE TAPER HONEST. Owner: *"they will
+ * arrange themselves with the more above and according to the figure they will
+ * move or adjust themselves automatically."* A funnel drawn in a fixed logical
+ * order with fixed-step widths tapers whatever the figures say — it looks like a
+ * measurement and is really a decoration. Sorting by value means the shape and
+ * the numbers cannot disagree: the widest bar is always the largest figure.
  *
- * ⚠️ AND THE LARGEST, NOT THE FIRST — because Views legitimately exceeds Reach.
- * Scaling against the first stage would push the Views bar past the panel's
- * right edge and clip the very figure that makes it interesting.
+ * ⚠️ AND THE PERCENTAGE IS RECOMPUTED AGAINST THE BAR ABOVE IT, not against the
+ * logical predecessor it arrived with. Once the order can change, a percentage
+ * comparing against a stage drawn somewhere else on the list is unreadable — a
+ * reader takes "9.5%" to mean "of the bar above", and it now does.
+ *
+ * ⚠️ THE CHEVRON IS A `clip-path`, NOT A BORDER TRICK. It cuts the fill itself,
+ * so the notch shows the panel behind rather than a wedge of some other colour,
+ * and it costs no extra element.
  */
 export function Funnel({ stages }: { stages: readonly FunnelStage[] }) {
   const { ref, inView } = useInView<HTMLDivElement>();
-  const top = Math.max(1, ...stages.map((s) => s.value));
 
-  if (stages.every((s) => s.value === 0)) {
+  const ordered = React.useMemo(() => {
+    const sorted = [...stages].sort((a, b) => b.value - a.value);
+    return sorted.map((s, i) => ({
+      ...s,
+      /* The first bar has nothing above it to be a share of. */
+      conversion: i === 0 ? null : sorted[i - 1].value === 0 ? null : (s.value / sorted[i - 1].value) * 100,
+    }));
+  }, [stages]);
+
+  const top = Math.max(1, ...ordered.map((s) => s.value));
+
+  if (ordered.every((s) => s.value === 0)) {
     return <p className="text-micro text-text-tertiary">Nothing collected for this period.</p>;
   }
 
   return (
-    <div ref={ref} className="space-y-1.5">
-      {stages.map((s, i) => {
+    <div ref={ref} className="space-y-1">
+      {ordered.map((s, i) => {
         /* A floor, so a tiny stage is still a readable bar rather than a sliver
            that reads as a rendering fault. */
-        const share = Math.max(0.16, s.value / top);
+        const share = Math.max(0.22, s.value / top);
         return (
           <div key={s.key} className="flex items-center gap-2" title={s.note}>
-            {/* The bar carries its own label, as the reference draws it. */}
-            <div className="relative h-8 min-w-0 flex-1 overflow-hidden rounded-md bg-bg-subtle">
+            <div className="relative h-7 min-w-0 flex-1">
               <div
-                className="absolute inset-y-0 left-0 rounded-md"
+                className="absolute inset-y-0 left-0"
                 style={{
                   width: inView ? `${share * 100}%` : '0%',
-                  background: `linear-gradient(90deg, color-mix(in oklab, var(--${s.token}) 34%, transparent), color-mix(in oklab, var(--${s.token}) 16%, transparent))`,
+                  background: `color-mix(in oklab, var(--${s.token}) 26%, transparent)`,
+                  /* The notch: full width to 88%, then a point at mid-height. */
+                  clipPath:
+                    'polygon(0 0, calc(100% - 12px) 0, 100% 50%, calc(100% - 12px) 100%, 0 100%)',
+                  borderRadius: '5px',
                   transition: 'width 800ms cubic-bezier(0.16,1,0.3,1)',
-                  transitionDelay: `${i * 90}ms`,
+                  transitionDelay: `${i * 80}ms`,
                 }}
               />
-              <span
-                aria-hidden="true"
-                className="absolute inset-y-0 left-0 w-1 rounded-l-md"
-                style={{ backgroundColor: `var(--${s.token})` }}
-              />
-              <span className="absolute inset-y-0 left-3 flex items-center truncate pr-2 text-micro font-semibold text-text-primary">
+              <span className="absolute inset-y-0 left-2.5 flex items-center truncate pr-3 text-[0.65rem] font-semibold text-text-primary">
                 {s.label}
               </span>
             </div>
 
-            <span className="w-[4.2rem] shrink-0 text-right text-micro font-bold tabular-nums text-text-primary">
+            <span className="w-[3.6rem] shrink-0 text-right text-micro font-bold tabular-nums text-text-primary">
               {compact(s.value)}
             </span>
 
-            <span className="w-[3.2rem] shrink-0 text-right text-[0.62rem] font-bold tabular-nums">
-              {s.conversion === null ? (
-                <span className="text-text-tertiary">—</span>
-              ) : (
-                <span
-                  style={{
-                    /* Above 100% is real and is coloured as an upside, not an
-                       error — see `engagementFunnel`. */
-                    color: s.conversion > 100 ? 'var(--chart-3)' : 'var(--text-tertiary)',
-                  }}
-                >
-                  {s.conversion >= 10 ? Math.round(s.conversion) : s.conversion.toFixed(1)}%
-                </span>
-              )}
+            <span className="w-[2.8rem] shrink-0 text-right text-[0.58rem] font-semibold tabular-nums text-text-tertiary">
+              {s.conversion === null
+                ? ''
+                : `${s.conversion >= 10 ? Math.round(s.conversion) : s.conversion.toFixed(1)}%`}
             </span>
           </div>
         );
       })}
 
-      <p className="border-t border-border-subtle pt-1.5 text-[0.58rem] leading-snug text-text-tertiary">
-        Each percentage is against the stage above. Views exceed reach because one account can
-        view more than once.
+      <p className="pt-1 text-[0.55rem] leading-snug text-text-tertiary">
+        Largest first. Each percentage is a share of the bar above it.
       </p>
     </div>
   );

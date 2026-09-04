@@ -681,18 +681,31 @@ export function periodDeltas(input: {
   };
 
   /* Followers are a level: the change is the difference between the two latest
-     readings, not between two sums. */
-  const followersNow = latestAny(current, [IG.followers, FB.followers]);
-  const followersBefore = latestAny(previous, [IG.followers, FB.followers]);
+     readings, not between two sums.
+
+     ⚠️ AND ONLY PLATFORMS PRESENT IN BOTH WINDOWS MAY ENTER THE COMPARISON.
+     Instagram's follower count began being collected today, so the earlier
+     window has no reading for it at all — counting it on one side only would
+     have added sixteen followers to "now" and none to "before", and reported
+     that as growth. It is not growth; it is a platform we started measuring.
+     The headline VALUE still counts every platform, because that total is
+     true. */
+  const followersNow = latestShared(current, previous, [IG.followers, FB.followers]);
+  const followersBefore = latestShared(previous, current, [IG.followers, FB.followers]);
 
   return [
     pair('reach', 'Total reach', 'chart-1', (m) => sumOf(m, IG.reach, 'instagram')),
     {
       key: 'followers',
       label: 'Followers',
-      value: followersNow,
+      /* The true current total, across every linked platform. */
+      value: latestAny(current, [IG.followers, FB.followers]),
       previous: followersBefore,
-      percent: followersBefore === 0 ? null : ((followersNow - followersBefore) / followersBefore) * 100,
+      /* ...but the PERCENTAGE compares only what both windows measured. */
+      percent:
+        followersBefore === 0
+          ? null
+          : ((followersNow - followersBefore) / followersBefore) * 100,
       token: 'chart-3',
     },
     pair(
@@ -713,6 +726,29 @@ export function periodDeltas(input: {
   ];
 }
 
+/**
+ * The latest reading of each key, counting only keys the OTHER window also has.
+ *
+ * ⚠️ THIS IS WHAT STOPS A NEWLY-COLLECTED PLATFORM READING AS GROWTH. A metric
+ * present in one window and absent from the other cannot be compared at all, so
+ * it is excluded from both sides rather than counted on one.
+ */
+function latestShared(
+  from: readonly MetricPoint[],
+  other: readonly MetricPoint[],
+  keys: readonly string[],
+): number {
+  let total = 0;
+  for (const key of keys) {
+    if (!other.some((m) => m.metricKey === key)) continue;
+    const rows = from
+      .filter((m) => m.metricKey === key)
+      .sort((a, b) => a.onDate.localeCompare(b.onDate));
+    if (rows.length > 0) total += rows[rows.length - 1].value;
+  }
+  return total;
+}
+
 /** The latest reading of whichever of these keys the platform reports. */
 function latestAny(metrics: readonly MetricPoint[], keys: readonly string[]): number {
   let total = 0;
@@ -724,3 +760,123 @@ function latestAny(metrics: readonly MetricPoint[], keys: readonly string[]): nu
   }
   return total;
 }
+
+/* ---- Followers over time, and posts per day ------------------------------ */
+
+export interface LevelSeries {
+  readonly points: readonly (number | null)[];
+  /** Which platforms the line actually includes. */
+  readonly platforms: readonly string[];
+  /** True when a linked platform had to be left out for want of history. */
+  readonly partial: boolean;
+  readonly note: string;
+}
+
+/**
+ * The follower total over time.
+ *
+ * ⚠️ FOLLOWERS ARE A LEVEL, SO EACH PLATFORM'S LAST KNOWN READING IS CARRIED
+ * FORWARD. A flow metric is zero on a day nothing happened; a follower count is
+ * not — the followers did not cease to exist on a day the sync did not run.
+ * Treating a missing day as zero would draw a comb.
+ *
+ * ⚠️ AND A PLATFORM WITH FEWER THAN TWO READINGS IS LEFT OUT ENTIRELY, which is
+ * the bug this function exists to fix. Instagram's `followers_count` is a
+ * profile snapshot, so today there is exactly ONE reading of it, taken today.
+ * Including it would step the line up by sixteen on the final day and read as a
+ * day of extraordinary growth — when all that happened is that we started
+ * recording a number that had been true all along. Absence is not zero, and a
+ * step is not growth.
+ *
+ * The card's headline figure still counts every platform; `partial` is how the
+ * tile knows to say the line is narrower than the number above it.
+ */
+export function followerLevelSeries(
+  metrics: readonly MetricPoint[],
+  dates: readonly string[],
+): LevelSeries {
+  const sources: readonly { platform: string; key: string; label: string }[] = [
+    { platform: 'facebook', key: FB.followers, label: 'Facebook' },
+    { platform: 'instagram', key: IG.followers, label: 'Instagram' },
+  ];
+
+  const included: string[] = [];
+  const excluded: string[] = [];
+  const carried: number[][] = [];
+
+  for (const src of sources) {
+    const byDate = new Map<string, number>();
+    for (const m of metrics) {
+      if (m.metricKey !== src.key || m.platform !== src.platform) continue;
+      byDate.set(m.onDate, m.value);
+    }
+
+    /* Nothing at all for this platform: it is simply not linked, or not yet
+       collected. Either way it is neither included nor a caveat worth naming. */
+    if (byDate.size === 0) continue;
+
+    if (byDate.size < 2) {
+      excluded.push(src.label);
+      continue;
+    }
+
+    included.push(src.label);
+
+    let last: number | null = null;
+    carried.push(
+      dates.map((d) => {
+        if (byDate.has(d)) last = byDate.get(d)!;
+        /* Before this platform's first reading there is nothing to carry, so the
+           day contributes nothing rather than a zero. */
+        return last ?? Number.NaN;
+      }),
+    );
+  }
+
+  const points = dates.map((_, i) => {
+    let sum = 0;
+    let known = false;
+    for (const line of carried) {
+      if (Number.isNaN(line[i])) continue;
+      sum += line[i];
+      known = true;
+    }
+    return known ? sum : null;
+  });
+
+  return {
+    points,
+    platforms: included,
+    partial: excluded.length > 0,
+    note:
+      excluded.length === 0
+        ? included.join(' and ')
+        : `${included.join(' and ') || 'No platform'} only — ${excluded.join(' and ')} ${excluded.length === 1 ? 'has' : 'have'} one reading so far`,
+  };
+}
+
+/**
+ * Posts published per day.
+ *
+ * ⚠️ A DAY WITH NO POST IS 0, NOT NULL, and this is the opposite of the rule
+ * every metric series follows — deliberately. A missing metric row means "we did
+ * not collect"; a day with no post in a collected range means "nothing was
+ * published", which is a measurement and belongs on the line as a zero.
+ *
+ * ⚠️ THE DAY IS KARACHI'S. A post at 1am Karachi is the previous day in UTC.
+ */
+export function postsPerDay(
+  posts: readonly StudioPost[],
+  dates: readonly string[],
+): readonly number[] {
+  const byDate = new Map<string, number>();
+
+  for (const p of posts) {
+    const local = new Date(Date.parse(p.postedAt) + 5 * 3_600_000);
+    const key = local.toISOString().slice(0, 10);
+    byDate.set(key, (byDate.get(key) ?? 0) + 1);
+  }
+
+  return dates.map((d) => byDate.get(d) ?? 0);
+}
+

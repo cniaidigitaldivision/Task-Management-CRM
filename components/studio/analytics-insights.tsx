@@ -264,10 +264,23 @@ export function AnalyticsInsights({
         <Panel
           title="Reach, views and video plays over time"
           className="h-full"
-          bodyClassName="flex flex-col"
+          bodyClassName="flex flex-col justify-center"
           info="Instagram reach and views against Facebook video plays. Each line lifts on a day with no collected figure rather than dropping to zero."
         >
-          <MultiSeriesChart series={trendSeries} labels={dates} height={250} />
+          {/* ⚠️ THE AXIS LABELS CARRY A MONTH, AND NO YEAR. Owner: *"definitely
+              mention the month also… don't mention the year."* A bare day number
+              is ambiguous the moment a window crosses a month boundary — which
+              the default thirty-day window always does. The year is redundant on
+              a chart whose range is a month.
+
+              The TOOLTIP still gets the full date: hovering is when somebody is
+              pinning down exactly which day they are looking at. */}
+          <MultiSeriesChart
+            series={trendSeries}
+            labels={dates.map(axisDate)}
+            tooltipLabels={dates.map(fullDate)}
+            height={210}
+          />
         </Panel>
 
         <Panel
@@ -785,12 +798,27 @@ function InsightCard({
 
 /* ---- Helpers ------------------------------------------------------------- */
 
+const MONTHS = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+] as const;
+
+/** "Sep 4" — the x-axis label. Month named, year omitted. */
+function axisDate(iso: string): string {
+  const [, m, d] = iso.split('-');
+  return `${MONTHS[Number(m) - 1]} ${Number(d)}`;
+}
+
+/** "Thu, 4 Sep" — the tooltip, where the extra words are worth their room. */
+function fullDate(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const weekday = DAYS[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
+  return `${weekday}, ${d} ${MONTHS[m - 1]}`;
+}
+
 /** "22 Aug" — short enough to sit beside a percentage on a narrow tile. */
 function shortDate(iso: string): string {
-  const MONTHS = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-  ];
   /* ⚠️ Parsed by hand rather than through `new Date(iso)`. A bare "YYYY-MM-DD"
      is read as UTC midnight and then FORMATTED in the reader's zone — the same
      day in Karachi, the day before west of Greenwich — so the label would
