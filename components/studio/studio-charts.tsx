@@ -44,7 +44,7 @@ export function MultiSeriesChart({
   series,
   labels,
   tooltipLabels,
-  height = 250,
+  height = 200,
   animationKey = '',
   /** Off for the growth chart, where both series are the same quantity. */
   dualAxis = true,
@@ -66,16 +66,48 @@ export function MultiSeriesChart({
   dualAxis?: boolean;
 }) {
   const [hover, setHover] = React.useState<number | null>(null);
+
+  /* ── ⚠️ THE VIEWBOX IS MEASURED, NOT FIXED ────────────────────────────────
+     Owner: *"it should display the whole width."* The chart was drawing across
+     roughly three quarters of its panel with dead space either side, and the
+     cause was not padding.
+
+     An `<svg>` with a fixed pixel HEIGHT and a viewBox of a different aspect
+     ratio is letterboxed by `preserveAspectRatio`, whose default is
+     `xMidYMid meet` — scale to FIT, then centre. A 780×215 viewBox forced into a
+     975×196 box scales by 196/215 and renders 711px wide, centred, leaving
+     ~130px of nothing on each side. Nothing in the drawing code was wrong; the
+     whole picture was being shrunk after the fact.
+
+     `preserveAspectRatio="none"` would stretch instead, which turns every dot
+     into an ellipse and every 2px stroke into a different width horizontally
+     than vertically. So the viewBox is matched to the real pixel width instead:
+     one user unit is one pixel, nothing is scaled, and the font sizes below are
+     finally the sizes they claim to be. */
+  const wrapRef = React.useRef<HTMLDivElement>(null);
+  const [measured, setMeasured] = React.useState(780);
+
+  React.useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(([entry]) => {
+      const w = Math.round(entry.contentRect.width);
+      if (w > 0) setMeasured(w);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
   /* Legend toggling. ⚠️ Not a nicety — see the axis note below. With four series
      spanning three orders of magnitude, switching one off is what makes the
      small ones readable at all. */
   const [hidden, setHidden] = React.useState<ReadonlySet<string>>(new Set());
 
-  const W = 780;
-  /* ⚠️ 215, down from 250. Owner: *"the height is much… reduce the height of
-     this whole row."* The row has to sit beside a gauge and a five-row list; a
-     chart taller than either leaves both of them padding out white space. */
-  const H = 215;
+  const W = measured;
+  /* ⚠️ THE VIEWBOX HEIGHT *IS* THE RENDERED HEIGHT, and it has to be, for the
+     same reason the width is measured: a viewBox of 215 rendered into a 196px
+     box is letterboxed exactly as a 780-wide one was. Taking H from the prop
+     keeps one user unit at one pixel in BOTH directions. */
+  const H = height;
   const PAD = { top: 14, right: dualAxis ? 46 : 14, bottom: 24, left: 46 };
 
   const visible = series.filter((s) => !hidden.has(s.label));
@@ -177,7 +209,15 @@ export function MultiSeriesChart({
      starts reading as the ground they stand on. */
 
 
-  if (series.length === 0) return <ChartEmpty />;
+  /* The wrapper must exist even with nothing drawn, so the observer has
+     something to measure before the first data arrives. */
+  if (series.length === 0) {
+    return (
+      <div ref={wrapRef}>
+        <ChartEmpty />
+      </div>
+    );
+  }
 
   return (
     <figure className="min-w-0">
@@ -235,11 +275,13 @@ export function MultiSeriesChart({
       {drawn.length === 0 ? (
         <ChartEmpty />
       ) : (
-        <div className="relative">
+        <div ref={wrapRef} className="relative">
           <svg
             viewBox={`0 0 ${W} ${H}`}
-            style={{ height }}
-            className="w-full touch-none"
+            width={W}
+            height={H}
+            style={{ width: '100%', height: H }}
+            className="touch-none"
             role="img"
             aria-label={`${drawn.map((s) => s.label).join(', ')} over time`}
             onMouseLeave={() => setHover(null)}
