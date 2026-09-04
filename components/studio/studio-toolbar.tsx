@@ -118,7 +118,12 @@ export function StudioToolbar({
   );
 
   return (
-    <div ref={ref} className="flex flex-wrap items-center gap-2">
+    /* ⚠️ `flex-1` IS WHAT PUTS THE RIGHT-HAND CONTROLS ON THE PAGE EDGE. This
+       div is itself a flex item of the row above, so without it the box shrinks
+       to its contents and the `ml-auto` below pushes against the box's own right
+       edge — leaving the date, filters and export sitting just after the account
+       chips rather than across the page. */
+    <div ref={ref} className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
       {/* ── A chip per connected account ────────────────────────────────── */}
       {accounts.map((a) => {
         const brand = PLATFORM_MARKS[a.platform];
@@ -204,7 +209,7 @@ export function StudioToolbar({
       })}
 
       {/* ── The right-hand controls ─────────────────────────────────────── */}
-      <div className="ml-auto flex flex-wrap items-center gap-2">
+      <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
         <div className="relative">
           <ToolbarButton
             active={openMenu === 'range'}
