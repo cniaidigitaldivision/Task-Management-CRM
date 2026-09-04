@@ -65,28 +65,28 @@ export default function RootLayout({ children }: LayoutProps<'/'>) {
         <script dangerouslySetInnerHTML={{ __html: THEME_PRE_PAINT_SCRIPT }} />
       </head>
       <body
-        /* ── ⚠️ `min-h-full` IS WRONG ON THE ELEMENT THAT CARRIES THE ZOOM ────
-           Owner, 2026-09-04: *"after the cards end, the page height is too
-           much… the page is scrolling down and nothing is here."*
+        /* ── ⚠️ `dvh` MULTIPLIED BY THE SCALE, AND EVERY WORD OF THAT MATTERS ──
+           Owner, 2026-09-04: *"the page is scrolling down and nothing is here."*
+           ~110px of dead page under any screen short enough to fit the window.
 
-           `body` has `zoom: 0.9` (the density scale — `--ui-scale` in
-           styles/tokens.css). A percentage min-height resolves against the
-           PRE-ZOOM box, so `min-h-full` on a 1040px window computes to
-           1155.56px — measured, not inferred. The page is therefore forced 11%
-           taller than the viewport on every screen, and a page short enough to
-           fit shows the remainder as dead space that scrolls to reach nothing.
+           `body` carries `zoom: 0.9` (the density scale — `--ui-scale` in
+           styles/tokens.css). ANY length declared on a zoomed element is
+           interpreted in PRE-ZOOM units, `dvh` included. So `min-h-dvh` computes
+           to 1014px on a 1014px window and then lays that out as 1014 ÷ 0.9 =
+           1127 real pixels. Multiplying by the scale first cancels it: 913
+           declared, 1014 laid out, exactly the window.
 
-           ⚠️ I FIXED THE WRONG ELEMENTS FIRST. The previous attempt corrected
-           the two `min-h-full`s inside `app-shell.tsx`, which are real but
-           DOWNSTREAM — the floor was already set here, above them, so the gap
-           survived. Measuring the live DOM found it; reasoning about the shell
-           did not.
+           ── ⚠️ AND MY FIRST TWO ATTEMPTS BOTH "VERIFIED" CLEAN ──────────────
+           I measured with `getBoundingClientRect()`, which reports PAINTED
+           pixels — already divided by the zoom — so a box laid out 11% too tall
+           came back as exactly 1014 and the bug was invisible to the test. The
+           owner's DevTools reading of 1350 was right and mine was not.
 
-           `min-h-dvh` is the fix rather than a scaled calc: a viewport unit is
-           resolved by the browser against the real window and is not subject to
-           the parent's percentage basis. The (auth) and (public) layouts already
-           divide `100dvh` by the scale for the same reason, one level down. */
-        className={`${inter.variable} ${playfair.variable} ${jetbrains.variable} flex min-h-dvh flex-col font-sans antialiased`}
+           `offsetHeight` is the measurement that tells the truth here: it is in
+           layout units, so on a correct page it reads ~913 against a 1014
+           window, and on a broken one it read 1127. Anyone re-testing this must
+           use offsetHeight, or they will confirm a fix that is not there. */
+        className={`${inter.variable} ${playfair.variable} ${jetbrains.variable} flex min-h-[calc(100dvh*var(--ui-scale))] flex-col font-sans antialiased`}
       >
         <ThemeProvider>{children}</ThemeProvider>
       </body>
