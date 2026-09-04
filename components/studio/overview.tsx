@@ -346,7 +346,7 @@ export function StudioOverview({
               max={10}
               verdict={verdictFor(engagementRate)}
               hint={rateKpi ? (formatDelta(rateKpi) ?? undefined) : undefined}
-              size={160}
+              size={182}
             />
           </div>
         </Panel>
@@ -620,10 +620,20 @@ function RecentActivity({
 
 /* ---- Helpers ------------------------------------------------------------- */
 
+/**
+ * The word beside the engagement rate.
+ *
+ * ⚠️ THE THRESHOLDS LINE UP WITH THE GAUGE'S OWN BANDS — fifths of the 0–10%
+ * scale — so the word always names the colour the needle is resting on. They are
+ * industry rules of thumb rather than anything Meta publishes: below 1% is poor
+ * for an account of any size, 1–3% is the ordinary range, and above 6% is
+ * genuinely unusual.
+ */
 function verdictFor(rate: number): string {
+  if (rate >= 8) return 'Exceptional';
   if (rate >= 6) return 'Excellent';
-  if (rate >= 3) return 'Good';
-  if (rate >= 1) return 'Fair';
+  if (rate >= 4) return 'Good';
+  if (rate >= 2) return 'Fair';
   return 'Low';
 }
 

@@ -530,7 +530,7 @@ export function SegmentedGauge({
   max = 100,
   verdict,
   hint,
-  size = 176,
+  size = 200,
 }: {
   value: number;
   max?: number;
@@ -543,22 +543,22 @@ export function SegmentedGauge({
   const fraction = Math.min(1, Math.max(0, value / (max || 1)));
   const angle = START + SWEEP * fraction;
 
-  /* Red → orange → yellow → green, as the reference draws it. Four equal
-     quarters: the arc reports where a reading sits on a scale, and unequal bands
-     would make the same number look different for no stated reason. */
-  const bands = [
-    { token: 'chart-8', from: 0, to: 0.25 },
-    { token: 'chart-5', from: 0.25, to: 0.5 },
-    { token: 'chart-6', from: 0.5, to: 0.75 },
-    { token: 'chart-3', from: 0.75, to: 1 },
-  ];
+  /* ── ⚠️ FIVE BANDS, AND THE FIFTH IS GREY ─────────────────────────────────
+     Measured off the owner's reference rather than guessed: red · orange ·
+     yellow · green · grey, each a fifth of the sweep. The grey is not "the
+     unfilled part" — it is a band like the others, and it reads as "beyond what
+     we are measuring against" rather than as a fault. Four coloured bands with
+     green at the top would say the best possible reading is the last thing
+     before the end of the scale, which is not what a rate of this kind means. */
+  const BANDS = ['chart-8', 'chart-5', 'chart-6', 'chart-3', 'chart-grid'];
 
-  /* A wider radius on a shorter canvas: the arc fills the card rather than
-     floating in the middle of it, which is where the owner saw "a lot of white
-     space". */
-  const r = 40;
+  /* Geometry taken from the reference's proportions: the arc's stroke is a
+     little over a fifth of its radius, which is what makes it read as a dial
+     rather than as a thin ring. */
+  const r = 34;
   const cx = 50;
   const cy = 50;
+  const STROKE = 7.5;
 
   const pt = (deg: number, radius: number) => {
     const rad = (deg * Math.PI) / 180;
@@ -572,44 +572,38 @@ export function SegmentedGauge({
   };
 
   return (
-    <figure className="flex flex-col items-center">
+    <figure className="flex w-full flex-col items-center">
       <svg
-        viewBox="0 0 100 58"
-        style={{ width: size }}
+        viewBox="0 0 100 60"
+        style={{ width: size, maxWidth: '100%' }}
         role="img"
         aria-label={`${value.toFixed(2)} of ${max}`}
       >
-        {/* ⚠️ A REAL GAP BETWEEN THE BANDS, and a thinner stroke. Owner: *"this
-            colorful multi-bar should be thinner. There should be spaces between
-            each color, as you can see in the reference."* The previous 0.006
-            inset was smaller than the round cap that overdrew it, so four bands
-            rendered as one continuous ribbon. */}
-        {bands.map((b) => (
+        {/* ⚠️ A REAL GAP BETWEEN THE BANDS. Owner: *"the space between these
+            multiple lines."* The gap has to exceed the round cap that overdraws
+            it at each end — at 7.5 wide on r=34 a cap eats roughly 0.035 of the
+            sweep, so anything under that renders as one continuous ribbon. */}
+        {BANDS.map((token, i) => (
           <path
-            key={b.token}
-            d={arc(b.from + 0.022, b.to - 0.022, r)}
+            key={token + i}
+            d={arc(i / 5 + 0.028, (i + 1) / 5 - 0.028, r)}
             fill="none"
-            stroke={tok(b.token)}
-            strokeWidth="5.5"
+            stroke={tok(token)}
+            strokeWidth={STROKE}
             strokeLinecap="round"
           />
         ))}
 
-        {/* The scale around the arc, as the reference draws it. */}
-        {/* ⚠️ THREE LABELS, NOT SIX, AND OUTSIDE THE ARC. Six sat on top of the
-            band at this size and the end ones were clipped by the viewBox — the
-            screenshot showed "6" and "1" where "0%" and "10%" should have been.
-            The ends and the midpoint are what a dial actually needs; the exact
-            reading is printed underneath in full. */}
-        {[0, 0.5, 1].map((f) => {
-          const [lx, ly] = pt(START + SWEEP * f, r + 7);
+        {/* Six labels, outside the arc, as the reference sets them. */}
+        {Array.from({ length: 6 }, (_, i) => i / 5).map((f) => {
+          const [lx, ly] = pt(START + SWEEP * f, r + 8.5);
           return (
             <text
               key={f}
-              x={Math.min(96, Math.max(4, lx))}
-              y={f === 0.5 ? ly + 1 : ly + 3}
+              x={lx}
+              y={ly + 2.2}
               textAnchor={f === 0 ? 'start' : f === 1 ? 'end' : 'middle'}
-              fontSize="5.6"
+              fontSize="5.2"
               fontWeight="600"
               fill={tok('text-tertiary')}
             >
@@ -618,13 +612,9 @@ export function SegmentedGauge({
           );
         })}
 
-        {/* ── ⚠️ A TAPERED NEEDLE, NOT A BAR ─────────────────────
-            Owner: *"you can see how beautiful the needle is! Right now our
-            needle, from bottom to top, is the same width so please adjust."*
-            A uniform stroke reads as a pointer drawn by a machine; a dial's
-            needle is wide at the pivot and comes to a point, which is what makes
-            the eye follow it outward to the reading. A polygon rather than a
-            stroked line, because a stroke cannot taper. */}
+        {/* ⚠️ THE PIVOT KNOB IS SOLID. An earlier version drew a white centre
+            inside it, which at this size reads as a target rather than as the
+            bearing the needle turns on. */}
         <g
           style={{
             transformOrigin: `${cx}px ${cy}px`,
@@ -632,28 +622,32 @@ export function SegmentedGauge({
           }}
         >
           <polygon
-            points={needlePoints(cx, cy, angle, r - 7)}
+            points={needlePoints(cx, cy, angle, r - 4)}
             fill={tok('text-primary')}
             stroke={tok('text-primary')}
-            strokeWidth="0.6"
+            strokeWidth="0.5"
             strokeLinejoin="round"
           />
-          <circle cx={cx} cy={cy} r="3.6" fill={tok('text-primary')} />
-          <circle cx={cx} cy={cy} r="1.5" fill={tok('bg-surface')} />
+          <circle cx={cx} cy={cy} r="3.4" fill={tok('text-primary')} />
         </g>
-
       </svg>
 
-      <p className="-mt-2 text-h2 font-bold leading-none tabular-nums text-text-primary">
-        {value.toFixed(2)}%
-      </p>
-      <p
-        className="mt-1 text-caption font-semibold"
-        style={{ color: tok(verdictToken(fraction)) }}
-      >
-        {verdict}
-      </p>
-      {hint && <p className="text-micro text-text-tertiary">{hint}</p>}
+      {/* ⚠️ THE READING AND THE VERDICT SHARE A LINE, as the reference sets them
+          — "62%  Good". Stacked, the verdict reads as a separate claim about
+          something else; beside the number it reads as what that number means. */}
+      <div className="-mt-1 flex flex-wrap items-baseline justify-center gap-x-2">
+        <span className="text-h2 font-bold leading-none tabular-nums text-text-primary">
+          {value.toFixed(2)}%
+        </span>
+        <span
+          className="text-body-sm font-semibold"
+          style={{ color: tok(verdictToken(fraction)) }}
+        >
+          {verdict}
+        </span>
+      </div>
+
+      {hint && <p className="mt-1.5 text-micro text-text-tertiary">{hint}</p>}
     </figure>
   );
 }
@@ -688,10 +682,19 @@ function formatTick(v: number): string {
   return `${Number.isInteger(v) ? v : v.toFixed(1)}%`;
 }
 
+/**
+ * The colour of the band the needle is actually sitting in.
+ *
+ * ⚠️ FIFTHS, BECAUSE THERE ARE FIVE BANDS. It was quarters while the arc had
+ * four, and leaving it would have printed a green verdict beside a needle
+ * resting on the yellow band — the word and the picture disagreeing about the
+ * same number.
+ */
 function verdictToken(fraction: number): string {
-  if (fraction >= 0.75) return 'chart-3';
-  if (fraction >= 0.5) return 'chart-6';
-  if (fraction >= 0.25) return 'chart-5';
+  if (fraction >= 0.8) return 'text-tertiary';
+  if (fraction >= 0.6) return 'chart-3';
+  if (fraction >= 0.4) return 'chart-6';
+  if (fraction >= 0.2) return 'chart-5';
   return 'chart-8';
 }
 
