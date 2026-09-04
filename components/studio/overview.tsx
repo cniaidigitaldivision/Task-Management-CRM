@@ -129,11 +129,17 @@ export function StudioOverview({
   const rolled = rollUp([reach, engagement, followers, views], grain);
   const labels = rolled.labels;
 
+  /* ⚠️ VIEWS IS DRAWN AS BARS, not a fourth line. Owner, describing the
+     reference: *"the impressions have some horizontal and some vertical lines,
+     basically drawn from down to up, from bottom to up."* It also does real work
+     beyond matching the drawing — a bar and a line are different marks, so the
+     eye stops trying to compare them directly, which is exactly right when they
+     sit on different axes. */
   const performance = [
+    { label: 'Views', token: 'chart-4', points: rolled.series[3], kind: 'bar' as const },
     { label: 'Reach', token: 'chart-1', points: rolled.series[0] },
     { label: 'Engagement', token: 'chart-2', points: rolled.series[1] },
     { label: 'Followers', token: 'chart-3', points: rolled.series[2] },
-    { label: 'Views', token: 'chart-4', points: rolled.series[3] },
   ];
 
   /* ── Followers growth: this period against the one before ─────────────── */
@@ -192,14 +198,21 @@ export function StudioOverview({
             index={0}
             data={{
               key: 'target',
-              label: 'Period target',
+              /* ⚠️ "Monthly Target", not "Period target". Owner, against the
+                 reference: *"Monthly target, not the period target."* The window
+                 is a chosen range rather than strictly a calendar month, but the
+                 agreed rhythm this measures against IS monthly — it is the
+                 package the client bought — so the reference's word is the one
+                 that names the thing correctly. The day count says what window
+                 it was scaled to. */
+              label: 'Monthly Target',
               value: compact(target),
               unit: 'posts',
               icon: Target,
               token: 'chart-1',
               progress: target > 0 ? delivered / target : 0,
               progressNote: `${Math.round((delivered / Math.max(1, target)) * 100)}% of target`,
-              footnote: `${days} days`,
+              footnote: `${days} days in this window`,
             }}
           />
         )}
@@ -207,7 +220,8 @@ export function StudioOverview({
           index={1}
           data={{
             key: 'achieved',
-            label: 'Published',
+            /* Owner: *"Achieved, not published."* */
+            label: 'Achieved',
             value: String(delivered),
             unit: 'posts',
             icon: CheckCircle2,
@@ -226,8 +240,8 @@ export function StudioOverview({
             token: 'chart-5',
             footnote:
               target > delivered
-                ? `${((target - delivered) / Math.max(1, days)).toFixed(1)} per day`
-                : 'target met',
+                ? `Needed per day: ${((target - delivered) / Math.max(1, days)).toFixed(1)}`
+                : 'Target met',
           }}
         />
         <KpiCard
@@ -343,6 +357,9 @@ export function StudioOverview({
           <MultiSeriesChart
             labels={growthLabels}
             height={190}
+            /* One axis: both series are the same quantity, so a second scale
+               would let a smaller previous month look larger than this one. */
+            dualAxis={false}
             animationKey={`growth-${platform}-${from}`}
             series={[
               {

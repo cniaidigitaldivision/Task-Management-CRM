@@ -171,34 +171,53 @@ export function KpiCard({ data, index }: { data: KpiCardData; index: number }) {
   return (
     <div
       /* ⚠️ Staggered by index so the row assembles left to right rather than
-         flashing in as one block. `animation-fill-mode: backwards` keeps each
-         card invisible during its own delay — without it every card paints
-         immediately and then jumps, which is worse than no animation. */
-      className="motion-safe:animate-[studio-rise_420ms_cubic-bezier(0.16,1,0.3,1)_backwards] rounded-xl border border-border-subtle bg-bg-surface p-3 shadow-[0_1px_2px_rgb(6_35_42_/_0.04)] transition-shadow hover:shadow-[0_2px_10px_rgb(6_35_42_/_0.07)]"
+         flashing in as one block. `backwards` keeps each card invisible during
+         its own delay — without it every card paints immediately and then jumps,
+         which reads as a glitch rather than an entrance. */
+      className="motion-safe:animate-[studio-rise_420ms_cubic-bezier(0.16,1,0.3,1)_backwards] rounded-xl border border-border-subtle bg-bg-surface p-4 shadow-[0_1px_2px_rgb(6_35_42_/_0.04)] transition-shadow hover:shadow-[0_2px_10px_rgb(6_35_42_/_0.07)]"
       style={{ animationDelay: `${index * 55}ms` }}
     >
-      <div className="flex items-center gap-2">
+      {/* ── ⚠️ THE ICON TILE IS 38px WITH A 19px GLYPH ────────────────────────
+          Owner, holding the reference beside the build: *"our icons are very
+          small right now. I want exact icons."* The first pass used a 28px tile
+          with a 14px glyph, which measured about half the reference and made the
+          row read as text with decoration rather than as cards. Measured off the
+          reference: the tile is a little over a third of the card's height and
+          the glyph fills half the tile. */}
+      <div className="flex items-center gap-2.5">
         <span
-          className="grid size-7 shrink-0 place-items-center rounded-lg"
+          className="grid size-[38px] shrink-0 place-items-center rounded-[11px]"
           style={{ backgroundColor: `var(--${data.token}-wash)` }}
         >
-          <Icon className="size-3.5" style={{ color: `var(--${data.token})` }} aria-hidden="true" />
+          <Icon
+            className="size-[19px]"
+            strokeWidth={2.1}
+            style={{ color: `var(--${data.token})` }}
+            aria-hidden="true"
+          />
         </span>
-        <p className="truncate text-micro font-medium text-text-secondary">{data.label}</p>
+        <p className="min-w-0 flex-1 truncate text-caption font-semibold text-text-secondary">
+          {data.label}
+        </p>
       </div>
 
-      <p className="mt-2 flex items-baseline gap-1">
-        <span className="text-h2 font-semibold leading-none tracking-tight tabular-nums text-text-primary">
+      <p className="mt-2.5 flex items-baseline gap-1.5">
+        <span className="text-[1.75rem] font-bold leading-none tracking-tight tabular-nums text-text-primary">
           {data.value}
         </span>
-        {data.unit && <span className="text-micro text-text-tertiary">{data.unit}</span>}
+        {data.unit && (
+          <span className="text-caption font-medium text-text-tertiary">{data.unit}</span>
+        )}
       </p>
 
-      {data.progress !== undefined && (
-        <div className="mt-2">
-          <div className="h-1.5 overflow-hidden rounded-full bg-bg-subtle">
+      {data.progress !== undefined ? (
+        <div className="mt-2.5">
+          {data.footnote && (
+            <p className="mb-1.5 text-micro text-text-secondary">{data.footnote}</p>
+          )}
+          <div className="h-[5px] overflow-hidden rounded-full bg-bg-subtle">
             <div
-              className="h-full rounded-full motion-safe:animate-[studio-grow_700ms_cubic-bezier(0.16,1,0.3,1)_backwards]"
+              className="h-full origin-left rounded-full motion-safe:animate-[studio-grow_700ms_cubic-bezier(0.16,1,0.3,1)_backwards]"
               style={{
                 width: `${Math.min(100, Math.max(0, data.progress * 100))}%`,
                 backgroundColor: `var(--${data.token})`,
@@ -207,32 +226,34 @@ export function KpiCard({ data, index }: { data: KpiCardData; index: number }) {
             />
           </div>
           {data.progressNote && (
-            <p className="mt-1 text-right text-micro text-text-tertiary">{data.progressNote}</p>
+            <p className="mt-1.5 text-right text-micro text-text-tertiary">{data.progressNote}</p>
+          )}
+        </div>
+      ) : (
+        <div className="mt-2.5 flex min-h-[1rem] flex-wrap items-center gap-1.5">
+          {data.deltaText && (
+            <span
+              className="inline-flex items-center gap-0.5 text-micro font-semibold"
+              style={{
+                color:
+                  data.deltaDirection === 'up'
+                    ? 'var(--feedback-success)'
+                    : data.deltaDirection === 'down'
+                      ? 'var(--feedback-error)'
+                      : 'var(--text-tertiary)',
+              }}
+            >
+              <span aria-hidden="true" className="text-[0.6rem]">
+                {data.deltaDirection === 'up' ? '▲' : data.deltaDirection === 'down' ? '▼' : '•'}
+              </span>
+              {data.deltaText}
+            </span>
+          )}
+          {data.footnote && (
+            <span className="truncate text-micro text-text-tertiary">{data.footnote}</span>
           )}
         </div>
       )}
-
-      <div className="mt-1.5 flex min-h-[0.95rem] flex-wrap items-center gap-1">
-        {data.deltaText && (
-          <span
-            className="inline-flex items-center gap-0.5 text-micro font-semibold"
-            style={{
-              color:
-                data.deltaDirection === 'up'
-                  ? 'var(--feedback-success)'
-                  : data.deltaDirection === 'down'
-                    ? 'var(--feedback-error)'
-                    : 'var(--text-tertiary)',
-            }}
-          >
-            {data.deltaDirection === 'up' ? '▲' : data.deltaDirection === 'down' ? '▼' : '•'}
-            {data.deltaText}
-          </span>
-        )}
-        {data.footnote && (
-          <span className="truncate text-micro text-text-tertiary">{data.footnote}</span>
-        )}
-      </div>
     </div>
   );
 }

@@ -17,6 +17,7 @@ import { compact } from '@/lib/domain/meta-studio';
 import { cn } from '@/lib/utils';
 
 import { StudioOverview } from './overview';
+import { StudioToolbar } from './studio-toolbar';
 
 /* ============================================================================
  * THE STUDIO SHELL
@@ -145,14 +146,25 @@ export function StudioWorkspace({
           </button>
         </div>
 
-        <div className="ml-auto flex flex-wrap items-center gap-2">
-          <PlatformFilter
-            value={platform}
-            onChange={(v) => setParam('platform', v === 'all' ? null : v)}
+        <div className="ml-auto">
+          <StudioToolbar
+            from={from}
+            to={to}
+            platform={platform}
+            onRange={(days) => {
+              /* The window is expressed as explicit dates rather than a "days"
+                 parameter so a shared link keeps showing the same period. */
+              const end = new Date(`${to}T00:00:00Z`);
+              const start = new Date(end);
+              start.setUTCDate(start.getUTCDate() - (days - 1));
+              const next = new URLSearchParams(search.toString());
+              next.set('from', start.toISOString().slice(0, 10));
+              next.set('to', to);
+              router.push(`/studio?${next.toString()}`);
+            }}
+            onPlatform={(v) => setParam('platform', v === 'all' ? null : v)}
+            onExport={() => window.print()}
           />
-          <span className="rounded-lg border border-border-subtle px-2.5 py-1.5 text-micro tabular-nums text-text-secondary">
-            {from} → {to}
-          </span>
         </div>
       </div>
 
@@ -203,29 +215,6 @@ export function StudioWorkspace({
           lastSynced={newestSync}
         />
       )}
-    </div>
-  );
-}
-
-function PlatformFilter({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  return (
-    <div className="flex rounded-lg bg-bg-subtle p-0.5">
-      {(['all', 'facebook', 'instagram'] as const).map((p) => (
-        <button
-          key={p}
-          type="button"
-          onClick={() => onChange(p)}
-          className={cn(
-            'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-micro transition-all duration-200',
-            value === p
-              ? 'bg-bg-surface font-semibold text-text-primary shadow-[0_1px_2px_rgb(6_35_42_/_0.08)]'
-              : 'text-text-secondary hover:text-text-primary',
-          )}
-        >
-          {p !== 'all' && <PlatformIcon slug={p} size={12} />}
-          {p === 'all' ? 'All' : (PLATFORM_MARKS[p]?.label ?? p)}
-        </button>
-      ))}
     </div>
   );
 }
