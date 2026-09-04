@@ -23,6 +23,8 @@ import {
   FB,
   GRANULARITIES,
   IG,
+  MEASURE_LABEL,
+  SCATTER_MEASURES,
   bucketCount,
   bucketSeries,
   byWeekday,
@@ -38,6 +40,7 @@ import {
   series,
   sumOf,
   type Granularity,
+  type ScatterMeasure,
 } from '@/lib/domain/meta-analytics';
 import { cn } from '@/lib/utils';
 
@@ -95,6 +98,9 @@ export function AnalyticsInsights({
   projectName: string;
 }) {
   const dates = React.useMemo(() => dateRange(from, to), [from, to]);
+
+  /* Which quantity sizes the scatter's bubbles. */
+  const [measure, setMeasure] = React.useState<ScatterMeasure>('interactions');
 
   const found = React.useMemo(
     () => buildInsights({ metrics, posts, dates }),
@@ -284,29 +290,43 @@ export function AnalyticsInsights({
         <Panel
           title="Content interactions over time"
           className="h-full"
-          bodyClassName="flex flex-col justify-between"
+          bodyClassName="flex flex-col justify-center"
           info="Instagram only: Facebook reports one combined engagement figure with no breakdown to stack."
         >
-          <StackedArea data={mix} height={200} />
+          <StackedArea data={mix} labels={dates.map(axisDate)} height={152} />
         </Panel>
 
         <Panel
           title="Facebook vs Instagram"
           className="h-full"
           bodyClassName="flex flex-col justify-center"
-          info="Only metrics that mean the same thing on both platforms. Views are deliberately absent — Facebook counts video plays, Instagram counts everything."
+          info="Five axes. Reach is Instagram only — Facebook retired its unique-reach metric and offers no replacement, so its shape breaks there rather than sitting at zero."
         >
-          <PlatformRadar axes={radar} size={190} />
+          <PlatformRadar axes={radar} size={162} />
         </Panel>
 
         <Panel
           title="Reach vs engagement by post"
           className="h-full"
-          bodyClassName="flex flex-col justify-between"
-          info="One point per post. Reach across, interactions up."
+          bodyClassName="flex flex-col justify-center"
+          info="One bubble per post. Reach across, engagements up, area by the chosen measure."
+          action={
+            <select
+              aria-label="Size bubbles by"
+              value={measure}
+              onChange={(e) => setMeasure(e.target.value as ScatterMeasure)}
+              className="rounded-lg border border-border-subtle bg-bg-surface px-2 py-1 text-[0.6rem] font-medium text-text-secondary transition-colors hover:border-border-default focus:border-accent-primary focus:outline-none"
+            >
+              {SCATTER_MEASURES.map((m) => (
+                <option key={m} value={m}>
+                  {MEASURE_LABEL[m]}
+                </option>
+              ))}
+            </select>
+          }
         >
-          <ScatterChart data={scatter} height={200} />
-          <p className="mt-1.5 flex items-start gap-1.5 border-t border-border-subtle pt-2 text-[0.6rem] leading-snug text-text-secondary">
+          <ScatterChart data={scatter} measure={measure} height={158} />
+          <p className="mt-1 flex items-start gap-1.5 border-t border-border-subtle pt-1.5 text-[0.58rem] leading-snug text-text-secondary">
             <Sparkles
               className="mt-px size-3 shrink-0"
               style={{ color: 'var(--chart-4)' }}

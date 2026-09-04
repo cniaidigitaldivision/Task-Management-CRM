@@ -48,44 +48,66 @@ export const IG = {
 } as const;
 
 /**
- * The only metric pairs that may share an axis.
+ * The radar's axes.
  *
- * ⚠️ EACH PAIR CARRIES ITS JUSTIFICATION, because two of the tempting ones are
- * NOT here and their absence is the point:
+ * ── ⚠️ AN AXIS DECLARES WHICH PLATFORMS ACTUALLY REPORT IT ─────────────────
+ * The owner's reference draws a pentagon, and five axes are genuinely available
+ * — but not five SHARED ones. Facebook publishes no reach figure at all: it
+ * retired `page_impressions_unique` and offers no replacement. So Reach is an
+ * Instagram-only axis, and the chart draws Facebook's shape with a visible break
+ * there rather than a vertex at the centre. A vertex at zero would say "nobody
+ * saw it"; a break says "we cannot know", which is the truth.
  *
- *   views — Facebook's `page_video_views` counts VIDEO plays; Instagram's
- *       `views` counts every view of anything. Same word, different populations.
- *   reach — Facebook retired `page_impressions_unique` and offers no
- *       replacement, so there is nothing to pair. Drawing Facebook at zero
- *       would read as "nobody saw it" rather than "we cannot know".
+ * ⚠️ AND `views` CARRIES A CAVEAT RATHER THAN BEING DROPPED. Facebook's
+ * `page_video_views` counts VIDEO plays; Instagram's `views` counts every view
+ * of anything. Both are real, both are "views", and they measure different
+ * populations — so the axis exists (the reference wants it) and its tooltip says
+ * exactly what each side is counting. Silently averaging them onto one label is
+ * the thing this file exists to prevent.
  */
 export const COMPARABLE: readonly {
   readonly key: string;
   readonly label: string;
+  /** Empty when the platform does not report this at all. */
   readonly facebook: string;
   readonly instagram: string;
   readonly why: string;
 }[] = [
   {
-    key: 'followers',
-    label: 'Followers',
-    facebook: FB.followers,
-    instagram: IG.followers,
-    why: 'Both are the account’s follower total on the day.',
+    key: 'reach',
+    label: 'Reach',
+    /* ⚠️ Deliberately empty — see the header. */
+    facebook: '',
+    instagram: IG.reach,
+    why: 'Instagram only. Facebook retired its unique-reach metric and offers no replacement, so its shape breaks here rather than sitting at zero.',
+  },
+  {
+    key: 'views',
+    label: 'Views',
+    facebook: FB.videoViews,
+    instagram: IG.views,
+    why: 'Different populations: Facebook counts video plays, Instagram counts every view. Comparable in spirit, not in definition.',
   },
   {
     key: 'engagements',
-    label: 'Interactions',
+    label: 'Engagements',
     facebook: FB.engagements,
     instagram: IG.interactions,
     why: 'Both count actions taken on posts — likes, comments, shares and saves.',
   },
   {
     key: 'profile-views',
-    label: 'Profile views',
+    label: 'Profile visits',
     facebook: FB.pageViews,
     instagram: IG.profileViews,
     why: 'Both count visits to the account’s own page rather than to a post.',
+  },
+  {
+    key: 'followers',
+    label: 'Followers',
+    facebook: FB.followers,
+    instagram: IG.followers,
+    why: 'Both are the account’s follower total on the day.',
   },
 ];
 
@@ -186,10 +208,13 @@ export function interactionMix(
   metrics: readonly MetricPoint[],
   dates: readonly string[],
 ): StackedSeries {
+  /* The reference's palette: likes rose, comments blue, shares cyan, saves
+     amber — and in that order bottom-to-top, so the largest band (likes, by an
+     order of magnitude on the live data) is the base the others sit on. */
   const bands: readonly { key: string; label: string; token: string }[] = [
     { key: IG.likes, label: 'Likes', token: 'chart-2' },
-    { key: IG.comments, label: 'Comments', token: 'chart-4' },
-    { key: IG.shares, label: 'Shares', token: 'chart-3' },
+    { key: IG.comments, label: 'Comments', token: 'chart-1' },
+    { key: IG.shares, label: 'Shares', token: 'chart-7' },
     { key: IG.saves, label: 'Saves', token: 'chart-6' },
   ];
 
@@ -217,11 +242,12 @@ export interface RadarAxis {
   readonly key: string;
   readonly label: string;
   readonly why: string;
-  readonly facebook: number;
-  readonly instagram: number;
+  /** Null when the platform does not report this metric at all. */
+  readonly facebook: number | null;
+  readonly instagram: number | null;
   /** Each value as a share of the larger, so the two sit on one shape. */
-  readonly facebookScaled: number;
-  readonly instagramScaled: number;
+  readonly facebookScaled: number | null;
+  readonly instagramScaled: number | null;
 }
 
 /**
@@ -240,10 +266,17 @@ export function platformRadar(metrics: readonly MetricPoint[]): readonly RadarAx
        would report thirty times the followers. The latest reading is the figure. */
     const isLevel = c.key === 'followers';
 
-    const fb = isLevel ? latest(metrics, c.facebook, 'facebook') : sumOf(metrics, c.facebook, 'facebook');
-    const ig = isLevel ? latest(metrics, c.instagram, 'instagram') : sumOf(metrics, c.instagram, 'instagram');
+    const read = (key: string, platform: string) =>
+      key === ''
+        ? null
+        : isLevel
+          ? latest(metrics, key, platform)
+          : sumOf(metrics, key, platform);
 
-    const larger = Math.max(fb, ig, 1);
+    const fb = read(c.facebook, 'facebook');
+    const ig = read(c.instagram, 'instagram');
+
+    const larger = Math.max(fb ?? 0, ig ?? 0, 1);
 
     return {
       key: c.key,
@@ -251,8 +284,11 @@ export function platformRadar(metrics: readonly MetricPoint[]): readonly RadarAx
       why: c.why,
       facebook: fb,
       instagram: ig,
-      facebookScaled: fb / larger,
-      instagramScaled: ig / larger,
+      /* ⚠️ NULL, NOT 0, WHERE A PLATFORM DOES NOT REPORT THE METRIC. The chart
+         breaks its shape on a null; a zero would draw a vertex at the centre and
+         claim the figure was measured and found to be nothing. */
+      facebookScaled: fb === null ? null : fb / larger,
+      instagramScaled: ig === null ? null : ig / larger,
     };
   });
 }
@@ -280,6 +316,15 @@ export interface ScatterPoint {
   readonly rate: number;
   readonly permalink: string | null;
 }
+
+export const SCATTER_MEASURES = ['interactions', 'reach', 'rate'] as const;
+export type ScatterMeasure = (typeof SCATTER_MEASURES)[number];
+
+export const MEASURE_LABEL: Readonly<Record<ScatterMeasure, string>> = {
+  interactions: 'By engagements',
+  reach: 'By reach',
+  rate: 'By engagement rate',
+};
 
 export interface ScatterData {
   readonly points: readonly ScatterPoint[];

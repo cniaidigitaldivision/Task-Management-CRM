@@ -4,12 +4,15 @@ import * as React from 'react';
 
 import { PlatformIcon } from '@/components/brand/platform-icon';
 import { compact } from '@/lib/domain/meta-studio';
-import type {
-  FunnelStage,
-  RadarAxis,
-  ScatterData,
-  StackedSeries,
-  WeekdayBar,
+import {
+  MEASURE_LABEL,
+  type FunnelStage,
+  type RadarAxis,
+  type ScatterData,
+  type ScatterMeasure,
+  type ScatterPoint,
+  type StackedSeries,
+  type WeekdayBar,
 } from '@/lib/domain/meta-analytics';
 import { cn } from '@/lib/utils';
 
@@ -55,9 +58,15 @@ import { useInView } from './use-in-view';
  */
 export function StackedArea({
   data,
+  labels,
   height = 200,
 }: {
   data: StackedSeries;
+  /* ⚠️ THE FORMATTED LABELS COME FROM THE CALLER, so this chart's x-axis reads
+     identically to the trend chart's above it — "Sep 4", month named, no year.
+     Formatting the raw ISO date here would put a second date format on the same
+     page and the two would drift the first time one was changed. */
+  labels?: readonly string[];
   height?: number;
 }) {
   const { ref, inView } = useInView<HTMLDivElement>();
@@ -118,7 +127,7 @@ export function StackedArea({
               x={PAD_L - 6}
               y={PAD_T + plotH - g * plotH + 3}
               textAnchor="end"
-              className="fill-text-tertiary"
+              fill="var(--text-tertiary)"
               style={{ fontSize: 8 }}
             >
               {compact(Math.round(g * data.max))}
@@ -163,16 +172,16 @@ export function StackedArea({
 
         {/* Dates */}
         {data.dates.map((d, i) =>
-          i % Math.max(1, Math.ceil(n / 7)) === 0 ? (
+          i % Math.max(1, Math.ceil(n / 6)) === 0 ? (
             <text
               key={d}
               x={x(i)}
               y={height - 5}
               textAnchor="middle"
-              className="fill-text-tertiary"
+              fill="var(--text-tertiary)"
               style={{ fontSize: 8 }}
             >
-              {d.slice(8)}/{d.slice(5, 7)}
+              {labels?.[i] ?? `${d.slice(8)}/${d.slice(5, 7)}`}
             </text>
           ) : null,
         )}
@@ -212,92 +221,132 @@ export function StackedArea({
 /* ---- Radar --------------------------------------------------------------- */
 
 /**
- * Facebook against Instagram on the axes that genuinely compare.
+ * Facebook against Instagram, on five axes.
  *
- * ⚠️ THE SHAPE IS PROPORTION, NEVER MAGNITUDE, and the figures are printed
- * beside it for that reason. Each axis is normalised against its own larger
- * value — see `platformRadar` — because followers are in the tens and
- * interactions in the hundreds, and one global scale would flatten every small
- * axis into the centre.
+ * ⚠️ A PLATFORM THAT DOES NOT REPORT AN AXIS LEAVES A BREAK IN ITS SHAPE, never
+ * a vertex at the centre. Facebook publishes no reach figure at all, and a
+ * point at zero there would say "nobody saw it" when the truth is "we cannot
+ * know". So Facebook's outline is an open path that skips that axis, and the
+ * axis label is marked so the gap reads as deliberate rather than as a bug.
+ *
+ * ⚠️ SCALED PER AXIS, NOT GLOBALLY. Followers are in the tens and views in the
+ * thousands; one global scale would flatten every small axis into the centre and
+ * the shape would carry no information. Each axis is normalised against its own
+ * larger side — which means the shape shows PROPORTION and never magnitude, and
+ * is why the figures are printed beneath it.
  */
-export function PlatformRadar({ axes, size = 210 }: { axes: readonly RadarAxis[]; size?: number }) {
+export function PlatformRadar({ axes, size = 168 }: { axes: readonly RadarAxis[]; size?: number }) {
   const { ref, inView } = useInView<HTMLDivElement>();
+  const [hover, setHover] = React.useState<string | null>(null);
 
   if (axes.length < 3) {
     return <p className="text-micro text-text-tertiary">Not enough comparable metrics.</p>;
   }
 
   const c = size / 2;
-  const r = c - 30;
+  const r = c - 34;
   const n = axes.length;
 
-  /* Start at twelve o'clock and go clockwise, as a radar is always read. */
+  /* Twelve o'clock, clockwise — the way a radar is always read. */
   const point = (i: number, scale: number) => {
     const angle = (i / n) * Math.PI * 2 - Math.PI / 2;
     return [c + Math.cos(angle) * r * scale, c + Math.sin(angle) * r * scale] as const;
   };
 
-  const shape = (pick: (a: RadarAxis) => number) =>
-    axes.map((a, i) => point(i, inView ? pick(a) : 0.001).join(',')).join(' ');
+  /**
+   * ⚠️ A PATH, NOT A `<polygon>`, so it can be left open where an axis is
+   * missing. A polygon element always closes itself, which would draw a chord
+   * straight across the gap and imply a value that was never measured.
+   */
+  const shape = (pick: (a: RadarAxis) => number | null) => {
+    const present = axes.map((a, i) => ({ i, v: pick(a) }));
+    const complete = present.every((p) => p.v !== null);
+
+    let d = '';
+    let pen = false;
+    for (const { i, v } of present) {
+      if (v === null) {
+        pen = false;
+        continue;
+      }
+      const [x, y] = point(i, inView ? v : 0.001);
+      d += `${pen ? 'L' : 'M'}${x.toFixed(1)} ${y.toFixed(1)} `;
+      pen = true;
+    }
+    return complete ? `${d}Z` : d;
+  };
 
   const rings = [0.25, 0.5, 0.75, 1];
 
   return (
-    <div ref={ref} className="flex flex-wrap items-center justify-center gap-4">
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label="Platform comparison">
-        {/* Web */}
+    <div ref={ref} className="flex flex-col items-center gap-2">
+      <svg
+        width={size}
+        height={size}
+        viewBox={`0 0 ${size} ${size}`}
+        role="img"
+        aria-label="Facebook against Instagram"
+      >
         {rings.map((ring) => (
           <polygon
             key={ring}
             points={axes.map((_, i) => point(i, ring).join(',')).join(' ')}
-            fill="none"
+            fill={ring === 1 ? 'var(--chart-grid)' : 'none'}
+            fillOpacity={ring === 1 ? 0.28 : 0}
             stroke="var(--chart-grid)"
             strokeWidth="1"
           />
         ))}
         {axes.map((_, i) => {
           const [px, py] = point(i, 1);
-          return (
-            <line key={i} x1={c} y1={c} x2={px} y2={py} stroke="var(--chart-grid)" strokeWidth="1" />
-          );
+          return <line key={i} x1={c} y1={c} x2={px} y2={py} stroke="var(--chart-grid)" strokeWidth="1" />;
         })}
 
-        {/* Facebook */}
-        <polygon
-          points={shape((a) => a.facebookScaled)}
-          fill="var(--chart-1)"
-          fillOpacity="0.22"
-          stroke="var(--chart-1)"
-          strokeWidth="2"
-          strokeLinejoin="round"
-          style={{ transition: 'all 800ms cubic-bezier(0.16,1,0.3,1)' }}
-        />
-        {/* Instagram */}
-        <polygon
-          points={shape((a) => a.instagramScaled)}
-          fill="var(--chart-2)"
-          fillOpacity="0.22"
-          stroke="var(--chart-2)"
-          strokeWidth="2"
-          strokeLinejoin="round"
-          style={{ transition: 'all 800ms cubic-bezier(0.16,1,0.3,1) 120ms' }}
-        />
+        {(
+          [
+            { key: 'facebook', token: 'chart-1', pick: (a: RadarAxis) => a.facebookScaled },
+            { key: 'instagram', token: 'chart-2', pick: (a: RadarAxis) => a.instagramScaled },
+          ] as const
+        ).map((side, si) => (
+          <path
+            key={side.key}
+            d={shape(side.pick)}
+            fill={`var(--${side.token})`}
+            fillOpacity={hover === null || hover === side.key ? 0.16 : 0.04}
+            stroke={`var(--${side.token})`}
+            strokeWidth="2"
+            strokeLinejoin="round"
+            strokeLinecap="round"
+            style={{
+              transition: 'all 700ms cubic-bezier(0.16,1,0.3,1)',
+              transitionDelay: `${si * 100}ms`,
+            }}
+          />
+        ))}
 
-        {/* Vertices */}
-        {axes.map((a, i) => {
-          const [fx, fy] = point(i, inView ? a.facebookScaled : 0.001);
-          const [ix, iy] = point(i, inView ? a.instagramScaled : 0.001);
-          return (
-            <g key={a.key} style={{ transition: 'all 800ms cubic-bezier(0.16,1,0.3,1)' }}>
-              <circle cx={fx} cy={fy} r="3" fill="var(--chart-1)" />
-              <circle cx={ix} cy={iy} r="3" fill="var(--chart-2)" />
-            </g>
-          );
-        })}
+        {axes.map((a, i) =>
+          (['facebook', 'instagram'] as const).map((k) => {
+            const v = k === 'facebook' ? a.facebookScaled : a.instagramScaled;
+            if (v === null) return null;
+            const [px, py] = point(i, inView ? v : 0.001);
+            return (
+              <circle
+                key={`${a.key}-${k}`}
+                cx={px}
+                cy={py}
+                r="2.6"
+                fill={`var(--${k === 'facebook' ? 'chart-1' : 'chart-2'})`}
+                style={{ transition: 'all 700ms cubic-bezier(0.16,1,0.3,1)' }}
+              />
+            );
+          }),
+        )}
 
-        {/* Labels */}
         {axes.map((a, i) => {
-          const [lx, ly] = point(i, 1.2);
+          const [lx, ly] = point(i, 1.26);
+          /* An axis one platform cannot report is marked, so the break in the
+             shape beside it reads as deliberate. */
+          const partial = a.facebook === null || a.instagram === null;
           return (
             <text
               key={a.key}
@@ -305,40 +354,48 @@ export function PlatformRadar({ axes, size = 210 }: { axes: readonly RadarAxis[]
               y={ly}
               textAnchor={lx > c + 4 ? 'start' : lx < c - 4 ? 'end' : 'middle'}
               dominantBaseline="middle"
-              className="fill-text-secondary"
-              style={{ fontSize: 9, fontWeight: 600 }}
+              fill={partial ? 'var(--text-tertiary)' : 'var(--text-secondary)'}
+              style={{ fontSize: 8, fontWeight: 600 }}
             >
               {a.label}
+              {partial ? ' *' : ''}
             </text>
           );
         })}
       </svg>
 
-      {/* ⚠️ THE FIGURES, BESIDE THE SHAPE. The radar shows proportion only, so
-          the numbers have to be readable somewhere or the panel is decoration. */}
-      <dl className="min-w-[10rem] space-y-2">
-        {axes.map((a) => (
-          <div key={a.key} title={a.why}>
-            <dt className="cursor-help text-[0.6rem] font-semibold uppercase tracking-wide text-text-tertiary">
-              {a.label}
-            </dt>
-            <dd className="mt-0.5 flex items-center gap-3">
-              <span className="inline-flex items-center gap-1">
-                <PlatformIcon slug="facebook" size={11} />
-                <span className="text-micro font-bold tabular-nums text-text-primary">
-                  {compact(a.facebook)}
-                </span>
-              </span>
-              <span className="inline-flex items-center gap-1">
-                <PlatformIcon slug="instagram" size={11} />
-                <span className="text-micro font-bold tabular-nums text-text-primary">
-                  {compact(a.instagram)}
-                </span>
-              </span>
-            </dd>
-          </div>
+      {/* Legend — hovering a side brings its shape forward. */}
+      <div className="flex flex-wrap items-center justify-center gap-3">
+        {(
+          [
+            { key: 'facebook', label: 'Facebook', token: 'chart-1' },
+            { key: 'instagram', label: 'Instagram', token: 'chart-2' },
+          ] as const
+        ).map((side) => (
+          <button
+            key={side.key}
+            type="button"
+            onMouseEnter={() => setHover(side.key)}
+            onMouseLeave={() => setHover(null)}
+            onFocus={() => setHover(side.key)}
+            onBlur={() => setHover(null)}
+            className="inline-flex items-center gap-1.5 rounded px-1 py-0.5 transition-colors hover:bg-bg-subtle"
+          >
+            <span
+              aria-hidden="true"
+              className="h-0.5 w-3 rounded-full"
+              style={{ backgroundColor: `var(--${side.token})` }}
+            />
+            <span className="text-[0.6rem] text-text-secondary">{side.label}</span>
+          </button>
         ))}
-      </dl>
+      </div>
+
+      {axes.some((a) => a.facebook === null || a.instagram === null) && (
+        <p className="text-center text-[0.54rem] leading-tight text-text-tertiary">
+          * one platform only — hover an axis label for why
+        </p>
+      )}
     </div>
   );
 }
@@ -346,21 +403,45 @@ export function PlatformRadar({ axes, size = 210 }: { axes: readonly RadarAxis[]
 /* ---- Scatter ------------------------------------------------------------- */
 
 /**
- * Every post: reach across, interactions up.
+ * Every post as a bubble: reach across, interactions up, area by the chosen
+ * measure.
  *
- * ⚠️ THE POINTS ARE DRAWN IN A SQUARE viewBox WITH THE ASPECT RATIO PRESERVED,
- * because a circle in a stretched viewBox becomes an ellipse — the same bug that
- * once shipped a coverage strip as one pink oval.
+ * ⚠️ AREA, NOT RADIUS, ENCODES THE MEASURE. Doubling a radius quadruples the
+ * area, so a bubble sized by radius overstates every large value fourfold — the
+ * single most common way a bubble chart lies. `r = sqrt(share)` keeps the ink
+ * proportional to the number.
+ *
+ * ⚠️ AND A POST WITH NO REACH IS EXCLUDED AND COUNTED, never plotted at x = 0.
+ * Only half the collected posts carry a reach figure — Facebook posts largely do
+ * not — and a column of them stacked on the y-axis would look like a real
+ * finding about posts that reached nobody.
  */
 export function ScatterChart({
   data,
-  height = 230,
+  measure,
+  height = 168,
 }: {
   data: ScatterData;
+  measure: ScatterMeasure;
   height?: number;
 }) {
   const { ref, inView } = useInView<HTMLDivElement>();
   const [hover, setHover] = React.useState<string | null>(null);
+
+  const W = 480;
+  const PAD_L = 44;
+  const PAD_B = 30;
+  const PAD_T = 10;
+  const PAD_R = 16;
+  const plotW = W - PAD_L - PAD_R;
+  const plotH = height - PAD_B - PAD_T;
+
+  const sized = React.useMemo(() => {
+    const of = (p: ScatterPoint) =>
+      measure === 'reach' ? p.reach : measure === 'rate' ? p.rate : p.interactions;
+    const max = Math.max(1, ...data.points.map(of));
+    return data.points.map((p) => ({ point: p, share: of(p) / max }));
+  }, [data.points, measure]);
 
   if (data.points.length === 0) {
     return (
@@ -369,13 +450,6 @@ export function ScatterChart({
       </p>
     );
   }
-
-  const W = 520;
-  const PAD_L = 36;
-  const PAD_B = 24;
-  const PAD_T = 10;
-  const plotW = W - PAD_L - 12;
-  const plotH = height - PAD_B - PAD_T;
 
   const maxX = Math.max(1, data.maxReach);
   const maxY = Math.max(1, data.maxInteractions);
@@ -392,14 +466,13 @@ export function ScatterChart({
         className="w-full"
         style={{ height }}
         role="img"
-        aria-label="Reach against interactions, one point per post"
+        aria-label="Reach against interactions, one bubble per post"
       >
-        {/* Grid */}
         {[0, 0.25, 0.5, 0.75, 1].map((g) => (
           <g key={g}>
             <line
               x1={PAD_L}
-              x2={W - 12}
+              x2={W - PAD_R}
               y1={PAD_T + plotH - g * plotH}
               y2={PAD_T + plotH - g * plotH}
               stroke="var(--chart-grid)"
@@ -409,16 +482,16 @@ export function ScatterChart({
               x={PAD_L - 6}
               y={PAD_T + plotH - g * plotH + 3}
               textAnchor="end"
-              className="fill-text-tertiary"
+              fill="var(--text-tertiary)"
               style={{ fontSize: 8 }}
             >
               {compact(Math.round(g * maxY))}
             </text>
             <text
               x={PAD_L + g * plotW}
-              y={height - 12}
+              y={height - 14}
               textAnchor="middle"
-              className="fill-text-tertiary"
+              fill="var(--text-tertiary)"
               style={{ fontSize: 8 }}
             >
               {compact(Math.round(g * maxX))}
@@ -426,65 +499,76 @@ export function ScatterChart({
           </g>
         ))}
 
-        {/* Axis titles */}
+        {/* Axis titles, as the reference labels them. */}
         <text
           x={PAD_L + plotW / 2}
-          y={height - 2}
+          y={height - 3}
           textAnchor="middle"
-          className="fill-text-tertiary"
+          fill="var(--text-secondary)"
           style={{ fontSize: 8, fontWeight: 600 }}
         >
-          Reach →
+          Reach
+        </text>
+        <text
+          x={9}
+          y={PAD_T + plotH / 2}
+          textAnchor="middle"
+          transform={`rotate(-90 9 ${PAD_T + plotH / 2})`}
+          fill="var(--text-secondary)"
+          style={{ fontSize: 8, fontWeight: 600 }}
+        >
+          Engagements
         </text>
 
-        {/* Points */}
-        {data.points.map((p, i) => {
-          const on = hover === p.id;
-          const token = p.platform === 'instagram' ? 'chart-2' : 'chart-1';
-          return (
-            <circle
-              key={p.id}
-              cx={x(p.reach)}
-              cy={y(p.interactions)}
-              /* ⚠️ A FIXED RADIUS, NOT ONE SCALED BY A THIRD VARIABLE. A bubble
-                 chart encoding rate as area would put three quantities on a
-                 chart with two axes and read as noise at this sample size. */
-              r={on ? 7 : 5}
-              fill={`var(--${token})`}
-              fillOpacity={hover === null ? 0.72 : on ? 1 : 0.22}
-              stroke={`var(--${token})`}
-              strokeWidth={on ? 2 : 0}
-              onMouseEnter={() => setHover(p.id)}
-              onMouseLeave={() => setHover(null)}
-              style={{
-                cursor: 'pointer',
-                transition: 'r 160ms, fill-opacity 160ms, opacity 500ms',
-                opacity: inView ? 1 : 0,
-                transitionDelay: inView ? `${Math.min(i * 18, 500)}ms` : '0ms',
-              }}
-            />
-          );
-        })}
+        {/* ⚠️ LARGEST FIRST, so a small bubble is never buried under a big one. */}
+        {[...sized]
+          .sort((a, b) => b.share - a.share)
+          .map(({ point: p, share }, i) => {
+            const on = hover === p.id;
+            /* Multicoloured, as the reference draws them — the palette cycles by
+               a hash of the id, so a post keeps its colour between renders. */
+            const token = `chart-${(hashOf(p.id) % 8) + 1}`;
+            const radius = 4 + Math.sqrt(share) * 9;
+            return (
+              <circle
+                key={p.id}
+                cx={x(p.reach)}
+                cy={y(p.interactions)}
+                r={on ? radius + 2 : radius}
+                fill={`var(--${token})`}
+                fillOpacity={hover === null ? 0.72 : on ? 0.95 : 0.18}
+                stroke={`var(--${token})`}
+                strokeWidth={on ? 2 : 0}
+                onMouseEnter={() => setHover(p.id)}
+                onMouseLeave={() => setHover(null)}
+                style={{
+                  cursor: 'pointer',
+                  transition: 'r 160ms, fill-opacity 160ms, opacity 500ms',
+                  opacity: inView ? 1 : 0,
+                  transitionDelay: inView ? `${Math.min(i * 14, 400)}ms` : '0ms',
+                }}
+              />
+            );
+          })}
       </svg>
 
-      {/* Read-out, and the count of what could not be plotted. */}
-      <div className="mt-1 flex min-h-[2.1rem] flex-wrap items-start justify-between gap-2">
+      <div className="mt-0.5 flex min-h-[1.6rem] flex-wrap items-start justify-between gap-2">
         {active ? (
           <span className="min-w-0 flex-1">
             <span className="flex items-center gap-1.5">
-              <PlatformIcon slug={active.platform} size={12} />
-              <span className="truncate text-[0.62rem] font-semibold text-text-primary">
+              <PlatformIcon slug={active.platform} size={11} />
+              <span className="truncate text-[0.6rem] font-semibold text-text-primary">
                 {active.label}
               </span>
             </span>
-            <span className="block text-[0.6rem] text-text-tertiary">
+            <span className="block text-[0.56rem] text-text-tertiary">
               {compact(active.reach)} reached · {active.interactions} interactions ·{' '}
               {active.rate.toFixed(2)}%
             </span>
           </span>
         ) : (
-          <span className="text-[0.62rem] text-text-tertiary">
-            Hover a point to read the post.
+          <span className="text-[0.56rem] text-text-tertiary">
+            Bubble size = {MEASURE_LABEL[measure].replace('By ', '')}. Hover for the post.
           </span>
         )}
 
@@ -492,14 +576,20 @@ export function ScatterChart({
             figure, and a chart that silently dropped them would overstate how
             much is known. */}
         {data.excluded > 0 && (
-          <span className="shrink-0 text-[0.58rem] text-text-tertiary">
-            {data.excluded} post{data.excluded === 1 ? '' : 's'} not shown — Meta gave no reach
-            for them
+          <span className="shrink-0 text-[0.54rem] text-text-tertiary">
+            {data.excluded} without a reach figure
           </span>
         )}
       </div>
     </div>
   );
+}
+
+/** Stable per-id colour, so a bubble keeps its hue across renders. */
+function hashOf(id: string): number {
+  let h = 0;
+  for (let i = 0; i < id.length; i += 1) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return h;
 }
 
 /* ---- Funnel -------------------------------------------------------------- */

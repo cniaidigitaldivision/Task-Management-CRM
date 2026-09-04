@@ -151,17 +151,40 @@ describe('the interaction mix', () => {
 });
 
 describe('the platform radar', () => {
-  /* ⚠️ THE WHOLE POINT OF THE FILE. Facebook's `page_video_views` counts VIDEO
-     plays and Instagram's `views` counts everything — putting them on one axis
-     because both are called "views" would draw a confident, wrong picture. */
-  it('compares only metrics that mean the same thing', () => {
+  it('draws the reference’s five axes', () => {
     expect(COMPARABLE.map((c) => c.key)).toEqual([
-      'followers',
+      'reach',
+      'views',
       'engagements',
       'profile-views',
+      'followers',
     ]);
-    expect(COMPARABLE.some((c) => c.facebook === 'page_video_views')).toBe(false);
-    expect(COMPARABLE.some((c) => c.instagram === 'reach')).toBe(false);
+  });
+
+  /* ⚠️ FACEBOOK REPORTS NO REACH AT ALL, so its side of that axis is EMPTY —
+     the chart breaks its shape there. A zero would draw a vertex at the centre
+     and claim the figure was measured and found to be nothing. */
+  it('leaves Facebook’s reach unset rather than zero', () => {
+    const reach = COMPARABLE.find((c) => c.key === 'reach');
+    expect(reach?.facebook).toBe('');
+    expect(reach?.instagram).toBe('reach');
+
+    const axes = platformRadar([metric({ metricKey: IG.reach, value: 500 })]);
+    const axis = axes.find((a) => a.key === 'reach');
+    expect(axis?.facebook).toBeNull();
+    expect(axis?.facebookScaled).toBeNull();
+    expect(axis?.instagram).toBe(500);
+  });
+
+  /* ⚠️ `views` IS ON THE CHART AND CARRIES ITS CAVEAT. Facebook counts VIDEO
+     plays and Instagram counts every view — both real, both "views", different
+     populations. The axis exists because the reference wants it; the tooltip
+     says exactly what each side is counting. */
+  it('keeps the views caveat on the axis rather than dropping the axis', () => {
+    const views = COMPARABLE.find((c) => c.key === 'views');
+    expect(views?.facebook).toBe('page_video_views');
+    expect(views?.why).toMatch(/video plays/);
+    expect(views?.why).toMatch(/not in definition/);
   });
 
   it('gives every axis a stated justification', () => {
