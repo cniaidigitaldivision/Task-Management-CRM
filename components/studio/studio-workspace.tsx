@@ -8,6 +8,7 @@ import { PLATFORM_MARKS, PlatformIcon } from '@/components/brand/platform-icon';
 import { PageHeader } from '@/components/ui/page-header';
 import { DIVISION_NAME } from '@/lib/domain/constants';
 import type {
+  ContentDraft,
   MetricPoint,
   StudioAccount,
   StudioPost,
@@ -17,6 +18,7 @@ import type { ProjectPromise } from '@/lib/domain/meta-studio';
 import { compact } from '@/lib/domain/meta-studio';
 import { cn } from '@/lib/utils';
 
+import { ContentPosts } from './content-posts';
 import { StudioOverview } from './overview';
 import { StudioToolbar } from './studio-toolbar';
 
@@ -35,7 +37,7 @@ import { StudioToolbar } from './studio-toolbar';
 
 const TABS = [
   { key: 'overview', label: 'Overview', live: true },
-  { key: 'content', label: 'Content & Posts', live: false },
+  { key: 'content', label: 'Content & Posts', live: true },
   { key: 'accounts', label: 'Meta Accounts', live: false },
   { key: 'analytics', label: 'Analytics & Insights', live: false },
   { key: 'reports', label: 'Reports & Exports', live: false },
@@ -52,6 +54,8 @@ export function StudioWorkspace({
   current,
   previous,
   posts,
+  previousPosts,
+  drafts,
   cadence,
 }: {
   projects: readonly StudioProject[];
@@ -63,6 +67,9 @@ export function StudioWorkspace({
   current: readonly MetricPoint[];
   previous: readonly MetricPoint[];
   posts: readonly StudioPost[];
+  /** The previous period's posts, for the Content tab's deltas. */
+  previousPosts: readonly StudioPost[];
+  drafts: readonly ContentDraft[];
   cadence: ProjectPromise;
 }) {
   const router = useRouter();
@@ -203,6 +210,21 @@ export function StudioWorkspace({
         <NotConnected name={selected.name} />
       ) : !hasData ? (
         <NoDataYet accounts={accounts} />
+      ) : tab === 'content' ? (
+        /* ⚠️ The Content tab gets the UNFILTERED posts and does its own
+           filtering, because its tab strip counts every kind — a strip built
+           from posts already narrowed to one platform would report "Reels 0"
+           whenever Facebook was selected. It calls back to change the platform
+           so the two tabs stay in step. */
+        <ContentPosts
+          posts={posts}
+          previousPosts={previousPosts}
+          drafts={drafts}
+          platform={platform}
+          onPlatform={(v) => setParam('platform', v === 'all' ? null : v)}
+          from={from}
+          to={to}
+        />
       ) : (
         <StudioOverview
           accounts={accounts}

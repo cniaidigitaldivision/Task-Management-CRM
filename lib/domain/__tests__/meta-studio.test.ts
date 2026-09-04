@@ -38,6 +38,7 @@ const post = (over: Partial<StudioPost> = {}): StudioPost => ({
   postedAt: '2026-09-01T10:00:00Z',
   caption: 'A post',
   mediaProductType: 'FEED',
+  mediaType: 'IMAGE',
   permalink: 'https://example.test/p/1',
   thumbnailUrl: null,
   reach: 100,

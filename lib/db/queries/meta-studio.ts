@@ -3,6 +3,7 @@ import { withUser } from '@/lib/db/client';
    `lib/domain/` may not import from `lib/db/` — docs/20 §1, enforced by eslint —
    so the domain owns the vocabulary and this file produces it. A first draft had
    it backwards and the rule caught it. */
+import type { ContentDraft } from '@/lib/domain/meta-content';
 import type {
   MetricPoint,
   StudioAccount,
@@ -10,7 +11,7 @@ import type {
   StudioProject,
 } from '@/lib/domain/meta-studio';
 
-export type { MetricPoint, StudioAccount, StudioPost, StudioProject };
+export type { ContentDraft, MetricPoint, StudioAccount, StudioPost, StudioProject };
 
 /* ============================================================================
  * WHAT THE STUDIO READS
@@ -131,7 +132,7 @@ export async function postsForProject(
 ): Promise<StudioPost[]> {
   const rows = await withUser(actorId, (tx) => tx`
     select p.id, pl.slug as platform, p.posted_at, p.caption,
-           p.media_product_type, p.permalink, p.thumbnail_url,
+           p.media_product_type, p.media_type, p.permalink, p.thumbnail_url,
            m.reach, m.views, m.likes, m.comments, m.shares, m.saves,
            m.total_interactions
       from public.meta_posts p
@@ -152,6 +153,7 @@ export async function postsForProject(
     postedAt: new Date(r.posted_at as string).toISOString(),
     caption: (r.caption as string | null) ?? null,
     mediaProductType: (r.media_product_type as string | null) ?? null,
+    mediaType: (r.media_type as string | null) ?? null,
     permalink: (r.permalink as string | null) ?? null,
     thumbnailUrl: (r.thumbnail_url as string | null) ?? null,
     reach: num(r.reach),
@@ -233,4 +235,46 @@ export async function scheduledForProject(
        and t.due_date between ${from} and ${to}
   `);
   return Number((rows as Array<Record<string, unknown>>)[0]?.n ?? 0);
+}
+
+/**
+ * Content planned but not yet published — the Drafts tab.
+ *
+ * ⚠️ TASKLY'S OWN TASKS, NOT META. Meta has no concept of a post that has not
+ * happened, so this is the only place the division's intent is visible beside
+ * its output. Without it the Content tab could only show what already went out,
+ * which is the half a coordinator does not need to be told about.
+ *
+ * ⚠️ NOT WINDOWED BY `due_date` the way `scheduledForProject` is: a draft whose
+ * due date has passed is exactly the one worth seeing, and filtering to the
+ * selected period would quietly hide it.
+ */
+export async function draftsForProject(
+  actorId: string,
+  projectId: string,
+): Promise<ContentDraft[]> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select t.id, t.reference, t.title, t.content_kind, t.due_date, t.status,
+           u.full_name as assignee_name
+      from public.tasks t
+      left join public.users u on u.id = t.assignee_id
+     where t.project_id = ${projectId}
+       and t.deleted_at is null
+       and t.content_kind is not null
+       and t.status <> 'done'
+     order by t.due_date nulls last, t.created_at
+  `);
+
+  return (rows as Array<Record<string, unknown>>).map((r) => ({
+    id: String(r.id),
+    reference: String(r.reference),
+    title: String(r.title),
+    kind: (r.content_kind as string | null) ?? null,
+    /* postgres.js hands a `date` back as a Date at UTC midnight — stringifying
+       it yields "Wed Sep 02 2026", which is the trap that silently broke the
+       repeat runner. */
+    dueDate: r.due_date ? new Date(r.due_date as string).toISOString().slice(0, 10) : null,
+    assigneeName: (r.assignee_name as string | null) ?? null,
+    status: String(r.status),
+  }));
 }

@@ -8,6 +8,7 @@ import {
   cadenceForProject,
   listStudioProjects,
   metricsForProject,
+  draftsForProject,
   postsForProject,
 } from '@/lib/db/queries/meta-studio';
 import { previousPeriod } from '@/lib/domain/meta-studio';
@@ -85,6 +86,12 @@ export default async function StudioPage({
         metricsForProject(user.id, selected.id, previous.from, previous.to),
         postsForProject(user.id, selected.id, from, to),
         cadenceForProject(user.id, selected.id),
+        /* ⚠️ The PREVIOUS period's posts as well, for the Content tab's
+           vs-last-period deltas. The Overview only needed the metric series;
+           per-POST figures cannot be derived from those, so this is a real
+           second query rather than a slice of one already fetched. */
+        postsForProject(user.id, selected.id, previous.from, previous.to),
+        draftsForProject(user.id, selected.id),
       ])
     : null;
 
@@ -108,6 +115,8 @@ export default async function StudioPage({
           reelsMin: null,
         }
       }
+      previousPosts={data?.[5] ?? []}
+      drafts={data?.[6] ?? []}
     />
   );
 }

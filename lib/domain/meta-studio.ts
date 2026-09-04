@@ -38,7 +38,12 @@ export interface StudioPost {
   readonly platform: string;
   readonly postedAt: string;
   readonly caption: string | null;
+  /** Where it lives — FEED / REELS / STORY. */
   readonly mediaProductType: string | null;
+  /** ⚠️ What it IS — IMAGE / VIDEO / CAROUSEL_ALBUM, or null on Facebook. Read
+   *  AFTER `mediaProductType`, or every reel files itself as a video: see
+   *  `classifyPost` in lib/domain/meta-content.ts. */
+  readonly mediaType: string | null;
   readonly permalink: string | null;
   readonly thumbnailUrl: string | null;
   readonly reach: number | null;
