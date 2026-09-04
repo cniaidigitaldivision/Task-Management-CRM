@@ -105,6 +105,11 @@ const EXPECTED: Readonly<Record<Action, Row>> = {
   'project.soft_delete': ['allow', 'allow', 'deny', 'deny'],
   'project.purge': ['allow', 'deny', 'deny', 'deny'],
   'project.view_all': ['allow', 'allow', 'allow', 'deny'],
+  /* ⚠️ Admin-only because switching auto-sync off DESTROYS history — Meta
+     serves ~30 days and no more, so a project left off for five weeks has a gap
+     nothing can fill. A Coordinator may still create and pause sync RULES,
+     which only narrow or reschedule collection. */
+  'meta.sync.configure': ['allow', 'allow', 'deny', 'deny'],
   /* Owner, 2026-08-19: *"this monthly fee or any financial thing should only be
      visible to super admin and admin only. It will not be visible to any coordinator
      or anyone else on the team."* Note the Coordinator is DENIED here while being

@@ -14,11 +14,18 @@ import {
 } from '@/lib/db/queries/meta-studio';
 import { listProjectReports } from '@/lib/db/queries/report-files';
 import {
+  permissionEvents,
+  syncRulesForProject,
+  syncRunsForProject,
+  syncSettingsForProject,
+} from '@/lib/db/queries/meta-sync-settings';
+import {
   exportsForProject,
   listReportTemplates,
   schedulesForProject,
 } from '@/lib/db/queries/report-templates';
 import { previousPeriod } from '@/lib/domain/meta-studio';
+import { DEFAULT_SETTINGS } from '@/lib/domain/meta-sync-settings';
 import { can } from '@/lib/domain/permissions';
 import { DIVISION_NAME } from '@/lib/domain/constants';
 import { isoDateIn, nowMs } from '@/lib/now';
@@ -109,6 +116,14 @@ export default async function StudioPage({
         schedulesForProject(user.id, selected.id),
         exportsForProject(user.id, selected.id),
         listProjectReports(user.id, selected.id, 40),
+        /* ── Settings & Sync ─────────────────────────────────────────────
+           ⚠️ IN THE SAME WAVE. Four more sequential awaits would add four round
+           trips to Singapore on a page that already makes twelve; they are
+           independent of each other, so they belong here. */
+        syncSettingsForProject(user.id, selected.id),
+        syncRulesForProject(user.id, selected.id),
+        syncRunsForProject(user.id, selected.id, 100),
+        permissionEvents(user.id, 60),
       ])
     : null;
 
@@ -153,6 +168,18 @@ export default async function StudioPage({
       }))}
       todayKarachi={today}
       canSchedule={can({ role: user.role, id: user.id }, 'project.edit')}
+      syncSettings={data?.[12] ?? DEFAULT_SETTINGS}
+      syncRules={data?.[13] ?? []}
+      syncRuns={data?.[14] ?? []}
+      permissionEvents={data?.[15] ?? []}
+      /* ⚠️ WHETHER THE TOKEN IS SET, NEVER THE TOKEN. This is a server component
+         and every prop is serialised into the HTML the browser receives; sending
+         the system-user token itself would publish a credential that never
+         expires to anybody who views source. */
+      tokenConfigured={Boolean(process.env.META_SYSTEM_USER_TOKEN)}
+      /* The app id is public — it appears in every Graph API URL. */
+      metaAppId={process.env.META_APP_ID ?? null}
+      canConfigureSync={can({ role: user.role, id: user.id }, 'meta.sync.configure')}
       /* ⚠️ The SERVER's clock, so "6 hours ago" on an account card is the same
          for everyone. Reading it in the browser would let a reader's own wrong
          system time report a healthy account as stale. */

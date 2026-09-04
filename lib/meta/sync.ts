@@ -128,11 +128,17 @@ async function collectInstagram(
   since: string,
   until: string,
   metrics: CatalogueEntry[],
+  wants: (category: string) => boolean,
 ): Promise<{ values: DailyValue[]; posts: FetchedPost[]; followers: number | null; media: number | null }> {
   const token = process.env.META_SYSTEM_USER_TOKEN!.trim();
   const values: DailyValue[] = [];
 
   for (const m of metrics) {
+    /* ⚠️ THE SCOPE IS APPLIED TO THE FETCH, NOT TO THE WRITE. Collecting
+       everything and discarding it would burn the same Graph API budget while
+       claiming to be narrower — which is the opposite of what a rule scoping to
+       "posts only" is for. */
+    if (!wants('metrics')) break;
     if (m.fetchMode === 'series') {
       values.push(...(await fetchSeries(objectId, m.metricKey, since, until, token)));
     } else if (m.fetchMode === 'total_value') {
@@ -155,7 +161,9 @@ async function collectInstagram(
     /* 'profile' is not an insight — handled below, off the profile itself. */
   }
 
-  const profile = await fetchIgProfile(objectId);
+  const profile = wants('profile')
+    ? await fetchIgProfile(objectId)
+    : { followers: null, mediaCount: null };
 
   /* ⚠️ TODAY'S FOLLOWER TOTAL, SNAPSHOTTED BY US. `follower_count` as an insight
      returns nothing on a small account (verified: zero values at 16 followers).
@@ -165,7 +173,7 @@ async function collectInstagram(
     values.push({ onDate: until, metricKey: 'followers_count', value: profile.followers });
   }
 
-  const posts = await fetchIgPosts(objectId);
+  const posts = wants('posts') ? await fetchIgPosts(objectId) : [];
   return { values, posts, followers: profile.followers, media: profile.mediaCount };
 }
 
@@ -174,6 +182,7 @@ async function collectFacebook(
   since: string,
   until: string,
   metrics: CatalogueEntry[],
+  wants: (category: string) => boolean,
 ): Promise<{ values: DailyValue[]; posts: FetchedPost[]; followers: number | null; media: number | null }> {
   /* ⚠️ THE PAGE TOKEN, NOT THE SYSTEM USER TOKEN. Page insights refuse the
      system token with (#190). Derived per run; never stored. */
@@ -181,6 +190,7 @@ async function collectFacebook(
 
   const values: DailyValue[] = [];
   for (const m of metrics) {
+    if (!wants('metrics')) break;
     if (m.fetchMode !== 'series') continue;
     values.push(...(await fetchSeries(objectId, m.metricKey, since, until, token)));
   }
@@ -190,7 +200,7 @@ async function collectFacebook(
   const follows = values.filter((v) => v.metricKey === 'page_follows');
   const followers = follows.length > 0 ? follows[follows.length - 1].value : null;
 
-  const posts = await fetchFbPosts(objectId, token);
+  const posts = wants('posts') ? await fetchFbPosts(objectId, token) : [];
   return { values, posts, followers, media: null };
 }
 
@@ -205,13 +215,61 @@ async function collectFacebook(
 export async function runMetaSync(options: {
   accountId?: string;
   backfill?: boolean;
+  /**
+   * Restrict the run to one project, by NAME.
+   *
+   * ⚠️ BY NAME AND NOT BY ID, which looks wrong and is not.
+   * `app.meta_accounts_to_sync` returns `project_name` and no id, and changing
+   * its shape means dropping and recreating a SECURITY DEFINER function the
+   * live two-hourly cron depends on — a real risk to a working job, to avoid a
+   * filter over a few dozen rows already in memory.
+   *
+   * It is safe here because both sides of the comparison are read from
+   * `projects` within the same run: `app.meta_sync_rules_due` returns the name
+   * and so does the account reader, so a rename between the two reads would
+   * simply skip that project's rule for one cycle rather than sync the wrong
+   * client's account.
+   */
+  projectName?: string;
+  /**
+   * Which parts to collect. Defaults to all three.
+   *
+   * ⚠️ EACH VALUE MAPS ONTO A REAL BRANCH BELOW, which is what lets a sync rule
+   * genuinely narrow a pull rather than merely claim to. A category the runner
+   * could not honour would be a checkbox in the UI that changes nothing.
+   */
+  categories?: readonly string[];
+  /**
+   * Restrict the run to these projects by name.
+   *
+   * ⚠️ WHAT STOPS A RULED PROJECT BEING PULLED TWICE. The cron runs the due
+   * rules and then this; without the list, a project with a rule would be
+   * collected by its rule and again by the default pull — double the Graph API
+   * budget, and a rule narrowed to "posts only" silently widened back to
+   * everything by the pull that followed it. Every upsert is idempotent, so no
+   * figure would have been WRONG, which is exactly why it would not have been
+   * noticed. Comes from `app.meta_projects_on_default_sync()` (migration 100).
+   */
+  onlyProjectNames?: readonly string[];
 } = {}): Promise<AccountSyncResult[]> {
   if (!metaIsConfigured()) {
     throw new MetaApiError('Meta is not configured — META_SYSTEM_USER_TOKEN is missing.', null, null);
   }
 
   const today = isoDateIn(nowMs());
-  const accounts = await linkedAccounts(options.accountId);
+  const all = await linkedAccounts(options.accountId);
+
+  /* ⚠️ BY PROJECT NAME, because that is what the reader returns — it has no
+     project id column, and adding one is a migration to a function three
+     callers depend on. Names are unique per project row here because the reader
+     joins one project per account. */
+  const accounts = options.projectName
+    ? all.filter((a) => a.projectName === options.projectName)
+    : options.onlyProjectNames
+      ? all.filter((a) => options.onlyProjectNames!.includes(a.projectName))
+      : all;
+
+  const wants = (c: string) => !options.categories || options.categories.includes(c);
   const results: AccountSyncResult[] = [];
 
   /* ⚠️ SEQUENTIAL, NOT Promise.all. Meta rate-limits per app, and firing every
@@ -228,8 +286,8 @@ export async function runMetaSync(options: {
 
       const collected =
         account.platformSlug === 'instagram'
-          ? await collectInstagram(account.objectId, since, until, metrics)
-          : await collectFacebook(account.objectId, since, until, metrics);
+          ? await collectInstagram(account.objectId, since, until, metrics, wants)
+          : await collectFacebook(account.objectId, since, until, metrics, wants);
 
       const written = await withAppRole((tx) => tx`
         select * from app.record_meta_sync(

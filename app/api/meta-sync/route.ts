@@ -2,6 +2,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 
 import { NextResponse } from 'next/server';
 
+import { projectsOnDefaultSync, runDueRules } from '@/lib/meta/rules';
 import { runMetaSync } from '@/lib/meta/sync';
 
 /* ============================================================================
@@ -68,11 +69,30 @@ export async function GET(request: Request): Promise<NextResponse> {
   const backfill = new URL(request.url).searchParams.get('backfill') === '1';
 
   try {
-    const results = await runMetaSync({ backfill });
+    /* ── ⚠️ RULES FIRST, THEN THE DEFAULT PULL FOR PROJECTS WITHOUT ANY ──────
+       Migration 099 lets a project define named sync rules. A project that has
+       none keeps the two-hourly pull exactly as before — which is every project
+       the day 099 ships, so this cannot make anything worse off.
+
+       ⚠️ A BACKFILL IGNORES RULES ENTIRELY. `?backfill=1` is the repair tool:
+       it exists to fill a hole in the history, and honouring a rule that
+       narrows to "posts only" would leave the hole it was run to fix. */
+    const ruleResults = backfill ? [] : await runDueRules();
+
+    /* ⚠️ ONLY THE PROJECTS THAT STILL RELY ON IT. A project with an active rule
+       was just collected by that rule; pulling it again here would double its
+       API budget and widen a narrowed rule straight back out. A backfill is the
+       repair tool and deliberately ignores both. */
+    const results = backfill
+      ? await runMetaSync({ backfill })
+      : await runMetaSync({ onlyProjectNames: await projectsOnDefaultSync() });
 
     return NextResponse.json({
       ok: true,
       backfill,
+      rulesRun: ruleResults.length,
+      rulesFailed: ruleResults.filter((r) => r.outcome === 'failed').length,
+      rules: ruleResults,
       accounts: results.length,
       succeeded: results.filter((r) => r.outcome === 'ok').length,
       failed: results.filter((r) => r.outcome === 'failed').length,

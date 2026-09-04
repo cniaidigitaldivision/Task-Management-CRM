@@ -185,6 +185,18 @@ export const PERMISSIONS = {
   'project.purge': M('allow', 'deny', 'deny', 'deny'),
   'project.view_all': M('allow', 'allow', 'allow', 'deny'),
   /**
+   * Change how a project collects from Meta — the auto-sync switch, the
+   * interval and the retention period.
+   *
+   * ⚠️ ADMIN-ONLY FOR THE SAME REASON AS `project.soft_delete`, and it is not
+   * obvious: switching auto-sync off DESTROYS HISTORY. Meta serves roughly
+   * thirty days and no more, so a project left off for five weeks has a gap that
+   * can never be filled — the data is gone from Meta's side by then. A
+   * Coordinator may create and pause individual sync RULES, which only ever
+   * narrow or reschedule collection; the off switch is destruction.
+   */
+  'meta.sync.configure': M('allow', 'allow', 'deny', 'deny'),
+  /**
    * See money: the monthly fee, and any total derived from it.
    *
    * Owner, 2026-08-19: *"this monthly fee or any financial thing should only be

@@ -21,11 +21,18 @@ import type {
   ReportSchedule,
   ReportTemplate,
 } from '@/lib/domain/report-templates';
+import type {
+  SyncRule,
+  SyncRun,
+  SyncSettings,
+} from '@/lib/domain/meta-sync-settings';
+import type { PermissionEvent } from '@/lib/db/queries/meta-sync-settings';
 import { compact } from '@/lib/domain/meta-studio';
 import { cn } from '@/lib/utils';
 
 import { ContentPosts } from './content-posts';
 import { ReportsExports, type GeneratedReport } from './reports-exports';
+import { SettingsSync } from './settings-sync';
 import { MetaAccounts } from './meta-accounts';
 import { StudioOverview } from './overview';
 import { StudioToolbar } from './studio-toolbar';
@@ -54,7 +61,7 @@ const TABS = [
   { key: 'accounts', label: 'Meta Accounts', live: true },
   { key: 'analytics', label: 'Analytics & Insights', live: false },
   { key: 'reports', label: 'Reports & Exports', live: true },
-  { key: 'settings', label: 'Settings & Sync', live: false },
+  { key: 'settings', label: 'Settings & Sync', live: true },
 ] as const;
 
 export function StudioWorkspace({
@@ -78,6 +85,13 @@ export function StudioWorkspace({
   reports,
   todayKarachi,
   canSchedule,
+  syncSettings,
+  syncRules,
+  syncRuns,
+  permissionEvents,
+  tokenConfigured,
+  metaAppId,
+  canConfigureSync,
 }: {
   projects: readonly StudioProject[];
   selected: StudioProject;
@@ -102,6 +116,14 @@ export function StudioWorkspace({
   /** Today in Karachi, from the server — so "Overdue" cannot disagree. */
   todayKarachi: string;
   canSchedule: boolean;
+  syncSettings: SyncSettings;
+  syncRules: readonly SyncRule[];
+  syncRuns: readonly SyncRun[];
+  permissionEvents: readonly PermissionEvent[];
+  /** ⚠️ Whether the token is set, never the token — see the call site. */
+  tokenConfigured: boolean;
+  metaAppId: string | null;
+  canConfigureSync: boolean;
 }) {
   const router = useRouter();
   const search = useSearchParams();
@@ -259,6 +281,24 @@ export function StudioWorkspace({
              cards sitting right beside it. */
           postsThisPeriod={posts.length}
           postsPreviousPeriod={previousPosts.length}
+        />
+      ) : tab === 'settings' ? (
+        /* ⚠️ ALSO ABOVE THE `hasData` GATE. This is the tab somebody opens to
+           find out WHY nothing is arriving — sending them to "No figures
+           collected yet" would hide the health panel that explains it. */
+        <SettingsSync
+          projectId={selected.id}
+          projectName={selected.name}
+          accounts={accountDetails}
+          settings={syncSettings}
+          rules={syncRules}
+          runs={syncRuns}
+          permissions={permissionEvents}
+          tokenConfigured={tokenConfigured}
+          metaAppId={metaAppId}
+          nowMs={nowMs}
+          canConfigure={canConfigureSync}
+          canManageRules={canSchedule}
         />
       ) : tab === 'reports' ? (
         /* ⚠️ ALSO ABOVE THE `hasData` GATE, for a different reason than the
