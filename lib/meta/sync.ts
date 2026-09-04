@@ -1,0 +1,302 @@
+import { withAppRole } from '@/lib/db/client';
+import { isoDateIn, nowMs } from '@/lib/now';
+
+import {
+  MAX_WINDOW_DAYS,
+  MetaApiError,
+  type DailyValue,
+  type FetchedPost,
+  fetchFbPosts,
+  fetchIgPosts,
+  fetchIgProfile,
+  fetchSeries,
+  fetchTotalValue,
+  metaIsConfigured,
+  pageAccessToken,
+} from './client';
+
+/* ============================================================================
+ * THE SYNC
+ * ----------------------------------------------------------------------------
+ * Pulls each linked account's figures into Taskly's own tables. The Studio then
+ * reads only those tables — owner: *"I will not fetch live things from the
+ * database each time… We will fetch data from the database and show and draw a
+ * graph there."*
+ *
+ * ── ⚠️ ONE ACCOUNT'S FAILURE MUST NOT STOP THE OTHERS ───────────────────────
+ * The single most important property here. A client who revokes access, a page
+ * that gets renamed, a token that loses a scope — each must produce ONE named
+ * failure row and leave every other account synced. A sync that dies on the
+ * first bad account means one broken client silently freezes everybody's
+ * numbers, and the Studio would show stale data with no indication why.
+ *
+ * ── ⚠️ WHY IT RE-READS RECENT DAYS EVERY TIME ───────────────────────────────
+ * Meta revises figures for a day or two after the fact — a reach number read at
+ * 2pm is not final. So every run re-reads a trailing window and upserts, which
+ * is safe because `app.record_meta_sync` is keyed to correct rather than
+ * duplicate (migration 092's self-check asserts exactly this).
+ * ========================================================================= */
+
+/** How far back a routine run re-reads. Short: only recent days get revised. */
+const ROUTINE_WINDOW_DAYS = 7;
+
+/** The first sync for an account takes everything Meta will give. */
+const BACKFILL_WINDOW_DAYS = MAX_WINDOW_DAYS;
+
+export interface AccountSyncResult {
+  readonly metaAccountId: string;
+  readonly projectName: string;
+  readonly platform: string;
+  readonly objectId: string;
+  readonly outcome: 'ok' | 'failed';
+  readonly daysWritten: number;
+  readonly postsWritten: number;
+  readonly error: string | null;
+}
+
+interface LinkedAccount {
+  readonly id: string;
+  readonly projectName: string;
+  readonly platformSlug: string;
+  readonly objectId: string;
+  readonly neverSynced: boolean;
+}
+
+interface CatalogueEntry {
+  readonly metricKey: string;
+  readonly fetchMode: 'series' | 'total_value' | 'profile';
+}
+
+/** yyyy-mm-dd, n days before the given day. */
+function minusDays(isoDay: string, n: number): string {
+  const d = new Date(`${isoDay}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - n);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * The accounts to pull.
+ *
+ * ⚠️ THROUGH `app.meta_accounts_to_sync`, NOT A DIRECT SELECT, and the reason is
+ * worth keeping: the first version queried `meta_accounts` directly and reported
+ * a clean success having touched nothing. It found zero accounts, because this
+ * job has no signed-in user and `meta_accounts_select` requires
+ * `app.project_is_visible` — RLS failing closed, exactly as designed.
+ *
+ * The tempting fix — relaxing that policy — would expose every client's follower
+ * numbers to any unauthenticated path reaching the table. `lib/db/client.ts`
+ * warns against precisely this in its note on `withAppRole`. So the read goes
+ * through a SECURITY DEFINER function that returns only what the sync needs
+ * (migration 094), which is the same shape the attendance terminal uses.
+ */
+async function linkedAccounts(onlyAccountId?: string): Promise<LinkedAccount[]> {
+  const rows = await withAppRole((tx) => tx`
+    select * from app.meta_accounts_to_sync(${onlyAccountId ?? null}::uuid)
+  `);
+
+  return (rows as Array<Record<string, unknown>>).map((r) => ({
+    id: String(r.id),
+    projectName: String(r.project_name),
+    platformSlug: String(r.platform_slug),
+    objectId: String(r.meta_object_id),
+    neverSynced: Boolean(r.never_synced),
+  }));
+}
+
+/**
+ * ⚠️ THROUGH A FUNCTION, for the same reason as `linkedAccounts` — and this one
+ * bit twice. A direct select here returned ZERO rows for the cron (no user, and
+ * the catalogue's policy requires one), so the sync iterated an empty metric
+ * list, fetched no series, and reported a clean success having written only
+ * posts. A silent partial success is worse than a failure: the Studio would have
+ * drawn empty graphs beside a full post list with nothing to explain it.
+ */
+async function catalogueFor(platform: string): Promise<CatalogueEntry[]> {
+  const rows = await withAppRole((tx) => tx`
+    select * from app.meta_catalogue_for(${platform})
+  `);
+  return (rows as Array<Record<string, unknown>>).map((r) => ({
+    metricKey: String(r.metric_key),
+    fetchMode: String(r.fetch_mode) as CatalogueEntry['fetchMode'],
+  }));
+}
+
+/* ---- Collecting one account's figures ------------------------------------ */
+
+async function collectInstagram(
+  objectId: string,
+  since: string,
+  until: string,
+  metrics: CatalogueEntry[],
+): Promise<{ values: DailyValue[]; posts: FetchedPost[]; followers: number | null; media: number | null }> {
+  const token = process.env.META_SYSTEM_USER_TOKEN!.trim();
+  const values: DailyValue[] = [];
+
+  for (const m of metrics) {
+    if (m.fetchMode === 'series') {
+      values.push(...(await fetchSeries(objectId, m.metricKey, since, until, token)));
+    } else if (m.fetchMode === 'total_value') {
+      /* ⚠️ A DAY AT A TIME, and this is not wasteful — it is the only way.
+         `metric_type=total_value` returns ONE number for the whole window, so
+         asking for 30 days at once gives a 30-day total with no daily shape,
+         and a graph cannot be drawn from it.
+
+         ⚠️ AND THE WINDOW IS `D → D+1`, NOT `D → D`. `until` is EXCLUSIVE: a
+         same-day window is zero-length and returns null, silently. A first
+         version asked `since=D&until=D` for every day and wrote almost nothing
+         while reporting success — 30 rows where ~300 were expected. Verified
+         against the live API: 2026-09-02..2026-09-02 = null,
+         2026-09-02..2026-09-03 = 617. */
+      for (let d = since; d <= until; d = minusDays(d, -1)) {
+        const v = await fetchTotalValue(objectId, m.metricKey, d, minusDays(d, -1), token);
+        if (v !== null) values.push({ onDate: d, metricKey: m.metricKey, value: v });
+      }
+    }
+    /* 'profile' is not an insight — handled below, off the profile itself. */
+  }
+
+  const profile = await fetchIgProfile(objectId);
+
+  /* ⚠️ TODAY'S FOLLOWER TOTAL, SNAPSHOTTED BY US. `follower_count` as an insight
+     returns nothing on a small account (verified: zero values at 16 followers).
+     The profile field always reads, so we store it as today's row — and once
+     stored daily it becomes the history Meta will not give us retroactively. */
+  if (profile.followers !== null) {
+    values.push({ onDate: until, metricKey: 'followers_count', value: profile.followers });
+  }
+
+  const posts = await fetchIgPosts(objectId);
+  return { values, posts, followers: profile.followers, media: profile.mediaCount };
+}
+
+async function collectFacebook(
+  objectId: string,
+  since: string,
+  until: string,
+  metrics: CatalogueEntry[],
+): Promise<{ values: DailyValue[]; posts: FetchedPost[]; followers: number | null; media: number | null }> {
+  /* ⚠️ THE PAGE TOKEN, NOT THE SYSTEM USER TOKEN. Page insights refuse the
+     system token with (#190). Derived per run; never stored. */
+  const token = await pageAccessToken(objectId);
+
+  const values: DailyValue[] = [];
+  for (const m of metrics) {
+    if (m.fetchMode !== 'series') continue;
+    values.push(...(await fetchSeries(objectId, m.metricKey, since, until, token)));
+  }
+
+  /* The page's follower total is `page_follows`, already collected above as a
+     series. Read the last value for the account's headline figure. */
+  const follows = values.filter((v) => v.metricKey === 'page_follows');
+  const followers = follows.length > 0 ? follows[follows.length - 1].value : null;
+
+  const posts = await fetchFbPosts(objectId, token);
+  return { values, posts, followers, media: null };
+}
+
+/* ---- The run ------------------------------------------------------------- */
+
+/**
+ * Sync every linked account, or one.
+ *
+ * `backfill` forces the full 30-day window regardless of whether the account has
+ * been synced before — used by the first run and by a manual re-pull.
+ */
+export async function runMetaSync(options: {
+  accountId?: string;
+  backfill?: boolean;
+} = {}): Promise<AccountSyncResult[]> {
+  if (!metaIsConfigured()) {
+    throw new MetaApiError('Meta is not configured — META_SYSTEM_USER_TOKEN is missing.', null, null);
+  }
+
+  const today = isoDateIn(nowMs());
+  const accounts = await linkedAccounts(options.accountId);
+  const results: AccountSyncResult[] = [];
+
+  /* ⚠️ SEQUENTIAL, NOT Promise.all. Meta rate-limits per app, and firing every
+     account at once is how a fifteen-client division gets throttled into
+     failures that look like permission errors. The volume here is tiny; the
+     wall-clock cost is irrelevant against a two-hourly schedule. */
+  for (const account of accounts) {
+    const full = options.backfill || account.neverSynced;
+    const until = today;
+    const since = minusDays(today, full ? BACKFILL_WINDOW_DAYS - 1 : ROUTINE_WINDOW_DAYS - 1);
+
+    try {
+      const metrics = await catalogueFor(account.platformSlug);
+
+      const collected =
+        account.platformSlug === 'instagram'
+          ? await collectInstagram(account.objectId, since, until, metrics)
+          : await collectFacebook(account.objectId, since, until, metrics);
+
+      const written = await withAppRole((tx) => tx`
+        select * from app.record_meta_sync(
+          ${account.id}::uuid,
+          ${tx.json(collected.values.map((v) => ({
+            on_date: v.onDate,
+            metric_key: v.metricKey,
+            value: v.value,
+          })) as never)}::jsonb,
+          ${tx.json(collected.posts.map((p) => ({
+            meta_post_id: p.metaPostId,
+            posted_at: p.postedAt,
+            caption: p.caption,
+            media_type: p.mediaType,
+            media_product_type: p.mediaProductType,
+            permalink: p.permalink,
+            thumbnail_url: p.thumbnailUrl,
+            metrics: p.metrics,
+          })) as never)}::jsonb,
+          ${collected.followers},
+          ${collected.media},
+          ${since}::date,
+          ${until}::date
+        )
+      `);
+
+      const row = (written as Array<Record<string, unknown>>)[0] ?? {};
+      results.push({
+        metaAccountId: account.id,
+        projectName: account.projectName,
+        platform: account.platformSlug,
+        objectId: account.objectId,
+        outcome: 'ok',
+        daysWritten: Number(row.days_written ?? 0),
+        postsWritten: Number(row.posts_written ?? 0),
+        error: null,
+      });
+    } catch (error) {
+      /* ⚠️ CAUGHT PER ACCOUNT AND RECORDED, NEVER RETHROWN. This is the property
+         the whole file exists to guarantee. The message is stored verbatim
+         because Meta's own wording is the most useful thing anybody debugging
+         this will have — "(#190) This method must be called with a Page Access
+         Token" tells you exactly what is wrong, and a generic "sync failed"
+         tells you nothing. */
+      const message =
+        error instanceof MetaApiError
+          ? `${error.message}${error.code ? ` (code ${error.code})` : ''}`
+          : error instanceof Error
+            ? error.message
+            : 'Unknown error';
+
+      await withAppRole((tx) => tx`
+        select app.record_meta_sync_failure(${account.id}::uuid, ${message})
+      `);
+
+      results.push({
+        metaAccountId: account.id,
+        projectName: account.projectName,
+        platform: account.platformSlug,
+        objectId: account.objectId,
+        outcome: 'failed',
+        daysWritten: 0,
+        postsWritten: 0,
+        error: message,
+      });
+    }
+  }
+
+  return results;
+}

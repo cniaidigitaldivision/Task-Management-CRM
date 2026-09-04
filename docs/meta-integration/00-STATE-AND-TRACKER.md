@@ -5,7 +5,7 @@
 > next, and what must not be touched. Every other file in this folder is
 > reference; this one is the state.
 >
-> **Last updated:** 2026-09-04 · **Branch:** `meta-integration` · **Phase:** 2 of 6 ✅
+> **Last updated:** 2026-09-04 · **Branch:** `meta-integration` · **Phase:** 3 of 6 ✅
 
 ---
 
@@ -50,19 +50,47 @@ do not push or deploy anything without being told.
 | 6 | Per-post data and permalinks confirmed available | `01-VERIFIED-API-FACTS.md` §4 |
 | 7 | Planning documents written (this folder) | you are reading them |
 | 8 | Owner answered all six questions | §7 below |
-| 9 | **Phase 2 — migrations 091, 092, 093 written and APPLIED** | `meta_tables = 6`, self-checks passed |
+| 9 | **Phase 2 — migrations 091–093 written and APPLIED** | `meta_tables = 6`, self-checks passed |
+| 10 | Migrations 094 + 095 — SECURITY DEFINER readers for the cron | see §10, the RLS trap |
+| 11 | **Phase 3 — the sync job, working against the live API** | 407 metric rows, 50 posts, 0 duplicates |
+| 12 | AI & Digital Division linked (FB + IG) and backfilled 29 days | `meta_accounts` has 2 rows |
+| 13 | Cron registered in `vercel.json`, every 2 hours | ⚠️ inert until deployed |
 
-### ⏳ NEXT — Phase 3, the sync job
+### ⏳ NEXT — Phase 4, the Overview tab
 
-`lib/meta/client.ts`, `lib/meta/sync.ts`, `app/api/meta-sync/route.ts`, cron in
-`vercel.json` at **every 2 hours** (owner confirmed). Then link the AI & Digital
-Division account and run the 30-day backfill.
+`/studio`, the shell, project dropdown, platform filter, and the Overview panels
+from `03-UI-SPEC.md` §3. **Overview only**; other tabs visible but disabled.
+
+⚠️ **Access: `team_coordinator` and above only** — owner, 2026-09-04: *"this only
+visible to admin, superadmin and team coordinator."* Use `requireRole('team_coordinator')`,
+the same guard as `/reports`.
+
+⚠️ **Other projects in the dropdown show "coming soon"** — only AI & Digital
+Division has linked accounts.
 
 ### ❌ NOT STARTED
 
-The sync job, the `/studio` route, every UI file, the cron registration. **No
-account is linked yet** (`meta_accounts` is empty) and **no figure has been
-collected**.
+The `/studio` route and every UI file. Nothing is deployed and nothing is pushed.
+
+---
+
+## 10 · ⚠️ THE RLS TRAP THAT BIT TWICE — read before adding any sync code
+
+The sync runs from a cron with **no signed-in user**. Every `meta_*` table has an
+RLS policy that fails closed for an anonymous session — correctly. So a direct
+`select` from the sync returns **zero rows and no error**, and the run reports a
+clean success having written nothing.
+
+It happened twice:
+
+| Attempt | Symptom | Fix |
+|---|---|---|
+| Reading `meta_accounts` | `0 accounts`, silent success | `app.meta_accounts_to_sync` (094) |
+| Reading `meta_metric_catalogue` | `0 days, 25 posts` — posts landed, metrics did not | `app.meta_catalogue_for` (095) |
+
+⚠️ **Do NOT fix this by relaxing a policy.** `lib/db/client.ts` says so directly
+in its note on `withAppRole`. Every table the sync touches is now covered — 094
+and 095 for reads, 093 for writes — so there is no third instance waiting.
 
 ---
 
@@ -169,4 +197,5 @@ not updated is worse than none, because the next session trusts it.
 | Date | Session did | Left at |
 |---|---|---|
 | 2026-09-04 (1) | Branch created. Token and all four env vars verified live. Full API reconnaissance: working metric lists for FB + IG on v26.0, per-post data, permalinks, 30-day window limit, demographics threshold. Planning docs written. **No code, no migration, no schema change.** | Awaiting answers to §7 |
+| 2026-09-04 (3) | **Phase 3 complete.** `lib/meta/client.ts`, `lib/meta/sync.ts`, `app/api/meta-sync/route.ts`, cron every 2h. Migrations 094–095 added for the RLS trap (§10). Linked AI & Digital Division's FB + IG and backfilled: **407 metric rows over 29 days, 50 posts all with permalinks, 0 duplicate keys across three runs.** Found and fixed: `metric_type=total_value` needs `since=D, until=D+1` — a same-day window returns null silently. | Phase 4, the Overview tab |
 | 2026-09-04 (2) | Owner answered all six questions. **Phase 2 complete:** migrations 091–093 written and applied — `meta_accounts`, `meta_metric_catalogue` (15 verified metrics seeded), `meta_metric_days`, `meta_posts`, `meta_post_metrics`, `meta_sync_runs`, plus `app.record_meta_sync` / `app.record_meta_sync_failure`. All self-checks passed; 2 644 tests still green; projects/tasks/attendance counts unchanged. Three schema surprises found by the migration refusing to commit: `projects.type` not `project_type`, `code` is NOT NULL, and `projects_code_format` demands exactly three uppercase letters. | Phase 3, the sync job |
