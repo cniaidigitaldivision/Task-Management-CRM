@@ -189,6 +189,7 @@ export function StudioOverview({
 
   const rateKpi = kpi('engagement_rate');
   const engagementRate = rateKpi?.value ?? 0;
+  const rateDelta = rateKpi ? formatDelta(rateKpi) : null;
 
   return (
     <div className="space-y-3">
@@ -338,15 +339,32 @@ export function StudioOverview({
 
         <Panel
           title="Engagement Rate"
-          info="Interactions per person reached, Instagram."
+          /* ⚠️ THE FORMULA IS ON THE PANEL, because the owner had to ask what the
+             number was: *"let me know how you put this figure."* A rate whose
+             derivation is invisible is a rate nobody can argue with, which is
+             the wrong kind of confidence for something a client may see. */
+          info={
+            'Instagram interactions ÷ Instagram reach, over the selected period. ' +
+            'Facebook is excluded because Graph API v26.0 no longer reports page reach, ' +
+            'so there is no denominator for it.'
+          }
         >
           <div className="flex h-full flex-col items-center justify-center pb-1">
             <SegmentedGauge
               value={engagementRate}
               max={10}
               verdict={verdictFor(engagementRate)}
-              hint={rateKpi ? (formatDelta(rateKpi) ?? undefined) : undefined}
-              size={182}
+              /* ⚠️ ALWAYS A LINE, even with nothing to compare against. Owner:
+                 *"whether I have no data, show 0 or no figure but mention the
+                 text 'versus last 30 days'."* An absent line reads as a missing
+                 feature; a line saying there is no earlier period reads as a
+                 fact about the data, which is what it is. */
+              hint={
+                rateDelta
+                  ? `${rateDelta} vs previous ${days} days`
+                  : `No earlier period yet · vs previous ${days} days`
+              }
+              size={210}
             />
           </div>
         </Panel>

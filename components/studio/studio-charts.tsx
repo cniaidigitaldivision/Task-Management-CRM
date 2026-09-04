@@ -525,6 +525,73 @@ function ChartEmpty() {
 
 /* ---- The segmented gauge ------------------------------------------------- */
 
+/**
+ * Sweeps 0 → max → target, and returns the value at this instant.
+ *
+ * Owner, 2026-09-04: *"when the page loads… this engagement rate needle should
+ * move to the maximum 10% and then back to the position where it should be…
+ * The figure 0.14 is also moving."*
+ *
+ * ── ⚠️ ONE ANIMATED VALUE DRIVES BOTH THE NEEDLE AND THE NUMBER ────────────
+ * The obvious build is a CSS keyframe for the needle and a counter for the
+ * digits. Two timelines started at the same moment do NOT stay together — CSS
+ * animates off the compositor and rAF off the main thread, so a busy frame
+ * slides one against the other and the dial points at 6% while the label reads
+ * 3%. A gauge disagreeing with its own needle is worse than no animation.
+ *
+ * So there is one number. The needle's angle is derived from it, and they cannot
+ * come apart.
+ *
+ * ⚠️ AND IT HONOURS prefers-reduced-motion by landing on the target
+ * immediately. The global CSS guard cannot reach a JavaScript animation.
+ */
+function useSweep(target: number, max: number, duration = 1500): number {
+  const [display, setDisplay] = React.useState(target);
+
+  React.useEffect(() => {
+    const reduced =
+      typeof window !== 'undefined' &&
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
+    /* ⚠️ Scheduled, not called straight from the effect body — React's
+       `set-state-in-effect` rule refuses the synchronous form, and it is right
+       to: a setState during the effect pass forces a second render before the
+       browser has painted the first. One frame costs nothing here. */
+    if (reduced || !Number.isFinite(target)) {
+      const settle = requestAnimationFrame(() => setDisplay(target));
+      return () => cancelAnimationFrame(settle);
+    }
+
+    /* The turning point: out to the top of the scale, then back to the reading.
+       Slightly past halfway, so the return is the calmer of the two moves. */
+    const PEAK = 0.55;
+    const ease = (t: number) => 1 - Math.pow(1 - t, 3);
+
+    let raf = 0;
+    const started = performance.now();
+
+    const frame = (now: number) => {
+      const t = Math.min(1, (now - started) / duration);
+
+      const value =
+        t < PEAK
+          ? max * ease(t / PEAK)
+          : max + (target - max) * ease((t - PEAK) / (1 - PEAK));
+
+      setDisplay(value);
+      if (t < 1) raf = requestAnimationFrame(frame);
+      /* Land exactly on the target rather than wherever the last frame fell. */
+      else setDisplay(target);
+    };
+
+    raf = requestAnimationFrame(frame);
+    return () => cancelAnimationFrame(raf);
+  }, [target, max, duration]);
+
+  return display;
+}
+
+
 export function SegmentedGauge({
   value,
   max = 100,
@@ -540,8 +607,17 @@ export function SegmentedGauge({
 }) {
   const SWEEP = 180;
   const START = 180;
-  const fraction = Math.min(1, Math.max(0, value / (max || 1)));
+
+  /* The value as it is right now, mid-sweep. Everything below reads from this,
+     never from `value`, so the needle and the digits cannot disagree. */
+  const shown = useSweep(value, max);
+
+  const fraction = Math.min(1, Math.max(0, shown / (max || 1)));
   const angle = START + SWEEP * fraction;
+  /* ⚠️ The VERDICT follows the settled value, not the sweeping one. Colouring it
+     from `shown` would flash "Exceptional" in green on the way past the top of
+     the scale, which is a claim about the account rather than an animation. */
+  const settled = Math.min(1, Math.max(0, value / (max || 1)));
 
   /* ── ⚠️ FIVE BANDS, AND THE FIFTH IS GREY ─────────────────────────────────
      Measured off the owner's reference rather than guessed: red · orange ·
@@ -552,13 +628,26 @@ export function SegmentedGauge({
      before the end of the scale, which is not what a rate of this kind means. */
   const BANDS = ['chart-8', 'chart-5', 'chart-6', 'chart-3', 'chart-grid'];
 
-  /* Geometry taken from the reference's proportions: the arc's stroke is a
-     little over a fifth of its radius, which is what makes it read as a dial
-     rather than as a thin ring. */
-  const r = 34;
+  /* ── ⚠️ A BIG ARC DRAWN WITH A THIN STROKE ────────────────────────────────
+     Owner, against the reference: *"I want thin smart lines, not thick lines…
+     I want a wider diameter… increase the height of this semicircle."*
+
+     Both moved, and they pull in opposite directions on the same canvas: the
+     radius went 34 → 44 and the stroke 7.5 → 4, so the arc now spans 88% of the
+     canvas at a stroke about a NINTH of its radius rather than a fifth. That
+     ratio is what makes a dial read as an instrument rather than as a fat
+     ribbon.
+
+     ⚠️ THE LABEL OFFSET MUST COME DOWN AS THE RADIUS GOES UP, or the labels run
+     off the 100-unit canvas — the 0% and 100% ones sideways, and the top one off
+     the roof. Every combination here was checked numerically before being
+     committed rather than nudged until it looked right: at r=44 with offset 5
+     the leftmost ink lands at x=1.0 and the top label clears the edge by one
+     unit. Change the radius and both of those move. */
+  const r = 44;
   const cx = 50;
-  const cy = 50;
-  const STROKE = 7.5;
+  const cy = 51.5;
+  const STROKE = 4;
 
   const pt = (deg: number, radius: number) => {
     const rad = (deg * Math.PI) / 180;
@@ -574,7 +663,7 @@ export function SegmentedGauge({
   return (
     <figure className="flex w-full flex-col items-center">
       <svg
-        viewBox="0 0 100 60"
+        viewBox="0 0 100 57"
         style={{ width: size, maxWidth: '100%' }}
         role="img"
         aria-label={`${value.toFixed(2)} of ${max}`}
@@ -586,7 +675,12 @@ export function SegmentedGauge({
         {BANDS.map((token, i) => (
           <path
             key={token + i}
-            d={arc(i / 5 + 0.028, (i + 1) / 5 - 0.028, r)}
+            /* The gap must exceed the round cap that overdraws it — at 4 wide
+               on r=44 that cap is about 0.014 of the sweep, so 0.026 leaves a
+               clear break. Thinning the stroke SHRINKS the cap, so a thinner arc
+               needs a smaller gap for the same visual separation, not a bigger
+               one. */
+            d={arc(i / 5 + 0.026, (i + 1) / 5 - 0.026, r)}
             fill="none"
             stroke={tok(token)}
             strokeWidth={STROKE}
@@ -596,14 +690,14 @@ export function SegmentedGauge({
 
         {/* Six labels, outside the arc, as the reference sets them. */}
         {Array.from({ length: 6 }, (_, i) => i / 5).map((f) => {
-          const [lx, ly] = pt(START + SWEEP * f, r + 8.5);
+          const [lx, ly] = pt(START + SWEEP * f, r + 5);
           return (
             <text
               key={f}
               x={lx}
               y={ly + 2.2}
               textAnchor={f === 0 ? 'start' : f === 1 ? 'end' : 'middle'}
-              fontSize="5.2"
+              fontSize="4.5"
               fontWeight="600"
               fill={tok('text-tertiary')}
             >
@@ -615,39 +709,41 @@ export function SegmentedGauge({
         {/* ⚠️ THE PIVOT KNOB IS SOLID. An earlier version drew a white centre
             inside it, which at this size reads as a target rather than as the
             bearing the needle turns on. */}
-        <g
-          style={{
-            transformOrigin: `${cx}px ${cy}px`,
-            animation: 'studio-needle 1100ms cubic-bezier(0.34,1.28,0.64,1) backwards',
-          }}
-        >
+        {/* No CSS animation here: the angle already comes from `useSweep`, so the
+            needle is redrawn each frame in step with the number below it. */}
+        <g>
           <polygon
-            points={needlePoints(cx, cy, angle, r - 4)}
+            points={needlePoints(cx, cy, angle, r - 6)}
             fill={tok('text-primary')}
             stroke={tok('text-primary')}
             strokeWidth="0.5"
             strokeLinejoin="round"
           />
-          <circle cx={cx} cy={cy} r="3.4" fill={tok('text-primary')} />
+          <circle cx={cx} cy={cy} r="3" fill={tok('text-primary')} />
         </g>
       </svg>
 
-      {/* ⚠️ THE READING AND THE VERDICT SHARE A LINE, as the reference sets them
-          — "62%  Good". Stacked, the verdict reads as a separate claim about
-          something else; beside the number it reads as what that number means. */}
-      <div className="-mt-1 flex flex-wrap items-baseline justify-center gap-x-2">
-        <span className="text-h2 font-bold leading-none tabular-nums text-text-primary">
-          {value.toFixed(2)}%
-        </span>
-        <span
-          className="text-body-sm font-semibold"
-          style={{ color: tok(verdictToken(fraction)) }}
-        >
-          {verdict}
-        </span>
-      </div>
+      {/* ⚠️ THE VERDICT SITS ON ITS OWN LINE, and this reverses an earlier pass.
+          It was stacked, then put beside the number to match the reference, and
+          the owner asked for it back: *"after some space this 0.14% should show
+          and that low should be on the next line."*
 
-      {hint && <p className="mt-1.5 text-micro text-text-tertiary">{hint}</p>}
+          They are right for a reason the reference does not face: "62% Good" is
+          two short words, but a rate of 0.14% next to "Exceptional" wraps
+          awkwardly in a narrow card, and a verdict that sometimes sits beside
+          the number and sometimes under it is worse than one that always sits
+          under it. */}
+      <p className="mt-3 text-h1 font-bold leading-none tabular-nums text-text-primary">
+        {shown.toFixed(2)}%
+      </p>
+      <p
+        className="mt-1.5 text-body-sm font-semibold"
+        style={{ color: tok(verdictToken(settled)) }}
+      >
+        {verdict}
+      </p>
+
+      {hint && <p className="mt-1 text-micro text-text-tertiary">{hint}</p>}
     </figure>
   );
 }
