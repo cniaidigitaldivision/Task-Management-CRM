@@ -15,7 +15,7 @@ import {
 
 import { DonutChart } from '@/components/ui/chart';
 import type { MetricPoint, StudioPost } from '@/lib/domain/meta-studio';
-import { compact } from '@/lib/domain/meta-studio';
+import { compact, previousPeriod } from '@/lib/domain/meta-studio';
 import { KIND_TOKENS, contentDistribution } from '@/lib/domain/meta-content';
 import {
   FB,
@@ -99,6 +99,16 @@ export function AnalyticsInsights({
     () => periodDeltas({ current: metrics, previous }),
     [metrics, previous],
   );
+
+  /* ⚠️ THE ACTUAL DATES, NOT "vs previous period". The reference prints
+     "vs May 8 – May 21", and naming the window is what makes the percentage
+     checkable — a reader can go and look at those days. It is derived from the
+     same `previousPeriod` the page used to FETCH that window, so the label and
+     the figures can never describe different ranges. */
+  const againstLabel = React.useMemo(() => {
+    const p = previousPeriod(from, to);
+    return `vs ${shortDate(p.from)} – ${shortDate(p.to)}`;
+  }, [from, to]);
 
   const mix = React.useMemo(() => interactionMix(metrics, dates), [metrics, dates]);
   const radar = React.useMemo(() => platformRadar(metrics), [metrics]);
@@ -230,6 +240,7 @@ export function AnalyticsInsights({
             label={b.label}
             value={b.value}
             percent={b.percent}
+            against={againstLabel}
             icon={b.icon}
             token={b.token}
             spark={b.spark}
@@ -484,6 +495,7 @@ function MetricTile({
   label,
   value,
   percent,
+  against,
   icon: Icon,
   token,
   spark,
@@ -492,6 +504,7 @@ function MetricTile({
   label: string;
   value: string;
   percent: number | null;
+  against: string;
   icon: typeof Eye;
   token: string;
   spark: readonly (number | null)[] | null;
@@ -503,14 +516,11 @@ function MetricTile({
     <div
       ref={ref}
       className={cn(
-        'studio-reveal relative flex flex-col overflow-hidden rounded-xl border bg-bg-surface p-3 transition-all duration-300 hover:-translate-y-px hover:shadow-[0_6px_18px_rgb(6_35_42_/_0.09)]',
+        'studio-reveal flex flex-col overflow-hidden rounded-xl border border-border-subtle bg-bg-surface p-3 transition-all duration-300 hover:-translate-y-px hover:shadow-[0_6px_18px_rgb(6_35_42_/_0.09)]',
         'motion-safe:animate-[studio-rise_560ms_cubic-bezier(0.16,1,0.3,1)_backwards]',
         inView && 'is-visible',
       )}
-      style={{
-        animationDelay: `${index * 60}ms`,
-        borderColor: `color-mix(in oklab, var(--${token}) 24%, transparent)`,
-      }}
+      style={{ animationDelay: `${index * 60}ms` }}
     >
       <div className="flex items-center gap-2">
         <span
@@ -519,20 +529,25 @@ function MetricTile({
         >
           <Icon className="size-3.5" style={{ color: `var(--${token})` }} aria-hidden="true" />
         </span>
-        <p className="min-w-0 flex-1 truncate text-[0.6rem] font-medium text-text-secondary">
+        <p className="min-w-0 flex-1 truncate text-[0.65rem] font-medium text-text-secondary">
           {label}
         </p>
       </div>
 
-      <p className="mt-1.5 text-h2 font-bold leading-none tabular-nums text-text-primary">
+      <p className="mt-2 text-[1.55rem] font-bold leading-none tracking-tight tabular-nums text-text-primary">
         {value}
       </p>
 
-      {/* ⚠️ THE ROW IS ALWAYS PRESENT, even with no delta to show, so six tiles
-          share one baseline. Letting it collapse made the tiles ragged. */}
-      <p className="mt-1 flex min-h-[0.9rem] items-center gap-1 text-[0.58rem]">
+      {/* The row is always present, even with no delta, so six tiles share one
+          baseline. Letting it collapse made the row ragged. */}
+      <p className="mt-1.5 flex min-h-[0.85rem] items-center gap-1 text-[0.58rem]">
         {percent === null ? (
-          <span className="text-text-tertiary">vs previous period</span>
+          <span className="truncate text-text-tertiary">
+            {/* ⚠️ "0%" WOULD BE A MEASUREMENT. A window with no earlier figures
+                has no percentage at all — the reference's own "0% vs …" on Posts
+                Published is precisely the claim not to copy. */}
+            No comparison · {against}
+          </span>
         ) : (
           <>
             <span
@@ -555,7 +570,7 @@ function MetricTile({
                 : Math.abs(percent).toFixed(1)}
               %
             </span>
-            <span className="truncate text-text-tertiary">vs previous</span>
+            <span className="truncate text-text-tertiary">{against}</span>
           </>
         )}
       </p>
@@ -563,44 +578,106 @@ function MetricTile({
       {spark && spark.filter((v) => v !== null).length > 1 ? (
         <TileSpark points={spark} token={token} />
       ) : (
-        <span className="mt-2 block h-[22px]" />
+        <span
+          className="mt-2 block h-[34px] rounded-md"
+          style={{ backgroundColor: `color-mix(in oklab, var(--${token}) 5%, transparent)` }}
+        />
       )}
     </div>
   );
 }
 
 /**
- * A tiny bar strip under a tile.
+ * The card's own series, as a line with a dot on every reading.
  *
- * ⚠️ BARS, NOT A LINE, and deliberately different from the Meta Accounts cards'
- * sparkline. These series are spiky — reach swings between 0 and 54,000 — and a
- * line through that is a scribble, while bars read as a rhythm. Same data,
- * different shape, because the shape has to suit what it is drawing.
+ * ⚠️ A LINE WITH DOTS, NOT BARS — the reference draws it that way and it is the
+ * better call for a further reason: these tiles sit in a row, and six bar strips
+ * read as six separate charts while six lines read as one row of trends. It sits
+ * on a faint band of its own colour so the strip has an edge.
  *
- * ⚠️ AND A NULL DAY IS A GAP, not a zero-height bar sitting on the floor beside
- * a genuine zero. It is drawn as a faint tick so the absence stays visible.
+ * ⚠️ THE PEN LIFTS ON A NULL DAY. A day with no collected figure is a gap, and
+ * bridging it would draw a trend through a day nobody measured. The dots make
+ * that visible at no extra cost: there is simply no dot there.
+ *
+ * ⚠️ AND A FLAT SERIES IS CENTRED, NOT PINNED TO THE FLOOR. When every reading
+ * is identical the span is zero, and dividing by it would put the line on the
+ * baseline — which reads as "it fell to nothing" rather than "it did not move".
  */
 function TileSpark({ points, token }: { points: readonly (number | null)[]; token: string }) {
   const { ref, inView } = useInView<HTMLDivElement>();
+
   const real = points.filter((p): p is number => p !== null);
-  const max = Math.max(1, ...real);
+  const max = Math.max(...real);
+  const min = Math.min(...real);
+  const span = max - min;
+
+  const W = 100;
+  const H = 30;
+  const PAD = 4;
+
+  const x = (i: number) =>
+    points.length <= 1 ? W / 2 : (i / (points.length - 1)) * (W - 2) + 1;
+  const y = (v: number) =>
+    span === 0 ? H / 2 : H - PAD - ((v - min) / span) * (H - PAD * 2);
+
+  /* Segments, so the pen lifts across a gap rather than bridging it. */
+  const segments: string[] = [];
+  let current = '';
+  points.forEach((p, i) => {
+    if (p === null) {
+      if (current) segments.push(current);
+      current = '';
+      return;
+    }
+    current += `${current ? 'L' : 'M'}${x(i).toFixed(1)} ${y(p).toFixed(1)} `;
+  });
+  if (current) segments.push(current);
 
   return (
-    <div ref={ref} className="mt-2 flex h-[22px] items-end gap-px">
-      {points.map((p, i) => (
-        <span
-          key={i}
-          className="min-w-px flex-1 rounded-[1px]"
-          style={{
-            height: p === null ? '12%' : `${Math.max(6, (p / max) * 100)}%`,
-            backgroundColor: p === null ? 'var(--chart-grid)' : `var(--${token})`,
-            opacity: p === null ? 1 : 0.78,
-            transform: inView ? 'scaleY(1)' : 'scaleY(0.05)',
-            transformOrigin: 'bottom',
-            transition: `transform 500ms cubic-bezier(0.16,1,0.3,1) ${i * 10}ms`,
-          }}
-        />
-      ))}
+    <div
+      ref={ref}
+      className="mt-2 overflow-hidden rounded-md"
+      style={{ backgroundColor: `color-mix(in oklab, var(--${token}) 7%, transparent)` }}
+    >
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        preserveAspectRatio="none"
+        className="block h-[34px] w-full"
+        aria-hidden="true"
+      >
+        {segments.map((d, i) => (
+          <path
+            key={i}
+            d={d}
+            fill="none"
+            stroke={`var(--${token})`}
+            strokeWidth="1.6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            /* ⚠️ Without this the stroke is stretched by `preserveAspectRatio`
+               into a wedge — thick horizontally, hairline vertically. */
+            vectorEffect="non-scaling-stroke"
+            style={{ opacity: inView ? 1 : 0, transition: 'opacity 500ms ease-out' }}
+          />
+        ))}
+
+        {points.map((p, i) =>
+          p === null ? null : (
+            <circle
+              key={i}
+              cx={x(i)}
+              cy={y(p)}
+              r="1.6"
+              fill={`var(--${token})`}
+              vectorEffect="non-scaling-stroke"
+              style={{
+                opacity: inView ? 1 : 0,
+                transition: `opacity 400ms ease-out ${Math.min(i * 18, 420)}ms`,
+              }}
+            />
+          ),
+        )}
+      </svg>
     </div>
   );
 }
@@ -608,12 +685,12 @@ function TileSpark({ points, token }: { points: readonly (number | null)[]; toke
 /**
  * The card that leads the insight row.
  *
- * ⚠️ IT SAYS "DERIVED", NOT "AI". The reference labels this slot "AI Insights ·
- * Smart takeaways from your data", and nothing on this page is written by a
- * model — every sentence beside it is computed from columns, which is the whole
- * reason they can be trusted. The one AI pass this feature ever had returned a
- * client's name as "NAYA MARKITING". Borrowing the label would be claiming a
- * capability precisely where the product's value is that it has not been used.
+ * ⚠️ IT SAYS "FINDINGS", NOT "AI INSIGHTS". The reference labels this slot "AI
+ * Insights · Smart takeaways from your data", and nothing on this page is
+ * written by a model — every sentence beside it is computed from columns, which
+ * is the whole reason they can be trusted. The one AI pass this feature ever had
+ * returned a client name as "NAYA MARKITING". Borrowing the label would claim a
+ * capability precisely where the value is that it was not used.
  */
 function LeadTile({ count }: { count: number }) {
   const { ref, inView } = useInView<HTMLDivElement>();
@@ -639,7 +716,7 @@ function LeadTile({ count }: { count: number }) {
         </span>
         <span className="block text-[0.6rem] leading-snug text-text-tertiary">
           {count === 0
-            ? 'Nothing in the data stands out far enough to report.'
+            ? 'Nothing stands out far enough to report.'
             : 'Computed from your figures — nothing here is written by a model.'}
         </span>
       </span>
@@ -647,6 +724,16 @@ function LeadTile({ count }: { count: number }) {
   );
 }
 
+/**
+ * One finding.
+ *
+ * ⚠️ THE TITLE TAKES THE CARD COLOUR ONLY WHEN THE FINDING IS GOOD NEWS. The
+ * reference colours its first title green and leaves the rest black, which reads
+ * as a style choice until you notice the green one is the title saying "up
+ * 18.4%". A decline printed in the same confident green as a rise is the kind of
+ * small dishonesty that accumulates, so the tone comes from `insights`, which
+ * already picks a warning token for a fall.
+ */
 function InsightCard({
   insight,
   index,
@@ -656,34 +743,36 @@ function InsightCard({
 }) {
   const { ref, inView } = useInView<HTMLDivElement>();
 
+  /* `insights` uses chart-8 (red) for a decline and chart-6 for a weak signal. */
+  const goodNews = insight.token !== 'chart-8';
+
   return (
     <div
       ref={ref}
       className={cn(
-        'studio-reveal flex gap-2.5 rounded-xl border p-3',
+        'studio-reveal flex items-center gap-3 rounded-xl border p-3',
         'motion-safe:animate-[studio-rise_560ms_cubic-bezier(0.16,1,0.3,1)_backwards]',
         inView && 'is-visible',
       )}
       style={{
         animationDelay: `${index * 70}ms`,
-        borderColor: `color-mix(in oklab, var(--${insight.token}) 28%, transparent)`,
-        backgroundColor: `color-mix(in oklab, var(--${insight.token}) 7%, transparent)`,
+        borderColor: `color-mix(in oklab, var(--${insight.token}) 26%, transparent)`,
+        backgroundColor: `color-mix(in oklab, var(--${insight.token}) 8%, transparent)`,
       }}
     >
+      {/* A solid filled circle with a white glyph, as the reference draws it. */}
       <span
-        className="grid size-9 shrink-0 place-items-center rounded-lg"
-        style={{
-          backgroundColor: `color-mix(in oklab, var(--${insight.token}) 18%, transparent)`,
-        }}
+        className="grid size-9 shrink-0 place-items-center rounded-full"
+        style={{ backgroundColor: `var(--${insight.token})` }}
       >
-        <ArrowRight
-          className="size-4 -rotate-45"
-          style={{ color: `var(--${insight.token})` }}
-          aria-hidden="true"
-        />
+        <ArrowRight className="size-4 -rotate-45 text-white" aria-hidden="true" />
       </span>
+
       <span className="min-w-0">
-        <span className="block text-micro font-semibold leading-tight text-text-primary">
+        <span
+          className="block text-micro font-semibold leading-tight"
+          style={{ color: goodNews ? `var(--${insight.token})` : 'var(--text-primary)' }}
+        >
           {insight.title}
         </span>
         <span className="mt-0.5 block text-[0.6rem] leading-snug text-text-secondary">
@@ -692,4 +781,20 @@ function InsightCard({
       </span>
     </div>
   );
+}
+
+/* ---- Helpers ------------------------------------------------------------- */
+
+/** "22 Aug" — short enough to sit beside a percentage on a narrow tile. */
+function shortDate(iso: string): string {
+  const MONTHS = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
+  /* ⚠️ Parsed by hand rather than through `new Date(iso)`. A bare "YYYY-MM-DD"
+     is read as UTC midnight and then FORMATTED in the reader's zone — the same
+     day in Karachi, the day before west of Greenwich — so the label would
+     disagree with the window it names. */
+  const [, m, d] = iso.split('-');
+  return `${Number(d)} ${MONTHS[Number(m) - 1]}`;
 }
