@@ -41,6 +41,12 @@ const ADMIN_NAV = [
   '/tasks',
   '/calendar',
   '/projects',
+  /* ⚠️ Added 2026-09-04 with the Trend & Engagement Studio. It sits UNDER
+     Projects in the rail on the owner's instruction — *"in a left sidebar below
+     the project"* — but it is a top-level route, NOT `/projects/studio`, because
+     it is a separate page rather than a project tab. So it creates no nested
+     pair and the prefix rule stays unambiguous. */
+  '/studio',
   '/team',
   '/reports',
   /* ⚠️ `/monthly-report` IS DELIBERATELY ABSENT since 2026-08-29 — owner

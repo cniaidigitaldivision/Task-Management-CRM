@@ -15,6 +15,7 @@ import {
   Users,
   Wallet,
   Workflow,
+  TrendingUp,
 } from 'lucide-react';
 
 import type { Route } from 'next';
@@ -122,7 +123,22 @@ export const NAV_SECTIONS: readonly NavSection[] = [
        one thing under it is honest about the hierarchy, whereas folding it back in
        would restate the confusion. */
     label: 'Projects',
-    items: [{ label: 'Projects', href: '/projects', icon: FolderKanban, roles: ALL }],
+    items: [
+      { label: 'Projects', href: '/projects', icon: FolderKanban, roles: ALL },
+      /* ── ⚠️ ADDED 2026-09-04 — a SEPARATE PAGE, not a project tab ─────────
+         Owner changed the plan explicitly: *"before I was saying data within the
+         project… I don't want that to change anything inside of the project. I
+         want to create a separate page inside, in a left sidebar below the
+         project."* So it sits here, under Projects, and nothing inside
+         app/(app)/projects/ was touched.
+
+         LEAD_UP, on the owner's instruction: *"this only visible to admin,
+         superadmin and team coordinator."* ⚠️ This file has never been a
+         security boundary (NFR-006) — the real floor is requireRole() in
+         app/(app)/studio/layout.tsx. Removing the item here would hide the link
+         and grant nobody anything. */
+      { label: 'Trend & Engagement Studio', href: '/studio', icon: TrendingUp, roles: LEAD_UP },
+    ],
   },
   {
     label: 'Team',

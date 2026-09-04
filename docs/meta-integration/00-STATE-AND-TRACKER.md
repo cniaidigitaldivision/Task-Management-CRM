@@ -5,7 +5,7 @@
 > next, and what must not be touched. Every other file in this folder is
 > reference; this one is the state.
 >
-> **Last updated:** 2026-09-04 · **Branch:** `meta-integration` · **Phase:** 3 of 6 ✅
+> **Last updated:** 2026-09-04 · **Branch:** `meta-integration` · **Phase:** 4 of 6 ✅
 
 ---
 
@@ -56,21 +56,33 @@ do not push or deploy anything without being told.
 | 12 | AI & Digital Division linked (FB + IG) and backfilled 29 days | `meta_accounts` has 2 rows |
 | 13 | Cron registered in `vercel.json`, every 2 hours | ⚠️ inert until deployed |
 
-### ⏳ NEXT — Phase 4, the Overview tab
+| 14 | **Phase 4 — the Overview tab at `/studio`** | verified against real data, see below |
 
-`/studio`, the shell, project dropdown, platform filter, and the Overview panels
-from `03-UI-SPEC.md` §3. **Overview only**; other tabs visible but disabled.
+### ⏳ NEXT — Phase 5, the remaining tabs
 
-⚠️ **Access: `team_coordinator` and above only** — owner, 2026-09-04: *"this only
-visible to admin, superadmin and team coordinator."* Use `requireRole('team_coordinator')`,
-the same guard as `/reports`.
+Content & Posts, Meta Accounts, Analytics & Insights, Reports & Exports, Settings
+& Sync — each shipped whole, in that order. They are already drawn in the tab
+strip as disabled with a "soon" chip, so the information architecture is settled.
 
-⚠️ **Other projects in the dropdown show "coming soon"** — only AI & Digital
-Division has linked accounts.
+### ⚠️ NOT VERIFIED VISUALLY — the one gap in Phase 4
+
+Everything was checked end-to-end **as data**: the real queries and KPI builder
+run against the live database and produce sane figures (36 followers = 20 FB + 16
+IG, 213K reach labelled Instagram-only, 29 days with data and 1 gap preserved,
+real permalinks). **But nobody has seen it rendered.**
+
+The demo accounts in `visual-verification-setup` (`kashif@cni-demo.com`) DO NOT
+EXIST in this database — it is the live one, and the real users' passwords are
+theirs. The test suite is `environment: 'node'` with no jsdom, so there is no
+React render harness either.
+
+**The owner can see it**: a dev server is running on **http://localhost:4310/studio**.
+A future session should ask them for a screenshot rather than assume the layout is
+right — the 120% and +1640% dashboard bugs were both invisible to tests.
 
 ### ❌ NOT STARTED
 
-The `/studio` route and every UI file. Nothing is deployed and nothing is pushed.
+Phase 5's tabs. Nothing is deployed and nothing is pushed to any remote.
 
 ---
 
@@ -197,5 +209,6 @@ not updated is worse than none, because the next session trusts it.
 | Date | Session did | Left at |
 |---|---|---|
 | 2026-09-04 (1) | Branch created. Token and all four env vars verified live. Full API reconnaissance: working metric lists for FB + IG on v26.0, per-post data, permalinks, 30-day window limit, demographics threshold. Planning docs written. **No code, no migration, no schema change.** | Awaiting answers to §7 |
+| 2026-09-04 (4) | **Phase 4 complete.** `/studio` with project dropdown, connected-account marks, platform filter, six tabs (Overview live, five disabled). Overview: 6 KPI cards with same-length period deltas, followers/engagement/views trends, content mix donut, top posts linking to Meta, by-platform bars, sync footer naming any failing account, and the sample-audience panel. `lib/domain/meta-studio.ts` (pure, 20 tests) + `lib/db/queries/meta-studio.ts`. Nav item added under Projects (LEAD_UP). ⚠️ Not seen rendered — see the note above. | Phase 5, the remaining tabs |
 | 2026-09-04 (3) | **Phase 3 complete.** `lib/meta/client.ts`, `lib/meta/sync.ts`, `app/api/meta-sync/route.ts`, cron every 2h. Migrations 094–095 added for the RLS trap (§10). Linked AI & Digital Division's FB + IG and backfilled: **407 metric rows over 29 days, 50 posts all with permalinks, 0 duplicate keys across three runs.** Found and fixed: `metric_type=total_value` needs `since=D, until=D+1` — a same-day window returns null silently. | Phase 4, the Overview tab |
 | 2026-09-04 (2) | Owner answered all six questions. **Phase 2 complete:** migrations 091–093 written and applied — `meta_accounts`, `meta_metric_catalogue` (15 verified metrics seeded), `meta_metric_days`, `meta_posts`, `meta_post_metrics`, `meta_sync_runs`, plus `app.record_meta_sync` / `app.record_meta_sync_failure`. All self-checks passed; 2 644 tests still green; projects/tasks/attendance counts unchanged. Three schema surprises found by the migration refusing to commit: `projects.type` not `project_type`, `code` is NOT NULL, and `projects_code_format` demands exactly three uppercase letters. | Phase 3, the sync job |
