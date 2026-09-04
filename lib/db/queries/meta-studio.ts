@@ -183,3 +183,31 @@ export async function cadenceForProject(
       : Number(r.reels_per_week),
   };
 }
+
+/**
+ * Content work that is planned but not yet published, inside the window.
+ *
+ * ⚠️ FROM TASKLY'S OWN TASKS, NOT FROM META — Meta has no concept of a post that
+ * has not happened. This is the "Scheduled" slice of Delivery Progress, and it
+ * is the one number on that card that comes from the division's own plan rather
+ * than from the platform. Without it the card can only say delivered-vs-target,
+ * which cannot distinguish "we are behind" from "we are behind and nothing is
+ * even written yet".
+ */
+export async function scheduledForProject(
+  actorId: string,
+  projectId: string,
+  from: string,
+  to: string,
+): Promise<number> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select count(*)::int as n
+      from public.tasks t
+     where t.project_id = ${projectId}
+       and t.deleted_at is null
+       and t.content_kind is not null
+       and t.status <> 'done'
+       and t.due_date between ${from} and ${to}
+  `);
+  return Number((rows as Array<Record<string, unknown>>)[0]?.n ?? 0);
+}

@@ -26,6 +26,7 @@ import {
 } from '@/lib/domain/meta-studio';
 
 import { AudienceSample, TopLocations } from './audience-sample';
+import { EngagementHeatmap } from './heatmap';
 import { KpiCard, MiniSelect, Panel, PanelEmpty, PanelLink, SegmentedControl } from './panels';
 import { MultiSeriesChart, RankedBars, SegmentedGauge, shortNumber } from './studio-charts';
 
@@ -64,6 +65,7 @@ export function StudioOverview({
   previous,
   posts,
   cadence,
+  scheduled,
   from,
   to,
   platform,
@@ -74,6 +76,8 @@ export function StudioOverview({
   previous: readonly MetricPoint[];
   posts: readonly StudioPost[];
   cadence: { staticPerDay: number | null; reelsPerWeek: number | null };
+  /** Content tasks due in this window that are not yet published. */
+  scheduled: number;
   from: string;
   to: string;
   platform: 'all' | 'facebook' | 'instagram';
@@ -186,6 +190,14 @@ export function StudioOverview({
   const target =
     (cadence.staticPerDay ?? 0) * days + Math.round(((cadence.reelsPerWeek ?? 0) * days) / 7);
   const delivered = posts.length;
+
+  /* ⚠️ THE THREE SLICES MUST SUM TO THE TARGET, or the donut lies about its own
+     centre figure. Delivered can EXCEED the target — this account published 50
+     against 43 — so scheduled and remaining are clamped to what is left rather
+     than subtracted blindly, which would otherwise produce a negative arc. */
+  const headroom = Math.max(0, target - delivered);
+  const scheduledSlice = Math.min(scheduled, headroom);
+  const remainingSlice = Math.max(0, headroom - scheduledSlice);
 
   const rateKpi = kpi('engagement_rate');
   const engagementRate = rateKpi?.value ?? 0;
@@ -374,17 +386,16 @@ export function StudioOverview({
         <TopLocations accounts={accounts} />
       </div>
 
-      {/* ══ ROW 3 · growth · content mix · delivery ══════════════════════ */}
-      <div className="grid gap-3 lg:grid-cols-12">
+      {/* ══ ROW 3 · growth · content mix · platform split ═══════════════ */}
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,6fr)_minmax(0,4fr)_minmax(0,3fr)]">
         <Panel
-          className="lg:col-span-5"
           title="Followers Growth"
           info="This period against the one before it."
         >
           <MultiSeriesChart
             labels={growthLabels}
             tooltipLabels={growthTooltips}
-            height={190}
+            height={180}
             /* One axis: both series are the same quantity, so a second scale
                would let a smaller previous month look larger than this one. */
             dualAxis={false}
@@ -405,11 +416,11 @@ export function StudioOverview({
           />
         </Panel>
 
-        <Panel className="lg:col-span-4" title="Content Type Share">
+        <Panel title="Content Type Share">
           {mixTotal === 0 ? (
             <PanelEmpty>Nothing was published in this period.</PanelEmpty>
           ) : (
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-4">
               <DonutChart
                 slices={mix.map((m, i) => ({
                   label: m.label,
@@ -418,7 +429,7 @@ export function StudioOverview({
                 }))}
                 centreLabel="Total"
                 centreValue={String(mixTotal)}
-                size={132}
+                size={128}
                 thickness={13}
                 caption="Posts by kind"
               />
@@ -444,35 +455,89 @@ export function StudioOverview({
           )}
         </Panel>
 
-        <Panel className="lg:col-span-3" title="Delivery Progress">
+        {/* ⚠️ KEPT, THOUGH THE REFERENCE'S LAST ROW HAS NO SUCH PANEL. It is one
+            of the few things on this page that is measured, per-platform and
+            immediately actionable — dropping it to match a drawing would trade
+            real information for symmetry. */}
+        <Panel title="Platform Distribution" info="Share of engagement by platform.">
+          <RankedBars rows={byPlatform} emptyText="No posts in this period." />
+        </Panel>
+      </div>
+
+      {/* ══ ROW 4 · heatmap · delivery · top posts · activity ════════════
+          ⚠️ FOUR TRACKS AT THE REFERENCE'S OWN PROPORTIONS — roughly
+          26/19/28/27. Owner: *"the top-performing posts card… is very wide… I
+          want this width"*, and Recent Activity level with it. */}
+      <div className="grid gap-3 xl:grid-cols-[minmax(0,26fr)_minmax(0,19fr)_minmax(0,28fr)_minmax(0,27fr)]">
+        <Panel
+          title="Engagement Heatmap"
+          /* ⚠️ The tooltip says what this actually measures. See heatmap.tsx —
+             Meta gives no hourly engagement, so these are posts' PUBLISHING
+             times weighted by what they earned. */
+          info={
+            'Engagement earned by posts published in each two-hour slot, Karachi time. ' +
+            'Meta reports engagement daily with no hour attached, so this is by publishing ' +
+            'time rather than by when the audience was active.'
+          }
+          action={
+            <span className="inline-flex items-center gap-1 rounded-lg border border-border-subtle px-2 py-1 text-micro text-text-secondary">
+              {days} days
+            </span>
+          }
+        >
+          <EngagementHeatmap posts={posts} />
+        </Panel>
+
+        <Panel title="Delivery Progress" info="Against this project's agreed posting rhythm.">
           {target === 0 ? (
             <PanelEmpty>No posting rhythm is agreed for this project.</PanelEmpty>
           ) : (
-            <div className="flex flex-col items-center">
+            <div className="flex h-full flex-col items-center">
               <DonutChart
                 slices={[
-                  { label: 'Published', value: Math.min(delivered, target), token: 'chart-3' },
-                  { label: 'Remaining', value: Math.max(0, target - delivered), token: 'chart-grid' },
+                  { label: 'Delivered', value: delivered, token: 'chart-3' },
+                  { label: 'Scheduled', value: scheduledSlice, token: 'chart-1' },
+                  { label: 'Remaining', value: remainingSlice, token: 'chart-grid' },
                 ]}
                 centreLabel="Delivered"
                 centreValue={`${Math.round((delivered / target) * 100)}%`}
-                size={124}
-                thickness={13}
+                size={132}
+                thickness={14}
                 caption="Delivery against target"
               />
-              <p className="mt-2 text-micro text-text-tertiary">
-                Target: <strong className="text-text-secondary">{target} posts</strong>
+
+              <ul className="mt-3 w-full space-y-1.5">
+                {[
+                  { label: 'Delivered', value: delivered, token: 'chart-3' },
+                  { label: 'Scheduled', value: scheduledSlice, token: 'chart-1' },
+                  { label: 'Remaining', value: remainingSlice, token: 'chart-grid' },
+                ].map((row) => (
+                  <li key={row.label} className="flex items-center gap-2 text-micro">
+                    <span
+                      aria-hidden="true"
+                      className="size-2 shrink-0 rounded-full"
+                      style={{ backgroundColor: `var(--${row.token})` }}
+                    />
+                    <span className="min-w-0 flex-1 text-text-secondary">{row.label}</span>
+                    <span className="shrink-0 font-semibold tabular-nums text-text-primary">
+                      {row.value}
+                    </span>
+                    <span className="w-9 shrink-0 text-right tabular-nums text-text-tertiary">
+                      {Math.round((row.value / target) * 100)}%
+                    </span>
+                  </li>
+                ))}
+              </ul>
+
+              <p className="mt-auto pt-3 text-micro text-text-tertiary">
+                Total target: <strong className="text-text-secondary">{target} posts</strong>
               </p>
             </div>
           )}
         </Panel>
-      </div>
 
-      {/* ══ ROW 4 · top content · audience · activity ════════════════════ */}
-      <div className="grid gap-3 lg:grid-cols-12">
         <Panel
-          className="lg:col-span-7"
-          title="Top Performing Content"
+          title="Top-Performing Posts"
           action={
             <MiniSelect
               label="Sort posts by"
@@ -490,7 +555,14 @@ export function StudioOverview({
             <PanelEmpty>No posts in this period.</PanelEmpty>
           ) : (
             <>
-              <ul className="space-y-1.5">
+              {/* The reference's two column headings, so the pair of numbers on
+                  each row is not left to be guessed at. */}
+              <div className="mb-1 flex items-center gap-2.5 pl-[3.1rem] text-[0.6rem] text-text-tertiary">
+                <span className="min-w-0 flex-1" />
+                <span className="w-12 shrink-0 text-right">Engagement</span>
+                <span className="w-10 shrink-0 text-right">Rate</span>
+              </div>
+              <ul className="space-y-0.5">
                 {ranked.map((p, i) => (
                   <PostRow key={p.id} post={p} index={i} />
                 ))}
@@ -500,21 +572,21 @@ export function StudioOverview({
           )}
         </Panel>
 
-        <Panel
-          className="lg:col-span-2"
-          title="Platform Distribution"
-          info="Share of engagement by platform."
-        >
-          <RankedBars rows={byPlatform} emptyText="No posts in this period." />
-        </Panel>
-
-        <Panel className="lg:col-span-3" title="Recent Activity">
+        <Panel title="Recent Activity">
           <RecentActivity posts={posts} accounts={accounts} lastSynced={lastSynced} />
         </Panel>
       </div>
 
       {/* ══ ROW 5 · the sample audience ═════════════════════════════════ */}
       <AudienceSample accounts={accounts} />
+
+      {/* ⚠️ The reference says "your local timezone". That would be a guess about
+          the reader's machine; every date boundary in this system is the
+          division's own day, so it says which one rather than implying it
+          follows whoever is looking. */}
+      <p className="pt-1 text-center text-[0.62rem] text-text-tertiary">
+        All dates are Karachi time (PKT, UTC+5).
+      </p>
     </div>
   );
 }

@@ -52,6 +52,7 @@ export function StudioWorkspace({
   previous,
   posts,
   cadence,
+  scheduled,
 }: {
   projects: readonly StudioProject[];
   selected: StudioProject;
@@ -63,6 +64,7 @@ export function StudioWorkspace({
   previous: readonly MetricPoint[];
   posts: readonly StudioPost[];
   cadence: { staticPerDay: number | null; reelsPerWeek: number | null };
+  scheduled: number;
 }) {
   const router = useRouter();
   const search = useSearchParams();
@@ -209,6 +211,7 @@ export function StudioWorkspace({
           previous={previous}
           posts={shownPosts}
           cadence={cadence}
+          scheduled={scheduled}
           from={from}
           to={to}
           platform={platform}

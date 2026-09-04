@@ -9,6 +9,7 @@ import {
   listStudioProjects,
   metricsForProject,
   postsForProject,
+  scheduledForProject,
 } from '@/lib/db/queries/meta-studio';
 import { previousPeriod } from '@/lib/domain/meta-studio';
 import { DIVISION_NAME } from '@/lib/domain/constants';
@@ -85,6 +86,7 @@ export default async function StudioPage({
         metricsForProject(user.id, selected.id, previous.from, previous.to),
         postsForProject(user.id, selected.id, from, to),
         cadenceForProject(user.id, selected.id),
+        scheduledForProject(user.id, selected.id, from, to),
       ])
     : null;
 
@@ -100,6 +102,7 @@ export default async function StudioPage({
       previous={data?.[2] ?? []}
       posts={data?.[3] ?? []}
       cadence={data?.[4] ?? { staticPerDay: null, reelsPerWeek: null }}
+      scheduled={data?.[5] ?? 0}
     />
   );
 }
