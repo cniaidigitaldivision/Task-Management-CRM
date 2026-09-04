@@ -259,6 +259,9 @@ export function ReportsExports({
               key: k.key,
               label: k.label,
               value: k.value,
+              /* ⚠️ "Most used" holds a TEMPLATE NAME. At the numeric size it set
+                 its own card three lines tall and left the row ragged. */
+              textValue: k.key === 'most-used',
               icon: ICONS[k.icon] ?? FileText,
               token: k.token,
               footnote: k.footnote,

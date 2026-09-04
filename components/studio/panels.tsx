@@ -192,6 +192,16 @@ export interface KpiCardData {
    * of the card.
    */
   readonly spark?: readonly (number | null)[];
+  /**
+   * The value is WORDS, not a figure.
+   *
+   * ⚠️ TWO CARDS NOW HOLD A PHRASE — "Most used: Monthly Client Report" and
+   * "Sync health: Needs attention" — and at the numeric size they set their own
+   * card three lines tall and left the whole KPI row ragged. A phrase also must
+   * not count up: watching "Needs attention" tick from 0 would be absurd, and
+   * `useCountUp` is skipped for it rather than left to no-op by accident.
+   */
+  readonly textValue?: boolean;
 }
 
 /**
@@ -340,15 +350,22 @@ export function KpiCard({ data, index }: { data: KpiCardData; index: number }) {
      to animate and the ORIGINAL string is what lands at the end, so the settled
      card always reads exactly what the caller intended. */
   const numeric = Number.parseFloat(String(data.value).replace(/[^0-9.-]/g, ''));
-  const counted = useCountUp(Number.isFinite(numeric) ? numeric : 0, 1400, index * 80, inView);
+  const counted = useCountUp(
+    Number.isFinite(numeric) ? numeric : 0,
+    1400,
+    index * 80,
+    /* A phrase never counts — see `textValue`. */
+    inView && !data.textValue,
+  );
   const settled = Math.abs(counted - numeric) < 0.01;
 
-  const shown = settled
-    ? data.value
-    : String(data.value).replace(
-        /[\d.,]+/,
-        counted >= 100 ? String(Math.round(counted)) : counted.toFixed(2),
-      );
+  const shown =
+    data.textValue || settled
+      ? data.value
+      : String(data.value).replace(
+          /[\d.,]+/,
+          counted >= 100 ? String(Math.round(counted)) : counted.toFixed(2),
+        );
 
   return (
     <div
@@ -388,7 +405,17 @@ export function KpiCard({ data, index }: { data: KpiCardData; index: number }) {
       </div>
 
       <p className="mt-1.5 flex items-baseline gap-1">
-        <span className="text-[1.6rem] font-bold leading-none tracking-tight tabular-nums text-text-primary">
+        <span
+          className={
+            data.textValue
+              ? /* ⚠️ `min-h` MATCHES THE NUMERIC LINE so a phrase card is exactly
+                   as tall as the figures beside it. Without it the row's cards
+                   settle at two different heights and the grid looks broken. */
+                'line-clamp-2 flex min-h-[1.6rem] items-center text-body-sm font-bold leading-tight text-text-primary'
+              : 'text-[1.6rem] font-bold leading-none tracking-tight tabular-nums text-text-primary'
+          }
+          title={data.textValue ? String(data.value) : undefined}
+        >
           {shown}
         </span>
         {data.unit && <span className="text-micro text-text-tertiary">{data.unit}</span>}

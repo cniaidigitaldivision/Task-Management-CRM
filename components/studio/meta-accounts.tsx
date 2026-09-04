@@ -164,6 +164,7 @@ export function MetaAccounts({
             label: 'Sync health',
             /* ⚠️ A WORD, and a true one — see the header. */
             value: sync.verdict,
+            textValue: true,
             icon: sync.issues > 0 ? TriangleAlert : ShieldCheck,
             token: sync.token,
             footnote: sync.detail,
