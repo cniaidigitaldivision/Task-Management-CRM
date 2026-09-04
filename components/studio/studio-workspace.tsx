@@ -30,6 +30,7 @@ import type { PermissionEvent } from '@/lib/db/queries/meta-sync-settings';
 import { compact } from '@/lib/domain/meta-studio';
 import { cn } from '@/lib/utils';
 
+import { AnalyticsInsights } from './analytics-insights';
 import { ContentPosts } from './content-posts';
 import { ReportsExports, type GeneratedReport } from './reports-exports';
 import { SettingsSync } from './settings-sync';
@@ -43,13 +44,13 @@ import { StudioToolbar } from './studio-toolbar';
  * Project selector, connected accounts, platform filter and the tab strip. The
  * Overview tab's contents live in `overview.tsx`; this file is only the frame.
  *
- * ── ⚠️ FOUR TABS ARE BUILT; TWO ARE STILL DRAWN AND DISABLED ────────────────
- * Overview, Content & Posts, Meta Accounts and Reports & Exports are live.
- * Analytics & Insights and Settings & Sync are shown greyed with a "soon" pill,
- * which was deliberate from the start — it makes the information architecture
- * legible from day one, so a later tab arrives where people already expect it
- * rather than as a surprise reorganisation. `live: false` is the only thing
- * standing between a drawn tab and a working one.
+ * ── ⚠️ ALL SIX TABS ARE NOW LIVE ────────────────────────────────────────────
+ * Overview, Content & Posts, Meta Accounts, Analytics & Insights, Reports &
+ * Exports and Settings & Sync. They were drawn greyed with a "soon" pill from
+ * the first day on purpose — it made the information architecture legible
+ * immediately, so each tab arrived where people already expected it rather than
+ * as a surprise reorganisation. `live` is kept because the next tab, whatever it
+ * is, should be added the same way.
  *
  * ⚠️ THE ORDER OF THE ARMS BELOW IS BEHAVIOUR, NOT STYLE. Two of them sit above
  * the `hasData` gate on purpose, and each says why.
@@ -59,7 +60,7 @@ const TABS = [
   { key: 'overview', label: 'Overview', live: true },
   { key: 'content', label: 'Content & Posts', live: true },
   { key: 'accounts', label: 'Meta Accounts', live: true },
-  { key: 'analytics', label: 'Analytics & Insights', live: false },
+  { key: 'analytics', label: 'Analytics & Insights', live: true },
   { key: 'reports', label: 'Reports & Exports', live: true },
   { key: 'settings', label: 'Settings & Sync', live: true },
 ] as const;
@@ -321,6 +322,23 @@ export function StudioWorkspace({
         />
       ) : !hasData ? (
         <NoDataYet accounts={accounts} />
+      ) : tab === 'analytics' ? (
+        /* ⚠️ BELOW the `hasData` gate, unlike Accounts, Reports and Settings.
+           Those three answer "why is nothing arriving?"; this one has nothing to
+           say without figures, and nine empty charts would be worse than one
+           sentence explaining there is nothing yet. */
+        <AnalyticsInsights
+          /* ⚠️ THE UNFILTERED METRICS. Every cross-platform chart here — the
+             radar most of all — needs both platforms present; handing it a
+             Facebook-filtered set would draw Instagram at zero and turn the
+             comparison into a false claim. The platform filter belongs to the
+             tabs that show one platform's posts. */
+          metrics={current}
+          posts={posts}
+          from={from}
+          to={to}
+          projectName={selected.name}
+        />
       ) : tab === 'content' ? (
         /* ⚠️ The Content tab gets the UNFILTERED posts and does its own
            filtering, because its tab strip counts every kind — a strip built

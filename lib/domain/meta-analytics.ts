@@ -1,0 +1,616 @@
+/* ⚠️ FROM THE DOMAIN LAYER, NEVER FROM `lib/db`. An eslint rule forbids the
+   latter and it is not a style preference: a domain module that imports a query
+   file drags `server-only` into anything that imports IT, and this file is read
+   by a client component. Both types already live here — see meta-studio.ts. */
+import type { MetricPoint, StudioPost } from './meta-studio';
+
+/* ============================================================================
+ * ANALYTICS & INSIGHTS — the Studio's last tab, owner 2026-09-04
+ * ----------------------------------------------------------------------------
+ * *"Proper graphs, donuts, vertical bars, and all these things but very
+ * beautifully. Also add any other type of graph."*
+ *
+ * Pure. Every function takes its data and its clock; the charts draw what these
+ * return and decide nothing themselves.
+ *
+ * ── ⚠️ THE TRAP THIS FILE EXISTS TO AVOID ──────────────────────────────────
+ * Facebook and Instagram BARELY SHARE A METRIC NAME. Facebook reports
+ * `page_post_engagements`, `page_views_total`, `page_video_views`; Instagram
+ * reports `reach`, `views`, `total_interactions`, `profile_views`. Putting both
+ * on one axis because both are called "views" would compare Facebook's VIDEO
+ * views against Instagram's ALL views and draw a confident, wrong picture.
+ *
+ * So every cross-platform comparison here goes through `COMPARABLE`, which pairs
+ * only metrics that genuinely mean the same thing and says why in each case.
+ * Anything Facebook does not report — reach, most notably — is absent rather
+ * than zero, because zero is a measurement and absence is not.
+ * ========================================================================= */
+
+export const FB = {
+  followers: 'page_follows',
+  newFollows: 'page_daily_follows_unique',
+  pageViews: 'page_views_total',
+  engagements: 'page_post_engagements',
+  videoViews: 'page_video_views',
+} as const;
+
+export const IG = {
+  followers: 'followers_count',
+  reach: 'reach',
+  views: 'views',
+  profileViews: 'profile_views',
+  accountsEngaged: 'accounts_engaged',
+  interactions: 'total_interactions',
+  likes: 'likes',
+  comments: 'comments',
+  shares: 'shares',
+  saves: 'saves',
+} as const;
+
+/**
+ * The only metric pairs that may share an axis.
+ *
+ * ⚠️ EACH PAIR CARRIES ITS JUSTIFICATION, because two of the tempting ones are
+ * NOT here and their absence is the point:
+ *
+ *   views — Facebook's `page_video_views` counts VIDEO plays; Instagram's
+ *       `views` counts every view of anything. Same word, different populations.
+ *   reach — Facebook retired `page_impressions_unique` and offers no
+ *       replacement, so there is nothing to pair. Drawing Facebook at zero
+ *       would read as "nobody saw it" rather than "we cannot know".
+ */
+export const COMPARABLE: readonly {
+  readonly key: string;
+  readonly label: string;
+  readonly facebook: string;
+  readonly instagram: string;
+  readonly why: string;
+}[] = [
+  {
+    key: 'followers',
+    label: 'Followers',
+    facebook: FB.followers,
+    instagram: IG.followers,
+    why: 'Both are the account’s follower total on the day.',
+  },
+  {
+    key: 'engagements',
+    label: 'Interactions',
+    facebook: FB.engagements,
+    instagram: IG.interactions,
+    why: 'Both count actions taken on posts — likes, comments, shares and saves.',
+  },
+  {
+    key: 'profile-views',
+    label: 'Profile views',
+    facebook: FB.pageViews,
+    instagram: IG.profileViews,
+    why: 'Both count visits to the account’s own page rather than to a post.',
+  },
+];
+
+/* ---- Shaping the series -------------------------------------------------- */
+
+export interface DayPoint {
+  readonly date: string;
+  readonly value: number | null;
+}
+
+/**
+ * One metric's daily series across a date range.
+ *
+ * ⚠️ A DAY WITH NO ROW IS `null`, NEVER 0. The charts lift the pen on a null, so
+ * a gap in collection reads as a gap rather than as a day nobody engaged. This
+ * is the same rule the Overview's chart follows and it is the difference between
+ * "we did not collect" and "it was zero".
+ */
+export function series(
+  metrics: readonly MetricPoint[],
+  metricKey: string,
+  platform: string | null,
+  dates: readonly string[],
+): readonly DayPoint[] {
+  const byDate = new Map<string, number>();
+
+  for (const m of metrics) {
+    if (m.metricKey !== metricKey) continue;
+    if (platform !== null && m.platform !== platform) continue;
+    byDate.set(m.onDate, (byDate.get(m.onDate) ?? 0) + m.value);
+  }
+
+  return dates.map((date) => ({
+    date,
+    value: byDate.has(date) ? byDate.get(date)! : null,
+  }));
+}
+
+/** Every date in the window, oldest first — the x-axis every chart shares. */
+export function dateRange(from: string, to: string): readonly string[] {
+  const out: string[] = [];
+  for (let d = from; d <= to; d = addDay(d)) out.push(d);
+  return out;
+}
+
+function addDay(iso: string): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+export function sumOf(
+  metrics: readonly MetricPoint[],
+  metricKey: string,
+  platform: string | null = null,
+): number {
+  return metrics.reduce(
+    (n, m) =>
+      m.metricKey === metricKey && (platform === null || m.platform === platform)
+        ? n + m.value
+        : n,
+    0,
+  );
+}
+
+/* ---- The interaction mix ------------------------------------------------- */
+
+export interface StackBand {
+  readonly key: string;
+  readonly label: string;
+  readonly token: string;
+  readonly values: readonly number[];
+}
+
+export interface StackedSeries {
+  readonly dates: readonly string[];
+  readonly bands: readonly StackBand[];
+  readonly total: number;
+  readonly max: number;
+}
+
+/**
+ * Likes, comments, shares and saves stacked per day.
+ *
+ * ⚠️ A NEGATIVE VALUE IS CLAMPED TO ZERO, AND THIS IS NOT DEFENSIVE PADDING —
+ * Meta really does return one. `saves` has a minimum of **-1** in the collected
+ * data, because a save can be undone and the daily delta goes negative. A
+ * stacked area cannot draw a negative band: it would subtract from the band
+ * below it and silently misreport every layer above. Clamping loses one unit of
+ * information; not clamping corrupts the whole chart.
+ *
+ * ⚠️ INSTAGRAM ONLY, by construction. Facebook reports a single
+ * `page_post_engagements` total with no breakdown, so there is nothing to stack.
+ * The chart says so rather than drawing one platform's data under a title that
+ * implies both.
+ */
+export function interactionMix(
+  metrics: readonly MetricPoint[],
+  dates: readonly string[],
+): StackedSeries {
+  const bands: readonly { key: string; label: string; token: string }[] = [
+    { key: IG.likes, label: 'Likes', token: 'chart-2' },
+    { key: IG.comments, label: 'Comments', token: 'chart-4' },
+    { key: IG.shares, label: 'Shares', token: 'chart-3' },
+    { key: IG.saves, label: 'Saves', token: 'chart-6' },
+  ];
+
+  const built = bands.map((b) => ({
+    ...b,
+    values: series(metrics, b.key, 'instagram', dates).map((p) =>
+      p.value === null ? 0 : Math.max(0, p.value),
+    ),
+  }));
+
+  let max = 0;
+  let total = 0;
+  for (let i = 0; i < dates.length; i += 1) {
+    const day = built.reduce((n, b) => n + b.values[i], 0);
+    total += day;
+    if (day > max) max = day;
+  }
+
+  return { dates, bands: built, total, max };
+}
+
+/* ---- Platform comparison ------------------------------------------------- */
+
+export interface RadarAxis {
+  readonly key: string;
+  readonly label: string;
+  readonly why: string;
+  readonly facebook: number;
+  readonly instagram: number;
+  /** Each value as a share of the larger, so the two sit on one shape. */
+  readonly facebookScaled: number;
+  readonly instagramScaled: number;
+}
+
+/**
+ * The radar's axes.
+ *
+ * ⚠️ SCALED PER AXIS, NOT GLOBALLY, and the reason is arithmetic: followers are
+ * in the tens and interactions in the hundreds, so one global scale would flatten
+ * every small axis to nothing and the shape would carry no information. Each axis
+ * is normalised against its own larger value, which is what makes the shape
+ * readable — and it means the radar shows PROPORTION, never magnitude. The
+ * figures are printed beside it for that reason.
+ */
+export function platformRadar(metrics: readonly MetricPoint[]): readonly RadarAxis[] {
+  return COMPARABLE.map((c) => {
+    /* Followers are a level, not a flow: summing thirty days of a follower count
+       would report thirty times the followers. The latest reading is the figure. */
+    const isLevel = c.key === 'followers';
+
+    const fb = isLevel ? latest(metrics, c.facebook, 'facebook') : sumOf(metrics, c.facebook, 'facebook');
+    const ig = isLevel ? latest(metrics, c.instagram, 'instagram') : sumOf(metrics, c.instagram, 'instagram');
+
+    const larger = Math.max(fb, ig, 1);
+
+    return {
+      key: c.key,
+      label: c.label,
+      why: c.why,
+      facebook: fb,
+      instagram: ig,
+      facebookScaled: fb / larger,
+      instagramScaled: ig / larger,
+    };
+  });
+}
+
+function latest(
+  metrics: readonly MetricPoint[],
+  metricKey: string,
+  platform: string,
+): number {
+  const rows = metrics
+    .filter((m) => m.metricKey === metricKey && m.platform === platform)
+    .sort((a, b) => a.onDate.localeCompare(b.onDate));
+  return rows.length === 0 ? 0 : rows[rows.length - 1].value;
+}
+
+/* ---- Reach against engagement -------------------------------------------- */
+
+export interface ScatterPoint {
+  readonly id: string;
+  readonly label: string;
+  readonly platform: string;
+  readonly surface: string;
+  readonly reach: number;
+  readonly interactions: number;
+  readonly rate: number;
+  readonly permalink: string | null;
+}
+
+export interface ScatterData {
+  readonly points: readonly ScatterPoint[];
+  readonly maxReach: number;
+  readonly maxInteractions: number;
+  /** Posts we hold but cannot place, because Meta gave no reach for them. */
+  readonly excluded: number;
+}
+
+/**
+ * Every post as a point: reach across, interactions up.
+ *
+ * ⚠️ A POST WITH NO REACH IS EXCLUDED AND COUNTED, never plotted at x=0. Only 25
+ * of the 50 collected posts carry a reach figure — Facebook posts largely do not
+ * — and a column of them stacked on the y-axis would look like a real finding
+ * about posts that reached nobody. The count is shown under the chart so the
+ * absence is visible rather than silent.
+ */
+export function reachVsEngagement(posts: readonly StudioPost[]): ScatterData {
+  const points: ScatterPoint[] = [];
+  let excluded = 0;
+
+  for (const p of posts) {
+    const reach = p.reach ?? 0;
+    if (!p.reach || reach <= 0) {
+      excluded += 1;
+      continue;
+    }
+
+    const interactions =
+      (p.likes ?? 0) + (p.comments ?? 0) + (p.shares ?? 0) + (p.saves ?? 0);
+
+    points.push({
+      id: p.id,
+      label: (p.caption ?? '').slice(0, 60) || 'Untitled post',
+      platform: p.platform,
+      surface: p.mediaType ?? 'post',
+      reach,
+      interactions,
+      rate: (interactions / reach) * 100,
+      permalink: p.permalink,
+    });
+  }
+
+  return {
+    points,
+    maxReach: points.reduce((n, p) => Math.max(n, p.reach), 0),
+    maxInteractions: points.reduce((n, p) => Math.max(n, p.interactions), 0),
+    excluded,
+  };
+}
+
+/* ---- The funnel ---------------------------------------------------------- */
+
+export interface FunnelStage {
+  readonly key: string;
+  readonly label: string;
+  readonly value: number;
+  readonly token: string;
+  /** Share of the stage above, or null for the first. */
+  readonly conversion: number | null;
+  readonly note: string;
+}
+
+/**
+ * Reach → engaged → interactions → profile views.
+ *
+ * ⚠️ INSTAGRAM ONLY, AND THE STAGES ARE A REAL SEQUENCE. Every one of these four
+ * is an Instagram metric measuring a narrower population than the one above it,
+ * which is what makes a funnel the right shape. Adding Facebook would mean
+ * inventing a reach it does not report.
+ *
+ * ⚠️ A CONVERSION ABOVE 100% IS SHOWN AS IT IS, not capped. `profile_views` can
+ * exceed `accounts_engaged` — somebody can visit the profile without touching a
+ * post — and quietly capping it at 100% would hide a genuine and interesting
+ * fact about how people arrive.
+ */
+export function engagementFunnel(metrics: readonly MetricPoint[]): readonly FunnelStage[] {
+  const reach = sumOf(metrics, IG.reach, 'instagram');
+  const engaged = sumOf(metrics, IG.accountsEngaged, 'instagram');
+  const interactions = sumOf(metrics, IG.interactions, 'instagram');
+  const profile = sumOf(metrics, IG.profileViews, 'instagram');
+
+  const share = (v: number, of: number) => (of === 0 ? null : (v / of) * 100);
+
+  return [
+    {
+      key: 'reach',
+      label: 'Reached',
+      value: reach,
+      token: 'chart-1',
+      conversion: null,
+      note: 'Accounts that saw a post at least once.',
+    },
+    {
+      key: 'engaged',
+      label: 'Engaged',
+      value: engaged,
+      token: 'chart-4',
+      conversion: share(engaged, reach),
+      note: 'Of those, the accounts that did something.',
+    },
+    {
+      key: 'interactions',
+      label: 'Interactions',
+      value: interactions,
+      token: 'chart-2',
+      conversion: share(interactions, engaged),
+      note: 'Total actions taken — one account can act more than once.',
+    },
+    {
+      key: 'profile',
+      label: 'Profile views',
+      value: profile,
+      token: 'chart-3',
+      conversion: share(profile, engaged),
+      note: 'Visits to the profile itself. Can exceed engagement — people arrive from elsewhere.',
+    },
+  ];
+}
+
+/* ---- By weekday ---------------------------------------------------------- */
+
+export interface WeekdayBar {
+  readonly weekday: number;
+  readonly label: string;
+  readonly posts: number;
+  readonly reach: number;
+  readonly interactions: number;
+  readonly rate: number | null;
+}
+
+const WEEKDAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+/**
+ * Posting and performance by day of week.
+ *
+ * ⚠️ THE DAY IS KARACHI'S, NOT UTC'S. A post published at 1am Karachi is the
+ * previous day in UTC, so a UTC weekday would file a Monday-morning post under
+ * Sunday — and the whole point of this chart is to say which day works.
+ *
+ * ⚠️ AND THE RATE IS NULL WHERE NOTHING WAS POSTED, never 0%. A day with no
+ * posts has no engagement rate; drawing it as zero would make an untried day
+ * look like a failed one.
+ */
+export function byWeekday(posts: readonly StudioPost[]): readonly WeekdayBar[] {
+  const buckets = WEEKDAY_LABELS.map((label, i) => ({
+    weekday: i,
+    label,
+    posts: 0,
+    reach: 0,
+    interactions: 0,
+  }));
+
+  for (const p of posts) {
+    const local = new Date(Date.parse(p.postedAt) + 5 * 3_600_000);
+    /* getUTCDay on the shifted instant gives the Karachi weekday; 0 = Sunday. */
+    const idx = (local.getUTCDay() + 6) % 7;
+    const b = buckets[idx];
+    b.posts += 1;
+    b.reach += p.reach ?? 0;
+    b.interactions += (p.likes ?? 0) + (p.comments ?? 0) + (p.shares ?? 0) + (p.saves ?? 0);
+  }
+
+  return buckets.map((b) => ({
+    ...b,
+    rate: b.posts === 0 || b.reach === 0 ? null : (b.interactions / b.reach) * 100,
+  }));
+}
+
+/* ---- Correlation --------------------------------------------------------- */
+
+/**
+ * Pearson's r between two daily series.
+ *
+ * ⚠️ NULL RATHER THAN ZERO when it cannot be computed — fewer than three shared
+ * days, or one series flat. An r of 0 means "measured, and unrelated"; a null
+ * means "not measurable", and a chart that printed 0 for the second would be
+ * making a claim it has not earned.
+ */
+export function correlation(
+  a: readonly DayPoint[],
+  b: readonly DayPoint[],
+): number | null {
+  const pairs: [number, number][] = [];
+  for (let i = 0; i < Math.min(a.length, b.length); i += 1) {
+    /* Bound to locals: TypeScript cannot narrow an indexed access across a
+       guard, because `a[i]` could in principle be a different object each read. */
+    const x = a[i].value;
+    const y = b[i].value;
+    if (x === null || y === null) continue;
+    pairs.push([x, y]);
+  }
+  if (pairs.length < 3) return null;
+
+  const n = pairs.length;
+  const meanA = pairs.reduce((s, p) => s + p[0], 0) / n;
+  const meanB = pairs.reduce((s, p) => s + p[1], 0) / n;
+
+  let num = 0;
+  let devA = 0;
+  let devB = 0;
+  for (const [x, y] of pairs) {
+    const dx = x - meanA;
+    const dy = y - meanB;
+    num += dx * dy;
+    devA += dx * dx;
+    devB += dy * dy;
+  }
+
+  /* A flat series has no variance, so r is undefined rather than 0. */
+  if (devA === 0 || devB === 0) return null;
+  return num / Math.sqrt(devA * devB);
+}
+
+export function correlationWord(r: number | null): string {
+  if (r === null) return 'not enough data to say';
+  const abs = Math.abs(r);
+  const strength = abs > 0.7 ? 'strongly' : abs > 0.4 ? 'moderately' : abs > 0.2 ? 'weakly' : 'barely';
+  return `${strength} ${r < 0 ? 'inversely ' : ''}related`;
+}
+
+/* ---- The headline insights ----------------------------------------------- */
+
+export interface Insight {
+  readonly key: string;
+  readonly title: string;
+  readonly detail: string;
+  readonly token: string;
+}
+
+/**
+ * The written observations above the charts.
+ *
+ * ⚠️ EVERY ONE IS DERIVED, AND ONE IS DELIBERATELY ABSENT WHEN IT CANNOT BE
+ * EARNED. These are not written by a model: the single AI pass this feature ever
+ * had returned a client's name as "NAYA MARKITING", which is why every figure in
+ * this product is typeset from columns. An insight that cannot be computed is
+ * omitted rather than softened into a platitude — a list of four confident
+ * sentences where one is filler teaches the reader to trust none of them.
+ */
+export function insights(input: {
+  readonly metrics: readonly MetricPoint[];
+  readonly posts: readonly StudioPost[];
+  readonly dates: readonly string[];
+}): readonly Insight[] {
+  const { metrics, posts, dates } = input;
+  const out: Insight[] = [];
+
+  /* 1 · The best weekday, only if one is genuinely ahead. */
+  const days = byWeekday(posts).filter((d) => d.rate !== null);
+  if (days.length >= 2) {
+    const sorted = [...days].sort((a, b) => (b.rate ?? 0) - (a.rate ?? 0));
+    const best = sorted[0];
+    const rest = sorted.slice(1);
+    const restAvg = rest.reduce((n, d) => n + (d.rate ?? 0), 0) / rest.length;
+
+    /* A tenth of a percent ahead is noise, not a finding. */
+    if ((best.rate ?? 0) > restAvg * 1.15) {
+      out.push({
+        key: 'best-day',
+        title: `${best.label} performs best`,
+        detail: `${(best.rate ?? 0).toFixed(2)}% engagement across ${best.posts} ${best.posts === 1 ? 'post' : 'posts'}, against ${restAvg.toFixed(2)}% on other days.`,
+        token: 'chart-3',
+      });
+    }
+  }
+
+  /* 2 · Reach against interactions — does more reach mean more engagement? */
+  const r = correlation(
+    series(metrics, IG.reach, 'instagram', dates),
+    series(metrics, IG.interactions, 'instagram', dates),
+  );
+  if (r !== null) {
+    out.push({
+      key: 'correlation',
+      title: `Reach and interactions are ${correlationWord(r)}`,
+      detail:
+        Math.abs(r) > 0.4
+          ? 'Days that reached more accounts also saw more actions, so widening reach is worth the effort.'
+          : 'Reaching more accounts has not reliably produced more actions — the content, not the audience size, is deciding.',
+      token: Math.abs(r) > 0.4 ? 'chart-1' : 'chart-6',
+    });
+  }
+
+  /* 3 · Which surface earns its place. */
+  const bySurface = new Map<string, { posts: number; reach: number; inter: number }>();
+  for (const p of posts) {
+    const key = p.mediaType ?? 'post';
+    const b = bySurface.get(key) ?? { posts: 0, reach: 0, inter: 0 };
+    b.posts += 1;
+    b.reach += p.reach ?? 0;
+    b.inter += (p.likes ?? 0) + (p.comments ?? 0) + (p.shares ?? 0) + (p.saves ?? 0);
+    bySurface.set(key, b);
+  }
+  const surfaces = [...bySurface.entries()]
+    .filter(([, b]) => b.posts >= 2 && b.reach > 0)
+    .map(([k, b]) => ({ key: k, avgReach: b.reach / b.posts }))
+    .sort((a, b) => b.avgReach - a.avgReach);
+
+  if (surfaces.length >= 2) {
+    const multiple = surfaces[0].avgReach / Math.max(1, surfaces[surfaces.length - 1].avgReach);
+    if (multiple >= 1.2) {
+      out.push({
+        key: 'surface',
+        title: `${surfaces[0].key} reaches ${multiple.toFixed(1)}× further`,
+        detail: `Average reach per ${surfaces[0].key} is ${Math.round(surfaces[0].avgReach)}, against ${Math.round(surfaces[surfaces.length - 1].avgReach)} for a ${surfaces[surfaces.length - 1].key}.`,
+        token: 'chart-2',
+      });
+    }
+  }
+
+  /* 4 · Whether the trend is up, over halves of the window. */
+  const reach = series(metrics, IG.reach, 'instagram', dates);
+  const half = Math.floor(reach.length / 2);
+  const sumHalf = (from: number, to: number) =>
+    reach.slice(from, to).reduce((n, p) => n + (p.value ?? 0), 0);
+  const first = sumHalf(0, half);
+  const second = sumHalf(half, reach.length);
+
+  if (first > 0 && half >= 3) {
+    const change = ((second - first) / first) * 100;
+    if (Math.abs(change) >= 10) {
+      out.push({
+        key: 'trend',
+        title: `Reach is ${change > 0 ? 'up' : 'down'} ${Math.abs(Math.round(change))}% across the period`,
+        detail: `The second half reached ${Math.round(second).toLocaleString()} against ${Math.round(first).toLocaleString()} in the first.`,
+        token: change > 0 ? 'chart-3' : 'chart-8',
+      });
+    }
+  }
+
+  return out;
+}

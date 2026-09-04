@@ -355,6 +355,23 @@ function formatHour(hour: number): string {
 
 /* ---- Distribution ------------------------------------------------------- */
 
+/**
+ * The chart token each content kind is drawn in.
+ *
+ * ⚠️ ONE MAP, SHARED. It began as a local const in `content-posts.tsx`; the
+ * Analytics tab needed the same colours, and a second copy is how a Reel comes
+ * to be blue on one tab and pink on the next — which reads as two different
+ * things rather than one thing seen twice.
+ */
+export const KIND_TOKENS: Readonly<Record<string, string>> = {
+  Reel: 'chart-1',
+  Post: 'chart-4',
+  Story: 'chart-3',
+  Video: 'chart-5',
+  Image: 'chart-7',
+  Carousel: 'chart-2',
+};
+
 export interface KindShare {
   readonly kind: ContentKind;
   readonly count: number;

@@ -23,6 +23,7 @@ import {
   type ContentDraft,
   type ContentTab,
   classifyPost,
+  KIND_TOKENS,
   contentDistribution,
   contentInsights,
   contentKpis,
@@ -84,15 +85,6 @@ const KPI_TOKENS = {
   rate: 'chart-6',
   avg_reach: 'chart-4',
 } as const;
-
-const KIND_TOKENS: Record<string, string> = {
-  Reel: 'chart-1',
-  Post: 'chart-4',
-  Story: 'chart-3',
-  Video: 'chart-5',
-  Image: 'chart-7',
-  Carousel: 'chart-2',
-};
 
 export function ContentPosts({
   posts,
