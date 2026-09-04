@@ -363,6 +363,7 @@ export function engagementFunnel(metrics: readonly MetricPoint[]): readonly Funn
   const engaged = sumOf(metrics, IG.accountsEngaged, 'instagram');
   const interactions = sumOf(metrics, IG.interactions, 'instagram');
   const profile = sumOf(metrics, IG.profileViews, 'instagram');
+  const newFollows = sumOf(metrics, FB.newFollows, 'facebook');
 
   const share = (v: number, of: number) => (of === 0 ? null : (v / of) * 100);
 
@@ -373,7 +374,7 @@ export function engagementFunnel(metrics: readonly MetricPoint[]): readonly Funn
       value: reach,
       token: 'chart-1',
       conversion: null,
-      note: 'Accounts that saw a post at least once.',
+      note: 'Instagram · accounts that saw a post at least once.',
     },
     {
       /* ⚠️ VIEWS SIT *BELOW* REACH IN THE LIST AND ABOVE IT IN VALUE, which
@@ -386,7 +387,7 @@ export function engagementFunnel(metrics: readonly MetricPoint[]): readonly Funn
       value: views,
       token: 'chart-4',
       conversion: share(views, reach),
-      note: 'Total viewings. Above 100% because one account can view more than once.',
+      note: 'Instagram · total viewings. One account can view more than once.',
     },
     {
       key: 'engaged',
@@ -394,7 +395,7 @@ export function engagementFunnel(metrics: readonly MetricPoint[]): readonly Funn
       value: engaged,
       token: 'chart-4',
       conversion: share(engaged, reach),
-      note: 'Of those, the accounts that did something.',
+      note: 'Instagram · of those, the accounts that did something.',
     },
     {
       key: 'interactions',
@@ -402,7 +403,7 @@ export function engagementFunnel(metrics: readonly MetricPoint[]): readonly Funn
       value: interactions,
       token: 'chart-2',
       conversion: share(interactions, engaged),
-      note: 'Total actions taken — one account can act more than once.',
+      note: 'Instagram · total actions taken. One account can act more than once.',
     },
     {
       key: 'profile',
@@ -410,7 +411,24 @@ export function engagementFunnel(metrics: readonly MetricPoint[]): readonly Funn
       value: profile,
       token: 'chart-3',
       conversion: share(profile, engaged),
-      note: 'Visits to the profile itself. Can exceed engagement — people arrive from elsewhere.',
+      note: 'Instagram · visits to the profile itself. Can exceed engagement — people arrive from elsewhere.',
+    },
+    {
+      /* ⚠️ THE ONLY FACEBOOK STAGE, AND ITS NOTE SAYS SO. Instagram publishes no
+         daily new-follow metric at all, so the last rung of the ladder can only
+         come from Facebook. Every other figure here is Instagram's. Leaving the
+         stage out would be tidier and would hide the one number that says
+         whether any of this turned into an audience; labelling it plainly is the
+         better trade, and it is why the panel is a ladder of stages rather than
+         a strict funnel. */
+      key: 'follows',
+      label: 'New follows',
+      value: newFollows,
+      token: 'chart-6',
+      /* No conversion: it is not a subset of the stage above, and a percentage
+         across two platforms would be arithmetic dressed up as a finding. */
+      conversion: null,
+      note: 'Facebook · accounts that followed during the period. Instagram publishes no daily equivalent.',
     },
   ];
 }
@@ -878,5 +896,116 @@ export function postsPerDay(
   }
 
   return dates.map((d) => byDate.get(d) ?? 0);
+}
+
+/* ---- Granularity --------------------------------------------------------- */
+
+export const GRANULARITIES = ['daily', 'weekly', 'monthly'] as const;
+export type Granularity = (typeof GRANULARITIES)[number];
+
+export interface Bucketed {
+  readonly labels: readonly string[];
+  readonly tooltips: readonly string[];
+  /** One array per input series, in the order they were given. */
+  readonly series: readonly (readonly (number | null)[])[];
+}
+
+/**
+ * Re-bucket daily series into weeks or months.
+ *
+ * ⚠️ A BUCKET IS THE SUM OF ITS DAYS, AND A BUCKET OF ONLY NULLS STAYS NULL.
+ * Summing a week in which nothing was collected would produce a confident zero
+ * where the daily chart correctly showed a gap — the same "absence is not zero"
+ * rule the rest of this file follows, applied one level up.
+ *
+ * ⚠️ AND A PARTIAL BUCKET IS NOT MARKED SPECIAL. The last week of a window is
+ * usually a few days short, so its total is genuinely lower — that is a fact
+ * about the window, not about performance. The tooltip names the dates the
+ * bucket covers so a reader can see it for themselves rather than being told a
+ * number is "incomplete" and left to guess by how much.
+ */
+export function bucketSeries(
+  dates: readonly string[],
+  series: readonly (readonly (number | null)[])[],
+  granularity: Granularity,
+): Bucketed {
+  if (granularity === 'daily') {
+    return {
+      labels: [...dates],
+      tooltips: [...dates],
+      series: series.map((s) => [...s]),
+    };
+  }
+
+  /* Which bucket each day belongs to, as an index into the bucket list. */
+  const keyOf = (iso: string) =>
+    granularity === 'monthly' ? iso.slice(0, 7) : isoWeekKey(iso);
+
+  const order: string[] = [];
+  const members = new Map<string, number[]>();
+
+  dates.forEach((d, i) => {
+    const key = keyOf(d);
+    if (!members.has(key)) {
+      members.set(key, []);
+      order.push(key);
+    }
+    members.get(key)!.push(i);
+  });
+
+  const bucketed = series.map((s) =>
+    order.map((key) => {
+      const idx = members.get(key)!;
+      let sum = 0;
+      let known = false;
+      for (const i of idx) {
+        const v = s[i];
+        if (v === null || v === undefined) continue;
+        sum += v;
+        known = true;
+      }
+      return known ? sum : null;
+    }),
+  );
+
+  return {
+    labels: order.map((key) => {
+      const idx = members.get(key)!;
+      return dates[idx[0]];
+    }),
+    tooltips: order.map((key) => {
+      const idx = members.get(key)!;
+      const first = dates[idx[0]];
+      const last = dates[idx[idx.length - 1]];
+      return first === last ? first : `${first} → ${last}`;
+    }),
+    series: bucketed,
+  };
+}
+
+/**
+ * How many buckets a granularity would produce.
+ *
+ * ⚠️ USED TO DISABLE A CHOICE RATHER THAN LET IT DRAW A USELESS CHART. A
+ * seven-day window has one week and one month in it, and a line through a single
+ * point is a dot — so the control greys those out and says why, instead of
+ * letting somebody pick an option that silently empties the panel.
+ */
+export function bucketCount(dates: readonly string[], granularity: Granularity): number {
+  if (granularity === 'daily') return dates.length;
+  const keys = new Set(
+    dates.map((d) => (granularity === 'monthly' ? d.slice(0, 7) : isoWeekKey(d))),
+  );
+  return keys.size;
+}
+
+/** The Monday-anchored week a date falls in, as a sortable key. */
+function isoWeekKey(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  const t = new Date(Date.UTC(y, m - 1, d));
+  /* Back up to Monday. getUTCDay is 0 for Sunday. */
+  const dow = (t.getUTCDay() + 6) % 7;
+  t.setUTCDate(t.getUTCDate() - dow);
+  return t.toISOString().slice(0, 10);
 }
 

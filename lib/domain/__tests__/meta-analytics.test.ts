@@ -5,6 +5,8 @@ import type { MetricPoint, StudioPost } from '../meta-studio';
 import {
   COMPARABLE,
   IG,
+  bucketCount,
+  bucketSeries,
   byWeekday,
   correlation,
   correlationWord,
@@ -235,6 +237,7 @@ describe('the funnel', () => {
       'engaged',
       'interactions',
       'profile',
+      'follows',
     ]);
     expect(f[0].conversion).toBeNull();
     expect(f.find((s) => s.key === 'engaged')?.conversion).toBeCloseTo(10, 5);
@@ -519,5 +522,107 @@ describe('the follower delta', () => {
     const f = d.find((x) => x.key === 'followers');
     expect(f?.previous).toBe(20);
     expect(f?.percent).toBeCloseTo(80, 5);
+  });
+});
+
+describe('bucketing a series', () => {
+  /* Aug 31 is a Monday, so Aug 31 – Sep 6 is one ISO week and Sep 7 starts the
+     next; Aug 30 (a Sunday) belongs to the week before. */
+  const RANGE = dateRange('2026-08-30', '2026-09-08');
+
+  it('leaves a daily series exactly as it was', () => {
+    const b = bucketSeries(RANGE, [[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]], 'daily');
+    expect(b.labels).toEqual([...RANGE]);
+    expect(b.series[0]).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+  });
+
+  it('sums each ISO week, Monday-anchored', () => {
+    const b = bucketSeries(RANGE, [[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]], 'weekly');
+    /* Aug 30 alone; Aug 31–Sep 6 (2..8 = 35); Sep 7–8 (9+10 = 19). */
+    expect(b.series[0]).toEqual([1, 35, 19]);
+    expect(b.labels).toEqual(['2026-08-30', '2026-08-31', '2026-09-07']);
+  });
+
+  it('sums each calendar month', () => {
+    const b = bucketSeries(RANGE, [[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]], 'monthly');
+    /* Aug 30–31 = 3; Sep 1–8 = 52. */
+    expect(b.series[0]).toEqual([3, 52]);
+  });
+
+  /* ⚠️ A BUCKET OF ONLY NULLS STAYS NULL. Summing a week nobody collected would
+     produce a confident zero where the daily chart correctly showed a gap. */
+  it('keeps a wholly uncollected bucket as null rather than zero', () => {
+    const week = dateRange('2026-08-31', '2026-09-13');
+    const points = week.map((_, i) => (i < 7 ? null : 1));
+    const b = bucketSeries(week, [points], 'weekly');
+    expect(b.series[0][0]).toBeNull();
+    expect(b.series[0][1]).toBe(7);
+  });
+
+  it('sums the days it does have inside a partly-collected bucket', () => {
+    const week = dateRange('2026-08-31', '2026-09-06');
+    const b = bucketSeries(week, [[5, null, 5, null, null, null, null]], 'weekly');
+    expect(b.series[0]).toEqual([10]);
+  });
+
+  it('names the dates a bucket covers, for the tooltip', () => {
+    const b = bucketSeries(RANGE, [[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]], 'weekly');
+    expect(b.tooltips[1]).toBe('2026-08-31 → 2026-09-06');
+    /* A one-day bucket names one date, not a range from itself to itself. */
+    expect(b.tooltips[0]).toBe('2026-08-30');
+  });
+
+  it('buckets every series against the same boundaries', () => {
+    const b = bucketSeries(RANGE, [[1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [2, 2, 2, 2, 2, 2, 2, 2, 2, 2]], 'weekly');
+    expect(b.series[0]).toHaveLength(3);
+    expect(b.series[1]).toHaveLength(3);
+    expect(b.series[1]).toEqual([2, 14, 4]);
+  });
+});
+
+describe('how many buckets a range holds', () => {
+  /* ⚠️ THIS IS WHAT DISABLES A CHOICE RATHER THAN LETTING IT EMPTY THE PANEL. A
+     seven-day window contains one week and one month, and a line through a
+     single point is a dot. */
+  it('reports one week and one month for a seven-day window inside a month', () => {
+    /* Sep 7 is a Monday, so Sep 7–13 is exactly one ISO week and one month.
+       An earlier version of this test used Aug 31 – Sep 6, which is one week but
+       genuinely spans TWO calendar months — the code was right and the
+       assertion was careless. */
+    const week = dateRange('2026-09-07', '2026-09-13');
+    expect(bucketCount(week, 'daily')).toBe(7);
+    expect(bucketCount(week, 'weekly')).toBe(1);
+    expect(bucketCount(week, 'monthly')).toBe(1);
+  });
+
+  it('reports enough buckets to plot across a month', () => {
+    const month = dateRange('2026-08-06', '2026-09-04');
+    expect(bucketCount(month, 'daily')).toBe(30);
+    expect(bucketCount(month, 'weekly')).toBeGreaterThanOrEqual(4);
+    expect(bucketCount(month, 'monthly')).toBe(2);
+  });
+});
+
+
+describe('the funnel’s sixth stage', () => {
+  /* ⚠️ THE ONLY FACEBOOK STAGE, and it carries no conversion. Instagram
+     publishes no daily new-follow metric at all, so the last rung can only come
+     from Facebook — and a percentage across two platforms would be arithmetic
+     dressed up as a finding. */
+  it('takes new follows from Facebook and claims no conversion for them', () => {
+    const f = engagementFunnel([
+      metric({ metricKey: IG.reach, value: 1000 }),
+      metric({ platform: 'facebook', metricKey: 'page_daily_follows_unique', value: 20 }),
+    ]);
+    const follows = f.find((s) => s.key === 'follows');
+    expect(follows?.value).toBe(20);
+    expect(follows?.conversion).toBeNull();
+    expect(follows?.note).toMatch(/^Facebook ·/);
+  });
+
+  it('names the platform on every stage', () => {
+    for (const stage of engagementFunnel([])) {
+      expect(stage.note).toMatch(/^(Instagram|Facebook) ·/);
+    }
   });
 });

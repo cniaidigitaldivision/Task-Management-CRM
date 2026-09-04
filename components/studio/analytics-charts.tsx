@@ -505,23 +505,23 @@ export function ScatterChart({
 /* ---- Funnel -------------------------------------------------------------- */
 
 /**
- * The stages, largest first, each bar cut to a chevron on its right edge.
+ * The engagement stages, largest first, each cut to a chevron on the right.
  *
- * ⚠️ SORTED BY VALUE, WHICH IS WHAT MAKES THE TAPER HONEST. Owner: *"they will
- * arrange themselves with the more above and according to the figure they will
- * move or adjust themselves automatically."* A funnel drawn in a fixed logical
- * order with fixed-step widths tapers whatever the figures say — it looks like a
- * measurement and is really a decoration. Sorting by value means the shape and
- * the numbers cannot disagree: the widest bar is always the largest figure.
+ * ── ⚠️ THE WIDTH ENCODES RANK, NOT MAGNITUDE, AND THAT IS A REAL TRADE ─────
+ * The first version scaled each bar by its value. On live figures that spans
+ * 213,000 down to 42, so four of the six bars collapsed onto the minimum-width
+ * floor and the panel looked broken rather than informative — which is what the
+ * owner was looking at.
  *
- * ⚠️ AND THE PERCENTAGE IS RECOMPUTED AGAINST THE BAR ABOVE IT, not against the
- * logical predecessor it arrived with. Once the order can change, a percentage
- * comparing against a stage drawn somewhere else on the list is unreadable — a
- * reader takes "9.5%" to mean "of the bar above", and it now does.
+ * The reference tapers by position instead: its own Impressions bar (2.74M) is
+ * drawn NARROWER than its Reach bar (1.56M). So width here is a reading order,
+ * and the figures — right-aligned, with their share of the bar above — carry
+ * every quantity. That is an honest division of labour as long as nothing
+ * pretends otherwise: the bars are sorted largest-first, so a wider bar is
+ * always a larger number even though the widths are not proportional to it.
  *
- * ⚠️ THE CHEVRON IS A `clip-path`, NOT A BORDER TRICK. It cuts the fill itself,
- * so the notch shows the panel behind rather than a wedge of some other colour,
- * and it costs no extra element.
+ * ⚠️ THE CHEVRON IS A `clip-path`, not a border trick, so the notch shows the
+ * panel behind rather than a wedge of some other colour.
  */
 export function Funnel({ stages }: { stages: readonly FunnelStage[] }) {
   const { ref, inView } = useInView<HTMLDivElement>();
@@ -530,59 +530,72 @@ export function Funnel({ stages }: { stages: readonly FunnelStage[] }) {
     const sorted = [...stages].sort((a, b) => b.value - a.value);
     return sorted.map((s, i) => ({
       ...s,
-      /* The first bar has nothing above it to be a share of. */
-      conversion: i === 0 ? null : sorted[i - 1].value === 0 ? null : (s.value / sorted[i - 1].value) * 100,
+      /* ⚠️ RECOMPUTED AGAINST THE BAR ABOVE. Once the order is by value, a
+         percentage comparing against a stage drawn elsewhere in the list is
+         unreadable — a reader takes "9.5%" to mean "of the bar above", and it
+         now does. A stage that carries no conversion of its own (the Facebook
+         one) keeps none: a ratio across two platforms would be arithmetic
+         dressed up as a finding. */
+      conversion:
+        i === 0 || s.conversion === null || sorted[i - 1].value === 0
+          ? null
+          : (s.value / sorted[i - 1].value) * 100,
     }));
   }, [stages]);
-
-  const top = Math.max(1, ...ordered.map((s) => s.value));
 
   if (ordered.every((s) => s.value === 0)) {
     return <p className="text-micro text-text-tertiary">Nothing collected for this period.</p>;
   }
 
+  /* Full width down to 80%, in even steps — the reference's taper is gentle,
+     and a gentle taper is also what keeps every bar long enough that a 7px
+     notch reads as a bevel rather than as an arrowhead. */
+  const widthAt = (i: number) =>
+    ordered.length <= 1 ? 100 : 100 - (i / (ordered.length - 1)) * 20;
+
   return (
-    <div ref={ref} className="space-y-1">
-      {ordered.map((s, i) => {
-        /* A floor, so a tiny stage is still a readable bar rather than a sliver
-           that reads as a rendering fault. */
-        const share = Math.max(0.22, s.value / top);
-        return (
-          <div key={s.key} className="flex items-center gap-2" title={s.note}>
-            <div className="relative h-7 min-w-0 flex-1">
-              <div
-                className="absolute inset-y-0 left-0"
-                style={{
-                  width: inView ? `${share * 100}%` : '0%',
-                  background: `color-mix(in oklab, var(--${s.token}) 26%, transparent)`,
-                  /* The notch: full width to 88%, then a point at mid-height. */
-                  clipPath:
-                    'polygon(0 0, calc(100% - 12px) 0, 100% 50%, calc(100% - 12px) 100%, 0 100%)',
-                  borderRadius: '5px',
-                  transition: 'width 800ms cubic-bezier(0.16,1,0.3,1)',
-                  transitionDelay: `${i * 80}ms`,
-                }}
-              />
-              <span className="absolute inset-y-0 left-2.5 flex items-center truncate pr-3 text-[0.65rem] font-semibold text-text-primary">
-                {s.label}
-              </span>
-            </div>
-
-            <span className="w-[3.6rem] shrink-0 text-right text-micro font-bold tabular-nums text-text-primary">
-              {compact(s.value)}
-            </span>
-
-            <span className="w-[2.8rem] shrink-0 text-right text-[0.58rem] font-semibold tabular-nums text-text-tertiary">
-              {s.conversion === null
-                ? ''
-                : `${s.conversion >= 10 ? Math.round(s.conversion) : s.conversion.toFixed(1)}%`}
+    <div ref={ref} className="flex h-full flex-col justify-between gap-1.5">
+      {ordered.map((s, i) => (
+        <div key={s.key} className="flex items-center gap-2">
+          <div className="relative h-8 min-w-0 flex-1" title={s.note}>
+            <div
+              className="absolute inset-y-0 left-0"
+              style={{
+                width: inView ? `${widthAt(i)}%` : '0%',
+                background: `color-mix(in oklab, var(--${s.token}) 30%, transparent)`,
+                /* ⚠️ 7px OF NOTCH, NOT 14. At fourteen the point was half the
+                   bar's height and the whole shape read as an ARROW rather than
+                   as a funnel stage — which is what the owner saw. The reference
+                   uses a shallow bevel on a long bar; a deep point on a short one
+                   is a different shape entirely. Kept as a fraction of the bar's
+                   height so it stays shallow if the row is ever made taller. */
+                clipPath:
+                  'polygon(0 0, calc(100% - 7px) 0, 100% 50%, calc(100% - 7px) 100%, 0 100%)',
+                borderRadius: '6px',
+                transition: 'width 760ms cubic-bezier(0.16,1,0.3,1)',
+                transitionDelay: `${i * 70}ms`,
+              }}
+            />
+            <span className="absolute inset-y-0 left-3 flex items-center truncate pr-4 text-[0.66rem] font-semibold text-text-primary">
+              {s.label}
             </span>
           </div>
-        );
-      })}
 
-      <p className="pt-1 text-[0.55rem] leading-snug text-text-tertiary">
-        Largest first. Each percentage is a share of the bar above it.
+          <span className="w-[3.4rem] shrink-0 text-right text-micro font-bold tabular-nums text-text-primary">
+            {compact(s.value)}
+          </span>
+
+          <span className="w-[2.6rem] shrink-0 text-right text-[0.58rem] font-semibold tabular-nums text-text-tertiary">
+            {s.conversion === null
+              ? ''
+              : `${s.conversion >= 10 ? Math.round(s.conversion) : s.conversion.toFixed(1)}%`}
+          </span>
+        </div>
+      ))}
+
+      <p className="pt-0.5 text-[0.55rem] leading-snug text-text-tertiary">
+        Largest first; each percentage is a share of the bar above. Hover a bar for its
+        platform.
       </p>
     </div>
   );

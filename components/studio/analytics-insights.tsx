@@ -4,10 +4,12 @@ import * as React from 'react';
 import {
   Activity,
   ArrowRight,
+  Download,
   CalendarDays,
   Eye,
   Gauge,
   Heart,
+  MoreVertical,
   Sparkles,
   Trophy,
   Users,
@@ -19,7 +21,10 @@ import { compact, previousPeriod } from '@/lib/domain/meta-studio';
 import { KIND_TOKENS, contentDistribution } from '@/lib/domain/meta-content';
 import {
   FB,
+  GRANULARITIES,
   IG,
+  bucketCount,
+  bucketSeries,
   byWeekday,
   correlation,
   correlationWord,
@@ -32,6 +37,7 @@ import {
   reachVsEngagement,
   series,
   sumOf,
+  type Granularity,
 } from '@/lib/domain/meta-analytics';
 import { cn } from '@/lib/utils';
 
@@ -261,27 +267,7 @@ export function AnalyticsInsights({
 
       {/* ── Row 1 · the trend, and the funnel ──────────────────────────── */}
       <div className="grid gap-3 xl:grid-cols-[minmax(0,1.75fr)_minmax(0,1fr)]">
-        <Panel
-          title="Reach, views and video plays over time"
-          className="h-full"
-          bodyClassName="flex flex-col justify-center"
-          info="Instagram reach and views against Facebook video plays. Each line lifts on a day with no collected figure rather than dropping to zero."
-        >
-          {/* ⚠️ THE AXIS LABELS CARRY A MONTH, AND NO YEAR. Owner: *"definitely
-              mention the month also… don't mention the year."* A bare day number
-              is ambiguous the moment a window crosses a month boundary — which
-              the default thirty-day window always does. The year is redundant on
-              a chart whose range is a month.
-
-              The TOOLTIP still gets the full date: hovering is when somebody is
-              pinning down exactly which day they are looking at. */}
-          <MultiSeriesChart
-            series={trendSeries}
-            labels={dates.map(axisDate)}
-            tooltipLabels={dates.map(fullDate)}
-            height={210}
-          />
-        </Panel>
+        <TrendPanel series={trendSeries} dates={dates} />
 
         <Panel
           title="From reach to engagement"
@@ -503,6 +489,147 @@ function PeriodFooter({ deltas }: { deltas: readonly { key: string; label: strin
 }
 
 /* ---- Parts --------------------------------------------------------------- */
+
+/**
+ * The trend chart, with the reference's granularity control and overflow menu.
+ *
+ * ⚠️ A GRANULARITY THAT WOULD DRAW ONE POINT IS DISABLED, NOT HIDDEN, and it
+ * says why on hover. A seven-day window contains one week and one month, and a
+ * line through a single point is a dot — letting somebody pick that would empty
+ * the panel and look like a bug. Hiding the option instead would make the
+ * control change shape as the date range moves, which is worse.
+ */
+function TrendPanel({
+  series: input,
+  dates,
+}: {
+  series: readonly { key: string; label: string; token: string; points: readonly (number | null)[] }[];
+  dates: readonly string[];
+}) {
+  const [grain, setGrain] = React.useState<Granularity>('daily');
+  const [menu, setMenu] = React.useState(false);
+
+  const bucketed = React.useMemo(
+    () => bucketSeries(dates, input.map((s) => s.points), grain),
+    [dates, input, grain],
+  );
+
+  const shown = React.useMemo(
+    () => input.map((s, i) => ({ ...s, points: bucketed.series[i] })),
+    [input, bucketed],
+  );
+
+  /* ⚠️ THE CSV IS BUILT FROM WHAT IS ON SCREEN, bucketing included. A menu item
+     that silently exported the daily figures while the chart showed weeks would
+     hand somebody a file that disagrees with the picture they were looking at. */
+  const download = () => {
+    const header = ['Date', ...input.map((s) => s.label)].join(',');
+    const rows = bucketed.tooltips.map((t, i) =>
+      [t, ...shown.map((s) => (s.points[i] === null ? '' : s.points[i]))].join(','),
+    );
+    const url = URL.createObjectURL(
+      new Blob([[header, ...rows].join('\n')], { type: 'text/csv;charset=utf-8' }),
+    );
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `reach-views-video-${grain}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    setMenu(false);
+  };
+
+  return (
+    <Panel
+      title="Reach, views and video plays over time"
+      className="h-full"
+      bodyClassName="flex flex-col justify-center"
+      info="Instagram reach and views against Facebook video plays. Each line lifts on a day with no collected figure rather than dropping to zero."
+      action={
+        <div className="flex items-center gap-1.5">
+          <div className="flex rounded-lg bg-bg-subtle p-0.5">
+            {GRANULARITIES.map((g) => {
+              const buckets = bucketCount(dates, g);
+              const usable = buckets >= 2;
+              return (
+                <button
+                  key={g}
+                  type="button"
+                  disabled={!usable}
+                  onClick={() => setGrain(g)}
+                  title={
+                    usable
+                      ? `${buckets} ${g === 'daily' ? 'days' : g === 'weekly' ? 'weeks' : 'months'} in this range`
+                      : `This range covers only one ${g === 'weekly' ? 'week' : 'month'}, so there is nothing to plot`
+                  }
+                  className={cn(
+                    'rounded-md px-2.5 py-1 text-[0.62rem] capitalize transition-all duration-200',
+                    grain === g
+                      ? 'bg-bg-surface font-semibold text-text-primary shadow-[0_1px_2px_rgb(6_35_42_/_0.08)]'
+                      : usable
+                        ? 'text-text-secondary hover:text-text-primary'
+                        : 'cursor-not-allowed text-text-disabled',
+                  )}
+                >
+                  {g}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setMenu((m) => !m)}
+              aria-label="Chart actions"
+              aria-expanded={menu}
+              className="grid size-6 place-items-center rounded-md text-text-tertiary transition-colors hover:bg-bg-subtle hover:text-text-primary"
+            >
+              <MoreVertical className="size-3.5" />
+            </button>
+
+            {menu && (
+              <>
+                <span className="fixed inset-0 z-10" onClick={() => setMenu(false)} />
+                <div className="absolute right-0 top-full z-20 mt-1 w-48 overflow-hidden rounded-lg border border-border-subtle bg-bg-surface py-1 shadow-[0_8px_24px_rgb(6_35_42_/_0.16)]">
+                  {/* ⚠️ ONE ITEM, AND IT WORKS. The reference's ⋮ implies a menu
+                      of options; inventing three that do nothing would be worse
+                      than offering the one thing this chart can genuinely do. */}
+                  <button
+                    type="button"
+                    onClick={download}
+                    className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-micro text-text-primary transition-colors hover:bg-bg-subtle"
+                  >
+                    <Download className="size-3.5 shrink-0" aria-hidden="true" />
+                    Download as CSV
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      }
+    >
+      {/* ⚠️ THE AXIS LABELS CARRY A MONTH AND NO YEAR. Owner: *"definitely
+          mention the month also… don't mention the year."* A bare day number is
+          ambiguous the moment a window crosses a month boundary, which the
+          default thirty-day window always does; the year is redundant on a chart
+          whose range is a month. The TOOLTIP still gets the full date — hovering
+          is when somebody is pinning down exactly which day they mean. */}
+      <MultiSeriesChart
+        series={shown}
+        labels={bucketed.labels.map(axisDate)}
+        tooltipLabels={bucketed.tooltips.map((t) =>
+          t.includes('→')
+            ? t.split(' → ').map(fullDate).join(' → ')
+            : fullDate(t),
+        )}
+        height={210}
+      />
+    </Panel>
+  );
+}
 
 function MetricTile({
   label,
