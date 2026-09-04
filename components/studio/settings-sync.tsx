@@ -404,47 +404,23 @@ function SettingsTab({
             label="Auto sync"
             info="When off, nothing is collected for this project at all — including any sync rules."
           >
-            <div className="flex items-center gap-2.5">
-              <span
-                className="text-micro font-semibold"
-                style={{
-                  color: autoSync ? 'var(--feedback-success)' : 'var(--text-tertiary)',
-                }}
-              >
-                {autoSync ? 'Enabled' : 'Paused'}
-              </span>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={autoSync}
-                aria-label="Auto sync"
-                disabled={!canConfigure || saving}
-                onClick={() => {
-                  /* ⚠️ SWITCHING OFF ASKS FIRST. It is the one control on this
-                     page that destroys something: Meta serves ~30 days and no
-                     more, so a project left off for five weeks has a gap nothing
-                     can ever fill. Switching ON is harmless and saves at once. */
-                  if (autoSync) {
-                    setConfirmPause(true);
-                    return;
-                  }
-                  setAutoSync(true);
-                  void save(true);
-                }}
-                className={cn(
-                  'relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50',
-                  autoSync ? '' : 'bg-bg-subtle',
-                )}
-                style={autoSync ? { backgroundColor: 'var(--feedback-success)' } : undefined}
-              >
-                <span
-                  className={cn(
-                    'absolute top-0.5 size-5 rounded-full bg-white shadow-sm transition-transform',
-                    autoSync ? 'translate-x-[1.4rem]' : 'translate-x-0.5',
-                  )}
-                />
-              </button>
-            </div>
+            <Toggle
+              checked={autoSync}
+              disabled={!canConfigure || saving}
+              label="Auto sync"
+              onChange={(next) => {
+                /* ⚠️ SWITCHING OFF ASKS FIRST. It is the one control on this
+                   page that destroys something: Meta serves ~30 days and no
+                   more, so a project left off for five weeks has a gap nothing
+                   can ever fill. Switching ON is harmless and saves at once. */
+                if (!next) {
+                  setConfirmPause(true);
+                  return;
+                }
+                setAutoSync(true);
+                void save(true);
+              }}
+            />
           </Setting>
 
           <Setting
@@ -1768,6 +1744,76 @@ function Select({
         </option>
       ))}
     </select>
+  );
+}
+
+/**
+ * The auto-sync switch.
+ *
+ * ── ⚠️ THE KNOB IS POSITIONED WITH `left`, NEVER WITH A BARE `translate-x` ──
+ * The first version set `absolute top-0.5` with no `left` and moved the knob
+ * with `translate-x-[1.4rem]`. An absolutely positioned box with `left: auto`
+ * and `right: auto` falls back to its STATIC position — and a `<button>` is
+ * `text-align: center` by default, so the static position of that empty inline
+ * box is the MIDDLE of the track. Adding 22px of translate to a 22px starting
+ * offset put the knob at 44px in a 44px track: entirely off the right edge,
+ * which rendered as a solid green pill with no knob at all. It is the kind of
+ * bug that looks like a colour problem and is really a layout one.
+ *
+ * `left-0.5` / `left-[1.375rem]` positions it explicitly from the track's own
+ * left edge, so it cannot depend on text alignment, direction, or what else is
+ * inside the button.
+ */
+function Toggle({
+  checked,
+  disabled,
+  label,
+  onChange,
+}: {
+  checked: boolean;
+  disabled?: boolean;
+  label: string;
+  onChange: (next: boolean) => void;
+}) {
+  return (
+    <div className="flex items-center gap-2.5">
+      <span
+        className="text-micro font-semibold"
+        style={{ color: checked ? 'var(--feedback-success)' : 'var(--text-tertiary)' }}
+      >
+        {checked ? 'Enabled' : 'Paused'}
+      </span>
+
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
+        disabled={disabled}
+        onClick={() => onChange(!checked)}
+        className={cn(
+          'relative h-6 w-11 shrink-0 rounded-full border transition-colors duration-200',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary focus-visible:ring-offset-2',
+          'disabled:cursor-not-allowed disabled:opacity-50',
+          checked ? 'border-transparent' : 'border-border-default bg-bg-subtle',
+        )}
+        style={checked ? { backgroundColor: 'var(--feedback-success)' } : undefined}
+      >
+        <span
+          aria-hidden="true"
+          className={cn(
+            'absolute top-1/2 size-5 -translate-y-1/2 rounded-full bg-white transition-[left] duration-200',
+            'shadow-[0_1px_3px_rgb(6_35_42_/_0.28)]',
+            /* ⚠️ 20px AND 2px, WHICH IS SYMMETRIC AND NOT OBVIOUS. The track is
+               44px with a 1px border on both states (transparent when on), so
+               absolute positioning resolves against a 42px padding box. A 20px
+               knob at left:2 leaves 20px to its right; at left:20 it leaves 2px.
+               The intuitive 22px would have pressed it flat against the edge. */
+            checked ? 'left-5' : 'left-0.5',
+          )}
+        />
+      </button>
+    </div>
   );
 }
 
