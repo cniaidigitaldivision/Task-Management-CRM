@@ -386,3 +386,87 @@ export function rankPosts(
   else list.sort((a, b) => postEngagement(b) - postEngagement(a));
   return list.slice(0, limit);
 }
+
+/* ============================================================================
+ * ACCOUNT HEALTH
+ * ----------------------------------------------------------------------------
+ * ⚠️ "CONNECTED" IS NOT THE QUESTION. A row in `meta_accounts` proves somebody
+ * linked a page once; it says nothing about whether figures are still arriving.
+ * An account that linked cleanly and has failed every sync since looks identical
+ * to a healthy one on the strength of its own row.
+ *
+ * So health is judged on the LAST SUCCESSFUL PULL, and the thresholds come from
+ * the schedule rather than from taste: the cron runs every two hours, so six
+ * hours is three missed runs — enough to be a fault rather than a blip — and
+ * twenty-four hours is a connection nobody should still be trusting.
+ * ========================================================================= */
+
+export type AccountHealth = 'error' | 'stale' | 'quiet' | 'healthy' | 'never';
+
+export interface HealthVerdict {
+  readonly state: AccountHealth;
+  readonly label: string;
+  readonly detail: string;
+  /** A chart-palette token, or a feedback token for the two bad states. */
+  readonly token: string;
+}
+
+export function accountHealth(input: {
+  readonly lastSyncedAt: string | null;
+  readonly lastError: string | null;
+  readonly metricDays: number;
+  readonly nowMs: number;
+}): HealthVerdict {
+  const { lastSyncedAt, lastError, metricDays, nowMs } = input;
+
+  /* ⚠️ THE ERROR WINS OVER EVERYTHING, including a recent successful sync. A
+     client who revoked access yesterday has a `last_synced_at` from yesterday
+     and is still broken today. */
+  if (lastError) {
+    return {
+      state: 'error',
+      label: 'Not syncing',
+      detail: lastError,
+      token: 'feedback-error',
+    };
+  }
+
+  if (!lastSyncedAt) {
+    return {
+      state: 'never',
+      label: 'Awaiting first sync',
+      detail: 'Connected, but no figures have been collected yet.',
+      token: 'chart-6',
+    };
+  }
+
+  const hours = (nowMs - Date.parse(lastSyncedAt)) / 3_600_000;
+
+  if (hours >= 24) {
+    return {
+      state: 'stale',
+      label: 'Stale',
+      detail: `Last pulled ${Math.round(hours / 24)} ${Math.round(hours / 24) === 1 ? 'day' : 'days'} ago — the two-hourly sync is not reaching this account.`,
+      token: 'feedback-error',
+    };
+  }
+
+  if (hours >= 6) {
+    return {
+      state: 'quiet',
+      label: 'Behind',
+      detail: `Last pulled ${Math.round(hours)} hours ago; the schedule is every two.`,
+      token: 'feedback-warning',
+    };
+  }
+
+  return {
+    state: 'healthy',
+    label: 'Syncing',
+    detail:
+      metricDays > 0
+        ? `${metricDays} ${metricDays === 1 ? 'day' : 'days'} of history collected.`
+        : 'Connected and up to date.',
+    token: 'feedback-success',
+  };
+}

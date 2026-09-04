@@ -8,6 +8,7 @@ import { PLATFORM_MARKS, PlatformIcon } from '@/components/brand/platform-icon';
 import { PageHeader } from '@/components/ui/page-header';
 import { DIVISION_NAME } from '@/lib/domain/constants';
 import type {
+  AccountDetail,
   ContentDraft,
   MetricPoint,
   StudioAccount,
@@ -19,6 +20,7 @@ import { compact } from '@/lib/domain/meta-studio';
 import { cn } from '@/lib/utils';
 
 import { ContentPosts } from './content-posts';
+import { MetaAccounts } from './meta-accounts';
 import { StudioOverview } from './overview';
 import { StudioToolbar } from './studio-toolbar';
 
@@ -38,7 +40,7 @@ import { StudioToolbar } from './studio-toolbar';
 const TABS = [
   { key: 'overview', label: 'Overview', live: true },
   { key: 'content', label: 'Content & Posts', live: true },
-  { key: 'accounts', label: 'Meta Accounts', live: false },
+  { key: 'accounts', label: 'Meta Accounts', live: true },
   { key: 'analytics', label: 'Analytics & Insights', live: false },
   { key: 'reports', label: 'Reports & Exports', live: false },
   { key: 'settings', label: 'Settings & Sync', live: false },
@@ -56,7 +58,9 @@ export function StudioWorkspace({
   posts,
   previousPosts,
   drafts,
+  accountDetails,
   cadence,
+  nowMs,
 }: {
   projects: readonly StudioProject[];
   selected: StudioProject;
@@ -70,7 +74,10 @@ export function StudioWorkspace({
   /** The previous period's posts, for the Content tab's deltas. */
   previousPosts: readonly StudioPost[];
   drafts: readonly ContentDraft[];
+  accountDetails: readonly AccountDetail[];
   cadence: ProjectPromise;
+  /** The server's clock — see the note at the call site. */
+  nowMs: number;
 }) {
   const router = useRouter();
   const search = useSearchParams();
@@ -208,6 +215,18 @@ export function StudioWorkspace({
 
       {!selected.hasAccounts ? (
         <NotConnected name={selected.name} />
+      ) : tab === 'accounts' ? (
+        /* ⚠️ BEFORE THE `hasData` GATE, AND THE ORDER IS THE POINT. An account
+           that has collected nothing is precisely the one somebody opens this
+           tab to diagnose — sending them to "No figures collected yet" instead
+           would hide the very card explaining why. A first draft had this arm
+           below the gate and the comment claiming otherwise; the ordering is the
+           behaviour, not the comment. */
+        <MetaAccounts
+          accounts={accountDetails}
+          projectName={selected.name}
+          nowMs={nowMs}
+        />
       ) : !hasData ? (
         <NoDataYet accounts={accounts} />
       ) : tab === 'content' ? (

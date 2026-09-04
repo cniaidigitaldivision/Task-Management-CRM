@@ -278,3 +278,85 @@ export async function draftsForProject(
     status: String(r.status),
   }));
 }
+
+/**
+ * Everything the Meta Accounts tab shows about one connection.
+ *
+ * ⚠️ IT REPORTS THE COLLECTION, NOT JUST THE LINK. An account row on its own can
+ * only say "connected"; what somebody opening this tab actually needs to know is
+ * whether data is still arriving — so the counts of metric rows, posts and sync
+ * attempts are joined in. A connection that linked cleanly in August and has
+ * failed every night since looks identical to a healthy one without them.
+ */
+export interface AccountDetail {
+  readonly id: string;
+  readonly platform: string;
+  readonly objectId: string;
+  readonly username: string | null;
+  readonly displayName: string | null;
+  readonly permalink: string | null;
+  readonly followers: number | null;
+  readonly mediaCount: number | null;
+  readonly linkedAt: string;
+  readonly linkedBy: string | null;
+  readonly lastSyncedAt: string | null;
+  readonly lastError: string | null;
+  readonly metricDays: number;
+  readonly postCount: number;
+  readonly firstMetricDate: string | null;
+  readonly lastMetricDate: string | null;
+  readonly syncRuns: number;
+  readonly failedRuns: number;
+}
+
+export async function accountDetailsForProject(
+  actorId: string,
+  projectId: string,
+): Promise<AccountDetail[]> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select a.id, pl.slug as platform, a.meta_object_id, a.username, a.display_name,
+           a.permalink, a.followers, a.media_count,
+           a.linked_at, u.full_name as linked_by,
+           a.last_synced_at, a.last_error,
+           (select count(distinct d.on_date) from public.meta_metric_days d
+             where d.meta_account_id = a.id)                        as metric_days,
+           (select min(d.on_date) from public.meta_metric_days d
+             where d.meta_account_id = a.id)                        as first_metric,
+           (select max(d.on_date) from public.meta_metric_days d
+             where d.meta_account_id = a.id)                        as last_metric,
+           (select count(*) from public.meta_posts p
+             where p.meta_account_id = a.id)                        as post_count,
+           (select count(*) from public.meta_sync_runs r
+             where r.meta_account_id = a.id)                        as sync_runs,
+           (select count(*) from public.meta_sync_runs r
+             where r.meta_account_id = a.id and r.outcome = 'failed') as failed_runs
+      from public.meta_accounts a
+      join public.platforms pl on pl.id = a.platform_id
+      left join public.users u on u.id = a.linked_by_id
+     where a.project_id = ${projectId} and a.is_active
+     order by pl.sort_order
+  `);
+
+  const day = (v: unknown) => (v ? new Date(v as string).toISOString().slice(0, 10) : null);
+
+  return (rows as Array<Record<string, unknown>>).map((r) => ({
+    id: String(r.id),
+    platform: String(r.platform),
+    objectId: String(r.meta_object_id),
+    username: (r.username as string | null) ?? null,
+    displayName: (r.display_name as string | null) ?? null,
+    permalink: (r.permalink as string | null) ?? null,
+    followers: r.followers === null ? null : Number(r.followers),
+    mediaCount: r.media_count === null ? null : Number(r.media_count),
+    linkedAt: new Date(r.linked_at as string).toISOString(),
+    linkedBy: (r.linked_by as string | null) ?? null,
+    lastSyncedAt: r.last_synced_at ? new Date(r.last_synced_at as string).toISOString() : null,
+    lastError: (r.last_error as string | null) ?? null,
+    metricDays: Number(r.metric_days ?? 0),
+    postCount: Number(r.post_count ?? 0),
+    firstMetricDate: day(r.first_metric),
+    lastMetricDate: day(r.last_metric),
+    syncRuns: Number(r.sync_runs ?? 0),
+    failedRuns: Number(r.failed_runs ?? 0),
+  }));
+}

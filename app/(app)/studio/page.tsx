@@ -4,6 +4,7 @@ import { StudioWorkspace } from '@/components/studio/studio-workspace';
 import { PageHeader } from '@/components/ui/page-header';
 import { requireRole } from '@/lib/auth/current-user';
 import {
+  accountDetailsForProject,
   accountsForProject,
   cadenceForProject,
   listStudioProjects,
@@ -92,6 +93,7 @@ export default async function StudioPage({
            second query rather than a slice of one already fetched. */
         postsForProject(user.id, selected.id, previous.from, previous.to),
         draftsForProject(user.id, selected.id),
+        accountDetailsForProject(user.id, selected.id),
       ])
     : null;
 
@@ -117,6 +119,11 @@ export default async function StudioPage({
       }
       previousPosts={data?.[5] ?? []}
       drafts={data?.[6] ?? []}
+      accountDetails={data?.[7] ?? []}
+      /* ⚠️ The SERVER's clock, so "6 hours ago" on an account card is the same
+         for everyone. Reading it in the browser would let a reader's own wrong
+         system time report a healthy account as stale. */
+      nowMs={nowMs()}
     />
   );
 }

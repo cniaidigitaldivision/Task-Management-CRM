@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { StudioPost } from '../meta-studio';
 import {
+  accountHealth,
   classifyPost,
   contentDistribution,
   contentInsights,
@@ -234,5 +235,49 @@ describe('distribution and ranking', () => {
     const fb = post({ id: 'fb', platform: 'facebook', totalInteractions: null, likes: 40, comments: 3, saves: null });
     const ig = post({ id: 'ig', totalInteractions: 20 });
     expect(rankPosts([ig, fb], 'engagement')[0].id).toBe('fb');
+  });
+});
+
+describe('account health', () => {
+  const HOUR = 3_600_000;
+  const now = Date.parse('2026-09-04T12:00:00Z');
+  const at = (hoursAgo: number) => new Date(now - hoursAgo * HOUR).toISOString();
+
+  /* ⚠️ THE ASSERTION THAT MATTERS. A client who revoked access yesterday has a
+     `last_synced_at` from yesterday and is still broken today — so a recorded
+     error must beat a recent successful pull, or the tab reports "Syncing" on a
+     connection that is dead. */
+  it('lets a recorded error beat a recent successful sync', () => {
+    const v = accountHealth({
+      lastSyncedAt: at(1),
+      lastError: 'access revoked by the client',
+      metricDays: 29,
+      nowMs: now,
+    });
+    expect(v.state).toBe('error');
+    expect(v.detail).toBe('access revoked by the client');
+  });
+
+  it('calls a fresh sync healthy', () => {
+    expect(accountHealth({ lastSyncedAt: at(1), lastError: null, metricDays: 29, nowMs: now }).state).toBe(
+      'healthy',
+    );
+  });
+
+  /* The thresholds come from the schedule, not from taste: the cron is every two
+     hours, so six hours is three missed runs. */
+  it('flags three missed runs as behind, and a day as stale', () => {
+    expect(accountHealth({ lastSyncedAt: at(7), lastError: null, metricDays: 5, nowMs: now }).state).toBe(
+      'quiet',
+    );
+    expect(accountHealth({ lastSyncedAt: at(30), lastError: null, metricDays: 5, nowMs: now }).state).toBe(
+      'stale',
+    );
+  });
+
+  it('separates "never synced" from "stopped syncing"', () => {
+    const v = accountHealth({ lastSyncedAt: null, lastError: null, metricDays: 0, nowMs: now });
+    expect(v.state).toBe('never');
+    expect(v.label).toMatch(/first sync/i);
   });
 });
