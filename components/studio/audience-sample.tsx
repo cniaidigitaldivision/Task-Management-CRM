@@ -1,9 +1,11 @@
 'use client';
 
-import { Info, Lock } from 'lucide-react';
+import { ChevronDown, Info, Lock } from 'lucide-react';
 
 import { DonutChart } from '@/components/ui/chart';
 import type { StudioAccount } from '@/lib/db/queries/meta-studio';
+
+import { Flag } from './flags';
 
 /* ============================================================================
  * AUDIENCE — TOP LOCATIONS AND AGE & GENDER
@@ -199,71 +201,90 @@ export function TopLocations({
 
   return (
     <section
-      className={`flex min-w-0 flex-col rounded-xl border border-dashed border-border-default bg-bg-surface p-3.5 shadow-[0_1px_2px_rgb(6_35_42_/_0.04)] ${className ?? ''}`}
+      className={`flex min-w-0 flex-col rounded-xl border border-border-subtle bg-bg-surface p-3.5 shadow-[0_1px_2px_rgb(6_35_42_/_0.04)] ${className ?? ''}`}
     >
-      <header className="mb-3 flex flex-wrap items-center justify-between gap-1.5">
+      <header className="mb-3 flex items-center justify-between gap-2">
         <h2 className="flex items-center gap-1.5 text-caption font-semibold text-text-primary">
           Top Locations
+          <span
+            title="Where this account's audience is. Sample figures until the account passes 100 followers."
+            className="grid size-3.5 shrink-0 cursor-help place-items-center rounded-full border border-border-default text-[0.55rem] font-bold text-text-tertiary"
+          >
+            i
+          </span>
         </h2>
-        <span
-          className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[0.6rem] font-bold uppercase tracking-wide"
-          style={{
-            backgroundColor: 'color-mix(in oklab, var(--feedback-warning) 18%, transparent)',
-            color: 'var(--feedback-warning)',
-          }}
-        >
-          <Lock className="size-2.5" aria-hidden="true" />
-          Sample
+
+        {/* The reference's "Countries ▾". Only one grouping exists today —
+            Meta also reports city and country — so it is present and inert
+            rather than absent, which keeps the header's shape. */}
+        <span className="inline-flex items-center gap-1 rounded-lg border border-border-subtle px-2 py-1 text-micro text-text-secondary">
+          Countries
+          <ChevronDown className="size-3 text-text-tertiary" aria-hidden="true" />
         </span>
       </header>
 
-      {/* One row, one line: chip · name · bar · share · value. The previous
-          two-line arrangement wrapped the bar under the name and made five rows
-          taller than the chart beside them. */}
-      <ul className="space-y-2">
-        {SAMPLE_LOCATIONS.map((c, i) => {
-          const token = LOCATION_TOKENS[i % LOCATION_TOKENS.length];
-          return (
-            <li key={c.key} className="flex items-center gap-2">
-              <span
-                aria-hidden="true"
-                className="grid h-4 w-6 shrink-0 place-items-center rounded-[3px] text-[0.6rem] font-bold tracking-tight"
-                style={{ backgroundColor: `var(--${token}-wash)`, color: `var(--${token})` }}
-              >
-                {c.key}
-              </span>
-              <span className="w-[4.5rem] shrink-0 truncate text-micro text-text-primary" title={c.label}>
+      {/* ── ⚠️ THE RULE UNDER EACH ROW IS THE BAR ────────────────────────────
+          Measured off the reference rather than guessed: it is not a divider
+          with a separate bar above it. It is ONE full-width hairline whose left
+          portion is coloured to the country's share, so the row's separator and
+          its data are the same three pixels. That is what keeps five rows this
+          compact — a bar on its own line would make the card half as tall
+          again. */}
+      <ul className="space-y-0">
+        {SAMPLE_LOCATIONS.map((c, i) => (
+          <li key={c.key} className="pt-2 first:pt-0">
+            <div className="flex items-center gap-2.5">
+              <Flag code={c.key} />
+              <span className="min-w-0 flex-1 truncate text-micro text-text-primary" title={c.label}>
                 {c.label}
               </span>
-              <span className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-bg-subtle">
-                <span
-                  className="block h-full origin-left rounded-full motion-safe:animate-[studio-grow_650ms_cubic-bezier(0.16,1,0.3,1)_backwards]"
-                  style={{
-                    width: `${c.share * 100}%`,
-                    backgroundColor: `var(--${token})`,
-                    animationDelay: `${i * 70}ms`,
-                  }}
-                />
-              </span>
-              <span className="w-7 shrink-0 text-right text-micro tabular-nums text-text-secondary">
+              <span className="shrink-0 text-micro tabular-nums text-text-secondary">
                 {Math.round(c.share * 100)}%
               </span>
-              <span className="w-10 shrink-0 text-right text-micro font-semibold tabular-nums text-text-primary">
+              <span className="w-11 shrink-0 text-right text-micro font-semibold tabular-nums text-text-primary">
                 {c.value}
               </span>
-            </li>
-          );
-        })}
+            </div>
+
+            <div className="mt-2 h-[3px] w-full overflow-hidden rounded-full bg-bg-subtle">
+              <div
+                className="h-full origin-left rounded-full motion-safe:animate-[studio-grow_650ms_cubic-bezier(0.16,1,0.3,1)_backwards]"
+                style={{
+                  width: `${Math.max(3, c.share * 100)}%`,
+                  backgroundColor: `var(--${LOCATION_TOKENS[i % LOCATION_TOKENS.length]})`,
+                  animationDelay: `${i * 70}ms`,
+                }}
+              />
+            </div>
+          </li>
+        ))}
       </ul>
 
-      <p className="mt-auto flex items-start gap-1.5 pt-2.5 text-[0.62rem] leading-snug text-text-tertiary">
+      <button
+        type="button"
+        disabled
+        title="Arrives with the Analytics & Insights tab"
+        className="group mt-3 inline-flex items-center gap-1.5 self-start text-micro font-medium text-text-brand opacity-70"
+      >
+        View all locations
+        <span aria-hidden="true" className="transition-transform group-hover:translate-x-0.5">
+          →
+        </span>
+      </button>
+
+      {/* ⚠️ THE SAMPLE NOTE STAYS, and stays last. The owner asked for the
+          reference's exact card, and the reference's card does not carry this
+          line — but its numbers are real and these are not. Everything above is
+          the reference; this is the one addition, and it is the difference
+          between a mock-up and a lie. */}
+      <p className="mt-auto flex items-start gap-1.5 pt-3 text-[0.62rem] leading-snug text-text-tertiary">
         <Info className="mt-px size-3 shrink-0" aria-hidden="true" />
         <span>
-          Placeholder figures. Meta reports audience only above{' '}
-          <strong className="font-semibold text-text-secondary">
-            {DEMOGRAPHICS_THRESHOLD} followers
+          <strong className="font-semibold" style={{ color: 'var(--feedback-warning)' }}>
+            Sample figures.
           </strong>{' '}
-          — {remaining} more to go.
+          Meta reports audience only above {DEMOGRAPHICS_THRESHOLD} followers — {remaining} more
+          to go.
         </span>
       </p>
     </section>
