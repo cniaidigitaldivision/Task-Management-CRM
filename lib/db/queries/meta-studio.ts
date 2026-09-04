@@ -358,8 +358,8 @@ export async function accountDetailsForProject(
      regardless of how many accounts a project has. */
   const ids = (rows as Array<Record<string, unknown>>).map((r) => String(r.id));
 
-  const [followerRows, postRows] = ids.length === 0
-    ? [[], []]
+  const [followerRows, postRows, coverageRows] = ids.length === 0
+    ? [[], [], []]
     : await Promise.all([
         withUser(actorId, (tx) => tx`
           select d.meta_account_id, d.on_date, d.value
@@ -377,6 +377,23 @@ export async function accountDetailsForProject(
            group by 1, 2
            order by 2
         `),
+        /* ⚠️ A THIRD QUERY, BECAUSE COVERAGE IS NOT THE FOLLOWER SERIES. The
+           dates were being taken from the follower rows above, which are
+           filtered to two metric keys — and Instagram's `followers_count` has
+           exactly ONE row, because it is a profile snapshot rather than an
+           insight. So the card printed "30 days of history" over a strip
+           containing a single bar, which the owner saw as one pink oval.
+
+           `metricDays` counts distinct dates across ALL metrics, so coverage has
+           to be measured the same way or the number and its own strip disagree
+           by construction. Still one query regardless of how many accounts. */
+        withUser(actorId, (tx) => tx`
+          select d.meta_account_id, d.on_date
+            from public.meta_metric_days d
+           where d.meta_account_id = any(${ids}::uuid[])
+           group by 1, 2
+           order by 2
+        `),
       ]);
 
   const byAccount = <T,>(list: readonly Record<string, unknown>[], pick: (r: Record<string, unknown>) => T) => {
@@ -391,7 +408,7 @@ export async function accountDetailsForProject(
   };
 
   const followers = byAccount(followerRows as Record<string, unknown>[], (r) => Number(r.value));
-  const dates = byAccount(followerRows as Record<string, unknown>[], (r) =>
+  const dates = byAccount(coverageRows as Record<string, unknown>[], (r) =>
     new Date(r.on_date as string).toISOString().slice(0, 10),
   );
   const posts = byAccount(postRows as Record<string, unknown>[], (r) => Number(r.n));

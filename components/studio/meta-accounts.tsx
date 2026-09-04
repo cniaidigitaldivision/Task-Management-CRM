@@ -1092,7 +1092,12 @@ function CoverageStrip({
              fired left the strip blank — the same class of bug as the grey ring
              above. An animation may change how data appears, never whether. */
           height={has ? height : height * 0.28}
-          rx={bar / 2.6}
+          /* ⚠️ NO `rx`. `preserveAspectRatio="none"` stretches x and y by
+             DIFFERENT factors, so a corner radius in user units comes out
+             stretched into an ellipse — and on a single wide bar it swallowed
+             the bar entirely and drew one pink oval. Owner: *"It should be in
+             vertical lines like in the Facebook card."* Square ends cannot
+             distort, whatever the day count. */
           fill={has ? `var(--${token})` : 'var(--chart-grid)'}
           opacity={has ? 0.8 : 1}
         />
