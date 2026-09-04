@@ -119,6 +119,14 @@ export interface ReportTemplate {
   readonly updatedAt: string;
   /** Whether the person looking at the page has starred it. */
   readonly isFavourite: boolean;
+  /** Ordered section keys — migration 098. The drawer's checklist. */
+  readonly sections: readonly string[];
+  /** The format marks the drawer offers. `format` is what the engine writes. */
+  readonly formats: readonly string[];
+  /** A chart-palette token for the card's chip. */
+  readonly accent: string;
+  /** An icon key, resolved to a mark by the client. */
+  readonly icon: string;
 }
 
 /* ---- Sections ------------------------------------------------------------ */
@@ -432,28 +440,33 @@ export interface TemplateKpi {
 }
 
 /**
- * The row of figures above the grid.
+ * The six figures above the grid, in the reference's order.
  *
- * ⚠️ THE REFERENCE'S FIFTH CARD IS "AI SUMMARY BLOCKS 42" AND IT IS NOT HERE.
- * Nothing in this system writes an AI summary into a report — `ReportContent`'s
- * glance ticks are computed from columns, and are commented "Facts only" for the
- * reason that the one AI pass this feature ever had (`gpt-image-1` drawing the
- * poster) came back with the client's name spelled "NAYA MARKITING". A card
- * counting AI blocks would be counting nothing. Its slot holds the number of
- * reports actually generated, which is the figure somebody would want there.
+ * ── ⚠️ TWO OF THE SIX DISAGREE WITH THE MOCKUP, AND BOTH ARE COUNTS ────────
  *
- * ⚠️ AND THE FOURTH READS 2, NOT 5 — see EXPORT_FORMATS.
+ *   "AI Summary Blocks 42" reads 20 here.
+ *       It counts `INSIGHT_SECTIONS` across the library — the reference's own
+ *       footnote says "Across all templates", so that is exactly what it is a
+ *       count of. Twenty is what the twenty-four templates declare. Hard-coding
+ *       42 would make the one card nobody can check also the only one that is
+ *       wrong, and the figure moves on its own as templates are added.
+ *
+ *   The deltas — "+3 this month", "+2 this month", "In the last 7 days" —
+ *       are computed from `updatedAt`, so they are real or they are absent. A
+ *       library seeded in one migration honestly has every template "updated
+ *       this week", and it will read that way until the dates spread out.
+ *
+ * "Supported Formats 5" is genuinely 5: the library offers five, and the
+ * footnote names which two have a writer today. Offered and writable are
+ * different facts and the card shows both rather than picking one.
  */
 export function templateKpis(input: {
   readonly templates: readonly ReportTemplate[];
-  readonly reportsGenerated: number;
-  readonly exportsTaken: number;
   readonly nowMs: number;
 }): readonly TemplateKpi[] {
-  const { templates, reportsGenerated, exportsTaken, nowMs } = input;
+  const { templates, nowMs } = input;
 
-  const custom = templates.filter((t) => !t.isBuiltin).length;
-  const favourites = templates.filter((t) => t.isFavourite).length;
+  const custom = templates.filter((t) => !t.isBuiltin);
 
   const mostUsed = templates.reduce<ReportTemplate | null>(
     (best, t) => (t.usageCount > 0 && (!best || t.usageCount > best.usageCount) ? t : best),
@@ -461,62 +474,76 @@ export function templateKpis(input: {
   );
 
   const WEEK = 7 * 24 * 3_600_000;
-  const recent = templates.filter((t) => nowMs - Date.parse(t.updatedAt) < WEEK).length;
+  const MONTH = 30 * 24 * 3_600_000;
+  const since = (ms: number, list: readonly ReportTemplate[]) =>
+    list.filter((t) => nowMs - Date.parse(t.updatedAt) < ms).length;
 
-  const formats = availableFormats();
+  const recent = since(WEEK, templates);
+  const newThisMonth = since(MONTH, templates);
+  const newCustomThisMonth = since(MONTH, custom);
+
+  /* Distinct formats the library OFFERS, and the subset something can write. */
+  const offered = new Set<string>();
+  for (const t of templates) for (const f of t.formats) offered.add(f);
+  const writable = availableFormats();
+
+  /* ⚠️ A delta is omitted when it is zero rather than printed as "+0", which
+     reads as a measurement rather than as the absence of one. */
+  const delta = (n: number, unit: string) => (n > 0 ? `+${n} ${unit}` : undefined);
 
   return [
     {
       key: 'total',
-      label: 'Report templates',
+      label: 'Total templates',
       value: String(templates.length),
-      icon: 'layers',
-      token: 'chart-4',
-      footnote: `${templates.length - custom} built-in, ${custom} custom`,
+      icon: 'document',
+      token: 'chart-3',
+      footnote: delta(newThisMonth, 'this month') ?? `${templates.length - custom.length} built-in`,
     },
     {
       key: 'most-used',
-      /* ⚠️ A NAME, NOT A COUNT — the reference's card shows the template itself,
-         which is the more useful thing to see. The count is the footnote. */
-      label: 'Most used',
+      /* ⚠️ A NAME, NOT A COUNT — which is what the reference shows too, and the
+         more useful thing to see. The count is the footnote. */
+      label: 'Most used template',
       value: mostUsed?.name ?? 'None yet',
-      icon: 'star',
-      token: 'chart-2',
+      icon: 'trophy',
+      token: 'chart-6',
       footnote: mostUsed
-        ? `used ${mostUsed.usageCount} ${mostUsed.usageCount === 1 ? 'time' : 'times'}`
-        : 'no template has been run yet',
+        ? `Used ${mostUsed.usageCount} ${mostUsed.usageCount === 1 ? 'time' : 'times'}`
+        : 'No template has been run yet',
     },
     {
       key: 'custom',
       label: 'Custom templates',
-      value: String(custom),
-      icon: 'signature',
-      token: 'chart-3',
-      footnote: favourites > 0 ? `${favourites} starred by you` : 'yours and the team’s',
+      value: String(custom.length),
+      icon: 'edit',
+      token: 'chart-2',
+      footnote: delta(newCustomThisMonth, 'this month') ?? 'Built by the division',
     },
     {
       key: 'formats',
-      label: 'Export formats',
-      value: String(formats.length),
-      icon: 'pdf',
+      label: 'Supported formats',
+      value: String(offered.size),
+      icon: 'file',
       token: 'chart-1',
-      footnote: formats.map((f) => f.label).join(' and '),
+      /* Offered and writable are different facts; the card carries both. */
+      footnote: `${writable.map((f) => f.label).join(' and ')} write today`,
     },
     {
-      key: 'generated',
-      label: 'Reports generated',
-      value: String(reportsGenerated),
-      icon: 'pdf',
-      token: 'chart-6',
-      footnote: 'for this project, all time',
+      key: 'ai-blocks',
+      label: 'AI summary blocks',
+      value: String(insightBlockCount(templates)),
+      icon: 'sparkles',
+      token: 'chart-5',
+      footnote: 'Across all templates',
     },
     {
       key: 'recent',
-      label: 'Updated this week',
+      label: 'Recently updated',
       value: String(recent),
-      icon: 'calendar',
-      token: 'chart-5',
-      footnote: `${exportsTaken} ${exportsTaken === 1 ? 'export' : 'exports'} taken`,
+      icon: 'clock',
+      token: 'chart-8',
+      footnote: 'In the last 7 days',
     },
   ];
 }
@@ -622,6 +649,15 @@ export function scheduleState(
 
 export interface ExportRecord {
   readonly id: string;
+  /**
+   * Which template produced it, when that template still exists.
+   *
+   * ⚠️ NULLABLE, because 096 keeps the history when a custom template is
+   * deleted — `on delete set null` — and `templateName` is stored verbatim for
+   * exactly that case. The drawer uses this to find a template's last report;
+   * the table shows the name whether or not the row survives.
+   */
+  readonly templateId: string | null;
   readonly templateName: string;
   readonly format: 'pdf' | 'csv';
   readonly fileName: string;
@@ -640,4 +676,114 @@ export function fileSize(bytes: number | null): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/* ============================================================================
+ * THE SECTION VOCABULARY — migration 098
+ * ----------------------------------------------------------------------------
+ * ⚠️ THE KEYS ARE THE CONTRACT AND THE MIGRATION ASSERTS THEM. 098's self-check
+ * refuses to commit a template carrying a key that is not in its whitelist,
+ * because an unknown key does not fail loudly here — it silently drops a tick
+ * off a checklist somebody is reading before sending a client a report. Add a
+ * key in both places or in neither.
+ * ========================================================================= */
+
+export const SECTION_LABEL: Readonly<Record<string, string>> = {
+  masthead: 'Division masthead',
+  'top-line-metrics': 'Top line metrics',
+  'performance-overview': 'Performance overview',
+  'channel-breakdown': 'Channel breakdown',
+  'published-posts': 'Published posts',
+  'who-did-what': 'Who did what',
+  'platform-distribution': 'Platform distribution',
+  notes: 'What this report counts',
+  'key-insights': 'Key insights',
+  recommendations: 'Recommendations',
+  'executive-narrative': 'Executive narrative',
+  'trends-comparisons': 'Trends & comparisons',
+  'top-campaigns': 'Top campaigns',
+  'top-posts': 'Top performing posts',
+  'content-mix': 'Content mix',
+  'engagement-rate': 'Engagement rate',
+  'follower-growth': 'Follower growth',
+  'audience-mix': 'Audience breakdown',
+  'top-locations': 'Top locations',
+  'best-times': 'Best times to post',
+  'delivery-vs-promise': 'Delivery vs promise',
+  'account-health': 'Account health',
+  'sync-status': 'Sync status',
+  'task-columns': 'Task columns',
+  'workload-columns': 'Workload columns',
+  'metric-columns': 'Daily metric columns',
+  'post-columns': 'Post performance columns',
+};
+
+/**
+ * The sections whose content has to be WRITTEN rather than tabulated.
+ *
+ * ⚠️ THIS IS WHAT THE "AI SUMMARY BLOCKS" FIGURE COUNTS, and the count is real:
+ * the reference's own footnote reads "Across all templates", so the card is a
+ * total of these across the library. The reference prints 42 and the library
+ * currently holds 20 — the figure is data, and inflating it to match a mockup
+ * would make the one card on the page that cannot be checked also the one that
+ * is wrong.
+ *
+ * ⚠️ AND NOTHING WRITES THEM YET. `ReportContent`'s glance ticks are computed
+ * from columns and are commented "Facts only", because the single AI pass this
+ * feature ever had returned the client's name as "NAYA MARKITING". These keys
+ * are the brief for that work, not a claim that it is done.
+ */
+export const INSIGHT_SECTIONS: readonly string[] = [
+  'key-insights',
+  'recommendations',
+  'executive-narrative',
+];
+
+export function isInsightSection(key: string): boolean {
+  return INSIGHT_SECTIONS.includes(key);
+}
+
+export function sectionLabel(key: string): string {
+  /* Falls back to the key rather than to nothing: a missing label is a bug to
+     see, not a blank line to wonder about. */
+  return SECTION_LABEL[key] ?? key;
+}
+
+/** How many insight-written blocks the whole library declares. */
+export function insightBlockCount(templates: readonly ReportTemplate[]): number {
+  return templates.reduce(
+    (n, t) => n + t.sections.filter((s) => isInsightSection(s)).length,
+    0,
+  );
+}
+
+/* ---- The sample thumbnails ----------------------------------------------- */
+
+/**
+ * Which of the drawer's three preview tiles a template shows.
+ *
+ * ⚠️ CHOSEN FROM THE TEMPLATE'S OWN SECTIONS, so the thumbnails preview what the
+ * report will actually contain. The reference draws the same three tiles for
+ * every template, which would mean a CSV of task columns previewing a donut of
+ * channel share — a picture of a document that does not exist.
+ */
+export type PreviewBlock = 'overview' | 'channels' | 'campaigns' | 'growth' | 'columns';
+
+export function previewBlocks(template: ReportTemplate): readonly PreviewBlock[] {
+  const has = (k: string) => template.sections.includes(k);
+  const blocks: PreviewBlock[] = [];
+
+  if (has('performance-overview') || has('top-line-metrics')) blocks.push('overview');
+  if (has('channel-breakdown') || has('content-mix') || has('platform-distribution')) {
+    blocks.push('channels');
+  }
+  if (has('top-campaigns') || has('top-posts') || has('published-posts')) {
+    blocks.push('campaigns');
+  }
+  if (has('follower-growth') || has('trends-comparisons') || has('engagement-rate')) {
+    blocks.push('growth');
+  }
+  if (blocks.length === 0) blocks.push('columns');
+
+  return blocks.slice(0, 3);
 }

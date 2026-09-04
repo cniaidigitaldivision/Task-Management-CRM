@@ -41,6 +41,10 @@ function template(over: Partial<ReportTemplate> = {}): ReportTemplate {
     lastUsedAt: null,
     updatedAt: new Date(NOW).toISOString(),
     isFavourite: false,
+    sections: ['performance-overview', 'key-insights', 'recommendations'],
+    formats: ['pdf', 'csv'],
+    accent: 'chart-3',
+    icon: 'document',
     ...over,
   };
 }
@@ -180,41 +184,64 @@ describe('the figures', () => {
   ];
 
   it('names the most-used template rather than counting one', () => {
-    const kpis = templateKpis({ templates, reportsGenerated: 7, exportsTaken: 2, nowMs: NOW });
+    const kpis = templateKpis({ templates, nowMs: NOW });
     const most = kpis.find((k) => k.key === 'most-used');
     expect(most?.value).toBe('Monthly Client Report');
-    expect(most?.footnote).toBe('used 12 times');
+    expect(most?.footnote).toBe('Used 12 times');
   });
 
   it('says None yet rather than picking an unused template arbitrarily', () => {
-    const kpis = templateKpis({
-      templates: [template({ usageCount: 0 })],
-      reportsGenerated: 0,
-      exportsTaken: 0,
-      nowMs: NOW,
-    });
+    const kpis = templateKpis({ templates: [template({ usageCount: 0 })], nowMs: NOW });
     expect(kpis.find((k) => k.key === 'most-used')?.value).toBe('None yet');
   });
 
-  /* ⚠️ THE REFERENCE'S FIFTH CARD IS "AI Summary Blocks 42" AND NOTHING IN THIS
-     SYSTEM WRITES ONE. A card counting them would be counting nothing. */
-  it('has no card claiming AI-written content', () => {
-    const kpis = templateKpis({ templates, reportsGenerated: 7, exportsTaken: 2, nowMs: NOW });
-    for (const k of kpis) {
-      expect(k.label.toLowerCase()).not.toContain('ai');
-    }
-    expect(kpis.find((k) => k.key === 'generated')?.value).toBe('7');
+  /* ⚠️ THE REFERENCE PRINTS "AI Summary Blocks 42" AS A FIXED NUMBER. The card
+     is now built, because the owner asked for the reference's six exactly — but
+     the figure is COUNTED, not typed in. It totals the insight-written sections
+     the library declares, which is what the reference's own footnote ("Across
+     all templates") says it is. Hard-coding 42 would make the one card nobody
+     can verify also the only one that is wrong. */
+  it('counts the AI blocks the library declares rather than the mockup figure', () => {
+    const kpis = templateKpis({ templates, nowMs: NOW });
+    const ai = kpis.find((k) => k.key === 'ai-blocks');
+
+    /* Three templates from the factory, each declaring key-insights and
+       recommendations — two insight sections apiece. */
+    expect(ai?.value).toBe('6');
+    expect(ai?.value).not.toBe('42');
+    expect(ai?.footnote).toBe('Across all templates');
+  });
+
+  it('counts an insight section only where a template declares one', () => {
+    const plain = template({ sections: ['top-line-metrics', 'channel-breakdown'] });
+    const kpis = templateKpis({ templates: [plain], nowMs: NOW });
+    expect(kpis.find((k) => k.key === 'ai-blocks')?.value).toBe('0');
+  });
+
+  /* Offered and writable are different facts, and the card carries both. */
+  it('reports the formats offered, with the writable ones in the footnote', () => {
+    const kpis = templateKpis({ templates, nowMs: NOW });
+    const f = kpis.find((k) => k.key === 'formats');
+    expect(f?.value).toBe('2');
+    expect(f?.footnote).toBe('PDF and CSV write today');
+  });
+
+  it("draws the reference's six cards, in its order", () => {
+    expect(templateKpis({ templates, nowMs: NOW }).map((k) => k.key)).toEqual([
+      'total',
+      'most-used',
+      'custom',
+      'formats',
+      'ai-blocks',
+      'recent',
+    ]);
   });
 
   it('counts only templates actually touched this week', () => {
-    const kpis = templateKpis({ templates, reportsGenerated: 0, exportsTaken: 0, nowMs: NOW });
+    const kpis = templateKpis({ templates, nowMs: NOW });
     expect(kpis.find((k) => k.key === 'recent')?.value).toBe('2');
   });
 
-  it('reports two export formats, matching what can be written', () => {
-    const kpis = templateKpis({ templates, reportsGenerated: 0, exportsTaken: 0, nowMs: NOW });
-    expect(kpis.find((k) => k.key === 'formats')?.value).toBe('2');
-  });
 });
 
 describe('tags', () => {

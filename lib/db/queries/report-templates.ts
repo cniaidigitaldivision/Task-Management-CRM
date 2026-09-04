@@ -55,6 +55,15 @@ function toTemplate(row: Record<string, unknown>): ReportTemplate {
       : isoText(row.last_used_at),
     updatedAt: isoText(row.updated_at),
     isFavourite: Boolean(row.is_favourite),
+    /* ⚠️ `text[]` COMES BACK AS A REAL JS ARRAY from postgres.js, but the
+       fallback matters: a template inserted before migration 098 has the column
+       default rather than null, and a row read through a narrower select would
+       have neither. An undefined `sections` reaching the drawer renders as a
+       crash on `.filter`, not as an empty checklist. */
+    sections: Array.isArray(row.sections) ? (row.sections as string[]) : [],
+    formats: Array.isArray(row.formats) ? (row.formats as string[]) : [],
+    accent: (row.accent as string | null) ?? 'chart-4',
+    icon: (row.icon as string | null) ?? 'document',
   };
 }
 
@@ -271,6 +280,7 @@ export async function deleteSchedule(actorId: string, scheduleId: string): Promi
 function toExport(row: Record<string, unknown>): ExportRecord {
   return {
     id: row.id as string,
+    templateId: (row.template_id as string | null) ?? null,
     templateName: row.template_name as string,
     format: row.format as 'pdf' | 'csv',
     fileName: row.file_name as string,
@@ -329,33 +339,4 @@ export async function recordExport(
               ${actorId}::uuid)
     `,
   );
-}
-
-/* ---- The tab's two counters ---------------------------------------------- */
-
-/**
- * How many reports and exports this project has, for the KPI row.
- *
- * ⚠️ ONE ROUND TRIP FOR BOTH. Two counts from two tables is the textbook reason
- * to write two queries and the textbook way to double a page's latency for
- * nothing — the same single-pass shape `taskTotals` uses.
- */
-export async function reportCountsForProject(
-  actorId: string,
-  projectId: string,
-): Promise<{ readonly reportsGenerated: number; readonly exportsTaken: number }> {
-  return withUser(actorId, async (tx) => {
-    const rows = await tx`
-      select
-        (select count(*) from public.project_reports where project_id = ${projectId}::uuid)
-          as reports_generated,
-        (select count(*) from public.report_exports
-          where project_id = ${projectId}::uuid and status = 'ready')
-          as exports_taken
-    `;
-    return {
-      reportsGenerated: Number(rows[0]?.reports_generated ?? 0),
-      exportsTaken: Number(rows[0]?.exports_taken ?? 0),
-    };
-  });
 }

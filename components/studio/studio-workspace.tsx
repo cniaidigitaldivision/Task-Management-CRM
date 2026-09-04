@@ -76,7 +76,6 @@ export function StudioWorkspace({
   schedules,
   exports: exportRows,
   reports,
-  reportCounts,
   todayKarachi,
   canSchedule,
 }: {
@@ -100,7 +99,6 @@ export function StudioWorkspace({
   schedules: readonly ReportSchedule[];
   exports: readonly ExportRecord[];
   reports: readonly GeneratedReport[];
-  reportCounts: { readonly reportsGenerated: number; readonly exportsTaken: number };
   /** Today in Karachi, from the server — so "Overdue" cannot disagree. */
   todayKarachi: string;
   canSchedule: boolean;
@@ -277,8 +275,6 @@ export function StudioWorkspace({
           schedules={schedules}
           exports={exportRows}
           reports={reports}
-          reportsGenerated={reportCounts.reportsGenerated}
-          exportsTaken={reportCounts.exportsTaken}
           todayKarachi={todayKarachi}
           nowMs={nowMs}
           canSchedule={canSchedule}

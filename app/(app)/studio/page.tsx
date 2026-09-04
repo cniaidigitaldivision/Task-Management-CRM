@@ -16,7 +16,6 @@ import { listProjectReports } from '@/lib/db/queries/report-files';
 import {
   exportsForProject,
   listReportTemplates,
-  reportCountsForProject,
   schedulesForProject,
 } from '@/lib/db/queries/report-templates';
 import { previousPeriod } from '@/lib/domain/meta-studio';
@@ -109,7 +108,6 @@ export default async function StudioPage({
         listReportTemplates(user.id),
         schedulesForProject(user.id, selected.id),
         exportsForProject(user.id, selected.id),
-        reportCountsForProject(user.id, selected.id),
         listProjectReports(user.id, selected.id, 40),
       ])
     : null;
@@ -140,13 +138,12 @@ export default async function StudioPage({
       templates={data?.[8] ?? []}
       schedules={data?.[9] ?? []}
       exports={data?.[10] ?? []}
-      reportCounts={data?.[11] ?? { reportsGenerated: 0, exportsTaken: 0 }}
       /* ⚠️ NARROWED TO WHAT THE TAB SHOWS. `ReportFileRow` carries the whole
          stored `ReportContent` and the figures behind it — kilobytes per row,
          forty rows — and every byte of a server component's props is serialised
          into the HTML. Payload size is where this application's slowness has
          actually been, twice. The tab needs five fields. */
-      reports={(data?.[12] ?? []).map((r) => ({
+      reports={(data?.[11] ?? []).map((r) => ({
         id: r.id,
         kind: r.kind,
         periodLabel: r.periodLabel,

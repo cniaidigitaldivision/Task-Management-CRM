@@ -3,33 +3,40 @@
 import * as React from 'react';
 import {
   AlertTriangle,
+  ArrowRight,
   BarChart3,
   CalendarClock,
-  CalendarRange,
+  CalendarDays,
+  Check,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
   Download,
   ExternalLink,
-  FileSpreadsheet,
+  Eye,
   FileText,
-  Filter,
-  Grid2x2Check,
+  Gauge,
+  History,
   Image as ImageIcon,
   Layers,
-  Link2,
-  ListChecks,
   Loader2,
+  MoreVertical,
   Pause,
   Play,
   Plus,
   RotateCcw,
-  ScrollText,
   Search,
+  ShieldCheck,
   Signature,
   Sparkles,
+  SquarePen,
   Star,
   Table as TableIcon,
   Target,
   Trash2,
+  TrendingUp,
+  Trophy,
   Users,
   X,
 } from 'lucide-react';
@@ -43,27 +50,28 @@ import {
   setScheduleActiveAction,
   toggleTemplateFavouriteAction,
 } from '@/app/actions/report-templates';
+import { FILE_TYPE_MARKS, FileTypeIcon } from '@/components/brand/file-type-icon';
+import { FILE_TYPE_ORDER } from '@/lib/brand/file-type-marks';
 import {
   CADENCES,
   CADENCE_LABEL,
-  CATEGORY_ICON,
   CATEGORY_LABEL,
-  CATEGORY_TOKEN,
   EMPTY_FILTER,
-  EXPORT_FORMATS,
   PERIOD_TAG,
   TEMPLATE_CATEGORIES,
   fileSize,
   filterActive,
   filterTemplates,
+  isInsightSection,
+  previewBlocks,
   scheduleState,
+  sectionLabel,
   sortTemplates,
   templateKpis,
   templateMeta,
-  templateSections,
-  templateTags,
   type Cadence,
   type ExportRecord,
+  type PreviewBlock,
   type ReportSchedule,
   type ReportTemplate,
   type TemplateFilter,
@@ -71,59 +79,57 @@ import {
 import { REPORT_KINDS, REPORT_KIND_LABEL } from '@/lib/domain/report-periods';
 import { cn } from '@/lib/utils';
 
-import { KpiCard, Panel, PanelEmpty } from './panels';
+import { Panel, PanelEmpty } from './panels';
 import { useInView } from './use-in-view';
 
 /* ============================================================================
- * REPORTS & EXPORTS — built to the owner's reference, 2026-09-04
+ * REPORTS & EXPORTS — the owner's reference, 2026-09-04
  * ----------------------------------------------------------------------------
- * *"I want the exact same UI for the Report and Export page. Plus everything
- * should be working and live data will be added. Put everything in logically and
- * make it work."*
+ * *"I want the UI to be exactly the same, beautiful, sleek, and interactive…
+ * exact icons, exact colors, exact spacing, exact sleekness… I'm not talking
+ * about the template or the generated file being exactly the same. Right now I'm
+ * focusing on the UI."*
  *
- * Every figure, card and row below comes from the database. There is no sample
- * data on this tab.
+ * So the layout is the reference's, down to the drawer, and every template's
+ * button produces a real file — while the DIFFERING per-template layouts are
+ * later work, with `sections` (migration 098) as their brief.
  *
- * ── ⚠️ THREE PLACES THE REFERENCE ASSERTS SOMETHING THIS SYSTEM CANNOT DO ───
- * Each is drawn, and each tells the truth instead of the drawing:
+ * ── ⚠️ THE TWO COLUMNS ARE ONE GRID ROW, NOT TWO STACKS ────────────────────
+ * *"Make sure that the left-hand side and right-hand side are equal so that it
+ * looks better."* The grid row makes both columns the height of the taller, and
+ * the drawer is `sticky` inside its own column so it stays beside the grid while
+ * the page scrolls. Matching them by hand would break at every card count.
  *
- *   "Supported Formats · 5" and a row of PDF/Excel/PPT/CSV/Slides
- *       Two writers exist. All five are LISTED, because somebody asked for
- *       them and a short row looks like an unfinished page — but the three
- *       without a writer are disabled and carry the reason. A live button that
- *       produces nothing is the only genuinely bad option of the three.
- *
- *   "AI Summary Blocks · 42"
- *       Nothing here writes an AI summary. The one AI pass this feature ever
- *       had drew the client's name as "NAYA MARKITING", which is why the whole
- *       thing is typeset now. That slot holds reports actually generated.
- *
- *   "Sections Included ✓ ✓ ✓"
- *       Read-only, and `templateSections` explains why: the composers draw the
- *       owner's layouts at FIXED geometry. Ticking a box off would leave a hole
- *       in the page, not reflow it. So the drawer DESCRIBES the layout — which
- *       is the fact somebody needs when choosing between two templates anyway.
+ * ── ⚠️ WHERE A FIGURE DISAGREES WITH THE MOCKUP, THE FIGURE IS COUNTED ─────
+ * "AI Summary Blocks 42" reads the real total of insight-written sections the
+ * library declares; the reference's own footnote says "Across all templates",
+ * so that is what it counts. See `templateKpis` — the reasoning and its test are
+ * both in the domain layer.
  * ========================================================================= */
 
-const PAGE_SIZE = 6;
-
-/** The one map from the domain's icon keys to marks — see CATEGORY_ICON. */
+/** The one map from a domain icon key to a mark — keys live in migration 098. */
 const ICONS: Readonly<Record<string, typeof FileText>> = {
+  document: FileText,
+  'calendar-day': CalendarDays,
+  history: History,
   chart: BarChart3,
-  image: ImageIcon,
-  checks: ListChecks,
-  users: Users,
+  client: Users,
   signature: Signature,
   table: TableIcon,
+  people: Users,
+  pulse: Gauge,
+  image: ImageIcon,
+  shield: ShieldCheck,
+  presentation: Layers,
+  play: Play,
+  trophy: Trophy,
+  growth: TrendingUp,
+  compare: BarChart3,
   target: Target,
-  calendar: CalendarRange,
-  marks: Grid2x2Check,
-  link: Link2,
-  notes: ScrollText,
-  pdf: FileText,
-  sheet: FileSpreadsheet,
-  layers: Layers,
-  star: Star,
+  edit: SquarePen,
+  file: FileText,
+  sparkles: Sparkles,
+  clock: Clock,
 };
 
 function Mark({ name, className }: { name: string; className?: string }) {
@@ -149,6 +155,8 @@ const SUB_TABS: readonly { key: SubTab; label: string }[] = [
   { key: 'library', label: 'Report Templates Library' },
 ];
 
+const PAGE_SIZES = [8, 12, 24] as const;
+
 export function ReportsExports({
   projectId,
   projectName,
@@ -156,8 +164,6 @@ export function ReportsExports({
   schedules,
   exports: exportRows,
   reports,
-  reportsGenerated,
-  exportsTaken,
   todayKarachi,
   nowMs,
   canSchedule,
@@ -168,8 +174,6 @@ export function ReportsExports({
   schedules: readonly ReportSchedule[];
   exports: readonly ExportRecord[];
   reports: readonly GeneratedReport[];
-  reportsGenerated: number;
-  exportsTaken: number;
   /** Today in Karachi — the server's answer, so "Overdue" cannot disagree. */
   todayKarachi: string;
   nowMs: number;
@@ -178,15 +182,13 @@ export function ReportsExports({
   const [tab, setTab] = React.useState<SubTab>('library');
   const [filter, setFilter] = React.useState<TemplateFilter>(EMPTY_FILTER);
   const [page, setPage] = React.useState(0);
+  const [perPage, setPerPage] = React.useState<number>(8);
   const [openId, setOpenId] = React.useState<string | null>(null);
   const [creating, setCreating] = React.useState(false);
   const [busyId, setBusyId] = React.useState<string | null>(null);
   const [toast, setToast] = React.useState<{ tone: 'ok' | 'bad'; text: string } | null>(null);
 
-  const kpis = React.useMemo(
-    () => templateKpis({ templates, reportsGenerated, exportsTaken, nowMs }),
-    [templates, reportsGenerated, exportsTaken, nowMs],
-  );
+  const kpis = React.useMemo(() => templateKpis({ templates, nowMs }), [templates, nowMs]);
 
   const matched = React.useMemo(
     () => sortTemplates(filterTemplates(templates, filter)),
@@ -195,20 +197,22 @@ export function ReportsExports({
 
   /* ⚠️ THE PAGE IS CLAMPED RATHER THAN RESET IN AN EFFECT. Narrowing a filter
      while on page 3 must not show an empty grid, and `set-state-in-effect` is
-     lint-refused here for good reason — deriving it costs nothing and cannot
+     lint-refused here for good reason — deriving costs nothing and cannot
      produce the one-render flash an effect would. */
-  const pageCount = Math.max(1, Math.ceil(matched.length / PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(matched.length / perPage));
   const current = Math.min(page, pageCount - 1);
-  const shown = matched.slice(current * PAGE_SIZE, current * PAGE_SIZE + PAGE_SIZE);
+  const shown = matched.slice(current * perPage, current * perPage + perPage);
 
+  /* ⚠️ RESOLVED FROM `templates` EVERY RENDER, not held as an object in state.
+     A stored copy would keep showing "Used 12 times" after a run bumped it to
+     13 — the drawer and the card behind it would disagree about the same row. */
   const open = openId ? (templates.find((t) => t.id === openId) ?? null) : null;
 
   const say = (tone: 'ok' | 'bad', text: string) => {
     setToast({ tone, text });
-    window.setTimeout(() => setToast(null), 6000);
+    window.setTimeout(() => setToast(null), 7000);
   };
 
-  /* ── Running a template ─────────────────────────────────────────────────── */
   const run = React.useCallback(
     async (template: ReportTemplate) => {
       setBusyId(template.id);
@@ -222,8 +226,8 @@ export function ReportsExports({
         if (r.csv && r.fileName) {
           /* ⚠️ A BLOB AND AN ANCHOR, NOT A DATA URI. A CSV of five thousand
              tasks exceeds what several browsers accept in a `data:` URL and
-             fails silently — no error, no file. `revokeObjectURL` afterwards,
-             or every export leaks its bytes for the life of the tab. */
+             fails silently — no error, no file. Revoked afterwards, or every
+             export leaks its bytes for the life of the tab. */
           const url = URL.createObjectURL(new Blob([r.csv], { type: 'text/csv;charset=utf-8' }));
           const a = document.createElement('a');
           a.href = url;
@@ -249,57 +253,44 @@ export function ReportsExports({
 
   return (
     <div className="space-y-3">
-      {/* ── The six figures ─────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
-        {kpis.map((k, i) => (
-          <KpiCard
-            key={k.key}
-            index={i}
-            data={{
-              key: k.key,
-              label: k.label,
-              value: k.value,
-              /* ⚠️ "Most used" holds a TEMPLATE NAME. At the numeric size it set
-                 its own card three lines tall and left the row ragged. */
-              textValue: k.key === 'most-used',
-              icon: ICONS[k.icon] ?? FileText,
-              token: k.token,
-              footnote: k.footnote,
-            }}
-          />
-        ))}
-      </div>
-
       {/* ── Sub-tabs ───────────────────────────────────────────────────── */}
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="flex flex-wrap rounded-lg bg-bg-subtle p-0.5">
-          {SUB_TABS.map((t) => {
-            const count =
-              t.key === 'reports'
-                ? reports.length
-                : t.key === 'scheduled'
-                  ? schedules.length
-                  : t.key === 'history'
-                    ? exportRows.length
-                    : templates.length;
-            return (
-              <button
-                key={t.key}
-                type="button"
-                onClick={() => setTab(t.key)}
+      <div className="flex flex-wrap items-center gap-1 border-b border-border-subtle">
+        {SUB_TABS.map((t) => {
+          const count =
+            t.key === 'reports'
+              ? reports.length
+              : t.key === 'scheduled'
+                ? schedules.length
+                : t.key === 'history'
+                  ? exportRows.length
+                  : templates.length;
+          return (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => setTab(t.key)}
+              className={cn(
+                'relative inline-flex items-center gap-1.5 px-3 py-2.5 text-caption transition-colors',
+                tab === t.key
+                  ? 'font-semibold text-text-primary'
+                  : 'text-text-secondary hover:text-text-primary',
+              )}
+            >
+              {t.label}
+              <span
                 className={cn(
-                  'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-micro transition-all duration-200',
-                  tab === t.key
-                    ? 'bg-bg-surface font-semibold text-text-primary shadow-[0_1px_2px_rgb(6_35_42_/_0.08)]'
-                    : 'text-text-secondary hover:text-text-primary',
+                  'rounded-full px-1.5 py-px text-[0.58rem] font-bold tabular-nums',
+                  tab === t.key ? 'bg-bg-subtle text-text-secondary' : 'text-text-tertiary',
                 )}
               >
-                {t.label}
-                <span className="tabular-nums text-text-tertiary">{count}</span>
-              </button>
-            );
-          })}
-        </div>
+                {count}
+              </span>
+              {tab === t.key && (
+                <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-accent-primary" />
+              )}
+            </button>
+          );
+        })}
       </div>
 
       {toast && (
@@ -312,15 +303,21 @@ export function ReportsExports({
           }}
         >
           {toast.tone === 'ok' ? (
-            <CheckCircle2 className="mt-px size-3.5 shrink-0" style={{ color: 'var(--feedback-success)' }} />
+            <CheckCircle2
+              className="mt-px size-3.5 shrink-0"
+              style={{ color: 'var(--feedback-success)' }}
+            />
           ) : (
-            <AlertTriangle className="mt-px size-3.5 shrink-0" style={{ color: 'var(--feedback-error)' }} />
+            <AlertTriangle
+              className="mt-px size-3.5 shrink-0"
+              style={{ color: 'var(--feedback-error)' }}
+            />
           )}
-          <span className="text-micro text-text-primary">{toast.text}</span>
+          <span className="min-w-0 flex-1 text-micro text-text-primary">{toast.text}</span>
           <button
             type="button"
             onClick={() => setToast(null)}
-            className="ml-auto text-text-tertiary hover:text-text-primary"
+            className="text-text-tertiary hover:text-text-primary"
             aria-label="Dismiss"
           >
             <X className="size-3.5" />
@@ -329,24 +326,43 @@ export function ReportsExports({
       )}
 
       {tab === 'library' ? (
-        <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_20rem]">
-          <div className="min-w-0 space-y-3">
+        /* ⚠️ ONE GRID ROW, AND NO `items-start`. Owner: *"Make sure that the
+           left-hand side and right-hand side are equal."* A grid row stretches
+           both columns to the height of the taller one by default —
+           `items-start` would have collapsed the drawer to its content and left
+           the mismatch the owner is looking at. The drawer then pins its actions
+           to the bottom with `mt-auto`, so the slack lands between the content
+           and the buttons rather than as a gap below them. */
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_21rem]">
+          <div className="min-w-0">
+            <h2 className="text-h3 font-semibold text-text-primary">Report Templates Library</h2>
+            <p className="mt-1 text-caption text-text-secondary">
+              Pre-built report templates for Meta performance analysis.
+            </p>
+
+            {/* ── The six figures ───────────────────────────────────────── */}
+            <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
+              {kpis.map((k, i) => (
+                <LibraryKpi key={k.key} kpi={k} index={i} />
+              ))}
+            </div>
+
             <FilterBar
               filter={filter}
               onChange={(f) => {
                 setFilter(f);
                 setPage(0);
               }}
-              matched={matched.length}
-              total={templates.length}
             />
 
             {shown.length === 0 ? (
-              <PanelEmpty>
-                Nothing matches those filters. {templates.length} templates exist.
-              </PanelEmpty>
+              <div className="mt-3">
+                <PanelEmpty>
+                  Nothing matches those filters. {templates.length} templates exist.
+                </PanelEmpty>
+              </div>
             ) : (
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
                 {shown.map((t, i) => (
                   <TemplateCard
                     key={t.id}
@@ -354,10 +370,15 @@ export function ReportsExports({
                     index={i}
                     active={openId === t.id}
                     busy={busyId === t.id}
-                    onOpen={() => setOpenId(t.id === openId ? null : t.id)}
+                    onOpen={() => setOpenId(t.id)}
                     onRun={() => void run(t)}
                     onStar={async () => {
                       await toggleTemplateFavouriteAction(t.id);
+                    }}
+                    onDelete={async () => {
+                      const r = await deleteCustomTemplateAction(t.id);
+                      say(r.ok ? 'ok' : 'bad', r.ok ? `${t.name} removed.` : (r.error ?? ''));
+                      if (r.ok && openId === t.id) setOpenId(null);
                     }}
                   />
                 ))}
@@ -367,70 +388,114 @@ export function ReportsExports({
                   <button
                     type="button"
                     onClick={() => setCreating(true)}
-                    className="group flex min-h-[13rem] flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-border-default bg-bg-surface p-4 text-center transition-colors hover:border-accent-primary hover:bg-bg-subtle"
+                    className="group flex min-h-[13.5rem] flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-border-default bg-bg-surface p-4 text-center transition-colors hover:border-accent-primary hover:bg-bg-subtle"
                   >
-                    <span className="grid size-10 place-items-center rounded-full bg-bg-subtle transition-transform group-hover:scale-110">
+                    <span className="grid size-11 place-items-center rounded-full bg-bg-subtle transition-transform group-hover:scale-110">
                       <Plus className="size-5 text-text-secondary" aria-hidden="true" />
                     </span>
                     <span className="text-body-sm font-semibold text-text-primary">
-                      Create custom template
+                      Create Custom Template
                     </span>
-                    <span className="max-w-[16rem] text-caption text-text-tertiary">
-                      Name a preset over one of the generators, and it appears here for
-                      everyone.
+                    <span className="max-w-[14rem] text-[0.65rem] leading-snug text-text-tertiary">
+                      Build your own preset over one of the report generators.
+                    </span>
+                    <span
+                      className="mt-1 rounded-lg border px-3 py-1.5 text-micro font-semibold"
+                      style={{
+                        borderColor: 'color-mix(in oklab, var(--accent-primary) 40%, transparent)',
+                        color: 'var(--accent-primary)',
+                      }}
+                    >
+                      Create New
                     </span>
                   </button>
                 )}
               </div>
             )}
 
-            {pageCount > 1 && (
-              <div className="flex items-center justify-center gap-1.5">
-                <button
-                  type="button"
-                  disabled={current === 0}
-                  onClick={() => setPage(current - 1)}
-                  className="rounded-lg border border-border-subtle px-2.5 py-1 text-micro text-text-secondary transition-colors hover:bg-bg-subtle disabled:cursor-not-allowed disabled:opacity-40"
+            {/* ── Pagination ────────────────────────────────────────────── */}
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+              <p className="text-caption text-text-tertiary">
+                {matched.length === 0
+                  ? 'No templates'
+                  : `Showing ${current * perPage + 1} to ${Math.min(matched.length, current * perPage + perPage)} of ${matched.length} templates`}
+              </p>
+
+              <div className="flex items-center gap-2">
+                {pageCount > 1 && (
+                  <div className="flex items-center gap-1">
+                    <PageButton
+                      disabled={current === 0}
+                      onClick={() => setPage(current - 1)}
+                      label="Previous page"
+                    >
+                      <ChevronLeft className="size-3.5" />
+                    </PageButton>
+                    {Array.from({ length: pageCount }, (_, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => setPage(i)}
+                        aria-current={i === current ? 'page' : undefined}
+                        className={cn(
+                          'size-7 rounded-lg text-micro font-medium tabular-nums transition-colors',
+                          i === current
+                            ? 'font-semibold text-accent-foreground'
+                            : 'border border-border-subtle text-text-secondary hover:bg-bg-subtle',
+                        )}
+                        style={
+                          i === current ? { backgroundColor: 'var(--accent-primary)' } : undefined
+                        }
+                      >
+                        {i + 1}
+                      </button>
+                    ))}
+                    <PageButton
+                      disabled={current >= pageCount - 1}
+                      onClick={() => setPage(current + 1)}
+                      label="Next page"
+                    >
+                      <ChevronRight className="size-3.5" />
+                    </PageButton>
+                  </div>
+                )}
+
+                <select
+                  aria-label="Templates per page"
+                  value={perPage}
+                  onChange={(e) => {
+                    setPerPage(Number(e.target.value));
+                    setPage(0);
+                  }}
+                  className="rounded-lg border border-border-subtle bg-bg-surface px-2 py-1.5 text-micro text-text-secondary transition-colors hover:border-border-default"
                 >
-                  Previous
-                </button>
-                {Array.from({ length: pageCount }, (_, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    onClick={() => setPage(i)}
-                    aria-current={i === current ? 'page' : undefined}
-                    className={cn(
-                      'size-7 rounded-lg text-micro tabular-nums transition-colors',
-                      i === current
-                        ? 'font-semibold text-accent-foreground'
-                        : 'border border-border-subtle text-text-secondary hover:bg-bg-subtle',
-                    )}
-                    style={i === current ? { backgroundColor: 'var(--accent-primary)' } : undefined}
-                  >
-                    {i + 1}
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  disabled={current >= pageCount - 1}
-                  onClick={() => setPage(current + 1)}
-                  className="rounded-lg border border-border-subtle px-2.5 py-1 text-micro text-text-secondary transition-colors hover:bg-bg-subtle disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  Next
-                </button>
+                  {PAGE_SIZES.map((n) => (
+                    <option key={n} value={n}>
+                      {n} per page
+                    </option>
+                  ))}
+                </select>
               </div>
-            )}
+            </div>
           </div>
 
-          {/* ── The detail drawer ──────────────────────────────────────── */}
-          <aside className="space-y-3">
+          {/* ── The drawer ─────────────────────────────────────────────── */}
+          <aside className="min-w-0">
             {open ? (
-              <TemplateDetail
+              <TemplateDrawer
                 template={open}
                 projectName={projectName}
                 busy={busyId === open.id}
                 canSchedule={canSchedule}
+                /* ⚠️ THE LAST REPORT THIS TEMPLATE ACTUALLY PRODUCED, from the
+                   export history — which is why that history carries both
+                   `template_id` and `report_id`. `exportRows` is newest first,
+                   so the first match is the most recent. */
+                lastReportId={
+                  exportRows.find(
+                    (e) => e.templateId === open.id && e.status === 'ready' && e.reportId,
+                  )?.reportId ?? null
+                }
                 onRun={() => void run(open)}
                 onClose={() => setOpenId(null)}
                 onSchedule={async (cadence) => {
@@ -447,46 +512,28 @@ export function ReportsExports({
                   );
                   if (r.ok) setTab('scheduled');
                 }}
-                onDelete={async () => {
-                  const r = await deleteCustomTemplateAction(open.id);
-                  say(r.ok ? 'ok' : 'bad', r.ok ? `${open.name} removed.` : (r.error ?? ''));
-                  if (r.ok) setOpenId(null);
-                }}
               />
             ) : (
-              <Panel title="Pick a template">
-                <p className="text-micro leading-relaxed text-text-secondary">
-                  Choose one on the left to see what its output contains, which formats it
-                  writes, and to run it against{' '}
+              <Panel title="Pick a template" className="h-full">
+                <p className="text-caption leading-relaxed text-text-secondary">
+                  Choose one on the left to see the sections its report contains, a preview of
+                  its blocks, and the formats it offers — then run it against{' '}
                   <strong className="font-semibold text-text-primary">{projectName}</strong>.
                 </p>
-                <ul className="mt-3 space-y-2 border-t border-border-subtle pt-3">
-                  {EXPORT_FORMATS.map((f) => (
-                    <li key={f.key} className="flex items-start gap-2">
-                      <Mark
-                        name={f.icon}
-                        className={cn(
-                          'mt-px size-3.5 shrink-0',
-                          f.available ? 'text-text-secondary' : 'text-text-tertiary',
-                        )}
-                      />
-                      <span className="min-w-0">
-                        <span
-                          className={cn(
-                            'text-micro font-semibold',
-                            f.available ? 'text-text-primary' : 'text-text-tertiary',
-                          )}
-                        >
-                          {f.label}
-                          {!f.available && ' — not available'}
-                        </span>
-                        <span className="block text-[0.62rem] leading-snug text-text-tertiary">
-                          {f.reason}
-                        </span>
+                <div className="mt-3 grid grid-cols-5 gap-1.5 border-t border-border-subtle pt-3">
+                  {FILE_TYPE_ORDER.map((key) => (
+                    <span
+                      key={key}
+                      title={FILE_TYPE_MARKS[key].note}
+                      className="flex cursor-help flex-col items-center gap-1 rounded-lg border border-border-subtle px-1 py-2"
+                    >
+                      <FileTypeIcon type={key} size={20} />
+                      <span className="text-center text-[0.55rem] font-semibold leading-tight text-text-secondary">
+                        {FILE_TYPE_MARKS[key].label}
                       </span>
-                    </li>
+                    </span>
                   ))}
-                </ul>
+                </div>
               </Panel>
             )}
           </aside>
@@ -525,115 +572,187 @@ export function ReportsExports({
   );
 }
 
+/* ---- The KPI card ------------------------------------------------------- */
+
+/**
+ * ⚠️ NOT `KpiCard` FROM panels.tsx, AND THE DIFFERENCE IS THE POINT. That one is
+ * built for a measured quantity — a big tabular figure, a sparkline, a count-up.
+ * The reference's cards here are a small icon chip beside a compact figure, and
+ * one of them holds a TEMPLATE NAME rather than a number. Reusing the Studio's
+ * card would either stretch these to twice the height or force `textValue` on
+ * half of them. Same tokens, different instrument.
+ */
+function LibraryKpi({
+  kpi,
+  index,
+}: {
+  kpi: { key: string; label: string; value: string; icon: string; token: string; footnote: string };
+  index: number;
+}) {
+  const { ref, inView } = useInView<HTMLDivElement>();
+  const isName = kpi.key === 'most-used';
+
+  return (
+    <div
+      ref={ref}
+      className={cn(
+        'studio-reveal rounded-xl border border-border-subtle bg-bg-surface p-3 transition-all duration-300 hover:-translate-y-px hover:shadow-[0_6px_18px_rgb(6_35_42_/_0.08)]',
+        'motion-safe:animate-[studio-rise_560ms_cubic-bezier(0.16,1,0.3,1)_backwards]',
+        inView && 'is-visible',
+      )}
+      style={{ animationDelay: `${index * 60}ms` }}
+    >
+      <div className="flex items-center gap-2">
+        <span
+          className="grid size-8 shrink-0 place-items-center rounded-[10px]"
+          style={{ backgroundColor: `var(--${kpi.token}-wash)` }}
+        >
+          <Mark name={kpi.icon} className="size-4" />
+        </span>
+        <p className="min-w-0 flex-1 text-[0.62rem] font-medium leading-tight text-text-secondary">
+          {kpi.label}
+        </p>
+      </div>
+
+      <p
+        className={cn(
+          'mt-1.5 font-bold text-text-primary',
+          isName ? 'line-clamp-2 text-body-sm leading-tight' : 'text-h2 leading-none tabular-nums',
+        )}
+        title={isName ? kpi.value : undefined}
+      >
+        {kpi.value}
+      </p>
+
+      <p className="mt-1 truncate text-[0.6rem] text-text-tertiary">{kpi.footnote}</p>
+    </div>
+  );
+}
+
+function PageButton({
+  disabled,
+  onClick,
+  label,
+  children,
+}: {
+  disabled: boolean;
+  onClick: () => void;
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      aria-label={label}
+      className="grid size-7 place-items-center rounded-lg border border-border-subtle text-text-secondary transition-colors hover:bg-bg-subtle disabled:cursor-not-allowed disabled:opacity-40"
+    >
+      {children}
+    </button>
+  );
+}
+
 /* ---- Filter bar ---------------------------------------------------------- */
 
 function FilterBar({
   filter,
   onChange,
-  matched,
-  total,
 }: {
   filter: TemplateFilter;
   onChange: (f: TemplateFilter) => void;
-  matched: number;
-  total: number;
 }) {
   return (
-    <div className="rounded-xl border border-border-subtle bg-bg-surface p-2.5">
-      <div className="flex flex-wrap items-center gap-2">
-        <label className="relative min-w-[12rem] flex-1">
-          <Search
-            className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-text-tertiary"
-            aria-hidden="true"
-          />
-          <input
-            type="search"
-            value={filter.query}
-            onChange={(e) => onChange({ ...filter, query: e.target.value })}
-            placeholder="Search templates…"
-            aria-label="Search templates"
-            className="w-full rounded-lg border border-border-subtle bg-bg-base py-1.5 pl-8 pr-2.5 text-micro text-text-primary placeholder:text-text-tertiary focus:border-accent-primary focus:outline-none"
-          />
-        </label>
-
-        <Select
-          label="Category"
-          value={filter.category}
-          onChange={(v) => onChange({ ...filter, category: v as TemplateFilter['category'] })}
-          options={[
-            { value: 'all', label: 'All categories' },
-            ...TEMPLATE_CATEGORIES.map((c) => ({ value: c, label: CATEGORY_LABEL[c] })),
-          ]}
+    <div className="mt-3 flex flex-wrap items-center gap-2">
+      <label className="relative min-w-[11rem] flex-1 sm:max-w-[16rem]">
+        <Search
+          className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-text-tertiary"
+          aria-hidden="true"
         />
-
-        <Select
-          label="Format"
-          value={filter.format}
-          onChange={(v) => onChange({ ...filter, format: v as TemplateFilter['format'] })}
-          options={[
-            { value: 'all', label: 'All formats' },
-            { value: 'pdf', label: 'PDF' },
-            { value: 'csv', label: 'CSV' },
-          ]}
+        <input
+          type="search"
+          value={filter.query}
+          onChange={(e) => onChange({ ...filter, query: e.target.value })}
+          placeholder="Search templates…"
+          aria-label="Search templates"
+          className="w-full rounded-lg border border-border-subtle bg-bg-surface py-2 pl-8 pr-2.5 text-micro text-text-primary placeholder:text-text-tertiary focus:border-accent-primary focus:outline-none"
         />
+      </label>
 
-        {/* ⚠️ THE REFERENCE'S THIRD FILTER IS "TEAM" AND THERE IS NOTHING TO
-            FILTER BY — a template belongs to the division, not a team, and no
-            column says otherwise. The real distinction in this list is who made
-            it, which is what somebody scanning for "the one I built" wants. */}
-        <Select
-          label="Origin"
-          value={filter.origin}
-          onChange={(v) => onChange({ ...filter, origin: v as TemplateFilter['origin'] })}
-          options={[
-            { value: 'all', label: 'Everyone’s' },
-            { value: 'builtin', label: 'Built-in' },
-            { value: 'custom', label: 'Custom' },
-          ]}
-        />
+      {/* The reference's stacked label-over-value selects. */}
+      <StackedSelect
+        label="Category"
+        value={filter.category}
+        onChange={(v) => onChange({ ...filter, category: v as TemplateFilter['category'] })}
+        options={[
+          { value: 'all', label: 'All Categories' },
+          ...TEMPLATE_CATEGORIES.map((c) => ({ value: c, label: CATEGORY_LABEL[c] })),
+        ]}
+      />
 
-        <button
-          type="button"
-          onClick={() => onChange({ ...filter, favouritesOnly: !filter.favouritesOnly })}
-          aria-pressed={filter.favouritesOnly}
-          className={cn(
-            'inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-micro font-medium transition-colors',
-            filter.favouritesOnly
-              ? 'border-transparent text-accent-foreground'
-              : 'border-border-subtle text-text-secondary hover:bg-bg-subtle',
-          )}
-          style={filter.favouritesOnly ? { backgroundColor: 'var(--accent-primary)' } : undefined}
-        >
-          <Star
-            className={cn('size-3.5', filter.favouritesOnly && 'fill-current')}
-            aria-hidden="true"
-          />
-          Favourites
-        </button>
+      <StackedSelect
+        label="Format"
+        value={filter.format}
+        onChange={(v) => onChange({ ...filter, format: v as TemplateFilter['format'] })}
+        options={[
+          { value: 'all', label: 'All Formats' },
+          { value: 'pdf', label: 'PDF' },
+          { value: 'csv', label: 'CSV' },
+        ]}
+      />
 
-        {filterActive(filter) && (
-          <button
-            type="button"
-            onClick={() => onChange(EMPTY_FILTER)}
-            className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-micro text-text-secondary transition-colors hover:text-text-primary"
-          >
-            <RotateCcw className="size-3.5" aria-hidden="true" />
-            Clear filters
-          </button>
+      {/* ⚠️ THE REFERENCE'S THIRD SELECT IS "All Teams" AND THERE IS NOTHING TO
+          FILTER BY — a template belongs to the division, not a team, and no
+          column says otherwise. The real distinction in this list is who made
+          it, which is what somebody scanning for "the one I built" wants. */}
+      <StackedSelect
+        label="Origin"
+        value={filter.origin}
+        onChange={(v) => onChange({ ...filter, origin: v as TemplateFilter['origin'] })}
+        options={[
+          { value: 'all', label: 'Everyone’s' },
+          { value: 'builtin', label: 'Built-in' },
+          { value: 'custom', label: 'Custom' },
+        ]}
+      />
+
+      <button
+        type="button"
+        onClick={() => onChange({ ...filter, favouritesOnly: !filter.favouritesOnly })}
+        aria-pressed={filter.favouritesOnly}
+        className={cn(
+          'inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-micro font-medium transition-colors',
+          filter.favouritesOnly
+            ? 'border-transparent text-accent-foreground'
+            : 'border-border-subtle text-text-secondary hover:bg-bg-subtle',
         )}
-      </div>
+        style={filter.favouritesOnly ? { backgroundColor: 'var(--accent-primary)' } : undefined}
+      >
+        <Star
+          className={cn('size-3.5', filter.favouritesOnly && 'fill-current')}
+          aria-hidden="true"
+        />
+        Favorites
+      </button>
 
-      {filterActive(filter) && (
-        <p className="mt-2 flex items-center gap-1.5 border-t border-border-subtle pt-2 text-[0.62rem] text-text-tertiary">
-          <Filter className="size-3" aria-hidden="true" />
-          {matched} of {total} templates
-        </p>
-      )}
+      {/* ⚠️ ALWAYS PRESENT, DISABLED WHEN THERE IS NOTHING TO CLEAR. The
+          reference shows it permanently; a control that appears and disappears
+          shifts the whole row sideways as somebody types into the search box
+          beside it. */}
+      <button
+        type="button"
+        disabled={!filterActive(filter)}
+        onClick={() => onChange(EMPTY_FILTER)}
+        className="inline-flex items-center gap-1.5 rounded-lg px-2 py-2 text-micro font-semibold text-text-brand transition-opacity hover:underline disabled:cursor-not-allowed disabled:text-text-tertiary disabled:no-underline"
+      >
+        <RotateCcw className="size-3.5" aria-hidden="true" />
+        Clear Filters
+      </button>
     </div>
   );
 }
 
-function Select({
+function StackedSelect({
   label,
   value,
   onChange,
@@ -645,18 +764,27 @@ function Select({
   options: readonly { value: string; label: string }[];
 }) {
   return (
-    <select
-      aria-label={label}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="rounded-lg border border-border-subtle bg-bg-surface px-2 py-1.5 text-micro text-text-secondary transition-colors hover:border-border-default focus:border-accent-primary focus:outline-none"
-    >
-      {options.map((o) => (
-        <option key={o.value} value={o.value}>
-          {o.label}
-        </option>
-      ))}
-    </select>
+    <label className="relative rounded-lg border border-border-subtle bg-bg-surface px-2.5 pb-1 pt-3.5 transition-colors focus-within:border-accent-primary hover:border-border-default">
+      <span className="pointer-events-none absolute left-2.5 top-1 text-[0.55rem] font-medium uppercase tracking-wide text-text-tertiary">
+        {label}
+      </span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        aria-label={label}
+        className="w-full cursor-pointer appearance-none bg-transparent pr-4 text-micro font-medium text-text-primary focus:outline-none"
+      >
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+      <ChevronRight
+        className="pointer-events-none absolute right-2 top-1/2 size-3 rotate-90 text-text-tertiary"
+        aria-hidden="true"
+      />
+    </label>
   );
 }
 
@@ -670,6 +798,7 @@ function TemplateCard({
   onOpen,
   onRun,
   onStar,
+  onDelete,
 }: {
   template: ReportTemplate;
   index: number;
@@ -678,311 +807,597 @@ function TemplateCard({
   onOpen: () => void;
   onRun: () => void;
   onStar: () => Promise<void>;
+  onDelete: () => Promise<void>;
 }) {
   const { ref, inView } = useInView<HTMLDivElement>();
-  const token = CATEGORY_TOKEN[template.category];
   /* Optimistic, so the star fills the instant it is pressed rather than after a
      round trip and a revalidate. The server is the truth on the next load. */
   const [starred, setStarred] = React.useState(template.isFavourite);
+  const [menu, setMenu] = React.useState(false);
 
   return (
     <div
       ref={ref}
+      onClick={onOpen}
       className={cn(
-        'studio-reveal flex min-h-[13rem] flex-col rounded-xl border bg-bg-surface p-3.5 transition-all duration-300 hover:-translate-y-px hover:shadow-[0_6px_18px_rgb(6_35_42_/_0.09)]',
-        'motion-safe:animate-[studio-rise_620ms_cubic-bezier(0.16,1,0.3,1)_backwards]',
-        active ? 'border-accent-primary shadow-[0_4px_14px_rgb(6_35_42_/_0.08)]' : 'border-border-subtle',
+        'studio-reveal group relative flex min-h-[13.5rem] cursor-pointer flex-col rounded-xl border bg-bg-surface p-3.5 transition-all duration-300 hover:-translate-y-px hover:shadow-[0_8px_22px_rgb(6_35_42_/_0.1)]',
+        'motion-safe:animate-[studio-rise_560ms_cubic-bezier(0.16,1,0.3,1)_backwards]',
+        active
+          ? 'shadow-[0_4px_16px_rgb(6_35_42_/_0.1)]'
+          : 'border-border-subtle',
         inView && 'is-visible',
       )}
-      style={{ animationDelay: `${index * 70}ms` }}
+      style={{
+        animationDelay: `${index * 55}ms`,
+        ...(active
+          ? { borderColor: 'var(--accent-primary)', backgroundColor: 'var(--bg-surface)' }
+          : {}),
+      }}
     >
-      <div className="flex items-start gap-2.5">
+      {/* The reference's selected tick, top-right, over the star's place. */}
+      {active && (
         <span
-          className="grid size-9 shrink-0 place-items-center rounded-[10px]"
-          style={{ backgroundColor: `var(--${token}-wash)` }}
+          className="absolute -right-2 -top-2 grid size-6 place-items-center rounded-full shadow-[0_2px_6px_rgb(6_35_42_/_0.2)]"
+          style={{ backgroundColor: 'var(--accent-primary)' }}
         >
-          <Mark name={CATEGORY_ICON[template.category]} className="size-[18px]" />
+          <Check className="size-3.5 text-accent-foreground" aria-hidden="true" />
+        </span>
+      )}
+
+      <div className="flex items-start justify-between gap-2">
+        <span
+          className="grid size-11 shrink-0 place-items-center rounded-xl transition-transform duration-300 group-hover:scale-105"
+          style={{ backgroundColor: `var(--${template.accent}-wash)` }}
+        >
+          <Mark
+            name={template.icon}
+            className="size-[21px]"
+          />
         </span>
 
-        <button
-          type="button"
-          onClick={onOpen}
-          className="min-w-0 flex-1 text-left"
-          aria-expanded={active}
-        >
-          <span className="block truncate text-body-sm font-semibold text-text-primary">
-            {template.name}
-          </span>
-          <span className="block text-[0.62rem] text-text-tertiary">{templateMeta(template)}</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => {
-            setStarred((s) => !s);
-            void onStar();
-          }}
-          aria-pressed={starred}
-          aria-label={starred ? 'Remove from favourites' : 'Add to favourites'}
-          className="shrink-0 rounded-md p-1 transition-colors hover:bg-bg-subtle"
-        >
-          <Star
-            className={cn('size-3.5', starred ? 'fill-current' : 'text-text-tertiary')}
-            style={starred ? { color: 'var(--chart-2)' } : undefined}
-          />
-        </button>
+        {!active && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setStarred((s) => !s);
+              void onStar();
+            }}
+            aria-pressed={starred}
+            aria-label={starred ? 'Remove from favourites' : 'Add to favourites'}
+            className="rounded-md p-1 transition-colors hover:bg-bg-subtle"
+          >
+            <Star
+              className={cn('size-4', starred ? 'fill-current' : 'text-text-tertiary')}
+              style={starred ? { color: 'var(--chart-6)' } : undefined}
+            />
+          </button>
+        )}
       </div>
 
-      <p className="mt-2 line-clamp-3 flex-1 text-caption leading-relaxed text-text-secondary">
+      <h3 className="mt-2.5 text-body-sm font-semibold leading-tight text-text-primary">
+        {template.name}
+      </h3>
+      <p className="mt-1 line-clamp-2 flex-1 text-[0.68rem] leading-relaxed text-text-secondary">
         {template.description}
       </p>
 
-      <div className="mt-2.5 flex flex-wrap gap-1">
-        {templateTags(template).map((tag) => (
-          <span
-            key={tag}
-            className="rounded-full bg-bg-subtle px-1.5 py-0.5 text-[0.58rem] font-medium text-text-secondary"
-          >
-            {tag}
-          </span>
-        ))}
+      {/* ── Two tags, as the reference draws ────────────────────────────── */}
+      <div className="mt-2.5 flex flex-wrap gap-1.5">
+        <Tag token={template.accent}>{CATEGORY_LABEL[template.category]}</Tag>
+        <Tag token={template.accent}>
+          {template.kind ? PERIOD_TAG[template.kind] : template.format.toUpperCase()}
+        </Tag>
       </div>
 
       <div className="mt-2.5 flex items-center gap-2 border-t border-border-subtle pt-2.5">
-        <span className="flex-1 truncate text-[0.6rem] text-text-tertiary">
-          {/* ⚠️ "Never used" RATHER THAN "Used 0 times". The reference prints a
-              usage line on every card; nought times is not a count worth
-              printing, it is a different fact. */}
+        <span className="flex-1 truncate text-[0.62rem] text-text-tertiary">
+          {/* ⚠️ "Never used" rather than "Used 0 times". Nought times is not a
+              count worth printing, it is a different fact. */}
           {template.usageCount === 0
             ? 'Never used'
             : `Used ${template.usageCount} ${template.usageCount === 1 ? 'time' : 'times'}`}
         </span>
-        <button
-          type="button"
-          onClick={onRun}
-          disabled={busy}
-          className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-micro font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
-          style={{ backgroundColor: 'var(--accent-primary)' }}
-        >
-          {busy ? (
-            <Loader2 className="size-3 animate-spin" aria-hidden="true" />
-          ) : (
-            <Download className="size-3" aria-hidden="true" />
+
+        <div className="relative">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setMenu((m) => !m);
+            }}
+            aria-label="More actions"
+            aria-expanded={menu}
+            className="grid size-6 place-items-center rounded-md text-text-tertiary transition-colors hover:bg-bg-subtle hover:text-text-primary"
+          >
+            <MoreVertical className="size-3.5" />
+          </button>
+
+          {menu && (
+            <>
+              {/* Click-away, behind the menu and above everything else. */}
+              <span
+                className="fixed inset-0 z-10"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setMenu(false);
+                }}
+              />
+              <div className="absolute bottom-full right-0 z-20 mb-1 w-40 overflow-hidden rounded-lg border border-border-subtle bg-bg-surface py-1 shadow-[0_8px_24px_rgb(6_35_42_/_0.16)]">
+                <MenuItem
+                  icon={Download}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setMenu(false);
+                    onRun();
+                  }}
+                  disabled={busy}
+                >
+                  {busy ? 'Working…' : 'Run now'}
+                </MenuItem>
+                <MenuItem
+                  icon={Eye}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setMenu(false);
+                    onOpen();
+                  }}
+                >
+                  View details
+                </MenuItem>
+                {/* ⚠️ Only a CUSTOM template can be removed — 096's policy
+                    refuses a built-in outright, so offering it would be offering
+                    a button the database will decline. */}
+                {!template.isBuiltin && (
+                  <MenuItem
+                    icon={Trash2}
+                    tone="var(--feedback-error)"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setMenu(false);
+                      void onDelete();
+                    }}
+                  >
+                    Delete
+                  </MenuItem>
+                )}
+              </div>
+            </>
           )}
-          {busy ? 'Working' : 'Use'}
-        </button>
+        </div>
       </div>
     </div>
   );
 }
 
+function Tag({ token, children }: { token: string; children: React.ReactNode }) {
+  return (
+    <span
+      className="rounded-md px-1.5 py-0.5 text-[0.58rem] font-semibold"
+      style={{
+        backgroundColor: `color-mix(in oklab, var(--${token}) 12%, transparent)`,
+        color: `var(--${token})`,
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
+function MenuItem({
+  icon: Icon,
+  onClick,
+  disabled,
+  tone,
+  children,
+}: {
+  icon: typeof Download;
+  onClick: (e: React.MouseEvent) => void;
+  disabled?: boolean;
+  tone?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-micro text-text-primary transition-colors hover:bg-bg-subtle disabled:opacity-50"
+      style={tone ? { color: tone } : undefined}
+    >
+      <Icon className="size-3.5 shrink-0" aria-hidden="true" />
+      {children}
+    </button>
+  );
+}
+
 /* ---- The drawer ---------------------------------------------------------- */
 
-function TemplateDetail({
+function TemplateDrawer({
   template,
   projectName,
   busy,
   canSchedule,
+  lastReportId,
   onRun,
   onClose,
   onSchedule,
-  onDelete,
 }: {
   template: ReportTemplate;
   projectName: string;
   busy: boolean;
   canSchedule: boolean;
+  /** The most recent report this template produced, or null. */
+  lastReportId: string | null;
   onRun: () => void;
   onClose: () => void;
   onSchedule: (cadence: Cadence) => Promise<void>;
-  onDelete: () => Promise<void>;
 }) {
-  const summary = React.useMemo(() => templateSections(template), [template]);
+  const [scheduling, setScheduling] = React.useState(false);
   const [cadence, setCadence] = React.useState<Cadence>('monthly');
+  const blocks = React.useMemo(() => previewBlocks(template), [template]);
 
   return (
-    <>
-      <Panel
-        title={template.name}
-        action={
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="rounded-md p-0.5 text-text-tertiary transition-colors hover:bg-bg-subtle hover:text-text-primary"
-          >
-            <X className="size-3.5" />
-          </button>
-        }
-      >
-        <p className="text-caption leading-relaxed text-text-secondary">{template.description}</p>
+    <div className="flex h-full flex-col rounded-xl border border-border-subtle bg-bg-surface p-4">
+      {/* ── Head ────────────────────────────────────────────────────────── */}
+      <div className="flex items-start gap-3">
+        <span
+          className="grid size-12 shrink-0 place-items-center rounded-xl"
+          style={{ backgroundColor: `var(--${template.accent}-wash)` }}
+        >
+          <Mark name={template.icon} className="size-6" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h2 className="text-h3 font-semibold leading-tight text-text-primary">
+            {template.name}
+          </h2>
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            <Tag token={template.accent}>{CATEGORY_LABEL[template.category]}</Tag>
+            <Tag token={template.accent}>{templateMeta(template)}</Tag>
+            <span className="text-[0.62rem] text-text-tertiary">
+              {template.usageCount === 0
+                ? 'Never used'
+                : `Used ${template.usageCount} ${template.usageCount === 1 ? 'time' : 'times'}`}
+            </span>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          className="shrink-0 rounded-md p-1 text-text-tertiary transition-colors hover:bg-bg-subtle hover:text-text-primary"
+        >
+          <X className="size-4" />
+        </button>
+      </div>
 
-        {/* ── Sections / columns ─────────────────────────────────────────── */}
-        <h3 className="mt-3 border-t border-border-subtle pt-3 text-[0.62rem] font-bold uppercase tracking-wide text-text-tertiary">
-          {summary.heading}
-        </h3>
-        <ul className="mt-2 space-y-2">
-          {summary.sections.map((s) => (
-            <li key={s.key} className="flex items-start gap-2">
-              {/* ⚠️ A TICK, NOT A CHECKBOX. The reference draws these as choices;
-                  they are not — the composer's geometry is fixed, so unticking
-                  one would leave a hole rather than reflow the page. A tick
-                  states what is there. See templateSections. */}
-              <CheckCircle2
-                className="mt-px size-3.5 shrink-0"
-                style={{ color: 'var(--feedback-success)' }}
-                aria-hidden="true"
-              />
-              <span className="min-w-0">
-                <span className="block text-micro font-medium text-text-primary">{s.label}</span>
-                {s.note && (
-                  <span className="block text-[0.62rem] leading-snug text-text-tertiary">
-                    {s.note}
-                  </span>
-                )}
-              </span>
-            </li>
-          ))}
-        </ul>
-        <p className="mt-2 flex items-start gap-1.5 rounded-lg bg-bg-subtle px-2 py-1.5 text-[0.6rem] leading-snug text-text-tertiary">
-          <Sparkles className="mt-px size-3 shrink-0" aria-hidden="true" />
-          <span>
-            Fixed by the layout, not chosen — drawn by{' '}
-            <code className="font-mono">{summary.describes}</code>.
-          </span>
-        </p>
+      <p className="mt-3 text-caption leading-relaxed text-text-secondary">
+        {template.description}
+      </p>
 
-        {/* ── Formats ────────────────────────────────────────────────────── */}
-        <h3 className="mt-3 border-t border-border-subtle pt-3 text-[0.62rem] font-bold uppercase tracking-wide text-text-tertiary">
-          Export formats
-        </h3>
-        <div className="mt-2 grid grid-cols-5 gap-1.5">
-          {EXPORT_FORMATS.map((f) => {
-            const isThis = f.key === template.format;
-            return (
-              <span
-                key={f.key}
-                title={f.available ? f.reason : `Not available — ${f.reason}`}
-                className={cn(
-                  'flex cursor-help flex-col items-center gap-1 rounded-lg border px-1 py-1.5 text-center',
-                  isThis
-                    ? 'border-transparent'
-                    : f.available
-                      ? 'border-border-subtle'
-                      : 'border-dashed border-border-default opacity-55',
-                )}
-                style={isThis ? { backgroundColor: `var(--${CATEGORY_TOKEN[template.category]}-wash)` } : undefined}
-              >
-                <Mark
-                  name={f.icon}
-                  className={cn('size-3.5', f.available ? 'text-text-secondary' : 'text-text-tertiary')}
-                />
-                <span
-                  className={cn(
-                    'text-[0.55rem] font-semibold leading-none',
-                    f.available ? 'text-text-primary' : 'text-text-tertiary',
-                  )}
-                >
-                  {f.label}
+      {/* ── Sections Included ──────────────────────────────────────────── */}
+      <h3 className="mt-4 text-body-sm font-semibold text-text-primary">Sections Included</h3>
+      <ul className="mt-2 space-y-1.5">
+        {template.sections.map((key) => (
+          <li key={key} className="flex items-center gap-2">
+            {/* ⚠️ A TICK, NOT A CHECKBOX. The reference draws these as if they
+                were choices; they are not yet — the composer's geometry is fixed
+                and per-template layouts are later work. A tick states what the
+                report contains, which is the fact somebody needs when choosing
+                between two templates anyway. */}
+            <CheckCircle2
+              className="size-4 shrink-0"
+              style={{ color: 'var(--feedback-success)' }}
+              aria-hidden="true"
+            />
+            <span className="min-w-0 flex-1 truncate text-caption text-text-primary">
+              {sectionLabel(key)}
+              {isInsightSection(key) && (
+                <span className="ml-1 text-[0.58rem] font-semibold text-text-tertiary">
+                  (AI Summary)
                 </span>
+              )}
+            </span>
+          </li>
+        ))}
+      </ul>
+
+      {/* ── Sample Preview ─────────────────────────────────────────────── */}
+      <h3 className="mt-4 text-body-sm font-semibold text-text-primary">Sample Preview</h3>
+      <div className="mt-2 grid grid-cols-3 gap-2">
+        {blocks.map((b) => (
+          <PreviewTile key={b} block={b} token={template.accent} />
+        ))}
+      </div>
+
+      {/* ── Export Formats ─────────────────────────────────────────────── */}
+      <h3 className="mt-4 text-body-sm font-semibold text-text-primary">Export Formats</h3>
+      <div className="mt-2 grid grid-cols-5 gap-1.5">
+        {FILE_TYPE_ORDER.map((key) => {
+          const mark = FILE_TYPE_MARKS[key];
+          const offered = template.formats.includes(key);
+          /* ⚠️ THREE STATES, NOT TWO. A format can be offered by this template
+             and writable (solid), offered but with no writer yet (dashed, with
+             the reason), or not part of this template at all (dimmed). Collapsing
+             the last two would claim the template offers something it does not. */
+          return (
+            <span
+              key={key}
+              title={
+                !offered
+                  ? `${mark.label} is not one of this template's formats.`
+                  : mark.writable
+                    ? mark.note
+                    : `Not available yet — ${mark.note}`
+              }
+              className={cn(
+                'flex cursor-help flex-col items-center gap-1 rounded-lg border px-1 py-2 transition-colors',
+                !offered
+                  ? 'border-border-subtle opacity-35'
+                  : mark.writable
+                    ? 'border-border-default bg-bg-surface hover:bg-bg-subtle'
+                    : 'border-dashed border-border-default opacity-70',
+              )}
+            >
+              <FileTypeIcon type={key} size={22} />
+              <span className="text-center text-[0.55rem] font-semibold leading-tight text-text-secondary">
+                {mark.label}
               </span>
-            );
-          })}
-        </div>
-        <p className="mt-1.5 text-[0.6rem] text-text-tertiary">
-          This template writes {template.format.toUpperCase()}. The dashed three have no
-          writer — hover for why.
-        </p>
+            </span>
+          );
+        })}
+      </div>
 
-        <div className="mt-3 space-y-1.5 border-t border-border-subtle pt-3">
-          <button
-            type="button"
-            onClick={onRun}
-            disabled={busy}
-            className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg py-2 text-micro font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
-            style={{ backgroundColor: 'var(--accent-primary)' }}
-          >
-            {busy ? (
-              <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
-            ) : (
-              <Download className="size-3.5" aria-hidden="true" />
-            )}
-            {busy ? 'Generating…' : `Use this template on ${projectName}`}
-          </button>
-
-          {template.usageCount > 0 && template.lastUsedAt && (
-            <p className="text-center text-[0.6rem] text-text-tertiary">
-              Last run {template.lastUsedAt.slice(0, 10)}
-            </p>
-          )}
-
-          {!template.isBuiltin && (
-            <button
-              type="button"
-              onClick={() => void onDelete()}
-              className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-border-subtle py-2 text-micro font-medium transition-colors hover:bg-bg-subtle"
-              style={{ color: 'var(--feedback-error)' }}
-            >
-              <Trash2 className="size-3.5" aria-hidden="true" />
-              Delete this template
-            </button>
-          )}
-        </div>
-      </Panel>
-
-      {/* ── Scheduling ─────────────────────────────────────────────────── */}
-      <Panel title="Run it on a schedule">
-        {canSchedule ? (
-          <>
-            <div className="space-y-1.5">
-              {CADENCES.map((c) => (
-                <label
-                  key={c}
-                  className={cn(
-                    'flex cursor-pointer items-center gap-2 rounded-lg border px-2.5 py-1.5 transition-colors',
-                    cadence === c ? 'border-accent-primary bg-bg-subtle' : 'border-border-subtle hover:bg-bg-subtle',
-                  )}
-                >
-                  <input
-                    type="radio"
-                    name="cadence"
-                    checked={cadence === c}
-                    onChange={() => setCadence(c)}
-                    className="size-3 accent-[var(--accent-primary)]"
-                  />
-                  <span className="text-micro text-text-primary">{CADENCE_LABEL[c]}</span>
-                </label>
-              ))}
-            </div>
-
-            <button
-              type="button"
-              onClick={() => void onSchedule(cadence)}
-              className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-border-subtle py-2 text-micro font-semibold text-text-primary transition-colors hover:bg-bg-subtle"
-            >
-              <CalendarClock className="size-3.5" aria-hidden="true" />
-              Schedule it
-            </button>
-
-            {/* ⚠️ IT DOES NOT EMAIL ANYBODY, AND THE PAGE SAYS SO. Outbound mail
-                is dead — the Resend domain has been `status: failed` since it was
-                added — so there is no recipients field to fill in and no
-                delivery to promise. A scheduled report FILES itself; somebody
-                still sends it. */}
-            <p className="mt-2 border-t border-border-subtle pt-2 text-[0.6rem] leading-snug text-text-tertiary">
-              A scheduled report files itself into the Reports tab on its due date. It is
-              not emailed to anyone — outbound mail is not working yet, so there is
-              deliberately nowhere here to type a recipient.
-            </p>
-          </>
+      {/* ── Actions ────────────────────────────────────────────────────── */}
+      <button
+        type="button"
+        onClick={onRun}
+        disabled={busy}
+        /* ⚠️ `mt-auto` — the actions sit at the foot of the column however tall
+           it has been stretched, which is where a reader looks for them. */
+        className="mt-auto inline-flex w-full items-center justify-center gap-2 rounded-lg py-3 text-body-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
+        style={{ backgroundColor: 'var(--accent-primary)' }}
+      >
+        {busy ? (
+          <Loader2 className="size-4 animate-spin" aria-hidden="true" />
         ) : (
-          <p className="text-micro leading-relaxed text-text-secondary">
-            Only a Coordinator and above can put a report on a schedule. You can still run
-            this one whenever you need it.
-          </p>
+          <>
+            Use This Template
+            <ArrowRight className="size-4" aria-hidden="true" />
+          </>
         )}
-      </Panel>
-    </>
+      </button>
+
+      {/* ⚠️ IT OPENS THE LAST REPORT THIS TEMPLATE PRODUCED, and is disabled
+          until there is one. The reference implies a preview of the template's
+          output, which does not exist before it has been run — and a button that
+          silently triggered a generation to satisfy the word "preview" would be
+          an expensive surprise, not a preview. Disabled it says exactly what to
+          do about it. */}
+      {lastReportId ? (
+        <a
+          href={`/api/project-report/${lastReportId}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-1.5 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-border-default py-2.5 text-body-sm font-medium text-text-primary transition-colors hover:bg-bg-subtle"
+        >
+          <Eye className="size-4" aria-hidden="true" />
+          Preview Full Report
+        </a>
+      ) : (
+        <span
+          title="Run this template once and its report opens here."
+          className="mt-1.5 inline-flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-lg border border-dashed border-border-default py-2.5 text-body-sm font-medium text-text-tertiary"
+        >
+          <Eye className="size-4" aria-hidden="true" />
+          Preview Full Report
+        </span>
+      )}
+
+      <button
+        type="button"
+        onClick={() => setScheduling((v) => !v)}
+        aria-expanded={scheduling}
+        className="mt-2 inline-flex w-full items-center justify-center gap-1.5 text-micro font-semibold text-text-brand hover:underline"
+      >
+        <CalendarClock className="size-3.5" aria-hidden="true" />
+        {scheduling ? 'Hide scheduling' : 'Run it on a schedule'}
+      </button>
+
+      {scheduling && (
+        <div className="mt-2 rounded-lg border border-border-subtle bg-bg-subtle p-2.5">
+          {canSchedule ? (
+            <>
+              <div className="space-y-1">
+                {CADENCES.map((c) => (
+                  <label
+                    key={c}
+                    className={cn(
+                      'flex cursor-pointer items-center gap-2 rounded-lg border px-2.5 py-1.5 transition-colors',
+                      cadence === c
+                        ? 'border-accent-primary bg-bg-surface'
+                        : 'border-transparent hover:bg-bg-surface',
+                    )}
+                  >
+                    <input
+                      type="radio"
+                      name="cadence"
+                      checked={cadence === c}
+                      onChange={() => setCadence(c)}
+                      className="size-3 accent-[var(--accent-primary)]"
+                    />
+                    <span className="text-micro text-text-primary">{CADENCE_LABEL[c]}</span>
+                  </label>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={() => void onSchedule(cadence)}
+                className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-border-default bg-bg-surface py-2 text-micro font-semibold text-text-primary transition-colors hover:bg-bg-subtle"
+              >
+                Schedule it for {projectName}
+              </button>
+              {/* ⚠️ IT DOES NOT EMAIL ANYBODY, AND THE PAGE SAYS SO. Outbound
+                  mail is dead — Resend's domain is `status: failed` — so there is
+                  deliberately nowhere to type a recipient. */}
+              <p className="mt-2 text-[0.58rem] leading-snug text-text-tertiary">
+                A scheduled report files itself into the Reports tab on its due date. It is not
+                emailed to anyone yet.
+              </p>
+            </>
+          ) : (
+            <p className="text-micro leading-relaxed text-text-secondary">
+              Only a Coordinator and above can put a report on a schedule. You can still run
+              this one whenever you need it.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---- The preview tiles --------------------------------------------------- */
+
+/**
+ * A miniature of a block the report contains.
+ *
+ * ⚠️ DRAWN, NOT SCREENSHOTTED, and not fed live figures either. It is a shape —
+ * the silhouette of a line chart, a donut, bars — at 60px tall, where a real
+ * number would be four illegible pixels. Wiring live data in would cost queries
+ * to render something nobody can read, and putting FAKE numbers on it would be
+ * the one thing this page has consistently refused to do. The labels name the
+ * block; the figures live in the report.
+ */
+function PreviewTile({ block, token }: { block: PreviewBlock; token: string }) {
+  const title: Readonly<Record<PreviewBlock, string>> = {
+    overview: 'Overview',
+    channels: 'Channel Breakdown',
+    campaigns: 'Top Posts',
+    growth: 'Growth',
+    columns: 'Columns',
+  };
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-border-subtle bg-bg-surface">
+      <p className="truncate border-b border-border-subtle px-1.5 py-1 text-[0.5rem] font-semibold text-text-secondary">
+        {title[block]}
+      </p>
+      <div className="grid h-[58px] place-items-center px-1.5 py-1">
+        <svg viewBox="0 0 60 40" className="h-full w-full" aria-hidden="true">
+          {block === 'overview' && (
+            <>
+              <rect x="2" y="3" width="24" height="9" rx="2" fill={`var(--${token}-wash)`} />
+              <rect x="30" y="3" width="24" height="9" rx="2" fill="var(--chart-grid)" />
+              <path
+                d="M3 34 L13 27 L21 30 L31 20 L41 22 L53 12"
+                fill="none"
+                stroke={`var(--${token})`}
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </>
+          )}
+
+          {block === 'channels' && (
+            <>
+              <circle
+                cx="20"
+                cy="20"
+                r="12"
+                fill="none"
+                stroke="var(--chart-1)"
+                strokeWidth="7"
+                strokeDasharray="34 42"
+              />
+              <circle
+                cx="20"
+                cy="20"
+                r="12"
+                fill="none"
+                stroke="var(--chart-2)"
+                strokeWidth="7"
+                strokeDasharray="22 54"
+                strokeDashoffset="-34"
+              />
+              <circle
+                cx="20"
+                cy="20"
+                r="12"
+                fill="none"
+                stroke="var(--chart-3)"
+                strokeWidth="7"
+                strokeDasharray="20 56"
+                strokeDashoffset="-56"
+              />
+              {[0, 1, 2].map((i) => (
+                <g key={i}>
+                  <circle cx="40" cy={12 + i * 8} r="2" fill={`var(--chart-${i + 1})`} />
+                  <rect
+                    x="45"
+                    y={10.5 + i * 8}
+                    width="13"
+                    height="3"
+                    rx="1.5"
+                    fill="var(--chart-grid)"
+                  />
+                </g>
+              ))}
+            </>
+          )}
+
+          {block === 'campaigns' &&
+            [26, 34, 18, 30, 12].map((h, i) => (
+              <rect
+                key={i}
+                x={4 + i * 11}
+                y={38 - h}
+                width="7"
+                height={h}
+                rx="1.5"
+                fill={`var(--chart-${(i % 4) + 1})`}
+                opacity={0.85}
+              />
+            ))}
+
+          {block === 'growth' && (
+            <>
+              <path
+                d="M3 33 L15 28 L27 29 L39 18 L51 8 L57 6 L57 38 L3 38 Z"
+                fill={`var(--${token})`}
+                opacity="0.14"
+              />
+              <path
+                d="M3 33 L15 28 L27 29 L39 18 L51 8 L57 6"
+                fill="none"
+                stroke={`var(--${token})`}
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <circle cx="57" cy="6" r="2.4" fill={`var(--${token})`} />
+            </>
+          )}
+
+          {block === 'columns' &&
+            [0, 1, 2, 3, 4].map((i) => (
+              <g key={i}>
+                <rect
+                  x="3"
+                  y={4 + i * 7}
+                  width="16"
+                  height="4"
+                  rx="1"
+                  fill={i === 0 ? `var(--${token})` : 'var(--chart-grid)'}
+                />
+                <rect x="22" y={4 + i * 7} width="14" height="4" rx="1" fill="var(--chart-grid)" />
+                <rect x="39" y={4 + i * 7} width="18" height="4" rx="1" fill="var(--chart-grid)" />
+              </g>
+            ))}
+        </svg>
+      </div>
+    </div>
   );
 }
 
@@ -1010,8 +1425,8 @@ function ReportsList({
         <ul className="divide-y divide-border-subtle">
           {reports.map((r) => (
             <li key={r.id} className="flex items-start gap-3 py-2.5 first:pt-0 last:pb-0">
-              <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-[var(--chart-1-wash)]">
-                <FileText className="size-4" style={{ color: 'var(--chart-1)' }} aria-hidden="true" />
+              <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-[var(--chart-1-wash)]">
+                <FileTypeIcon type="pdf" size={18} />
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-micro font-semibold text-text-primary">
@@ -1065,8 +1480,8 @@ function SchedulesList({
         <div className="grid place-items-center rounded-lg border border-dashed border-border-subtle px-4 py-12 text-center">
           <p className="text-body-sm font-semibold text-text-primary">Nothing is scheduled</p>
           <p className="mt-1 max-w-md text-caption text-text-secondary">
-            Pick a template and choose a cadence, and it will file itself into the Reports
-            tab on its due date.
+            Pick a template and choose a cadence, and it will file itself into the Reports tab
+            on its due date.
           </p>
           <button
             type="button"
@@ -1083,8 +1498,11 @@ function SchedulesList({
           {schedules.map((s) => {
             const state = scheduleState(s, todayKarachi);
             return (
-              <li key={s.id} className="flex flex-wrap items-center gap-3 py-2.5 first:pt-0 last:pb-0">
-                <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-bg-subtle">
+              <li
+                key={s.id}
+                className="flex flex-wrap items-center gap-3 py-2.5 first:pt-0 last:pb-0"
+              >
+                <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-bg-subtle">
                   <CalendarClock className="size-4 text-text-secondary" aria-hidden="true" />
                 </span>
                 <span className="min-w-0 flex-1">
@@ -1191,9 +1609,9 @@ function HistoryList({ rows, nowMs }: { rows: readonly ExportRecord[]; nowMs: nu
                       )}
                       <span className="truncate">{r.templateName}</span>
                     </span>
-                    {/* ⚠️ THE FAILURE'S REASON IS SHOWN, not just a red mark.
-                        A history that records failures without saying why makes
-                        the same export fail again tomorrow. */}
+                    {/* ⚠️ THE FAILURE'S REASON IS SHOWN, not just a red mark. A
+                        history that records failures without saying why makes the
+                        same export fail again tomorrow. */}
                     {r.error && (
                       <span
                         className="mt-0.5 block truncate text-[0.6rem] font-normal"
@@ -1204,8 +1622,13 @@ function HistoryList({ rows, nowMs }: { rows: readonly ExportRecord[]; nowMs: nu
                       </span>
                     )}
                   </td>
-                  <td className="px-2 py-2 text-micro text-text-secondary">
-                    {r.format.toUpperCase()}
+                  <td className="px-2 py-2">
+                    <span className="inline-flex items-center gap-1.5">
+                      <FileTypeIcon type={r.format} size={14} />
+                      <span className="text-micro text-text-secondary">
+                        {r.format.toUpperCase()}
+                      </span>
+                    </span>
                   </td>
                   <td className="px-2 py-2 text-micro tabular-nums text-text-secondary">
                     {fileSize(r.byteSize)}
@@ -1283,12 +1706,23 @@ function CreateTemplate({
 
   const needsKind = ENGINE_CHOICES.find((e) => e.value === engine)?.needsKind ?? false;
 
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
   return (
     <div
       className="fixed inset-0 z-50 grid place-items-center bg-[rgb(6_35_42_/_0.45)] p-4"
       role="dialog"
       aria-modal="true"
       aria-label="Create a custom template"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
     >
       <div className="w-full max-w-md rounded-xl border border-border-subtle bg-bg-surface p-4 shadow-[0_20px_50px_rgb(6_35_42_/_0.25)]">
         <div className="flex items-start justify-between gap-2">
@@ -1331,10 +1765,10 @@ function CreateTemplate({
           </Field>
 
           <Field label="What it produces">
-            {/* ⚠️ A LIST OF GENERATORS THAT EXIST. There is no free-text field
-                here on purpose: a template whose engine nothing implements is a
-                button that does nothing, which is the one thing this tab is
-                built not to have. */}
+            {/* ⚠️ A LIST OF GENERATORS THAT EXIST. No free-text field here on
+                purpose: a template whose engine nothing implements is a button
+                that does nothing, which is the one thing this tab is built not to
+                have. */}
             <select
               value={engine}
               onChange={(e) => setEngine(e.target.value)}
