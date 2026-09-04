@@ -11,6 +11,7 @@ import {
   deltaBetween,
   formatDelta,
   latestMetric,
+  niceScale,
   previousPeriod,
   sumMetric,
   topPosts,
@@ -293,5 +294,58 @@ describe('formatting', () => {
       delta: { percent: 20, direction: 'up' as const, previous: 5 },
     };
     expect(formatDelta(kpi)).toBe('+1.00pp');
+  });
+});
+
+/* ============================================================================
+ * AXIS SCALES
+ * ----------------------------------------------------------------------------
+ * Owner, with a daily chart open: *"you start from 0 and then directly jump to
+ * 14k… should it start from 0, 5k, 10k, 15k as small figures."*
+ * ========================================================================= */
+describe('the axis a chart is drawn against', () => {
+  const ticks = (max: number) => {
+    const { ceiling, steps } = niceScale(max);
+    return Array.from({ length: steps + 1 }, (_, i) => (ceiling * i) / steps);
+  };
+
+  it('lands on round numbers rather than quarters of the peak', () => {
+    /* The exact case the owner screenshotted: dividing 57,000 into four gave
+       0 · 14K · 29K · 43K · 57K, which is correct and unreadable. */
+    expect(ticks(57_000)).toEqual([0, 15_000, 30_000, 45_000, 60_000]);
+  });
+
+  /* ⚠️ THE SERIOUS ONE. A step of 2.5 renders as "3" once shortened, so the
+     axis prints a number where the gridline is not. An ugly axis is a nuisance;
+     an axis whose labels disagree with its own gridlines is a lie. */
+  it('never uses a fractional step where the labels would be rounded', () => {
+    for (const peak of [9, 7, 12, 36, 45, 99]) {
+      for (const t of ticks(peak)) {
+        expect(Number.isInteger(t), `peak ${peak} produced a tick of ${t}`).toBe(true);
+      }
+    }
+  });
+
+  it('does not waste a quarter of the panel above the data', () => {
+    for (const peak of [278, 437, 1_500, 57_000, 213_062, 229_477]) {
+      const { ceiling } = niceScale(peak);
+      expect(ceiling).toBeGreaterThanOrEqual(peak);
+      expect((ceiling - peak) / ceiling, `peak ${peak} left too much headroom`).toBeLessThan(0.12);
+    }
+  });
+
+  it('keeps the gridlines to a readable count', () => {
+    for (const peak of [1, 9, 36, 437, 1_500, 57_000, 229_477, 1_430_000]) {
+      const { steps } = niceScale(peak);
+      expect(steps, `peak ${peak}`).toBeLessThanOrEqual(6);
+      expect(steps).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it('survives the degenerate cases rather than dividing by zero', () => {
+    expect(niceScale(0).ceiling).toBe(1);
+    expect(niceScale(-5).ceiling).toBe(1);
+    expect(niceScale(Number.NaN).ceiling).toBe(1);
+    expect(niceScale(Number.POSITIVE_INFINITY).ceiling).toBe(1);
   });
 });

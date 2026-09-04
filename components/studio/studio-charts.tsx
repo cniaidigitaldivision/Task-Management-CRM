@@ -2,6 +2,8 @@
 
 import * as React from 'react';
 
+import { niceScale } from '@/lib/domain/meta-studio';
+
 /* ============================================================================
  * THE CHARTS THE REFERENCE NEEDS AND THE KIT DID NOT HAVE
  * ----------------------------------------------------------------------------
@@ -41,13 +43,24 @@ export interface Series {
 export function MultiSeriesChart({
   series,
   labels,
+  tooltipLabels,
   height = 250,
   animationKey = '',
   /** Off for the growth chart, where both series are the same quantity. */
   dualAxis = true,
 }: {
   series: readonly Series[];
+  /** Short labels for the x axis, where space is scarce. */
   labels: readonly string[];
+  /**
+   * ⚠️ THE FULL DATE FOR THE READOUT, one per point, and NOT the same strings as
+   * the axis. Owner: *"in the tooltip… it is showing just 826. I don't know what
+   * 826 is."* The axis label is abbreviated because thirty of them share one
+   * line; the tooltip shows one at a time and has no such excuse, so an
+   * abbreviation there is just a puzzle. Falls back to the axis label when a
+   * caller has nothing fuller to give.
+   */
+  tooltipLabels?: readonly string[];
   height?: number;
   animationKey?: string;
   dualAxis?: boolean;
@@ -89,8 +102,17 @@ export function MultiSeriesChart({
   const biggest = Math.max(1, ...drawn.map(magnitude));
   const onRight = (s: Series) => dualAxis && drawn.length > 1 && magnitude(s) < biggest / 25;
 
-  const leftMax = Math.max(1, ...drawn.filter((s) => !onRight(s)).map(magnitude));
-  const rightMax = Math.max(1, ...drawn.filter(onRight).map(magnitude));
+  /* ⚠️ THE AXIS TOPS OUT AT A ROUND NUMBER, NOT AT THE DATA'S MAXIMUM.
+     Owner: *"you start from 0 and then directly jump to 14k… should it start
+     from 0, 5k, 10k, 15k as small figures."* Dividing the peak into four gave
+     ticks of 0 · 14K · 29K · 43K · 57K — arithmetically correct and unreadable,
+     because nobody holds "29K" as a landmark. `niceScale` picks a step from
+     1/1.5/2/2.5/3/4/5/7.5 × a power of ten, so the same data now reads
+     0 · 15K · 30K · 45K · 60K. */
+  const left = niceScale(Math.max(1, ...drawn.filter((s) => !onRight(s)).map(magnitude)));
+  const right = niceScale(Math.max(1, ...drawn.filter(onRight).map(magnitude)));
+  const leftMax = left.ceiling;
+  const rightMax = right.ceiling;
   const hasRight = drawn.some(onRight);
 
   const n = Math.max(1, labels.length - 1);
@@ -114,8 +136,12 @@ export function MultiSeriesChart({
     return d.trim();
   };
 
-  const ticks = 4;
-  const axisFractions = Array.from({ length: ticks + 1 }, (_, i) => i / ticks);
+  /* One entry per nice step, so the labels land on the round numbers rather than
+     on quarters of an arbitrary peak. */
+  const axisFractions = Array.from(
+    { length: left.steps + 1 },
+    (_, i) => i / left.steps,
+  );
   const labelEvery = Math.max(1, Math.ceil(labels.length / 6));
 
   const bars = drawn.filter((s) => s.kind === 'bar');
@@ -253,9 +279,26 @@ export function MultiSeriesChart({
                     <rect
                       key={i}
                       x={x(i) - barWidth / 2}
-                      y={y(p, s)}
+                      /* ⚠️ A NON-ZERO VALUE IS NEVER INVISIBLE. Owner: *"even
+                         though I have 437 views on 08/28, the views bar is not
+                         visible."* Against a 57,000 peak that bar is 0.7% of the
+                         height — under a pixel, so it drew as nothing, and
+                         nothing reads as ZERO. That is a chart stating something
+                         false.
+
+                         A floor of 2.5 units guarantees a sliver. It does
+                         overstate a tiny value's proportion, which is the honest
+                         trade: "something happened here" is true and "nothing
+                         happened here" was not, and the exact figure is one hover
+                         away in the readout. A zero still draws nothing, because
+                         zero genuinely is nothing. */
+                      y={p > 0 ? Math.min(y(p, s), H - PAD.bottom - 2.5) : y(p, s)}
                       width={barWidth}
-                      height={Math.max(0, H - PAD.bottom - y(p, s))}
+                      height={
+                        p > 0
+                          ? Math.max(2.5, H - PAD.bottom - y(p, s))
+                          : Math.max(0, H - PAD.bottom - y(p, s))
+                      }
                       rx={Math.min(3, barWidth / 3)}
                       fill={tok(s.token)}
                       opacity={hover === i ? 0.55 : 0.26}
@@ -344,7 +387,9 @@ export function MultiSeriesChart({
                   : { left: `${(x(hover) / W) * 100}%`, marginLeft: 10 }
               }
             >
-              <p className="mb-1.5 text-micro font-semibold text-text-primary">{labels[hover]}</p>
+              <p className="mb-1.5 text-micro font-semibold text-text-primary">
+                {tooltipLabels?.[hover] ?? labels[hover]}
+              </p>
               <ul className="space-y-1">
                 {drawn.map((s) => (
                   <li key={s.label} className="flex items-center gap-2 text-micro">

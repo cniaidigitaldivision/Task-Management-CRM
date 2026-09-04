@@ -386,3 +386,64 @@ export function formatDelta(kpi: Kpi): string | null {
   }
   return `${sign}${p.toFixed(1)}%`;
 }
+
+/* ---- Axis scales --------------------------------------------------------- */
+
+/**
+ * A round ceiling and a step count for an axis.
+ *
+ * ⚠️ IT SEARCHES CANDIDATE STEPS RATHER THAN PICKING ONE FROM THE MAGNITUDE.
+ * A first version took the first "nice" number above `max / 4`, and two of the
+ * real cases came out badly:
+ *
+ *   229,477 → 0 · 75K · 150K · 225K · 300K   a QUARTER of the panel left empty
+ *         9 → 0 · 3 · 5 · 8 · 10             steps of 2.5, rounded in the label,
+ *                                            so the axis printed numbers that
+ *                                            were not where the gridlines were
+ *
+ * The second is the serious one: an axis whose labels disagree with its own
+ * gridlines is worse than an ugly axis. So candidates are scored — 3 to 6
+ * intervals, least wasted headroom wins, and a fractional step is refused
+ * outright below a ceiling of 100 where every real value is a whole count.
+ */
+export function niceScale(max: number, minSteps = 3, maxSteps = 6): { ceiling: number; steps: number } {
+  if (!Number.isFinite(max) || max <= 0) return { ceiling: 1, steps: 1 };
+
+  const MULTIPLES = [1, 1.5, 2, 2.5, 3, 4, 5, 6, 7.5, 8, 10];
+  const magnitude = 10 ** Math.floor(Math.log10(max / maxSteps));
+
+  let best: { ceiling: number; steps: number; waste: number } | null = null;
+
+  for (const scale of [magnitude, magnitude * 10]) {
+    for (const m of MULTIPLES) {
+      const step = m * scale;
+      if (step <= 0) continue;
+
+      const steps = Math.ceil(max / step);
+      if (steps < minSteps || steps > maxSteps) continue;
+
+      const ceiling = step * steps;
+      /* A step of 2.5 renders as "3" once shortened, putting the label
+         somewhere the gridline is not. Only tolerated when the numbers are
+         large enough that the shortening keeps a decimal. */
+      if (!Number.isInteger(step) && ceiling < 100) continue;
+
+      /* ⚠️ SCORED, NOT JUST LEAST-WASTE. Minimising headroom alone always
+         prefers MORE gridlines, because finer steps waste less — which produced
+         seven labels on a 250px chart. A small penalty per step away from four
+         keeps the axis at the reference's density unless the numbers genuinely
+         need otherwise. */
+      const waste = (ceiling - max) / ceiling + Math.abs(steps - 4) * 0.015;
+      if (!best || waste < best.waste) best = { ceiling, steps, waste };
+    }
+  }
+
+  /* Nothing scored — a very small or very odd maximum. Fall back to whole
+     numbers, which is always readable even if it is not pretty. */
+  if (!best) {
+    const steps = Math.min(maxSteps, Math.max(1, Math.ceil(max)));
+    return { ceiling: Math.ceil(max), steps };
+  }
+
+  return { ceiling: best.ceiling, steps: best.steps };
+}

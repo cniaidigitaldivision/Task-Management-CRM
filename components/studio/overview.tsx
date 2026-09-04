@@ -150,6 +150,7 @@ export function StudioOverview({
     to,
   );
   const growthLabels = followers.map((d) => d.date.slice(5));
+  const growthTooltips = followers.map((d) => longDate(d.date));
 
   /* ── Content and platform breakdowns ──────────────────────────────────── */
   const mix = contentMix(posts);
@@ -318,6 +319,7 @@ export function StudioOverview({
           <MultiSeriesChart
             series={performance}
             labels={labels}
+            tooltipLabels={rolled.tooltipLabels}
             height={232}
             animationKey={`${grain}-${platform}-${from}`}
           />
@@ -356,6 +358,7 @@ export function StudioOverview({
         >
           <MultiSeriesChart
             labels={growthLabels}
+            tooltipLabels={growthTooltips}
             height={190}
             /* One axis: both series are the same quantity, so a second scale
                would let a smaller previous month look larger than this one. */
@@ -620,12 +623,13 @@ function verdictFor(rate: number): string {
 function rollUp(
   seriesList: readonly { date: string; combined: number }[][],
   grain: Grain,
-): { labels: string[]; series: (number | null)[][] } {
+): { labels: string[]; tooltipLabels: string[]; series: (number | null)[][] } {
   const dates = seriesList[0]?.map((d) => d.date) ?? [];
 
   if (grain === 'daily') {
     return {
       labels: dates.map((d) => d.slice(5)),
+      tooltipLabels: dates.map(longDate),
       series: seriesList.map((s) => s.map((d) => (d.combined > 0 ? d.combined : null))),
     };
   }
@@ -655,5 +659,32 @@ function rollUp(
     }),
   );
 
-  return { labels: buckets.map((b) => (grain === 'monthly' ? b : b.slice(5))), series };
+  return {
+    labels: buckets.map((b) => (grain === 'monthly' ? b : b.slice(5))),
+    /* A bucket is a range, so the readout says which — "Week of 1 Sep 2026" is
+       answerable, "09-01" is a riddle. */
+    tooltipLabels: buckets.map((b) =>
+      grain === 'monthly' ? monthName(b) : `Week of ${longDate(b)}`,
+    ),
+    series,
+  };
+}
+
+/** "4 September 2026" — unambiguous, and what the tooltip shows. */
+function longDate(iso: string): string {
+  return new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
+/** "September 2026", from a `yyyy-mm` bucket. */
+function monthName(bucket: string): string {
+  return new Date(`${bucket}-01T00:00:00Z`).toLocaleDateString('en-GB', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
 }
