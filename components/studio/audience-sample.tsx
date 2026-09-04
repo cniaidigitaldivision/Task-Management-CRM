@@ -25,22 +25,23 @@ import { Flag } from './flags';
  * 16. Tested against the live API on 2026-09-04; see
  * docs/meta-integration/01-VERIFIED-API-FACTS.md §5.
  *
- * ── ⚠️ THE SAMPLE LABELLING IS THE WHOLE DESIGN PROBLEM HERE ────────────────
- * Placeholder numbers that later read as real is the one failure mode that
- * matters, and it is not hypothetical: these panels sit beside six cards of
- * genuine figures, and somebody screenshotting this page for a client would have
- * no reason to suspect two of them are invented. So the marking is deliberately
- * redundant — five separate signals, any one of which is enough:
+ * ── ⚠️ TWO SIGNALS, DOWN FROM FIVE — AND KEEP BOTH ─────────────────────────
+ * Placeholder numbers that later read as real is the failure mode that matters:
+ * these panels sit beside measured figures, and somebody screenshotting the page
+ * for a client has no reason to suspect two of them are invented.
  *
- *   1. The heading itself says "Sample".
- *   2. A badge on the panel, in the warning colour, reading SAMPLE DATA.
- *   3. A sentence naming the real follower count and the 100 threshold.
- *   4. The whole panel is dimmed and desaturated against its neighbours.
- *   5. A diagonal hatch behind the charts that no real panel has.
+ * The first version answered that with five redundant signals — badge, dashed
+ * border, dimming, desaturation, diagonal hatch. The owner rejected it, rightly:
+ * *"Why is this audience card faded? I want a bright color."* Four of the five
+ * made the card look BROKEN rather than provisional, and a reader who thinks a
+ * panel is failing does not read it at all.
  *
- * ⚠️ DO NOT "TIDY" THESE AWAY. A future session reducing this to one subtle
- * badge would be removing the thing that stops invented numbers being read as a
- * client's real audience.
+ * So the marking is now two things, both of them words:
+ *   1. An amber SAMPLE badge in the header.
+ *   2. A sentence naming the real follower count and the 100 threshold.
+ *
+ * ⚠️ THOSE TWO ARE NOT DECORATION. They are the only thing left between an
+ * invented figure and a client screenshot. Do not remove them to tidy the card.
  * ========================================================================= */
 
 /** Meta's own privacy floor for follower demographics. */
@@ -91,20 +92,25 @@ export function AudienceSample({
 
   return (
     <section
-      /* ⚠️ THE DASHED BORDER AND THE BADGE STAY. This card sits between two
-         panels of measured figures, and it is the only one on the page whose
-         numbers are invented. Every signal that says so is load-bearing. */
-      className={`relative flex min-w-0 flex-col overflow-hidden rounded-xl border border-dashed border-border-default bg-bg-surface p-3.5 ${className ?? ''}`}
-    >
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 opacity-[0.05]"
-        style={{
-          backgroundImage:
-            'repeating-linear-gradient(45deg, var(--text-primary) 0 1px, transparent 1px 9px)',
-        }}
-      />
+      /* ── ⚠️ FULL COLOUR, AND THE BADGE CARRIES IT ALONE ────────────────────
+         Owner: *"Why is this audience card faded? Why is it not showing a bright
+         color? Why have you added an overlay over it? I want a bright color."*
 
+         They are right and I overdid it. There were FIVE redundant signals —
+         badge, dashed border, dimming, desaturation and a diagonal hatch — on
+         the reasoning that a placeholder must never be mistaken for a
+         measurement. That reasoning is sound; five signals were not. Four of
+         them made the card look broken rather than provisional, which is its own
+         kind of misinformation: a reader who thinks a panel is failing does not
+         read it at all.
+
+         What remains is the amber SAMPLE badge in the header and the sentence at
+         the foot naming the real follower count and the 100 threshold. Both are
+         words that say what is true. ⚠️ DO NOT REMOVE THOSE TWO — they are now
+         the only thing standing between an invented figure and a client
+         screenshot. */
+      className={`relative flex min-w-0 flex-col overflow-hidden rounded-xl border border-border-subtle bg-bg-surface p-3.5 shadow-[0_1px_2px_rgb(6_35_42_/_0.04)] ${className ?? ''}`}
+    >
       <header className="relative mb-3 flex items-center justify-between gap-2">
         <h2 className="flex items-center gap-1.5 text-caption font-semibold text-text-primary">
           Audience
@@ -127,7 +133,7 @@ export function AudienceSample({
         </span>
       </header>
 
-      <div className="relative flex flex-1 items-center gap-3 opacity-70">
+      <div className="relative flex flex-1 items-center gap-3">
         <DonutChart
           slices={SAMPLE_AGES}
           centreLabel="Age"
