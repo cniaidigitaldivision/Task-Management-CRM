@@ -61,7 +61,12 @@ export function Panel({
         </h2>
         {action}
       </header>
-      <div className={cn('min-h-0 flex-1', bodyClassName)}>{children}</div>
+      {/* ⚠️ `flex` AS WELL AS `flex-1`. The body already grew to fill the panel,
+          but its own child could not grow inside it without a flex context —
+          so a list told to distribute itself had nothing to distribute across
+          and sat at its natural height, leaving the gap at the bottom of the
+          card that the owner kept pointing at. */}
+      <div className={cn('flex min-h-0 flex-1 flex-col', bodyClassName)}>{children}</div>
     </section>
   );
 }

@@ -163,7 +163,7 @@ describe('the headline cards', () => {
   const base = {
     accounts: [account],
     postsInPeriod: 8,
-    cadence: { staticPerDay: null, reelsPerWeek: null },
+    cadence: { staticPerDay: null, reelsPerWeek: null, assetsMin: null, assetsMax: null, reelsMin: null },
     from: '2026-09-01',
     to: '2026-09-10',
     platform: 'all' as const,
@@ -222,7 +222,7 @@ describe('the headline cards', () => {
       ...base,
       current: [],
       previous: [],
-      cadence: { staticPerDay: 1, reelsPerWeek: 2 },
+      cadence: { staticPerDay: 1, reelsPerWeek: 2, assetsMin: null, assetsMax: null, reelsMin: null },
     });
     /* 10 days: 10 static + round(2*10/7)=3 reels = 13 */
     expect(kpis.find((k) => k.key === 'target')?.hint).toContain('13');

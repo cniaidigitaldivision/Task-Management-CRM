@@ -14,7 +14,12 @@ import {
 
 import { PLATFORM_MARKS, PlatformIcon } from '@/components/brand/platform-icon';
 import { DonutChart } from '@/components/ui/chart';
-import type { MetricPoint, StudioAccount, StudioPost } from '@/lib/domain/meta-studio';
+import type {
+  MetricPoint,
+  ProjectPromise,
+  StudioAccount,
+  StudioPost,
+} from '@/lib/domain/meta-studio';
 import {
   buildKpis,
   compact,
@@ -65,7 +70,6 @@ export function StudioOverview({
   previous,
   posts,
   cadence,
-  scheduled,
   from,
   to,
   platform,
@@ -75,9 +79,7 @@ export function StudioOverview({
   current: readonly MetricPoint[];
   previous: readonly MetricPoint[];
   posts: readonly StudioPost[];
-  cadence: { staticPerDay: number | null; reelsPerWeek: number | null };
-  /** Content tasks due in this window that are not yet published. */
-  scheduled: number;
+  cadence: ProjectPromise;
   from: string;
   to: string;
   platform: 'all' | 'facebook' | 'instagram';
@@ -187,17 +189,27 @@ export function StudioOverview({
 
   /* ── Delivery against the promise ─────────────────────────────────────── */
   const days = daysBetween(from, to);
-  const target =
-    (cadence.staticPerDay ?? 0) * days + Math.round(((cadence.reelsPerWeek ?? 0) * days) / 7);
-  const delivered = posts.length;
 
-  /* ⚠️ THE THREE SLICES MUST SUM TO THE TARGET, or the donut lies about its own
-     centre figure. Delivered can EXCEED the target — this account published 50
-     against 43 — so scheduled and remaining are clamped to what is left rather
-     than subtracted blindly, which would otherwise produce a negative arc. */
-  const headroom = Math.max(0, target - delivered);
-  const scheduledSlice = Math.min(scheduled, headroom);
-  const remainingSlice = Math.max(0, headroom - scheduledSlice);
+  /* ⚠️ THE PROMISE ARITHMETIC WENT WITH THE DELIVERY CARD, 2026-09-04. It
+     computed asset and reel targets scaled to the window, from
+     `assets_target_min` / `reels_target_min` on the project. That work is not
+     lost — `buildKpis` still derives the Monthly Target card from the same
+     columns, which is where the owner looks for "are we on track". Nothing here
+     needs the two-ring breakdown any more, and leaving unused arithmetic beside
+     live figures is how a later reader comes to trust a number nothing draws.
+
+     ⚠️ THE TOTAL STAYS, because the three KPI cards at the top of the page —
+     Monthly Target, Achieved, Remaining — are computed from it. Cutting it with
+     the card broke those, which is what typecheck caught. It comes from the
+     PROMISE (`assets_target_min` + `reels_target_min`, scaled to the window)
+     rather than from the daily rhythm, so the number on screen is the one the
+     client was actually sold. */
+  const monthScale = days / 30;
+  const target =
+    Math.round((cadence.assetsMin ?? 0) * monthScale) +
+    Math.round((cadence.reelsMin ?? 0) * monthScale);
+
+  const delivered = posts.length;
 
   const rateKpi = kpi('engagement_rate');
   const engagementRate = rateKpi?.value ?? 0;
@@ -485,56 +497,22 @@ export function StudioOverview({
             </span>
           }
         >
-          <EngagementHeatmap posts={posts} />
+          <div className="flex h-full flex-col">
+            <EngagementHeatmap posts={posts} />
+          </div>
         </Panel>
 
-        <Panel title="Delivery Progress" info="Against this project's agreed posting rhythm.">
-          {target === 0 ? (
-            <PanelEmpty>No posting rhythm is agreed for this project.</PanelEmpty>
-          ) : (
-            <div className="flex h-full flex-col items-center">
-              <DonutChart
-                slices={[
-                  { label: 'Delivered', value: delivered, token: 'chart-3' },
-                  { label: 'Scheduled', value: scheduledSlice, token: 'chart-1' },
-                  { label: 'Remaining', value: remainingSlice, token: 'chart-grid' },
-                ]}
-                centreLabel="Delivered"
-                centreValue={`${Math.round((delivered / target) * 100)}%`}
-                size={132}
-                thickness={14}
-                caption="Delivery against target"
-              />
+        {/* ⚠️ DELIVERY PROGRESS WAS HERE AND IS GONE, on the owner's instruction:
+            *"It's not looking good. Remove this whole Delivery Progress card from
+            here and add the Audience card."*
 
-              <ul className="mt-3 w-full space-y-1.5">
-                {[
-                  { label: 'Delivered', value: delivered, token: 'chart-3' },
-                  { label: 'Scheduled', value: scheduledSlice, token: 'chart-1' },
-                  { label: 'Remaining', value: remainingSlice, token: 'chart-grid' },
-                ].map((row) => (
-                  <li key={row.label} className="flex items-center gap-2 text-micro">
-                    <span
-                      aria-hidden="true"
-                      className="size-2 shrink-0 rounded-full"
-                      style={{ backgroundColor: `var(--${row.token})` }}
-                    />
-                    <span className="min-w-0 flex-1 text-text-secondary">{row.label}</span>
-                    <span className="shrink-0 font-semibold tabular-nums text-text-primary">
-                      {row.value}
-                    </span>
-                    <span className="w-9 shrink-0 text-right tabular-nums text-text-tertiary">
-                      {Math.round((row.value / target) * 100)}%
-                    </span>
-                  </li>
-                ))}
-              </ul>
-
-              <p className="mt-auto pt-3 text-micro text-text-tertiary">
-                Total target: <strong className="text-text-secondary">{target} posts</strong>
-              </p>
-            </div>
-          )}
-        </Panel>
+            Two rings against a monthly promise needed more width than a quarter
+            of a row gives, and the numbers were competing with the heatmap and
+            the post list either side of it. The promise itself is not lost — it
+            is on the Monthly Target card at the top of the page, which is where
+            somebody looks for "are we on track". This slot now holds the
+            Audience card, which is a shape that fits it. */}
+        <AudienceSample accounts={accounts} />
 
         <Panel
           title="Top-Performing Posts"
@@ -554,21 +532,22 @@ export function StudioOverview({
           {ranked.length === 0 ? (
             <PanelEmpty>No posts in this period.</PanelEmpty>
           ) : (
-            <>
+            <div className="flex h-full flex-col">
               {/* The reference's two column headings, so the pair of numbers on
                   each row is not left to be guessed at. */}
-              <div className="mb-1 flex items-center gap-2.5 pl-[3.1rem] text-[0.6rem] text-text-tertiary">
+              <div className="mb-1 flex shrink-0 items-center gap-2.5 pl-[3.1rem] text-[0.6rem] text-text-tertiary">
                 <span className="min-w-0 flex-1" />
                 <span className="w-12 shrink-0 text-right">Engagement</span>
                 <span className="w-10 shrink-0 text-right">Rate</span>
               </div>
-              <ul className="space-y-0.5">
+              {/* Distributed, for the same reason as Recent Activity. */}
+              <ul className="flex flex-1 flex-col justify-between gap-0.5">
                 {ranked.map((p, i) => (
                   <PostRow key={p.id} post={p} index={i} />
                 ))}
               </ul>
               <PanelLink>View all posts</PanelLink>
-            </>
+            </div>
           )}
         </Panel>
 
@@ -576,9 +555,6 @@ export function StudioOverview({
           <RecentActivity posts={posts} accounts={accounts} lastSynced={lastSynced} />
         </Panel>
       </div>
-
-      {/* ══ ROW 5 · the sample audience ═════════════════════════════════ */}
-      <AudienceSample accounts={accounts} />
 
       {/* ⚠️ The reference says "your local timezone". That would be a guess about
           the reader's machine; every date boundary in this system is the
@@ -676,8 +652,15 @@ function RecentActivity({
   if (items.length === 0) return <PanelEmpty>Nothing has happened in this period.</PanelEmpty>;
 
   return (
-    <>
-      <ul className="space-y-2">
+    <div className="flex h-full flex-col">
+      {/* ⚠️ `justify-between` ON A FULL-HEIGHT LIST, not a fixed gap. Owner: *"for
+          the activity add some space between each activity so that this will be
+          equal to every card."* A fixed `space-y` leaves whatever the panel is
+          taller than the list as dead space at the bottom — which is exactly the
+          white space in the screenshot. Distributing the rows means the spacing
+          adapts to however tall the row happens to be, and the card is full
+          whether it holds three items or five. */}
+      <ul className="flex flex-1 flex-col justify-between gap-2">
         {items.map((it, i) => (
           <li
             key={it.key}
@@ -700,11 +683,11 @@ function RecentActivity({
         ))}
       </ul>
       {lastSynced && (
-        <p className="mt-2.5 text-center text-[0.65rem] text-text-tertiary">
+        <p className="mt-2.5 shrink-0 border-t border-border-subtle pt-2 text-center text-[0.62rem] text-text-tertiary">
           Synced {new Date(lastSynced).toISOString().slice(0, 16).replace('T', ' ')} UTC
         </p>
       )}
-    </>
+    </div>
   );
 }
 

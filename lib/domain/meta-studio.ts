@@ -68,6 +68,16 @@ export const PLATFORM_METRICS = {
   },
 } as const;
 
+/** What a project promised its client, from the project row. */
+export interface ProjectPromise {
+  readonly staticPerDay: number | null;
+  readonly reelsPerWeek: number | null;
+  /** Monthly asset target — the contract's own number. */
+  readonly assetsMin: number | null;
+  readonly assetsMax: number | null;
+  readonly reelsMin: number | null;
+}
+
 export interface Delta {
   /** Percent change, or null when the previous period had nothing to compare. */
   readonly percent: number | null;
@@ -207,7 +217,7 @@ export function buildKpis(input: {
   readonly previous: readonly MetricPoint[];
   readonly accounts: readonly StudioAccount[];
   readonly postsInPeriod: number;
-  readonly cadence: { staticPerDay: number | null; reelsPerWeek: number | null };
+  readonly cadence: ProjectPromise;
   readonly from: string;
   readonly to: string;
   readonly platform: 'all' | 'facebook' | 'instagram';

@@ -13,6 +13,7 @@ import type {
   StudioPost,
   StudioProject,
 } from '@/lib/db/queries/meta-studio';
+import type { ProjectPromise } from '@/lib/domain/meta-studio';
 import { compact } from '@/lib/domain/meta-studio';
 import { cn } from '@/lib/utils';
 
@@ -52,7 +53,6 @@ export function StudioWorkspace({
   previous,
   posts,
   cadence,
-  scheduled,
 }: {
   projects: readonly StudioProject[];
   selected: StudioProject;
@@ -63,8 +63,7 @@ export function StudioWorkspace({
   current: readonly MetricPoint[];
   previous: readonly MetricPoint[];
   posts: readonly StudioPost[];
-  cadence: { staticPerDay: number | null; reelsPerWeek: number | null };
-  scheduled: number;
+  cadence: ProjectPromise;
 }) {
   const router = useRouter();
   const search = useSearchParams();
@@ -211,7 +210,6 @@ export function StudioWorkspace({
           previous={previous}
           posts={shownPosts}
           cadence={cadence}
-          scheduled={scheduled}
           from={from}
           to={to}
           platform={platform}

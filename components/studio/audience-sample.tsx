@@ -50,105 +50,120 @@ const DEMOGRAPHICS_THRESHOLD = 100;
    Round numbers rather than realistic ones, so that even stripped of every label
    these read as a placeholder rather than as a measurement. */
 const SAMPLE_AGES = [
-  { label: '25–34', value: 40, token: 'accent-primary' },
+  { label: '25–34', value: 40, token: 'chart-1' },
   { label: '18–24', value: 25, token: 'chart-2' },
   { label: '35–44', value: 20, token: 'chart-3' },
   { label: '45+', value: 15, token: 'chart-4' },
 ];
 
-export function AudienceSample({ accounts }: { accounts: readonly StudioAccount[] }) {
+export function AudienceSample({
+  accounts,
+  className,
+}: {
+  accounts: readonly StudioAccount[];
+  className?: string;
+}) {
   /* The largest connected account decides — demographics unlock per account, and
      the nearest one to the threshold is the useful thing to report. */
   const best = accounts.reduce<number>((max, a) => Math.max(max, a.followers ?? 0), 0);
   const unlocked = best >= DEMOGRAPHICS_THRESHOLD;
   const remaining = Math.max(0, DEMOGRAPHICS_THRESHOLD - best);
 
-  /* ⚠️ When the threshold IS passed, this component must stop inventing and
-     start reading. It cannot yet — the sync does not collect demographics — so
-     it says exactly that rather than continuing to show a sample that has become
-     indistinguishable from a real one. */
+  /* ⚠️ Once past the threshold this must stop inventing and start reading. It
+     cannot yet — the sync does not collect demographics — so it says exactly
+     that rather than showing a sample that has become indistinguishable from a
+     real one. */
   if (unlocked) {
     return (
-      <section className="rounded-2xl border border-border-default bg-bg-surface p-4">
-        <header className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-body-sm font-semibold text-text-primary">Audience</h2>
-        </header>
-        <p className="rounded-lg border border-dashed border-border-subtle px-3 py-6 text-center text-caption text-text-tertiary">
-          This account has passed {DEMOGRAPHICS_THRESHOLD} followers, so Meta will now report
-          audience demographics. Collecting them is the next piece of work — no sample is shown
-          here, because at this point a placeholder would be indistinguishable from the real thing.
+      <section
+        className={`flex min-w-0 flex-col rounded-xl border border-border-subtle bg-bg-surface p-3.5 ${className ?? ''}`}
+      >
+        <h2 className="mb-3 text-caption font-semibold text-text-primary">Audience</h2>
+        <p className="grid flex-1 place-items-center rounded-lg border border-dashed border-border-subtle px-3 py-5 text-center text-micro text-text-tertiary">
+          Past {DEMOGRAPHICS_THRESHOLD} followers, so Meta will now report audience
+          demographics. Collecting them is the next piece of work.
         </p>
       </section>
     );
   }
 
+  const total = SAMPLE_AGES.reduce((n, a) => n + a.value, 0);
+
   return (
-    <section className="relative overflow-hidden rounded-2xl border border-dashed border-border-default bg-bg-surface p-4">
-      {/* Signal 5 — a hatch no real panel has. */}
+    <section
+      /* ⚠️ THE DASHED BORDER AND THE BADGE STAY. This card sits between two
+         panels of measured figures, and it is the only one on the page whose
+         numbers are invented. Every signal that says so is load-bearing. */
+      className={`relative flex min-w-0 flex-col overflow-hidden rounded-xl border border-dashed border-border-default bg-bg-surface p-3.5 ${className ?? ''}`}
+    >
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-0 opacity-[0.055]"
+        className="pointer-events-none absolute inset-0 opacity-[0.05]"
         style={{
           backgroundImage:
             'repeating-linear-gradient(45deg, var(--text-primary) 0 1px, transparent 1px 9px)',
         }}
       />
 
-      <header className="relative mb-1 flex flex-wrap items-center gap-2">
-        <h2 className="text-body-sm font-semibold text-text-primary">
-          Audience — <span className="italic">sample only</span>
+      <header className="relative mb-3 flex items-center justify-between gap-2">
+        <h2 className="flex items-center gap-1.5 text-caption font-semibold text-text-primary">
+          Audience
+          <span
+            title="Age and gender split of this account's followers. Sample figures until the account passes 100 followers."
+            className="grid size-3.5 shrink-0 cursor-help place-items-center rounded-full border border-border-default text-[0.55rem] font-bold text-text-tertiary"
+          >
+            i
+          </span>
         </h2>
-
-        {/* Signal 2 */}
         <span
-          className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-micro font-bold uppercase tracking-wide"
+          className="inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[0.6rem] font-bold uppercase tracking-wide"
           style={{
             backgroundColor: 'color-mix(in oklab, var(--feedback-warning) 18%, transparent)',
             color: 'var(--feedback-warning)',
           }}
         >
-          <Lock className="size-3" aria-hidden="true" />
-          Sample data — not real
+          <Lock className="size-2.5" aria-hidden="true" />
+          Sample
         </span>
       </header>
 
-      {/* Signal 3 */}
-      <p className="relative mb-3 flex items-start gap-1.5 text-caption text-text-secondary">
-        <Info className="mt-0.5 size-3.5 shrink-0 text-text-tertiary" aria-hidden="true" />
+      <div className="relative flex flex-1 items-center gap-3 opacity-70">
+        <DonutChart
+          slices={SAMPLE_AGES}
+          centreLabel="Age"
+          centreValue="—"
+          size={104}
+          thickness={11}
+          format="percent"
+          caption="Sample audience by age — placeholder figures, not this account's data"
+        />
+        <ul className="min-w-0 flex-1 space-y-1.5">
+          {SAMPLE_AGES.map((a) => (
+            <li key={a.label} className="flex items-center gap-2 text-micro">
+              <span
+                aria-hidden="true"
+                className="size-2 shrink-0 rounded-full"
+                style={{ backgroundColor: `var(--${a.token})` }}
+              />
+              <span className="min-w-0 flex-1 truncate text-text-secondary">{a.label}</span>
+              <span className="shrink-0 font-semibold tabular-nums text-text-primary">
+                {Math.round((a.value / total) * 100)}%
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <p className="relative mt-auto flex items-start gap-1.5 pt-3 text-[0.62rem] leading-snug text-text-tertiary">
+        <Info className="mt-px size-3 shrink-0" aria-hidden="true" />
         <span>
-          Meta only reports audience demographics once an account passes{' '}
-          <strong className="font-semibold text-text-primary">
-            {DEMOGRAPHICS_THRESHOLD} followers
-          </strong>
-          — a privacy floor, not a setting. The largest connected account has{' '}
-          <strong className="font-semibold text-text-primary">{best}</strong>, so these two charts
-          show <strong className="font-semibold text-text-primary">invented placeholder figures</strong>{' '}
-          to show the layout. They will be replaced with the real audience automatically once{' '}
-          {remaining} more {remaining === 1 ? 'follower joins' : 'followers join'}.
+          <strong className="font-semibold" style={{ color: 'var(--feedback-warning)' }}>
+            Sample figures.
+          </strong>{' '}
+          Meta reports audience only above {DEMOGRAPHICS_THRESHOLD} followers — {remaining} more
+          to go.
         </span>
       </p>
-
-      {/* ⚠️ TOP LOCATIONS MOVED OUT on 2026-09-04 — it has its own panel beside
-          the gauge now, where the reference puts it. Keeping a second copy here
-          would have shown one client the same invented figures twice on one
-          screen, which makes them look corroborated. */}
-
-      {/* Signal 4 — dimmed and desaturated against every neighbouring panel. */}
-      <div className="relative grid gap-4 opacity-55 saturate-50 sm:grid-cols-2">
-        <div>
-          <p className="mb-2 text-micro font-semibold uppercase tracking-wide text-text-tertiary">
-            Age &amp; gender (sample)
-          </p>
-          <DonutChart
-            slices={SAMPLE_AGES}
-            centreLabel="Sample"
-            centreValue="—"
-            format="percent"
-            size={148}
-            caption="Sample audience by age — placeholder figures, not this account's data"
-          />
-        </div>
-      </div>
     </section>
   );
 }

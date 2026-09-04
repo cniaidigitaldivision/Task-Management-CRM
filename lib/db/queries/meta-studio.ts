@@ -164,23 +164,43 @@ export async function postsForProject(
   }));
 }
 
-/** The project's agreed rhythm, for the target cards. Null when none is set. */
+/**
+ * The project's agreed promise — what the client was actually sold.
+ *
+ * ⚠️ THE MONTHLY ASSET AND REEL TARGETS ARE THE POINT, not the daily rhythm.
+ * Owner: *"it's a target, or the promise of that project: how many assets we
+ * will provide, how many posts, and how many reels we will provide."*
+ *
+ * An earlier version read only `static_posts_per_day` and `reels_per_week` and
+ * multiplied them out to a single blended number — 43 posts. That is a
+ * DERIVED figure, and it hid the two numbers the contract is actually written
+ * in: this project promises 36–42 assets and 12 reels a month. Delivering 50
+ * posts while being three reels short is a fact the blended number cannot state.
+ */
 export async function cadenceForProject(
   actorId: string,
   projectId: string,
-): Promise<{ staticPerDay: number | null; reelsPerWeek: number | null }> {
+): Promise<{
+  staticPerDay: number | null;
+  reelsPerWeek: number | null;
+  assetsMin: number | null;
+  assetsMax: number | null;
+  reelsMin: number | null;
+}> {
   const rows = await withUser(actorId, (tx) => tx`
-    select static_posts_per_day, reels_per_week
+    select static_posts_per_day, reels_per_week,
+           assets_target_min, assets_target_max, reels_target_min
       from public.projects where id = ${projectId}
   `);
   const r = (rows as Array<Record<string, unknown>>)[0];
+  const num = (v: unknown) => (v === null || v === undefined ? null : Number(v));
+
   return {
-    staticPerDay: r?.static_posts_per_day === null || r?.static_posts_per_day === undefined
-      ? null
-      : Number(r.static_posts_per_day),
-    reelsPerWeek: r?.reels_per_week === null || r?.reels_per_week === undefined
-      ? null
-      : Number(r.reels_per_week),
+    staticPerDay: num(r?.static_posts_per_day),
+    reelsPerWeek: num(r?.reels_per_week),
+    assetsMin: num(r?.assets_target_min),
+    assetsMax: num(r?.assets_target_max),
+    reelsMin: num(r?.reels_target_min),
   };
 }
 
@@ -188,11 +208,14 @@ export async function cadenceForProject(
  * Content work that is planned but not yet published, inside the window.
  *
  * ⚠️ FROM TASKLY'S OWN TASKS, NOT FROM META — Meta has no concept of a post that
- * has not happened. This is the "Scheduled" slice of Delivery Progress, and it
- * is the one number on that card that comes from the division's own plan rather
- * than from the platform. Without it the card can only say delivered-vs-target,
- * which cannot distinguish "we are behind" from "we are behind and nothing is
- * even written yet".
+ * has not happened. It is the one figure available here that comes from the
+ * division's own plan rather than from the platform, which is what lets a screen
+ * distinguish "we are behind" from "we are behind and nothing is even written
+ * yet".
+ *
+ * ⚠️ CURRENTLY UNUSED BY THE STUDIO. It fed the Delivery Progress card, which the
+ * owner removed on 2026-09-04. Kept because the Content & Posts tab needs exactly
+ * this and it is four lines; delete it if that tab lands without needing it.
  */
 export async function scheduledForProject(
   actorId: string,
