@@ -359,6 +359,7 @@ export interface FunnelStage {
  */
 export function engagementFunnel(metrics: readonly MetricPoint[]): readonly FunnelStage[] {
   const reach = sumOf(metrics, IG.reach, 'instagram');
+  const views = sumOf(metrics, IG.views, 'instagram');
   const engaged = sumOf(metrics, IG.accountsEngaged, 'instagram');
   const interactions = sumOf(metrics, IG.interactions, 'instagram');
   const profile = sumOf(metrics, IG.profileViews, 'instagram');
@@ -373,6 +374,19 @@ export function engagementFunnel(metrics: readonly MetricPoint[]): readonly Funn
       token: 'chart-1',
       conversion: null,
       note: 'Accounts that saw a post at least once.',
+    },
+    {
+      /* ⚠️ VIEWS SIT *BELOW* REACH IN THE LIST AND ABOVE IT IN VALUE, which
+         looks like an error and is not: reach counts accounts, views counts
+         viewings, and one account can view repeatedly. Its conversion is
+         therefore normally well over 100% and that is the interesting figure —
+         it is how many times the average reached account came back. */
+      key: 'views',
+      label: 'Views',
+      value: views,
+      token: 'chart-4',
+      conversion: share(views, reach),
+      note: 'Total viewings. Above 100% because one account can view more than once.',
     },
     {
       key: 'engaged',
@@ -613,4 +627,100 @@ export function insights(input: {
   }
 
   return out;
+}
+
+
+/* ---- Against the previous period ----------------------------------------- */
+
+export interface Delta {
+  readonly key: string;
+  readonly label: string;
+  readonly value: number;
+  readonly previous: number;
+  /** Null when there is no earlier figure to compare against. */
+  readonly percent: number | null;
+  readonly token: string;
+}
+
+/**
+ * Each headline metric against the same-length window before it.
+ *
+ * ⚠️ NULL WHEN THE EARLIER PERIOD IS EMPTY, never +100%. Growth from nothing has
+ * no percentage — the first month of collection would otherwise show every card
+ * up by infinity or by a made-up hundred, which is the reading somebody would
+ * quote in a client meeting.
+ *
+ * ⚠️ AND THE COMPARISON WINDOW IS THE CALLER'S, not this function's. The page
+ * fetches the previous period with the same number of days; computing it here
+ * from a clock would put a second definition of "the period before" in the
+ * codebase, and the two would disagree the first time somebody picked a custom
+ * range.
+ */
+export function periodDeltas(input: {
+  readonly current: readonly MetricPoint[];
+  readonly previous: readonly MetricPoint[];
+}): readonly Delta[] {
+  const { current, previous } = input;
+
+  const pair = (
+    key: string,
+    label: string,
+    token: string,
+    read: (m: readonly MetricPoint[]) => number,
+  ): Delta => {
+    const now = read(current);
+    const before = read(previous);
+    return {
+      key,
+      label,
+      value: now,
+      previous: before,
+      percent: before === 0 ? null : ((now - before) / before) * 100,
+      token,
+    };
+  };
+
+  /* Followers are a level: the change is the difference between the two latest
+     readings, not between two sums. */
+  const followersNow = latestAny(current, [IG.followers, FB.followers]);
+  const followersBefore = latestAny(previous, [IG.followers, FB.followers]);
+
+  return [
+    pair('reach', 'Total reach', 'chart-1', (m) => sumOf(m, IG.reach, 'instagram')),
+    {
+      key: 'followers',
+      label: 'Followers',
+      value: followersNow,
+      previous: followersBefore,
+      percent: followersBefore === 0 ? null : ((followersNow - followersBefore) / followersBefore) * 100,
+      token: 'chart-3',
+    },
+    pair(
+      'engagements',
+      'Engagements',
+      'chart-2',
+      (m) => sumOf(m, IG.interactions, 'instagram') + sumOf(m, FB.engagements, 'facebook'),
+    ),
+    pair('engaged', 'Accounts engaged', 'chart-4', (m) =>
+      sumOf(m, IG.accountsEngaged, 'instagram'),
+    ),
+    pair(
+      'profile',
+      'Profile visits',
+      'chart-6',
+      (m) => sumOf(m, IG.profileViews, 'instagram') + sumOf(m, FB.pageViews, 'facebook'),
+    ),
+  ];
+}
+
+/** The latest reading of whichever of these keys the platform reports. */
+function latestAny(metrics: readonly MetricPoint[], keys: readonly string[]): number {
+  let total = 0;
+  for (const key of keys) {
+    const rows = metrics
+      .filter((m) => m.metricKey === key)
+      .sort((a, b) => a.onDate.localeCompare(b.onDate));
+    if (rows.length > 0) total += rows[rows.length - 1].value;
+  }
+  return total;
 }

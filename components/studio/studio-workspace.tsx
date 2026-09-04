@@ -334,6 +334,9 @@ export function StudioWorkspace({
              comparison into a false claim. The platform filter belongs to the
              tabs that show one platform's posts. */
           metrics={current}
+          /* The same-length window before this one — already fetched for the
+             Overview's deltas, so this costs no extra query. */
+          previous={previous}
           posts={posts}
           from={from}
           to={to}

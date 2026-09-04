@@ -505,67 +505,82 @@ export function ScatterChart({
 /* ---- Funnel -------------------------------------------------------------- */
 
 /**
- * Reached → engaged → interactions → profile views.
+ * Reached → views → engaged → interactions → profile views.
  *
- * ⚠️ EACH BAR IS WIDTH-SCALED AGAINST THE FIRST STAGE, NOT AGAINST ITS
+ * ⚠️ EACH BAR IS WIDTH-SCALED AGAINST THE LARGEST STAGE, NOT AGAINST ITS
  * PREDECESSOR. A classic funnel narrows by each step's own conversion, which
  * looks tidy and misleads: two stages of 50% and 90% draw the same taper as 90%
- * and 50%. Scaling everything against the top makes the collapse from 1,000 to
- * 100 look like the collapse it is.
+ * and 50%. Scaling everything against the largest makes the collapse from
+ * 213,000 to 237 look like the collapse it is.
+ *
+ * ⚠️ AND THE LARGEST, NOT THE FIRST — because Views legitimately exceeds Reach.
+ * Scaling against the first stage would push the Views bar past the panel's
+ * right edge and clip the very figure that makes it interesting.
  */
 export function Funnel({ stages }: { stages: readonly FunnelStage[] }) {
   const { ref, inView } = useInView<HTMLDivElement>();
-  const top = Math.max(1, stages[0]?.value ?? 1);
+  const top = Math.max(1, ...stages.map((s) => s.value));
 
   if (stages.every((s) => s.value === 0)) {
     return <p className="text-micro text-text-tertiary">Nothing collected for this period.</p>;
   }
 
   return (
-    <div ref={ref} className="space-y-2">
+    <div ref={ref} className="space-y-1.5">
       {stages.map((s, i) => {
-        /* A floor, so a tiny stage is still a visible bar rather than a sliver
+        /* A floor, so a tiny stage is still a readable bar rather than a sliver
            that reads as a rendering fault. */
-        const share = Math.max(0.04, s.value / top);
+        const share = Math.max(0.16, s.value / top);
         return (
-          <div key={s.key}>
-            <div className="flex items-baseline justify-between gap-2">
-              <span className="text-micro font-semibold text-text-primary">{s.label}</span>
-              <span className="flex items-baseline gap-2">
-                {s.conversion !== null && (
-                  <span
-                    className="text-[0.6rem] font-bold tabular-nums"
-                    style={{
-                      /* Above 100% is real and is coloured as an upside, not an
-                         error — see `engagementFunnel`. */
-                      color: s.conversion > 100 ? 'var(--chart-3)' : 'var(--text-tertiary)',
-                    }}
-                  >
-                    {s.conversion.toFixed(1)}%
-                  </span>
-                )}
-                <span className="text-body-sm font-bold tabular-nums text-text-primary">
-                  {compact(s.value)}
-                </span>
+          <div key={s.key} className="flex items-center gap-2" title={s.note}>
+            {/* The bar carries its own label, as the reference draws it. */}
+            <div className="relative h-8 min-w-0 flex-1 overflow-hidden rounded-md bg-bg-subtle">
+              <div
+                className="absolute inset-y-0 left-0 rounded-md"
+                style={{
+                  width: inView ? `${share * 100}%` : '0%',
+                  background: `linear-gradient(90deg, color-mix(in oklab, var(--${s.token}) 34%, transparent), color-mix(in oklab, var(--${s.token}) 16%, transparent))`,
+                  transition: 'width 800ms cubic-bezier(0.16,1,0.3,1)',
+                  transitionDelay: `${i * 90}ms`,
+                }}
+              />
+              <span
+                aria-hidden="true"
+                className="absolute inset-y-0 left-0 w-1 rounded-l-md"
+                style={{ backgroundColor: `var(--${s.token})` }}
+              />
+              <span className="absolute inset-y-0 left-3 flex items-center truncate pr-2 text-micro font-semibold text-text-primary">
+                {s.label}
               </span>
             </div>
 
-            <div className="mt-1 h-6 overflow-hidden rounded-lg bg-bg-subtle">
-              <div
-                className="flex h-full items-center rounded-lg"
-                style={{
-                  width: inView ? `${share * 100}%` : '0%',
-                  background: `linear-gradient(90deg, var(--${s.token}), color-mix(in oklab, var(--${s.token}) 62%, transparent))`,
-                  transition: 'width 800ms cubic-bezier(0.16,1,0.3,1)',
-                  transitionDelay: `${i * 110}ms`,
-                }}
-              />
-            </div>
+            <span className="w-[4.2rem] shrink-0 text-right text-micro font-bold tabular-nums text-text-primary">
+              {compact(s.value)}
+            </span>
 
-            <p className="mt-0.5 text-[0.58rem] leading-snug text-text-tertiary">{s.note}</p>
+            <span className="w-[3.2rem] shrink-0 text-right text-[0.62rem] font-bold tabular-nums">
+              {s.conversion === null ? (
+                <span className="text-text-tertiary">—</span>
+              ) : (
+                <span
+                  style={{
+                    /* Above 100% is real and is coloured as an upside, not an
+                       error — see `engagementFunnel`. */
+                    color: s.conversion > 100 ? 'var(--chart-3)' : 'var(--text-tertiary)',
+                  }}
+                >
+                  {s.conversion >= 10 ? Math.round(s.conversion) : s.conversion.toFixed(1)}%
+                </span>
+              )}
+            </span>
           </div>
         );
       })}
+
+      <p className="border-t border-border-subtle pt-1.5 text-[0.58rem] leading-snug text-text-tertiary">
+        Each percentage is against the stage above. Views exceed reach because one account can
+        view more than once.
+      </p>
     </div>
   );
 }

@@ -12,6 +12,7 @@ import {
   engagementFunnel,
   insights,
   interactionMix,
+  periodDeltas,
   platformRadar,
   reachVsEngagement,
   series,
@@ -226,9 +227,26 @@ describe('the funnel', () => {
 
   it('converts each stage against the one above it', () => {
     const f = engagementFunnel(metrics);
+    expect(f.map((s) => s.key)).toEqual([
+      'reach',
+      'views',
+      'engaged',
+      'interactions',
+      'profile',
+    ]);
     expect(f[0].conversion).toBeNull();
-    expect(f[1].conversion).toBeCloseTo(10, 5);
-    expect(f[2].conversion).toBeCloseTo(150, 5);
+    expect(f.find((s) => s.key === 'engaged')?.conversion).toBeCloseTo(10, 5);
+  });
+
+  /* ⚠️ VIEWS RANK BELOW REACH AND EXCEED IT. Reach counts accounts, views counts
+     viewings, and one account can view repeatedly — so a conversion well over
+     100% is the normal, interesting case rather than a fault. */
+  it('lets views exceed reach, because they count different things', () => {
+    const f = engagementFunnel([
+      metric({ metricKey: IG.reach, value: 1000 }),
+      metric({ metricKey: IG.views, value: 2500 }),
+    ]);
+    expect(f.find((s) => s.key === 'views')?.conversion).toBeCloseTo(250, 5);
   });
 
   /* ⚠️ Somebody can visit a profile without touching a post, so this genuinely
@@ -333,5 +351,52 @@ describe('the written insights', () => {
     );
     const found = insights({ metrics, posts: [], dates: DATES });
     expect(found.find((i) => i.key === 'trend')?.title).toMatch(/Reach is up/);
+  });
+});
+
+describe('against the previous period', () => {
+  const now = [
+    metric({ metricKey: IG.reach, value: 120 }),
+    metric({ metricKey: IG.followers, value: 20, onDate: '2026-09-02' }),
+  ];
+  const before = [
+    metric({ metricKey: IG.reach, value: 100 }),
+    metric({ metricKey: IG.followers, value: 16, onDate: '2026-08-02' }),
+  ];
+
+  it('computes each metric against the same-length window before it', () => {
+    const d = periodDeltas({ current: now, previous: before });
+    expect(d.find((x) => x.key === 'reach')?.percent).toBeCloseTo(20, 5);
+  });
+
+  /* ⚠️ NULL, NEVER +100%. Growth from nothing has no percentage, and a made-up
+     one is exactly the figure somebody quotes in a client meeting. */
+  it('reports null rather than a percentage of nothing', () => {
+    const d = periodDeltas({ current: now, previous: [] });
+    for (const x of d) expect(x.percent).toBeNull();
+  });
+
+  /* Followers are a level: the change is between the two latest readings, not
+     between two sums of thirty days each. */
+  it('compares the latest follower readings rather than summing them', () => {
+    const d = periodDeltas({
+      current: [
+        metric({ metricKey: IG.followers, value: 18, onDate: '2026-09-01' }),
+        metric({ metricKey: IG.followers, value: 20, onDate: '2026-09-02' }),
+      ],
+      previous: [metric({ metricKey: IG.followers, value: 16, onDate: '2026-08-02' })],
+    });
+    const f = d.find((x) => x.key === 'followers');
+    expect(f?.value).toBe(20);
+    expect(f?.previous).toBe(16);
+    expect(f?.percent).toBeCloseTo(25, 5);
+  });
+
+  it('reports a decline as a decline', () => {
+    const d = periodDeltas({
+      current: [metric({ metricKey: IG.reach, value: 80 })],
+      previous: [metric({ metricKey: IG.reach, value: 100 })],
+    });
+    expect(d.find((x) => x.key === 'reach')?.percent).toBeCloseTo(-20, 5);
   });
 });
