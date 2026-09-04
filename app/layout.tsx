@@ -65,7 +65,28 @@ export default function RootLayout({ children }: LayoutProps<'/'>) {
         <script dangerouslySetInnerHTML={{ __html: THEME_PRE_PAINT_SCRIPT }} />
       </head>
       <body
-        className={`${inter.variable} ${playfair.variable} ${jetbrains.variable} flex min-h-full flex-col font-sans antialiased`}
+        /* ── ⚠️ `min-h-full` IS WRONG ON THE ELEMENT THAT CARRIES THE ZOOM ────
+           Owner, 2026-09-04: *"after the cards end, the page height is too
+           much… the page is scrolling down and nothing is here."*
+
+           `body` has `zoom: 0.9` (the density scale — `--ui-scale` in
+           styles/tokens.css). A percentage min-height resolves against the
+           PRE-ZOOM box, so `min-h-full` on a 1040px window computes to
+           1155.56px — measured, not inferred. The page is therefore forced 11%
+           taller than the viewport on every screen, and a page short enough to
+           fit shows the remainder as dead space that scrolls to reach nothing.
+
+           ⚠️ I FIXED THE WRONG ELEMENTS FIRST. The previous attempt corrected
+           the two `min-h-full`s inside `app-shell.tsx`, which are real but
+           DOWNSTREAM — the floor was already set here, above them, so the gap
+           survived. Measuring the live DOM found it; reasoning about the shell
+           did not.
+
+           `min-h-dvh` is the fix rather than a scaled calc: a viewport unit is
+           resolved by the browser against the real window and is not subject to
+           the parent's percentage basis. The (auth) and (public) layouts already
+           divide `100dvh` by the scale for the same reason, one level down. */
+        className={`${inter.variable} ${playfair.variable} ${jetbrains.variable} flex min-h-dvh flex-col font-sans antialiased`}
       >
         <ThemeProvider>{children}</ThemeProvider>
       </body>

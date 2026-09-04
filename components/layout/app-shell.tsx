@@ -355,23 +355,12 @@ export function AppShell({
     <LiveRefresh />
     <div
       className={cn(
-        /* ── ⚠️ THE HEIGHT IS DIVIDED BY THE DENSITY SCALE ──────────────────
-           Owner, 2026-09-04: *"all the cards end above, but there is a lot of
-           white space at the bottom."* Roughly 110px of empty page under every
-           short screen, and it was not a page's own padding.
-
-           `body` carries `zoom: 0.9` (see `--ui-scale` in styles/tokens.css). A
-           PERCENTAGE height resolves against the pre-zoom box, so `min-h-full`
-           asked for 100% of 1122px on a 1010px window — a floor 11% taller than
-           the viewport, painted down to 1010 but still reserving the extra as
-           layout. Every page in the application had it; it only became obvious
-           on a page short enough to fit.
-
-           Multiplying by the scale gives a floor of 909 pre-zoom units, which is
-           exactly 1010 painted. `app/(auth)/layout.tsx` already documents the
-           same trap from the other direction, where a bare `min-h-dvh` painted
-           its surface over only 90% of the screen. */
-        'min-h-[calc(100%*var(--ui-scale))] bg-bg-base [--rail:0px]',
+        /* ⚠️ NO MIN-HEIGHT HERE. `body` is `min-h-dvh` and a flex column, so
+           this child already stretches to the window — see app/layout.tsx for
+           why a PERCENTAGE floor is wrong under the density zoom. Adding one
+           back reintroduces exactly the 11% of dead page that removing it
+           fixed. */
+        'flex-1 bg-bg-base [--rail:0px]',
         pinned ? 'lg:[--rail:var(--sidebar-width)]' : 'lg:[--rail:var(--sidebar-width-collapsed)]',
       )}
     >
@@ -391,9 +380,9 @@ export function AppShell({
           the same complaint about a different surface, and the top bar is the
           first position where nothing can collide with it by construction. */}
 
-      {/* The same correction: this column is what actually pushes the footer
-          down, so leaving it at `min-h-full` would keep the gap. */}
-      <div className="flex min-h-[calc(100%*var(--ui-scale))] flex-col pl-[var(--rail)] transition-[padding-left] duration-[240ms] ease-out">
+      {/* Grows with its parent rather than setting its own floor, for the same
+          reason. */}
+      <div className="flex min-h-0 flex-1 flex-col pl-[var(--rail)] transition-[padding-left] duration-[240ms] ease-out">
         <Topbar
           title={title}
           subtitle={subtitle}
