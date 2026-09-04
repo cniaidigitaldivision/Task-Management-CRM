@@ -5,7 +5,7 @@
 > next, and what must not be touched. Every other file in this folder is
 > reference; this one is the state.
 >
-> **Last updated:** 2026-09-04 · **Branch:** `meta-integration` · **Phase:** 1 of 6
+> **Last updated:** 2026-09-04 · **Branch:** `meta-integration` · **Phase:** 2 of 6 ✅
 
 ---
 
@@ -49,16 +49,20 @@ do not push or deploy anything without being told.
 | 5 | Page + Instagram account discovered and confirmed reachable | §5 below |
 | 6 | Per-post data and permalinks confirmed available | `01-VERIFIED-API-FACTS.md` §4 |
 | 7 | Planning documents written (this folder) | you are reading them |
+| 8 | Owner answered all six questions | §7 below |
+| 9 | **Phase 2 — migrations 091, 092, 093 written and APPLIED** | `meta_tables = 6`, self-checks passed |
 
-### ⏳ NEXT — Phase 2, not started
+### ⏳ NEXT — Phase 3, the sync job
 
-Waiting on the owner's answers in §7 before any code is written. See
-`04-PHASES.md` for the full sequence.
+`lib/meta/client.ts`, `lib/meta/sync.ts`, `app/api/meta-sync/route.ts`, cron in
+`vercel.json` at **every 2 hours** (owner confirmed). Then link the AI & Digital
+Division account and run the 30-day backfill.
 
 ### ❌ NOT STARTED
 
-Everything else. **No migration has been written. No table exists. No UI file
-exists. No cron is registered.** The database is untouched.
+The sync job, the `/studio` route, every UI file, the cron registration. **No
+account is linked yet** (`meta_accounts` is empty) and **no figure has been
+collected**.
 
 ---
 
@@ -124,19 +128,23 @@ Studio's dropdown.
 
 ---
 
-## 7 · ⛔ BLOCKED ON THE OWNER — questions that change the build
+## 7 · ✅ ANSWERED BY THE OWNER, 2026-09-04
 
-These are in `04-PHASES.md` §Questions with full context. Short form:
-
-1. **Cron frequency** — owner said 1–2 hours. Confirm 2 hours? (Meta's daily
-   figures only change a few times a day; hourly mostly re-reads the same rows.)
-2. **What happens below 100 followers?** Demographics return **empty**, so "Top
-   Locations" and "Age & Gender" cannot be drawn for the current account. Hide
-   the panels, or show them with an explanation?
-3. **Are client pages already shared to the Business account,** or only this one?
-4. Is the Meta app in **Live** mode, and has Business Verification been done?
-5. Which project is second, so the multi-project path gets designed rather than
-   retrofitted?
+1. **Cron: every 2 hours.** Owner took the recommendation.
+2. **Sub-100 demographics: build the panels.** Show clearly-labelled sample data
+   plus a message that real figures appear once the account passes 100 followers.
+   ⚠️ **The "sample" labelling must be impossible to miss** — an unlabelled
+   placeholder that later reads as real is the failure mode to design against.
+3. **Client pages are already shared** into the Business account. Projects that
+   are internal tool development have none, by nature.
+4. ⚠️ **The Meta app is UNPUBLISHED (development mode).** It works for the
+   business's own assets, which is why the reconnaissance succeeded. The owner
+   has the paperwork for Business Verification ready. **Not a blocker for this
+   project; may become one for client pages.**
+5. **Second project: later.** For now, selecting any other project in the
+   dropdown shows a **"coming soon"** state.
+6. **Facebook reach: label honestly.** Show Views and Engagement for Facebook and
+   do not invent a reach figure.
 
 ---
 
@@ -160,4 +168,5 @@ not updated is worse than none, because the next session trusts it.
 
 | Date | Session did | Left at |
 |---|---|---|
-| 2026-09-04 | Branch created. Token and all four env vars verified live. Full API reconnaissance: working metric lists for FB + IG on v26.0, per-post data, permalinks, 30-day window limit, demographics threshold. Planning docs written. **No code, no migration, no schema change.** | Awaiting answers to §7 |
+| 2026-09-04 (1) | Branch created. Token and all four env vars verified live. Full API reconnaissance: working metric lists for FB + IG on v26.0, per-post data, permalinks, 30-day window limit, demographics threshold. Planning docs written. **No code, no migration, no schema change.** | Awaiting answers to §7 |
+| 2026-09-04 (2) | Owner answered all six questions. **Phase 2 complete:** migrations 091–093 written and applied — `meta_accounts`, `meta_metric_catalogue` (15 verified metrics seeded), `meta_metric_days`, `meta_posts`, `meta_post_metrics`, `meta_sync_runs`, plus `app.record_meta_sync` / `app.record_meta_sync_failure`. All self-checks passed; 2 644 tests still green; projects/tasks/attendance counts unchanged. Three schema surprises found by the migration refusing to commit: `projects.type` not `project_type`, `code` is NOT NULL, and `projects_code_format` demands exactly three uppercase letters. | Phase 3, the sync job |
