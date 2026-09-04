@@ -375,8 +375,9 @@ describe('follower growth across the fleet', () => {
     expect(g.percent).toBeNull();
     /* Facebook alone: 0 -> 20. */
     expect(g.absolute).toBe(20);
-    expect(g.note).toMatch(/\+20 since collection began/);
-    expect(g.note).toMatch(/1 of 2 accounts/);
+    /* Short enough that KpiCard's truncation cannot eat the qualification. */
+    expect(g.note).toBe('+20 from 1 of 2 accounts');
+    expect(g.note.length).toBeLessThan(32);
   });
 
   /* (20 - 0) / 0 is not 100%, it is undefined. */

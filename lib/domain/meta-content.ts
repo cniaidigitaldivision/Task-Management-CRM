@@ -705,9 +705,14 @@ export function followerGrowth(
   /* ⚠️ Named honestly when only some accounts could be compared, because the
      figure above the note is the WHOLE fleet's follower count while the change
      below it describes a subset. Silently mixing the two is the bug above. */
+  /* ⚠️ SHORT ENOUGH TO FIT THE CARD. `KpiCard` truncates its footnote, and the
+     first wording — "+20 since collection began, across 1 of 2 accounts" — was
+     cut to "…across 1…", which loses exactly the qualification that made the
+     sentence honest. A figure whose caveat is ellipsised is worse than one with
+     no caveat, because the reader can see something was withheld. */
   const partial = usable.length < accounts.length;
   const scope = partial
-    ? `across ${usable.length} of ${accounts.length} accounts`
+    ? `${usable.length} of ${accounts.length} accounts`
     : 'over the collected history';
 
   if (earlier === 0) {
@@ -716,7 +721,9 @@ export function followerGrowth(
       percent: null,
       absolute,
       comparable: usable.length,
-      note: `${absolute >= 0 ? '+' : ''}${absolute} since collection began, ${scope}`,
+      note: partial
+        ? `${absolute >= 0 ? '+' : ''}${absolute} from ${scope}`
+        : `${absolute >= 0 ? '+' : ''}${absolute} since collection began`,
     };
   }
 
