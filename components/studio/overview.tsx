@@ -298,15 +298,21 @@ export function StudioOverview({
         />
       </div>
 
-      {/* ══ ROW 2 · performance · gauge · locations ══════════════════════ */}
-      <div className="grid gap-3 lg:grid-cols-12">
+      {/* ══ ROW 2 · performance · gauge · locations ══════════════════════
+          ⚠️ EXPLICIT TRACKS, NOT A 12-COLUMN SPAN. Owner: *"Increase the width of
+          the performance overview, make the engagement rate and top location
+          cards both have the same width."* Twelve columns cannot express
+          62/19/19 — the nearest is 8/2/2, which starves both side panels, or
+          6/3/3, which gives the gauge as much room as a chart carrying four
+          series. `minmax(0, …)` on every track because a bare `fr` refuses to
+          shrink below its content and would push the row wider than the page. */}
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,10fr)_minmax(0,3fr)_minmax(0,3fr)]">
         {/* ⚠️ 7 / 2 / 3, measured off the reference. Owner: *"the performance
             view is taking more space width-wise… Engagement rate card: make it
             small. Location card: make it small and horizontally longer."* The
             first build gave all three 6/3/3, which made the gauge as important
             as the chart carrying four series. */}
         <Panel
-          className="lg:col-span-7"
           title="Performance Overview"
           info="Reach, engagement, followers and views on one scale."
           action={
@@ -325,30 +331,29 @@ export function StudioOverview({
             series={performance}
             labels={labels}
             tooltipLabels={rolled.tooltipLabels}
-            height={232}
+            height={196}
             animationKey={`${grain}-${platform}-${from}`}
           />
         </Panel>
 
         <Panel
-          className="lg:col-span-2"
           title="Engagement Rate"
           info="Interactions per person reached, Instagram."
         >
-          <div className="flex h-full flex-col items-center justify-center">
+          <div className="flex h-full flex-col items-center justify-center pb-1">
             <SegmentedGauge
               value={engagementRate}
               max={10}
               verdict={verdictFor(engagementRate)}
               hint={rateKpi ? (formatDelta(rateKpi) ?? undefined) : undefined}
-              size={168}
+              size={160}
             />
           </div>
         </Panel>
 
         {/* Top Locations sits here in the reference, and the owner asked for it
             even though Meta will not report it yet. See the panel itself. */}
-        <TopLocations className="lg:col-span-3" accounts={accounts} />
+        <TopLocations accounts={accounts} />
       </div>
 
       {/* ══ ROW 3 · growth · content mix · delivery ══════════════════════ */}

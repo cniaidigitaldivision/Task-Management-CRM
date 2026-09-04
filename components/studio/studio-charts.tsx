@@ -72,8 +72,11 @@ export function MultiSeriesChart({
   const [hidden, setHidden] = React.useState<ReadonlySet<string>>(new Set());
 
   const W = 780;
-  const H = 250;
-  const PAD = { top: 16, right: dualAxis ? 44 : 14, bottom: 28, left: 44 };
+  /* ⚠️ 215, down from 250. Owner: *"the height is much… reduce the height of
+     this whole row."* The row has to sit beside a gauge and a five-row list; a
+     chart taller than either leaves both of them padding out white space. */
+  const H = 215;
+  const PAD = { top: 14, right: dualAxis ? 46 : 14, bottom: 24, left: 46 };
 
   const visible = series.filter((s) => !hidden.has(s.label));
   const drawn = visible.filter((s) => s.points.some((p) => p !== null));
@@ -115,8 +118,27 @@ export function MultiSeriesChart({
   const rightMax = right.ceiling;
   const hasRight = drawn.some(onRight);
 
+  /* ⚠️ 0.42 of a slot. This has now been tuned twice in both directions: 0.5 was
+     "very thin lines", 0.68 was too heavy and swamped the lines in front of it.
+     The reference's bars are a background the lines are read against, so they
+     sit under half a slot and well under the gap between them. */
+  const barWidth = Math.max(
+    3,
+    Math.min(18, ((W - PAD.left - PAD.right) / Math.max(1, labels.length)) * 0.42),
+  );
   const n = Math.max(1, labels.length - 1);
-  const x = (i: number) => PAD.left + (i / n) * (W - PAD.left - PAD.right);
+
+  /* ⚠️ THE PLOT IS INSET BY HALF A BAR AT EACH END, and this is the fix for a
+     real overlap rather than a cosmetic tweak. Owner: *"why are these figures on
+     the left, like 15k, 30k, 45k, overlapping with the bars?"*
+
+     A bar is CENTRED on its point, so the first bar reached `barWidth / 2` to the
+     LEFT of `PAD.left` — straight through the space the axis numerals occupy.
+     Widening the padding would only have moved the collision. The plot area
+     itself now starts half a bar in, so no mark can cross into the gutter. */
+  const inset = barWidth / 2 + 1;
+  const x = (i: number) =>
+    PAD.left + inset + (i / n) * (W - PAD.left - PAD.right - inset * 2);
   const yFor = (v: number, max: number) => PAD.top + (1 - v / max) * (H - PAD.top - PAD.bottom);
   const y = (v: number, s: Series) => yFor(v, onRight(s) ? rightMax : leftMax);
 
@@ -153,10 +175,7 @@ export function MultiSeriesChart({
      hairlines beside a 2px stroke; the reference sits at roughly two-thirds,
      which is also the width at which a bar stops competing with the lines and
      starts reading as the ground they stand on. */
-  const barWidth = Math.max(
-    3,
-    Math.min(26, ((W - PAD.left - PAD.right) / Math.max(1, labels.length)) * 0.68),
-  );
+
 
   if (series.length === 0) return <ChartEmpty />;
 
@@ -469,7 +488,7 @@ export function SegmentedGauge({
   max = 100,
   verdict,
   hint,
-  size = 190,
+  size = 176,
 }: {
   value: number;
   max?: number;
@@ -492,9 +511,12 @@ export function SegmentedGauge({
     { token: 'chart-3', from: 0.75, to: 1 },
   ];
 
-  const r = 38;
+  /* A wider radius on a shorter canvas: the arc fills the card rather than
+     floating in the middle of it, which is where the owner saw "a lot of white
+     space". */
+  const r = 40;
   const cx = 50;
-  const cy = 52;
+  const cy = 50;
 
   const pt = (deg: number, radius: number) => {
     const rad = (deg * Math.PI) / 180;
@@ -510,34 +532,44 @@ export function SegmentedGauge({
   return (
     <figure className="flex flex-col items-center">
       <svg
-        viewBox="0 0 100 62"
+        viewBox="0 0 100 58"
         style={{ width: size }}
         role="img"
         aria-label={`${value.toFixed(2)} of ${max}`}
       >
+        {/* ⚠️ A REAL GAP BETWEEN THE BANDS, and a thinner stroke. Owner: *"this
+            colorful multi-bar should be thinner. There should be spaces between
+            each color, as you can see in the reference."* The previous 0.006
+            inset was smaller than the round cap that overdrew it, so four bands
+            rendered as one continuous ribbon. */}
         {bands.map((b) => (
           <path
             key={b.token}
-            d={arc(b.from + 0.006, b.to - 0.006, r)}
+            d={arc(b.from + 0.022, b.to - 0.022, r)}
             fill="none"
             stroke={tok(b.token)}
-            strokeWidth="8"
+            strokeWidth="5.5"
             strokeLinecap="round"
           />
         ))}
 
         {/* The scale around the arc, as the reference draws it. */}
-        {Array.from({ length: 6 }, (_, i) => i / 5).map((f) => {
-          const [lx, ly] = pt(START + SWEEP * f, r + 9.5);
+        {/* ⚠️ THREE LABELS, NOT SIX, AND OUTSIDE THE ARC. Six sat on top of the
+            band at this size and the end ones were clipped by the viewBox — the
+            screenshot showed "6" and "1" where "0%" and "10%" should have been.
+            The ends and the midpoint are what a dial actually needs; the exact
+            reading is printed underneath in full. */}
+        {[0, 0.5, 1].map((f) => {
+          const [lx, ly] = pt(START + SWEEP * f, r + 7);
           return (
             <text
               key={f}
-              x={lx}
-              y={ly + 2}
-              textAnchor={f < 0.35 ? 'end' : f > 0.65 ? 'start' : 'middle'}
-              fontSize="5.4"
+              x={Math.min(96, Math.max(4, lx))}
+              y={f === 0.5 ? ly + 1 : ly + 3}
+              textAnchor={f === 0 ? 'start' : f === 1 ? 'end' : 'middle'}
+              fontSize="5.6"
               fontWeight="600"
-              fill={tok('text-secondary')}
+              fill={tok('text-tertiary')}
             >
               {formatTick(max * f)}
             </text>
@@ -570,11 +602,16 @@ export function SegmentedGauge({
 
       </svg>
 
-      <p className="-mt-1 text-h2 font-bold tabular-nums text-text-primary">{value.toFixed(2)}%</p>
-      <p className="text-caption font-semibold" style={{ color: tok(verdictToken(fraction)) }}>
+      <p className="-mt-2 text-h2 font-bold leading-none tabular-nums text-text-primary">
+        {value.toFixed(2)}%
+      </p>
+      <p
+        className="mt-1 text-caption font-semibold"
+        style={{ color: tok(verdictToken(fraction)) }}
+      >
         {verdict}
       </p>
-      {hint && <p className="mt-0.5 text-micro text-text-tertiary">{hint}</p>}
+      {hint && <p className="text-micro text-text-tertiary">{hint}</p>}
     </figure>
   );
 }

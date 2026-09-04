@@ -171,12 +171,18 @@ export function AudienceSample({ accounts }: { accounts: readonly StudioAccount[
  * be tidied away.
  * ========================================================================= */
 
+/* ⚠️ COUNTRY CODES IN A TINTED CHIP, NOT FLAG EMOJI. The first version used 🇵🇰
+   and friends, and the owner's screenshot showed bare "PK", "IN", "BD" — Windows
+   ships no glyphs for regional-indicator pairs, so the browser falls back to the
+   two letters with none of the styling. Rather than depend on a font the reader
+   may not have, the code IS the mark: a tinted rounded chip that renders
+   identically everywhere and reads at 11px. */
 const SAMPLE_LOCATIONS = [
-  { key: 'pk', flag: '🇵🇰', label: 'Pakistan', share: 0.45, value: '23.6K' },
-  { key: 'in', flag: '🇮🇳', label: 'India', share: 0.2, value: '10.5K' },
-  { key: 'bd', flag: '🇧🇩', label: 'Bangladesh', share: 0.12, value: '6.3K' },
-  { key: 'us', flag: '🇺🇸', label: 'United States', share: 0.08, value: '4.2K' },
-  { key: 'gb', flag: '🇬🇧', label: 'United Kingdom', share: 0.05, value: '2.6K' },
+  { key: 'PK', label: 'Pakistan', share: 0.45, value: '23.6K' },
+  { key: 'IN', label: 'India', share: 0.2, value: '10.5K' },
+  { key: 'BD', label: 'Bangladesh', share: 0.12, value: '6.3K' },
+  { key: 'US', label: 'United States', share: 0.08, value: '4.2K' },
+  { key: 'GB', label: 'United Kingdom', share: 0.05, value: '2.6K' },
 ];
 
 const LOCATION_TOKENS = ['chart-3', 'chart-1', 'chart-4', 'chart-2', 'chart-5'];
@@ -211,36 +217,46 @@ export function TopLocations({
         </span>
       </header>
 
-      <ul className="space-y-2.5">
-        {SAMPLE_LOCATIONS.map((c, i) => (
-          <li key={c.key} className="flex items-center gap-2">
-            <span aria-hidden="true" className="shrink-0 text-[0.95rem] leading-none">
-              {c.flag}
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-micro text-text-primary">{c.label}</span>
-              <span className="mt-1 block h-1 overflow-hidden rounded-full bg-bg-subtle">
+      {/* One row, one line: chip · name · bar · share · value. The previous
+          two-line arrangement wrapped the bar under the name and made five rows
+          taller than the chart beside them. */}
+      <ul className="space-y-2">
+        {SAMPLE_LOCATIONS.map((c, i) => {
+          const token = LOCATION_TOKENS[i % LOCATION_TOKENS.length];
+          return (
+            <li key={c.key} className="flex items-center gap-2">
+              <span
+                aria-hidden="true"
+                className="grid h-4 w-6 shrink-0 place-items-center rounded-[3px] text-[0.6rem] font-bold tracking-tight"
+                style={{ backgroundColor: `var(--${token}-wash)`, color: `var(--${token})` }}
+              >
+                {c.key}
+              </span>
+              <span className="w-[4.5rem] shrink-0 truncate text-micro text-text-primary" title={c.label}>
+                {c.label}
+              </span>
+              <span className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-bg-subtle">
                 <span
                   className="block h-full origin-left rounded-full motion-safe:animate-[studio-grow_650ms_cubic-bezier(0.16,1,0.3,1)_backwards]"
                   style={{
                     width: `${c.share * 100}%`,
-                    backgroundColor: `var(--${LOCATION_TOKENS[i % LOCATION_TOKENS.length]})`,
+                    backgroundColor: `var(--${token})`,
                     animationDelay: `${i * 70}ms`,
                   }}
                 />
               </span>
-            </span>
-            <span className="w-8 shrink-0 text-right text-micro tabular-nums text-text-secondary">
-              {Math.round(c.share * 100)}%
-            </span>
-            <span className="w-11 shrink-0 text-right text-micro font-semibold tabular-nums text-text-primary">
-              {c.value}
-            </span>
-          </li>
-        ))}
+              <span className="w-7 shrink-0 text-right text-micro tabular-nums text-text-secondary">
+                {Math.round(c.share * 100)}%
+              </span>
+              <span className="w-10 shrink-0 text-right text-micro font-semibold tabular-nums text-text-primary">
+                {c.value}
+              </span>
+            </li>
+          );
+        })}
       </ul>
 
-      <p className="mt-auto flex items-start gap-1.5 pt-3 text-[0.65rem] leading-snug text-text-tertiary">
+      <p className="mt-auto flex items-start gap-1.5 pt-2.5 text-[0.62rem] leading-snug text-text-tertiary">
         <Info className="mt-px size-3 shrink-0" aria-hidden="true" />
         <span>
           Placeholder figures. Meta reports audience only above{' '}
