@@ -61,12 +61,17 @@ export function Panel({
         </h2>
         {action}
       </header>
-      {/* ⚠️ `flex` AS WELL AS `flex-1`. The body already grew to fill the panel,
-          but its own child could not grow inside it without a flex context —
-          so a list told to distribute itself had nothing to distribute across
-          and sat at its natural height, leaving the gap at the bottom of the
-          card that the owner kept pointing at. */}
-      <div className={cn('flex min-h-0 flex-1 flex-col', bodyClassName)}>{children}</div>
+      {/* ⚠️ `flex-1` WITHOUT `flex`, AND THE DIFFERENCE MATTERED. Making this a
+          flex column let a list inside it distribute across the panel's height,
+          which fixed the white space — and it also imposed a column on cards
+          whose contents are a ROW. The Audience card's donut-and-legend pair got
+          stacked and then wrapped into two columns, printing every percentage
+          twice with a stray dot beside it.
+
+          So the body only grows; the cards that want their child to fill it say
+          so themselves with `bodyClassName="flex flex-col"`. A container should
+          not decide the axis of contents it knows nothing about. */}
+      <div className={cn('min-h-0 flex-1', bodyClassName)}>{children}</div>
     </section>
   );
 }

@@ -184,7 +184,7 @@ export function StudioOverview({
     if (postSort === 'reach') list.sort((a, b) => (b.reach ?? 0) - (a.reach ?? 0));
     else if (postSort === 'recent') list.sort((a, b) => b.postedAt.localeCompare(a.postedAt));
     else list.sort((a, b) => postEngagement(b) - postEngagement(a));
-    return list.slice(0, 4);
+    return list.slice(0, 5);
   }, [posts, postSort]);
 
   /* ── Delivery against the promise ─────────────────────────────────────── */
@@ -483,6 +483,7 @@ export function StudioOverview({
       <div className="grid gap-3 xl:grid-cols-[minmax(0,26fr)_minmax(0,19fr)_minmax(0,28fr)_minmax(0,27fr)]">
         <Panel
           title="Engagement Heatmap"
+          bodyClassName="flex flex-col"
           /* ⚠️ The tooltip says what this actually measures. See heatmap.tsx —
              Meta gives no hourly engagement, so these are posts' PUBLISHING
              times weighted by what they earned. */
@@ -497,9 +498,7 @@ export function StudioOverview({
             </span>
           }
         >
-          <div className="flex h-full flex-col">
-            <EngagementHeatmap posts={posts} />
-          </div>
+          <EngagementHeatmap posts={posts} />
         </Panel>
 
         {/* ⚠️ DELIVERY PROGRESS WAS HERE AND IS GONE, on the owner's instruction:
@@ -516,6 +515,7 @@ export function StudioOverview({
 
         <Panel
           title="Top-Performing Posts"
+          bodyClassName="flex flex-col"
           action={
             <MiniSelect
               label="Sort posts by"
@@ -551,7 +551,7 @@ export function StudioOverview({
           )}
         </Panel>
 
-        <Panel title="Recent Activity">
+        <Panel title="Recent Activity" bodyClassName="flex flex-col">
           <RecentActivity posts={posts} accounts={accounts} lastSynced={lastSynced} />
         </Panel>
       </div>
@@ -630,8 +630,13 @@ function RecentActivity({
      also shows "content scheduled" and "performance alert"; neither exists in
      this system, and inventing them would put fiction beside six panels of
      measured figures. */
+  /* ⚠️ SIX, NOT FOUR. Owner: *"in the recent activity there are only 4
+     activities you have shown so add 1 or 2 more activities so this card will
+     look fuller."* Six is what fits beside the heatmap without the rows having
+     to shrink, and there are 50 posts to draw from, so this is more real data
+     rather than padding. */
   const items = [
-    ...posts.slice(0, 4).map((p) => ({
+    ...posts.slice(0, 6).map((p) => ({
       key: p.id,
       icon: <PlatformIcon slug={p.platform} size={14} />,
       title: `${p.mediaProductType?.toLowerCase() === 'reels' ? 'Reel' : 'Post'} published`,
@@ -647,7 +652,7 @@ function RecentActivity({
         detail: a.lastError ?? '',
         when: a.lastError ? (a.lastSyncedAt ?? '') : '',
       })),
-  ].slice(0, 5);
+  ].slice(0, 6);
 
   if (items.length === 0) return <PanelEmpty>Nothing has happened in this period.</PanelEmpty>;
 

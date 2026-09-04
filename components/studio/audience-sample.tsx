@@ -88,8 +88,6 @@ export function AudienceSample({
     );
   }
 
-  const total = SAMPLE_AGES.reduce((n, a) => n + a.value, 0);
-
   return (
     <section
       /* ── ⚠️ FULL COLOUR, AND THE BADGE CARRIES IT ALONE ────────────────────
@@ -133,31 +131,33 @@ export function AudienceSample({
         </span>
       </header>
 
-      <div className="relative flex flex-1 items-center gap-3">
+      {/* ── ⚠️ THE DUPLICATE LEGEND WAS THE BUG, NOT THE LAYOUT ──────────────
+          The owner's screenshot showed every percentage printed twice with a
+          stray coloured dot orphaned on the right, and I first read that as a
+          wrapping problem. It was not.
+
+          `DonutChart` RENDERS ITS OWN LEGEND — it is a `flex flex-wrap` figure
+          whose second child is a `min-w-[10rem]` list of clickable slices, and
+          hovering those is the chart's interaction. Adding a legend beside it
+          gave the card two, and in a quarter-row column the donut's own one wrapped
+          beneath the ring while mine sat where a legend was expected.
+
+          So mine is gone. The component was already doing this correctly, and
+          `min-w-0` lets its legend shrink into the narrow column rather than
+          forcing the card wider. */}
+      <div className="relative flex flex-1 items-center justify-center">
         <DonutChart
           slices={SAMPLE_AGES}
           centreLabel="Age"
           centreValue="—"
-          size={104}
-          thickness={11}
+          /* 132 with a 17-unit ring: *"centered and a little thicker. Right now
+             it's very thin."* */
+          size={132}
+          thickness={17}
           format="percent"
           caption="Sample audience by age — placeholder figures, not this account's data"
+          className="min-w-0 justify-center"
         />
-        <ul className="min-w-0 flex-1 space-y-1.5">
-          {SAMPLE_AGES.map((a) => (
-            <li key={a.label} className="flex items-center gap-2 text-micro">
-              <span
-                aria-hidden="true"
-                className="size-2 shrink-0 rounded-full"
-                style={{ backgroundColor: `var(--${a.token})` }}
-              />
-              <span className="min-w-0 flex-1 truncate text-text-secondary">{a.label}</span>
-              <span className="shrink-0 font-semibold tabular-nums text-text-primary">
-                {Math.round((a.value / total) * 100)}%
-              </span>
-            </li>
-          ))}
-        </ul>
       </div>
 
       <p className="relative mt-auto flex items-start gap-1.5 pt-3 text-[0.62rem] leading-snug text-text-tertiary">
