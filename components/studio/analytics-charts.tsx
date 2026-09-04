@@ -554,29 +554,28 @@ export function Funnel({ stages }: { stages: readonly FunnelStage[] }) {
     ordered.length <= 1 ? 100 : 100 - (i / (ordered.length - 1)) * 20;
 
   return (
-    <div ref={ref} className="flex h-full flex-col justify-between gap-1.5">
+    <div ref={ref} className="flex h-full flex-col justify-between gap-1">
       {ordered.map((s, i) => (
         <div key={s.key} className="flex items-center gap-2">
-          <div className="relative h-8 min-w-0 flex-1" title={s.note}>
+          <div className="relative h-7 min-w-0 flex-1" title={s.note}>
             <div
               className="absolute inset-y-0 left-0"
               style={{
                 width: inView ? `${widthAt(i)}%` : '0%',
                 background: `color-mix(in oklab, var(--${s.token}) 30%, transparent)`,
-                /* ⚠️ 7px OF NOTCH, NOT 14. At fourteen the point was half the
-                   bar's height and the whole shape read as an ARROW rather than
-                   as a funnel stage — which is what the owner saw. The reference
-                   uses a shallow bevel on a long bar; a deep point on a short one
-                   is a different shape entirely. Kept as a fraction of the bar's
-                   height so it stays shallow if the row is ever made taller. */
+                /* ⚠️ 6px OF NOTCH ON A 28px BAR. At fourteen the point was
+                   half the bar's height and the whole shape read as an ARROW
+                   rather than a funnel stage — which is what the owner saw. The
+                   depth has to track the bar's height: shortening the row without
+                   shortening the point brings the arrow straight back. */
                 clipPath:
-                  'polygon(0 0, calc(100% - 7px) 0, 100% 50%, calc(100% - 7px) 100%, 0 100%)',
+                  'polygon(0 0, calc(100% - 6px) 0, 100% 50%, calc(100% - 6px) 100%, 0 100%)',
                 borderRadius: '6px',
                 transition: 'width 760ms cubic-bezier(0.16,1,0.3,1)',
                 transitionDelay: `${i * 70}ms`,
               }}
             />
-            <span className="absolute inset-y-0 left-3 flex items-center truncate pr-4 text-[0.66rem] font-semibold text-text-primary">
+            <span className="absolute inset-y-0 left-2.5 flex items-center truncate pr-4 text-[0.64rem] font-semibold text-text-primary">
               {s.label}
             </span>
           </div>
@@ -593,9 +592,8 @@ export function Funnel({ stages }: { stages: readonly FunnelStage[] }) {
         </div>
       ))}
 
-      <p className="pt-0.5 text-[0.55rem] leading-snug text-text-tertiary">
-        Largest first; each percentage is a share of the bar above. Hover a bar for its
-        platform.
+      <p className="text-[0.54rem] leading-tight text-text-tertiary">
+        Largest first; each percentage is a share of the bar above. Hover for its platform.
       </p>
     </div>
   );

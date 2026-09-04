@@ -625,7 +625,7 @@ function TrendPanel({
             ? t.split(' → ').map(fullDate).join(' → ')
             : fullDate(t),
         )}
-        height={210}
+        height={172}
       />
     </Panel>
   );
