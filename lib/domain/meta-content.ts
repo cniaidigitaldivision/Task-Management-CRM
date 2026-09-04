@@ -648,3 +648,83 @@ function fmtPct(n: number): string {
   const rounded = Math.abs(n) >= 10 ? Math.round(n) : Number(n.toFixed(1));
   return `${n > 0 ? 'up ' : n < 0 ? 'down ' : ''}${Math.abs(rounded)}%`;
 }
+
+/* ---- Follower growth across the fleet ------------------------------------ */
+
+export interface FollowerGrowth {
+  /** Followers now, summed over every account. */
+  readonly total: number;
+  /** Percentage change, or null when there is no usable baseline. */
+  readonly percent: number | null;
+  /** Absolute change, or null when no account has two readings. */
+  readonly absolute: number | null;
+  /** How many accounts contributed a comparison. */
+  readonly comparable: number;
+  readonly note: string;
+}
+
+/**
+ * Follower growth over the collected history.
+ *
+ * ⚠️ AN ACCOUNT WITH ONE READING CONTRIBUTES NOTHING, and getting this wrong
+ * produced a real wrong figure on the page. The first version summed
+ * `followerSeries[0]` across every account: Facebook's first reading is from
+ * 2026-08-07 and Instagram's only reading is from TODAY, so the "before" total
+ * mixed a month-old number with a current one and reported **+125%** growth for
+ * a fleet that had gained twenty followers from nothing. Comparing a sum of
+ * different dates is not a comparison.
+ *
+ * ⚠️ AND GROWTH FROM ZERO HAS NO PERCENTAGE. Facebook's page began the window at
+ * 0 follows. (20 − 0) / 0 is not 100%, it is undefined, so the absolute change
+ * is reported instead — "+20 since collection began" is both true and more
+ * useful than any percentage would have been.
+ */
+export function followerGrowth(
+  accounts: readonly { followers: number | null; followerSeries: readonly number[] }[],
+): FollowerGrowth {
+  const total = accounts.reduce((n, a) => n + (a.followers ?? 0), 0);
+
+  const usable = accounts.filter((a) => a.followerSeries.length >= 2);
+  if (usable.length === 0) {
+    return {
+      total,
+      percent: null,
+      absolute: null,
+      comparable: 0,
+      note:
+        accounts.length === 0
+          ? 'no accounts connected'
+          : 'one reading so far — a trend needs two',
+    };
+  }
+
+  const earlier = usable.reduce((n, a) => n + a.followerSeries[0], 0);
+  const later = usable.reduce((n, a) => n + a.followerSeries[a.followerSeries.length - 1], 0);
+  const absolute = later - earlier;
+
+  /* ⚠️ Named honestly when only some accounts could be compared, because the
+     figure above the note is the WHOLE fleet's follower count while the change
+     below it describes a subset. Silently mixing the two is the bug above. */
+  const partial = usable.length < accounts.length;
+  const scope = partial
+    ? `across ${usable.length} of ${accounts.length} accounts`
+    : 'over the collected history';
+
+  if (earlier === 0) {
+    return {
+      total,
+      percent: null,
+      absolute,
+      comparable: usable.length,
+      note: `${absolute >= 0 ? '+' : ''}${absolute} since collection began, ${scope}`,
+    };
+  }
+
+  return {
+    total,
+    percent: (absolute / earlier) * 100,
+    absolute,
+    comparable: usable.length,
+    note: scope,
+  };
+}

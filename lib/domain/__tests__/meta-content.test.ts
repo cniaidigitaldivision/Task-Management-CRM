@@ -10,6 +10,7 @@ import {
   contentTabs,
   filterPosts,
   fleetBanner,
+  followerGrowth,
   rankPosts,
   syncHealthSummary,
 } from '../meta-content';
@@ -356,5 +357,52 @@ describe('the banner', () => {
     const b = fleetBanner({ sync: clean, followerDeltaPercent: null, postDeltaPercent: null });
     expect(b.tone).toBe('good');
     expect(b.detail).toMatch(/begin once there is one/);
+  });
+});
+
+describe('follower growth across the fleet', () => {
+  /* ⚠️ THE BUG THIS PINS PRODUCED A REAL WRONG FIGURE. Facebook's first reading
+     is a month old; Instagram's ONLY reading is today. Summing `series[0]`
+     across both compared a month-old number with a current one and reported
+     +125% for a fleet that had gained twenty followers from nothing. */
+  it('ignores an account that has only one reading', () => {
+    const g = followerGrowth([
+      { followers: 20, followerSeries: [0, 5, 12, 20] },
+      { followers: 16, followerSeries: [16] },
+    ]);
+    expect(g.total).toBe(36);
+    expect(g.comparable).toBe(1);
+    expect(g.percent).toBeNull();
+    /* Facebook alone: 0 -> 20. */
+    expect(g.absolute).toBe(20);
+    expect(g.note).toMatch(/\+20 since collection began/);
+    expect(g.note).toMatch(/1 of 2 accounts/);
+  });
+
+  /* (20 - 0) / 0 is not 100%, it is undefined. */
+  it('reports an absolute change rather than a percentage of nothing', () => {
+    const g = followerGrowth([{ followers: 20, followerSeries: [0, 20] }]);
+    expect(g.percent).toBeNull();
+    expect(g.absolute).toBe(20);
+  });
+
+  it('gives a percentage when there is a real baseline', () => {
+    const g = followerGrowth([{ followers: 110, followerSeries: [100, 110] }]);
+    expect(g.percent).toBeCloseTo(10, 5);
+    expect(g.absolute).toBe(10);
+    expect(g.note).toBe('over the collected history');
+  });
+
+  it('says so when nothing can be compared yet', () => {
+    expect(followerGrowth([{ followers: 16, followerSeries: [16] }]).note).toMatch(
+      /a trend needs two/,
+    );
+    expect(followerGrowth([]).note).toMatch(/no accounts connected/);
+  });
+
+  it('reports a decline as a decline', () => {
+    const g = followerGrowth([{ followers: 90, followerSeries: [100, 90] }]);
+    expect(g.percent).toBeCloseTo(-10, 5);
+    expect(g.absolute).toBe(-10);
   });
 });

@@ -202,6 +202,15 @@ export interface KpiCardData {
    * `useCountUp` is skipped for it rather than left to no-op by accident.
    */
   readonly textValue?: boolean;
+  /**
+   * Paint the VALUE in a token, not just the icon.
+   *
+   * ⚠️ For the one card whose value is a verdict rather than a quantity. In the
+   * owner's reference "Excellent" is green, and the colour is doing real work —
+   * it is the only thing on the card that distinguishes a healthy fleet from a
+   * broken one at a glance, because both read as one short phrase.
+   */
+  readonly valueToken?: string;
 }
 
 /**
@@ -390,7 +399,19 @@ export function KpiCard({ data, index }: { data: KpiCardData; index: number }) {
       <div className="flex items-center gap-2">
         <span
           className="grid size-8 shrink-0 place-items-center rounded-[10px] transition-transform duration-300 group-hover:scale-105"
-          style={{ backgroundColor: `var(--${data.token}-wash)` }}
+          /* ⚠️ A FALLBACK, BECAUSE `-wash` ONLY EXISTS FOR THE CHART TOKENS.
+             `--chart-1-wash` is a real declared token; `--feedback-success-wash`
+             is NOT, and the Sync Health card asked for exactly that — so its
+             icon chip painted with an undefined variable and came out
+             transparent. The icon sat on nothing, which is what the owner saw.
+
+             `var(--x, fallback)` uses the fallback only when `--x` is
+             undeclared, so every existing card keeps its hand-tuned wash (0.12
+             light / 0.18 dark) byte for byte and only the feedback tokens
+             derive one. */
+          style={{
+            backgroundColor: `var(--${data.token}-wash, color-mix(in oklab, var(--${data.token}) 14%, transparent))`,
+          }}
         >
           <Icon
             className="size-[17px]"
@@ -414,6 +435,7 @@ export function KpiCard({ data, index }: { data: KpiCardData; index: number }) {
                 'line-clamp-2 flex min-h-[1.6rem] items-center text-body-sm font-bold leading-tight text-text-primary'
               : 'text-[1.6rem] font-bold leading-none tracking-tight tabular-nums text-text-primary'
           }
+          style={data.valueToken ? { color: `var(--${data.valueToken})` } : undefined}
           title={data.textValue ? String(data.value) : undefined}
         >
           {shown}

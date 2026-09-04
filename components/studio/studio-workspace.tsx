@@ -250,8 +250,11 @@ export function StudioWorkspace({
            behaviour, not the comment. */
         <MetaAccounts
           accounts={accountDetails}
+          projectId={selected.id}
           projectName={selected.name}
           nowMs={nowMs}
+          /* Connect and Resync are the same authority as scheduling a report. */
+          canManage={canSchedule}
           /* ⚠️ THE UNFILTERED COUNTS, not `shownPosts`. This tab is about the
              connections themselves; narrowing "posts collected" by the platform
              filter would make the fleet figure disagree with the per-account

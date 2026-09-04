@@ -527,3 +527,52 @@ export async function metaPostRowsForExport(
     });
   });
 }
+
+/* ---- Linking an account -------------------------------------------------- */
+
+/** Every Meta object already linked anywhere, so the picker can grey them out. */
+export async function linkedObjectIds(actorId: string): Promise<readonly string[]> {
+  return withUser(actorId, async (tx) => {
+    const rows = await tx`select meta_object_id from public.meta_accounts`;
+    return rows.map((r) => String(r.meta_object_id));
+  });
+}
+
+/**
+ * Link a Facebook Page or Instagram account to a project.
+ *
+ * ⚠️ NO TOKEN IS STORED, and the absence is the design. `META_SYSTEM_USER_TOKEN`
+ * never expires and lives in the environment; Facebook page tokens are DERIVED
+ * per request from it. A stored page token would be an encrypted secret needing
+ * to be kept fresh, in exchange for saving one cheap API call — see 091.
+ */
+export async function insertMetaAccount(
+  actorId: string,
+  input: {
+    readonly projectId: string;
+    readonly platformSlug: 'facebook' | 'instagram';
+    readonly objectId: string;
+    readonly username: string | null;
+    readonly displayName: string | null;
+    readonly followers: number | null;
+    readonly mediaCount: number | null;
+    readonly permalink: string | null;
+  },
+): Promise<string> {
+  return withUser(actorId, async (tx) => {
+    const rows = await tx`
+      insert into public.meta_accounts
+        (project_id, platform_id, meta_object_id, username, display_name,
+         followers, media_count, permalink, linked_by_id)
+      values (
+        ${input.projectId}::uuid,
+        (select id from public.platforms where slug = ${input.platformSlug}),
+        ${input.objectId}, ${input.username}, ${input.displayName},
+        ${input.followers}, ${input.mediaCount}, ${input.permalink},
+        ${actorId}::uuid
+      )
+      returning id
+    `;
+    return rows[0].id as string;
+  });
+}
