@@ -2,7 +2,7 @@
 
 import { Info, Lock } from 'lucide-react';
 
-import { BarChart, DonutChart } from '@/components/ui/chart';
+import { DonutChart } from '@/components/ui/chart';
 import type { StudioAccount } from '@/lib/db/queries/meta-studio';
 
 /* ============================================================================
@@ -47,14 +47,6 @@ const DEMOGRAPHICS_THRESHOLD = 100;
 /* ⚠️ INVENTED, AND DELIBERATELY NOT PLAUSIBLE-LOOKING AS THIS CLIENT'S DATA.
    Round numbers rather than realistic ones, so that even stripped of every label
    these read as a placeholder rather than as a measurement. */
-const SAMPLE_COUNTRIES = [
-  { label: 'Pakistan', value: 45 },
-  { label: 'United Arab Emirates', value: 20 },
-  { label: 'United Kingdom', value: 15 },
-  { label: 'Saudi Arabia', value: 12 },
-  { label: 'Other', value: 8 },
-];
-
 const SAMPLE_AGES = [
   { label: '25–34', value: 40, token: 'accent-primary' },
   { label: '18–24', value: 25, token: 'chart-2' },
@@ -134,24 +126,13 @@ export function AudienceSample({ accounts }: { accounts: readonly StudioAccount[
         </span>
       </p>
 
+      {/* ⚠️ TOP LOCATIONS MOVED OUT on 2026-09-04 — it has its own panel beside
+          the gauge now, where the reference puts it. Keeping a second copy here
+          would have shown one client the same invented figures twice on one
+          screen, which makes them look corroborated. */}
+
       {/* Signal 4 — dimmed and desaturated against every neighbouring panel. */}
       <div className="relative grid gap-4 opacity-55 saturate-50 sm:grid-cols-2">
-        <div>
-          <p className="mb-2 text-micro font-semibold uppercase tracking-wide text-text-tertiary">
-            Top locations (sample)
-          </p>
-          <BarChart
-            caption="Sample audience by country — placeholder figures, not this account's data"
-            format="percent"
-            max={100}
-            showNotes={false}
-            bars={SAMPLE_COUNTRIES.map((c, i) => ({
-              ...c,
-              token: ['accent-primary', 'chart-2', 'chart-3', 'chart-4', 'chart-5'][i % 5],
-            }))}
-          />
-        </div>
-
         <div>
           <p className="mb-2 text-micro font-semibold uppercase tracking-wide text-text-tertiary">
             Age &amp; gender (sample)
@@ -166,6 +147,109 @@ export function AudienceSample({ accounts }: { accounts: readonly StudioAccount[
           />
         </div>
       </div>
+    </section>
+  );
+}
+
+/* ============================================================================
+ * TOP LOCATIONS
+ * ----------------------------------------------------------------------------
+ * Owner, 2026-09-04: *"For the top location countries, whether it's dummy data,
+ * you still have to show the exact UI over here. You can just mention it's dummy
+ * data or just a small figure. Definitely I will tell everyone that it's not
+ * really implemented."*
+ *
+ * ⚠️ SO THE SHAPE IS THE REFERENCE'S AND THE NUMBERS ARE NOT REAL, and the panel
+ * says so in its own heading rather than only in a footnote. Meta returns
+ * `follower_demographics` as EMPTY below 100 followers — verified, not assumed —
+ * and the connected account has 16.
+ *
+ * The owner is right that a panel present in sample form is more useful than a
+ * gap: it fixes the layout, and everyone reviewing it can see what the finished
+ * thing will look like. The risk is only that somebody later forgets. That is
+ * what the badge and the dashed border are for, and they are not decoration to
+ * be tidied away.
+ * ========================================================================= */
+
+const SAMPLE_LOCATIONS = [
+  { key: 'pk', flag: '🇵🇰', label: 'Pakistan', share: 0.45, value: '23.6K' },
+  { key: 'in', flag: '🇮🇳', label: 'India', share: 0.2, value: '10.5K' },
+  { key: 'bd', flag: '🇧🇩', label: 'Bangladesh', share: 0.12, value: '6.3K' },
+  { key: 'us', flag: '🇺🇸', label: 'United States', share: 0.08, value: '4.2K' },
+  { key: 'gb', flag: '🇬🇧', label: 'United Kingdom', share: 0.05, value: '2.6K' },
+];
+
+const LOCATION_TOKENS = ['chart-3', 'chart-1', 'chart-4', 'chart-2', 'chart-5'];
+
+export function TopLocations({
+  accounts,
+  className,
+}: {
+  accounts: readonly StudioAccount[];
+  className?: string;
+}) {
+  const best = accounts.reduce<number>((max, a) => Math.max(max, a.followers ?? 0), 0);
+  const remaining = Math.max(0, DEMOGRAPHICS_THRESHOLD - best);
+
+  return (
+    <section
+      className={`flex min-w-0 flex-col rounded-xl border border-dashed border-border-default bg-bg-surface p-3.5 shadow-[0_1px_2px_rgb(6_35_42_/_0.04)] ${className ?? ''}`}
+    >
+      <header className="mb-3 flex flex-wrap items-center justify-between gap-1.5">
+        <h2 className="flex items-center gap-1.5 text-caption font-semibold text-text-primary">
+          Top Locations
+        </h2>
+        <span
+          className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[0.6rem] font-bold uppercase tracking-wide"
+          style={{
+            backgroundColor: 'color-mix(in oklab, var(--feedback-warning) 18%, transparent)',
+            color: 'var(--feedback-warning)',
+          }}
+        >
+          <Lock className="size-2.5" aria-hidden="true" />
+          Sample
+        </span>
+      </header>
+
+      <ul className="space-y-2.5">
+        {SAMPLE_LOCATIONS.map((c, i) => (
+          <li key={c.key} className="flex items-center gap-2">
+            <span aria-hidden="true" className="shrink-0 text-[0.95rem] leading-none">
+              {c.flag}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-micro text-text-primary">{c.label}</span>
+              <span className="mt-1 block h-1 overflow-hidden rounded-full bg-bg-subtle">
+                <span
+                  className="block h-full origin-left rounded-full motion-safe:animate-[studio-grow_650ms_cubic-bezier(0.16,1,0.3,1)_backwards]"
+                  style={{
+                    width: `${c.share * 100}%`,
+                    backgroundColor: `var(--${LOCATION_TOKENS[i % LOCATION_TOKENS.length]})`,
+                    animationDelay: `${i * 70}ms`,
+                  }}
+                />
+              </span>
+            </span>
+            <span className="w-8 shrink-0 text-right text-micro tabular-nums text-text-secondary">
+              {Math.round(c.share * 100)}%
+            </span>
+            <span className="w-11 shrink-0 text-right text-micro font-semibold tabular-nums text-text-primary">
+              {c.value}
+            </span>
+          </li>
+        ))}
+      </ul>
+
+      <p className="mt-auto flex items-start gap-1.5 pt-3 text-[0.65rem] leading-snug text-text-tertiary">
+        <Info className="mt-px size-3 shrink-0" aria-hidden="true" />
+        <span>
+          Placeholder figures. Meta reports audience only above{' '}
+          <strong className="font-semibold text-text-secondary">
+            {DEMOGRAPHICS_THRESHOLD} followers
+          </strong>{' '}
+          — {remaining} more to go.
+        </span>
+      </p>
     </section>
   );
 }

@@ -148,9 +148,14 @@ export function MultiSeriesChart({
   const lines = drawn.filter((s) => s.kind !== 'bar');
   /* Points only when they will not merge into a rope. */
   const showDots = labels.length <= 40;
+  /* ⚠️ 0.68 of the slot, not 0.5. Owner: *"these vertical lines below are not
+     very thick. They are very thin lines."* At half a slot the bars read as
+     hairlines beside a 2px stroke; the reference sits at roughly two-thirds,
+     which is also the width at which a bar stops competing with the lines and
+     starts reading as the ground they stand on. */
   const barWidth = Math.max(
-    2,
-    Math.min(16, ((W - PAD.left - PAD.right) / Math.max(1, labels.length)) * 0.5),
+    3,
+    Math.min(26, ((W - PAD.left - PAD.right) / Math.max(1, labels.length)) * 0.68),
   );
 
   if (series.length === 0) return <ChartEmpty />;
@@ -196,10 +201,13 @@ export function MultiSeriesChart({
                   />
                 </span>
               )}
+              {/* ⚠️ NO "right" SUFFIX. It marked which axis a series used, and
+                  the owner read it as a stray word: *"I don't know what the
+                  purpose of 'Right' is over here."* Fair — a reader should not
+                  have to learn a legend convention in order to read the legend.
+                  The hover readout names every value regardless, which is where
+                  the question is actually answered. */}
               <span className="text-text-secondary">{s.label}</span>
-              {hasRight && onRight(s) && !off && (
-                <span className="text-[0.6rem] text-text-tertiary">right</span>
-              )}
             </button>
           );
         })}
@@ -233,22 +241,30 @@ export function MultiSeriesChart({
                   stroke={tok('chart-grid')}
                   strokeDasharray="3 5"
                 />
+                {/* ⚠️ DARKER AND LARGER THAN THE KIT DEFAULT. Owner: *"the
+                    figures on the left and right are very dim and very small.
+                    Make them black, a dark black, and increase their size."*
+                    `--chart-axis` resolves to `--text-tertiary`, which is right
+                    for a gridline's own label and too quiet when the number IS
+                    the thing being read. */}
                 <text
-                  x={PAD.left - 8}
-                  y={yFor(leftMax * f, leftMax) + 3}
+                  x={PAD.left - 9}
+                  y={yFor(leftMax * f, leftMax) + 3.5}
                   textAnchor="end"
-                  fontSize="9"
-                  fill={tok('chart-axis')}
+                  fontSize="11"
+                  fontWeight="600"
+                  fill={tok('text-primary')}
                 >
                   {shortNumber(leftMax * f)}
                 </text>
                 {hasRight && (
                   <text
-                    x={W - PAD.right + 8}
-                    y={yFor(rightMax * f, rightMax) + 3}
+                    x={W - PAD.right + 9}
+                    y={yFor(rightMax * f, rightMax) + 3.5}
                     textAnchor="start"
-                    fontSize="9"
-                    fill={tok('chart-axis')}
+                    fontSize="11"
+                    fontWeight="600"
+                    fill={tok('text-primary')}
                   >
                     {shortNumber(rightMax * f)}
                   </text>
@@ -261,10 +277,11 @@ export function MultiSeriesChart({
                 <text
                   key={i}
                   x={x(i)}
-                  y={H - 9}
+                  y={H - 8}
                   textAnchor="middle"
-                  fontSize="9"
-                  fill={tok('chart-axis')}
+                  fontSize="11"
+                  fontWeight="500"
+                  fill={tok('text-secondary')}
                 >
                   {l}
                 </text>
@@ -490,8 +507,6 @@ export function SegmentedGauge({
     return `M${x0} ${y0} A${radius} ${radius} 0 0 1 ${x1} ${y1}`;
   };
 
-  const [nx, ny] = pt(angle, r - 9);
-
   return (
     <figure className="flex flex-col items-center">
       <svg
@@ -511,30 +526,48 @@ export function SegmentedGauge({
           />
         ))}
 
+        {/* The scale around the arc, as the reference draws it. */}
+        {Array.from({ length: 6 }, (_, i) => i / 5).map((f) => {
+          const [lx, ly] = pt(START + SWEEP * f, r + 9.5);
+          return (
+            <text
+              key={f}
+              x={lx}
+              y={ly + 2}
+              textAnchor={f < 0.35 ? 'end' : f > 0.65 ? 'start' : 'middle'}
+              fontSize="5.4"
+              fontWeight="600"
+              fill={tok('text-secondary')}
+            >
+              {formatTick(max * f)}
+            </text>
+          );
+        })}
+
+        {/* ── ⚠️ A TAPERED NEEDLE, NOT A BAR ─────────────────────
+            Owner: *"you can see how beautiful the needle is! Right now our
+            needle, from bottom to top, is the same width so please adjust."*
+            A uniform stroke reads as a pointer drawn by a machine; a dial's
+            needle is wide at the pivot and comes to a point, which is what makes
+            the eye follow it outward to the reading. A polygon rather than a
+            stroked line, because a stroke cannot taper. */}
         <g
           style={{
             transformOrigin: `${cx}px ${cy}px`,
-            animation: 'studio-needle 900ms cubic-bezier(0.34,1.3,0.64,1) backwards',
+            animation: 'studio-needle 1100ms cubic-bezier(0.34,1.28,0.64,1) backwards',
           }}
         >
-          <line
-            x1={cx}
-            y1={cy}
-            x2={nx}
-            y2={ny}
+          <polygon
+            points={needlePoints(cx, cy, angle, r - 7)}
+            fill={tok('text-primary')}
             stroke={tok('text-primary')}
-            strokeWidth="2"
-            strokeLinecap="round"
+            strokeWidth="0.6"
+            strokeLinejoin="round"
           />
-          <circle cx={cx} cy={cy} r="3.5" fill={tok('bg-surface')} stroke={tok('text-primary')} strokeWidth="2" />
+          <circle cx={cx} cy={cy} r="3.6" fill={tok('text-primary')} />
+          <circle cx={cx} cy={cy} r="1.5" fill={tok('bg-surface')} />
         </g>
 
-        <text x="7" y="60" fontSize="6" fill={tok('chart-axis')}>
-          0%
-        </text>
-        <text x="84" y="60" fontSize="6" fill={tok('chart-axis')}>
-          {max}%
-        </text>
       </svg>
 
       <p className="-mt-1 text-h2 font-bold tabular-nums text-text-primary">{value.toFixed(2)}%</p>
@@ -544,6 +577,36 @@ export function SegmentedGauge({
       {hint && <p className="mt-0.5 text-micro text-text-tertiary">{hint}</p>}
     </figure>
   );
+}
+
+/** The needle as a wedge: wide at the pivot, a point at the tip. */
+function needlePoints(cx: number, cy: number, angleDeg: number, length: number): string {
+  const rad = (angleDeg * Math.PI) / 180;
+  const perp = rad + Math.PI / 2;
+  const halfBase = 2.1;
+
+  const tipX = cx + length * Math.cos(rad);
+  const tipY = cy + length * Math.sin(rad);
+  const baseAX = cx + halfBase * Math.cos(perp);
+  const baseAY = cy + halfBase * Math.sin(perp);
+  const baseBX = cx - halfBase * Math.cos(perp);
+  const baseBY = cy - halfBase * Math.sin(perp);
+  /* A short tail behind the pivot, so the needle looks balanced on its bearing
+     rather than glued on at one end. */
+  const tailX = cx - length * 0.16 * Math.cos(rad);
+  const tailY = cy - length * 0.16 * Math.sin(rad);
+
+  return [
+    `${tipX.toFixed(2)},${tipY.toFixed(2)}`,
+    `${baseAX.toFixed(2)},${baseAY.toFixed(2)}`,
+    `${tailX.toFixed(2)},${tailY.toFixed(2)}`,
+    `${baseBX.toFixed(2)},${baseBY.toFixed(2)}`,
+  ].join(' ');
+}
+
+/** Whole numbers where the scale allows, one decimal where it does not. */
+function formatTick(v: number): string {
+  return `${Number.isInteger(v) ? v : v.toFixed(1)}%`;
 }
 
 function verdictToken(fraction: number): string {

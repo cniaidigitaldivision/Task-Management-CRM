@@ -25,7 +25,7 @@ import {
   postEngagement,
 } from '@/lib/domain/meta-studio';
 
-import { AudienceSample } from './audience-sample';
+import { AudienceSample, TopLocations } from './audience-sample';
 import { KpiCard, MiniSelect, Panel, PanelEmpty, PanelLink, SegmentedControl } from './panels';
 import { MultiSeriesChart, RankedBars, SegmentedGauge, shortNumber } from './studio-charts';
 
@@ -149,7 +149,7 @@ export function StudioOverview({
     from,
     to,
   );
-  const growthLabels = followers.map((d) => d.date.slice(5));
+  const growthLabels = followers.map((d) => shortDate(d.date));
   const growthTooltips = followers.map((d) => longDate(d.date));
 
   /* ── Content and platform breakdowns ──────────────────────────────────── */
@@ -300,8 +300,13 @@ export function StudioOverview({
 
       {/* ══ ROW 2 · performance · gauge · locations ══════════════════════ */}
       <div className="grid gap-3 lg:grid-cols-12">
+        {/* ⚠️ 7 / 2 / 3, measured off the reference. Owner: *"the performance
+            view is taking more space width-wise… Engagement rate card: make it
+            small. Location card: make it small and horizontally longer."* The
+            first build gave all three 6/3/3, which made the gauge as important
+            as the chart carrying four series. */}
         <Panel
-          className="lg:col-span-6"
+          className="lg:col-span-7"
           title="Performance Overview"
           info="Reach, engagement, followers and views on one scale."
           action={
@@ -326,7 +331,7 @@ export function StudioOverview({
         </Panel>
 
         <Panel
-          className="lg:col-span-3"
+          className="lg:col-span-2"
           title="Engagement Rate"
           info="Interactions per person reached, Instagram."
         >
@@ -336,17 +341,14 @@ export function StudioOverview({
               max={10}
               verdict={verdictFor(engagementRate)}
               hint={rateKpi ? (formatDelta(rateKpi) ?? undefined) : undefined}
+              size={168}
             />
           </div>
         </Panel>
 
-        <Panel
-          className="lg:col-span-3"
-          title="Platform Distribution"
-          info="Share of engagement by platform."
-        >
-          <RankedBars rows={byPlatform} emptyText="No posts in this period." />
-        </Panel>
+        {/* Top Locations sits here in the reference, and the owner asked for it
+            even though Meta will not report it yet. See the panel itself. */}
+        <TopLocations className="lg:col-span-3" accounts={accounts} />
       </div>
 
       {/* ══ ROW 3 · growth · content mix · delivery ══════════════════════ */}
@@ -475,7 +477,15 @@ export function StudioOverview({
           )}
         </Panel>
 
-        <Panel className="lg:col-span-5" title="Recent Activity">
+        <Panel
+          className="lg:col-span-2"
+          title="Platform Distribution"
+          info="Share of engagement by platform."
+        >
+          <RankedBars rows={byPlatform} emptyText="No posts in this period." />
+        </Panel>
+
+        <Panel className="lg:col-span-3" title="Recent Activity">
           <RecentActivity posts={posts} accounts={accounts} lastSynced={lastSynced} />
         </Panel>
       </div>
@@ -628,7 +638,11 @@ function rollUp(
 
   if (grain === 'daily') {
     return {
-      labels: dates.map((d) => d.slice(5)),
+      /* ⚠️ "Aug 22", not "08-22". Owner: *"Instead of an A, mention the month
+         name… like you can see in the screenshot: May 22, May 26, May 30."* A
+         numeric month is a code the reader has to decode, and at a glance
+         "08-22" and "22-08" are the same string in two conventions. */
+      labels: dates.map(shortDate),
       tooltipLabels: dates.map(longDate),
       series: seriesList.map((s) => s.map((d) => (d.combined > 0 ? d.combined : null))),
     };
@@ -660,7 +674,7 @@ function rollUp(
   );
 
   return {
-    labels: buckets.map((b) => (grain === 'monthly' ? b : b.slice(5))),
+    labels: buckets.map((b) => (grain === 'monthly' ? monthShort(b) : shortDate(b))),
     /* A bucket is a range, so the readout says which — "Week of 1 Sep 2026" is
        answerable, "09-01" is a riddle. */
     tooltipLabels: buckets.map((b) =>
@@ -668,6 +682,24 @@ function rollUp(
     ),
     series,
   };
+}
+
+/** "Aug 22" — the x axis, where thirty labels share one line. */
+function shortDate(iso: string): string {
+  return new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    timeZone: 'UTC',
+  });
+}
+
+/** "Sep 2026", from a `yyyy-mm` bucket. */
+function monthShort(bucket: string): string {
+  return new Date(`${bucket}-01T00:00:00Z`).toLocaleDateString('en-GB', {
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
 }
 
 /** "4 September 2026" — unambiguous, and what the tooltip shows. */
