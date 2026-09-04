@@ -12,6 +12,7 @@ import {
   type ScatterMeasure,
   type ScatterPoint,
   type StackedSeries,
+  type PostMeasure,
   type WeekdayBar,
 } from '@/lib/domain/meta-analytics';
 import { cn } from '@/lib/utils';
@@ -692,60 +693,60 @@ export function Funnel({ stages }: { stages: readonly FunnelStage[] }) {
 /* ---- Weekday bars -------------------------------------------------------- */
 
 /**
- * Posts and engagement rate by day of week.
+ * The chosen measure by day of week.
  *
- * ⚠️ TWO SCALES, LABELLED — a count on the left and a percentage on the right.
- * Putting a post count and an engagement rate on one axis would make three posts
- * tower over a 4% rate and say nothing at all. Dual axes are usually a smell;
- * here the two quantities genuinely belong on the same day and cannot share a
- * scale.
+ * ⚠️ ONE SCALE, NOT TWO. An earlier version drew posts as bars and the
+ * engagement rate as a dot on its own hidden axis — two quantities, two scales,
+ * one picture, which is a chart that cannot be read without a key nobody reads.
+ * The measure control replaced it: the reader picks what they want on the axis
+ * and the bars mean exactly one thing.
+ *
+ * ⚠️ AND THE VALUE SITS ABOVE ITS BAR. At seven bars there is room, and it
+ * removes the need to read a height against a gridline — which is the whole
+ * reason the reference prints them.
  */
 export function WeekdayBars({
   bars,
-  height = 190,
+  measure,
+  height = 150,
 }: {
   bars: readonly WeekdayBar[];
+  measure: PostMeasure;
   height?: number;
 }) {
   const { ref, inView } = useInView<HTMLDivElement>();
-  const maxPosts = Math.max(1, ...bars.map((b) => b.posts));
-  const maxRate = Math.max(0.01, ...bars.map((b) => b.rate ?? 0));
+
+  const valueOf = (b: WeekdayBar) =>
+    measure === 'posts' ? b.posts : measure === 'reach' ? b.reach : b.interactions;
+
+  const max = Math.max(1, ...bars.map(valueOf));
+  const LABEL_ROOM = 30;
+  const plotH = height - LABEL_ROOM;
 
   return (
     <div ref={ref}>
       <div className="flex items-end gap-1.5" style={{ height }}>
         {bars.map((b, i) => {
-          const barH = (b.posts / maxPosts) * (height - 34);
-          const dotY = b.rate === null ? null : (b.rate / maxRate) * (height - 34);
+          const v = valueOf(b);
+          const barH = (v / max) * (plotH - 14);
 
           return (
             <div key={b.label} className="flex min-w-0 flex-1 flex-col items-center justify-end">
-              <span className="mb-1 text-[0.58rem] font-bold tabular-nums text-text-primary">
-                {b.posts || ''}
+              <span className="mb-1 text-[0.6rem] font-bold tabular-nums text-text-primary">
+                {/* A day with nothing shows nothing, rather than a nought that
+                    reads as a measured floor. */}
+                {v === 0 ? '' : compact(v)}
               </span>
 
-              <div className="relative flex w-full justify-center" style={{ height: height - 34 }}>
-                {/* The rate marker, on its own scale. */}
-                {dotY !== null && (
-                  <span
-                    className="absolute z-10 size-2 rounded-full ring-2 ring-bg-surface"
-                    style={{
-                      bottom: inView ? dotY - 4 : -4,
-                      backgroundColor: 'var(--chart-3)',
-                      transition: 'bottom 700ms cubic-bezier(0.16,1,0.3,1)',
-                      transitionDelay: `${i * 60 + 200}ms`,
-                    }}
-                    title={`${b.rate?.toFixed(2)}% engagement`}
-                  />
-                )}
-
+              <div className="relative flex w-full justify-center" style={{ height: plotH - 14 }}>
                 <span
-                  className="absolute bottom-0 w-full max-w-[2.2rem] rounded-t-md"
+                  className="absolute bottom-0 w-full max-w-[1.9rem] rounded-t-md"
                   style={{
-                    height: inView ? Math.max(b.posts > 0 ? 4 : 0, barH) : 0,
-                    background: `linear-gradient(180deg, var(--chart-4), color-mix(in oklab, var(--chart-4) 55%, transparent))`,
+                    height: inView ? Math.max(v > 0 ? 3 : 0, barH) : 0,
+                    background:
+                      'linear-gradient(180deg, var(--chart-4), color-mix(in oklab, var(--chart-4) 62%, transparent))',
                     transition: 'height 700ms cubic-bezier(0.16,1,0.3,1)',
-                    transitionDelay: `${i * 60}ms`,
+                    transitionDelay: `${i * 55}ms`,
                   }}
                 />
               </div>
@@ -753,7 +754,7 @@ export function WeekdayBars({
               <span
                 className={cn(
                   'mt-1.5 text-[0.6rem]',
-                  b.posts > 0 ? 'font-semibold text-text-secondary' : 'text-text-tertiary',
+                  v > 0 ? 'font-semibold text-text-secondary' : 'text-text-tertiary',
                 )}
               >
                 {b.label}
@@ -761,27 +762,6 @@ export function WeekdayBars({
             </div>
           );
         })}
-      </div>
-
-      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border-subtle pt-1.5">
-        <span className="inline-flex items-center gap-1.5">
-          <span
-            aria-hidden="true"
-            className="h-2 w-3 rounded-sm"
-            style={{ backgroundColor: 'var(--chart-4)' }}
-          />
-          <span className="text-[0.6rem] text-text-secondary">Posts published</span>
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <span
-            aria-hidden="true"
-            className="size-2 rounded-full"
-            style={{ backgroundColor: 'var(--chart-3)' }}
-          />
-          <span className="text-[0.6rem] text-text-secondary">
-            Engagement rate (own scale, peak {maxRate.toFixed(2)}%)
-          </span>
-        </span>
       </div>
     </div>
   );

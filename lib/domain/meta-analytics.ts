@@ -1054,3 +1054,30 @@ function isoWeekKey(iso: string): string {
   return t.toISOString().slice(0, 10);
 }
 
+/* ---- What a post-shaped chart is measuring ------------------------------- */
+
+export const POST_MEASURES = ['posts', 'engagements', 'reach'] as const;
+export type PostMeasure = (typeof POST_MEASURES)[number];
+
+export const POST_MEASURE_LABEL: Readonly<Record<PostMeasure, string>> = {
+  posts: 'Posts',
+  engagements: 'Engagements',
+  reach: 'Reach',
+};
+
+/**
+ * The value one post contributes under a given measure.
+ *
+ * ⚠️ SHARED BY THE WEEKDAY BARS AND THE HEATMAP, so "Engagements" means the same
+ * thing on both. Two charts side by side reading the same word differently is
+ * the kind of quiet inconsistency nobody reports and everybody misreads.
+ */
+export function measureOf(
+  post: Pick<StudioPost, 'reach' | 'likes' | 'comments' | 'shares' | 'saves'>,
+  measure: PostMeasure,
+): number {
+  if (measure === 'posts') return 1;
+  if (measure === 'reach') return post.reach ?? 0;
+  return (post.likes ?? 0) + (post.comments ?? 0) + (post.shares ?? 0) + (post.saves ?? 0);
+}
+

@@ -3,7 +3,7 @@
 import * as React from 'react';
 
 import type { StudioPost } from '@/lib/domain/meta-studio';
-import { postEngagement } from '@/lib/domain/meta-studio';
+import { POST_MEASURE_LABEL, measureOf, type PostMeasure } from '@/lib/domain/meta-analytics';
 
 /* ============================================================================
  * THE ENGAGEMENT HEATMAP
@@ -36,7 +36,16 @@ const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const;
 const BUCKETS = 12; // two hours each
 const HOUR_LABELS = ['12AM', '4AM', '8AM', '12PM', '4PM', '8PM'];
 
-export function EngagementHeatmap({ posts }: { posts: readonly StudioPost[] }) {
+export function EngagementHeatmap({
+  posts,
+  measure = 'engagements',
+}: {
+  posts: readonly StudioPost[];
+  /* ⚠️ THE SAME MEASURE VOCABULARY AS THE WEEKDAY BARS BESIDE IT, from
+     `measureOf` — two charts on one row reading the same word differently is
+     the kind of quiet inconsistency nobody reports and everybody misreads. */
+  measure?: PostMeasure;
+}) {
   const [hover, setHover] = React.useState<{ d: number; b: number } | null>(null);
 
   const { grid, peak, total } = React.useMemo(() => {
@@ -53,19 +62,21 @@ export function EngagementHeatmap({ posts }: { posts: readonly StudioPost[] }) {
       const dow = (local.getDay() + 6) % 7; // Monday first
       const bucket = Math.min(BUCKETS - 1, Math.floor(local.getHours() / 2));
 
-      const value = postEngagement(p);
+      const value = measureOf(p, measure);
       g[dow][bucket] += value;
       sum += value;
       if (g[dow][bucket] > max) max = g[dow][bucket];
     }
 
     return { grid: g, peak: max, total: sum };
-  }, [posts]);
+  }, [posts, measure]);
 
   if (total === 0) {
     return (
-      <div className="grid h-full min-h-[9rem] place-items-center rounded-lg border border-dashed border-border-subtle">
-        <p className="text-micro text-text-tertiary">No posts with engagement in this period.</p>
+      <div className="grid h-full min-h-[7rem] place-items-center rounded-lg border border-dashed border-border-subtle">
+        <p className="text-micro text-text-tertiary">
+          No posts with {POST_MEASURE_LABEL[measure].toLowerCase()} in this period.
+        </p>
       </div>
     );
   }
@@ -82,7 +93,7 @@ export function EngagementHeatmap({ posts }: { posts: readonly StudioPost[] }) {
         {/* Day labels */}
         <div className="flex shrink-0 flex-col justify-between py-px">
           {DAYS.map((d) => (
-            <span key={d} className="text-[0.6rem] leading-none text-text-tertiary">
+            <span key={d} className="text-[0.56rem] leading-none text-text-tertiary">
               {d}
             </span>
           ))}
@@ -103,13 +114,17 @@ export function EngagementHeatmap({ posts }: { posts: readonly StudioPost[] }) {
                     onMouseLeave={() => setHover(null)}
                     onFocus={() => setHover({ d, b })}
                     onBlur={() => setHover(null)}
-                    className="aspect-square w-full rounded-[3px] transition-transform motion-safe:animate-[studio-rise_520ms_ease-out_backwards]"
+                    /* ⚠️ NOT `aspect-square`. Twelve square cells across a
+                       third-width panel force a grid taller than the reference's
+                       whole card; a fixed 13px row keeps seven days compact and
+                       still leaves each cell comfortably clickable. */
+                    className="h-[13px] w-full rounded-[3px] transition-transform motion-safe:animate-[studio-rise_520ms_ease-out_backwards]"
                     style={{
                       backgroundColor:
                         v === 0
                           ? 'var(--bg-subtle)'
-                          : `color-mix(in oklab, var(--chart-1) ${Math.round(14 + t * 86)}%, var(--bg-surface))`,
-                      outline: on ? '2px solid var(--chart-1)' : 'none',
+                          : `color-mix(in oklab, var(--chart-4) ${Math.round(14 + t * 86)}%, var(--bg-surface))`,
+                      outline: on ? '2px solid var(--chart-4)' : 'none',
                       outlineOffset: '1px',
                       animationDelay: `${(d * BUCKETS + b) * 9}ms`,
                     }}
@@ -121,7 +136,7 @@ export function EngagementHeatmap({ posts }: { posts: readonly StudioPost[] }) {
 
           {/* Hour labels, every second bucket, as the reference sets them. */}
           <div
-            className="mt-1.5 grid text-[0.6rem] text-text-tertiary"
+            className="mt-1 grid text-[0.56rem] text-text-tertiary"
             style={{ gridTemplateColumns: `repeat(${BUCKETS / 2}, 1fr)` }}
           >
             {HOUR_LABELS.map((h) => (
@@ -133,13 +148,14 @@ export function EngagementHeatmap({ posts }: { posts: readonly StudioPost[] }) {
 
       {/* The readout replaces the grid's own tooltip — at this cell size a
           floating box covers the neighbours you are comparing against. */}
-      <p className="mt-2 min-h-[1rem] text-[0.62rem] text-text-secondary">
+      <p className="mt-1.5 min-h-[0.9rem] text-[0.58rem] text-text-secondary">
         {hover ? (
           <>
             <strong className="font-semibold text-text-primary">
               {DAYS[hover.d]} {formatHour(hover.b)}
             </strong>{' '}
-            — {grid[hover.d][hover.b].toLocaleString()} engagements from posts published then
+            — {grid[hover.d][hover.b].toLocaleString()}{' '}
+            {POST_MEASURE_LABEL[measure].toLowerCase()} from posts published then
           </>
         ) : (
           <span className="text-text-tertiary">Hover a cell for its total.</span>
@@ -154,7 +170,7 @@ export function EngagementHeatmap({ posts }: { posts: readonly StudioPost[] }) {
             key={t}
             className="h-2.5 flex-1 rounded-[2px]"
             style={{
-              backgroundColor: `color-mix(in oklab, var(--chart-1) ${Math.round(14 + t * 86)}%, var(--bg-surface))`,
+              backgroundColor: `color-mix(in oklab, var(--chart-4) ${Math.round(14 + t * 86)}%, var(--bg-surface))`,
             }}
           />
         ))}

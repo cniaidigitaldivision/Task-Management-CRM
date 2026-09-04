@@ -24,6 +24,8 @@ import {
   GRANULARITIES,
   IG,
   MEASURE_LABEL,
+  POST_MEASURES,
+  POST_MEASURE_LABEL,
   SCATTER_MEASURES,
   bucketCount,
   bucketSeries,
@@ -40,6 +42,7 @@ import {
   series,
   sumOf,
   type Granularity,
+  type PostMeasure,
   type ScatterMeasure,
 } from '@/lib/domain/meta-analytics';
 import { cn } from '@/lib/utils';
@@ -101,6 +104,9 @@ export function AnalyticsInsights({
 
   /* Which quantity sizes the scatter's bubbles. */
   const [measure, setMeasure] = React.useState<ScatterMeasure>('interactions');
+  /* ...and what the weekday bars and the heatmap are each counting. */
+  const [dayMeasure, setDayMeasure] = React.useState<PostMeasure>('posts');
+  const [heatMeasure, setHeatMeasure] = React.useState<PostMeasure>('engagements');
 
   const found = React.useMemo(
     () => buildInsights({ metrics, posts, dates }),
@@ -342,7 +348,7 @@ export function AnalyticsInsights({
       </div>
 
       {/* ── Row 3 · donut, weekday bars, heatmap ───────────────────────── */}
-      <div className="grid gap-3 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1fr)_minmax(0,1.35fr)]">
+      <div className="grid gap-3 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1fr)_minmax(0,1.4fr)]">
         <Panel
           title="Content mix"
           className="h-full"
@@ -360,8 +366,8 @@ export function AnalyticsInsights({
               }))}
               centreLabel="Posts"
               centreValue={String(posts.length)}
-              size={132}
-              thickness={16}
+              size={112}
+              thickness={15}
               animate
               caption="Posts by content type"
               className="w-full"
@@ -372,25 +378,64 @@ export function AnalyticsInsights({
         <Panel
           title="Content output by day"
           className="h-full"
-          bodyClassName="flex flex-col justify-between"
-          info="Bars are posts published; the dot is that day's engagement rate on its own scale. Days are Karachi's, not UTC's."
+          bodyClassName="flex flex-col justify-center"
+          info="Days are Karachi's, not UTC's — a post at 1am Karachi is the previous day in UTC."
+          action={
+            <MeasureSelect value={dayMeasure} onChange={setDayMeasure} label="Show" />
+          }
         >
-          <WeekdayBars bars={weekdays} height={186} />
+          <WeekdayBars bars={weekdays} measure={dayMeasure} height={150} />
         </Panel>
 
         <Panel
           title="Best engagement time"
           className="h-full"
           bodyClassName="flex flex-col justify-center"
-          info="Every collected post placed by the hour and day it was published, shaded by the engagement it earned."
+          info="Every collected post placed by the hour and day it was published. It measures publishing time, not when the audience is online — Meta reports engagement daily, with no hour attached."
+          action={
+            <MeasureSelect value={heatMeasure} onChange={setHeatMeasure} label="Shade by" />
+          }
         >
-          <EngagementHeatmap posts={posts} />
+          <EngagementHeatmap posts={posts} measure={heatMeasure} />
         </Panel>
       </div>
 
       {/* ── Row 4 · the period comparison and its verdict ──────────────── */}
       <PeriodFooter deltas={deltas} />
     </div>
+  );
+}
+
+/**
+ * The measure control both post-shaped charts use.
+ *
+ * ⚠️ ONE COMPONENT, SO THE TWO DROPDOWNS OFFER THE SAME WORDS. The weekday bars
+ * and the heatmap sit side by side; "Engagements" meaning one thing in one and
+ * something else in the other is the kind of quiet inconsistency nobody reports
+ * and everybody misreads. Both resolve through `measureOf`.
+ */
+function MeasureSelect({
+  value,
+  onChange,
+  label,
+}: {
+  value: PostMeasure;
+  onChange: (v: PostMeasure) => void;
+  label: string;
+}) {
+  return (
+    <select
+      aria-label={label}
+      value={value}
+      onChange={(e) => onChange(e.target.value as PostMeasure)}
+      className="rounded-lg border border-border-subtle bg-bg-surface px-2 py-1 text-[0.6rem] font-medium text-text-secondary transition-colors hover:border-border-default focus:border-accent-primary focus:outline-none"
+    >
+      {POST_MEASURES.map((m) => (
+        <option key={m} value={m}>
+          {POST_MEASURE_LABEL[m]}
+        </option>
+      ))}
+    </select>
   );
 }
 

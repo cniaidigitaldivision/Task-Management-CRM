@@ -15,6 +15,7 @@ import {
   followerLevelSeries,
   insights,
   interactionMix,
+  measureOf,
   periodDeltas,
   platformRadar,
   postsPerDay,
@@ -647,5 +648,34 @@ describe('the funnel’s sixth stage', () => {
     for (const stage of engagementFunnel([])) {
       expect(stage.note).toMatch(/^(Instagram|Facebook) ·/);
     }
+  });
+});
+
+describe('the shared post measure', () => {
+  /* ⚠️ THE WEEKDAY BARS AND THE HEATMAP BOTH READ THROUGH THIS, so a word means
+     the same thing on two charts sitting side by side. Two panels reading
+     "Engagements" differently is the kind of quiet inconsistency nobody reports
+     and everybody misreads. */
+  it('counts a post as one under Posts, whatever it earned', () => {
+    expect(measureOf(post({ reach: 9999, likes: 500 }), 'posts')).toBe(1);
+  });
+
+  it('sums the four interaction kinds under Engagements', () => {
+    expect(
+      measureOf(post({ likes: 5, comments: 2, shares: 1, saves: 1 }), 'engagements'),
+    ).toBe(9);
+  });
+
+  it('takes reach alone under Reach', () => {
+    expect(measureOf(post({ reach: 250, likes: 99 }), 'reach')).toBe(250);
+  });
+
+  /* A missing figure contributes nothing rather than crashing — half the
+     collected posts carry no reach at all. */
+  it('treats an absent figure as no contribution', () => {
+    expect(measureOf(post({ reach: null }), 'reach')).toBe(0);
+    expect(
+      measureOf(post({ likes: null, comments: null, shares: null, saves: null }), 'engagements'),
+    ).toBe(0);
   });
 });

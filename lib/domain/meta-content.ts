@@ -364,12 +364,16 @@ function formatHour(hour: number): string {
  * things rather than one thing seen twice.
  */
 export const KIND_TOKENS: Readonly<Record<string, string>> = {
-  Reel: 'chart-1',
-  Post: 'chart-4',
-  Story: 'chart-3',
-  Video: 'chart-5',
-  Image: 'chart-7',
-  Carousel: 'chart-2',
+  /* The owner's reference, 2026-09-05: reels rose, images violet, videos blue,
+     stories cyan. Changing it here changes the Content & Posts donut too, which
+     is the entire reason this map is shared — one kind, one colour, wherever it
+     is drawn. */
+  Reel: 'chart-2',
+  Image: 'chart-4',
+  Video: 'chart-1',
+  Story: 'chart-7',
+  Carousel: 'chart-3',
+  Post: 'chart-6',
 };
 
 export interface KindShare {
