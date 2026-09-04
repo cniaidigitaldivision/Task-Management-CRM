@@ -129,9 +129,17 @@ async function collectInstagram(
   until: string,
   metrics: CatalogueEntry[],
   wants: (category: string) => boolean,
-): Promise<{ values: DailyValue[]; posts: FetchedPost[]; followers: number | null; media: number | null }> {
+): Promise<{
+  values: DailyValue[];
+  posts: FetchedPost[];
+  followers: number | null;
+  media: number | null;
+  refused: string[];
+}> {
   const token = process.env.META_SYSTEM_USER_TOKEN!.trim();
   const values: DailyValue[] = [];
+  /* Days Meta would not serve. Reported, never silently dropped. */
+  const refused: string[] = [];
 
   for (const m of metrics) {
     /* ⚠️ THE SCOPE IS APPLIED TO THE FETCH, NOT TO THE WRITE. Collecting
@@ -154,8 +162,23 @@ async function collectInstagram(
          against the live API: 2026-09-02..2026-09-02 = null,
          2026-09-02..2026-09-03 = 617. */
       for (let d = since; d <= until; d = minusDays(d, -1)) {
-        const v = await fetchTotalValue(objectId, m.metricKey, d, minusDays(d, -1), token);
-        if (v !== null) values.push({ onDate: d, metricKey: m.metricKey, value: v });
+        /* ⚠️ A REFUSED DAY IS SKIPPED, NOT FATAL, and this is the lesson from the
+           `since` bug above: one day Meta would not serve threw out an entire
+           month of collectable figures — 262 rows lost to a single bad request.
+
+           The account-level try/catch further down exists so one client's
+           failure cannot cost every other client their collection. This is the
+           same principle one level lower: one DAY's failure must not cost the
+           account its other twenty-nine. The day is recorded and the loop
+           continues. */
+        try {
+          const v = await fetchTotalValue(objectId, m.metricKey, d, minusDays(d, -1), token);
+          if (v !== null) values.push({ onDate: d, metricKey: m.metricKey, value: v });
+        } catch (error) {
+          refused.push(
+            `${m.metricKey} on ${d}: ${error instanceof Error ? error.message : 'unknown'}`,
+          );
+        }
       }
     }
     /* 'profile' is not an insight — handled below, off the profile itself. */
@@ -174,7 +197,7 @@ async function collectInstagram(
   }
 
   const posts = wants('posts') ? await fetchIgPosts(objectId) : [];
-  return { values, posts, followers: profile.followers, media: profile.mediaCount };
+  return { values, posts, followers: profile.followers, media: profile.mediaCount, refused };
 }
 
 async function collectFacebook(
@@ -183,7 +206,13 @@ async function collectFacebook(
   until: string,
   metrics: CatalogueEntry[],
   wants: (category: string) => boolean,
-): Promise<{ values: DailyValue[]; posts: FetchedPost[]; followers: number | null; media: number | null }> {
+): Promise<{
+  values: DailyValue[];
+  posts: FetchedPost[];
+  followers: number | null;
+  media: number | null;
+  refused: string[];
+}> {
   /* ⚠️ THE PAGE TOKEN, NOT THE SYSTEM USER TOKEN. Page insights refuse the
      system token with (#190). Derived per run; never stored. */
   const token = await pageAccessToken(objectId);
@@ -201,7 +230,8 @@ async function collectFacebook(
   const followers = follows.length > 0 ? follows[follows.length - 1].value : null;
 
   const posts = wants('posts') ? await fetchFbPosts(objectId, token) : [];
-  return { values, posts, followers, media: null };
+  /* Facebook asks for whole ranges, so there is no per-day refusal to collect. */
+  return { values, posts, followers, media: null, refused: [] };
 }
 
 /* ---- The run ------------------------------------------------------------- */
@@ -256,7 +286,33 @@ export async function runMetaSync(options: {
     throw new MetaApiError('Meta is not configured — META_SYSTEM_USER_TOKEN is missing.', null, null);
   }
 
-  const today = isoDateIn(nowMs());
+  /* ⚠️ TWO DIFFERENT "TODAY"S, AND CONFUSING THEM BROKE INSTAGRAM FOR FIVE
+     HOURS A NIGHT.
+
+     `isoDateIn` gives the KARACHI date, which is right for everything this
+     application stores — the division's day is the day. But Meta validates a
+     `since` against ITS OWN clock, which is at or behind UTC. Karachi is UTC+5,
+     so between 19:00 UTC and midnight UTC the Karachi date is already tomorrow
+     from Meta's point of view, and it refuses:
+
+         (#100) since param is not valid. Metrics data is available for the
+         last 2 years
+
+     — a message about two years, for a date one day too far forward. Verified
+     against the live API on 2026-09-04 at 20:57 UTC: `since=2026-09-04` returned
+     65 views and `since=2026-09-05` was rejected.
+
+     Facebook never showed it because `fetchSeries` asks for a whole range and
+     Meta simply returns fewer points. Instagram's `total_value` path asks for
+     one specific day at a time, so the future day is a hard error that took the
+     whole account's sync down with it.
+
+     The collection window is therefore capped at the UTC date. Nothing is lost:
+     Meta has no figures for a day that has not started in its own frame, and the
+     next run picks it up. */
+  const localToday = isoDateIn(nowMs());
+  const utcToday = new Date(nowMs()).toISOString().slice(0, 10);
+  const today = localToday < utcToday ? localToday : utcToday;
   const all = await linkedAccounts(options.accountId);
 
   /* ⚠️ BY PROJECT NAME, because that is what the reader returns — it has no
@@ -323,7 +379,14 @@ export async function runMetaSync(options: {
         outcome: 'ok',
         daysWritten: Number(row.days_written ?? 0),
         postsWritten: Number(row.posts_written ?? 0),
-        error: null,
+        /* ⚠️ A RUN THAT COLLECTED MOST OF ITS DAYS IS `ok` AND SAYS WHAT IT
+           MISSED. Marking it `failed` would put the account in the red on the
+           Studio for a day Meta was never going to serve, and dropping the note
+           entirely would hide a real gap. So: succeeded, with the refusals named
+           — which is what `error` on an `ok` run is for. */
+        error: collected.refused.length === 0
+          ? null
+          : `Collected, but Meta refused ${collected.refused.length} request(s): ${collected.refused[0]}`,
       });
     } catch (error) {
       /* ⚠️ CAUGHT PER ACCOUNT AND RECORDED, NEVER RETHROWN. This is the property
