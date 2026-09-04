@@ -247,7 +247,7 @@ function useCountUp(target: number, duration = 1400, delay = 0, active = true): 
 }
 
 /** The card's series as a filled line, ~34px tall. */
-function Sparkline({ points, token }: { points: readonly (number | null)[]; token: string }) {
+export function Sparkline({ points, token }: { points: readonly (number | null)[]; token: string }) {
   const real = points.filter((p): p is number => p !== null && Number.isFinite(p));
   if (real.length < 2) return null;
 

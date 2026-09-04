@@ -307,6 +307,18 @@ export interface AccountDetail {
   readonly lastMetricDate: string | null;
   readonly syncRuns: number;
   readonly failedRuns: number;
+  /**
+   * Daily follower level, oldest first — the sparkline under "Followers".
+   *
+   * ⚠️ TWO DIFFERENT METRIC KEYS MEAN THE SAME THING. Facebook reports
+   * `page_follows` and Instagram `followers_count`, so the query coalesces them
+   * rather than the caller having to know which platform it is holding.
+   */
+  readonly followerSeries: readonly number[];
+  /** Posts published per day, oldest first. */
+  readonly postSeries: readonly number[];
+  /** The dates that have any metric row at all — reveals gaps in coverage. */
+  readonly coveredDates: readonly string[];
 }
 
 export async function accountDetailsForProject(
@@ -339,6 +351,51 @@ export async function accountDetailsForProject(
 
   const day = (v: unknown) => (v ? new Date(v as string).toISOString().slice(0, 10) : null);
 
+  /* ── ⚠️ THE SERIES COME FROM TWO GROUPED QUERIES, NOT N+1 ────────────────
+     Three sparklines on each of two cards is six series. Fetching them per
+     account would be six round trips to Singapore for one tab — the mistake
+     `/finance` already makes with its ~27 queries a load. These are two queries
+     regardless of how many accounts a project has. */
+  const ids = (rows as Array<Record<string, unknown>>).map((r) => String(r.id));
+
+  const [followerRows, postRows] = ids.length === 0
+    ? [[], []]
+    : await Promise.all([
+        withUser(actorId, (tx) => tx`
+          select d.meta_account_id, d.on_date, d.value
+            from public.meta_metric_days d
+           where d.meta_account_id = any(${ids}::uuid[])
+             and d.metric_key in ('page_follows', 'followers_count')
+           order by d.on_date
+        `),
+        withUser(actorId, (tx) => tx`
+          select p.meta_account_id,
+                 (p.posted_at at time zone 'Asia/Karachi')::date as on_date,
+                 count(*)::int as n
+            from public.meta_posts p
+           where p.meta_account_id = any(${ids}::uuid[])
+           group by 1, 2
+           order by 2
+        `),
+      ]);
+
+  const byAccount = <T,>(list: readonly Record<string, unknown>[], pick: (r: Record<string, unknown>) => T) => {
+    const map = new Map<string, T[]>();
+    for (const r of list) {
+      const key = String(r.meta_account_id);
+      const bucket = map.get(key) ?? [];
+      bucket.push(pick(r));
+      map.set(key, bucket);
+    }
+    return map;
+  };
+
+  const followers = byAccount(followerRows as Record<string, unknown>[], (r) => Number(r.value));
+  const dates = byAccount(followerRows as Record<string, unknown>[], (r) =>
+    new Date(r.on_date as string).toISOString().slice(0, 10),
+  );
+  const posts = byAccount(postRows as Record<string, unknown>[], (r) => Number(r.n));
+
   return (rows as Array<Record<string, unknown>>).map((r) => ({
     id: String(r.id),
     platform: String(r.platform),
@@ -358,5 +415,115 @@ export async function accountDetailsForProject(
     lastMetricDate: day(r.last_metric),
     syncRuns: Number(r.sync_runs ?? 0),
     failedRuns: Number(r.failed_runs ?? 0),
+    followerSeries: followers.get(String(r.id)) ?? [],
+    postSeries: posts.get(String(r.id)) ?? [],
+    coveredDates: dates.get(String(r.id)) ?? [],
   }));
+}
+
+/* ============================================================================
+ * THE TWO META CSV EXPORTS — the Studio's Reports & Exports tab, 2026-09-04
+ * ----------------------------------------------------------------------------
+ * ⚠️ THESE RETURN ROWS ALREADY SHAPED FOR A SPREADSHEET, and that is why they
+ * are here rather than reusing `metricsForProject` and `postsForProject`. Those
+ * two are shaped for CHARTS — a metric series keyed for a line, posts narrowed
+ * to what a card shows. A spreadsheet wants the opposite: one flat row per
+ * observation, every column present, nothing pivoted, and the account named on
+ * every line so the file makes sense on its own once it has left the building.
+ * ========================================================================= */
+
+/** One row per account per day per metric, oldest first. */
+export async function metaMetricRowsForExport(
+  actorId: string,
+  projectId: string,
+  from: string,
+  to: string,
+): Promise<readonly (readonly (string | number)[])[]> {
+  return withUser(actorId, async (tx) => {
+    const rows = await tx`
+      select d.on_date,
+             coalesce(a.display_name, a.username, a.meta_object_id) as account,
+             p.slug          as platform,
+             d.metric_key,
+             coalesce(c.label, d.metric_key) as metric_label,
+             d.value
+        from public.meta_metric_days d
+        join public.meta_accounts a on a.id = d.meta_account_id
+        join public.platforms     p on p.id = a.platform_id
+        left join public.meta_metric_catalogue c on c.metric_key = d.metric_key
+       where a.project_id = ${projectId}::uuid
+         and d.on_date between ${from}::date and ${to}::date
+       order by d.on_date, account, d.metric_key
+    `;
+    return rows.map((r) => [
+      /* ⚠️ `toISOString().slice(0,10)` — postgres.js hands a `date` back as a JS
+         Date at UTC midnight, and any local formatting shifts a Karachi date
+         back a day for five hours each evening. */
+      r.on_date instanceof Date
+        ? r.on_date.toISOString().slice(0, 10)
+        : String(r.on_date),
+      r.account as string,
+      r.platform as string,
+      r.metric_key as string,
+      r.metric_label as string,
+      Number(r.value ?? 0),
+    ]);
+  });
+}
+
+/** One row per collected post with its metrics flattened out. */
+export async function metaPostRowsForExport(
+  actorId: string,
+  projectId: string,
+): Promise<readonly (readonly (string | number)[])[]> {
+  return withUser(actorId, async (tx) => {
+    const rows = await tx`
+      select po.posted_at,
+             coalesce(a.display_name, a.username, a.meta_object_id) as account,
+             p.slug              as platform,
+             po.media_product_type,
+             po.media_type,
+             po.caption,
+             po.permalink,
+             m.reach, m.views, m.likes, m.comments, m.shares, m.saves,
+             m.total_interactions
+        from public.meta_posts po
+        join public.meta_accounts a on a.id = po.meta_account_id
+        join public.platforms     p on p.id = a.platform_id
+        left join public.meta_post_metrics m on m.meta_post_id = po.id
+       where a.project_id = ${projectId}::uuid
+       order by po.posted_at desc
+    `;
+    return rows.map((r) => {
+      const reach = r.reach === null || r.reach === undefined ? null : Number(r.reach);
+      const inter =
+        r.total_interactions === null || r.total_interactions === undefined
+          ? null
+          : Number(r.total_interactions);
+
+      return [
+        r.posted_at instanceof Date ? r.posted_at.toISOString() : String(r.posted_at ?? ''),
+        r.account as string,
+        r.platform as string,
+        (r.media_product_type as string | null) ?? '',
+        (r.media_type as string | null) ?? '',
+        /* ⚠️ NEWLINES FLATTENED. `toCsv` quotes correctly, so a multi-line
+           caption is valid CSV — but Excel still shows it as a row that spills
+           over several visible lines and makes the sheet unreadable. */
+        ((r.caption as string | null) ?? '').replace(/\s*\n+\s*/g, ' ').trim(),
+        (r.permalink as string | null) ?? '',
+        reach ?? '',
+        r.views === null || r.views === undefined ? '' : Number(r.views),
+        r.likes === null || r.likes === undefined ? '' : Number(r.likes),
+        r.comments === null || r.comments === undefined ? '' : Number(r.comments),
+        r.shares === null || r.shares === undefined ? '' : Number(r.shares),
+        r.saves === null || r.saves === undefined ? '' : Number(r.saves),
+        inter ?? '',
+        /* ⚠️ BLANK, NOT ZERO, WHEN REACH IS UNKNOWN. A rate of 0% is a claim
+           that nobody engaged; an empty cell says we do not know, which is what
+           a missing reach actually means. */
+        reach && reach > 0 && inter !== null ? `${((inter / reach) * 100).toFixed(2)}%` : '',
+      ];
+    });
+  });
 }

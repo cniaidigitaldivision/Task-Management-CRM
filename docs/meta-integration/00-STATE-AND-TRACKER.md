@@ -209,6 +209,72 @@ not updated is worse than none, because the next session trusts it.
 | Date | Session did | Left at |
 |---|---|---|
 | 2026-09-04 (1) | Branch created. Token and all four env vars verified live. Full API reconnaissance: working metric lists for FB + IG on v26.0, per-post data, permalinks, 30-day window limit, demographics threshold. Planning docs written. **No code, no migration, no schema change.** | Awaiting answers to §7 |
+| 2026-09-04 (5) | **Content & Posts and Meta Accounts tabs built** to the owner's references. `lib/domain/meta-content.ts` (33 tests) + the per-account series in `accountDetailsForProject`. Verified live: tabs All 50 / Reels 9 / Images 16 / Drafts 3; Facebook 20 followers, 29 days held, history 2026-08-07 -> 2026-09-04, HEALTH **[Behind]** (correct -- the cron is registered and this branch is not deployed). ⚠️ `syncHealthSummary` lets the WORST account set the verdict, and `fleetBanner` is allowed to report bad news, because both reference cards are fixed congratulatory text. | Reports & Exports |
+| 2026-09-04 (6) | **Reports & Exports tab built and proven end to end.** Migrations **096** (`report_templates` with 9 built-ins, `report_template_favourites`, `report_schedules`, append-only `report_exports`, `app.record_template_use`) and **097** (`app.report_schedules_due` / `app.record_schedule_run`, SECURITY DEFINER). New: `lib/domain/report-templates.ts` (22 tests), `lib/db/queries/report-templates.ts`, `app/actions/report-templates.ts`, `components/studio/reports-exports.tsx` (4 sub-tabs), `lib/reports/schedule-runner.ts`, `app/api/report-schedules` on a 19:05 UTC cron. **The report generator moved out of `app/actions/project-report.ts` into `lib/reports/generate.ts` VERBATIM** -- see §11. Proven live: 9 templates readable as `cni_app`; the runner filed a real September report (target 39, achieved 0 -- correct for the 4th) and its history row; test artifacts removed afterwards. | Analytics & Insights, Settings & Sync |
 | 2026-09-04 (4) | **Phase 4 complete.** `/studio` with project dropdown, connected-account marks, platform filter, six tabs (Overview live, five disabled). Overview: 6 KPI cards with same-length period deltas, followers/engagement/views trends, content mix donut, top posts linking to Meta, by-platform bars, sync footer naming any failing account, and the sample-audience panel. `lib/domain/meta-studio.ts` (pure, 20 tests) + `lib/db/queries/meta-studio.ts`. Nav item added under Projects (LEAD_UP). ⚠️ Not seen rendered — see the note above. | Phase 5, the remaining tabs |
 | 2026-09-04 (3) | **Phase 3 complete.** `lib/meta/client.ts`, `lib/meta/sync.ts`, `app/api/meta-sync/route.ts`, cron every 2h. Migrations 094–095 added for the RLS trap (§10). Linked AI & Digital Division's FB + IG and backfilled: **407 metric rows over 29 days, 50 posts all with permalinks, 0 duplicate keys across three runs.** Found and fixed: `metric_type=total_value` needs `since=D, until=D+1` — a same-day window returns null silently. | Phase 4, the Overview tab |
 | 2026-09-04 (2) | Owner answered all six questions. **Phase 2 complete:** migrations 091–093 written and applied — `meta_accounts`, `meta_metric_catalogue` (15 verified metrics seeded), `meta_metric_days`, `meta_posts`, `meta_post_metrics`, `meta_sync_runs`, plus `app.record_meta_sync` / `app.record_meta_sync_failure`. All self-checks passed; 2 644 tests still green; projects/tasks/attendance counts unchanged. Three schema surprises found by the migration refusing to commit: `projects.type` not `project_type`, `code` is NOT NULL, and `projects_code_format` demands exactly three uppercase letters. | Phase 3, the sync job |
+
+
+---
+
+## 10 · ⚠️ FOUR TRAPS THIS FEATURE HAS ALREADY FALLEN INTO
+
+Kept here because each one produced a **falsely successful** result, which is the
+only kind of bug a session cannot see.
+
+1. **RLS fails closed for a cron, silently.** A cron has no session, so
+   `app.current_user_id()` is NULL and every policy evaluates false — no error,
+   ZERO ROWS, and the job reports "0 due, ok" forever. Migrations 094, 095 and
+   097 are all SECURITY DEFINER readers written for this. **Never widen a policy
+   to fix it**; that hands the same rows to every signed-in path.
+
+2. **`metric_type=total_value` needs `until = D + 1`.** A same-day window returns
+   null with a 200. The IG backfill wrote 30 rows instead of ~300 and reported OK.
+
+3. **TypeScript cannot check a SQL identifier.** Twice in one session: the Meta
+   export queries guessed `d.metric_date` / `po.account_id` (really `d.on_date`,
+   `po.meta_account_id`), and `u.name` reached the owner's browser as a 500 —
+   the column is `users.full_name`. `tsc`, `eslint` and 2 724 tests were all
+   green. **Run every new query against `information_schema` or the live
+   database before believing it.**
+
+4. **A figure that only counts half its sources.** The first schedule runner
+   filed reports without bumping `usage_count`, so a template running monthly
+   forever would have read "Never used" while the card called it usage. Found by
+   reading the row back after the run, not by reasoning.
+
+---
+
+## 11 · ⚠️ WHAT SESSION 6 MOVED, AND WHY YOU MUST NOT "TIDY" IT
+
+`app/actions/project-report.ts` used to hold the whole report generator. Its body
+now lives in **`lib/reports/generate.ts`** as `generateProjectReport(actor, …)`,
+and the action is a six-line wrapper.
+
+**The move was verbatim** — the local variable is still called `user` — because
+the owner approved that document's every panel over three rounds of screenshots,
+and a tidy-up during a move is how a figure quietly changes. Do not rename or
+reflow it without a reason.
+
+**It must not go back into a `'use server'` file.** There, every exported async
+function is an endpoint the browser may call with arguments of its choosing, and
+this one takes its ACTOR as a parameter — so exporting it from an action file
+would let anybody generate a report as anybody. It takes an actor because the
+cron runs a scheduled report as whoever set it up.
+
+---
+
+## 12 · Where the Reports & Exports tab tells the truth instead of the reference
+
+The owner's reference asserts several things this system cannot do. Each is drawn
+and each is honest; the reasoning is in the file headers, and tests pin it.
+
+| Reference says | What is there | Why |
+|---|---|---|
+| Total Templates **24** | a count of the table — **9** | 9 generators exist. 15 more rows would be 15 dead buttons, and the card would be counting the padding. |
+| Supported Formats **5** (PDF/Excel/PPT/CSV/Slides) | **2** available; all five listed, three disabled with their reason | Only PDF (`pdf-lib`) and CSV (`lib/domain/csv.ts`) have a writer. |
+| **AI Summary Blocks 42** | that slot holds **Reports generated** | Nothing writes an AI summary. The one AI pass this feature had spelled a client "NAYA MARKITING", which is why the PDF is typeset. |
+| **Sections Included** as checkboxes | a read-only description of the layout | `composeReportSheet` draws at fixed geometry; unticking a box would leave a hole, not reflow the page. |
+| A **Team** filter | an **Origin** filter (built-in / custom) | No column makes a template belong to a team. Who made it is the real distinction. |
+| Recipients on a schedule | no recipients field at all | Outbound mail is dead — Resend's domain is `status: failed`. A scheduled report FILES itself; somebody still sends it. |

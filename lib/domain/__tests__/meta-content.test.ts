@@ -9,7 +9,9 @@ import {
   contentKpis,
   contentTabs,
   filterPosts,
+  fleetBanner,
   rankPosts,
+  syncHealthSummary,
 } from '../meta-content';
 
 /* ============================================================================
@@ -279,5 +281,80 @@ describe('account health', () => {
     const v = accountHealth({ lastSyncedAt: null, lastError: null, metricDays: 0, nowMs: now });
     expect(v.state).toBe('never');
     expect(v.label).toMatch(/first sync/i);
+  });
+});
+
+describe('the fleet verdict', () => {
+  const now = Date.parse('2026-09-04T12:00:00Z');
+  const HOUR = 3_600_000;
+  const fresh = { lastSyncedAt: new Date(now - HOUR).toISOString(), lastError: null, metricDays: 29 };
+  const broken = { lastSyncedAt: new Date(now - HOUR).toISOString(), lastError: 'revoked', metricDays: 29 };
+  const behind = { lastSyncedAt: new Date(now - 9 * HOUR).toISOString(), lastError: null, metricDays: 29 };
+
+  it('says Excellent only when every account really is', () => {
+    expect(syncHealthSummary([fresh, fresh], now)).toMatchObject({
+      verdict: 'Excellent',
+      healthy: 2,
+      warning: 0,
+      issues: 0,
+    });
+  });
+
+  /* ⚠️ THE WORST ACCOUNT SETS THE VERDICT. Nine healthy and one revoked is not
+     "90% excellent" — it is one client whose numbers are frozen, and a summary
+     that averages that away reassures somebody at the exact moment they need
+     not to be. */
+  it('refuses to average one broken account away', () => {
+    const s = syncHealthSummary(
+      [fresh, fresh, fresh, fresh, fresh, fresh, fresh, fresh, fresh, broken],
+      now,
+    );
+    expect(s.verdict).toBe('Needs attention');
+    expect(s.issues).toBe(1);
+    expect(s.healthy).toBe(9);
+  });
+
+  it('distinguishes behind from broken', () => {
+    expect(syncHealthSummary([behind], now).verdict).toBe('Falling behind');
+    expect(syncHealthSummary([broken], now).verdict).toBe('Needs attention');
+  });
+});
+
+describe('the banner', () => {
+  const now = Date.parse('2026-09-04T12:00:00Z');
+  const clean = syncHealthSummary(
+    [{ lastSyncedAt: new Date(now - 3_600_000).toISOString(), lastError: null, metricDays: 29 }],
+    now,
+  );
+  const bad = syncHealthSummary(
+    [{ lastSyncedAt: new Date(now - 3_600_000).toISOString(), lastError: 'revoked', metricDays: 29 }],
+    now,
+  );
+
+  it('celebrates only when the sync is clean and nothing is falling', () => {
+    const b = fleetBanner({ sync: clean, followerDeltaPercent: 12, postDeltaPercent: 18 });
+    expect(b.tone).toBe('good');
+    expect(b.detail).toMatch(/up 18%/);
+  });
+
+  /* ⚠️ The reference's banner is FIXED TEXT reading "performing great!" — a
+     congratulation that keeps congratulating while followers fall. */
+  it('reports a decline instead of congratulating through it', () => {
+    const b = fleetBanner({ sync: clean, followerDeltaPercent: -8, postDeltaPercent: -20 });
+    expect(b.tone).toBe('mixed');
+    expect(b.detail).toMatch(/down 8%/);
+  });
+
+  it('leads with a broken account over any growth figure', () => {
+    const b = fleetBanner({ sync: bad, followerDeltaPercent: 50, postDeltaPercent: 50 });
+    expect(b.tone).toBe('bad');
+    expect(b.title).toMatch(/needs attention/i);
+  });
+
+  /* A null delta is "no earlier period", not zero growth. */
+  it('says why there is no comparison rather than inventing one', () => {
+    const b = fleetBanner({ sync: clean, followerDeltaPercent: null, postDeltaPercent: null });
+    expect(b.tone).toBe('good');
+    expect(b.detail).toMatch(/begin once there is one/);
   });
 });

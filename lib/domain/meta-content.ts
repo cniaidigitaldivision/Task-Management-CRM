@@ -470,3 +470,181 @@ export function accountHealth(input: {
     token: 'feedback-success',
   };
 }
+
+/* ---- The fleet, not one account ----------------------------------------- */
+
+export interface SyncSummary {
+  readonly healthy: number;
+  readonly warning: number;
+  readonly issues: number;
+  readonly total: number;
+  /** "Excellent" / "Needs attention" / … — the Sync Health card's word. */
+  readonly verdict: string;
+  readonly detail: string;
+  readonly token: string;
+}
+
+/**
+ * One verdict over every connected account.
+ *
+ * ⚠️ THE WORST ACCOUNT SETS THE VERDICT, not the average. Nine healthy
+ * connections and one revoked is not "90% excellent" — it is one client whose
+ * numbers are silently frozen, and a summary that rounds that away reassures
+ * somebody at the exact moment they need not to be. The reference's card reads
+ * "Excellent · All systems operational", which is only allowed to appear here
+ * when it is literally true.
+ */
+export function syncHealthSummary(
+  accounts: readonly {
+    lastSyncedAt: string | null;
+    lastError: string | null;
+    metricDays: number;
+  }[],
+  nowMs: number,
+): SyncSummary {
+  let healthy = 0;
+  let warning = 0;
+  let issues = 0;
+
+  for (const a of accounts) {
+    const state = accountHealth({ ...a, nowMs }).state;
+    if (state === 'error' || state === 'stale') issues += 1;
+    else if (state === 'quiet' || state === 'never') warning += 1;
+    else healthy += 1;
+  }
+
+  const total = accounts.length;
+
+  if (total === 0) {
+    return {
+      healthy,
+      warning,
+      issues,
+      total,
+      verdict: 'No accounts',
+      detail: 'Nothing is connected to this project yet.',
+      token: 'text-tertiary',
+    };
+  }
+
+  if (issues > 0) {
+    return {
+      healthy,
+      warning,
+      issues,
+      total,
+      verdict: 'Needs attention',
+      detail: `${issues} of ${total} ${issues === 1 ? 'account is' : 'accounts are'} not syncing.`,
+      token: 'feedback-error',
+    };
+  }
+
+  if (warning > 0) {
+    return {
+      healthy,
+      warning,
+      issues,
+      total,
+      verdict: 'Falling behind',
+      detail: `${warning} of ${total} ${warning === 1 ? 'account is' : 'accounts are'} overdue a pull.`,
+      token: 'feedback-warning',
+    };
+  }
+
+  return {
+    healthy,
+    warning,
+    issues,
+    total,
+    verdict: 'Excellent',
+    detail: 'All systems operational.',
+    token: 'feedback-success',
+  };
+}
+
+export interface FleetBanner {
+  readonly tone: 'good' | 'mixed' | 'bad';
+  readonly title: string;
+  readonly detail: string;
+}
+
+/**
+ * The banner at the foot of the tab.
+ *
+ * ⚠️ IT IS ALLOWED TO SAY THE ACCOUNTS ARE NOT DOING WELL. The reference reads
+ * "Your accounts are performing great!" as FIXED TEXT — a congratulation that
+ * keeps congratulating while followers fall and a connection dies. A banner
+ * that cannot report bad news is decoration, and worse than decoration: it
+ * actively reassures somebody at the moment they most need not to be.
+ *
+ * So the tone is derived. It needs the sync clean AND nothing falling before it
+ * will celebrate, and it names the figures either way.
+ */
+export function fleetBanner(input: {
+  readonly sync: SyncSummary;
+  readonly followerDeltaPercent: number | null;
+  readonly postDeltaPercent: number | null;
+}): FleetBanner {
+  const { sync, followerDeltaPercent, postDeltaPercent } = input;
+
+  if (sync.issues > 0) {
+    return {
+      tone: 'bad',
+      title: `${sync.issues} ${sync.issues === 1 ? 'account needs' : 'accounts need'} attention`,
+      detail:
+        'Figures for those accounts stopped updating, so anything on this page about them is out of date.',
+    };
+  }
+
+  if (sync.warning > 0) {
+    return {
+      tone: 'mixed',
+      title: 'Collection is running behind',
+      detail: `${sync.warning} of ${sync.total} accounts have not been pulled on schedule. The figures are real but not current.`,
+    };
+  }
+
+  /* ⚠️ A null delta means "no earlier period", NOT zero growth. Reporting
+     "up 0%" about a first month would be a claim about data that does not
+     exist. */
+  if (followerDeltaPercent === null && postDeltaPercent === null) {
+    return {
+      tone: 'good',
+      title: 'Collection is healthy',
+      detail:
+        'Every account is syncing on schedule. Comparisons against a previous period begin once there is one.',
+    };
+  }
+
+  const growing = (followerDeltaPercent ?? 0) >= 0;
+  const posting = (postDeltaPercent ?? 0) >= 0;
+
+  if (growing && posting) {
+    const parts = [
+      postDeltaPercent !== null ? `${fmtPct(postDeltaPercent)} more posts collected` : null,
+      followerDeltaPercent !== null ? `followers ${fmtPct(followerDeltaPercent)}` : null,
+    ].filter((x): x is string => x !== null);
+
+    return {
+      tone: 'good',
+      title: 'Your accounts are performing well',
+      detail: `${parts.join(' and ')} compared with the previous period.`,
+    };
+  }
+
+  const said = [
+    followerDeltaPercent !== null ? `followers ${fmtPct(followerDeltaPercent)}` : null,
+    postDeltaPercent !== null ? `posts collected ${fmtPct(postDeltaPercent)}` : null,
+  ].filter((x): x is string => x !== null);
+
+  return {
+    tone: 'mixed',
+    title: 'Mixed period',
+    detail: `${said.join(', ')} against the previous period.`,
+  };
+}
+
+function fmtPct(n: number): string {
+  const rounded = Math.abs(n) >= 10 ? Math.round(n) : Number(n.toFixed(1));
+  return `${n > 0 ? 'up ' : n < 0 ? 'down ' : ''}${Math.abs(rounded)}%`;
+}

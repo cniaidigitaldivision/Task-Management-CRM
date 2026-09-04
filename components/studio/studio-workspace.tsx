@@ -16,10 +16,16 @@ import type {
   StudioProject,
 } from '@/lib/db/queries/meta-studio';
 import type { ProjectPromise } from '@/lib/domain/meta-studio';
+import type {
+  ExportRecord,
+  ReportSchedule,
+  ReportTemplate,
+} from '@/lib/domain/report-templates';
 import { compact } from '@/lib/domain/meta-studio';
 import { cn } from '@/lib/utils';
 
 import { ContentPosts } from './content-posts';
+import { ReportsExports, type GeneratedReport } from './reports-exports';
 import { MetaAccounts } from './meta-accounts';
 import { StudioOverview } from './overview';
 import { StudioToolbar } from './studio-toolbar';
@@ -30,11 +36,16 @@ import { StudioToolbar } from './studio-toolbar';
  * Project selector, connected accounts, platform filter and the tab strip. The
  * Overview tab's contents live in `overview.tsx`; this file is only the frame.
  *
- * ── ⚠️ ONLY THE OVERVIEW TAB IS BUILT ───────────────────────────────────────
- * The others are drawn but disabled, on purpose: *"Don't create other pages,
- * just the overview page."* Showing them greyed makes the information
- * architecture legible from day one, so the later tabs arrive where people
- * already expect them rather than as a surprise reorganisation.
+ * ── ⚠️ FOUR TABS ARE BUILT; TWO ARE STILL DRAWN AND DISABLED ────────────────
+ * Overview, Content & Posts, Meta Accounts and Reports & Exports are live.
+ * Analytics & Insights and Settings & Sync are shown greyed with a "soon" pill,
+ * which was deliberate from the start — it makes the information architecture
+ * legible from day one, so a later tab arrives where people already expect it
+ * rather than as a surprise reorganisation. `live: false` is the only thing
+ * standing between a drawn tab and a working one.
+ *
+ * ⚠️ THE ORDER OF THE ARMS BELOW IS BEHAVIOUR, NOT STYLE. Two of them sit above
+ * the `hasData` gate on purpose, and each says why.
  * ========================================================================= */
 
 const TABS = [
@@ -42,7 +53,7 @@ const TABS = [
   { key: 'content', label: 'Content & Posts', live: true },
   { key: 'accounts', label: 'Meta Accounts', live: true },
   { key: 'analytics', label: 'Analytics & Insights', live: false },
-  { key: 'reports', label: 'Reports & Exports', live: false },
+  { key: 'reports', label: 'Reports & Exports', live: true },
   { key: 'settings', label: 'Settings & Sync', live: false },
 ] as const;
 
@@ -61,6 +72,13 @@ export function StudioWorkspace({
   accountDetails,
   cadence,
   nowMs,
+  templates,
+  schedules,
+  exports: exportRows,
+  reports,
+  reportCounts,
+  todayKarachi,
+  canSchedule,
 }: {
   projects: readonly StudioProject[];
   selected: StudioProject;
@@ -78,6 +96,14 @@ export function StudioWorkspace({
   cadence: ProjectPromise;
   /** The server's clock — see the note at the call site. */
   nowMs: number;
+  templates: readonly ReportTemplate[];
+  schedules: readonly ReportSchedule[];
+  exports: readonly ExportRecord[];
+  reports: readonly GeneratedReport[];
+  reportCounts: { readonly reportsGenerated: number; readonly exportsTaken: number };
+  /** Today in Karachi, from the server — so "Overdue" cannot disagree. */
+  todayKarachi: string;
+  canSchedule: boolean;
 }) {
   const router = useRouter();
   const search = useSearchParams();
@@ -226,6 +252,33 @@ export function StudioWorkspace({
           accounts={accountDetails}
           projectName={selected.name}
           nowMs={nowMs}
+          /* ⚠️ THE UNFILTERED COUNTS, not `shownPosts`. This tab is about the
+             connections themselves; narrowing "posts collected" by the platform
+             filter would make the fleet figure disagree with the per-account
+             cards sitting right beside it. */
+          postsThisPeriod={posts.length}
+          postsPreviousPeriod={previousPosts.length}
+        />
+      ) : tab === 'reports' ? (
+        /* ⚠️ ALSO ABOVE THE `hasData` GATE, for a different reason than the
+           Accounts tab. Reports and exports do not depend on Meta figures at
+           all — the task CSV and the drawn project PDF come from Taskly's own
+           tables and work on a project that has collected nothing from Meta. A
+           project whose sync has not run yet can still send a client a monthly
+           sheet, and sending them to "No figures collected yet" would refuse a
+           report the system is perfectly able to produce. */
+        <ReportsExports
+          projectId={selected.id}
+          projectName={selected.name}
+          templates={templates}
+          schedules={schedules}
+          exports={exportRows}
+          reports={reports}
+          reportsGenerated={reportCounts.reportsGenerated}
+          exportsTaken={reportCounts.exportsTaken}
+          todayKarachi={todayKarachi}
+          nowMs={nowMs}
+          canSchedule={canSchedule}
         />
       ) : !hasData ? (
         <NoDataYet accounts={accounts} />

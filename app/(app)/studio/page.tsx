@@ -12,7 +12,15 @@ import {
   draftsForProject,
   postsForProject,
 } from '@/lib/db/queries/meta-studio';
+import { listProjectReports } from '@/lib/db/queries/report-files';
+import {
+  exportsForProject,
+  listReportTemplates,
+  reportCountsForProject,
+  schedulesForProject,
+} from '@/lib/db/queries/report-templates';
 import { previousPeriod } from '@/lib/domain/meta-studio';
+import { can } from '@/lib/domain/permissions';
 import { DIVISION_NAME } from '@/lib/domain/constants';
 import { isoDateIn, nowMs } from '@/lib/now';
 
@@ -94,6 +102,15 @@ export default async function StudioPage({
         postsForProject(user.id, selected.id, previous.from, previous.to),
         draftsForProject(user.id, selected.id),
         accountDetailsForProject(user.id, selected.id),
+        /* ── The Reports & Exports tab ─────────────────────────────────────
+           ⚠️ IN THE SAME `Promise.all`, NOT AWAITED AFTER IT. Four sequential
+           awaits would add four round trips to a page that already makes eight;
+           they are independent, so they belong in the same wave. */
+        listReportTemplates(user.id),
+        schedulesForProject(user.id, selected.id),
+        exportsForProject(user.id, selected.id),
+        reportCountsForProject(user.id, selected.id),
+        listProjectReports(user.id, selected.id, 40),
       ])
     : null;
 
@@ -120,6 +137,25 @@ export default async function StudioPage({
       previousPosts={data?.[5] ?? []}
       drafts={data?.[6] ?? []}
       accountDetails={data?.[7] ?? []}
+      templates={data?.[8] ?? []}
+      schedules={data?.[9] ?? []}
+      exports={data?.[10] ?? []}
+      reportCounts={data?.[11] ?? { reportsGenerated: 0, exportsTaken: 0 }}
+      /* ⚠️ NARROWED TO WHAT THE TAB SHOWS. `ReportFileRow` carries the whole
+         stored `ReportContent` and the figures behind it — kilobytes per row,
+         forty rows — and every byte of a server component's props is serialised
+         into the HTML. Payload size is where this application's slowness has
+         actually been, twice. The tab needs five fields. */
+      reports={(data?.[12] ?? []).map((r) => ({
+        id: r.id,
+        kind: r.kind,
+        periodLabel: r.periodLabel,
+        summary: r.summary,
+        createdByName: r.createdByName,
+        createdAt: r.createdAt,
+      }))}
+      todayKarachi={today}
+      canSchedule={can({ role: user.role, id: user.id }, 'project.edit')}
       /* ⚠️ The SERVER's clock, so "6 hours ago" on an account card is the same
          for everyone. Reading it in the browser would let a reader's own wrong
          system time report a healthy account as stale. */
