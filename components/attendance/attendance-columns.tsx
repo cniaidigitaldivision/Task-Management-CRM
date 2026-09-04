@@ -215,27 +215,32 @@ export function AttendanceColumns({
         </div>
       </div>
 
-      <table className="sr-only">
-        <caption>{caption}</caption>
-        <thead>
-          <tr>
-            <th scope="col">Day</th>
-            <th scope="col">Present</th>
-            <th scope="col">Absent</th>
-          </tr>
-        </thead>
-        <tbody>
-          {columns.map((column) => (
-            <tr key={column.onDate}>
-              <th scope="row">
-                {column.dayLabel} {column.weekday}
-              </th>
-              <td>{column.present}</td>
-              <td>{column.absent}</td>
+      {/* `sr-only` on the WRAPPER, not on the `<table>`: `width/height: 1px` do not
+         shrink a table box, so the absolute element keeps its full size and extends
+         the page's scrollable overflow. See `DataTable` in components/ui/chart.tsx. */}
+      <div className="sr-only">
+        <table>
+          <caption>{caption}</caption>
+          <thead>
+            <tr>
+              <th scope="col">Day</th>
+              <th scope="col">Present</th>
+              <th scope="col">Absent</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {columns.map((column) => (
+              <tr key={column.onDate}>
+                <th scope="row">
+                  {column.dayLabel} {column.weekday}
+                </th>
+                <td>{column.present}</td>
+                <td>{column.absent}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </figure>
   );
 }

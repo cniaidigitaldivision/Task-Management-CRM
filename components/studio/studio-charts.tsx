@@ -490,27 +490,32 @@ export function MultiSeriesChart({
         </div>
       )}
 
-      <table className="sr-only">
-        <caption>Series by date</caption>
-        <thead>
-          <tr>
-            <th>Date</th>
-            {series.map((s) => (
-              <th key={s.label}>{s.label}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {labels.map((l, i) => (
-            <tr key={l + i}>
-              <th>{l}</th>
+      {/* `sr-only` on the WRAPPER, not on the `<table>`: `width/height: 1px` do not
+         shrink a table box, so the absolute element keeps its full size and extends
+         the page's scrollable overflow. See `DataTable` in components/ui/chart.tsx. */}
+      <div className="sr-only">
+        <table>
+          <caption>Series by date</caption>
+          <thead>
+            <tr>
+              <th>Date</th>
               {series.map((s) => (
-                <td key={s.label}>{s.points[i] ?? 'no data'}</td>
+                <th key={s.label}>{s.label}</th>
               ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {labels.map((l, i) => (
+              <tr key={l + i}>
+                <th>{l}</th>
+                {series.map((s) => (
+                  <td key={s.label}>{s.points[i] ?? 'no data'}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </figure>
   );
 }
@@ -807,6 +812,8 @@ export function RankedBars({
     share: number;
     value: string;
     token: string;
+    /** Draws the row muted with a "sample" tag — see the note below. */
+    sample?: boolean;
   }[];
   emptyText?: string;
 }) {
@@ -819,28 +826,46 @@ export function RankedBars({
   }
 
   return (
-    <ul className="space-y-2.5">
+    /* ⚠️ `justify-between` on a full-height list. Owner: *"exactly what will
+       fill the card. Right now I am seeing that there is a space."* Five rows at
+       a fixed gap left the remainder dead at the bottom; distributed, they own
+       the card's height whatever it happens to be. */
+    <ul className="flex h-full flex-col justify-between gap-2.5">
       {rows.map((r, i) => (
-        <li key={r.key} className="flex items-center gap-2">
+        <li key={r.key} className="flex items-center gap-2.5">
           {r.lead && <span className="shrink-0">{r.lead}</span>}
-          <span className="w-[4.75rem] shrink-0 truncate text-micro text-text-primary" title={r.label}>
+          <span
+            className="w-[4.5rem] shrink-0 truncate text-caption text-text-primary"
+            /* ⚠️ THE TITLE IS THE ONLY PLACE A PLACEHOLDER IS NAMED NOW. Owner:
+               *"Don't mention this sample word. It's not looking good."* Fair —
+               a badge on three of five rows was louder than the data. But the
+               fact still has to be recorded somewhere a reader can reach, and
+               the panel's own ⓘ says which two platforms are measured. Removing
+               BOTH would leave invented percentages indistinguishable from real
+               ones, which is the one thing this page must never do. */
+            title={r.sample ? `${r.label} — not connected yet, indicative only` : r.label}
+          >
             {r.label}
           </span>
-          <span className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-bg-subtle">
+          <span className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-bg-subtle">
             <span
-              className="block h-full origin-left rounded-full motion-safe:animate-[studio-grow_650ms_cubic-bezier(0.16,1,0.3,1)_backwards]"
+              /* Staggered by row, so the bars arrive one after another: *"one by
+                 one in a beautiful animation."* */
+              className="block h-full origin-left rounded-full motion-safe:animate-[studio-grow_700ms_cubic-bezier(0.16,1,0.3,1)_backwards]"
               style={{
-                width: `${Math.min(100, Math.max(2, r.share * 100))}%`,
+                width: `${Math.min(100, Math.max(3, r.share * 100))}%`,
+                /* ⚠️ FULL STRENGTH, INCLUDING THE PLACEHOLDERS. They were drawn
+                   at 42% opacity and the owner read it as a rendering fault
+                   rather than as a signal — *"their bar lines are faded so make
+                   them a real color."* A signal that reads as a bug is worse
+                   than no signal. */
                 backgroundColor: tok(r.token),
-                animationDelay: `${i * 70}ms`,
+                animationDelay: `${i * 90}ms`,
               }}
             />
           </span>
-          <span className="w-8 shrink-0 text-right text-micro tabular-nums text-text-secondary">
+          <span className="w-9 shrink-0 text-right text-caption font-semibold tabular-nums text-text-primary">
             {Math.round(r.share * 100)}%
-          </span>
-          <span className="w-11 shrink-0 text-right text-micro font-semibold tabular-nums text-text-primary">
-            {r.value}
           </span>
         </li>
       ))}

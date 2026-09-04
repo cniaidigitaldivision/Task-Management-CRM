@@ -98,30 +98,58 @@ function DataTable({
   /** Already bound to a named format by the caller. */
   print: (n: number) => string;
 }) {
+  /* ⚠️ `sr-only` GOES ON A WRAPPER, NEVER ON THE `<table>` ITSELF
+
+     Owner, 2026-09-04, of the Studio at 1536x730: *"there is a white space…
+     why any card may be left behind, or some raw data or the height of
+     something."* Raw data, and its height — it was these tables.
+
+     `sr-only` hides a box by shrinking it to `width: 1px; height: 1px` and
+     clipping it. FOR A `display: table` BOX BOTH OF THOSE ARE ONLY MINIMUMS —
+     CSS never shrinks a table below its content — so the declaration is
+     silently ignored and the element keeps its full size. Measured on /studio:
+     344x768, not 1x1.
+
+     `clip-path: inset(50%)` still made it invisible, which is why this went
+     unnoticed — but an ABSOLUTELY POSITIONED BOX CONTRIBUTES TO SCROLLABLE
+     OVERFLOW EVEN WHEN CLIPPED. Four charts on that page, and it scrolled 303px
+     past its own footer to reach nothing.
+
+     A wrapper `<div>` is not a table, so 1px applies to it, and its
+     `overflow: hidden` stops the table's real size reaching an ancestor's
+     scroll area. The `<table>` stays a real table — see above for why that
+     matters to a screen reader. Verified in the browser: scrollHeight 1632 →
+     1338 on a 730px window, the wrapper measuring 1x1 with all 31 rows intact.
+
+     ⚠️ ONLY VISIBLE ON A PAGE SHORT ENOUGH for the overflow to land past the
+     last card. Stacked at tablet and mobile widths the page was already taller
+     than the tables reached, which is what made this look desktop-only. */
   return (
-    <table className="sr-only">
-      <caption>{caption}</caption>
-      <thead>
-        <tr>
-          <th scope="col">Period</th>
-          {series.map((s) => (
-            <th key={s.label} scope="col">
-              {s.label}
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {labels.map((label, i) => (
-          <tr key={label + i}>
-            <th scope="row">{label}</th>
+    <div className="sr-only">
+      <table>
+        <caption>{caption}</caption>
+        <thead>
+          <tr>
+            <th scope="col">Period</th>
             {series.map((s) => (
-              <td key={s.label}>{s.points[i] === undefined ? '—' : print(s.points[i])}</td>
+              <th key={s.label} scope="col">
+                {s.label}
+              </th>
             ))}
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {labels.map((label, i) => (
+            <tr key={label + i}>
+              <th scope="row">{label}</th>
+              {series.map((s) => (
+                <td key={s.label}>{s.points[i] === undefined ? '—' : print(s.points[i])}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -511,6 +539,7 @@ export function DonutChart({
   thickness = 14,
   format = 'integer',
   caption,
+  legend = true,
   className,
 }: {
   slices: readonly { label: string; value: number; token: string }[];
@@ -522,6 +551,17 @@ export function DonutChart({
   /** A NAMED format — a function cannot cross the server/client boundary. */
   format?: NumberFormat;
   caption: string;
+  /**
+   * Draw the built-in legend.
+   *
+   * ⚠️ DEFAULTS TRUE, so every existing caller is unaffected — this component is
+   * on the dashboard, the reports page and inside a project, and the standing
+   * instruction is not to disturb working screens. Pass false only where the
+   * caller draws its own, which the Studio's Content Type Share does to get the
+   * `42% (521)` shape from the owner's reference. Two legends is not a cosmetic
+   * problem: the Audience card shipped with both and printed every figure twice.
+   */
+  legend?: boolean;
   className?: string;
 }) {
   const [active, setActive] = React.useState<number | null>(null);
@@ -592,8 +632,10 @@ export function DonutChart({
       </div>
 
       {/* The legend is the interaction. Hovering a ring segment is a fiddly
-          target — 14px of arc — and on a touch screen it is no target at all. */}
-      <figcaption className="min-w-[10rem] flex-1 space-y-0.5">
+          target — 14px of arc — and on a touch screen it is no target at all.
+          ⚠️ A caller that suppresses this must draw its own, or the slices become
+          unlabelled and unreachable by keyboard. */}
+      <figcaption hidden={!legend} className="min-w-[10rem] flex-1 space-y-0.5">
         {slices.map((s, i) => (
           <button
             key={s.label}
@@ -625,18 +667,23 @@ export function DonutChart({
             </span>
           </button>
         ))}
-        <table className="sr-only">
-          <caption>{caption}</caption>
-          <tbody>
-            {slices.map((s, i) => (
-              <tr key={s.label}>
-                <th scope="row">{s.label}</th>
-                <td>{print(s.value)}</td>
-                <td>{total > 0 ? `${Math.round(geometry[i].share * 100)}%` : '0%'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        {/* `sr-only` on the WRAPPER, not on the `<table>`: `width/height: 1px` do not
+           shrink a table box, so the absolute element keeps its full size and extends
+           the page's scrollable overflow. See `DataTable` in components/ui/chart.tsx. */}
+        <div className="sr-only">
+          <table>
+            <caption>{caption}</caption>
+            <tbody>
+              {slices.map((s, i) => (
+                <tr key={s.label}>
+                  <th scope="row">{s.label}</th>
+                  <td>{print(s.value)}</td>
+                  <td>{total > 0 ? `${Math.round(geometry[i].share * 100)}%` : '0%'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </figcaption>
     </figure>
   );
@@ -916,18 +963,23 @@ export function Donut3D({
           </button>
         ))}
 
-        <table className="sr-only">
-          <caption>{caption}</caption>
-          <tbody>
-            {slices.map((s, i) => (
-              <tr key={s.label}>
-                <th scope="row">{s.label}</th>
-                <td>{print(s.value)}</td>
-                <td>{total > 0 ? `${Math.round(geometry[i].share * 100)}%` : '0%'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        {/* `sr-only` on the WRAPPER, not on the `<table>`: `width/height: 1px` do not
+           shrink a table box, so the absolute element keeps its full size and extends
+           the page's scrollable overflow. See `DataTable` in components/ui/chart.tsx. */}
+        <div className="sr-only">
+          <table>
+            <caption>{caption}</caption>
+            <tbody>
+              {slices.map((s, i) => (
+                <tr key={s.label}>
+                  <th scope="row">{s.label}</th>
+                  <td>{print(s.value)}</td>
+                  <td>{total > 0 ? `${Math.round(geometry[i].share * 100)}%` : '0%'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </figcaption>
     </figure>
   );

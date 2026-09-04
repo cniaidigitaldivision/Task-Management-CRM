@@ -64,6 +64,43 @@ import { MultiSeriesChart, RankedBars, SegmentedGauge, shortNumber } from './stu
 
 type Grain = 'daily' | 'weekly' | 'monthly';
 
+/* Each platform's own hue, so a row is recognisable before its label is read.
+   Approximations from the chart palette rather than exact brand colours —
+   Instagram's is a gradient and YouTube's red is `feedback-error`, which means
+   "something is wrong" everywhere else in this application. */
+const PLATFORM_TOKENS: Record<string, string> = {
+  instagram: 'chart-2',
+  facebook: 'chart-1',
+  linkedin: 'chart-7',
+  youtube: 'chart-8',
+  tiktok: 'chart-4',
+};
+
+const CONTENT_TOKENS: Record<string, string> = {
+  Reels: 'chart-1',
+  Posts: 'chart-4',
+  Stories: 'chart-3',
+  Videos: 'chart-5',
+  Others: 'chart-6',
+  Ads: 'chart-2',
+};
+
+/* ── ⚠️ REAL WHERE WE HAVE IT, SAMPLE WHERE WE DO NOT, AND MARKED ─────────
+   Owner: *"Facebook and Instagram should have real values but LinkedIn,
+   YouTube, and TikTok should have dummy values."*
+
+   Facebook and Instagram are measured — they are the two accounts the sync
+   actually pulls. The other three are placeholders so the card has the
+   reference's five rows, and each carries `sample: true` so the row itself can
+   say so. A percentage sitting in a column of real percentages with nothing
+   to distinguish it is the one thing this page must never do.
+
+   ⚠️ THE SHARES ARE COMPUTED OVER THE REAL TWO ONLY. Folding invented numbers
+   into the denominator would move Facebook's and Instagram's percentages —
+   making the placeholders silently change a measured figure, which is far
+   worse than showing them separately. */
+
+
 export function StudioOverview({
   accounts,
   current,
@@ -158,25 +195,83 @@ export function StudioOverview({
   const growthLabels = followers.map((d) => shortDate(d.date));
   const growthTooltips = followers.map((d) => longDate(d.date));
 
-  /* ── Content and platform breakdowns ──────────────────────────────────── */
-  const mix = contentMix(posts);
-  const mixTotal = mix.reduce((n, m) => n + m.count, 0);
-  const MIX_TOKENS = ['chart-1', 'chart-4', 'chart-3', 'chart-5', 'chart-2'];
+  /* ── ⚠️ TEMPORARY SAMPLE — REMOVE ON REQUEST ─────────────────────────────
+     Owner, 2026-09-04: *"can you show me just some dummy value in the last
+     month, in the dotted lines… I just want to see whether it will load
+     correctly or not. After that, when I tell you, you will just remove that."*
 
+     There is genuinely no previous-period data — nothing in the tables predates
+     2026-08-06 — so the dashed series has nothing to draw and the owner cannot
+     see whether it renders. This is a shaped curve at roughly 78% of each day's
+     real value, which is what a plausible previous month looks like.
+
+     ⚠️ DELETE THIS BLOCK AND THE `?? ` FALLBACK BELOW when asked. It is the only
+     invented series on the page that is NOT visually marked, because a dashed
+     "Last Month" line is exactly what it will look like when real — which is
+     the point of showing it, and the reason it must not be left here. */
+  const prevHasData = prevFollowers.some((d) => d.combined > 0);
+  const sampleLastMonth = followers.map((d, i) =>
+    d.combined > 0
+      ? Math.round(d.combined * (0.72 + Math.sin(i / 3) * 0.06))
+      : null,
+  );
+
+  /* ── Content and platform breakdowns ──────────────────────────────────── */
+  /* ⚠️ EVERY KIND, INCLUDING THE ONES AT ZERO. Owner: *"Videos and Stories are
+     not posted but please mention them in their respective colors. Also add
+     them."*
+
+     Right, and it is more useful than it looks: a legend that lists only what
+     was published cannot say "no stories went out this month", which is exactly
+     the gap a coordinator needs to see. The donut still draws only non-zero
+     slices — a zero-width arc is invisible anyway — so the list is the honest
+     record and the ring stays readable. */
+  const CONTENT_ORDER = ['Reels', 'Posts', 'Stories', 'Videos', 'Others'] as const;
+  const counted = contentMix(posts);
+  const mixTotal = counted.reduce((n, m) => n + m.count, 0);
+  const mix = CONTENT_ORDER.map((label) => ({
+    label,
+    count: counted.find((m) => m.label === label)?.count ?? 0,
+  }));
+  /* ⚠️ FIXED PER CONTENT KIND, so a colour means the same thing every time the
+     page is opened. The five the owner named — *"reels, posts, stories, videos,
+     other"* — plus a fallback for anything Meta invents later. */
   const byPlatform = React.useMemo(() => {
     const totals = new Map<string, number>();
     for (const p of posts) totals.set(p.platform, (totals.get(p.platform) ?? 0) + postEngagement(p));
-    const sum = [...totals.values()].reduce((a, b) => a + b, 0);
-    return [...totals.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .map(([slug, value], i) => ({
-        key: slug,
-        label: PLATFORM_MARKS[slug]?.label ?? slug,
-        lead: <PlatformIcon slug={slug} size={14} />,
-        share: sum > 0 ? value / sum : 0,
-        value: compact(value),
-        token: ['chart-2', 'chart-1', 'chart-4', 'chart-8', 'chart-3'][i % 5],
-      }));
+
+    const real = [...totals.entries()].sort((a, b) => b[1] - a[1]);
+    const sum = real.reduce((n, [, v]) => n + v, 0);
+
+    const rows = real.map(([slug, value]) => ({
+      key: slug,
+      label: PLATFORM_MARKS[slug]?.label ?? slug,
+      lead: <PlatformIcon slug={slug} size={15} />,
+      share: sum > 0 ? value / sum : 0,
+      value: compact(value),
+      token: PLATFORM_TOKENS[slug] ?? 'chart-1',
+      sample: false,
+    }));
+
+    /* The three the division does not manage yet, in the reference's order. */
+    const placeholders = [
+      { slug: 'linkedin', share: 0.16 },
+      { slug: 'youtube', share: 0.06 },
+      { slug: 'tiktok', share: 0.04 },
+    ].filter((x) => !totals.has(x.slug));
+
+    return [
+      ...rows,
+      ...placeholders.map((x) => ({
+        key: x.slug,
+        label: PLATFORM_MARKS[x.slug]?.label ?? x.slug,
+        lead: <PlatformIcon slug={x.slug} size={15} />,
+        share: x.share,
+        value: '—',
+        token: PLATFORM_TOKENS[x.slug] ?? 'chart-1',
+        sample: true,
+      })),
+    ];
   }, [posts]);
 
   const ranked = React.useMemo(() => {
@@ -217,8 +312,11 @@ export function StudioOverview({
 
   return (
     <div className="space-y-3">
-      {/* ══ ROW 1 · the seven cards ══════════════════════════════════════ */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
+      {/* ══ ROW 1 · the seven cards ══════════════════════════════════════
+          ⚠️ `gap-2.5`, and the cards themselves are shorter — owner: *"the
+          heights of all these cards are a bit extra, with a lot of white space.
+          Reduce the height."* */}
+      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
         {target > 0 && (
           <KpiCard
             index={0}
@@ -280,6 +378,11 @@ export function StudioOverview({
             token: 'chart-4',
             deltaText: formatDelta(kpi('followers') ?? ({} as never)),
             deltaDirection: kpi('followers')?.delta?.direction,
+            /* ⚠️ THE CARD'S OWN SERIES, not a decorative squiggle. Owner: *"is
+               there any way to add a small graph which will move upward?"* It is
+               the same daily followers data the big chart draws, so the shape a
+               reader sees here is true and agrees with the panel below. */
+            spark: followers.map((d) => d.combined),
           }}
         />
         <KpiCard
@@ -292,6 +395,7 @@ export function StudioOverview({
             token: 'chart-2',
             deltaText: rateKpi ? formatDelta(rateKpi) : null,
             deltaDirection: rateKpi?.delta?.direction,
+            spark: engagement.map((d) => d.combined),
           }}
         />
         <KpiCard
@@ -304,6 +408,7 @@ export function StudioOverview({
             token: 'chart-7',
             deltaText: formatDelta(kpi('views') ?? ({} as never)),
             deltaDirection: kpi('views')?.delta?.direction,
+            spark: views.map((d) => d.combined),
           }}
         />
         <KpiCard
@@ -316,6 +421,7 @@ export function StudioOverview({
             token: 'chart-8',
             deltaText: formatDelta(kpi('reach') ?? ({} as never)),
             deltaDirection: kpi('reach')?.delta?.direction,
+            spark: reach.map((d) => d.combined),
             /* ⚠️ Says Instagram-only rather than quietly meaning it. Facebook has
                no working page-reach metric in v26.0. */
             footnote: wantIg ? 'Instagram' : 'not reported',
@@ -414,15 +520,29 @@ export function StudioOverview({
             animationKey={`growth-${platform}-${from}`}
             series={[
               {
-                label: 'This period',
+                /* ⚠️ "This Month" / "Last Month", the reference's own words.
+                   Owner: *"instead of 'in this period' you should write 'this
+                   month' and instead of 'a previous' write 'last month'."* The
+                   window is usually a month and these are the words a reader
+                   thinks in; the exact dates are on the toolbar above. */
+                label: 'This Month',
                 token: 'chart-1',
                 points: followers.map((d) => (d.combined > 0 ? d.combined : null)),
               },
               {
-                label: 'Previous',
-                token: 'chart-4',
+                label: 'Last Month',
+                /* The sample stands in only while there is no real previous
+                   period — see the note above. */
+                /* ⚠️ THE SAME TOKEN AS THIS MONTH, not a second hue. The
+                   reference draws both in one blue and lets the DASH carry the
+                   difference — which is what makes it read as the same quantity
+                   at two times rather than as two different measures. A separate
+                   colour said "another metric". */
+                token: 'chart-1',
                 dashed: true,
-                points: prevFollowers.map((d) => (d.combined > 0 ? d.combined : null)),
+                points: prevHasData
+                  ? prevFollowers.map((d) => (d.combined > 0 ? d.combined : null))
+                  : sampleLastMonth,
               },
             ]}
           />
@@ -434,30 +554,48 @@ export function StudioOverview({
           ) : (
             <div className="flex items-center gap-4">
               <DonutChart
-                slices={mix.map((m, i) => ({
+                slices={mix
+                  .filter((m) => m.count > 0)
+                  .map((m) => ({
                   label: m.label,
                   value: m.count,
-                  token: MIX_TOKENS[i % MIX_TOKENS.length],
+                  /* ⚠️ COLOUR BY KIND, NOT BY POSITION. Indexing into a token
+                     list meant Reels were blue in one period and green in the
+                     next, purely because their rank changed — so a colour a
+                     reader had learned stopped meaning anything. */
+                  token: CONTENT_TOKENS[m.label] ?? 'chart-1',
                 }))}
                 centreLabel="Total"
                 centreValue={String(mixTotal)}
-                size={128}
-                thickness={13}
+                size={132}
+                thickness={15}
+                legend={false}
                 caption="Posts by kind"
               />
-              <ul className="min-w-0 flex-1 space-y-1.5">
-                {mix.map((m, i) => (
+              {/* ⚠️ ONE LEGEND, AND IT IS THIS ONE. `DonutChart` renders its own —
+                  which is what printed every percentage twice on the Audience
+                  card — so it is suppressed here with `legend={false}` and this
+                  list is the single source. The reference's shape is
+                  `● Label   42% (521)`, percentage then count. */}
+              <ul className="flex min-w-0 flex-1 flex-col justify-center gap-2">
+                {mix.map((m) => (
                   <li key={m.label} className="flex items-center gap-2 text-micro">
                     <span
                       aria-hidden="true"
                       className="size-2 shrink-0 rounded-full"
-                      style={{ backgroundColor: `var(--${MIX_TOKENS[i % MIX_TOKENS.length]})` }}
+                      style={{ backgroundColor: `var(--${CONTENT_TOKENS[m.label] ?? 'chart-1'})` }}
                     />
-                    <span className="min-w-0 flex-1 truncate text-text-secondary">{m.label}</span>
-                    <span className="shrink-0 font-semibold tabular-nums text-text-primary">
-                      {Math.round((m.count / mixTotal) * 100)}%
+                    <span
+                      className={`min-w-0 flex-1 truncate ${m.count === 0 ? 'text-text-tertiary' : 'text-text-secondary'}`}
+                    >
+                      {m.label}
                     </span>
-                    <span className="w-8 shrink-0 text-right tabular-nums text-text-tertiary">
+                    <span
+                      className={`shrink-0 font-semibold tabular-nums ${m.count === 0 ? 'text-text-tertiary' : 'text-text-primary'}`}
+                    >
+                      {mixTotal > 0 ? Math.round((m.count / mixTotal) * 100) : 0}%
+                    </span>
+                    <span className="w-9 shrink-0 text-right tabular-nums text-text-tertiary">
                       ({m.count})
                     </span>
                   </li>
@@ -471,7 +609,10 @@ export function StudioOverview({
             of the few things on this page that is measured, per-platform and
             immediately actionable — dropping it to match a drawing would trade
             real information for symmetry. */}
-        <Panel title="Platform Distribution" info="Share of engagement by platform.">
+        <Panel
+          title="Platform Distribution"
+          info="Share of engagement by platform. Facebook and Instagram are measured; the other three are placeholders until those accounts are connected."
+        >
           <RankedBars rows={byPlatform} emptyText="No posts in this period." />
         </Panel>
       </div>
