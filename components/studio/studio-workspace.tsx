@@ -2,9 +2,9 @@
 
 import * as React from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Plus } from 'lucide-react';
+import { ChevronDown } from 'lucide-react';
 
-import { PLATFORM_MARKS, PlatformIcon } from '@/components/brand/platform-icon';
+import { PLATFORM_MARKS } from '@/components/brand/platform-icon';
 import { PageHeader } from '@/components/ui/page-header';
 import { DIVISION_NAME } from '@/lib/domain/constants';
 import type {
@@ -27,7 +27,6 @@ import type {
   SyncSettings,
 } from '@/lib/domain/meta-sync-settings';
 import type { PermissionEvent } from '@/lib/db/queries/meta-sync-settings';
-import { compact } from '@/lib/domain/meta-studio';
 import { cn } from '@/lib/utils';
 
 import { AnalyticsInsights } from './analytics-insights';
@@ -164,70 +163,76 @@ export function StudioWorkspace({
         description="How the posting is actually performing — reach, views, engagement and follower growth, beside the work that produced it."
       />
 
-      {/* ── Project, connected accounts, filters ─────────────────────────── */}
-      <div className="flex flex-wrap items-center gap-2.5 rounded-xl border border-border-subtle bg-bg-surface px-3.5 py-2.5">
-        <select
-          aria-label="Project"
-          value={selected.id}
-          onChange={(e) => setParam('project', e.target.value)}
-          className="min-w-[13rem] rounded-lg border border-border-subtle bg-bg-surface px-2.5 py-1.5 text-body-sm font-medium text-text-primary transition-colors hover:border-border-default"
-        >
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-              {p.hasAccounts ? '' : ' — not connected'}
-            </option>
-          ))}
-        </select>
-
-        {/* The connected accounts, as the owner asked: the marks, with a way to
-            add another once the Meta Accounts tab exists. */}
-        <div className="flex items-center gap-1.5">
-          {accounts.map((a) => (
-            <a
-              key={a.id}
-              href={a.permalink ?? '#'}
-              target="_blank"
-              rel="noopener noreferrer"
-              title={`${PLATFORM_MARKS[a.platform]?.label ?? a.platform}${a.username ? ` — @${a.username}` : ''}`}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border-subtle bg-bg-subtle px-2 py-1.5 transition-colors hover:border-border-default"
-            >
-              <PlatformIcon slug={a.platform} size={16} />
-              <span className="text-micro font-semibold tabular-nums text-text-secondary">
-                {compact(a.followers ?? 0)}
-              </span>
-            </a>
-          ))}
-          <button
-            type="button"
-            disabled
-            title="Connecting more accounts arrives with the Meta Accounts tab"
-            className="grid size-8 place-items-center rounded-lg border border-dashed border-border-default text-text-tertiary opacity-60"
+      {/* ── Project, accounts, range — ⚠️ NO CARD AROUND THEM ────────────
+          Owner, 2026-09-05: *"remove the white background from the whole row."*
+          Each control is its own pill on the page ground, which is what lets the
+          row breathe at this height; a bordered card around pills draws two
+          nested boxes and makes the taller chips look crowded. */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative">
+          <select
+            aria-label="Project"
+            value={selected.id}
+            onChange={(e) => setParam('project', e.target.value)}
+            /* `min-h` matches the account chips, so the row is one band. */
+            className="min-h-[2.6rem] min-w-[14rem] cursor-pointer appearance-none rounded-xl border border-border-subtle bg-bg-surface px-3 pr-9 text-body-sm font-medium text-text-primary transition-colors hover:border-border-default focus:border-accent-primary focus:outline-none"
           >
-            <Plus className="size-4" aria-hidden="true" />
-          </button>
-        </div>
-
-        <div className="ml-auto">
-          <StudioToolbar
-            from={from}
-            to={to}
-            platform={platform}
-            onRange={(days) => {
-              /* The window is expressed as explicit dates rather than a "days"
-                 parameter so a shared link keeps showing the same period. */
-              const end = new Date(`${to}T00:00:00Z`);
-              const start = new Date(end);
-              start.setUTCDate(start.getUTCDate() - (days - 1));
-              const next = new URLSearchParams(search.toString());
-              next.set('from', start.toISOString().slice(0, 10));
-              next.set('to', to);
-              router.push(`/studio?${next.toString()}`);
-            }}
-            onPlatform={(v) => setParam('platform', v === 'all' ? null : v)}
-            onExport={() => window.print()}
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+                {p.hasAccounts ? '' : ' — not connected'}
+              </option>
+            ))}
+          </select>
+          <ChevronDown
+            className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-text-tertiary"
+            aria-hidden="true"
           />
         </div>
+
+        <StudioToolbar
+          from={from}
+          to={to}
+          today={todayKarachi}
+          /* ⚠️ THE EARLIEST DATE ANY FIGURE EXISTS FOR, so the calendar can grey
+             out what can never be filled. Meta serves about thirty days, and a
+             range reaching before that draws a mostly-empty chart which reads as
+             broken rather than as absent. */
+          earliest={
+            accountDetails
+              .map((a) => a.firstMetricDate)
+              .filter((d): d is string => Boolean(d))
+              .sort()[0] ?? null
+          }
+          platform={platform}
+          accounts={accountDetails.map((a) => ({
+            id: a.id,
+            platform: a.platform,
+            displayName: a.displayName,
+            username: a.username,
+            permalink: a.permalink,
+            isFailing: a.lastError !== null,
+          }))}
+          onRange={(days) => {
+            /* The window is expressed as explicit dates rather than a "days"
+               parameter so a shared link keeps showing the same period. */
+            const end = new Date(`${to}T00:00:00Z`);
+            const start = new Date(end);
+            start.setUTCDate(start.getUTCDate() - (days - 1));
+            const next = new URLSearchParams(search.toString());
+            next.set('from', start.toISOString().slice(0, 10));
+            next.set('to', to);
+            router.push(`/studio?${next.toString()}`);
+          }}
+          onExactRange={(a, b) => {
+            const next = new URLSearchParams(search.toString());
+            next.set('from', a);
+            next.set('to', b);
+            router.push(`/studio?${next.toString()}`);
+          }}
+          onPlatform={(v) => setParam('platform', v === 'all' ? null : v)}
+          onExport={() => setTab('reports')}
+        />
       </div>
 
       {/* ── Tabs ─────────────────────────────────────────────────────────── */}
