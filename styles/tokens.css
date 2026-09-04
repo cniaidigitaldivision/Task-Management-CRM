@@ -985,6 +985,42 @@ body,
      enough that the data is what you see. Dashed, and barely there. */
   --chart-grid: rgb(6 35 42 / 0.07);
   --chart-axis: var(--text-tertiary);
+
+  /* ---- The categorical series palette ------------------------------------
+     Added 2026-09-04 for the Trend & Engagement Studio. Owner, holding the
+     reference design beside the first build: *"I need the graph in the thin
+     color lines right now. I don't want that. I want that to be beige, green,
+     green, orange, and these types of colors, yellow."*
+
+     ⚠️ THE SYSTEM HAD NO CATEGORICAL PALETTE AT ALL — only teal, gold, and the
+     semantic feedback/status tokens. Every multi-series chart before this drew
+     in two brand hues, which is why four lines on one axis were unreadable.
+     Semantic tokens are the wrong instrument here: `feedback-error` red means
+     "something is wrong", and using it merely because a fifth line needs a
+     colour teaches people to read alarm into a data series.
+
+     Eight hues, ordered so the FIRST FOUR are maximally distinguishable — most
+     charts draw two or three, and adjacent pairs must never be confusable at a
+     1px stroke. Each is tuned for a white ground here and re-tuned for a dark
+     one below; none is a raw hue straight off a colour wheel. */
+  --chart-1: #4f7dfa;   /* blue    — reach */
+  --chart-2: #ec4a89;   /* rose    — engagement */
+  --chart-3: #14b07f;   /* green   — followers */
+  --chart-4: #8b5cf6;   /* violet  — impressions */
+  --chart-5: #f4923c;   /* orange  */
+  --chart-6: #eab308;   /* yellow  */
+  --chart-7: #06b6d4;   /* cyan    */
+  --chart-8: #e05252;   /* red     */
+
+  /* The soft tint behind an icon tile or a chip — the same hue at card weight. */
+  --chart-1-wash: rgb(79 125 250 / 0.12);
+  --chart-2-wash: rgb(236 74 137 / 0.12);
+  --chart-3-wash: rgb(20 176 127 / 0.12);
+  --chart-4-wash: rgb(139 92 246 / 0.12);
+  --chart-5-wash: rgb(244 146 60 / 0.14);
+  --chart-6-wash: rgb(234 179 8 / 0.14);
+  --chart-7-wash: rgb(6 182 212 / 0.12);
+  --chart-8-wash: rgb(224 82 82 / 0.12);
   /* A strength rather than a pair of colours. The area under a line is that
      line's own colour faded out, and a chart may draw three series — two fixed
      teal stops would only ever have suited the first of them. The chart mixes
@@ -1027,6 +1063,28 @@ body,
 
   --chart-grid: rgb(255 255 255 / 0.07);
   --chart-area-strength: 30%;
+
+  /* ⚠️ LIFTED, NOT REUSED. The light values are tuned against white; on the
+     near-black ground the blues and the violet lose separation and the yellow
+     glares. Each is raised in lightness and pulled back in saturation, and the
+     washes are stronger because a 12% tint is invisible on a dark surface. */
+  --chart-1: #7c9dff;
+  --chart-2: #ff7aa8;
+  --chart-3: #34d3a1;
+  --chart-4: #a78bfa;
+  --chart-5: #ffab5e;
+  --chart-6: #fcd34d;
+  --chart-7: #34d5ec;
+  --chart-8: #ff7b7b;
+
+  --chart-1-wash: rgb(124 157 255 / 0.18);
+  --chart-2-wash: rgb(255 122 168 / 0.18);
+  --chart-3-wash: rgb(52 211 161 / 0.18);
+  --chart-4-wash: rgb(167 139 250 / 0.18);
+  --chart-5-wash: rgb(255 171 94 / 0.20);
+  --chart-6-wash: rgb(252 211 77 / 0.20);
+  --chart-7-wash: rgb(52 213 236 / 0.18);
+  --chart-8-wash: rgb(255 123 123 / 0.18);
   --chart-cursor: rgb(95 192 195 / 0.45);
 
   --skeleton-base: rgb(255 255 255 / 0.05);
@@ -1438,6 +1496,48 @@ body,
    column in the component, in viewBox units, because every column stands on the
    same baseline but at its own x — `bottom` alone would scale each one towards
    the middle of its own box and they would rise out of step. */
+/* ---- Trend & Engagement Studio, 2026-09-04 -------------------------------
+   Owner: *"make everything very interactive. Definitely make an animation: when
+   I load the page or switch to this page, these graphs will start loading."*
+
+   ⚠️ EVERY CALLER MUST SET `backwards` AS THE FILL MODE and stagger by index.
+   Without it a delayed element paints at its final position first and then jumps
+   back to the start when its delay elapses — which reads as a glitch rather than
+   as an entrance. The global prefers-reduced-motion block above already reduces
+   all of these to 0.01ms, so no caller needs its own guard. */
+@keyframes studio-rise {
+  from {
+    opacity: 0;
+    transform: translateY(9px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* A bar or arc growing from nothing along its own length. */
+@keyframes studio-grow {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+/* The gauge needle swinging up from the left to its reading. Overshoots very
+   slightly (the easing passes 1) so it settles like a physical dial rather than
+   sliding into place. */
+@keyframes studio-needle {
+  from {
+    transform: rotate(-90deg);
+  }
+  to {
+    transform: none;
+  }
+}
+
 @keyframes bar-rise {
   from {
     transform: scaleY(0);
