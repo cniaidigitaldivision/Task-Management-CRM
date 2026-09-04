@@ -5,6 +5,8 @@ import type { LucideIcon } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 
+import { useInView } from './use-in-view';
+
 /* ============================================================================
  * THE STUDIO'S SHARED FURNITURE
  * ----------------------------------------------------------------------------
@@ -38,11 +40,18 @@ export function Panel({
   bodyClassName?: string;
   children: React.ReactNode;
 }) {
+  /* ⚠️ EVERY PANEL IS A REVEAL BOUNDARY. The gate is a class on the section, so
+     one observer per panel holds everything inside it — charts, bars, rows — at
+     its first frame until the panel is scrolled to. See styles/tokens.css. */
+  const { ref, inView } = useInView<HTMLElement>();
+
   return (
     <section
+      ref={ref}
       className={cn(
-        'flex min-w-0 flex-col rounded-xl border border-border-subtle bg-bg-surface p-3.5',
+        'studio-reveal flex min-w-0 flex-col rounded-xl border border-border-subtle bg-bg-surface p-3.5',
         'shadow-[0_1px_2px_rgb(6_35_42_/_0.04)]',
+        inView && 'is-visible',
         className,
       )}
     >
@@ -193,13 +202,18 @@ export interface KpiCardData {
  * than one that never animated. Honours prefers-reduced-motion by starting at
  * the target, because the global CSS guard cannot reach a JS animation.
  */
-function useCountUp(target: number, duration = 900, delay = 0): number {
+function useCountUp(target: number, duration = 1400, delay = 0, active = true): number {
   const [value, setValue] = React.useState(target);
 
   React.useEffect(() => {
     const reduced =
       typeof window !== 'undefined' &&
       window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
+    /* ⚠️ A CSS class cannot pause a JavaScript animation, so the count-up is
+       gated on the same `inView` flag explicitly. Without this the digits would
+       have finished counting before the card was ever on screen. */
+    if (!active) return;
 
     if (reduced || !Number.isFinite(target)) {
       const settle = requestAnimationFrame(() => setValue(target));
@@ -227,7 +241,7 @@ function useCountUp(target: number, duration = 900, delay = 0): number {
       frame(now);
     });
     return () => cancelAnimationFrame(raf);
-  }, [target, duration, delay]);
+  }, [target, duration, delay, active]);
 
   return value;
 }
@@ -297,7 +311,7 @@ function Sparkline({ points, token }: { points: readonly (number | null)[]; toke
                 '--line-length': 1,
                 strokeDashoffset: 1,
                 strokeDasharray: 1,
-                animation: 'line-draw 900ms cubic-bezier(0.4,0,0.2,1) 200ms forwards',
+                animation: 'line-draw 1400ms cubic-bezier(0.4,0,0.2,1) 260ms forwards',
               } as React.CSSProperties
             }
           />
@@ -318,13 +332,15 @@ function Sparkline({ points, token }: { points: readonly (number | null)[]; toke
 
 export function KpiCard({ data, index }: { data: KpiCardData; index: number }) {
   const Icon = data.icon;
+  /* Its own boundary — the cards sit directly in the grid, not in a Panel. */
+  const { ref, inView } = useInView<HTMLDivElement>();
 
   /* ⚠️ COUNTS THE NUMBER, NOT THE STRING. The value arrives formatted ("230K",
      "0.14%") because the caller knows how to write it; the digits are parsed out
      to animate and the ORIGINAL string is what lands at the end, so the settled
      card always reads exactly what the caller intended. */
   const numeric = Number.parseFloat(String(data.value).replace(/[^0-9.-]/g, ''));
-  const counted = useCountUp(Number.isFinite(numeric) ? numeric : 0, 900, index * 60);
+  const counted = useCountUp(Number.isFinite(numeric) ? numeric : 0, 1400, index * 80, inView);
   const settled = Math.abs(counted - numeric) < 0.01;
 
   const shown = settled
@@ -342,8 +358,9 @@ export function KpiCard({ data, index }: { data: KpiCardData; index: number }) {
          of the card's own hue at the top ties the figure to its icon and costs
          no height — which matters, because the same instruction asked for these
          to be SHORTER. */
-      className="group relative overflow-hidden rounded-xl border border-border-subtle bg-bg-surface px-3 pb-2.5 pt-3 shadow-[0_1px_2px_rgb(6_35_42_/_0.04)] transition-all duration-300 hover:-translate-y-px hover:shadow-[0_6px_18px_rgb(6_35_42_/_0.09)] motion-safe:animate-[studio-rise_420ms_cubic-bezier(0.16,1,0.3,1)_backwards]"
-      style={{ animationDelay: `${index * 55}ms` }}
+      ref={ref}
+      className={`studio-reveal group relative overflow-hidden rounded-xl border border-border-subtle bg-bg-surface px-3 pb-2.5 pt-3 shadow-[0_1px_2px_rgb(6_35_42_/_0.04)] transition-all duration-300 hover:-translate-y-px hover:shadow-[0_6px_18px_rgb(6_35_42_/_0.09)] motion-safe:animate-[studio-rise_620ms_cubic-bezier(0.16,1,0.3,1)_backwards] ${inView ? 'is-visible' : ''}`}
+      style={{ animationDelay: `${index * 80}ms` }}
     >
       <span
         aria-hidden="true"
@@ -383,11 +400,11 @@ export function KpiCard({ data, index }: { data: KpiCardData; index: number }) {
         <div className="mt-2">
           <div className="h-[4px] overflow-hidden rounded-full bg-bg-subtle">
             <div
-              className="h-full origin-left rounded-full motion-safe:animate-[studio-grow_800ms_cubic-bezier(0.16,1,0.3,1)_backwards]"
+              className="h-full origin-left rounded-full motion-safe:animate-[studio-grow_1100ms_cubic-bezier(0.16,1,0.3,1)_backwards]"
               style={{
                 width: `${Math.min(100, Math.max(0, data.progress * 100))}%`,
                 backgroundColor: `var(--${data.token})`,
-                animationDelay: `${index * 55 + 220}ms`,
+                animationDelay: `${index * 80 + 280}ms`,
               }}
             />
           </div>

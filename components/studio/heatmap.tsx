@@ -103,7 +103,7 @@ export function EngagementHeatmap({ posts }: { posts: readonly StudioPost[] }) {
                     onMouseLeave={() => setHover(null)}
                     onFocus={() => setHover({ d, b })}
                     onBlur={() => setHover(null)}
-                    className="aspect-square w-full rounded-[3px] transition-transform motion-safe:animate-[studio-rise_360ms_ease-out_backwards]"
+                    className="aspect-square w-full rounded-[3px] transition-transform motion-safe:animate-[studio-rise_520ms_ease-out_backwards]"
                     style={{
                       backgroundColor:
                         v === 0
@@ -111,7 +111,7 @@ export function EngagementHeatmap({ posts }: { posts: readonly StudioPost[] }) {
                           : `color-mix(in oklab, var(--chart-1) ${Math.round(14 + t * 86)}%, var(--bg-surface))`,
                       outline: on ? '2px solid var(--chart-1)' : 'none',
                       outlineOffset: '1px',
-                      animationDelay: `${(d * BUCKETS + b) * 6}ms`,
+                      animationDelay: `${(d * BUCKETS + b) * 9}ms`,
                     }}
                   />
                 );

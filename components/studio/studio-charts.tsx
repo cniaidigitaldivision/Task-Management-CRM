@@ -2,6 +2,8 @@
 
 import * as React from 'react';
 
+import { useInView } from './use-in-view';
+
 import { niceScale } from '@/lib/domain/meta-studio';
 
 /* ============================================================================
@@ -248,6 +250,23 @@ export function MultiSeriesChart({
                   className="inline-block h-2.5 w-2 rounded-[2px]"
                   style={{ backgroundColor: tok(s.token), opacity: 0.55 }}
                 />
+              ) : s.dashed ? (
+                /* ⚠️ TWO HYPHENS, matching the line it stands for. Owner: *"below
+                    the last month, add two hyphens to show that the hyphen line
+                    is for last month."* A swatch that does not look like its own
+                    series is a legend a reader has to decode rather than read —
+                    and this one previously showed a SOLID line with a dot, i.e.
+                    the other series' mark. */
+                <span aria-hidden="true" className="inline-flex items-center gap-[3px]" style={{ opacity: 0.55 }}>
+                  <span
+                    className="inline-block h-[2px] w-[7px] rounded-full"
+                    style={{ backgroundColor: tok(s.token) }}
+                  />
+                  <span
+                    className="inline-block h-[2px] w-[7px] rounded-full"
+                    style={{ backgroundColor: tok(s.token) }}
+                  />
+                </span>
               ) : (
                 <span aria-hidden="true" className="inline-flex items-center">
                   <span
@@ -266,7 +285,9 @@ export function MultiSeriesChart({
                   have to learn a legend convention in order to read the legend.
                   The hover readout names every value regardless, which is where
                   the question is actually answered. */}
-              <span className="text-text-secondary">{s.label}</span>
+              <span className={s.dashed ? 'text-text-tertiary' : 'text-text-secondary'}>
+                {s.label}
+              </span>
             </button>
           );
         })}
@@ -382,7 +403,7 @@ export function MultiSeriesChart({
                       opacity={hover === i ? 0.55 : 0.26}
                       style={{
                         transformOrigin: `center ${H - PAD.bottom}px`,
-                        animation: `bar-rise 620ms cubic-bezier(0.16,1,0.3,1) ${i * 12}ms backwards`,
+                        animation: `bar-rise 900ms cubic-bezier(0.16,1,0.3,1) ${i * 18}ms backwards`,
                       }}
                     />
                   ),
@@ -407,16 +428,40 @@ export function MultiSeriesChart({
               <g key={s.label}>
                 <path
                   key={`${animationKey}-${s.label}`}
-                  /* ⚠️ `pathLength={1}` lets one dash pattern draw ANY path left
-                     to right without measuring it in JavaScript first. */
-                  pathLength={1}
+                  /* ── ⚠️ `pathLength` ONLY ON THE ANIMATED PATH ──────────────
+                     It normalises the path to one unit so a single dash pattern
+                     can draw ANY path left to right without measuring it in
+                     JavaScript first — which is what the draw-in needs.
+
+                     ⚠️ AND IT SILENTLY DESTROYED THE DASHED SERIES. With
+                     pathLength=1 a `strokeDasharray` of "5 4" asks for a 5-unit
+                     dash on a 1-unit path: the first dash covers the whole line
+                     five times over and "Last Month" rendered COMPLETELY SOLID.
+                     The owner spotted it as the wrong line style; the cause was
+                     two features quietly sharing one attribute.
+
+                     The dashed series does not animate, so it does not need
+                     normalisation — and without it a dasharray in user units
+                     means what it says. */
+                  pathLength={s.dashed ? undefined : 1}
                   d={path(s)}
                   fill="none"
                   stroke={tok(s.token)}
                   strokeWidth="2"
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  strokeDasharray={s.dashed ? '5 4' : 1}
+                  /* ⚠️ The comparison line sits BACK, not beside. Owner: *"also
+                     a little dim its color."* Both series share one hue so the
+                     dash reads as "the same measure, earlier"; dimming is what
+                     stops the two competing for the foreground when they cross,
+                     which they do repeatedly on a growth chart. */
+                  opacity={s.dashed ? 0.55 : 1}
+                  /* ⚠️ 7 ON, 6 OFF — hyphens, not dots. Owner: *"last month's
+                     line should be the hyphen line."* Measured off the
+                     reference, whose dashes are a little longer than the gaps
+                     between them, which is what reads as "the same line,
+                     earlier" rather than as a dotted annotation. */
+                  strokeDasharray={s.dashed ? '7 6' : 1}
                   style={
                     s.dashed
                       ? undefined
@@ -427,13 +472,17 @@ export function MultiSeriesChart({
                              invisible and then snaps in. */
                           '--line-length': 1,
                           strokeDashoffset: 1,
-                          animation: `line-draw 900ms cubic-bezier(0.4,0,0.2,1) ${si * 120}ms forwards`,
+                          animation: `line-draw 1500ms cubic-bezier(0.4,0,0.2,1) ${si * 160}ms forwards`,
                         } as React.CSSProperties)
                   }
                 />
 
-                {/* The dots the owner asked for, on every real point. */}
-                {showDots &&
+                {/* ⚠️ DOTS ON THE SOLID SERIES ONLY. Owner: *"don't add dots in
+                    a hyphen liner. Just show a hyphen."* Right — the dashes and
+                    the dots are two marks competing along one path, and at this
+                    density they merge into a bead chain that reads as neither.
+                    The comparison line only needs its shape. */}
+                {showDots && !s.dashed &&
                   s.points.map((p, i) =>
                     p === null ? null : (
                       <circle
@@ -445,7 +494,7 @@ export function MultiSeriesChart({
                         stroke={tok(s.token)}
                         strokeWidth={hover === i ? 2.4 : 1}
                         style={{
-                          animation: `studio-rise 420ms ease-out ${300 + si * 120}ms backwards`,
+                          animation: `studio-rise 560ms ease-out ${520 + si * 160}ms backwards`,
                           transition: 'r 120ms ease-out',
                         }}
                       />
@@ -550,13 +599,17 @@ function ChartEmpty() {
  * ⚠️ AND IT HONOURS prefers-reduced-motion by landing on the target
  * immediately. The global CSS guard cannot reach a JavaScript animation.
  */
-function useSweep(target: number, max: number, duration = 1500): number {
+function useSweep(target: number, max: number, duration = 2100, active = true): number {
   const [display, setDisplay] = React.useState(target);
 
   React.useEffect(() => {
     const reduced =
       typeof window !== 'undefined' &&
       window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
+    /* Gated explicitly: a CSS class cannot pause a JavaScript animation, and the
+       needle would otherwise have settled before the card was looked at. */
+    if (!active) return;
 
     /* ⚠️ Scheduled, not called straight from the effect body — React's
        `set-state-in-effect` rule refuses the synchronous form, and it is right
@@ -591,7 +644,7 @@ function useSweep(target: number, max: number, duration = 1500): number {
 
     raf = requestAnimationFrame(frame);
     return () => cancelAnimationFrame(raf);
-  }, [target, max, duration]);
+  }, [target, max, duration, active]);
 
   return display;
 }
@@ -613,9 +666,11 @@ export function SegmentedGauge({
   const SWEEP = 180;
   const START = 180;
 
+  const { ref, inView } = useInView<HTMLElement>();
+
   /* The value as it is right now, mid-sweep. Everything below reads from this,
      never from `value`, so the needle and the digits cannot disagree. */
-  const shown = useSweep(value, max);
+  const shown = useSweep(value, max, 2100, inView);
 
   const fraction = Math.min(1, Math.max(0, shown / (max || 1)));
   const angle = START + SWEEP * fraction;
@@ -666,7 +721,7 @@ export function SegmentedGauge({
   };
 
   return (
-    <figure className="flex w-full flex-col items-center">
+    <figure ref={ref} className="flex w-full flex-col items-center">
       <svg
         viewBox="0 0 100 57"
         style={{ width: size, maxWidth: '100%' }}
@@ -851,7 +906,7 @@ export function RankedBars({
             <span
               /* Staggered by row, so the bars arrive one after another: *"one by
                  one in a beautiful animation."* */
-              className="block h-full origin-left rounded-full motion-safe:animate-[studio-grow_700ms_cubic-bezier(0.16,1,0.3,1)_backwards]"
+              className="block h-full origin-left rounded-full motion-safe:animate-[studio-grow_1000ms_cubic-bezier(0.16,1,0.3,1)_backwards]"
               style={{
                 width: `${Math.min(100, Math.max(3, r.share * 100))}%`,
                 /* ⚠️ FULL STRENGTH, INCLUDING THE PLACEHOLDERS. They were drawn
@@ -860,7 +915,7 @@ export function RankedBars({
                    them a real color."* A signal that reads as a bug is worse
                    than no signal. */
                 backgroundColor: tok(r.token),
-                animationDelay: `${i * 90}ms`,
+                animationDelay: `${i * 130}ms`,
               }}
             />
           </span>

@@ -1505,6 +1505,67 @@ body,
    back to the start when its delay elapses — which reads as a glitch rather than
    as an entrance. The global prefers-reduced-motion block above already reduces
    all of these to 0.01ms, so no caller needs its own guard. */
+/* ── ⚠️ SCROLL-TRIGGERED ENTRANCES, PAUSED UNTIL SEEN ──────────────────────
+   Owner, 2026-09-04: *"if I load the page, focus is above. When I go down it
+   doesn't animate."* The Studio is four rows tall, so anything below the fold
+   had finished animating before it was ever looked at.
+
+   `animation-play-state: paused` holds an animation at its FIRST frame, which
+   combined with `animation-fill-mode: backwards` (which every studio entrance
+   uses) means a panel sits at zero width / zero opacity until it is revealed —
+   exactly the state it would have during a delay.
+
+   ⚠️ THE `!important` AND THE `*` ARE BOTH LOAD-BEARING. The animations are
+   declared inline (`style={{ animation: … }}`) on individual SVG paths and
+   bars, and an inline declaration beats any normal selector — so pausing them
+   from a parent needs `!important`. It is scoped to `.studio-reveal`, so
+   nothing outside a studio panel can be caught by it.
+   ------------------------------------------------------------------------- */
+.studio-reveal *,
+.studio-reveal {
+  animation-play-state: paused !important;
+}
+
+.studio-reveal.is-visible *,
+.studio-reveal.is-visible {
+  animation-play-state: running !important;
+}
+
+/* ── ⚠️ NEVER PAUSE UNDER REDUCED MOTION — THIS IS NOT A NICETY ────────────
+   The global block above sets `animation-duration: 0.01ms` for reduced motion,
+   which normally means "jump to the end frame instantly". Combined with
+   `paused` it would mean the opposite: FROZEN AT THE FIRST FRAME, for ever.
+
+   And the first frame of these animations is nothing — `line-draw` starts at
+   `stroke-dashoffset: 1` (an invisible line) and `donut-sweep` at
+   `stroke-dasharray: 0` (an invisible segment). So a reader who has asked their
+   system for less motion would have been shown a Studio with no chart lines and
+   no donut segments at all, permanently, and nothing on screen to suggest why.
+
+   Caught before shipping by reading the reduced-motion block rather than by
+   testing with it enabled, which is the harder thing to remember to do. */
+@media (prefers-reduced-motion: reduce) {
+  .studio-reveal *,
+  .studio-reveal {
+    animation-play-state: running !important;
+  }
+}
+
+/* A donut segment sweeping open from nothing to its own share.
+   ⚠️ IT ANIMATES `stroke-dasharray`, WHICH NEEDS BOTH ENDS TO HAVE THE SAME
+   SHAPE — two lengths — or the browser cannot interpolate and simply snaps. The
+   caller passes its own arc length and the remainder as custom properties,
+   because each segment is a different size and one shared keyframe has to serve
+   all of them. */
+@keyframes donut-sweep {
+  from {
+    stroke-dasharray: 0 var(--donut-circ);
+  }
+  to {
+    stroke-dasharray: var(--donut-len) var(--donut-rest);
+  }
+}
+
 @keyframes studio-rise {
   from {
     opacity: 0;

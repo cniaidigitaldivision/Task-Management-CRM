@@ -540,6 +540,7 @@ export function DonutChart({
   format = 'integer',
   caption,
   legend = true,
+  animate = false,
   className,
 }: {
   slices: readonly { label: string; value: number; token: string }[];
@@ -562,6 +563,15 @@ export function DonutChart({
    * problem: the Audience card shipped with both and printed every figure twice.
    */
   legend?: boolean;
+  /**
+   * Sweep each segment open on mount.
+   *
+   * ⚠️ OPT-IN, default off — this component is on the dashboard, the reports
+   * page and inside a project, and the standing instruction is not to disturb
+   * working screens. A shared component that silently gains motion everywhere
+   * is exactly that.
+   */
+  animate?: boolean;
   className?: string;
 }) {
   const [active, setActive] = React.useState<number | null>(null);
@@ -610,6 +620,20 @@ export function DonutChart({
                 strokeLinecap={gap > 0 ? 'butt' : 'round'}
                 strokeDasharray={`${length} ${circumference - length}`}
                 strokeDashoffset={-g.offset * circumference}
+                /* ⚠️ The keyframe needs this segment's OWN lengths, since one
+                   shared animation serves every differently-sized arc. The
+                   `to` values match the attribute above, so the segment holds
+                   its correct size once the sweep finishes. */
+                style={
+                  animate
+                    ? ({
+                        '--donut-len': `${length}`,
+                        '--donut-rest': `${circumference - length}`,
+                        '--donut-circ': `${circumference}`,
+                        animation: `donut-sweep 1100ms cubic-bezier(0.16,1,0.3,1) ${i * 130}ms both`,
+                      } as React.CSSProperties)
+                    : undefined
+                }
                 opacity={dimmed ? 0.32 : 1}
                 className="transition-[opacity,stroke-width] duration-150 motion-reduce:transition-none"
               />

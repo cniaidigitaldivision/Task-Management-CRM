@@ -552,56 +552,43 @@ export function StudioOverview({
           {mixTotal === 0 ? (
             <PanelEmpty>Nothing was published in this period.</PanelEmpty>
           ) : (
-            <div className="flex items-center gap-4">
-              <DonutChart
-                slices={mix
-                  .filter((m) => m.count > 0)
-                  .map((m) => ({
-                  label: m.label,
-                  value: m.count,
-                  /* ⚠️ COLOUR BY KIND, NOT BY POSITION. Indexing into a token
-                     list meant Reels were blue in one period and green in the
-                     next, purely because their rank changed — so a colour a
-                     reader had learned stopped meaning anything. */
-                  token: CONTENT_TOKENS[m.label] ?? 'chart-1',
-                }))}
-                centreLabel="Total"
-                centreValue={String(mixTotal)}
-                size={132}
-                thickness={15}
-                legend={false}
-                caption="Posts by kind"
-              />
-              {/* ⚠️ ONE LEGEND, AND IT IS THIS ONE. `DonutChart` renders its own —
-                  which is what printed every percentage twice on the Audience
-                  card — so it is suppressed here with `legend={false}` and this
-                  list is the single source. The reference's shape is
-                  `● Label   42% (521)`, percentage then count. */}
-              <ul className="flex min-w-0 flex-1 flex-col justify-center gap-2">
-                {mix.map((m) => (
-                  <li key={m.label} className="flex items-center gap-2 text-micro">
-                    <span
-                      aria-hidden="true"
-                      className="size-2 shrink-0 rounded-full"
-                      style={{ backgroundColor: `var(--${CONTENT_TOKENS[m.label] ?? 'chart-1'})` }}
-                    />
-                    <span
-                      className={`min-w-0 flex-1 truncate ${m.count === 0 ? 'text-text-tertiary' : 'text-text-secondary'}`}
-                    >
-                      {m.label}
-                    </span>
-                    <span
-                      className={`shrink-0 font-semibold tabular-nums ${m.count === 0 ? 'text-text-tertiary' : 'text-text-primary'}`}
-                    >
-                      {mixTotal > 0 ? Math.round((m.count / mixTotal) * 100) : 0}%
-                    </span>
-                    <span className="w-9 shrink-0 text-right tabular-nums text-text-tertiary">
-                      ({m.count})
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </div>
+            /* ── ⚠️ THE BUILT-IN LEGEND, NOT ONE OF MINE ────────────────────
+               Owner: *"the content type share card is not hovering."*
+
+               I had suppressed it with `legend={false}` and drawn my own to get
+               the reference's `42% (521)` column order — and in doing so threw
+               away the interaction, because THE LEGEND *IS* THE INTERACTION
+               here. The component's own comment says exactly that: a 14px arc
+               is a fiddly hover target and no target at all on a touch screen,
+               so its legend rows carry the pointer and focus handlers that light
+               up the matching segment.
+
+               The built-in legend already renders label, value AND percentage.
+               Reimplementing it bought a different column order and cost every
+               bit of hover, keyboard focus and the screen-reader data table.
+               Column order is not worth that trade.
+
+               ⚠️ `animate` sweeps the segments open CLOCKWISE from twelve
+               o'clock — the ring carries `-rotate-90`, so an SVG circle's
+               natural clockwise stroke starts at the top. Owner: *"should load
+               clockwise."* */
+            <DonutChart
+              slices={mix.map((m) => ({
+                label: m.label,
+                value: m.count,
+                /* Coloured by KIND, not by rank: indexing a token list meant
+                   Reels were blue one period and green the next purely because
+                   their position changed. */
+                token: CONTENT_TOKENS[m.label] ?? 'chart-1',
+              }))}
+              centreLabel="Total"
+              centreValue={String(mixTotal)}
+              size={136}
+              thickness={16}
+              animate
+              caption="Posts by kind"
+              className="w-full justify-between"
+            />
           )}
         </Panel>
 
@@ -716,7 +703,7 @@ function PostRow({ post, index }: { post: StudioPost; index: number }) {
 
   return (
     <li
-      className="motion-safe:animate-[studio-rise_380ms_cubic-bezier(0.16,1,0.3,1)_backwards]"
+      className="motion-safe:animate-[studio-rise_560ms_cubic-bezier(0.16,1,0.3,1)_backwards]"
       style={{ animationDelay: `${index * 60}ms` }}
     >
       <a
@@ -810,8 +797,8 @@ function RecentActivity({
         {items.map((it, i) => (
           <li
             key={it.key}
-            className="flex items-start gap-2.5 motion-safe:animate-[studio-rise_380ms_cubic-bezier(0.16,1,0.3,1)_backwards]"
-            style={{ animationDelay: `${i * 60}ms` }}
+            className="flex items-start gap-2.5 motion-safe:animate-[studio-rise_560ms_cubic-bezier(0.16,1,0.3,1)_backwards]"
+            style={{ animationDelay: `${i * 90}ms` }}
           >
             <span className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-md bg-bg-subtle">
               {it.icon}

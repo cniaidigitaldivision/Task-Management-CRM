@@ -154,6 +154,8 @@ export function AudienceSample({
              it's very thin."* */
           size={132}
           thickness={17}
+          /* Clockwise from twelve o'clock — see the note on the content card. */
+          animate
           format="percent"
           caption="Sample audience by age — placeholder figures, not this account's data"
           className="min-w-0 justify-center"
@@ -269,11 +271,11 @@ export function TopLocations({
 
             <div className="mt-2 h-[3px] w-full overflow-hidden rounded-full bg-bg-subtle">
               <div
-                className="h-full origin-left rounded-full motion-safe:animate-[studio-grow_650ms_cubic-bezier(0.16,1,0.3,1)_backwards]"
+                className="h-full origin-left rounded-full motion-safe:animate-[studio-grow_1000ms_cubic-bezier(0.16,1,0.3,1)_backwards]"
                 style={{
                   width: `${Math.max(3, c.share * 100)}%`,
                   backgroundColor: `var(--${LOCATION_TOKENS[i % LOCATION_TOKENS.length]})`,
-                  animationDelay: `${i * 70}ms`,
+                  animationDelay: `${i * 110}ms`,
                 }}
               />
             </div>
