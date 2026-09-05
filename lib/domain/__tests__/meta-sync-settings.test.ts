@@ -76,8 +76,96 @@ describe('what a frequency actually delivers', () => {
   /* Otherwise an hourly rule is perpetually one hour overdue and its status
      reads "Overdue" forever while it works as well as it possibly can. */
   it('never schedules a rule sooner than the job that runs it', () => {
-    expect(nextRunAfter(rule({ frequency: 'hourly' }), NOW)).toBe(NOW + 2 * HOUR);
-    expect(nextRunAfter(rule({ frequency: 'daily' }), NOW)).toBe(NOW + 24 * HOUR);
+    /* NOW is 12:00 UTC = 17:00 Karachi. An hourly rule anchored at 21:55 sits on
+       a two-hour grid — …17:55, 19:55… — so the next slot is 17:55 Karachi,
+       which is 45 minutes away and never less than nothing. */
+    const next = nextRunAfter(rule({ frequency: 'hourly' }), NOW);
+    expect(next).toBeGreaterThan(NOW);
+    /* And never further out than one whole interval. */
+    expect(next - NOW).toBeLessThanOrEqual(2 * HOUR);
+  });
+});
+
+describe('when a rule actually runs', () => {
+  /* Karachi is UTC+5 with no daylight saving, so a wall-clock time maps to a
+     fixed instant and these can be asserted exactly. */
+  const karachi = (iso: string) => Date.parse(`${iso}+05:00`);
+
+  /* ⚠️ THE BUG THESE EXIST FOR. `nextRunAfter` took only a frequency and
+     returned `now + interval`, so a rule saved as "daily at 02:00" ran at
+     whatever o'clock it was created and every 24 hours from there — while the
+     table and the calendar both printed 02:00. Found on a live rule: saved with
+     `run_at 21:55`, its next run had been computed for 23:55 Karachi. */
+  it('runs a daily rule at the time it was given, not the time it was made', () => {
+    const madeAt = karachi('2026-09-05T14:30:00');
+    const next = nextRunAfter(rule({ frequency: 'daily', runAt: '02:00' }), madeAt);
+    expect(next).toBe(karachi('2026-09-06T02:00:00'));
+  });
+
+  it('takes today’s slot when the time has not yet passed', () => {
+    const madeAt = karachi('2026-09-05T01:00:00');
+    const next = nextRunAfter(rule({ frequency: 'daily', runAt: '02:00' }), madeAt);
+    expect(next).toBe(karachi('2026-09-05T02:00:00'));
+  });
+
+  /* A sub-daily rule's time sets the PHASE of the grid, not a single moment. */
+  it('puts a sub-daily rule on a grid anchored to its time', () => {
+    const at = karachi('2026-09-05T22:30:00');
+    /* 21:55 with a two-hour step: …21:55, 23:55… */
+    const next = nextRunAfter(rule({ frequency: 'hourly', runAt: '21:55' }), at);
+    expect(next).toBe(karachi('2026-09-05T23:55:00'));
+  });
+
+  it('keeps a six-hourly rule on its own phase', () => {
+    const at = karachi('2026-09-05T09:00:00');
+    /* 02:00 every six hours: 02:00, 08:00, 14:00, 20:00. */
+    const next = nextRunAfter(rule({ frequency: 'every_6h', runAt: '02:00' }), at);
+    expect(next).toBe(karachi('2026-09-05T14:00:00'));
+  });
+
+  /* ⚠️ 2, 6 and 12 all divide 24 exactly, so the grid closes on itself every day
+     and the anchor cannot drift. That is why they are the only steps offered. */
+  it('returns to its anchor after a whole day', () => {
+    const at = karachi('2026-09-05T02:00:00');
+    let t = at;
+    for (let i = 0; i < 12; i += 1) {
+      t = nextRunAfter(rule({ frequency: 'hourly', runAt: '02:00' }), t);
+    }
+    expect(t).toBe(karachi('2026-09-06T02:00:00'));
+  });
+
+  it('runs a weekly rule on its own weekday', () => {
+    /* 2026-09-05 is a Saturday; weekday 3 is Wednesday. */
+    const at = karachi('2026-09-05T10:00:00');
+    const next = nextRunAfter(
+      rule({ frequency: 'weekly', runAt: '11:00', runOnWeekday: 3 }),
+      at,
+    );
+    expect(next).toBe(karachi('2026-09-09T11:00:00'));
+  });
+
+  it('skips to next week when the weekday’s time has just passed', () => {
+    /* Wednesday 2026-09-09, an hour after the slot. */
+    const at = karachi('2026-09-09T12:00:00');
+    const next = nextRunAfter(
+      rule({ frequency: 'weekly', runAt: '11:00', runOnWeekday: 3 }),
+      at,
+    );
+    expect(next).toBe(karachi('2026-09-16T11:00:00'));
+  });
+
+  /* ⚠️ ALWAYS STRICTLY FORWARD. A next-run equal to now would be due the instant
+     it was written, and the runner would execute the same rule twice in one
+     cycle. */
+  it('never returns a time that has already arrived', () => {
+    for (const f of ['hourly', 'every_6h', 'every_12h', 'daily', 'weekly'] as const) {
+      const at = karachi('2026-09-05T02:00:00');
+      const next = nextRunAfter(
+        rule({ frequency: f, runAt: '02:00', runOnWeekday: f === 'weekly' ? 6 : null }),
+        at,
+      );
+      expect(next).toBeGreaterThan(at);
+    }
   });
 });
 

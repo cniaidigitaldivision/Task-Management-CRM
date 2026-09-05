@@ -161,7 +161,9 @@ export async function createSyncRuleAction(input: {
          Resync if they want that, and a rule that fires on creation makes the
          button feel like it did something twice. Floored at the cron's own
          interval; see `nextRunAfter`. */
-      nextRunAt: new Date(nextRunAfter({ frequency }, nowMs())).toISOString(),
+      nextRunAt: new Date(
+        nextRunAfter({ frequency, runAt: input.runAt, runOnWeekday: weekday }, nowMs()),
+      ).toISOString(),
     });
   } catch {
     /* 099's `meta_sync_rules_name_unique`. */

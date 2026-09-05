@@ -57,7 +57,10 @@ export default async function StudioPage({
 }: {
   searchParams: Promise<{ project?: string; from?: string; to?: string; platform?: string }>;
 }) {
-  const user = await requireRole('team_coordinator');
+  /* ⚠️ Admin and above — see the note in layout.tsx. Repeated here because a
+     page is reachable without its layout in some render paths, and a floor
+     that exists in only one of the two is not a floor. */
+  const user = await requireRole('admin');
   const params = await searchParams;
 
   const projects = await listStudioProjects(user.id);

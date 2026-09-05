@@ -48,6 +48,12 @@ interface DueRule {
   readonly platforms: readonly string[];
   readonly categories: readonly string[];
   readonly frequency: SyncFrequency;
+  /* ⚠️ THE ANCHOR, carried from `app.meta_sync_rules_due` (migration 101).
+     Without it the runner recomputes an unanchored next-run on every execution
+     and the rule drifts off the time it was saved with — silently undoing the
+     fix, since the first run is what moves it. */
+  readonly runAt: string;
+  readonly runOnWeekday: number | null;
 }
 
 async function dueRules(at: Date): Promise<DueRule[]> {
@@ -62,6 +68,12 @@ async function dueRules(at: Date): Promise<DueRule[]> {
     platforms: Array.isArray(r.platforms) ? (r.platforms as string[]) : [],
     categories: Array.isArray(r.categories) ? (r.categories as string[]) : [],
     frequency: String(r.frequency) as SyncFrequency,
+    /* postgres.js hands a `time` back as "02:00:00"; the domain wants "02:00". */
+    runAt: String(r.run_at).slice(0, 5),
+    runOnWeekday:
+      r.run_on_weekday === null || r.run_on_weekday === undefined
+        ? null
+        : Number(r.run_on_weekday),
   }));
 }
 
@@ -110,7 +122,12 @@ export async function runDueRules(): Promise<RuleRunResult[]> {
        must next run at its next natural time, not three hundred times catching
        up; and one asking for "hourly" must not be scheduled sooner than the job
        that would run it, or its status reads "Overdue" forever. */
-    const next = new Date(nextRunAfter({ frequency: rule.frequency }, nowMs()));
+    const next = new Date(
+      nextRunAfter(
+        { frequency: rule.frequency, runAt: rule.runAt, runOnWeekday: rule.runOnWeekday },
+        nowMs(),
+      ),
+    );
 
     try {
       const results = await runMetaSync({

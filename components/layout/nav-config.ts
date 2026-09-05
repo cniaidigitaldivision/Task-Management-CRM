@@ -133,11 +133,12 @@ export const NAV_SECTIONS: readonly NavSection[] = [
          app/(app)/projects/ was touched.
 
          LEAD_UP, on the owner's instruction: *"this only visible to admin,
-         superadmin and team coordinator."* ⚠️ This file has never been a
-         security boundary (NFR-006) — the real floor is requireRole() in
-         app/(app)/studio/layout.tsx. Removing the item here would hide the link
-         and grant nobody anything. */
-      { label: 'Trend & Engagement Studio', href: '/studio', icon: TrendingUp, roles: LEAD_UP },
+         superadmin and team coordinator."*, then narrowed to ADMIN_UP on
+         2026-09-05 before merging. ⚠️ This file has never been a security
+         boundary (NFR-006) — the real floor is requireRole() in
+         app/(app)/studio/layout.tsx. Changing it here alone would hide the link
+         and grant nobody anything, which is why both were changed. */
+      { label: 'Trend & Engagement Studio', href: '/studio', icon: TrendingUp, roles: ADMIN_UP },
     ],
   },
   {

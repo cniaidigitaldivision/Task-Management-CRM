@@ -366,24 +366,80 @@ function relativeShort(ms: number): string {
 /* ---- Next run ------------------------------------------------------------ */
 
 /**
- * When a rule next runs, from the moment it just ran.
+ * When a rule next runs.
  *
- * ⚠️ THE FLOOR IS THE CRON'S INTERVAL, so a rule can never be scheduled sooner
- * than the job that would run it. Without that an "hourly" rule would be
- * perpetually one hour overdue, and the Status column would read "Overdue"
- * forever on a rule that is working exactly as well as it can.
+ * ── ⚠️ THE RULE'S OWN TIME IS THE ANCHOR, AND IT USED TO BE IGNORED ────────
+ * This function took only `frequency` and returned `now + interval`. Everything
+ * downstream honoured that faithfully, so the interval was always right — and
+ * the TIME on the rule was decoration. A rule saved as "daily at 02:00" ran at
+ * whatever o'clock it happened to be created, then every 24 hours from there,
+ * while the table and the calendar both printed 02:00. Found from a live rule:
+ * saved with `run_at 21:55`, its next run was computed at 23:55 Karachi.
  *
- * ⚠️ AND IT IS COMPUTED FROM NOW, NOT FROM THE MISSED DUE TIME. A rule that was
- * overdue by a fortnight should next run at its next natural time, not run
- * three hundred and thirty-six times catching up.
+ * The time now anchors a grid and the next slot strictly after `now` is taken.
+ * For a sub-daily rule that means the anchor plus whole intervals — 21:55 with a
+ * two-hour step gives 21:55, 23:55, 01:55 and so on — which is why 2, 6 and 12
+ * are the only sub-daily steps offered: each divides 24 exactly, so the grid
+ * closes on itself every day and the anchor never drifts.
+ *
+ * ── ⚠️ THE FLOOR AT THE CRON'S INTERVAL STAYS ─────────────────────────────
+ * `vercel.json` wakes the runner every two hours, so an "hourly" rule cannot run
+ * hourly however it is scheduled. Without the floor it would be perpetually one
+ * hour overdue and its status would read "Overdue" forever while working exactly
+ * as well as it possibly can.
+ *
+ * ── ⚠️ KARACHI, AND THE OFFSET IS A CONSTANT ON PURPOSE ───────────────────
+ * `run_at` is a Karachi wall-clock time. Pakistan has observed no daylight
+ * saving since 2009, so UTC+5 is fixed and the arithmetic can be plain — no zone
+ * database, and no dependency on the reader's or the server's clock, both of
+ * which have already caused a date to be reported a day out in this codebase.
  */
 export function nextRunAfter(
-  rule: Pick<SyncRule, 'frequency'>,
+  rule: Pick<SyncRule, 'frequency' | 'runAt' | 'runOnWeekday'>,
   nowMs: number,
 ): number {
-  const hours = Math.max(FREQUENCY_HOURS[rule.frequency], CRON_INTERVAL_HOURS);
-  return nowMs + hours * 3_600_000;
+  const DAY = 86_400_000;
+  const stepMs = Math.max(FREQUENCY_HOURS[rule.frequency], CRON_INTERVAL_HOURS) * 3_600_000;
+
+  /* Shift into "Karachi milliseconds", so flooring to a day boundary lands on a
+     Karachi midnight rather than a UTC one. */
+  const local = nowMs + KARACHI_OFFSET_MS;
+
+  const [h, m] = rule.runAt.split(':').map(Number);
+  const minutes = ((h || 0) * 60 + (m || 0)) * 60_000;
+  const anchor = Math.floor(local / DAY) * DAY + minutes;
+
+  const back = (ms: number) => ms - KARACHI_OFFSET_MS;
+
+  if (rule.frequency === 'weekly') {
+    /* 1970-01-01 was a Thursday, which is index 3 when Monday is 0. */
+    const target = (rule.runOnWeekday ?? 1) - 1;
+    let candidate = anchor;
+    for (let i = 0; i < 8; i += 1) {
+      const dow = (Math.floor(candidate / DAY) + 3) % 7;
+      if (dow === target && candidate > local) return back(candidate);
+      candidate += DAY;
+    }
+    /* Unreachable in practice — eight days always contain the weekday. */
+    return back(candidate);
+  }
+
+  if (rule.frequency === 'daily') {
+    let candidate = anchor;
+    while (candidate <= local) candidate += DAY;
+    return back(candidate);
+  }
+
+  /* Sub-daily: the anchor sets the phase, the interval sets the spacing. Walk
+     backwards first, because the anchor may be later today than `now`. */
+  let candidate = anchor;
+  while (candidate > local) candidate -= stepMs;
+  while (candidate <= local) candidate += stepMs;
+  return back(candidate);
 }
+
+/** Pakistan has observed no daylight saving since 2009, so this is a constant. */
+const KARACHI_OFFSET_MS = 5 * 3_600_000;
 
 /* ---- The calendar -------------------------------------------------------- */
 

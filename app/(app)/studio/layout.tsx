@@ -4,12 +4,16 @@ import { requireRole } from '@/lib/auth/current-user';
    ⚠️ note on `requireRole()`. Without this the skeleton streams with a 200 to a
    Member and the refusal arrives afterwards, inside the stream.
 
-   ⚠️ `team_coordinator` AND ABOVE, on the owner's instruction 2026-09-04:
-   *"this only visible to admin, superadmin and team coordinator."* Same floor as
-   /reports. What a reader then sees INSIDE is decided by row-level security on
-   every query, so a Coordinator's Studio covers their projects without this file
-   having to know anything about it. */
+   ⚠️ `admin` AND ABOVE — NARROWED 2026-09-05, and the previous instruction is
+   worth keeping because it changed. On 2026-09-04 the owner asked for *"admin,
+   superadmin and team coordinator"*; on 2026-09-05, before merging, they asked
+   for admin and super admin only. A Coordinator now gets the same 403 as a
+   Member.
+
+   ⚠️ THIS FILE IS THE FLOOR, not nav-config.ts. The nav item is a link, and
+   removing it there would hide the Studio while leaving the URL open to anybody
+   who typed it — so BOTH are changed, and only this one is load-bearing. */
 export default async function StudioLayout({ children }: { children: React.ReactNode }) {
-  await requireRole('team_coordinator');
+  await requireRole('admin');
   return children;
 }

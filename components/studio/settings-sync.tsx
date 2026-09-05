@@ -920,6 +920,7 @@ function RuleRow({
 }) {
   const state = ruleState(rule, nowMs);
   const rate = successRate(rule);
+  const effective = effectiveFrequency(rule.frequency);
 
   return (
     <tr className="border-b border-border-subtle last:border-0">
@@ -940,10 +941,32 @@ function RuleRow({
         </span>
       </td>
       <td className="whitespace-nowrap px-2 py-2.5">
+        {/* ⚠️ THE ROW SAYS WHAT THE RULE ACTUALLY DOES, not only what was chosen.
+            It printed "Hourly" while the scheduler — which wakes every two hours
+            — ran it two-hourly, so the frequency column and the Next run column
+            disagreed on the same line and the owner reasonably read that as a
+            fault. The create drawer already warned about this; the table, where
+            the rule is lived with afterwards, did not. */}
         <span className="block text-micro text-text-primary">
-          {FREQUENCY_LABEL[rule.frequency]}
+          {effective.honoured
+            ? FREQUENCY_LABEL[rule.frequency]
+            : `Every ${effective.hours} hours`}
         </span>
-        <span className="block text-[0.6rem] text-text-tertiary">{clockLabel(rule.runAt)}</span>
+        <span className="block text-[0.6rem] text-text-tertiary">
+          {clockLabel(rule.runAt)}
+          {rule.frequency === 'weekly' && rule.runOnWeekday
+            ? ` · ${WEEKDAYS.find((d) => d.value === rule.runOnWeekday)?.label ?? ''}`
+            : ''}
+        </span>
+        {!effective.honoured && (
+          <span
+            className="block cursor-help text-[0.58rem]"
+            style={{ color: 'var(--feedback-warning)' }}
+            title={effective.note}
+          >
+            {FREQUENCY_LABEL[rule.frequency]} requested
+          </span>
+        )}
       </td>
       <td className="whitespace-nowrap px-2 py-2.5 text-micro text-text-secondary">
         {whenShort(Date.parse(rule.nextRunAt), nowMs)}
