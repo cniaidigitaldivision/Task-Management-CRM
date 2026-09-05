@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  BEHIND_AFTER_HOURS,
   CRON_INTERVAL_HOURS,
+  STALE_AFTER_HOURS,
   effectiveFrequency,
   nextRunAfter,
   ruleState,
@@ -14,6 +16,15 @@ import {
 } from '../meta-sync-settings';
 
 const NOW = Date.parse('2026-09-04T12:00:00Z');
+
+/** What each frequency ASKS for, against which `honoured` is judged. */
+const FREQUENCY_HOURS_FOR_TEST = {
+  hourly: 1,
+  every_6h: 6,
+  every_12h: 12,
+  daily: 24,
+  weekly: 168,
+} as const;
 const HOUR = 3_600_000;
 
 function rule(over: Partial<SyncRule> = {}): SyncRule {
@@ -57,32 +68,41 @@ function run(over: Partial<SyncRun> = {}): SyncRun {
 }
 
 describe('what a frequency actually delivers', () => {
-  /* ⚠️ THE CRON IS THE FLOOR. `vercel.json` wakes the runner every two hours, so
-     an "hourly" rule runs two-hourly however it is labelled. Saying otherwise
-     would be the page making a promise on the platform's behalf. */
-  it('admits that hourly cannot beat the two-hourly scheduler', () => {
+  /* ⚠️ THE CRON IS THE FLOOR, AND THESE ASSERT AGAINST THE CONSTANT rather than
+     against a number. The scheduler was two-hourly by design and is daily in
+     fact — the Vercel account is on the Hobby plan, which permits no more. These
+     tests were written with `2` typed into them and all failed on that change,
+     which was the right outcome and the wrong assertion: what matters is that a
+     frequency finer than the scheduler is reported as unhonoured, whatever the
+     scheduler's cadence happens to be. */
+  it('admits that a frequency finer than the scheduler cannot be honoured', () => {
     const e = effectiveFrequency('hourly');
     expect(e.hours).toBe(CRON_INTERVAL_HOURS);
     expect(e.honoured).toBe(false);
-    expect(e.note).toMatch(/two-hourly/);
+    /* The note names the real cadence, not a remembered one. */
+    expect(e.note).toContain(CRON_INTERVAL_HOURS === 24 ? 'once a day' : `${CRON_INTERVAL_HOURS} hours`);
   });
 
   it('honours anything at or above the cron interval', () => {
-    expect(effectiveFrequency('every_6h')).toMatchObject({ hours: 6, honoured: true });
-    expect(effectiveFrequency('daily')).toMatchObject({ hours: 24, honoured: true });
+    /* Weekly is above any plausible cron interval, so it is always honoured. */
     expect(effectiveFrequency('weekly')).toMatchObject({ hours: 168, honoured: true });
+
+    for (const f of ['hourly', 'every_6h', 'every_12h', 'daily'] as const) {
+      const e = effectiveFrequency(f);
+      /* Whatever the interval, the delivered cadence is never finer than it... */
+      expect(e.hours).toBeGreaterThanOrEqual(CRON_INTERVAL_HOURS);
+      /* ...and `honoured` says whether the request survived that floor intact. */
+      expect(e.honoured).toBe(e.hours === FREQUENCY_HOURS_FOR_TEST[f]);
+    }
   });
 
-  /* Otherwise an hourly rule is perpetually one hour overdue and its status
-     reads "Overdue" forever while it works as well as it possibly can. */
+  /* Otherwise a fine-grained rule is perpetually overdue and its status reads
+     "Overdue" forever while it works as well as it possibly can. */
   it('never schedules a rule sooner than the job that runs it', () => {
-    /* NOW is 12:00 UTC = 17:00 Karachi. An hourly rule anchored at 21:55 sits on
-       a two-hour grid — …17:55, 19:55… — so the next slot is 17:55 Karachi,
-       which is 45 minutes away and never less than nothing. */
     const next = nextRunAfter(rule({ frequency: 'hourly' }), NOW);
     expect(next).toBeGreaterThan(NOW);
     /* And never further out than one whole interval. */
-    expect(next - NOW).toBeLessThanOrEqual(2 * HOUR);
+    expect(next - NOW).toBeLessThanOrEqual(CRON_INTERVAL_HOURS * HOUR);
   });
 });
 
@@ -108,27 +128,38 @@ describe('when a rule actually runs', () => {
     expect(next).toBe(karachi('2026-09-05T02:00:00'));
   });
 
-  /* A sub-daily rule's time sets the PHASE of the grid, not a single moment. */
-  it('puts a sub-daily rule on a grid anchored to its time', () => {
+  /* A rule's time sets the PHASE of the grid, not a single moment. The step is
+     the effective interval, which is the scheduler's when the rule asks for
+     something finer. */
+  it('puts a rule on a grid anchored to its time', () => {
+    const step = effectiveFrequency('hourly').hours;
     const at = karachi('2026-09-05T22:30:00');
-    /* 21:55 with a two-hour step: …21:55, 23:55… */
     const next = nextRunAfter(rule({ frequency: 'hourly', runAt: '21:55' }), at);
-    expect(next).toBe(karachi('2026-09-05T23:55:00'));
+
+    /* Whatever the step, the next run is on the 21:55 phase and after `at`. */
+    expect(next).toBeGreaterThan(at);
+    const minutesPastAnchor = ((next - karachi('2026-09-05T21:55:00')) / 60_000) % (step * 60);
+    expect(minutesPastAnchor).toBe(0);
   });
 
   it('keeps a six-hourly rule on its own phase', () => {
+    const step = effectiveFrequency('every_6h').hours;
     const at = karachi('2026-09-05T09:00:00');
-    /* 02:00 every six hours: 02:00, 08:00, 14:00, 20:00. */
     const next = nextRunAfter(rule({ frequency: 'every_6h', runAt: '02:00' }), at);
-    expect(next).toBe(karachi('2026-09-05T14:00:00'));
+
+    expect(next).toBeGreaterThan(at);
+    const minutesPastAnchor = ((next - karachi('2026-09-05T02:00:00')) / 60_000) % (step * 60);
+    expect(minutesPastAnchor).toBe(0);
   });
 
-  /* ⚠️ 2, 6 and 12 all divide 24 exactly, so the grid closes on itself every day
-     and the anchor cannot drift. That is why they are the only steps offered. */
+  /* ⚠️ EVERY STEP OFFERED DIVIDES 24 EXACTLY — 2, 6, 12 and 24 — so the grid
+     closes on itself every day and the anchor cannot drift. That is why those
+     are the only steps offered, and this walks a full day to prove it. */
   it('returns to its anchor after a whole day', () => {
+    const step = effectiveFrequency('hourly').hours;
     const at = karachi('2026-09-05T02:00:00');
     let t = at;
-    for (let i = 0; i < 12; i += 1) {
+    for (let i = 0; i < 24 / step; i += 1) {
       t = nextRunAfter(rule({ frequency: 'hourly', runAt: '02:00' }), t);
     }
     expect(t).toBe(karachi('2026-09-06T02:00:00'));
@@ -199,10 +230,16 @@ describe('a rule’s state', () => {
   /* ⚠️ A rule due at 02:00 that the 02:00 tick has not reached yet is not
      overdue — it is about to run. Only a whole cycle late counts. */
   it('allows one scheduler cycle of slack before calling a rule overdue', () => {
-    const nearlyDue = rule({ nextRunAt: new Date(NOW - HOUR).toISOString() });
+    /* Half a cycle late is not late — the run is still to come. */
+    const nearlyDue = rule({
+      nextRunAt: new Date(NOW - (CRON_INTERVAL_HOURS / 2) * HOUR).toISOString(),
+    });
     expect(ruleState(nearlyDue, NOW).label).toBe('Active');
 
-    const reallyLate = rule({ nextRunAt: new Date(NOW - 5 * HOUR).toISOString() });
+    /* Two whole cycles late means the scheduler is not reaching it. */
+    const reallyLate = rule({
+      nextRunAt: new Date(NOW - (CRON_INTERVAL_HOURS * 2 + 1) * HOUR).toISOString(),
+    });
     expect(ruleState(reallyLate, NOW).label).toBe('Overdue');
   });
 });
@@ -287,9 +324,27 @@ describe('system health', () => {
   /* ⚠️ The reference draws five fixed green ticks. Each one here can come back
      bad, which is the entire value of a health panel. */
   it('goes amber when collection falls behind', () => {
-    const h = systemHealth({ ...healthy, lastSyncedAt: new Date(NOW - 9 * HOUR).toISOString() });
+    /* One hour past the behind-threshold, whatever that threshold is. */
+    const h = systemHealth({
+      ...healthy,
+      lastSyncedAt: new Date(NOW - (BEHIND_AFTER_HOURS + 1) * HOUR).toISOString(),
+    });
     expect(h.verdict).toBe('Needs attention');
     expect(h.lines.find((l) => l.key === 'last-sync')?.ok).toBe(false);
+  });
+
+  /* ⚠️ THE THRESHOLDS FOLLOW THE SCHEDULER. Six hours after a sync is behind
+     when the cron is two-hourly and perfectly healthy when it is daily; a fixed
+     number would have put every account permanently in the amber. */
+  it('scales its patience to the scheduler’s own cadence', () => {
+    expect(BEHIND_AFTER_HOURS).toBeGreaterThanOrEqual(CRON_INTERVAL_HOURS);
+    expect(STALE_AFTER_HOURS).toBeGreaterThan(BEHIND_AFTER_HOURS);
+
+    const justInside = systemHealth({
+      ...healthy,
+      lastSyncedAt: new Date(NOW - (BEHIND_AFTER_HOURS - 1) * HOUR).toISOString(),
+    });
+    expect(justInside.verdict).toBe('Healthy');
   });
 
   it('degrades when more than one thing is wrong', () => {

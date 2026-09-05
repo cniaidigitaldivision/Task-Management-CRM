@@ -34,6 +34,7 @@ import {
 import { PLATFORM_MARKS, PlatformIcon } from '@/components/brand/platform-icon';
 import type { AccountDetail } from '@/lib/db/queries/meta-studio';
 import { compact } from '@/lib/domain/meta-studio';
+import { CRON_CADENCE } from '@/lib/domain/meta-sync-settings';
 import {
   accountHealth,
   fleetBanner,
@@ -417,7 +418,7 @@ export function MetaAccounts({
               disabled={!canManage || accounts.length === 0 || syncing}
               title={
                 canManage
-                  ? 'Pull every connected account now, without waiting for the two-hourly schedule'
+                  ? `Pull every connected account now, without waiting for the ${CRON_CADENCE} schedule`
                   : 'Only a Coordinator and above can trigger a sync'
               }
               className={cn(
@@ -477,8 +478,8 @@ export function MetaAccounts({
         {/* ── Integration notes: one line, the rest behind Learn more ────── */}
         <Panel title="Integration notes">
           <p className="text-[0.65rem] leading-relaxed text-text-secondary">
-            Figures are pulled every{' '}
-            <strong className="font-semibold text-text-primary">two hours</strong> into
+            Figures are pulled{' '}
+            <strong className="font-semibold text-text-primary">{CRON_CADENCE}</strong> into
             Taskly&rsquo;s own tables, so a slow Meta makes this stale rather than broken.
           </p>
           <button
@@ -646,7 +647,7 @@ function SyncLogsDialog({
       footer={
         <div className="flex flex-wrap items-center gap-2">
           <p className="min-w-0 flex-1 text-[0.62rem] text-text-tertiary">
-            The scheduler pulls every two hours. Each account records its own outcome, so one
+            The scheduler pulls {CRON_CADENCE}. Each account records its own outcome, so one
             failing never stops the others.
           </p>
           {canManage && (
@@ -832,8 +833,8 @@ function Fact({
 
 const NOTES: readonly { title: string; body: string; icon: typeof Info; token: string }[] = [
   {
-    title: 'Pulled every two hours, into our own tables',
-    body: 'A scheduler collects each account’s figures and writes them to Taskly. Every page in the Studio reads those tables and never calls Meta directly, so Meta being slow or down makes this page stale rather than broken — and the account card says exactly how stale.',
+    title: `Pulled ${CRON_CADENCE}, into our own tables`,
+    body: `A scheduler collects each account’s figures ${CRON_CADENCE} and writes them to Taskly. Every page in the Studio reads those tables and never calls Meta directly, so Meta being slow or down makes this page stale rather than broken — and the account card says exactly how stale.`,
     icon: RefreshCw,
     token: 'chart-1',
   },

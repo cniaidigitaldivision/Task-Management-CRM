@@ -1,3 +1,8 @@
+import {
+  BEHIND_AFTER_HOURS,
+  CRON_CADENCE,
+  STALE_AFTER_HOURS,
+} from './meta-sync-settings';
 import type { StudioPost } from './meta-studio';
 import { postEngagement } from './meta-studio';
 
@@ -463,20 +468,25 @@ export function accountHealth(input: {
 
   const hours = (nowMs - Date.parse(lastSyncedAt)) / 3_600_000;
 
-  if (hours >= 24) {
+  /* ⚠️ THE THRESHOLDS FOLLOW THE SCHEDULER, they are not fixed hours. They were
+     6 and 24 — three and twelve cycles of a two-hourly cron. Under the daily
+     cron the Hobby plan permits, a fixed six hours would put every healthy
+     account on "Behind" permanently. See `CRON_INTERVAL_HOURS`. */
+  if (hours >= STALE_AFTER_HOURS) {
+    const days = Math.round(hours / 24);
     return {
       state: 'stale',
       label: 'Stale',
-      detail: `Last pulled ${Math.round(hours / 24)} ${Math.round(hours / 24) === 1 ? 'day' : 'days'} ago — the two-hourly sync is not reaching this account.`,
+      detail: `Last pulled ${days} ${days === 1 ? 'day' : 'days'} ago — the sync is not reaching this account.`,
       token: 'feedback-error',
     };
   }
 
-  if (hours >= 6) {
+  if (hours >= BEHIND_AFTER_HOURS) {
     return {
       state: 'quiet',
       label: 'Behind',
-      detail: `Last pulled ${Math.round(hours)} hours ago; the schedule is every two.`,
+      detail: `Last pulled ${Math.round(hours)} hours ago; the schedule runs ${CRON_CADENCE}.`,
       token: 'feedback-warning',
     };
   }

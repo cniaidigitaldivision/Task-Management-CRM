@@ -1,3 +1,4 @@
+import { BEHIND_AFTER_HOURS, STALE_AFTER_HOURS } from '../meta-sync-settings';
 import { describe, expect, it } from 'vitest';
 
 import type { StudioPost } from '../meta-studio';
@@ -269,13 +270,36 @@ describe('account health', () => {
 
   /* The thresholds come from the schedule, not from taste: the cron is every two
      hours, so six hours is three missed runs. */
-  it('flags three missed runs as behind, and a day as stale', () => {
-    expect(accountHealth({ lastSyncedAt: at(7), lastError: null, metricDays: 5, nowMs: now }).state).toBe(
-      'quiet',
-    );
-    expect(accountHealth({ lastSyncedAt: at(30), lastError: null, metricDays: 5, nowMs: now }).state).toBe(
-      'stale',
-    );
+  /* ⚠️ ASSERTED AGAINST THE THRESHOLDS, NOT AGAINST TYPED HOURS. Seven hours
+     since a sync is "behind" when the scheduler runs two-hourly and perfectly
+     healthy when it runs daily — this test had 7 and 30 written into it and
+     failed the moment the Hobby plan forced the cron to daily. What is actually
+     being asserted is the ORDERING of the three states, which holds at any
+     cadence. */
+  it('flags a missed window as behind, and a long silence as stale', () => {
+    const behind = accountHealth({
+      lastSyncedAt: at(BEHIND_AFTER_HOURS + 1),
+      lastError: null,
+      metricDays: 5,
+      nowMs: now,
+    });
+    expect(behind.state).toBe('quiet');
+
+    const stale = accountHealth({
+      lastSyncedAt: at(STALE_AFTER_HOURS + 1),
+      lastError: null,
+      metricDays: 5,
+      nowMs: now,
+    });
+    expect(stale.state).toBe('stale');
+
+    const fine = accountHealth({
+      lastSyncedAt: at(BEHIND_AFTER_HOURS - 1),
+      lastError: null,
+      metricDays: 5,
+      nowMs: now,
+    });
+    expect(fine.state).toBe('healthy');
   });
 
   it('separates "never synced" from "stopped syncing"', () => {
@@ -290,7 +314,11 @@ describe('the fleet verdict', () => {
   const HOUR = 3_600_000;
   const fresh = { lastSyncedAt: new Date(now - HOUR).toISOString(), lastError: null, metricDays: 29 };
   const broken = { lastSyncedAt: new Date(now - HOUR).toISOString(), lastError: 'revoked', metricDays: 29 };
-  const behind = { lastSyncedAt: new Date(now - 9 * HOUR).toISOString(), lastError: null, metricDays: 29 };
+  const behind = {
+    lastSyncedAt: new Date(now - (BEHIND_AFTER_HOURS + 1) * HOUR).toISOString(),
+    lastError: null,
+    metricDays: 29,
+  };
 
   it('says Excellent only when every account really is', () => {
     expect(syncHealthSummary([fresh, fresh], now)).toMatchObject({

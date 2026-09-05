@@ -4,12 +4,13 @@
  * Pure. No database, no React, no clock — every function takes `nowMs`, which is
  * what makes the awkward cases testable rather than argued about.
  *
- * ── ⚠️ THE CRON IS THE FLOOR, AND EVERY FREQUENCY HERE IS ABOVE IT ─────────
- * `vercel.json` wakes the runner every two hours. A rule asking for "hourly"
- * therefore runs every two hours in practice, not every hour, because nothing
- * exists to wake it in between. `effectiveFrequency` says so plainly and the UI
- * prints it next to the choice — an interval the system cannot honour is a
- * promise the page would be making on the platform's behalf.
+ * ── ⚠️ THE CRON IS THE FLOOR, AND MOST FREQUENCIES HERE ARE BELOW IT ───────
+ * `vercel.json` wakes the runner once a day — see `CRON_INTERVAL_HOURS` for why
+ * that is not the two hours it was designed for. A rule asking for "hourly"
+ * therefore runs daily in practice, because nothing exists to wake it in
+ * between. `effectiveFrequency` says so plainly and the UI prints it next to the
+ * choice — an interval the system cannot honour is a promise the page would be
+ * making on the platform's behalf.
  * ========================================================================= */
 
 export const SYNC_FREQUENCIES = ['hourly', 'every_6h', 'every_12h', 'daily', 'weekly'] as const;
@@ -32,8 +33,41 @@ const FREQUENCY_HOURS: Readonly<Record<SyncFrequency, number>> = {
   weekly: 168,
 };
 
-/** The cron's own interval, from `vercel.json`. */
-export const CRON_INTERVAL_HOURS = 2;
+/**
+ * The scheduler's own interval, in hours, from `vercel.json`.
+ *
+ * ── ⚠️ 24 BECAUSE THE VERCEL ACCOUNT IS ON THE HOBBY PLAN ──────────────────
+ * The design was two-hourly and the deploy was refused outright:
+ *
+ *     Hobby accounts are limited to daily cron jobs. This cron expression
+ *     (0 * / 2 * * *) would run more than once per day.
+ *
+ * So collection runs once a day, at 00:30 Karachi — after the day it is
+ * collecting has finished.
+ *
+ * ⚠️ EVERY CADENCE STATEMENT IN THE PRODUCT READS THIS CONSTANT. The stale
+ * thresholds on an account, the words under the Quick Actions button, the
+ * warning when somebody picks a frequency finer than the scheduler can honour —
+ * all of it. Changing this number and `vercel.json` together is the whole of
+ * restoring two-hourly collection on a Pro plan; changing either alone makes the
+ * product describe a cadence it does not have.
+ */
+export const CRON_INTERVAL_HOURS = 24;
+
+/** "once a day" / "every 2 hours" — the cadence in words, derived not typed. */
+export const CRON_CADENCE =
+  CRON_INTERVAL_HOURS === 24 ? 'once a day' : `every ${CRON_INTERVAL_HOURS} hours`;
+
+/**
+ * How long an account may go unsynced before it is behind, and then stale.
+ *
+ * ⚠️ DERIVED FROM THE INTERVAL, NOT FIXED. They were 6 and 24 hours, which were
+ * three and twelve scheduler cycles when it ran two-hourly. Left fixed under a
+ * daily cron every account would sit permanently on "Behind" — six hours after a
+ * sync is perfectly healthy when the next one is not due for a day.
+ */
+export const BEHIND_AFTER_HOURS = Math.max(6, CRON_INTERVAL_HOURS * 1.5);
+export const STALE_AFTER_HOURS = Math.max(24, CRON_INTERVAL_HOURS * 3);
 
 /**
  * What a frequency actually delivers, given the cron.
@@ -56,7 +90,7 @@ export function effectiveFrequency(frequency: SyncFrequency): {
     note:
       actual === asked
         ? `Runs every ${actual} hours.`
-        : `The scheduler wakes every ${CRON_INTERVAL_HOURS} hours, so this runs two-hourly rather than hourly.`,
+        : `The scheduler runs ${CRON_CADENCE}, so this collects ${CRON_CADENCE} rather than ${FREQUENCY_LABEL[frequency].toLowerCase()}.`,
   };
 }
 
@@ -288,7 +322,7 @@ export function systemHealth(input: {
   const { tokenConfigured, accountCount, failingAccounts, lastSyncedAt, autoSyncEnabled, nowMs } =
     input;
 
-  const staleAfter = CRON_INTERVAL_HOURS * 2 * 3_600_000;
+  const staleAfter = BEHIND_AFTER_HOURS * 3_600_000;
   const sinceSync = lastSyncedAt === null ? null : nowMs - Date.parse(lastSyncedAt);
   const syncFresh = sinceSync !== null && sinceSync < staleAfter;
 
@@ -383,10 +417,9 @@ function relativeShort(ms: number): string {
  * closes on itself every day and the anchor never drifts.
  *
  * ── ⚠️ THE FLOOR AT THE CRON'S INTERVAL STAYS ─────────────────────────────
- * `vercel.json` wakes the runner every two hours, so an "hourly" rule cannot run
- * hourly however it is scheduled. Without the floor it would be perpetually one
- * hour overdue and its status would read "Overdue" forever while working exactly
- * as well as it possibly can.
+ * The runner wakes once a day, so an "hourly" rule cannot run hourly however it
+ * is scheduled. Without the floor it would be perpetually overdue and its status
+ * would read "Overdue" forever while working exactly as well as it possibly can.
  *
  * ── ⚠️ KARACHI, AND THE OFFSET IS A CONSTANT ON PURPOSE ───────────────────
  * `run_at` is a Karachi wall-clock time. Pakistan has observed no daylight

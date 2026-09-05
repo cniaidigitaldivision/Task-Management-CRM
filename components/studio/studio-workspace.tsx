@@ -16,6 +16,7 @@ import type {
   StudioProject,
 } from '@/lib/db/queries/meta-studio';
 import type { ProjectPromise } from '@/lib/domain/meta-studio';
+import { CRON_CADENCE } from '@/lib/domain/meta-sync-settings';
 import type {
   ExportRecord,
   ReportSchedule,
@@ -402,7 +403,7 @@ function NoDataYet({ accounts }: { accounts: readonly StudioAccount[] }) {
       <p className="mx-auto mt-2 max-w-md text-body-sm text-text-secondary">
         {failing.length > 0
           ? 'The last sync did not succeed for every account.'
-          : 'The accounts are connected and the first sync has not run. Figures arrive within two hours.'}
+          : `The accounts are connected and the first sync has not run. The scheduler collects ${CRON_CADENCE}.`}
       </p>
       {failing.map((a) => (
         <p key={a.id} className="mt-2 text-caption" style={{ color: 'var(--feedback-error)' }}>

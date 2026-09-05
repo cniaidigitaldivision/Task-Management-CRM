@@ -39,6 +39,7 @@ import type { AccountDetail } from '@/lib/db/queries/meta-studio';
 import type { PermissionEvent } from '@/lib/db/queries/meta-sync-settings';
 import {
   CATEGORY_DETAIL,
+  CRON_CADENCE,
   CRON_INTERVAL_HOURS,
   FREQUENCY_LABEL,
   SYNC_CATEGORIES,
@@ -425,7 +426,7 @@ function SettingsTab({
 
           <Setting
             label="Sync frequency"
-            info={`How often the scheduler pulls. It wakes every ${CRON_INTERVAL_HOURS} hours, so anything finer than that runs two-hourly.`}
+            info={`How often the scheduler pulls. It runs ${CRON_CADENCE}, so anything finer than that collects ${CRON_CADENCE}.`}
           >
             <Select
               value={String(interval)}
@@ -800,13 +801,12 @@ function ScheduleTab({
             <div className="grid place-items-center rounded-lg border border-dashed border-border-subtle px-4 py-10 text-center">
               <p className="text-body-sm font-semibold text-text-primary">No sync rules</p>
               {/* ⚠️ THE EMPTY STATE SAYS WHAT IS HAPPENING INSTEAD, which is not
-                  nothing: the project is on the default two-hourly pull. An
-                  empty table that implied no collection would be alarming and
-                  wrong. */}
+                  nothing: the project is on the default pull. An empty table
+                  that implied no collection would be alarming and wrong. */}
               <p className="mt-1 max-w-md text-caption text-text-secondary">
-                This project is on the default pull — every linked account, every{' '}
-                {CRON_INTERVAL_HOURS} hours. Add a rule to collect on your own schedule or to
-                narrow what is collected.
+                This project is on the default pull — every linked account,{' '}
+                {CRON_CADENCE}. Add a rule to collect on your own schedule or to narrow what
+                is collected.
               </p>
             </div>
           ) : (
@@ -865,8 +865,8 @@ function ScheduleTab({
                 <Zap className="mt-0.5 size-3.5 shrink-0" style={{ color: 'var(--chart-6)' }} />
                 <span>
                   With <strong className="font-semibold text-text-primary">no rules</strong>, the
-                  project is pulled every {CRON_INTERVAL_HOURS} hours — every account, everything.
-                  That is the default and it works.
+                  project is pulled {CRON_CADENCE} — every account, everything. That is the
+                  default and it works.
                 </span>
               </li>
               <li className="flex gap-2">
@@ -883,8 +883,8 @@ function ScheduleTab({
               <li className="flex gap-2">
                 <Clock className="mt-0.5 size-3.5 shrink-0" style={{ color: 'var(--chart-1)' }} />
                 <span>
-                  The scheduler wakes every {CRON_INTERVAL_HOURS} hours, so that is the finest
-                  interval anything can really run at — an hourly rule runs two-hourly.
+                  The scheduler runs {CRON_CADENCE}, so that is the finest interval anything
+                  can really run at — a rule asking for more collects {CRON_CADENCE}.
                 </span>
               </li>
             </ul>
@@ -943,7 +943,7 @@ function RuleRow({
       <td className="whitespace-nowrap px-2 py-2.5">
         {/* ⚠️ THE ROW SAYS WHAT THE RULE ACTUALLY DOES, not only what was chosen.
             It printed "Hourly" while the scheduler — which wakes every two hours
-            — ran it two-hourly, so the frequency column and the Next run column
+            — ran it on the scheduler's own cadence, so the frequency column and Next run
             disagreed on the same line and the owner reasonably read that as a
             fault. The create drawer already warned about this; the table, where
             the rule is lived with afterwards, did not. */}
@@ -1346,7 +1346,7 @@ function CreateRule({
                 </button>
               ))}
             </div>
-            {/* ⚠️ SAID AT THE POINT OF CHOOSING. The cron wakes every two hours,
+            {/* ⚠️ SAID AT THE POINT OF CHOOSING. The cron wakes once a day,
                 so "Hourly" delivers two-hourly — better learnt here than from a
                 Last Run column a week later. */}
             {!effective.honoured && (
@@ -1425,7 +1425,7 @@ function CreateRule({
             </Field>
           </div>
           {/* ⚠️ THE RETRY SETTINGS ARE STORED AND NOT YET ACTED ON, and saying so
-              is the whole point. The scheduler wakes two-hourly, so a "retry in
+              is the whole point. The scheduler wakes once a day, so a "retry in
               15 minutes" cannot happen without a second job. A failed rule
               retries on its next natural cycle. */}
           <p className="mt-1.5 rounded-lg bg-bg-subtle px-2.5 py-2 text-[0.6rem] leading-snug text-text-tertiary">
