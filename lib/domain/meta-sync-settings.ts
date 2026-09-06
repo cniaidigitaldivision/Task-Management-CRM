@@ -4,11 +4,10 @@
  * Pure. No database, no React, no clock — every function takes `nowMs`, which is
  * what makes the awkward cases testable rather than argued about.
  *
- * ── ⚠️ THE CRON IS THE FLOOR, AND MOST FREQUENCIES HERE ARE BELOW IT ───────
- * `vercel.json` wakes the runner once a day — see `CRON_INTERVAL_HOURS` for why
- * that is not the two hours it was designed for. A rule asking for "hourly"
- * therefore runs daily in practice, because nothing exists to wake it in
- * between. `effectiveFrequency` says so plainly and the UI prints it next to the
+ * ── ⚠️ THE CRON IS THE FLOOR, AND EVERY FREQUENCY HERE IS AT OR ABOVE IT ───
+ * `pg_cron` wakes the runner every two hours — see `CRON_INTERVAL_HOURS`. A rule
+ * asking for "hourly" therefore runs two-hourly in practice, because nothing
+ * exists to wake it in between. `effectiveFrequency` says so plainly and the UI prints it next to the
  * choice — an interval the system cannot honour is a promise the page would be
  * making on the platform's behalf.
  * ========================================================================= */
@@ -36,23 +35,30 @@ const FREQUENCY_HOURS: Readonly<Record<SyncFrequency, number>> = {
 /**
  * The scheduler's own interval, in hours, from `vercel.json`.
  *
- * ── ⚠️ 24 BECAUSE THE VERCEL ACCOUNT IS ON THE HOBBY PLAN ──────────────────
- * The design was two-hourly and the deploy was refused outright:
+ * ── ⚠️ 2 AGAIN, BECAUSE THE SCHEDULER MOVED TO THE DATABASE ────────────────
+ * This was briefly 24. Vercel's Hobby plan permits one cron run per day and
+ * refused the two-hourly schedule outright, so collection was reduced to daily
+ * and every sentence in the product had to say so.
  *
- *     Hobby accounts are limited to daily cron jobs. This cron expression
- *     (0 * / 2 * * *) would run more than once per day.
+ * Migration 102 moved the job to `pg_cron` inside Supabase, which has no
+ * frequency limit — the owner's own suggestion, and a better answer than either
+ * upgrading the plan or bolting on an external scheduler. The database calls
+ * `/api/meta-sync` every two hours through `pg_net`, and the hosting plan is no
+ * longer part of the design.
  *
- * So collection runs once a day, at 00:30 Karachi — after the day it is
- * collecting has finished.
- *
- * ⚠️ EVERY CADENCE STATEMENT IN THE PRODUCT READS THIS CONSTANT. The stale
- * thresholds on an account, the words under the Quick Actions button, the
- * warning when somebody picks a frequency finer than the scheduler can honour —
- * all of it. Changing this number and `vercel.json` together is the whole of
- * restoring two-hourly collection on a Pro plan; changing either alone makes the
- * product describe a cadence it does not have.
+ * ⚠️ EVERY CADENCE STATEMENT IN THE PRODUCT READS THIS CONSTANT — the stale
+ * thresholds on an account, the words under Quick Actions, the warning when
+ * somebody picks a frequency finer than the scheduler can honour. That is why
+ * this reversal is one line here plus one in `vercel.json`, and why the tests
+ * assert against the constant rather than against a number: they passed
+ * unchanged in both directions.
  */
-export const CRON_INTERVAL_HOURS = 24;
+/* ⚠️ TYPED `number`, NOT LEFT AS THE LITERAL `2`. Without the annotation
+   TypeScript narrows it to the type `2`, and every `=== 24` comparison that
+   exists to phrase the cadence becomes "this comparison appears to be
+   unintentional" — a compile error that would have to be edited away each time
+   the number changes. The whole point of this constant is that it changes. */
+export const CRON_INTERVAL_HOURS: number = 2;
 
 /** "once a day" / "every 2 hours" — the cadence in words, derived not typed. */
 export const CRON_CADENCE =
