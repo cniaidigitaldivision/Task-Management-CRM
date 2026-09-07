@@ -7,6 +7,7 @@ import {
   accountDetailsForProject,
   accountsForProject,
   cadenceForProject,
+  listMetaPortfolios,
   listStudioProjects,
   metricsForProject,
   draftsForProject,
@@ -63,7 +64,14 @@ export default async function StudioPage({
   const user = await requireRole('admin');
   const params = await searchParams;
 
-  const projects = await listStudioProjects(user.id);
+  /* ⚠️ BOTH IN ONE WAVE, and the suites are fetched OUTSIDE the `hasAccounts`
+     gate below on purpose: a project with nothing linked yet is exactly the one
+     somebody opens in order to link something, and the Connect dialog cannot
+     offer a suite it was not given. */
+  const [projects, portfolios] = await Promise.all([
+    listStudioProjects(user.id),
+    listMetaPortfolios(user.id),
+  ]);
 
   /* Default to the first project that actually has linked accounts — the list is
      already ordered with those first, so this lands somewhere useful rather than
@@ -153,6 +161,11 @@ export default async function StudioPage({
       previousPosts={data?.[5] ?? []}
       drafts={data?.[6] ?? []}
       accountDetails={data?.[7] ?? []}
+      /* ⚠️ NAMES AND IDS, NEVER A TOKEN. Every prop of a server component is
+         serialised into the HTML the browser receives; `listMetaPortfolios`
+         returns the NAME of each suite's vault entry, which is not a secret,
+         and never the entry itself. */
+      portfolios={portfolios}
       templates={data?.[8] ?? []}
       schedules={data?.[9] ?? []}
       exports={data?.[10] ?? []}

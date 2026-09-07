@@ -593,22 +593,104 @@ export async function insertMetaAccount(
     readonly followers: number | null;
     readonly mediaCount: number | null;
     readonly permalink: string | null;
+    /** ⚠️ WHICH SUITE REACHES IT. Without this the sync would fall back to the
+        environment token and fail for every client but the first. */
+    readonly portfolioId: string;
   },
 ): Promise<string> {
   return withUser(actorId, async (tx) => {
     const rows = await tx`
       insert into public.meta_accounts
         (project_id, platform_id, meta_object_id, username, display_name,
-         followers, media_count, permalink, linked_by_id)
+         followers, media_count, permalink, linked_by_id, portfolio_id)
       values (
         ${input.projectId}::uuid,
         (select id from public.platforms where slug = ${input.platformSlug}),
         ${input.objectId}, ${input.username}, ${input.displayName},
         ${input.followers}, ${input.mediaCount}, ${input.permalink},
-        ${actorId}::uuid
+        ${actorId}::uuid, ${input.portfolioId}::uuid
       )
       returning id
     `;
     return rows[0].id as string;
   });
 }
+
+/* ---- Meta suites (migration 103) ----------------------------------------- */
+
+export interface MetaPortfolio {
+  readonly id: string;
+  readonly name: string;
+  readonly businessId: string | null;
+  /** The NAME of a vault entry, never a token. Null = the environment's. */
+  readonly tokenSecretName: string | null;
+  readonly isActive: boolean;
+  readonly accountCount: number;
+}
+
+/**
+ * Every Meta Business Suite the division can reach.
+ *
+ * ⚠️ THIS RETURNS NO TOKEN, AND MUST NOT. It feeds a client component — the
+ * Connect dialog's suite picker — and every prop of a server component is
+ * serialised into the HTML the browser receives. Returning the token here would
+ * publish a credential to anybody who views source. The name of the vault entry
+ * is not sensitive; the entry is.
+ */
+export async function listMetaPortfolios(actorId: string): Promise<readonly MetaPortfolio[]> {
+  return withUser(actorId, async (tx) => {
+    const rows = await tx`
+      select f.id, f.name, f.business_id, f.token_secret_name, f.is_active,
+             (select count(*) from public.meta_accounts a
+               where a.portfolio_id = f.id and a.is_active) as account_count
+        from public.meta_portfolios f
+       order by f.name
+    `;
+    return rows.map((r) => ({
+      id: String(r.id),
+      name: String(r.name),
+      businessId: (r.business_id as string | null) ?? null,
+      tokenSecretName: (r.token_secret_name as string | null) ?? null,
+      isActive: Boolean(r.is_active),
+      accountCount: Number(r.account_count ?? 0),
+    }));
+  });
+}
+
+/**
+ * One suite's system-user token, for discovery.
+ *
+ * ⚠️ SERVER ONLY, AND THE RETURN VALUE NEVER LEAVES THE SERVER ACTION THAT
+ * CALLS IT. `discoverMetaPagesAction` uses it to ask Meta which pages a suite
+ * can reach and returns only the page list. If this value were ever threaded
+ * into a component prop it would be serialised into the page's HTML.
+ *
+ * ⚠️ AND IT READS THE VAULT DIRECTLY RATHER THAN THROUGH A NAMED-LOOKUP
+ * FUNCTION. `app.meta_accounts_to_sync` resolves tokens for the sync because
+ * that path has no session; this one runs under a signed-in Admin, so the query
+ * is scoped by the portfolio row rather than by a function that could be handed
+ * any secret name. Migration 103's header explains why a general
+ * `token_for(name)` was rejected.
+ */
+export async function portfolioToken(
+  actorId: string,
+  portfolioId: string,
+): Promise<string | null> {
+  return withUser(actorId, async (tx) => {
+    const rows = await tx`
+      select coalesce(
+               (select s.decrypted_secret
+                  from vault.decrypted_secrets s
+                 where s.name = f.token_secret_name
+                 limit 1),
+               null
+             ) as token
+        from public.meta_portfolios f
+       where f.id = ${portfolioId}::uuid
+    `;
+    if (rows.length === 0) return null;
+    const t = rows[0].token;
+    return t === null || t === undefined ? null : String(t);
+  });
+}
+

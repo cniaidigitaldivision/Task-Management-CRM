@@ -4,7 +4,11 @@ import { revalidatePath } from 'next/cache';
 
 import { requireUser } from '@/lib/auth/current-user';
 import { getProject } from '@/lib/db/queries/projects';
-import { insertMetaAccount, linkedObjectIds } from '@/lib/db/queries/meta-studio';
+import {
+  insertMetaAccount,
+  linkedObjectIds,
+  portfolioToken,
+} from '@/lib/db/queries/meta-studio';
 import { can } from '@/lib/domain/permissions';
 import { discoverPages, metaIsConfigured } from '@/lib/meta/client';
 import { runMetaSync } from '@/lib/meta/sync';
@@ -39,7 +43,7 @@ export interface ConnectablePage {
   readonly alreadyLinked: boolean;
 }
 
-export async function discoverMetaPagesAction(): Promise<{
+export async function discoverMetaPagesAction(portfolioId: string): Promise<{
   readonly ok: boolean;
   readonly error?: string;
   readonly pages?: readonly ConnectablePage[];
@@ -59,9 +63,16 @@ export async function discoverMetaPagesAction(): Promise<{
 
   const linked = new Set(await linkedObjectIds(user.id));
 
+  /* ⚠️ THE SUITE'S OWN TOKEN, AND IT NEVER LEAVES THIS FUNCTION. Each Meta
+     Business Suite has its own system user — the owner's plan is one per client
+     — so discovery has to be told which one to ask. The token is used for the
+     call and only the resulting page list is returned; threading it into a
+     component prop would serialise a credential into the page's HTML. */
+  const token = await portfolioToken(user.id, portfolioId);
+
   let discovered;
   try {
-    discovered = await discoverPages();
+    discovered = await discoverPages(token);
   } catch (error) {
     /* ⚠️ Meta's own message, verbatim. A guessed cause ("check your token") sends
        somebody to the wrong place; the API says whether it is permissions, a
@@ -112,6 +123,8 @@ export async function discoverMetaPagesAction(): Promise<{
 
 export async function linkMetaAccountAction(input: {
   readonly projectId: string;
+  /** Which Meta suite reaches this page — stored, so the sync uses its token. */
+  readonly portfolioId: string;
   readonly objectId: string;
   readonly platform: 'facebook' | 'instagram';
   readonly name: string;
@@ -137,9 +150,11 @@ export async function linkMetaAccountAction(input: {
      arrives from a client component, and an id that Meta does not serve to this
      token would be linked successfully and then fail on every sync forever —
      with the account row sitting on the page looking connected. */
+  const token = await portfolioToken(user.id, input.portfolioId);
+
   let discovered;
   try {
-    discovered = await discoverPages();
+    discovered = await discoverPages(token);
   } catch (error) {
     return {
       ok: false,
@@ -153,10 +168,13 @@ export async function linkMetaAccountAction(input: {
     if (page.instagram) known.add(page.instagram.igUserId);
   }
   if (!known.has(input.objectId)) {
+    /* ⚠️ NAMES THE SUITE, because with several registered the likeliest mistake
+       is picking the wrong one — and "not served to this token" is unhelpful
+       when there are four tokens. */
     return {
       ok: false,
       error:
-        'Meta does not serve that account to this token. Share the page into the business account first.',
+        'That page is not in the selected Meta suite. Pick the suite that owns it, or share the page into that business portfolio first.',
     };
   }
 
@@ -170,6 +188,7 @@ export async function linkMetaAccountAction(input: {
       followers: input.followers,
       mediaCount: input.mediaCount,
       permalink: input.permalink,
+      portfolioId: input.portfolioId,
     });
   } catch {
     /* 091's `meta_accounts_object_unique` — one Taskly row per real Meta object.

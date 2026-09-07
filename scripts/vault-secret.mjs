@@ -48,7 +48,12 @@ function readEnvLocal() {
   }
   const env = {};
   for (const line of raw.split(/\r?\n/)) {
-    const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)$/);
+    /* ⚠️ MIXED CASE IS ALLOWED, because the suite tokens are named after the
+       business — META_SYSTEM_USER_TOKEN_ChitralRoyalHomes — and an uppercase-only
+       pattern skipped that line silently, reporting "not set in .env.local" for a
+       variable sitting right there. Migration 103's own check constraint on
+       `token_secret_name` is [A-Za-z0-9_]; this matches it. */
+    const m = line.match(/^\s*([A-Za-z0-9_]+)\s*=\s*(.*)$/);
     if (!m) continue;
     /* Strip surrounding quotes. A quoted value would be stored WITH the quotes
        and the bearer comparison would fail on a token that looks correct. */
@@ -58,9 +63,10 @@ function readEnvLocal() {
 }
 
 const name = process.argv[2];
-if (!name || !/^[A-Z0-9_]+$/.test(name)) {
+if (!name || !/^[A-Za-z0-9_]{3,64}$/.test(name)) {
   console.error('Usage: node scripts/vault-secret.mjs <ENV_VAR_NAME>');
   console.error('   eg: node scripts/vault-secret.mjs CRON_SECRET');
+  console.error('       node scripts/vault-secret.mjs META_SYSTEM_USER_TOKEN_ChitralRoyalHomes');
   process.exit(1);
 }
 
@@ -96,7 +102,7 @@ try {
       select vault.create_secret(
         ${value},
         ${name},
-        ${'Read by app.trigger_meta_sync() — see migration 102.'}
+        ${`Placed by scripts/vault-secret.mjs from ${name}. Read by app.trigger_meta_sync() (102) or app.meta_accounts_to_sync() (103).`}
       )
     `;
     console.log(`✓ ${name} created in Supabase Vault.`);

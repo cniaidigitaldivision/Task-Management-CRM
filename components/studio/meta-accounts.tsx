@@ -32,7 +32,7 @@ import {
   type ConnectablePage,
 } from '@/app/actions/meta-accounts';
 import { PLATFORM_MARKS, PlatformIcon } from '@/components/brand/platform-icon';
-import type { AccountDetail } from '@/lib/db/queries/meta-studio';
+import type { AccountDetail, MetaPortfolio } from '@/lib/db/queries/meta-studio';
 import { compact } from '@/lib/domain/meta-studio';
 import { CRON_CADENCE } from '@/lib/domain/meta-sync-settings';
 import {
@@ -79,6 +79,7 @@ type Filter = 'all' | 'facebook' | 'instagram';
 
 export function MetaAccounts({
   accounts,
+  portfolios,
   projectId,
   projectName,
   nowMs,
@@ -87,6 +88,8 @@ export function MetaAccounts({
   canManage,
 }: {
   accounts: readonly AccountDetail[];
+  /** The registered Meta suites — names and ids only, never tokens. */
+  portfolios: readonly MetaPortfolio[];
   projectId: string;
   projectName: string;
   /** ⚠️ The server's clock, so "9 hours ago" is the same for every reader. */
@@ -499,6 +502,7 @@ export function MetaAccounts({
         <ConnectDialog
           projectId={projectId}
           projectName={projectName}
+          portfolios={portfolios}
           onClose={() => setModal(null)}
           onDone={(tone, text) => {
             say(tone, text);
@@ -1322,40 +1326,76 @@ function AccountCard({
 function ConnectDialog({
   projectId,
   projectName,
+  portfolios,
   onClose,
   onDone,
 }: {
   projectId: string;
   projectName: string;
+  /** ⚠️ Names and ids only — never a token. See `listMetaPortfolios`. */
+  portfolios: readonly MetaPortfolio[];
   onClose: () => void;
   onDone: (tone: 'ok' | 'bad', text: string) => void;
 }) {
-  const [state, setState] = React.useState<'loading' | 'ready' | 'error'>('loading');
-  const [pages, setPages] = React.useState<readonly ConnectablePage[]>([]);
-  const [error, setError] = React.useState('');
   const [linking, setLinking] = React.useState<string | null>(null);
 
-  /* ⚠️ ONE FETCH, ON OPEN, with an empty dependency array and a cancel flag.
-     `discoverPages` is a live Graph API call against `me/accounts`; a dependency
-     that changed on every render would hammer it, and a resolve after the dialog
-     closes would set state on an unmounted tree. */
+  /* ⚠️ EACH META SUITE IS ASKED SEPARATELY, because each has its own system
+     user and its own token — the owner's plan is one suite per client. There is
+     no single call that lists every page across suites; `me/accounts` answers
+     for exactly the token it was given. */
+  const [suiteId, setSuiteId] = React.useState<string>(
+    () => portfolios.find((p) => p.isActive)?.id ?? portfolios[0]?.id ?? '',
+  );
+
+  /* ⚠️ ONE PIECE OF STATE CARRYING THE SUITE IT BELONGS TO, rather than a
+     separate `loading` flag the effect flips on the way in. Two reasons, and
+     the second is the real one:
+
+     · Whether we are waiting is not a fact to store — it is `answer.suite !==
+       suiteId`, derivable at render. Storing it means a synchronous setState in
+       the effect body, which is a cascading render and is what
+       `react-hooks/set-state-in-effect` refuses.
+     · It makes a stale reply impossible to display. Switching suites quickly
+       leaves an in-flight call for the previous one; the cancel flag drops it,
+       but the tag means that even a reply that slipped past cannot be rendered
+       under the wrong suite's name — the only thing shown is an answer that
+       says which suite it came from. */
+  const [answer, setAnswer] = React.useState<{
+    readonly suite: string;
+    readonly pages: readonly ConnectablePage[];
+    readonly error: string;
+  } | null>(null);
+
   React.useEffect(() => {
+    if (!suiteId) return;
+
     let cancelled = false;
     void (async () => {
-      const r = await discoverMetaPagesAction();
+      const r = await discoverMetaPagesAction(suiteId);
       if (cancelled) return;
-      if (!r.ok) {
-        setError(r.error ?? 'Meta did not answer.');
-        setState('error');
-        return;
-      }
-      setPages(r.pages ?? []);
-      setState('ready');
+      setAnswer({
+        suite: suiteId,
+        pages: r.ok ? (r.pages ?? []) : [],
+        error: r.ok ? '' : (r.error ?? 'Meta did not answer.'),
+      });
     })();
+
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [suiteId]);
+
+  /* No suite registered at all is a different sentence from a suite that
+     answered with nothing — the first is a setup gap, the second is Meta. */
+  const state: 'no-suite' | 'loading' | 'ready' | 'error' = !suiteId
+    ? 'no-suite'
+    : answer?.suite !== suiteId
+      ? 'loading'
+      : answer.error
+        ? 'error'
+        : 'ready';
+  const pages = answer?.suite === suiteId ? answer.pages : [];
+  const error = answer?.suite === suiteId ? answer.error : '';
 
   return (
     <Modal
@@ -1373,10 +1413,44 @@ function ConnectDialog({
         </p>
       }
     >
+      {portfolios.length > 1 && (
+        <label className="mb-3 block">
+          <span className="mb-1 block text-[0.62rem] font-semibold uppercase tracking-wide text-text-tertiary">
+            Meta suite
+          </span>
+          <select
+            value={suiteId}
+            onChange={(e) => setSuiteId(e.target.value)}
+            className="w-full rounded-lg border border-border-subtle bg-bg-base px-2.5 py-2 text-micro text-text-primary focus:border-accent-primary focus:outline-none"
+          >
+            {portfolios.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+                {p.accountCount > 0 ? ` — ${p.accountCount} linked` : ''}
+              </option>
+            ))}
+          </select>
+          <span className="mt-1 block text-[0.6rem] leading-snug text-text-tertiary">
+            Each suite has its own system user, so its pages are listed
+            separately. Pick the one that owns the page you are linking.
+          </span>
+        </label>
+      )}
+
+      {state === 'no-suite' && (
+        <div className="rounded-lg border border-dashed border-border-default px-3 py-6 text-center">
+          <p className="text-micro font-semibold text-text-primary">No Meta suite is registered</p>
+          <p className="mx-auto mt-1 max-w-sm text-[0.62rem] leading-relaxed text-text-tertiary">
+            Each business portfolio has its own system user. One has to be registered, with its
+            token in the vault, before any page can be linked.
+          </p>
+        </div>
+      )}
+
       {state === 'loading' && (
         <p className="flex items-center justify-center gap-2 py-10 text-micro text-text-tertiary">
           <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
-          Asking Meta which accounts this token can reach…
+          Asking Meta which accounts this suite can reach…
         </p>
       )}
 
@@ -1395,8 +1469,8 @@ function ConnectDialog({
         <div className="rounded-lg border border-dashed border-border-default px-3 py-6 text-center">
           <p className="text-micro font-semibold text-text-primary">Meta returned no accounts</p>
           <p className="mx-auto mt-1 max-w-sm text-[0.62rem] leading-relaxed text-text-tertiary">
-            A client&rsquo;s page has to be shared into the business account on Meta&rsquo;s side
-            before it appears here. Nothing on this page can do that step.
+            This suite&rsquo;s system user reaches no pages. Assign them to it in Meta Business
+            Suite, or pick a different suite above. Nothing here can do that step.
           </p>
         </div>
       )}
@@ -1439,6 +1513,9 @@ function ConnectDialog({
                     try {
                       const r = await linkMetaAccountAction({
                         projectId,
+                        /* Which suite reaches this page — stored on the row, so
+                           the sync uses the same token next time. */
+                        portfolioId: suiteId,
                         objectId: p.objectId,
                         platform: p.platform,
                         name: p.name,

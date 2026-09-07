@@ -10,6 +10,7 @@ import { DIVISION_NAME } from '@/lib/domain/constants';
 import type {
   AccountDetail,
   ContentDraft,
+  MetaPortfolio,
   MetricPoint,
   StudioAccount,
   StudioPost,
@@ -78,6 +79,7 @@ export function StudioWorkspace({
   previousPosts,
   drafts,
   accountDetails,
+  portfolios,
   cadence,
   nowMs,
   templates,
@@ -107,6 +109,8 @@ export function StudioWorkspace({
   previousPosts: readonly StudioPost[];
   drafts: readonly ContentDraft[];
   accountDetails: readonly AccountDetail[];
+  /** ⚠️ The registered Meta suites — names and ids only, never tokens. */
+  portfolios: readonly MetaPortfolio[];
   cadence: ProjectPromise;
   /** The server's clock — see the note at the call site. */
   nowMs: number;
@@ -266,17 +270,20 @@ export function StudioWorkspace({
         ))}
       </div>
 
-      {!selected.hasAccounts ? (
-        <NotConnected name={selected.name} />
-      ) : tab === 'accounts' ? (
-        /* ⚠️ BEFORE THE `hasData` GATE, AND THE ORDER IS THE POINT. An account
-           that has collected nothing is precisely the one somebody opens this
-           tab to diagnose — sending them to "No figures collected yet" instead
-           would hide the very card explaining why. A first draft had this arm
-           below the gate and the comment claiming otherwise; the ordering is the
-           behaviour, not the comment. */
+      {tab === 'accounts' ? (
+        /* ⚠️ ABOVE BOTH GATES, AND THE ORDER IS THE POINT.
+           Above `hasData` because an account that has collected nothing is
+           precisely the one somebody opens this tab to diagnose — sending them
+           to "No figures collected yet" would hide the very card explaining why.
+           Above `hasAccounts` because a project with NOTHING linked is exactly
+           the one somebody opens in order to link something; with this arm below
+           that gate, a new client's project was a dead end reading "coming
+           soon" with no way to reach Connect. That is how it stood when three
+           projects — Chitral Royal Homes, Attari Group and Jashn e Subhe Noor —
+           existed with zero accounts and no route to add one. */
         <MetaAccounts
           accounts={accountDetails}
+          portfolios={portfolios}
           projectId={selected.id}
           projectName={selected.name}
           nowMs={nowMs}
@@ -288,6 +295,11 @@ export function StudioWorkspace({
              cards sitting right beside it. */
           postsThisPeriod={posts.length}
           postsPreviousPeriod={previousPosts.length}
+        />
+      ) : !selected.hasAccounts ? (
+        <NotConnected
+          name={selected.name}
+          onConnect={canSchedule ? () => setTab('accounts') : null}
         />
       ) : tab === 'settings' ? (
         /* ⚠️ ALSO ABOVE THE `hasData` GATE. This is the tab somebody opens to
@@ -382,15 +394,28 @@ export function StudioWorkspace({
 
 /* ---- The two states before there is anything to draw --------------------- */
 
-function NotConnected({ name }: { name: string }) {
+function NotConnected({ name, onConnect }: { name: string; onConnect: (() => void) | null }) {
   return (
     <div className="rounded-xl border border-dashed border-border-default bg-bg-surface px-6 py-14 text-center">
-      <p className="text-h3 font-semibold text-text-primary">Coming soon for {name}</p>
+      <p className="text-h3 font-semibold text-text-primary">Nothing connected for {name}</p>
       <p className="mx-auto mt-2 max-w-md text-body-sm text-text-secondary">
-        No Facebook Page or Instagram account is connected to this project yet. Projects that are
+        No Facebook Page or Instagram account is linked to this project yet. Projects that are
         internal tool development have no social presence and will stay this way; for the rest,
         connecting an account is the next step.
       </p>
+      {/* ⚠️ THE ROUTE OUT OF THE DEAD END. Before this, the only text on the
+          page was "coming soon", which read as a promise the product would do
+          something later — when in fact one click on Meta Accounts was all it
+          needed. Shown only to somebody who may actually link. */}
+      {onConnect && (
+        <button
+          type="button"
+          onClick={onConnect}
+          className="mt-5 rounded-lg bg-accent-primary px-3.5 py-2 text-body-sm font-semibold text-text-inverse transition-opacity hover:opacity-90"
+        >
+          Connect an account
+        </button>
+      )}
     </div>
   );
 }

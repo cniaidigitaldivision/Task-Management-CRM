@@ -45,10 +45,31 @@ function version(): string {
   return v;
 }
 
-function systemToken(): string {
+/**
+ * The environment's token.
+ *
+ * ── ⚠️ A FALLBACK NOW, NOT THE TOKEN ───────────────────────────────────────
+ * Every function here takes a token explicitly, because each Meta Business
+ * Suite has its own system user and the owner's stated plan is one suite per
+ * client from here on. A single module-level token would cap the product at one
+ * business, and the cap would not show up until the second client's pages came
+ * back empty — `me/accounts` succeeds against any valid token, it just returns
+ * a different portfolio's pages.
+ *
+ * This remains only for the suite registered before 103, whose token lives in
+ * the environment and in Vercel. Everything added since names a Supabase Vault
+ * entry instead, so a new client needs no redeploy.
+ */
+function fallbackToken(): string {
   const t = process.env.META_SYSTEM_USER_TOKEN?.trim();
   if (!t) throw new MetaApiError('META_SYSTEM_USER_TOKEN is not set.', null, null);
   return t;
+}
+
+/** The token to use: the suite's own, or the environment's when it has none. */
+function resolve(token?: string | null): string {
+  const t = token?.trim();
+  return t ? t : fallbackToken();
 }
 
 /** True when the integration is configured at all. Lets a screen say "not set
@@ -120,7 +141,7 @@ export interface DiscoveredPage {
  * `me/accounts`, not off the business. Verified; do not "fix" it by adding a
  * business lookup.
  */
-export async function discoverPages(): Promise<DiscoveredPage[]> {
+export async function discoverPages(token?: string | null): Promise<DiscoveredPage[]> {
   const body = await call<{
     data?: Array<{
       id: string;
@@ -136,7 +157,7 @@ export async function discoverPages(): Promise<DiscoveredPage[]> {
       };
     }>;
   }>('me/accounts', {
-    access_token: systemToken(),
+    access_token: resolve(token),
     fields:
       'id,name,fan_count,followers_count,' +
       'instagram_business_account{id,username,name,followers_count,media_count}',
@@ -167,9 +188,12 @@ export async function discoverPages(): Promise<DiscoveredPage[]> {
  * mean an encrypted secret in a table that has to be kept fresh. See migration
  * 091's header.
  */
-export async function pageAccessToken(pageId: string): Promise<string> {
+export async function pageAccessToken(
+  pageId: string,
+  token?: string | null,
+): Promise<string> {
   const body = await call<{ access_token?: string }>(pageId, {
-    access_token: systemToken(),
+    access_token: resolve(token),
     fields: 'access_token',
   });
   if (!body.access_token) {
@@ -268,9 +292,10 @@ export async function fetchTotalValue(
  *  to give on a small account. See the catalogue's `followers_count` note. */
 export async function fetchIgProfile(
   igUserId: string,
+  token?: string | null,
 ): Promise<{ followers: number | null; mediaCount: number | null }> {
   const body = await call<{ followers_count?: number; media_count?: number }>(igUserId, {
-    access_token: systemToken(),
+    access_token: resolve(token),
     fields: 'followers_count,media_count',
   });
   return {
@@ -293,7 +318,11 @@ export interface FetchedPost {
 }
 
 /** Instagram media, newest first, with per-post insights. */
-export async function fetchIgPosts(igUserId: string, limit = 25): Promise<FetchedPost[]> {
+export async function fetchIgPosts(
+  igUserId: string,
+  token?: string | null,
+  limit = 25,
+): Promise<FetchedPost[]> {
   const body = await call<{
     data?: Array<{
       id: string;
@@ -308,7 +337,7 @@ export async function fetchIgPosts(igUserId: string, limit = 25): Promise<Fetche
       media_url?: string;
     }>;
   }>(`${igUserId}/media`, {
-    access_token: systemToken(),
+    access_token: resolve(token),
     fields:
       'id,caption,media_type,media_product_type,permalink,timestamp,' +
       'like_count,comments_count,thumbnail_url,media_url',
@@ -327,7 +356,7 @@ export async function fetchIgPosts(igUserId: string, limit = 25): Promise<Fetche
       const ins = await call<{ data?: Array<{ name?: string; values?: Array<{ value?: unknown }> }> }>(
         `${m.id}/insights`,
         {
-          access_token: systemToken(),
+          access_token: resolve(token),
           metric: 'reach,likes,comments,saved,shares,total_interactions,views',
         },
       );

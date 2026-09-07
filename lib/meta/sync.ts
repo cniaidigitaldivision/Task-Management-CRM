@@ -55,6 +55,10 @@ export interface AccountSyncResult {
 }
 
 interface LinkedAccount {
+  /** Which Meta Business Suite reaches this account — see migration 103. */
+  readonly portfolioName: string;
+  /** That suite's system-user token, or null to use the environment's. */
+  readonly token: string | null;
   readonly id: string;
   readonly projectName: string;
   readonly platformSlug: string;
@@ -100,6 +104,12 @@ async function linkedAccounts(onlyAccountId?: string): Promise<LinkedAccount[]> 
     platformSlug: String(r.platform_slug),
     objectId: String(r.meta_object_id),
     neverSynced: Boolean(r.never_synced),
+    portfolioName: String(r.portfolio_name ?? 'CNI AI & Digital Division'),
+    /* ⚠️ NULL MEANS "USE THE ENVIRONMENT", not "no access". Migration 103
+       resolves each suite's system-user token from Supabase Vault; the suite
+       registered before it still keeps its token in the environment, and the
+       client falls back for exactly that case. */
+    token: r.token === null || r.token === undefined ? null : String(r.token),
   }));
 }
 
@@ -129,6 +139,11 @@ async function collectInstagram(
   until: string,
   metrics: CatalogueEntry[],
   wants: (category: string) => boolean,
+  /* ⚠️ THE SUITE'S OWN TOKEN, passed in rather than read from the environment.
+     One module-level token would cap the product at a single business, and the
+     cap would not surface as an error — `me/accounts` succeeds against any valid
+     token and simply returns a different portfolio's pages. */
+  suiteToken: string | null,
 ): Promise<{
   values: DailyValue[];
   posts: FetchedPost[];
@@ -136,7 +151,7 @@ async function collectInstagram(
   media: number | null;
   refused: string[];
 }> {
-  const token = process.env.META_SYSTEM_USER_TOKEN!.trim();
+  const token = suiteToken ?? process.env.META_SYSTEM_USER_TOKEN!.trim();
   const values: DailyValue[] = [];
   /* Days Meta would not serve. Reported, never silently dropped. */
   const refused: string[] = [];
@@ -185,7 +200,7 @@ async function collectInstagram(
   }
 
   const profile = wants('profile')
-    ? await fetchIgProfile(objectId)
+    ? await fetchIgProfile(objectId, token)
     : { followers: null, mediaCount: null };
 
   /* ⚠️ TODAY'S FOLLOWER TOTAL, SNAPSHOTTED BY US. `follower_count` as an insight
@@ -196,7 +211,7 @@ async function collectInstagram(
     values.push({ onDate: until, metricKey: 'followers_count', value: profile.followers });
   }
 
-  const posts = wants('posts') ? await fetchIgPosts(objectId) : [];
+  const posts = wants('posts') ? await fetchIgPosts(objectId, token) : [];
   return { values, posts, followers: profile.followers, media: profile.mediaCount, refused };
 }
 
@@ -206,6 +221,7 @@ async function collectFacebook(
   until: string,
   metrics: CatalogueEntry[],
   wants: (category: string) => boolean,
+  suiteToken: string | null,
 ): Promise<{
   values: DailyValue[];
   posts: FetchedPost[];
@@ -215,7 +231,7 @@ async function collectFacebook(
 }> {
   /* ⚠️ THE PAGE TOKEN, NOT THE SYSTEM USER TOKEN. Page insights refuse the
      system token with (#190). Derived per run; never stored. */
-  const token = await pageAccessToken(objectId);
+  const token = await pageAccessToken(objectId, suiteToken);
 
   const values: DailyValue[] = [];
   for (const m of metrics) {
@@ -342,8 +358,8 @@ export async function runMetaSync(options: {
 
       const collected =
         account.platformSlug === 'instagram'
-          ? await collectInstagram(account.objectId, since, until, metrics, wants)
-          : await collectFacebook(account.objectId, since, until, metrics, wants);
+          ? await collectInstagram(account.objectId, since, until, metrics, wants, account.token)
+          : await collectFacebook(account.objectId, since, until, metrics, wants, account.token);
 
       const written = await withAppRole((tx) => tx`
         select * from app.record_meta_sync(
