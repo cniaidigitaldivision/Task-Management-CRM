@@ -57,6 +57,19 @@ export type ToastTone = keyof typeof TONES;
 export interface ToastInput {
   readonly text: string;
   readonly tone?: ToastTone;
+  /* ── ⚠️ THE NAME OF THE THING, SET IN BOLD — owner, 2026-09-08 ────────────
+     *"Should it mention the task name in bold in the notification that will be
+     shown in the bottom right instead of a code?"*
+
+     A toast is read in the corner of the eye while the reader is already
+     looking at something else, so it gets about two words of attention. Those
+     two words were `CLI-091` — a database handle the reader has never needed —
+     and the part that identifies the work was not there at all.
+
+     Kept as its own field rather than letting callers pass markup: a `text`
+     that accepted a ReactNode would eventually carry a paragraph, and a toast
+     that needs a paragraph is the wrong control. One name, one sentence. */
+  readonly strong?: string;
   /** An optional place to go — "View project". */
   readonly href?: string;
   readonly linkLabel?: string;
@@ -153,6 +166,8 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               />
 
               <p className="min-w-0 flex-1 text-caption text-text-primary">
+                {item.strong && <span className="font-semibold">{item.strong}</span>}
+                {item.strong && ' '}
                 {item.text}
                 {item.href && (
                   <>

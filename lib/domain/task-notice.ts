@@ -255,7 +255,12 @@ const TASK_KINDS: ReadonlySet<string> = new Set([
   'review_approved',
   'revisions_requested',
   'time_limit_warning',
-  'time_extension_requested',
+  /* ⚠️ `time_extension_requested` IS DELIBERATELY ABSENT. Its `entity_id` is
+     the EXTENSION REQUEST's id, not a task's, so deriving a task link from it
+     would open the board filtered to a row that does not exist. That
+     notification carries a real deep link in `link_to` instead, which is the
+     fallback below. `time_extension_decided` is here because its entity IS the
+     task — the two look symmetrical and are not. */
   'time_extension_decided',
 ]);
 

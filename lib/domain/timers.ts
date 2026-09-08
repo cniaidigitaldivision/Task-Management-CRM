@@ -144,27 +144,37 @@ function alertsDue(
 }
 
 /** The sentence a person reads. Written here so the bar and the bell agree. */
+/* ⚠️ `reference` IS NO LONGER READ, AND THE PARAMETER STAYS. Owner, 2026-09-08:
+   *"I don't understand what the task code is."* These three titles led with it
+   — "10 minutes left on CLI-116" — while the name of the work sat in the body.
+
+   The field is kept on the argument type because every caller passes a task row
+   and narrowing it would churn them for nothing; it is simply not printed. If a
+   future alert wants an identifier, the answer is the title, like everywhere
+   else. See lib/domain/task-notice.ts for the rule. */
 export function alertMessage(
   alert: TimerAlert,
-  task: { reference: string; title: string },
+  task: { reference?: string; title: string },
 ): { title: string; body: string } {
+  const name = task.title.trim() || 'this task';
+
   switch (alert) {
     case 'ten_minutes':
       return {
-        title: `10 minutes left on ${task.reference}`,
-        body: `${task.title} — you are ten minutes from its time limit.`,
+        title: `10 minutes left on ${name}`,
+        body: 'You are ten minutes from its time limit.',
       };
     case 'five_minutes':
       return {
-        title: `5 minutes left on ${task.reference}`,
-        body: `${task.title} — five minutes of the allowance remain.`,
+        title: `5 minutes left on ${name}`,
+        body: 'Five minutes of the allowance remain.',
       };
     case 'time_up':
       return {
-        title: `Time is up on ${task.reference}`,
+        title: `Time is up on ${name}`,
         /* Says plainly what has NOT happened, because the absence is the
            surprising part: nothing stopped and nothing moved. */
-        body: `${task.title} has reached its time limit. The timer is still running and the task has not been moved — stop it or request an extension.`,
+        body: `${name} has reached its time limit. The timer is still running and the task has not been moved — stop it or request an extension.`,
       };
   }
 }

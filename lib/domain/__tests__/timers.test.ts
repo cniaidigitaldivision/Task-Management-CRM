@@ -125,6 +125,18 @@ describe('the alerts', () => {
     expect(reading.alertsDue).toEqual(['ten_minutes', 'five_minutes', 'time_up']);
   });
 
+  it('names the task rather than its code — owner, 2026-09-08', () => {
+    /* *"I don't understand what the task code is."* The title used to read
+       "10 minutes left on CLI-116", which identifies the work to the database
+       and to nobody else. */
+    for (const alert of ['ten_minutes', 'five_minutes', 'time_up'] as const) {
+      const message = alertMessage(alert, { reference: 'CLI-116', title: 'Launch video' });
+      expect(message.title).toContain('Launch video');
+      expect(message.title).not.toMatch(/[A-Z]{2,4}-\d+/);
+      expect(message.body).not.toMatch(/[A-Z]{2,4}-\d+/);
+    }
+  });
+
   it('says plainly that nothing was stopped or moved', () => {
     /* The absence is the surprising part, so the message states it. */
     const message = alertMessage('time_up', { reference: 'CLI-116', title: 'Launch video' });

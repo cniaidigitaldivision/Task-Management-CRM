@@ -153,6 +153,29 @@ describe('where a notification goes when it is clicked', () => {
     ).toBe('/projects');
   });
 
+  it('⚠️ nor an extension REQUEST, whose entity is the request and not the task', () => {
+    /* The trap this catches: `time_extension_requested` looks like a task kind
+       and its `entity_id` is the request's own id. Deep-linking from it opened
+       the board filtered to a row that does not exist. Its sibling
+       `time_extension_decided` DOES store the task id, so the two are asserted
+       together — the asymmetry is the whole point. */
+    expect(
+      notificationHref({
+        kind: 'time_extension_requested',
+        linkTo: `/tasks?task=${TASK_ID}`,
+        entityId: 'a-request-id',
+      }),
+    ).toBe(`/tasks?task=${TASK_ID}`);
+
+    expect(
+      notificationHref({
+        kind: 'time_extension_decided',
+        linkTo: '/my-work',
+        entityId: TASK_ID,
+      }),
+    ).toBe(`/tasks?task=${TASK_ID}`);
+  });
+
   it('falls back to the stored link when there is no entity at all', () => {
     expect(notificationHref({ kind: 'security_alert', linkTo: '/security', entityId: null })).toBe(
       '/security',

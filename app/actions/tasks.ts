@@ -97,7 +97,12 @@ export interface ActionResult {
   /** Advisory text shown after a successful action — e.g. a capacity warning. */
   readonly warning?: string;
   readonly taskId?: string;
+  /* ⚠️ STILL RETURNED, AND NO LONGER SHOWN TO ANYBODY. The reference is the
+     handle other code joins on; what a person is told is `taskTitle`. See
+     lib/domain/task-notice.ts for the same decision about notifications. */
   readonly reference?: string;
+  /** What the task is called, for the notice that follows the save. */
+  readonly taskTitle?: string;
   /** The caller must re-authenticate before this will be accepted (FR-149).
    *  Only `purgeTasksAction` raises it — nothing else here is irreversible. */
   readonly stepUpRequired?: boolean;
@@ -771,7 +776,13 @@ export async function createTaskAction(_prev: ActionResult, form: FormData): Pro
     });
 
     revalidateWork();
-    return { ok: true, taskId: created.id, reference: created.reference, warning: warning ?? undefined };
+    return {
+      ok: true,
+      taskId: created.id,
+      reference: created.reference,
+      taskTitle: created.title,
+      warning: warning ?? undefined,
+    };
   } catch (error) {
     return fail(readableDbError(error));
   }
@@ -842,12 +853,13 @@ export async function updateTaskAction(_prev: ActionResult, form: FormData): Pro
     const nextAssignee = str(form, 'assigneeId');
     if (nextAssignee !== (task.assigneeId ?? '')) {
       return fail(
-      'You cannot hand this task to somebody else. A Coordinator can reassign it.',
-      'assigneeId',
-    );
+        'You cannot hand this task to somebody else. A Coordinator can reassign it.',
+        'assigneeId',
+      );
     }
   }
 
+  const title = str(form, 'title');
   const priority = str(form, 'priority');
   const effort = effortFrom(form);
   if (!isPriority(priority)) return fail('Choose a priority.', 'priority');
@@ -886,7 +898,7 @@ export async function updateTaskAction(_prev: ActionResult, form: FormData): Pro
 
   try {
     await T.updateTask(user.id, taskId, {
-      title: str(form, 'title'),
+      title,
       description: optional(form, 'description'),
       otherDescription: optional(form, 'otherDescription'),
       priority,
@@ -913,7 +925,7 @@ export async function updateTaskAction(_prev: ActionResult, form: FormData): Pro
     );
 
     revalidateWork();
-    return { ok: true, taskId, warning: warning ?? undefined };
+    return { ok: true, taskId, taskTitle: title, warning: warning ?? undefined };
   } catch (error) {
     return fail(readableDbError(error));
   }

@@ -441,22 +441,44 @@ export function TaskDialog({
          task WAS created, so it is not an error — but "you have just put them
          over their limit" is not a success either, and colouring it green would
          hide the one sentence worth reading. */
+      /* ── ⚠️ THE TASK'S NAME, IN BOLD — NOT ITS CODE ─────────────────────
+         Owner, 2026-09-08: *"the notification that appears on the bottom right
+         … is still showing the task code. I don't understand what the task code
+         is. Should it mention the task name in bold…?"*
+
+         The same complaint as the bell notifications, in the one place the fix
+         had not reached. `taskTitle` comes back from the server rather than
+         being read off the form, so the toast reports what was actually SAVED —
+         a title trimmed or corrected on the way in would otherwise be announced
+         wrongly by the browser that sent it.
+
+         ⚠️ Falls back to a plain sentence, never to the reference. If the title
+         is somehow missing, "The task is created." is honest; "CLI-091 is
+         created" is the thing being removed. */
+      const named = state.taskTitle?.trim() || (isEdit ? task?.title?.trim() : '') || '';
+
       if (isEdit) {
         /* ⚠️ Edits announce too, because REASSIGNING is an edit. Owner,
            2026-09-03: *"if I say it, 'Reassign to someone,' that notification
            should display."* No link: they are already looking at the task. */
         toast({
           tone: state.warning ? 'warn' : 'ok',
+          strong: named || undefined,
           text: state.warning
-            ? `${task?.reference ?? 'The task'} updated. ${state.warning}`
-            : `${task?.reference ?? 'The task'} updated.`,
+            ? `${named ? 'is updated.' : 'The task is updated.'} ${state.warning}`
+            : named
+              ? 'is updated.'
+              : 'The task is updated.',
         });
       } else if (state.taskId) {
         toast({
           tone: state.warning ? 'warn' : 'ok',
+          strong: named || undefined,
           text: state.warning
-            ? `${state.reference ?? 'The task'} is created. ${state.warning}`
-            : `${state.reference ?? 'The task'} is created.`,
+            ? `${named ? 'is created.' : 'The task is created.'} ${state.warning}`
+            : named
+              ? 'is created.'
+              : 'The task is created.',
           href: `/tasks?task=${state.taskId}`,
           linkLabel: 'Open it',
         });
@@ -465,7 +487,7 @@ export function TaskDialog({
       router.refresh();
       onClose();
     }
-  }, [state, isEdit, task?.reference, onClose, router, toast]);
+  }, [state, isEdit, task?.title, onClose, router, toast]);
 
   /* ── ⚠️ A REFUSAL PUTS THE CURSOR WHERE THE PROBLEM IS ────────────────────
      The form is taller than the dialog, so a message printed under a control

@@ -220,8 +220,11 @@ export function TasksWorkspace({
      `setFlash` keeps its name and its call sites; only where it lands changed. */
   const toast = useToast();
   const setFlash = React.useCallback(
-    (next: { tone: 'error' | 'warn' | 'ok'; text: string } | null) => {
-      if (next) toast({ tone: next.tone, text: next.text });
+    /* `strong` is the name of the thing that moved, set in bold ahead of the
+       sentence — see ToastInput. Optional, because most flashes here are about
+       the request rather than about one named task. */
+    (next: { tone: 'error' | 'warn' | 'ok'; text: string; strong?: string } | null) => {
+      if (next) toast({ tone: next.tone, text: next.text, strong: next.strong });
     },
     [toast],
   );
@@ -448,7 +451,11 @@ export function TasksWorkspace({
       } else {
         setFlash({
           tone: 'ok',
-          text: `${task.reference} moved to ${STATUS_META[to].label}.`,
+          /* The name rather than the code, for the same reason as everywhere
+             else: the person who just dragged the card knows what it is called,
+             not what it is numbered. */
+          strong: task.title,
+          text: `moved to ${STATUS_META[to].label}.`,
         });
         router.refresh();
       }

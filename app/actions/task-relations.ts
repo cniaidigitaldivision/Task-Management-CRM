@@ -6,6 +6,7 @@ import { requireUser } from '@/lib/auth/current-user';
 import { withUser } from '@/lib/db/client';
 import { audit } from '@/lib/db/queries/audit';
 import { notify, record } from '@/lib/db/queries/feed';
+import { taskLink } from '@/lib/domain/task-notice';
 import * as R from '@/lib/db/queries/task-relations';
 import * as T from '@/lib/db/queries/tasks';
 import { STATUS_META } from '@/lib/domain/constants';
@@ -95,7 +96,10 @@ export async function addDependencyAction(
   const cycle = wouldCreateCycle(edges, taskId, dependsOnTaskId);
   if (cycle.wouldCycle) {
     return fail(
-      `That would make a loop: ${blocker.reference} already waits on ${task.reference}, directly or through other tasks. Nothing in a loop can ever start.`,
+      /* ⚠️ QUOTED, because this is the one message here that names two tasks
+         in one sentence and the titles are prose. Without the marks, "Eid sale
+         post already waits on Reels for Ramadan" reads as a single run-on. */
+      `That would make a loop: “${blocker.title}” already waits on “${task.title}”, directly or through other tasks. Nothing in a loop can ever start.`,
     );
   }
 
@@ -116,8 +120,8 @@ export async function addDependencyAction(
     ok: true,
     note:
       type === 'blocks'
-        ? `${task.reference} now waits on ${blocker.reference}.`
-        : `Linked ${task.reference} to ${blocker.reference}.`,
+        ? `“${task.title}” now waits on “${blocker.title}”.`
+        : `Linked “${task.title}” to “${blocker.title}”.`,
   };
 }
 
@@ -184,9 +188,11 @@ export async function setWatchingAction(
       notify(tx, user.id, {
         userId: target,
         kind: 'task_status_changed',
-        title: `You are now following ${task.reference}`,
-        body: task.title,
-        linkTo: '/tasks',
+        /* Named, not numbered — the same rule as every other notification.
+           See lib/domain/task-notice.ts. */
+        title: `You are now following ${task.title}`,
+        body: task.projectName,
+        linkTo: taskLink(taskId),
         entityId: taskId,
       }),
     );
@@ -304,16 +310,18 @@ export async function addSubtaskAction(
       await notify(tx, user.id, {
         userId: assigneeId,
         kind: 'task_assigned',
-        title: `${created.reference} — ${created.title}`,
-        body: `Part of ${parent.reference}`,
-        linkTo: '/my-work',
+        title: `${created.title} — assigned to you`,
+        /* Which project, then which piece of work it belongs to. "Part of
+           CLI-091" told the reader nothing they could act on. */
+        body: `${created.projectName} · part of ${parent.title}`,
+        linkTo: taskLink(created.id),
         entityId: created.id,
       });
     }
   });
 
   touch();
-  return { ok: true, note: `${created.reference} added.` };
+  return { ok: true, note: `${created.title} added.` };
 }
 
 /**
@@ -340,7 +348,7 @@ export async function detachSubtaskAction(subtaskId: string): Promise<RelationRe
   });
 
   touch();
-  return { ok: true, note: `${task.reference} is now a standalone task.` };
+  return { ok: true, note: `${task.title} is now a standalone task.` };
 }
 
 /* ==========================================================================
@@ -393,9 +401,14 @@ export async function requestExtensionAction(
       await notify(tx, user.id, {
         userId: row.id as string,
         kind: 'time_extension_requested',
-        title: `${task.reference} — ${formatMinutes(minutes)} more time requested`,
-        body: reason.trim().slice(0, 140),
-        linkTo: '/tasks',
+        title: `${task.title} — ${formatMinutes(minutes)} more time requested`,
+        body: `${task.projectName} · ${reason.trim().slice(0, 140)}`,
+        /* ⚠️ THE LINK CARRIES THE TASK, BECAUSE `entityId` CANNOT. It holds the
+           REQUEST's id here — the entity this notification is about — so the
+           deep link has to be built explicitly rather than derived from it.
+           `notificationHref` knows not to treat this kind as a task for exactly
+           that reason. */
+        linkTo: taskLink(taskId),
         entityId: requestId,
       });
     }
@@ -486,11 +499,13 @@ export async function decideExtensionAction(
       title:
         decision === 'approve'
           ? status === 'partially_approved'
-            ? `${request.taskReference} — ${formatMinutes(applied.appliedMinutes)} granted of ${formatMinutes(request.requestedMinutes)} asked`
-            : `${request.taskReference} — ${formatMinutes(applied.appliedMinutes)} granted`
-          : `${request.taskReference} — more time declined`,
-      body: input.note?.trim() || request.taskTitle,
-      linkTo: '/my-work',
+            ? `${request.taskTitle} — ${formatMinutes(applied.appliedMinutes)} granted of ${formatMinutes(request.requestedMinutes)} asked`
+            : `${request.taskTitle} — ${formatMinutes(applied.appliedMinutes)} granted`
+          : `${request.taskTitle} — more time declined`,
+      /* The decider's note is the useful part; without one, say which task it
+         was rather than repeating the title already in the line above. */
+      body: input.note?.trim() || 'No note was left.',
+      linkTo: taskLink(request.taskId),
       entityId: request.taskId,
     });
   });
