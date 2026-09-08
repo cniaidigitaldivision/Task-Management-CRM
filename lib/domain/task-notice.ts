@@ -279,3 +279,105 @@ export function notificationHref(row: {
   if (row.entityId && TASK_KINDS.has(row.kind)) return taskLink(row.entityId);
   return row.linkTo ?? '/tasks';
 }
+
+/* ==========================================================================
+ * WHO IS TOLD ABOUT A STATUS CHANGE
+ * ========================================================================== */
+
+/**
+ * One recipient of a status-change notification.
+ *
+ * `who` is a role in the task, not a person: the action resolves it to an id.
+ * Keeping it symbolic is what makes this function pure and therefore testable —
+ * and this is the rule the owner called *"very critical"*, so it is worth
+ * testing rather than trusting.
+ */
+export interface NotifyTarget {
+  readonly who: 'assignee' | 'requester' | 'reviewers';
+  readonly kind:
+    | 'task_assigned'
+    | 'task_status_changed'
+    | 'task_blocked'
+    | 'review_requested'
+    | 'review_approved'
+    | 'revisions_requested';
+  readonly notice: NoticeEvent;
+}
+
+/**
+ * Everyone who should hear about one status change, and what each is told.
+ *
+ * ── ⚠️ THE RULE THIS ENCODES — owner, 2026-09-08 ────────────────────────────
+ *   *"if he puts it in Review, then the reviewer … will move it to Done. If a
+ *   team member thinks that he doesn't need a review, he can just put it in
+ *   Done… The notification is sent in both cases."*
+ *
+ * Two exits from a piece of delegated work, and BOTH have to reach whoever
+ * asked for it. That is not decoration: `todo → done` and `in_progress → done`
+ * now allow the assignee (task-machine.ts), so being told is what replaced the
+ * gate that used to stop them. A missed notification here is not a missed
+ * message, it is a piece of work closed with nobody the wiser.
+ *
+ * The three audiences, and why each exists:
+ *
+ *   · ASSIGNEE — told when somebody ELSE moved their work. Approved, sent back,
+ *     blocked, or simply moved. Never told about their own click.
+ *   · REQUESTER — the person who raised the task, told about the two exits and
+ *     nothing else. They do not need "moved to In Progress"; they need "this is
+ *     waiting on you" and "this is finished".
+ *   · REVIEWERS — the Admin/Coordinator broadcast, which survives for exactly
+ *     one case: work somebody raised for THEMSELVES and then submitted. There
+ *     is no requester to ask, so without it the submission sits in review with
+ *     nobody told it exists.
+ *
+ * ⚠️ Self-notification is filtered here as well as in `notify()`. The database
+ * layer already drops a notification whose recipient is the actor, so this is
+ * belt and braces — but a plan that LISTS a recipient it knows will be dropped
+ * is a plan that reads as broken the first time somebody debugs it.
+ */
+export function statusNotifyPlan(input: {
+  readonly to: TaskStatus;
+  readonly actorId: string;
+  readonly assigneeId: string | null;
+  readonly createdById: string;
+  readonly reason: string | null;
+  readonly statusLabel: string;
+}): readonly NotifyTarget[] {
+  const targets: NotifyTarget[] = [];
+
+  /* ── The assignee, whenever somebody else moved their work ───────────────── */
+  if (input.assigneeId && input.assigneeId !== input.actorId) {
+    targets.push({
+      who: 'assignee',
+      kind:
+        input.to === 'revisions' ? 'revisions_requested'
+        : input.to === 'done' ? 'review_approved'
+        : input.to === 'blocked' ? 'task_blocked'
+        : 'task_status_changed',
+      notice: noticeForStatus(input.to, input.reason, input.statusLabel),
+    });
+  }
+
+  /* ── The requester, on the two exits ─────────────────────────────────────── */
+  const isExit = input.to === 'in_review' || input.to === 'done';
+  const selfRaised = input.createdById === input.actorId;
+
+  if (isExit && !selfRaised) {
+    targets.push({
+      who: 'requester',
+      kind: input.to === 'in_review' ? 'review_requested' : 'task_status_changed',
+      notice: { event: input.to === 'in_review' ? 'review_requested' : 'completed' },
+    });
+  }
+
+  /* ── The fallback broadcast, for a submission with no requester ──────────── */
+  if (input.to === 'in_review' && selfRaised) {
+    targets.push({
+      who: 'reviewers',
+      kind: 'review_requested',
+      notice: { event: 'review_requested' },
+    });
+  }
+
+  return targets;
+}

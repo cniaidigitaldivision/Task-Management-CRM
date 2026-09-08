@@ -56,7 +56,7 @@ import {
   parseRecurrence,
 } from '@/lib/domain/recurrence';
 import { evaluateTransition, taskLoad } from '@/lib/domain/task-machine';
-import { noticeForStatus, taskNotice } from '@/lib/domain/task-notice';
+import { statusNotifyPlan, taskNotice } from '@/lib/domain/task-notice';
 import {
   MAX_CONCURRENT_TIMERS,
   TIMER_ALERTS,
@@ -1115,54 +1115,38 @@ export async function changeStatusAction(
         actorName: user.fullName,
       };
 
-      /* Who needs to know depends on which way the work moved. Notifying
-         everybody on every change is how a notification feed becomes wallpaper. */
-      if (task.assigneeId && task.assigneeId !== user.id) {
-        const kind =
-          to === 'revisions' ? 'revisions_requested'
-          : to === 'done' ? 'review_approved'
-          : to === 'blocked' ? 'task_blocked'
-          : 'task_status_changed';
-        await notify(tx, user.id, {
-          userId: task.assigneeId,
-          kind,
-          ...taskNotice(subject, noticeForStatus(to, reason?.trim() || null, STATUS_META[to].label)),
-          entityId: taskId,
-        });
-      }
+      /* ── ⚠️ WHO IS TOLD IS DECIDED IN THE DOMAIN, NOT HERE ─────────────────
+         `statusNotifyPlan` is pure and carries the reasoning; this loop only
+         resolves each symbolic audience to real ids and writes the rows. The
+         owner called this rule *"very critical"* — both exits from delegated
+         work must reach whoever asked for it, because being told is what
+         replaced the gate that used to stop the assignee closing it — and a
+         critical rule buried in a transaction callback is a rule with no test.
+         Every branch below is covered in lib/domain/__tests__/task-notice. */
+      const plan = statusNotifyPlan({
+        to,
+        actorId: user.id,
+        assigneeId: task.assigneeId,
+        createdById: task.createdById,
+        reason: reason?.trim() || null,
+        statusLabel: STATUS_META[to].label,
+      });
 
-      /* -- ⚠️ THE REQUESTER IS THE AUDIENCE FOR BOTH EXITS — owner, 2026-09-08
-         The person who raised and delegated the task is the one waiting on it,
-         and until now they were told about neither exit:
+      for (const target of plan) {
+        const message = { ...taskNotice(subject, target.notice), entityId: taskId };
 
-           · IN REVIEW went to every Admin and Coordinator in the division
-             EXCEPT them — a broadcast to people with no stake in this task,
-             which is how a bell stops being read. *"the notification should be
-             sent to the super admin or the admin, or whoever assigned the
-             task."*
-           · DONE notified nobody at all. The assignee could close delegated
-             work and the requester would find out by going to look.
+        if (target.who === 'assignee' && task.assigneeId) {
+          await notify(tx, user.id, { userId: task.assigneeId, kind: target.kind, ...message });
+          continue;
+        }
 
-         The second is load-bearing now that `todo -> done` and
-         `in_progress -> done` allow the assignee (task-machine.ts, same date).
-         Being told is what replaced the gate, so it cannot be best-effort. */
-      const requesterWaits =
-        (to === 'in_review' || to === 'done') && task.createdById !== user.id;
+        if (target.who === 'requester') {
+          await notify(tx, user.id, { userId: task.createdById, kind: target.kind, ...message });
+          continue;
+        }
 
-      if (requesterWaits) {
-        await notify(tx, user.id, {
-          userId: task.createdById,
-          kind: to === 'in_review' ? 'review_requested' : 'task_status_changed',
-          ...taskNotice(subject, { event: to === 'in_review' ? 'review_requested' : 'completed' }),
-          entityId: taskId,
-        });
-      }
-
-      /* ⚠️ THE BROADCAST SURVIVES FOR ONE CASE ONLY: work somebody raised for
-         themselves and then submitted. There is no requester to ask, so without
-         this the submission would sit in review with nobody told it exists.
-         Everything else now goes to one person on purpose. */
-      if (to === 'in_review' && task.createdById === user.id) {
+        /* The broadcast. ⚠️ Excludes the actor in SQL as well as in `notify()`:
+           the query is the cheaper place to drop a row nobody would receive. */
         const reviewers = await tx`
           select id from public.users
            where is_active and account_state = 'active'
@@ -1171,9 +1155,8 @@ export async function changeStatusAction(
         for (const reviewer of reviewers) {
           await notify(tx, user.id, {
             userId: reviewer.id as string,
-            kind: 'review_requested',
-            ...taskNotice(subject, { event: 'review_requested' }),
-            entityId: taskId,
+            kind: target.kind,
+            ...message,
           });
         }
       }
