@@ -503,21 +503,23 @@ export const PROJECT_TYPES = [
 ] as const;
 export type ProjectType = (typeof PROJECT_TYPES)[number];
 
-/* ── WHOSE TOOL IT IS ──────────────────────────────────────────────────────
+/* ── WHOSE TOOL IT IS: `client_kind`, WHICH ALREADY EXISTED ────────────────
    Owner: *"Also mention internal and external. For example maybe I will be
    creating this for some client but the social media posting is not included in
    that because that's a tool."*
 
-   ⚠️ ONLY MEANINGFUL FOR A TOOL, and migration 107's CHECK enforces that in
-   both directions — a tool must say which, and nothing else may claim one. A
-   client project is not "external"; the word has no meaning there. */
-export const TOOL_AUDIENCES = ['internal', 'external'] as const;
-export type ToolAudience = (typeof TOOL_AUDIENCES)[number];
+   ⚠️ THERE IS NO `ToolAudience` TYPE HERE, AND THERE WAS FOR ONE DAY. Migration
+   107 added a `tool_audience` column holding `internal | external`, and
+   `projects.client_kind` had held exactly those two words all along — the
+   control that asks it simply lives inside "What was sold", the one section a
+   tool does not get, so the duplication was invisible until the form refused to
+   create a tool at all.
 
-export const TOOL_AUDIENCE_LABEL: Readonly<Record<ToolAudience, string>> = {
-  internal: 'Internal — ours',
-  external: 'External — built for a client',
-};
+   `client_kind` is the survivor because it has readers: lib/domain/ceo-report.ts
+   splits the month into internal, external and unclassified on it. A tool built
+   for a client is external work and belongs in that half. Migration 108 removed
+   the duplicate; `ClientKindChoice` in components/project/package-fields.tsx is
+   the one control, rendered in two places. */
 
 /**
  * Whether this kind of project posts to social media at all.

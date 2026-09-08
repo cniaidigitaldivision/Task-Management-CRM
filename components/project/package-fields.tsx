@@ -200,44 +200,7 @@ export function PackageFields({
     <div className="space-y-5">
       {/* ---- Internal or external, and who for ---- */}
       <div className="space-y-2">
-        <p className="text-caption font-semibold text-text-primary">Who is this for?</p>
-        <ChoiceCards
-          ariaLabel="Internal or external"
-          name="clientKind"
-          value={clientKind}
-          onChange={setClientKind}
-          choices={[
-            {
-              value: 'internal',
-              label: 'Internal',
-              hint: 'Another Attari Group company',
-              icon: Building2,
-              token: 'accent-gold',
-            },
-            {
-              value: 'external',
-              label: 'External client',
-              hint: 'A paying client outside the group',
-              icon: Handshake,
-              token: 'accent-primary',
-            },
-            /* ⚠️ A third card, not an omission. Radios cannot be un-picked, so
-               without this the answer is one-way: an editor who ticked the wrong one
-               could never get back to "not recorded", which the old `<Select>`
-               offered as "Not set". It also stops a guess being the cheapest way out
-               — and the monthly report already had to grow an "unclassified" figure
-               because six projects were never classified, so a deliberate "not yet"
-               is worth more here than a coerced answer. */
-            {
-              value: '',
-              label: 'Not yet',
-              hint: 'Decide later — reports will show it as unclassified',
-              icon: HelpCircle,
-              token: 'text-tertiary',
-            },
-          ]}
-          columns={3}
-        />
+        <ClientKindChoice value={clientKind} onChange={setClientKind} />
 
         <Field
           label="Client"
@@ -402,5 +365,77 @@ function Included({
       <Icon className="h-3.5 w-3.5 shrink-0" strokeWidth={2} aria-hidden="true" />
       {label}
     </span>
+  );
+}
+
+
+/**
+ * Internal or external — the one commercial question a TOOL also has to answer.
+ *
+ * ── ⚠️ EXTRACTED RATHER THAN COPIED, 2026-09-08 ─────────────────────────────
+ * A tool project has no package, no posting rhythm and no monthly fee, so the
+ * whole "What was sold" section is absent for it — but it is still built either
+ * for ourselves or for a client, and lib/domain/ceo-report.ts splits the month
+ * on exactly that. `createProjectAction` requires `clientKind` for every type.
+ *
+ * The first attempt added a SECOND column, `tool_audience`, holding the same two
+ * words — because the control that already asked the question was hidden inside
+ * the section a tool had just removed. The owner found it immediately: the form
+ * refused to create a tool, naming a field that was not on screen. Migration 108
+ * undid the duplicate. One control, one column, rendered in two places.
+ */
+export function ClientKindChoice({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  return (
+    <>
+      <p className="text-caption font-semibold text-text-primary">Who is this for?</p>
+      <ChoiceCards
+        ariaLabel="Internal or external"
+        name="clientKind"
+        value={value}
+        onChange={onChange}
+        choices={[
+          {
+            value: 'internal',
+            label: 'Internal',
+            hint: 'Another Attari Group company',
+            icon: Building2,
+            token: 'accent-gold',
+          },
+          {
+            value: 'external',
+            label: 'External client',
+            hint: 'A paying client outside the group',
+            icon: Handshake,
+            token: 'accent-primary',
+          },
+          /* ⚠️ A third card, not an omission. Radios cannot be un-picked, so
+             without this the answer is one-way: an editor who ticked the wrong
+             one could never get back to "not recorded", which the old
+             `<Select>` offered as "Not set". It also stops a guess being the
+             cheapest way out — and the monthly report already had to grow an
+             "unclassified" figure because six projects were never classified,
+             so a deliberate "not yet" is worth more than a coerced answer.
+
+             ⚠️ Note that `createProjectAction` requires `clientKind`, so this
+             card is reachable on an EDIT and refused on a create. That
+             inconsistency predates the extraction and is left alone rather than
+             quietly changed under a bug fix. */
+          {
+            value: '',
+            label: 'Not yet',
+            hint: 'Decide later — reports will show it as unclassified',
+            icon: HelpCircle,
+            token: 'text-tertiary',
+          },
+        ]}
+        columns={3}
+      />
+    </>
   );
 }

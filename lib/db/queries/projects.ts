@@ -3,7 +3,6 @@ import 'server-only';
 import { dateOnly } from '../row-values';
 
 import type { ProjectStatus, ProjectType,
-  ToolAudience,
 } from '@/lib/domain/constants';
 
 import { withUser } from '../client';
@@ -33,8 +32,6 @@ function toProject(row: Record<string, unknown>): ProjectRow {
     description: (row.description as string | null) ?? null,
     status: row.status as ProjectStatus,
     statusReason: (row.status_reason as string | null) ?? null,
-    /* `PROJECT_SELECT` is `p.*`, so the column arrives without being named. */
-    toolAudience: (row.tool_audience as ToolAudience | null) ?? null,
     ownerId: row.owner_id as string,
     ownerName: (row.owner_name as string | null) ?? null,
     startDate: dateOnly(row.start_date),
@@ -239,8 +236,6 @@ export interface CreateProjectInput {
   readonly description?: string | null;
   readonly status?: ProjectStatus;
   readonly statusReason?: string | null;
-  /** Only for `type: 'tool'`; null for everything else. Migration 107. */
-  readonly toolAudience?: ToolAudience | null;
   readonly ownerId: string;
   readonly startDate?: string | null;
   /** 'HH:MM'. Optional companion to startDate — migration 020. */
@@ -305,8 +300,7 @@ export async function createProject(
       start_date, start_time, target_end_date, target_end_time, type_fields, created_by_id,
       client_kind, client_id, package_id, monthly_fee_pkr,
       assets_target_min, assets_target_max, reels_target_min, renews_on,
-      static_posts_per_day, reels_per_week, reel_days, posting_days,
-      tool_audience
+      static_posts_per_day, reels_per_week, reel_days, posting_days
     ) values (
       ${input.name.trim()},
       ${input.type}::public.project_type,
@@ -337,16 +331,7 @@ export async function createProject(
          expression is of type text[]". An empty array must also be an empty array
          and not null: null means "no reel days recorded", [] means "none". */
       ${input.reelDays ?? null}::smallint[],
-      ${input.postingDays ?? null}::smallint[],
-      /* ⚠️ NULL FOR EVERYTHING THAT IS NOT A TOOL, and migration 107's CHECK
-         refuses any other combination. The action sanitises it first, so a
-         stale form posting an audience alongside a client type is corrected
-         before it reaches here rather than raising a constraint error nobody
-         can read.
-
-         (No backticks in this comment: it sits inside a tagged template and one
-         would end the SQL string.) */
-      ${input.toolAudience ?? null}
+      ${input.postingDays ?? null}::smallint[]
     )
     returning id
   `;
@@ -530,10 +515,6 @@ export interface UpdateProjectInput {
   readonly description?: string | null;
   readonly status?: ProjectStatus;
   readonly statusReason?: string | null;
-  /** ⚠️ Absent means "leave it", null means "clear it" — the same convention
-   *  every other optional field here follows. A project changing type must send
-   *  one or the other, or the CHECK will refuse the row. */
-  readonly toolAudience?: ToolAudience | null;
   readonly ownerId?: string;
   readonly startDate?: string | null;
   /** 'HH:MM'. Optional companion to startDate — migration 020. */
@@ -577,7 +558,6 @@ export async function updateProject(
       description     = case when ${has('description')} then ${input.description ?? null} else description end,
       status          = case when ${has('status')} then ${input.status ?? null}::public.project_status else status end,
       status_reason   = case when ${has('statusReason')} then ${input.statusReason ?? null} else status_reason end,
-      tool_audience   = case when ${has('toolAudience')} then ${input.toolAudience ?? null} else tool_audience end,
       owner_id        = case when ${has('ownerId')} then ${input.ownerId ?? null}::uuid else owner_id end,
       start_date      = case when ${has('startDate')} then ${input.startDate ?? null}::date else start_date end,
       target_end_date = case when ${has('targetEndDate')} then ${input.targetEndDate ?? null}::date else target_end_date end,

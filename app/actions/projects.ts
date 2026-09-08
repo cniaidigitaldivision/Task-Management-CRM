@@ -31,8 +31,7 @@ import {
   PROJECT_TYPE_META,
   type ProjectStatus,
   type ProjectType,
-  TOOL_AUDIENCES,
-  type ToolAudience,
+  hasSocialPresence,
 } from '@/lib/domain/constants';
 import { cadenceProblem, contractTargets, type Cadence } from '@/lib/domain/cadence';
 import { can } from '@/lib/domain/permissions';
@@ -149,7 +148,9 @@ const TYPE_FIELDS: Readonly<Record<ProjectType, readonly string[]>> = {
     'contract_end',
     'is_billable',
   ],
-  business: ['target_completion'],
+  /* Nothing type-specific. See the note in project-dialog.tsx — the
+     completion date was removed on 2026-09-08. */
+  business: [],
   self_promotion: ['target_publish_date'],
   /* ── A TOOL — owner, 2026-09-08 ─────────────────────────────────────────
      `tool_audience` is NOT here: it is a real column on `projects` (migration
@@ -297,36 +298,13 @@ const REQUIRED_TYPE_FIELDS: Readonly<
     ['client_name', 'Client name'],
     ['contract_end', 'Contract end'],
   ],
-  business: [['target_completion', 'Target completion']],
+  business: [],
   self_promotion: [['target_publish_date', 'Target publish date']],
   /* Nothing compulsory. A tool is often opened the moment somebody agrees to
      build it, when the stack is exactly what has not been decided yet. */
   tool: [],
   other: [['requested_by', 'Who asked for this']],
 };
-
-/**
- * The tool audience the database will accept for this type.
- *
- * ── ⚠️ THE TYPE DECIDES, NOT THE FORM ──────────────────────────────────────
- * Migration 107's CHECK refuses a tool with no audience AND anything else that
- * has one. Both refusals are correct and neither produces a sentence a person
- * can act on — a raw constraint error names the constraint, not the field.
- *
- * So this normalises rather than validates: a project that is not a tool gets
- * null whatever was posted, and a tool with a missing or unrecognised value
- * gets 'internal', which is the common case and the safe one — it grants
- * nothing. The specific way this goes wrong in practice is somebody switching
- * an existing project's type in an open form, where the browser happily posts
- * the audience select that is no longer on screen.
- */
-function toolAudienceFor(form: FormData, type: ProjectType): ToolAudience | null {
-  if (type !== 'tool') return null;
-  const posted = str(form, 'toolAudience');
-  return (TOOL_AUDIENCES as readonly string[]).includes(posted)
-    ? (posted as ToolAudience)
-    : 'internal';
-}
 
 function collectTypeFields(form: FormData, type: ProjectType): Record<string, unknown> {
   const out: Record<string, unknown> = {};
@@ -504,6 +482,11 @@ export async function createProjectAction(
   const required: ReadonlyArray<readonly [string, string]> = [
     ['startDate', 'Give the project a start date.'],
     ['startTime', 'Give the project a start time.'],
+    /* ⚠️ ASKED OF A TOOL TOO, and it is the same question. `client_kind` is
+       internal-or-external and always was; the CEO report splits its month on
+       it. A tool built for a client is external work and belongs in that half,
+       so the field stays compulsory here and the form asks it on its own for a
+       tool — see the note in project-dialog.tsx. */
     ['clientKind', 'Say whether this is internal or for an external client.'],
     ['description', 'Write one line describing what this project is for.'],
   ];
@@ -511,17 +494,32 @@ export async function createProjectAction(
     if (!str(form, key)) return refuse(message, form);
   }
 
-  /* The rhythm is the commitment now, so a project without one has agreed to
-     nothing — which the monthly report would show as untargeted for ever. */
-  if (!str(form, 'staticPostsPerDay') && !str(form, 'reelsPerWeek')) {
-    return refuse('Set the posting rhythm — static posts a day, reels a week, or both.', form);
-  }
-  if (form.getAll('postingDays').length === 0) {
-    return refuse('Pick at least one day of the week the project posts on.', form);
-  }
+  /* ── ⚠️ THE POSTING RULES DO NOT APPLY TO A TOOL — owner, 2026-09-08 ──────
+     *"When I choose internal or external it's not creating the project."*
 
-  const cadenceError = cadenceRefusal(form);
-  if (cadenceError) return refuse(cadenceError, form);
+     Choosing Tool removes the "What was sold" section from the form, because a
+     tool has no posting agreement to describe. These three checks still
+     demanded its fields, so a tool could be filled in perfectly and never
+     created — refused for a rhythm the form had stopped asking about, with the
+     message naming a control that was no longer on screen.
+
+     ⚠️ THE GUARD IS `hasSocialPresence`, NOT `type !== 'tool'`. The same
+     predicate hides the section, filters the Studio and gates the content
+     kinds; a fourth hand-written comparison is the one that gets forgotten when
+     a second non-posting type arrives. */
+  if (hasSocialPresence(type)) {
+    /* The rhythm is the commitment now, so a project without one has agreed to
+       nothing — which the monthly report would show as untargeted for ever. */
+    if (!str(form, 'staticPostsPerDay') && !str(form, 'reelsPerWeek')) {
+      return refuse('Set the posting rhythm — static posts a day, reels a week, or both.', form);
+    }
+    if (form.getAll('postingDays').length === 0) {
+      return refuse('Pick at least one day of the week the project posts on.', form);
+    }
+
+    const cadenceError = cadenceRefusal(form);
+    if (cadenceError) return refuse(cadenceError, form);
+  }
 
   /* The type's own questions are compulsory too — they are what the type exists to
      ask, and a Client project with no client name is the shape being complained
@@ -552,7 +550,6 @@ export async function createProjectAction(
       targetEndDate: str(form, 'targetEndDate') || null,
       targetEndTime: str(form, 'targetEndTime') || null,
       typeFields: collectTypeFields(form, type),
-      toolAudience: toolAudienceFor(form, type),
       ...commercialFrom(form),
     });
 
@@ -731,12 +728,6 @@ export async function updateProjectAction(
       targetEndDate: str(form, 'targetEndDate') || null,
       targetEndTime: str(form, 'targetEndTime') || null,
       typeFields: { ...existing.typeFields, ...collectTypeFields(form, existing.type) },
-      /* ⚠️ `existing.type`, because the edit form does not offer a type change —
-         it is fixed at creation, since the reference prefix is derived from it
-         and references are permanent. Reading the posted value here would let a
-         hand-crafted request move a client project to `tool` and strip its
-         package in one step. */
-      toolAudience: toolAudienceFor(form, existing.type),
       ...commercialFrom(form),
     });
 

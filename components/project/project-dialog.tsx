@@ -30,7 +30,7 @@ import { ToggleGroup } from '@/components/ui/toolbar';
 import { cn } from '@/lib/utils';
 import type { ProjectRow } from '@/lib/db/queries/types';
 
-import { PackageFields } from './package-fields';
+import { ClientKindChoice, PackageFields } from './package-fields';
 import {
   PROJECT_STATUSES,
   PROJECT_STATUS_REQUIRES_REASON,
@@ -38,8 +38,6 @@ import {
   PROJECT_TYPE_META,
   type ProjectStatus,
   type ProjectType,
-  TOOL_AUDIENCES,
-  TOOL_AUDIENCE_LABEL,
   hasSocialPresence,
 } from '@/lib/domain/constants';
 
@@ -106,9 +104,23 @@ const TYPE_FIELD_FORMS: Record<
     { name: 'contact_email', label: 'Contact email', type: 'email', hint: 'Optional.' },
     { name: 'contact_phone', label: 'Contact phone', hint: 'Optional.' },
   ],
-  business: [
-    { name: 'target_completion', label: 'Target completion', type: 'date', required: true },
-  ],
+  /* ── ⚠️ "TARGET COMPLETION" REMOVED — owner, 2026-09-08 ──────────────────
+     *"The target completion is obviously for the monthly target… how much in
+     assets, how much of everything we will provide on a monthly basis… Target
+     completion is automatically monthly, right? … It should be the start
+     date."*
+
+     It was a required date on every business project and it asked for something
+     nobody could honestly give: an internal build's targets are the MONTHLY
+     asset and reel numbers in "What was sold", and its meaningful date is when
+     it started — which section 2 already asks for, and pre-fills with today.
+     So the field was a second, weaker answer to a question already answered,
+     compulsory, and forcing people to invent a date.
+
+     Same reasoning the end date already carries in this file: demanding a date
+     nobody agreed to gets a made-up one. Existing values stay in `type_fields`
+     harmlessly; nothing reads them. */
+  business: [],
   self_promotion: [
     { name: 'target_publish_date', label: 'Target publish date', type: 'date', required: true },
   ],
@@ -328,6 +340,23 @@ export function ProjectDialog({
   const [duration, setDuration] = React.useState<EventDuration>(
     (project?.typeFields?.duration as EventDuration) ?? 'single',
   );
+  /* ⚠️ ONLY READ WHEN THE PACKAGE SECTION IS ABSENT. When it is present,
+     `PackageFields` owns this control and its own state; two components posting
+     the same input name would submit the field twice. See `ClientKindChoice`. */
+  const [clientKind, setClientKind] = React.useState(project?.clientKind ?? '');
+
+  /* ── ⚠️ THE STEP NUMBERS COUNT WHAT IS ON SCREEN ─────────────────────────
+     A tool has no "What was sold" section and a business now has no
+     type-specific questions, so a fixed "3 of 4" and "4 of 4" would leave gaps
+     — a form that says "step 4 of 4" directly after step 2 reads as a page that
+     failed to load. */
+  const showsPackage = hasSocialPresence(type);
+  /* Whether the LAST section has anything beyond the description — the type's
+     own questions, or a tool's internal/external choice. Only its heading
+     depends on this; the section itself always renders. */
+  const showsTypeFields = fields.length > 0 || !hasSocialPresence(type);
+  const totalSteps = 3 + (showsPackage ? 1 : 0);
+
   const isSingleDayEvent = type === 'event' && duration === 'single';
 
   /* Controlled, because a single-day event submits this same value as its end
@@ -505,7 +534,7 @@ export function ProjectDialog({
 
         <Section
           step={1}
-          total={4}
+          total={totalSteps}
           title="What kind of work is this?"
           hint={
             isEdit
@@ -599,7 +628,7 @@ export function ProjectDialog({
 
         <Section
           step={2}
-          total={4}
+          total={totalSteps}
           title="When does it run?"
           hint="All optional — but the calendar and the workload window both read these."
           icon={CalendarRange}
@@ -704,7 +733,7 @@ export function ProjectDialog({
         {hasSocialPresence(type) && (
         <Section
           step={3}
-          total={4}
+          total={totalSteps}
           title="What was sold"
           hint="The package fills these in; what you save is what this client was promised."
           icon={Handshake}
@@ -730,45 +759,50 @@ export function ProjectDialog({
         </Section>
         )}
 
-        {/* ---- The type-specific half of the form (doc 15 §3) ---- */}
+        {/* ---- The type-specific half of the form (doc 15 §3) ----
+             ⚠️ ALWAYS RENDERED, AND IT WAS BRIEFLY NOT. This section also holds
+             `description`, which `createProjectAction` requires of EVERY type —
+             so hiding it for a Business project (whose only type-specific field
+             was removed on 2026-09-08) refused every business project for a
+             missing description, with the box nowhere on screen. Exactly the
+             bug this session started with, in a new place.
+
+             Only the HEADING varies: with no type-specific questions there is
+             nothing to call "Business details". */}
         <Section
-          step={4}
-          total={4}
-          title={`${PROJECT_TYPE_META[type].label} details`}
-          hint={`The questions only a ${PROJECT_TYPE_META[type].label.toLowerCase()} project needs.`}
+          step={showsPackage ? 4 : 3}
+          total={totalSteps}
+          title={showsTypeFields ? `${PROJECT_TYPE_META[type].label} details` : 'In one line'}
+          hint={
+            showsTypeFields
+              ? `The questions only a ${PROJECT_TYPE_META[type].label.toLowerCase()} project needs.`
+              : 'What this project is for, in a sentence.'
+          }
           icon={FileText}
         >
-          {/* ── ⚠️ A REAL COLUMN, NOT A `type_fields` KEY ────────────────────
+          {/* ── ⚠️ THE SAME CONTROL THE PACKAGE SECTION USES, NOT A NEW ONE ──
               Owner: *"Also mention internal and external. For example maybe I
               will be creating this for some client but the social media posting
               is not included in that because that's a tool."*
 
-              `tool_audience` lives on `projects` with a CHECK behind it
-              (migration 107) because the database has to be able to trust it:
-              a tool must say which, and nothing that is not a tool may claim
-              one. Everything else in this section is loose jsonb, where no such
-              rule can be expressed.
+              That question is `clientKind`, which the product has always had:
+              `createProjectAction` requires it for every type, and
+              lib/domain/ceo-report.ts splits the month into internal, external
+              and unclassified on it. It lives inside "What was sold", which a
+              tool does not have — so a tool renders the one control from that
+              section that still applies, and nothing else.
 
-              Required, and defaulted to internal — the common case, and the
-              constraint refuses a tool with no answer anyway. */}
-          {type === 'tool' && (
-            <Field
-              label="Whose tool is it?"
-              htmlFor="toolAudience"
-              hint="Internal is ours; external is built for a client. It does not add social posting either way."
-              className="mb-3"
-            >
-              <Select
-                id="toolAudience"
-                name="toolAudience"
-                defaultValue={project?.toolAudience ?? 'internal'}
-                required
-                options={TOOL_AUDIENCES.map((value) => ({
-                  value,
-                  label: TOOL_AUDIENCE_LABEL[value],
-                }))}
-              />
-            </Field>
+              ⚠️ THE FIRST VERSION ADDED A SECOND COLUMN INSTEAD. `tool_audience`
+              held the same two words, and the form then refused to create a tool
+              at all: the server still wanted `clientKind`, which was no longer
+              on screen. Migration 108 removed the duplicate. */}
+          {!hasSocialPresence(type) && (
+            <div className="mb-4 space-y-2">
+              <ClientKindChoice value={clientKind} onChange={setClientKind} />
+              <p className="text-micro text-text-tertiary">
+                Internal is ours; external is built for a client. Neither adds social posting.
+              </p>
+            </div>
           )}
 
           <div className="grid gap-3 sm:grid-cols-2">
