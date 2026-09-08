@@ -10,7 +10,7 @@ import {
 } from '@/app/actions/project-remarks';
 import { Avatar } from '@/components/ui/avatar';
 import { Dialog } from '@/components/ui/dialog';
-import { ROLE_LABEL } from '@/lib/domain/constants';
+import { ROLE_LABEL, type Role } from '@/lib/domain/constants';
 import type { RemarkRow } from '@/lib/db/queries/project-remarks';
 import { cn } from '@/lib/utils';
 
@@ -59,6 +59,18 @@ export function ProjectRemarks({
   /** From the server, so the badge is right before anything is fetched. */
   initialCount,
   currentUserId,
+  /* ── ⚠️ YOUR NAME AND FACE, NOT ONLY YOUR ID — owner, 2026-09-08 ──────────
+     *"You should display my image with my name. You are displaying it at the
+     bottom left in the left sidebar, in a circle, with my profile picture and
+     my name. In that way I want that."*
+
+     The composer was an unattributed box. Showing who is about to speak is
+     what makes it read as a conversation rather than a form — and it answers
+     the question somebody asks before writing anything on a shared record:
+     under whose name is this going out? */
+  currentUserName,
+  currentUserAvatarUrl,
+  currentUserRole,
   /** `project.edit` and above may remove anybody's; everyone may remove their own. */
   canModerate,
 }: {
@@ -66,6 +78,9 @@ export function ProjectRemarks({
   projectName: string;
   initialCount: number;
   currentUserId: string;
+  currentUserName: string;
+  currentUserAvatarUrl: string | null;
+  currentUserRole: Role;
   canModerate: boolean;
 }) {
   const [open, setOpen] = React.useState(false);
@@ -207,15 +222,35 @@ export function ProjectRemarks({
 
             {remarks?.map((remark) => {
               const mine = remark.authorId === currentUserId;
-              const name = remark.authorName ?? 'Former member';
+
+              /* ⚠️ THREE CASES, AND THEY USED TO BE TWO. A null name meant
+                 "Former member", which is right only when `author_id` is null
+                 too — a deleted account. Until migration 105 a Team Member also
+                 got null names for everybody, because `users_select` hides the
+                 staff table from them, so live colleagues were labelled as gone.
+                 The reader no longer produces that, and this keeps the two
+                 states apart anyway: a missing name beside a real author id is
+                 a fault to say plainly, not a departure to invent. */
+              const name = mine
+                ? currentUserName
+                : (remark.authorName ?? (remark.authorId ? 'Someone' : 'Former member'));
               return (
                 <article key={remark.id} className="flex items-start gap-2.5">
-                  <Avatar name={name} src={remark.authorAvatarUrl} size="sm" />
+                  <Avatar
+                    name={name}
+                    src={mine ? currentUserAvatarUrl : remark.authorAvatarUrl}
+                    size="sm"
+                  />
 
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                      {/* ⚠️ THE NAME, ALWAYS — even when it is yours. "You"
+                          alone was shorter and left a thread of your own notes
+                          with nobody's name in it, which is not what somebody
+                          scrolling back a month wants to read. */}
                       <span className="text-caption font-semibold text-text-primary">
-                        {mine ? 'You' : name}
+                        {name}
+                        {mine && <span className="font-normal text-text-tertiary"> (you)</span>}
                       </span>
                       {remark.authorRole && (
                         <span className="text-micro text-text-tertiary">
@@ -253,6 +288,18 @@ export function ProjectRemarks({
 
           {/* ── The composer, in the same dialog ──────────────────────────── */}
           <div className="border-t border-border-subtle pt-3">
+            {/* Who is about to speak, in the shape the sidebar already uses:
+                the picture, the name, the designation. */}
+            <div className="mb-2 flex items-center gap-2">
+              <Avatar name={currentUserName} src={currentUserAvatarUrl} size="sm" />
+              <span className="min-w-0 text-caption font-semibold text-text-primary">
+                {currentUserName}
+              </span>
+              <span className="truncate text-micro text-text-tertiary">
+                {ROLE_LABEL[currentUserRole]}
+              </span>
+            </div>
+
             <label htmlFor="remark-body" className="sr-only">
               Add a remark
             </label>

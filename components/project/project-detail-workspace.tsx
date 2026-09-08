@@ -204,7 +204,11 @@ export function ProjectDetailWorkspace({
   calendarTasks: readonly CalendarTask[];
   /** Who is looking. Needed so the Tasks tab can open the create form in place
    *  and so a Member can change the status of their own task from the list. */
-  currentUser: { id: string; role: Role };
+  /* ⚠️ NAME AND PICTURE AS WELL AS ID AND RANK. The remarks composer shows who
+     is about to speak, the way the sidebar does — see ProjectRemarks. Widened
+     here rather than passed as three more props, because every one of them is
+     the same person. */
+  currentUser: { id: string; role: Role; fullName: string; avatarUrl: string | null };
   /** 'YYYY-MM-01' and 'YYYY-MM-DD', from the server.
    *
    *  ⚠️ Passed in rather than read here. A component that reads the clock is not a
@@ -389,6 +393,9 @@ export function ProjectDetailWorkspace({
               projectName={project.name}
               initialCount={remarkCount}
               currentUserId={currentUser.id}
+              currentUserName={currentUser.fullName}
+              currentUserAvatarUrl={currentUser.avatarUrl}
+              currentUserRole={currentUser.role}
               /* Removing somebody else's note is moderation, which is the same
                  authority as editing the project. Your own is always yours. */
               canModerate={canManage}

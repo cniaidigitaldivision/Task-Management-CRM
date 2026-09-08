@@ -183,6 +183,22 @@ export function ProjectFilesTab({
   const [renaming, setRenaming] = React.useState<DocumentRow | null>(null);
   const [deleting, setDeleting] = React.useState<DocumentRow | null>(null);
 
+  /* ── ⚠️ BULK DELETE — owner, 2026-09-08 ───────────────────────────────────
+     *"In the same way I can select multiple files to delete, right? Right now
+     it's giving me a download option and a clear option for multiple selection
+     but it should also give me a delete option."*
+
+     The tick boxes and the bulk bar already existed; deleting was the one thing
+     they could not do, so removing five files meant five trips through the row
+     menu and five confirmations.
+
+     `deletingPicked` holds the confirmation, and `bulkResult` what happened —
+     kept apart because a partial failure has to survive the dialog closing. */
+  const [deletingPicked, setDeletingPicked] = React.useState(false);
+  const [bulkProgress, setBulkProgress] = React.useState<{ done: number; total: number } | null>(
+    null,
+  );
+
   /* Only the kinds actually present, commonest first — see the header. */
   const kindsPresent = React.useMemo(() => {
     const seen = new Map<FileKind, number>();
@@ -332,6 +348,76 @@ export function ProjectFilesTab({
     }
   };
 
+  /**
+   * Delete everything ticked, one request each.
+   *
+   * ── ⚠️ A LOOP OVER THE EXISTING ACTION, NOT A NEW BULK ENDPOINT ───────────
+   * `deleteDocumentAction` checks `document.manage`, removes the stored object
+   * and writes one audit entry per file. A bulk endpoint would have to repeat
+   * all three, and the audit trail is the part that must not be approximated:
+   * "5 documents deleted" as a single line cannot answer which five. One call
+   * per file keeps one audit row per file, for free.
+   *
+   * ⚠️ SEQUENTIAL, and it does NOT stop at the first failure. A file somebody
+   * may not delete, or one already gone, must not strand the rest — the count
+   * at the end says how many went and how many did not.
+   *
+   * ⚠️ NOT CAPPED, unlike the download beside it. That cap exists because each
+   * download opens a browser tab and a burst gets blocked; a delete opens
+   * nothing, so the only reason to limit it would be arbitrary.
+   */
+  const deletePicked = async () => {
+    const batch = pickedDocs;
+    if (batch.length === 0) return;
+
+    setDeletingPicked(false);
+    setNote(null);
+    setBusy('bulk-delete');
+    setBulkProgress({ done: 0, total: batch.length });
+
+    let removed = 0;
+    const refused: string[] = [];
+
+    for (const doc of batch) {
+      try {
+        const result = await deleteDocumentAction(doc.id);
+        if (result.ok) removed += 1;
+        else refused.push(doc.name);
+      } catch {
+        refused.push(doc.name);
+      }
+      setBulkProgress((prev) => (prev ? { ...prev, done: prev.done + 1 } : prev));
+    }
+
+    setBulkProgress(null);
+    setBusy(null);
+    /* ⚠️ Cleared whatever happened. A file that IS gone must not stay ticked,
+       and one that refused is named in the note rather than left selected —
+       pressing delete again would only refuse again. */
+    setPicked(new Set());
+
+    if (refused.length === 0) {
+      setNote({
+        ok: true,
+        message: removed === 1 ? 'The file was deleted.' : `${removed} files were deleted.`,
+      });
+    } else {
+      /* Names the first few rather than all of them: a note listing forty
+         filenames is a wall nobody reads. */
+      const named = refused.slice(0, 3).join(', ');
+      const rest = refused.length > 3 ? ` and ${refused.length - 3} more` : '';
+      setNote({
+        ok: false,
+        error:
+          removed > 0
+            ? `${removed} deleted. These could not be: ${named}${rest}.`
+            : `Nothing was deleted. ${named}${rest} could not be removed.`,
+      });
+    }
+
+    onChanged();
+  };
+
   /** ⚠️ CAPPED AT FIVE, AND IT SAYS SO. Each download opens a tab, and every
    *  browser blocks a burst of them — so twenty ticked files would silently
    *  produce five downloads and fifteen blocked popups. Better to do five and
@@ -461,9 +547,31 @@ export function ProjectFilesTab({
               <Download className="size-4" strokeWidth={2.25} aria-hidden="true" />
               Download
             </Button>
+            {/* ⚠️ SAME GUARD AS THE ROW MENU. `canManage` is `document.manage`
+                — the permission `deleteDocumentAction` itself checks — so the
+                bulk button cannot offer what a single row would refuse. */}
+            {canManage && (
+              <Button
+                variant="danger"
+                size="sm"
+                disabled={busy !== null}
+                onClick={() => setDeletingPicked(true)}
+              >
+                <Trash2 className="size-4" strokeWidth={2.25} aria-hidden="true" />
+                Delete
+              </Button>
+            )}
             <Button variant="ghost" size="sm" onClick={() => setPicked(new Set())}>
               Clear
             </Button>
+
+            {/* Progress, because deleting twelve files is twelve round trips
+                and a frozen bar reads as a hang. */}
+            {bulkProgress && (
+              <span className="text-caption text-text-secondary tabular-nums">
+                Deleting {bulkProgress.done} of {bulkProgress.total}…
+              </span>
+            )}
           </div>
         )}
 
@@ -860,6 +968,18 @@ export function ProjectFilesTab({
         onRename={(name) => {
           if (renaming) void run(renaming.id, () => renameDocumentAction(renaming.id, name));
         }}
+      />
+
+      {/* ⚠️ ITS OWN DIALOG, NOT `DeleteDialog` WITH A LIST. That one names the
+          file and explains the Drive-only case per document; a batch can hold
+          both kinds at once, so it says what is true of the batch and lists what
+          is about to go. */}
+      <DeletePickedDialog
+        open={deletingPicked}
+        documents={pickedDocs}
+        busy={busy !== null}
+        onClose={() => setDeletingPicked(false)}
+        onDelete={() => void deletePicked()}
       />
 
       <DeleteDialog
@@ -1362,6 +1482,83 @@ function RenameForm({
  *   held here  the row goes AND the file is destroyed, unrecoverably
  *   in Drive   the row goes and the Drive file is untouched, deliberately
  * ------------------------------------------------------------------------- */
+function DeletePickedDialog({
+  open,
+  documents,
+  busy,
+  onClose,
+  onDelete,
+}: {
+  open: boolean;
+  documents: readonly DocumentRow[];
+  busy: boolean;
+  onClose: () => void;
+  onDelete: () => void;
+}) {
+  /* A file that lives only in Google Drive is de-registered rather than
+     destroyed, and a batch can hold both kinds — so the wording covers both
+     rather than picking one and being wrong about the rest. */
+  const driveOnly = documents.filter((d) => d.driveFileId !== null && d.storagePath === null);
+  const stored = documents.length - driveOnly.length;
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      size="sm"
+      title={documents.length === 1 ? 'Delete this file?' : `Delete ${documents.length} files?`}
+      footer={
+        <>
+          <Button variant="ghost" size="md" onClick={onClose} disabled={busy}>
+            Keep them
+          </Button>
+          <Button variant="danger" size="md" disabled={busy} onClick={onDelete}>
+            {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
+            {documents.length === 1 ? 'Delete it' : `Delete ${documents.length}`}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <p className="text-caption leading-relaxed text-text-secondary">
+          {stored > 0 && (
+            <>
+              This deletes{' '}
+              <span className="font-semibold text-text-primary">
+                {stored === 1 ? 'one file' : `${stored} files`}
+              </span>{' '}
+              and the stored copies with them. It cannot be undone.
+            </>
+          )}
+          {stored > 0 && driveOnly.length > 0 && ' '}
+          {driveOnly.length > 0 && (
+            <>
+              {driveOnly.length === 1 ? 'One file lives' : `${driveOnly.length} files live`} only in
+              Google Drive, so {driveOnly.length === 1 ? 'it comes' : 'they come'} off this
+              project&rsquo;s list and out of the register — nothing in Drive is touched.
+            </>
+          )}
+        </p>
+
+        {/* ⚠️ THE LIST IS THE POINT OF THIS DIALOG. "Delete 12 files?" without
+            naming them asks somebody to trust a number against a selection they
+            made across two screens of scrolling. */}
+        <ul className="max-h-40 space-y-0.5 overflow-y-auto rounded-lg border border-border-subtle px-2.5 py-2">
+          {documents.map((doc) => (
+            <li key={doc.id} className="truncate text-micro text-text-secondary">
+              {doc.name}
+            </li>
+          ))}
+        </ul>
+
+        <p className="text-micro text-text-tertiary">
+          Each deletion is recorded in the audit log against your name.
+        </p>
+      </div>
+    </Dialog>
+  );
+}
+
 function DeleteDialog({
   document: doc,
   busy,

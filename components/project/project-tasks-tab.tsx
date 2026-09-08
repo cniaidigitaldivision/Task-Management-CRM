@@ -625,8 +625,29 @@ export function ProjectTasksTab({
             ⚠️ z-50, BELOW the notice at z-60: the result of pressing Delete
             must not appear behind the button that caused it. */}
         {selected.length > 0 && (
-          <div className="fixed inset-x-0 bottom-4 z-50 flex justify-center px-4">
-            <div className="flex items-center gap-3 rounded-xl border border-border-default bg-bg-surface px-3.5 py-2.5 shadow-lg">
+          /* ── ⚠️ `pointer-events-none` ON THE WRAPPER — owner, 2026-09-08 ────
+             *"I can select only one task at a time… The checkboxes are appearing
+             but I can't check multiple."*
+
+             The bar is centred by a `fixed inset-x-0` container, so that
+             container is a transparent strip spanning the FULL WIDTH of the
+             viewport at the height of the bar. Ticking the first row made the
+             bar appear — and from that moment the strip sat over every table row
+             behind it, catching the clicks meant for their checkboxes. The
+             second tick did nothing, which reads exactly as "multi-select is
+             broken".
+
+             Nothing was wrong with the selection state: `setSelected` appends
+             correctly and always did. The click never reached the input.
+
+             The wrapper now passes clicks through and only the bar itself takes
+             them — the same fix, and the same reasoning, as the toast stack,
+             whose own note warns that "an invisible column does not swallow
+             clicks on the page beneath". `components/task/bulk-bar.tsx` avoids
+             it a third way, by being `sticky … w-fit` rather than full-width,
+             which is why the /tasks page never showed this. */
+          <div className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex justify-center px-4">
+            <div className="pointer-events-auto flex items-center gap-3 rounded-xl border border-border-default bg-bg-surface px-3.5 py-2.5 shadow-lg">
               <span className="text-caption text-text-secondary">
                 {selected.length} selected
               </span>

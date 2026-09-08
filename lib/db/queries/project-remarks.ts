@@ -52,14 +52,20 @@ export async function listProjectRemarks(
   actorId: string,
   projectId: string,
 ): Promise<RemarkRow[]> {
+  /* ── ⚠️ THROUGH A FUNCTION, BECAUSE THE OBVIOUS JOIN LIES TO A MEMBER ─────
+     This read `left join public.users` until 2026-09-08, and the owner found
+     what that does: `users_select` lets a Team Member see exactly one row —
+     their own — so the join returned NULL for every other author and the modal
+     labelled colleagues "Former member".
+
+     `app.project_remarks_with_authors` is SECURITY DEFINER and checks
+     `app.project_is_visible` itself before returning anything, so it discloses
+     the author of a remark the caller could already read and nothing else.
+     Migration 105 has the full argument, including why widening `users_select`
+     would have been the wrong fix. */
   const rows = await withUser(actorId, (tx) => tx`
-    select r.id, r.body, r.created_at,
-           r.author_id, u.full_name as author_name,
-           u.avatar_url as author_avatar_url, u.role as author_role
-      from public.project_remarks r
-      left join public.users u on u.id = r.author_id
-     where r.project_id = ${projectId}::uuid
-     order by r.created_at
+    select id, body, created_at, author_id, author_name, author_avatar_url, author_role
+      from app.project_remarks_with_authors(${projectId}::uuid)
   `);
 
   return (rows as Array<Record<string, unknown>>).map((row) => ({

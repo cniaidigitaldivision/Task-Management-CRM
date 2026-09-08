@@ -247,7 +247,12 @@ export default async function ProjectPage({
            somebody to /tasks to do it — owner, 2026-08-22: *"When I click Add
            Task, the form should pop up here. Don't bring me to that task table
            or task page."* */
-        currentUser={{ id: user.id, role: user.role }}
+        currentUser={{
+          id: user.id,
+          role: user.role,
+          fullName: user.fullName,
+          avatarUrl: user.avatarUrl,
+        }}
         placements={placements}
         driveFolders={driveFolders}
         dailyLookbackFrom={boardFrom}
