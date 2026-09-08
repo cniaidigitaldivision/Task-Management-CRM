@@ -2,10 +2,11 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { ChevronRight, FolderPlus, LayoutGrid, Package, Pencil, Rows3 } from 'lucide-react';
+import { ChevronRight, FolderPlus, LayoutGrid, Package, Pencil, Rows3, X } from 'lucide-react';
 
 import { Button, IconButton } from '@/components/ui/button';
 import { Card, CardBody } from '@/components/ui/card';
+import { SearchInput } from '@/components/ui/input';
 import { IconTile } from '@/components/ui/icon-tile';
 import { Pagination, usePagination } from '@/components/ui/pagination';
 import {
@@ -23,6 +24,7 @@ import {
   type ProjectType,
 } from '@/lib/domain/constants';
 
+import { matchesSearch, searchTerms } from '@/lib/view/project-search';
 import { cn } from '@/lib/utils';
 
 import { ProjectDelivery, PlatformStrip } from './project-delivery';
@@ -77,6 +79,16 @@ export function ProjectsWorkspace({
 }) {
   const [type, setType] = React.useState<ProjectType | 'all'>('all');
   const [status, setStatus] = React.useState<ProjectStatus | 'all'>('all');
+
+  /* ── ⚠️ SEARCH — owner, 2026-09-08 ────────────────────────────────────────
+     *"the projects are increasing day by day so it's very difficult to search
+     for some specific project."*
+
+     Held in state rather than the URL. The type and status filters are not in
+     the URL either, and a half-typed query in the address bar produces a
+     history entry per keystroke — the back button then walks somebody backwards
+     through their own typing instead of leaving the page. */
+  const [query, setQuery] = React.useState('');
   const [creating, setCreating] = React.useState(false);
   const [editing, setEditing] = React.useState<ProjectRow | null>(null);
 
@@ -86,10 +98,15 @@ export function ProjectsWorkspace({
      for comparing many projects on one figure, which cards are bad at. */
   const [view, setView] = React.useState<'grid' | 'list'>('grid');
 
+  /* Split once per render rather than once per project — see `searchTerms`.
+     The matching rule itself, and the argument for which fields it reads, is in
+     lib/view/project-search.ts where it can be tested. */
+  const terms = searchTerms(query);
+
   const visible = projects.filter((project) => {
     if (type !== 'all' && project.type !== type) return false;
     if (status !== 'all' && project.status !== status) return false;
-    return true;
+    return matchesSearch(project, terms);
   });
 
   const pager = usePagination(visible);
@@ -111,6 +128,31 @@ export function ProjectsWorkspace({
       />
 
       <Toolbar aria-label="Project filters">
+        {/* ⚠️ FIRST IN THE BAR, AND IT GROWS. Search is the control somebody
+            reaches for when the list is long, which is precisely when the other
+            filters have stopped being enough. `min-w-0` on the wrapper is
+            load-bearing — see SearchInput's own note about a flex child
+            refusing to shrink below its content width. */}
+        <div className="relative w-full min-w-0 sm:w-64">
+          <SearchInput
+            label="Search projects"
+            placeholder="Search projects…"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            size="md"
+          />
+          {query && (
+            <button
+              type="button"
+              onClick={() => setQuery('')}
+              aria-label="Clear the search"
+              className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-1 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary"
+            >
+              <X className="size-3.5" strokeWidth={2.5} aria-hidden="true" />
+            </button>
+          )}
+        </div>
+
         {/* Status stays chips rather than a dropdown for the same reason the types
             did: *"I want all filters… status, active, planning, this one, or any
             other status."* Six states fit on a line, and a chip shows which one is
@@ -176,8 +218,26 @@ export function ProjectsWorkspace({
       {visible.length === 0 ? (
         <Card>
           <CardBody className="px-6 py-14 text-center">
-            <p className="text-body-sm font-semibold text-text-primary">No projects match that</p>
-            <p className="mt-1 text-caption text-text-secondary">Clear a filter to see the rest.</p>
+            <p className="text-body-sm font-semibold text-text-primary">
+              {query.trim() ? `Nothing matches “${query.trim()}”` : 'No projects match that'}
+            </p>
+            {/* ⚠️ NAMES THE SEARCH WHEN THERE IS ONE. "Clear a filter" sent
+                people to the chips above while the thing actually hiding their
+                project was the text they had typed. */}
+            <p className="mt-1 text-caption text-text-secondary">
+              {query.trim()
+                ? 'Check the spelling, or clear the search to see the rest.'
+                : 'Clear a filter to see the rest.'}
+            </p>
+            {query.trim() && (
+              <button
+                type="button"
+                onClick={() => setQuery('')}
+                className="mt-3 text-caption font-semibold text-text-brand hover:underline"
+              >
+                Clear the search
+              </button>
+            )}
           </CardBody>
         </Card>
       ) : view === 'list' ? (

@@ -10,6 +10,7 @@ import {
   listProjectMembers,
   platformsPublishedOn,
 } from '@/lib/db/queries/projects';
+import { countProjectRemarks } from '@/lib/db/queries/project-remarks';
 import { listPackages } from '@/lib/db/queries/catalogue';
 import { listTasks } from '@/lib/db/queries/tasks';
 import { listPeople } from '@/lib/db/queries/people';
@@ -92,15 +93,23 @@ export default async function ProjectPage({
      the two would tell somebody that a project they may not see exists. */
   if (!project) notFound();
 
-  const [members, tasks, credentials, documents, people, activity] = await Promise.all([
-    listProjectMembers(user.id, id),
-    listTasks(user.id, { projectId: id, includeClosed: true }),
-    listCredentials(user.id),
-    listDocuments(user.id),
-    can(actor, 'project.edit') ? listPeople(user.id, {}) : Promise.resolve([]),
-    /* Seven reads, still one round of latency — see the header. */
-    listProjectActivity(user.id, id, 8),
-  ]);
+  const [members, tasks, credentials, documents, people, activity, remarkCount] =
+    await Promise.all([
+      listProjectMembers(user.id, id),
+      listTasks(user.id, { projectId: id, includeClosed: true }),
+      listCredentials(user.id),
+      listDocuments(user.id),
+      can(actor, 'project.edit') ? listPeople(user.id, {}) : Promise.resolve([]),
+      /* Seven reads, still one round of latency — see the header. */
+      listProjectActivity(user.id, id, 8),
+      /* ⚠️ THE COUNT, NOT THE THREAD. One integer for the button's badge; the
+         remarks themselves are fetched when the dialog opens. Every prop of a
+         server component is serialised into the HTML, and a project's whole
+         conversation in the page source is kilobytes nobody has asked to read
+         yet — payload size is where this application's slowness has actually
+         been, twice. */
+      countProjectRemarks(user.id, id),
+    ]);
 
   const canSeeFinance = can(actor, 'project.view_finance');
 
@@ -248,6 +257,7 @@ export default async function ProjectPage({
         months={months}
         today={today}
         activity={activity}
+      remarkCount={remarkCount}
         ownerAvatarUrl={ownerAvatar}
         publishedTodayPlatformIds={publishedTodayPlatformIds}
         packageDetail={packageDetail}

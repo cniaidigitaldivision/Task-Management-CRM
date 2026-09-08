@@ -43,6 +43,7 @@ import { deleteProjectAction } from '@/app/actions/projects';
 import { PostingCalendar } from './posting-calendar';
 import type { PackageDetail } from './contract-dialog';
 import { TaskDialog } from '@/components/task/task-dialog';
+import { ProjectRemarks } from './project-remarks';
 import { UploadDialog } from '@/components/documents/upload-dialog';
 
 import { ProjectCredentials } from './project-credentials';
@@ -149,6 +150,7 @@ export function ProjectDetailWorkspace({
   today,
   nowMs,
   activity,
+  remarkCount,
   ownerAvatarUrl,
   publishedTodayPlatformIds,
   packageDetail,
@@ -221,6 +223,8 @@ export function ProjectDetailWorkspace({
   nowMs: number;
   /** This project's and its tasks' history, newest first. */
   activity: readonly ActivityRow[];
+  /** ⚠️ The COUNT of remarks, not the remarks. See ProjectRemarks for why. */
+  remarkCount: number;
   /** The owner's uploaded picture, or null. */
   ownerAvatarUrl: string | null;
   /** Platform ids with a live placement today — feeds the Today KPI card. */
@@ -369,6 +373,27 @@ export function ProjectDetailWorkspace({
               the pencil on the projects list", which is not an answer. */}
           <div className="flex shrink-0 items-center gap-2">
             <PlatformStrip platforms={project.platforms} size={24} gap="gap-2" />
+
+            {/* ── ⚠️ BESIDE THE MENU, NOT INSIDE IT — owner, 2026-09-08 ────────
+                *"there is no remarks option. I want to add a remarks option and
+                the remarks should be properly shown."* A note somebody is meant
+                to leave and read has to be visible to be used; behind the ⋮ it
+                would be found by whoever went looking, which is nobody.
+
+                ⚠️ And OUTSIDE the `canManage` guard below. Remarks are the one
+                thing on this header a Team Member is expected to use — *"Kashif,
+                a team member, can add any remarks on that project there"* — while
+                everything in that menu edits or deletes the project. */}
+            <ProjectRemarks
+              projectId={project.id}
+              projectName={project.name}
+              initialCount={remarkCount}
+              currentUserId={currentUser.id}
+              /* Removing somebody else's note is moderation, which is the same
+                 authority as editing the project. Your own is always yours. */
+              canModerate={canManage}
+            />
+
             {canManage && (
               <ProjectMenu
                 onEdit={() => setEditing(true)}

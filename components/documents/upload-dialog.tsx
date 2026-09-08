@@ -1,12 +1,22 @@
 'use client';
 
 import * as React from 'react';
-import { AlertTriangle, Cloud, HardDrive, Loader2, Lock, ShieldCheck } from 'lucide-react';
+import {
+  AlertTriangle,
+  Check,
+  Cloud,
+  HardDrive,
+  Loader2,
+  Lock,
+  ShieldCheck,
+  X,
+} from 'lucide-react';
 
 import { requestDocumentAction, type DocumentResult } from '@/app/actions/documents';
 import {
   DESTINATION_META,
   DEFAULT_DESTINATION,
+  MAX_BYTES,
   maxLabel,
   type UploadDestination,
 } from '@/lib/domain/document-storage';
@@ -78,6 +88,22 @@ const OPTIONS: ReadonlyArray<{
   { value: 'drive', icon: Cloud },
 ];
 
+
+/** One file in a batch, and how it went. */
+interface Job {
+  readonly file: File;
+  readonly status: 'waiting' | 'uploading' | 'done' | 'failed';
+  readonly error?: string;
+}
+
+/** ⚠️ Decimal MB, matching `maxLabel` — the limit is stated as 50 MB and a file
+ *  shown as "49.2 MB" in binary units would be refused while looking legal. */
+function sizeLabel(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1_000_000) return `${Math.round(bytes / 1000)} KB`;
+  return `${(bytes / 1_000_000).toFixed(1)} MB`;
+}
+
 export function UploadDialog({
   projects,
   folders,
@@ -127,7 +153,33 @@ export function UploadDialog({
   onClose: () => void;
   onDone: (result: DocumentResult) => void;
 }) {
-  const [state, formAction, pending] = React.useActionState(requestDocumentAction, EMPTY);
+  /* ── ⚠️ ONE REQUEST PER FILE, NOT ONE REQUEST WITH MANY FILES ─────────────
+     Owner, 2026-09-08: *"It just lets me upload only one file at a time, which
+     is not a good approach… if any client shares with me some documents,
+     obviously there must be a list of documents. Uploading documents one by one
+     is very hectic."*
+
+     The obvious change — `multiple` on the input and a loop on the server —
+     breaks on the first real batch. `serverActions.bodySizeLimit` is 52mb,
+     sized for ONE file at the 50mb ceiling; ten client documents in a single
+     POST exceed it and the whole batch fails with a message about the request
+     rather than about any file. Worse, one refused file would take the other
+     nine down with it.
+
+     So the batch is a client-side loop over the SAME server action, unchanged:
+     each file is its own request, each gets its own verdict, and a file that is
+     too large or of a refused type does not cost the others. `requestDocumentAction`
+     is not touched by this feature at all — which is also why the Documents page,
+     which shares this dialog, keeps working exactly as before.
+
+     ⚠️ SEQUENTIAL, NOT `Promise.all`. Ten parallel 50mb uploads from an office
+     connection is how every one of them times out; and the queue reads as
+     progress, which a scatter of spinners does not. */
+  const [state, setState] = React.useState<DocumentResult>(EMPTY);
+  const [pending, setPending] = React.useState(false);
+  const [queue, setQueue] = React.useState<readonly Job[]>([]);
+  const formRef = React.useRef<HTMLFormElement>(null);
+  const fileRef = React.useRef<HTMLInputElement>(null);
   const seen = React.useRef(false);
   const [folderId, setFolderId] = React.useState(initialFolderId ?? '');
   const [destination, setDestination] = React.useState<UploadDestination>(
@@ -150,19 +202,125 @@ export function UploadDialog({
     }
   }, [state, onDone]);
 
+  /* What the person picked, with each file's fate beside it. Rebuilt on every
+     selection so choosing a new set clears the previous run's verdicts. */
+  const chooseFiles = (list: FileList | null) => {
+    const picked = Array.from(list ?? []);
+    setQueue(picked.map((file) => ({ file, status: 'waiting' as const })));
+    setState(EMPTY);
+    seen.current = false;
+  };
+
+  const limit = MAX_BYTES[destination];
+  const tooBig = queue.filter((job) => job.file.size > limit);
+
+  /* ⚠️ THE FILES STILL WORTH SENDING. On a retry that is the ones that failed;
+     on a first run it is everything picked. A file already accepted is never
+     sent again — the server would file a second copy, and the person pressed
+     the button to fix the failures, not to duplicate the successes. */
+  const failedOnce = queue.some((job) => job.status === 'failed');
+  const outstanding = queue.filter((job) =>
+    failedOnce ? job.status === 'failed' : job.status !== 'done',
+  );
+
+  const upload = async () => {
+    const form = formRef.current;
+    if (!form || pending || outstanding.length === 0) return;
+
+    /* ⚠️ READ ONCE, BEFORE THE LOOP. The other fields — destination, project,
+       folder, note — are the same for every file in the batch, and reading them
+       from the DOM inside the loop would let a re-render between two uploads
+       change what the rest of the batch is filed as. */
+    const shared = new FormData(form);
+    const single = outstanding.length === 1;
+
+    setPending(true);
+    setState(EMPTY);
+
+    let uploaded = 0;
+    const failures: string[] = [];
+
+    for (const job of outstanding) {
+      setQueue((prev) =>
+        prev.map((q) => (q.file === job.file ? { ...q, status: 'uploading', error: undefined } : q)),
+      );
+
+      const body = new FormData();
+      for (const [key, value] of shared.entries()) {
+        /* The file input's own entries are dropped — this loop supplies them
+           one at a time — and so is the typed name unless there is exactly one
+           file left to send. One name across ten documents would file ten rows
+           under the same title, which is worse than the filenames they came
+           with. */
+        if (key === 'file') continue;
+        if (key === 'name' && !single) continue;
+        body.append(key, value);
+      }
+      body.set('file', job.file);
+
+      let result: DocumentResult;
+      try {
+        result = await requestDocumentAction(EMPTY, body);
+      } catch {
+        result = { ok: false, error: 'The upload did not reach the server.' };
+      }
+
+      if (result.ok) uploaded += 1;
+      else failures.push(job.file.name);
+
+      setQueue((prev) =>
+        prev.map((q) =>
+          q.file === job.file
+            ? { ...q, status: result.ok ? 'done' : 'failed', error: result.error }
+            : q,
+        ),
+      );
+    }
+
+    setPending(false);
+
+    /* ⚠️ THE DIALOG ONLY CLOSES WHEN EVERYTHING LANDED. A partial batch that
+       closed itself would report "3 of 5 uploaded" in a toast and leave nobody
+       able to say WHICH two — the list stays on screen with the reasons, and
+       the button becomes a retry for exactly those. */
+    if (failures.length === 0) {
+      setState({
+        ok: true,
+        message:
+          uploaded === 1
+            ? 'The file was uploaded.'
+            : `${uploaded} files were uploaded.`,
+      });
+      return;
+    }
+
+    setState({
+      ok: false,
+      error:
+        uploaded > 0
+          ? `${uploaded} uploaded, ${failures.length} refused. The ones below say why.`
+          : 'Nothing was uploaded. Each file below says why.',
+    });
+  };
+
   /** What pressing the button will do, in the fewest words that stay true. */
-  const submitLabel = toDrive
-    ? 'Upload to Drive'
-    : canApprove
-      ? 'Upload and file it'
-      : 'Send for approval';
+  const submitLabel = (() => {
+    /* A retry names the failures, because after a partial batch that is the
+       only thing the button still does. */
+    if (failedOnce) {
+      return outstanding.length === 1 ? 'Retry that file' : `Retry ${outstanding.length} files`;
+    }
+    const many = outstanding.length > 1 ? ` ${outstanding.length} files` : '';
+    if (toDrive) return `Upload${many} to Drive`;
+    return canApprove ? `Upload${many} and file` : `Send${many} for approval`;
+  })();
 
   return (
     <Dialog
       open
       onClose={onClose}
       size="md"
-      title="Upload a document"
+      title={queue.length > 1 ? `Upload ${queue.length} documents` : 'Upload a document'}
       footer={
         <>
           <Button variant="ghost" size="md" onClick={onClose} disabled={pending}>
@@ -173,7 +331,7 @@ export function UploadDialog({
             size="md"
             type="submit"
             form="upload-form"
-            disabled={pending || (toDrive && noDriveFolders)}
+            disabled={pending || outstanding.length === 0 || (toDrive && noDriveFolders)}
           >
             {pending && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
             {submitLabel}
@@ -181,7 +339,17 @@ export function UploadDialog({
         </>
       }
     >
-      <form id="upload-form" action={formAction} className="space-y-4">
+      <form
+        id="upload-form"
+        ref={formRef}
+        /* Submitting runs the batch. `preventDefault` because there is no single
+           request to make — see `upload`. */
+        onSubmit={(event) => {
+          event.preventDefault();
+          void upload();
+        }}
+        className="space-y-4"
+      >
         {!state.ok && state.error && (
           <p
             className="flex items-start gap-2 rounded-lg px-3 py-2 text-caption"
@@ -278,26 +446,105 @@ export function UploadDialog({
             50 MB project ceiling. Both numbers come from the same module the
             server enforces them from — see lib/domain/document-storage.ts. */}
         <Field
-          label="File"
+          label={queue.length > 1 ? `Files — ${queue.length} chosen` : 'Files'}
           htmlFor="file"
           hint={
             toDrive
-              ? `Up to ${maxLabel('drive')}, written straight into the Drive folder.`
-              : `Up to ${maxLabel('bucket')}. Anything larger has to go to Google Drive instead.`
+              ? `Pick as many as you like. Up to ${maxLabel('drive')} each, written straight into the Drive folder.`
+              : `Pick as many as you like. Up to ${maxLabel('bucket')} each — anything larger has to go to Google Drive instead.`
           }
         >
           <input
             id="file"
             name="file"
             type="file"
-            required
+            /* ⚠️ THE WHOLE FEATURE IS THIS ATTRIBUTE PLUS THE LOOP THAT READS
+               IT. Every file still travels in its own request — see the note on
+               `upload` — so nothing about the server or its size limit changes. */
+            multiple
+            required={queue.length === 0}
+            ref={fileRef}
+            onChange={(event) => chooseFiles(event.target.files)}
             className="w-full rounded-lg border border-border-default bg-bg-surface px-3 py-2 text-caption text-text-primary"
           />
         </Field>
 
-        <Field label="Name" htmlFor="name" hint="Leave empty to use the file's own name.">
-          <Input id="name" name="name" placeholder="ABC Traders — signed contract" />
-        </Field>
+        {queue.length > 0 && (
+          <ul className="max-h-44 space-y-1 overflow-y-auto rounded-lg border border-border-subtle p-1.5">
+            {queue.map((job) => {
+              const over = job.file.size > MAX_BYTES[destination];
+              return (
+                <li
+                  key={`${job.file.name}-${job.file.size}-${job.file.lastModified}`}
+                  className="flex items-center gap-2 rounded-md px-2 py-1.5"
+                >
+                  {job.status === 'uploading' ? (
+                    <Loader2 className="size-3.5 shrink-0 animate-spin text-text-tertiary" aria-hidden="true" />
+                  ) : job.status === 'done' ? (
+                    <Check
+                      className="size-3.5 shrink-0"
+                      style={{ color: 'var(--feedback-success)' }}
+                      strokeWidth={2.5}
+                      aria-hidden="true"
+                    />
+                  ) : job.status === 'failed' || over ? (
+                    <X
+                      className="size-3.5 shrink-0"
+                      style={{ color: 'var(--feedback-error)' }}
+                      strokeWidth={2.5}
+                      aria-hidden="true"
+                    />
+                  ) : (
+                    <span className="size-3.5 shrink-0" aria-hidden="true" />
+                  )}
+
+                  <span className="min-w-0 flex-1 truncate text-caption text-text-primary">
+                    {job.file.name}
+                  </span>
+
+                  <span className="shrink-0 text-micro tabular-nums text-text-tertiary">
+                    {sizeLabel(job.file.size)}
+                  </span>
+
+                  {/* The reason, on the row it belongs to. A batch's failures in
+                      one banner at the top cannot say which file each refers to. */}
+                  {(job.error || over) && (
+                    <span
+                      className="w-full shrink-0 pl-5 text-micro"
+                      style={{ color: 'var(--feedback-error)' }}
+                    >
+                      {job.error ?? `Larger than ${maxLabel(destination)}.`}
+                    </span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+
+        {/* ⚠️ CHECKED BEFORE ANYTHING IS SENT. The server refuses an oversize
+            file too, but only after it has been uploaded — on an office
+            connection that is minutes spent to be told no. */}
+        {tooBig.length > 0 && (
+          <p
+            className="flex items-start gap-2 rounded-lg px-3 py-2 text-caption"
+            style={{ backgroundColor: 'var(--bg-subtle)', color: 'var(--feedback-warning)' }}
+          >
+            <AlertTriangle className="mt-px size-4 shrink-0" strokeWidth={2.25} aria-hidden="true" />
+            {tooBig.length === 1
+              ? `One file is larger than ${maxLabel(destination)} and will be refused.`
+              : `${tooBig.length} files are larger than ${maxLabel(destination)} and will be refused.`}
+          </p>
+        )}
+
+        {/* ⚠️ ONE NAME ONLY MAKES SENSE FOR ONE FILE. With a batch it would
+            file every row under the same title, so the field goes and each
+            document keeps the name it arrived with. */}
+        {queue.length <= 1 && (
+          <Field label="Name" htmlFor="name" hint="Leave empty to use the file's own name.">
+            <Input id="name" name="name" placeholder="ABC Traders — signed contract" />
+          </Field>
+        )}
 
         {/* ⚠️ Locked, not merely pre-selected. Owner, 2026-08-24: *"make sure
             that the task, upload assets, and everything will be assigned by
