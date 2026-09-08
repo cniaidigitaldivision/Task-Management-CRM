@@ -727,6 +727,19 @@ function projectStatusReport(input: ReportInput): Report {
       );
       const people = new Set(mine.map((t) => t.assigneeId).filter(Boolean));
 
+      /* ── ⚠️ POSTING LIVES HERE NOW — owner, 2026-09-08 ────────────────────
+         *"for assign task and done task, that's enough for the [work] report…
+         When I say that I want to see a project status, that will be a
+         different thing: how many postings are done and all that stuff."*
+
+         Posts Published came off the work report in the same change. It had to
+         land somewhere, and this is the report about what a project delivered.
+
+         ⚠️ COUNTED ON `publishedOn`, like every other posting figure in this
+         system. Migration 055 exists because reports once counted `completedAt`
+         here: a reel finished Monday and posted Friday belongs to Friday. */
+      const published = mine.filter((t) => t.publishedOn !== null);
+
       return [
         text(project.name),
         text(project.code),
@@ -734,6 +747,7 @@ function projectStatusReport(input: ReportInput): Report {
         text(project.status.replace(/_/g, ' ')),
         num(mine.length),
         num(done.length),
+        num(published.length),
         num(open.length),
         num(overdue.length),
         percent(pct(done.length, mine.length)),
@@ -757,6 +771,7 @@ function projectStatusReport(input: ReportInput): Report {
       { key: 'status', label: 'Status', kind: 'text', width: 14 },
       { key: 'tasks', label: 'Tasks', kind: 'number' },
       { key: 'done', label: 'Done', kind: 'number' },
+      { key: 'published', label: 'Posts published', kind: 'number' },
       { key: 'open', label: 'Open', kind: 'number' },
       { key: 'overdue', label: 'Overdue', kind: 'number' },
       { key: 'donePct', label: 'Complete %', kind: 'percent' },
@@ -770,6 +785,11 @@ function projectStatusReport(input: ReportInput): Report {
       { label: 'Tasks in period', value: num(tasks.length) },
       { label: 'Still open', value: num(allOpen.length) },
       {
+        label: 'Posts published',
+        value: num(tasks.filter((t) => t.publishedOn !== null).length),
+        hint: 'counted on the day they went live',
+      },
+      {
         label: 'Overdue',
         value: num(allOpen.filter((t) => isOverdue(t, input.today)).length),
         hint: 'open, and past their due date',
@@ -780,6 +800,7 @@ function projectStatusReport(input: ReportInput): Report {
       'Task counts cover the period only, so a long-running project shows this window’s work rather than its lifetime.',
       'Overdue means open and already past its due date **as of today** — not as of the end of the period. Asking for this month’s report mid-month therefore does not report work due later in the month as late.',
       'Time spent is what the timers recorded, not an estimate.',
+      'Posts published counts assets by the day they went live, which is not always the day the task was completed.',
     ],
   };
 }
@@ -801,6 +822,9 @@ function timeReport(input: ReportInput): Report {
       return [
         text(t.reference),
         text(t.title),
+        /* Empty rather than a dash: a spreadsheet column of em dashes cannot be
+           filtered on "has no description", and an empty cell can. */
+        text(t.description ?? ''),
         text(t.projectName),
         text(t.assigneeName ?? 'Unassigned'),
         text(STATUS_META[t.status].label),
@@ -823,7 +847,15 @@ function timeReport(input: ReportInput): Report {
     period: input.period,
     columns: [
       { key: 'reference', label: 'Reference', kind: 'text', width: 14 },
-      { key: 'title', label: 'Task', kind: 'text', width: 38 },
+      { key: 'title', label: 'Task', kind: 'text', width: 30 },
+      /* ── ⚠️ THE ONLY OTHER REPORT WITH A ROW PER TASK — owner, 2026-09-08 ──
+         *"the most important thing is to add a description column in each of
+         the reports."* Completion, Workload and Project status aggregate — a
+         row there is a person or a project, and a description column on it
+         would have to invent one. This one is a row per task, so it can carry
+         the real thing. The width comes from Task, which no longer has to
+         convey the sense of the work by itself. */
+      { key: 'description', label: 'Description', kind: 'text', width: 30 },
       { key: 'project', label: 'Project', kind: 'text', width: 24 },
       { key: 'assignee', label: 'Assignee', kind: 'text', width: 22 },
       { key: 'status', label: 'Status', kind: 'text', width: 14 },

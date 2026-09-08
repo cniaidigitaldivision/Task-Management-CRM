@@ -487,16 +487,23 @@ export function workReportToReport(
         : `${who} · ${input.period.start} to ${input.period.end}`,
     period: input.period,
     columns: [
-      { key: 'project', label: 'Project', kind: 'text', width: 22 },
-      { key: 'person', label: 'Person', kind: 'text', width: 20 },
-      { key: 'role', label: 'Role', kind: 'text', width: 16 },
-      { key: 'platform', label: 'Platform', kind: 'text', width: 18 },
+      /* ── ⚠️ THE SAME COLUMNS AS THE SCREEN, IN THE SAME ORDER ────────────
+         Owner, 2026-09-08: three columns out — Tasks Pending, Posts Published,
+         Activity Summary — and Description in. The export has to follow, or the
+         downloaded file answers a different question from the page it was
+         downloaded from, which is worse than either arrangement on its own.
+
+         ⚠️ `role` was already absent from the screen's header and is dropped
+         here too; it had been carrying an empty string into every sheet since
+         the Tasks column replaced it. */
+      { key: 'project', label: 'Project', kind: 'text', width: 20 },
+      { key: 'person', label: 'Person', kind: 'text', width: 18 },
+      { key: 'tasks', label: 'Tasks', kind: 'text', width: 26 },
+      { key: 'description', label: 'Description', kind: 'text', width: 32 },
+      { key: 'platform', label: 'Platform', kind: 'text', width: 16 },
       { key: 'assigned', label: 'Tasks Assigned', kind: 'number' },
       { key: 'done', label: 'Tasks Done', kind: 'number' },
-      { key: 'pending', label: 'Tasks Pending', kind: 'number' },
-      { key: 'posts', label: 'Posts Published', kind: 'number' },
-      { key: 'contentType', label: 'Content Type', kind: 'text', width: 24 },
-      { key: 'activity', label: 'Activity Summary', kind: 'text', width: 26 },
+      { key: 'contentType', label: 'Content Type', kind: 'text', width: 20 },
       { key: 'status', label: 'Status', kind: 'text' },
       { key: 'lastActive', label: 'Last Active', kind: 'date' },
     ],
@@ -507,15 +514,18 @@ export function workReportToReport(
          the stacked rows the screen draws, and truncating to three here would
          make the export quietly less complete than the page. */
       text(row.tasks.map((task) => task.title).join('; ') || '—'),
+      /* ⚠️ EVERY DESCRIPTION, IN THE TASK ORDER OF THE COLUMN BEFORE IT, so the
+         two cells can be read across. A task nobody described holds its place
+         with an em dash rather than collapsing — otherwise the third
+         description in one cell would line up with the fourth task in the
+         other, and a spreadsheet cannot show which belongs to which. */
+      text(row.tasks.map((task) => task.description ?? '—').join('; ') || '—'),
       /* Slugs capitalised. The spreadsheet has no brand marks, so the column has
          to carry the same fact as words. */
       text(row.platforms.map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join(', ')),
       num(row.tasksAssigned),
       num(row.tasksDone),
-      num(row.tasksPending),
-      num(row.postsPublished),
       text(row.contentTypes.join(', ')),
-      text(row.activitySummary),
       text(WORK_STATUS_META[row.status].label),
       { kind: 'date', value: row.lastActive?.slice(0, 10) ?? null },
     ]),

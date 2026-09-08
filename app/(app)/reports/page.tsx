@@ -97,6 +97,7 @@ export default async function ReportsPage() {
         initialRequest={initialRequest}
         initialCharts={built.charts}
         initialWork={built.work}
+        initialDiary={built.diary}
         options={built.options}
         people={built.people}
         /* The server's clock, so every "1h ago" on the page is measured from one

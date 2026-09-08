@@ -370,6 +370,31 @@ describe('project status report', () => {
     });
   });
 
+  it('counts posts published, on the day they went live — owner, 2026-09-08', () => {
+    /* *"When I say that I want to see a project status, that will be a
+       different thing: how many postings are done."* Posts Published came off
+       the work report in the same change and had to land somewhere real.
+
+       ⚠️ The second task was COMPLETED inside the period and published outside
+       it, so a count on `completedAt` would say two. Migration 055 exists
+       because reports once did exactly that. */
+    const report = buildReport({
+      ...base,
+      type: 'project_status',
+      period: AUG,
+      projects: [project],
+      tasks: [
+        task({ reference: 'A-1', publishedOn: '2026-08-10' }),
+        task({ reference: 'A-2', publishedOn: null }),
+      ],
+    });
+
+    const column = report.columns.findIndex((c) => c.key === 'published');
+    expect(column).toBeGreaterThan(-1);
+    expect(report.rows[0][column]).toEqual({ kind: 'number', value: 1 });
+    expect(report.figures.some((f) => f.label === 'Posts published')).toBe(true);
+  });
+
   it('measures overdue against TODAY, not against the end of the period', () => {
     /* This test found a real error in the first implementation, which compared
        the due date with the period's end. Asking for August's report on the 12th

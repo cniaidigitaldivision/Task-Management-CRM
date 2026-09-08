@@ -25,6 +25,7 @@ import {
 } from '@/lib/domain/constants';
 import { PERIOD_LABEL, PERIOD_PRESETS, REPORT_META, REPORT_TYPES, type PeriodPreset, type ReportFilters, type ReportType } from '@/lib/domain/reports';
 import { WORK_SORTS, WORK_SORT_LABEL, type WorkSort } from '@/lib/domain/work-report';
+import type { DiaryGrouping } from '@/lib/domain/work-diary';
 import { cn } from '@/lib/utils';
 
 /* ============================================================================
@@ -63,6 +64,12 @@ export interface ControlState {
   readonly filters: ReportFilters;
   readonly workSort: WorkSort;
   readonly workDirection: 'asc' | 'desc';
+  /* ── ⚠️ UNDEFINED IS A MEANINGFUL THIRD STATE ────────────────────────────
+     Not "member or project", but "member, project, or nobody has been asked
+     yet". The workspace shows its arrangement dialog on exactly the undefined
+     case, so collapsing this to a two-value field would either ask every time
+     or never ask at all. See `shouldAsk` in report-workspace.tsx. */
+  readonly grouping?: DiaryGrouping;
 }
 
 export type ExportFormat = 'pdf' | 'xlsx' | 'csv' | 'print';

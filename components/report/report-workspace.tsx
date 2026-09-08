@@ -13,10 +13,18 @@ import { Card, CardBody } from '@/components/ui/card';
 import { ReportChartsPanel } from '@/components/report/report-charts-panel';
 import { ReportControls, type ControlState, type ExportFormat } from '@/components/report/report-controls';
 import { WorkReportTables } from '@/components/report/work-report-tables';
+import { WorkDiaryTables } from '@/components/report/work-diary-tables';
+import { Dialog } from '@/components/ui/dialog';
 import { Pagination, usePagination } from '@/components/ui/pagination';
 import { cellText, type Cell, type Report } from '@/lib/domain/reports';
 import type { ChartSpec } from '@/lib/domain/report-charts';
 import type { WorkReport } from '@/lib/domain/work-report';
+import {
+  DIARY_GROUPING_LABEL,
+  DIARY_GROUPINGS,
+  type DiaryGrouping,
+  type WorkDiary,
+} from '@/lib/domain/work-diary';
 import { downloadCsv, openPdfInTab, downloadXlsxFromBase64 } from '@/lib/download';
 import { cn } from '@/lib/utils';
 
@@ -50,6 +58,7 @@ export function ReportWorkspace({
   initialRequest,
   initialCharts,
   initialWork,
+  initialDiary,
   options,
   people,
   nowMs,
@@ -58,6 +67,8 @@ export function ReportWorkspace({
   initialRequest: ReportRequest;
   initialCharts: readonly ChartSpec[];
   initialWork: WorkReport | null;
+  /** Null until somebody picks an arrangement — see `askGrouping` below. */
+  initialDiary: WorkDiary | null;
   options: FilterOptions;
   people: ReadonlyArray<{ id: string; name: string }>;
   /** The server's clock, for every relative age on the page. See lib/now.ts. */
@@ -78,11 +89,23 @@ export function ReportWorkspace({
     },
     workSort: initialRequest.workSort ?? 'posts',
     workDirection: initialRequest.workDirection ?? 'desc',
+    grouping: initialRequest.grouping,
   });
 
   const [report, setReport] = React.useState<Report>(initialReport);
   const [charts, setCharts] = React.useState<readonly ChartSpec[]>(initialCharts);
   const [work, setWork] = React.useState<WorkReport | null>(initialWork);
+  const [diary, setDiary] = React.useState<WorkDiary | null>(initialDiary);
+
+  /* -- ⚠️ THE ARRANGEMENT IS ASKED, NOT ASSUMED — owner, 2026-09-08 ---------
+     *"when a period is selected… and in the project all projects are selected
+     and persons are all persons, a modal should pop up. It will ask whether to
+     sort by project or by all members."*
+
+     Held as the pending control state rather than a boolean, so the answer can
+     be applied to exactly the change that raised the question. A boolean would
+     have to re-read `state`, which by then may be a different request. */
+  const [asking, setAsking] = React.useState<ControlState | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [downloading, setDownloading] = React.useState<ExportFormat | null>(null);
@@ -97,11 +120,27 @@ export function ReportWorkspace({
     work: next.work,
     workSort: next.workSort,
     workDirection: next.workDirection,
+    grouping: next.grouping,
   });
 
   /* One place that asks the server, so every control behaves identically and a
      failed change cannot leave the controls describing a report that is not on
      screen — on failure the previous one stays, with the error beside it. */
+  /**
+   * Whether this request is the one the owner wants to be asked about.
+   *
+   * ⚠️ ONLY WHEN NOTHING IS NARROWED. With a project or a person chosen the
+   * reader has already said what they are looking at, and a modal would be a
+   * question they just answered with the filters. The whole point of the ask is
+   * the everything-selected case, where "who did what" and "which project got
+   * what" are two genuinely different reports.
+   */
+  const shouldAsk = (next: ControlState): boolean =>
+    next.work &&
+    next.grouping === undefined &&
+    (next.filters?.projectIds.length ?? 0) === 0 &&
+    !next.subjectId;
+
   const apply = async (next: ControlState) => {
     setState(next);
     setBusy(true);
@@ -114,6 +153,7 @@ export function ReportWorkspace({
         setReport(result.report);
         setCharts(result.charts);
         setWork(result.work);
+        setDiary(result.diary);
       } else setError(result.error);
     } catch {
       setError('That report could not be built — the server did not answer.');
@@ -158,13 +198,28 @@ export function ReportWorkspace({
 
   return (
     <div className="space-y-5">
+      <GroupingDialog
+        pending={asking}
+        onCancel={() => setAsking(null)}
+        onPick={(grouping) => {
+          const next = { ...asking!, grouping };
+          setAsking(null);
+          void apply(next);
+        }}
+      />
+
       <ReportControls
         state={state}
         options={options}
         people={people}
         busy={busy}
         downloading={downloading}
-        onChange={(next) => void apply(next)}
+        onChange={(next) => {
+          /* The question comes BEFORE the request, so the server is asked once
+             with the answer rather than twice. */
+          if (shouldAsk(next)) setAsking(next);
+          else void apply(next);
+        }}
         onExport={(format) => void exportAs(format)}
       />
 
@@ -187,7 +242,9 @@ export function ReportWorkspace({
           <p className="text-caption text-text-secondary">{report.subtitle}</p>
         </div>
 
-        {work ? (
+        {diary ? (
+          <WorkDiaryTables diary={diary} />
+        ) : work ? (
           <WorkReportTables work={work} nowMs={nowMs} />
         ) : (
           <>
@@ -338,5 +395,62 @@ function Notes({ report }: { report: Report }) {
         ))}
       </ul>
     </section>
+  );
+}
+
+/**
+ * "By member, or by project?"
+ *
+ * ── ⚠️ IT OFFERS A THIRD ANSWER, AND THAT IS DELIBERATE ────────────────────
+ * "Keep the summary table" leaves the page on the pairing report it has always
+ * shown. Without it the modal would be a toll gate on a screen somebody may
+ * have opened for the summary — a dialog that cannot be declined is a dialog
+ * people learn to dismiss without reading.
+ */
+function GroupingDialog({
+  pending,
+  onPick,
+  onCancel,
+}: {
+  pending: ControlState | null;
+  onPick: (grouping: DiaryGrouping) => void;
+  onCancel: () => void;
+}) {
+  return (
+    <Dialog
+      open={pending !== null}
+      onClose={onCancel}
+      size="sm"
+      title="How should this report be arranged?"
+      description="Every project and everybody is selected, so there are two useful ways to read it."
+    >
+      <div className="space-y-2">
+        {DIARY_GROUPINGS.map((grouping) => (
+          <button
+            key={grouping}
+            type="button"
+            onClick={() => onPick(grouping)}
+            className="block w-full rounded-xl border border-border-default px-3.5 py-3 text-left transition-colors hover:border-border-brand hover:bg-bg-selected"
+          >
+            <span className="block text-body-sm font-semibold text-text-primary">
+              {DIARY_GROUPING_LABEL[grouping]}
+            </span>
+            <span className="mt-0.5 block text-caption text-text-secondary">
+              {grouping === 'member'
+                ? 'One table per person, day by day — what each of them did on each date.'
+                : 'One table per project, day by day — everybody\u2019s work on that project, in order.'}
+            </span>
+          </button>
+        ))}
+
+        <button
+          type="button"
+          onClick={onCancel}
+          className="block w-full rounded-xl px-3.5 py-2 text-left text-caption text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary"
+        >
+          Keep the summary table instead
+        </button>
+      </div>
+    </Dialog>
   );
 }

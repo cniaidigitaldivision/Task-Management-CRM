@@ -433,17 +433,22 @@ describe('the export shape', () => {
     const work = buildWorkReport(shaped, options());
     const report = workReportToReport(work, shaped, '2026-08-25T09:00:00Z');
 
+    /* ⚠️ REVISED 2026-09-08. Tasks Pending, Posts Published and Activity
+       Summary are gone and Description is in — owner: *"you can skip task
+       pending, post publish, and activity summary. Instead you will add the
+       description."* The export follows the screen, so this list is also the
+       assertion that the two have not drifted apart. `Role` went earlier, when
+       the Tasks column replaced it on screen; it had been writing an empty
+       string into every sheet since. */
     expect(report.columns.map((c) => c.label)).toEqual([
       'Project',
       'Person',
-      'Role',
+      'Tasks',
+      'Description',
       'Platform',
       'Tasks Assigned',
       'Tasks Done',
-      'Tasks Pending',
-      'Posts Published',
       'Content Type',
-      'Activity Summary',
       'Status',
       'Last Active',
     ]);
@@ -458,7 +463,8 @@ describe('the export shape', () => {
       shaped,
       '2026-08-25T09:00:00Z',
     );
-    expect(report.rows[0][3]).toEqual({ kind: 'text', value: 'Facebook, Instagram' });
+    /* Column 4 now — Description was inserted at 3. */
+    expect(report.rows[0][4]).toEqual({ kind: 'text', value: 'Facebook, Instagram' });
   });
 });
 

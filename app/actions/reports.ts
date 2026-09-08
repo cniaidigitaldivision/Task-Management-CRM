@@ -28,6 +28,13 @@ import {
   type ReportTask,
   type ReportType,
 } from '@/lib/domain/reports';
+import {
+  buildWorkDiary,
+  diaryToReport,
+  DIARY_GROUPINGS,
+  type DiaryGrouping,
+  type WorkDiary,
+} from '@/lib/domain/work-diary';
 import { chartsFor, type ChartSpec } from '@/lib/domain/report-charts';
 import {
   WORK_SORTS,
@@ -88,6 +95,16 @@ export interface ReportRequest {
   readonly work?: boolean;
   readonly workSort?: WorkSort;
   readonly workDirection?: 'asc' | 'desc';
+  /* -- ⚠️ THE DAY-BY-DAY ARRANGEMENT — owner, 2026-09-08 --------------------
+     *"a modal should pop up. It will ask whether to sort by project or by all
+     members… the report will be generated on the basis of that sort
+     phenomenon."*
+
+     Absent means the pairing table this page has always shown. Present means
+     the diary in lib/domain/work-diary.ts: one table per member or per project,
+     a row per day. A separate field rather than another `workSort` value,
+     because it does not reorder rows — it produces different rows. */
+  readonly grouping?: DiaryGrouping;
 }
 
 export interface ReportResponse {
@@ -107,6 +124,8 @@ export interface ReportResponse {
   readonly options: FilterOptions;
   /** Present only when `work` was asked for. Null for the analytical types. */
   readonly work: WorkReport | null;
+  /** Present only when a grouping was chosen. See `ReportRequest.grouping`. */
+  readonly diary: WorkDiary | null;
 }
 
 /**
@@ -248,6 +267,20 @@ export async function buildReportAction(
       })
     : null;
 
+  /* -- ⚠️ THE DIARY REPLACES THE PAIRING TABLE, IT DOES NOT JOIN IT --------
+     Both are "the work report", and showing them together would put the same
+     tasks on the screen twice under two different arrangements — which is how a
+     reader comes to believe a task was done twice. The grouping the modal asked
+     for decides which one is built. */
+  const grouping = DIARY_GROUPINGS.includes(request.grouping as DiaryGrouping)
+    ? (request.grouping as DiaryGrouping)
+    : null;
+
+  const diary =
+    request.work && grouping
+      ? buildWorkDiary({ tasks: input.tasks, period: input.period, grouping })
+      : null;
+
   /* Platform slugs the reader can actually see any placement for, so the filter
      never offers a platform that would return nothing. Sorted for a stable
      dropdown order — a list whose order changes between requests makes the
@@ -258,8 +291,16 @@ export async function buildReportAction(
     ok: true,
     /* The work report is exported through the SAME typed-cell shape as the other
        four, so CSV, .xlsx and the PDF need no special case. See work-report.ts. */
-    report: work ? workReportToReport(work, input, new Date(now).toISOString()) : report,
-    work,
+    /* ⚠️ THE EXPORT FOLLOWS WHAT IS ON SCREEN. A diary on the page and a
+       pairing table in the downloaded file would be two different answers to
+       one question. */
+    report: diary
+      ? diaryToReport(diary, input.period)
+      : work
+        ? workReportToReport(work, input, new Date(now).toISOString())
+        : report,
+    work: diary ? null : work,
+    diary,
     /* ⚠️ No charts on the work report. The owner's mockup has none, and it is a
        table of pairings — a chart of it would be a chart of a join. The
        analytical types keep theirs. */
