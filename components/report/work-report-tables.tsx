@@ -1,11 +1,21 @@
 'use client';
 
 import * as React from 'react';
+import { ArrowDown, ArrowUp } from 'lucide-react';
 
 import { PlatformIcon } from '@/components/brand/platform-icon';
 import { Avatar } from '@/components/ui/avatar';
 import { Pagination, usePagination } from '@/components/ui/pagination';
-import { WORK_STATUS_META, type PosterRow, type WorkReport, type WorkRow } from '@/lib/domain/work-report';
+import {
+  WORK_SORTS,
+  WORK_SORT_LABEL,
+  WORK_SORT_OPENS_DESC,
+  WORK_STATUS_META,
+  type PosterRow,
+  type WorkReport,
+  type WorkRow,
+  type WorkSort,
+} from '@/lib/domain/work-report';
 import { STATUS_META } from '@/lib/domain/constants';
 import { WorkRowDetail } from './work-row-detail';
 import { relativeAge } from '@/lib/view/relative-age';
@@ -58,10 +68,26 @@ import { cn } from '@/lib/utils';
 export function WorkReportTables({
   work,
   nowMs,
+  sort,
+  direction,
+  onSort,
 }: {
   work: WorkReport;
   /** The server's clock. See the header. */
   nowMs: number;
+  /* ── ⚠️ SORTING IS SERVER-SIDE, AND THAT IS DELIBERATE ───────────────────
+     Owner, 2026-09-08: *"You can put ascending and descending order on each
+     column so I can arrange the whole table."*
+
+     The obvious shape is to sort `work.rows` here in the browser. It would be
+     wrong in one visible way: this table is PAGED, so a client sort would
+     reorder the page somebody is looking at and leave the other pages where
+     they were — "who published most" would mean "of these twenty". The sort
+     belongs to the whole report, so it goes back to the server with the
+     request, exactly as the sort dropdown already did. */
+  sort: WorkSort;
+  direction: 'asc' | 'desc';
+  onSort: (sort: WorkSort, direction: 'asc' | 'desc') => void;
 }) {
   const pager = usePagination(work.rows);
   /* ── ⚠️ THE OPEN ROW, BY KEY RATHER THAN BY OBJECT ────────────────────────
@@ -84,26 +110,20 @@ export function WorkReportTables({
             </colgroup>
             <thead>
               <tr className="border-b border-border-default bg-bg-subtle">
-                {/* ── ⚠️ THREE COLUMNS OUT, ONE IN — owner, 2026-09-08 ─────
-                    *"you can exclude the unnecessary. You can skip task
-                    pending, post publish, and activity summary. Instead you
-                    will add the description."*
-
-                    Tasks Pending was Assigned minus Done, which the reader can
-                    see beside it; Activity Summary restated Content Type in
-                    prose; Posts Published belongs to the project-status report,
-                    which is where posting is actually assessed. What was
-                    missing was what the work WAS. */}
-                <Th>Project</Th>
-                <Th>Person</Th>
-                <Th>Tasks</Th>
-                <Th>Description</Th>
-                <Th>Platform</Th>
-                <Th numeric>Tasks Assigned</Th>
-                <Th numeric>Tasks Done</Th>
-                <Th>Content Type</Th>
-                <Th>Status</Th>
-                <Th numeric>Last Active</Th>
+                {/* ⚠️ EVERY HEADING IS A SORT CONTROL, IN COLUMN ORDER. The
+                    array in work-report.ts is that order — see its note. */}
+                {WORK_SORTS.map((key) => (
+                  <Th
+                    key={key}
+                    numeric={NUMERIC_SORTS.has(key)}
+                    sortKey={key}
+                    active={sort === key}
+                    direction={direction}
+                    onSort={onSort}
+                  >
+                    {WORK_SORT_LABEL[key]}
+                  </Th>
+                ))}
               </tr>
             </thead>
             <tbody>
@@ -112,7 +132,7 @@ export function WorkReportTables({
               ))}
               {work.rows.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="px-4 py-10 text-center text-caption text-text-tertiary">
+                  <td colSpan={12} className="px-4 py-10 text-center text-caption text-text-tertiary">
                     No work matched this period and filter.
                   </td>
                 </tr>
@@ -197,36 +217,122 @@ export function WorkReportTables({
  * what pushed Last Active off the page.
  */
 const COLUMN_SHARES = [
-  /* ── ⚠️ TEN COLUMNS NOW, AND THEY STILL SUM TO 100 — owner, 2026-09-08 ────
-     Tasks Pending, Posts Published and Activity Summary are gone; Description
-     is in. The 22 points it takes are almost exactly what those three released
-     (6 + 6 + 6) plus a point from Tasks, which no longer has to carry the sense
-     of the work on its own now that the sentence sits beside it.
+  10, // Project
+  12, // Person — an avatar and a name. It was 15 to also fit the top-poster badge,
+  //     which is gone; those 3 points went to the tasks.
+  /* ── ⚠️ 21, UP FROM THE 8 THE ROLE COLUMN NEEDED, 2026-09-03 ─────────────
+     A role was one short word and 8% held it. Task titles are sentences, and at
+     8% every one of them rendered as eight characters and an ellipsis —
+     "Social Med…", "Photoshoo…" — which is the column present but not doing the
+     job it was given: *"Task name should mention a list of all tasks names that
+     should display."* A name that does not display is not a name.
 
-     Description is the widest column on the table because it is the only one
-     holding a sentence — everything else here is a word, a number or a date. */
-  12, // Project
-  12, // Person
-  16, // Tasks
-  22, // Description
+     The 13 points come from Person (3, above) and from Content Type and Activity
+     Summary (10). That is deliberate and not arbitrary: those two columns say
+     "Static post" and "1 post" about the very tasks now listed by name beside
+     them, so they are the two that lost the least by narrowing. Same trade as the
+     PDF, made for the same reason. */
+  21, // Tasks
   7, // Platform
-  7, // Tasks Assigned
+  6, // Tasks Assigned
   6, // Tasks Done
-  8, // Content Type
-  /* 6, not 5: the pill reads "Completed". */
-  6, // Status
-  /* ⚠️ 4 is tight, and it is what is left. "just now" is the longest string
-     this column renders; at `--content-max` 4% is 61px, which holds it after
-     padding. If a longer relative age is ever added, take the point back from
-     Content Type rather than from Description. */
-  4, // Last Active
+  6, // Tasks Pending
+  6, // Posts Published
+  7, // Content Type
+  6, // Activity Summary
+  /* 7, not 6: the pill reads "Completed", and 6% leaves 52px after padding. */
+  7, // Status
+  /* ⚠️ 6, not 5. At `--content-max` (1520px) five per cent is 76px, and after the
+     cell padding that leaves 52px — enough for "11h ago" and NOT for "just now",
+     which is the string a row somebody edited a minute ago renders. A column that
+     fits every value except the freshest one is the wrong way round. */
+  6, // Last Active
 ];
 
 const POSTER_SHARES = [22, 30, 10, 14, 14, 10];
 
 /* ---- Cells --------------------------------------------------------------- */
 
-function Th({ children, numeric }: { children: React.ReactNode; numeric?: boolean }) {
+/** The columns whose heading sits right, because their cells do. */
+const NUMERIC_SORTS: ReadonlySet<WorkSort> = new Set<WorkSort>([
+  'assigned',
+  'done',
+  'pending',
+  'posts',
+  'recent',
+]);
+
+function Th({
+  children,
+  numeric,
+  sortKey,
+  active,
+  direction,
+  onSort,
+}: {
+  children: React.ReactNode;
+  numeric?: boolean;
+  /** Absent on the poster table below, which is not sortable. */
+  sortKey?: WorkSort;
+  active?: boolean;
+  direction?: 'asc' | 'desc';
+  onSort?: (sort: WorkSort, direction: 'asc' | 'desc') => void;
+}) {
+  if (!sortKey || !onSort) return <PlainTh numeric={numeric}>{children}</PlainTh>;
+
+  /* ⚠️ CLICKING THE ACTIVE COLUMN FLIPS IT; clicking another opens that column
+     the way it is worth reading — counts high-first, names A–Z. Opening every
+     column ascending would answer "who published fewest" to somebody who clicked
+     Posts Published to find out who published most. */
+  const next: 'asc' | 'desc' = active
+    ? direction === 'desc'
+      ? 'asc'
+      : 'desc'
+    : WORK_SORT_OPENS_DESC[sortKey]
+      ? 'desc'
+      : 'asc';
+
+  return (
+    <th
+      scope="col"
+      /* Announced to a screen reader as the table's current ordering, which is
+         the one piece of state on this page a sighted reader gets from an arrow
+         and a listener would otherwise get from nothing. */
+      aria-sort={active ? (direction === 'desc' ? 'descending' : 'ascending') : 'none'}
+      className={cn(
+        'px-3 py-2.5 align-bottom text-caption font-medium leading-tight',
+        numeric && 'text-right',
+      )}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(sortKey, next)}
+        title={`Sort by ${WORK_SORT_LABEL[sortKey]}`}
+        className={cn(
+          'inline-flex items-center gap-1 rounded transition-colors',
+          'hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2',
+          numeric && 'flex-row-reverse',
+          active ? 'font-semibold text-text-primary' : 'text-text-secondary',
+        )}
+        style={{ outlineColor: 'var(--focus-ring)' }}
+      >
+        {children}
+        {/* ⚠️ The arrow is rendered for the ACTIVE column only, and the space it
+            takes is not reserved. Twelve permanently visible arrows is a row of
+            noise; and because the header wraps rather than truncates, one
+            appearing does not shift the columns. */}
+        {active &&
+          (direction === 'desc' ? (
+            <ArrowDown className="size-3 shrink-0" strokeWidth={2.5} aria-hidden="true" />
+          ) : (
+            <ArrowUp className="size-3 shrink-0" strokeWidth={2.5} aria-hidden="true" />
+          ))}
+      </button>
+    </th>
+  );
+}
+
+function PlainTh({ children, numeric }: { children: React.ReactNode; numeric?: boolean }) {
   return (
     <th
       scope="col"
@@ -333,36 +439,6 @@ function Row({
         )}
       </td>
 
-      {/* ── ⚠️ ONE DESCRIPTION PER TASK, LINED UP WITH THE COLUMN BESIDE IT ──
-          The row is a project-and-person pairing holding several tasks, so
-          "the description" is not one string. Printing the first task's would
-          silently attribute it to all of them. These are the same three tasks
-          the Tasks column shows, in the same order, so the two columns read
-          across — and an em dash holds the line for a task nobody described,
-          which keeps the alignment honest rather than closing the gap. */}
-      <td className={cn(TD, 'text-text-secondary')}>
-        {row.tasks.length === 0 ? (
-          <span className="text-text-tertiary">—</span>
-        ) : (
-          <span className="block space-y-0.5">
-            {row.tasks.slice(0, 3).map((task) => (
-              <span
-                key={task.reference}
-                className="block truncate"
-                title={task.description ?? undefined}
-              >
-                {task.description ?? <span className="text-text-tertiary">—</span>}
-              </span>
-            ))}
-            {row.tasks.length > 3 && (
-              <span className="block text-micro text-text-tertiary">
-                and {row.tasks.length - 3} more
-              </span>
-            )}
-          </span>
-        )}
-      </td>
-
       <td className={TD}>
         {row.platforms.length === 0 ? (
           <span className="text-text-tertiary">—</span>
@@ -377,10 +453,14 @@ function Row({
 
       <Num value={row.tasksAssigned} />
       <Num value={row.tasksDone} />
+      <Num value={row.tasksPending} />
+      {/* The one number the mockup emphasises, and the one the meeting is about. */}
+      <Num value={row.postsPublished} strong />
 
       <td className={cn(TD, 'text-text-secondary')}>
         {row.contentTypes.length > 0 ? row.contentTypes.join(', ') : '—'}
       </td>
+      <td className={cn(TD, 'text-text-secondary')}>{row.activitySummary || '—'}</td>
 
       <td className={cn(TD, 'whitespace-nowrap')}>
         <span

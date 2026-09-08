@@ -135,25 +135,69 @@ export interface WorkReport {
      most is a column a reader can sort. */
 }
 
+/* ── ⚠️ ONE PER COLUMN — owner, 2026-09-08 ─────────────────────────────────
+   *"in the table right now, it should have flexibility. You can put ascending
+   and descending order on each column so I can arrange the whole table on the
+   basis of that… so I can select on the basis of who did most of the posting."*
+
+   The list was seven and the table is twelve columns wide, so five headers were
+   inert — including Platform and Content Type, which are exactly how somebody
+   asks "who is doing the reels". A column that cannot be sorted while its
+   neighbours can reads as broken rather than as deliberate, so the set now
+   covers the table exactly.
+
+   ⚠️ THE ORDER OF THIS ARRAY IS THE ORDER OF THE COLUMNS, and the table's
+   header maps position to sort key. Adding one in the middle without adding its
+   column moves every sort one place to the right. */
 export const WORK_SORTS = [
-  'posts',
+  'project',
+  'person',
+  'tasks',
+  'platform',
   'assigned',
   'done',
   'pending',
-  'project',
-  'person',
+  'posts',
+  'content',
+  'activity',
+  'status',
   'recent',
 ] as const;
 export type WorkSort = (typeof WORK_SORTS)[number];
 
+/** The column heading each sort belongs to, word for word. */
 export const WORK_SORT_LABEL: Readonly<Record<WorkSort, string>> = {
-  posts: 'Posts Published',
+  project: 'Project',
+  person: 'Person',
+  tasks: 'Tasks',
+  platform: 'Platform',
   assigned: 'Tasks Assigned',
   done: 'Tasks Done',
   pending: 'Tasks Pending',
-  project: 'Project',
-  person: 'Person',
+  posts: 'Posts Published',
+  content: 'Content Type',
+  activity: 'Activity Summary',
+  status: 'Status',
   recent: 'Last Active',
+};
+
+/* ⚠️ WHICH WAY A COLUMN SHOULD OPEN. Clicking "Posts Published" means "who
+   published most", not "who published least" — a count that opens ascending
+   shows a screen of zeros and reads as an empty report. A name opens A–Z for
+   the same reason: that is what somebody asking for a name is looking for. */
+export const WORK_SORT_OPENS_DESC: Readonly<Record<WorkSort, boolean>> = {
+  project: false,
+  person: false,
+  tasks: true,
+  platform: false,
+  assigned: true,
+  done: true,
+  pending: true,
+  posts: true,
+  content: false,
+  activity: false,
+  status: false,
+  recent: true,
 };
 
 /* ==========================================================================
@@ -443,6 +487,25 @@ function sortRows(rows: WorkRow[], sort: WorkSort, direction: 'asc' | 'desc'): W
         return row.projectName;
       case 'person':
         return row.personName;
+      /* ⚠️ THE COUNT, NOT THE FIRST TITLE. "Sort by Tasks" on a column listing
+         three names means "who has the most", which is the question the column
+         is being asked. Sorting alphabetically by whatever happens to be first
+         would order the table by a string the reader cannot see. */
+      case 'tasks':
+        return row.tasks.length;
+      /* Platform and Content Type are lists rendered as icons and as prose.
+         Sorted on the joined text so the grouping a reader sees on screen is
+         the grouping they get — rows with the same platforms end up together,
+         which is the point of sorting by it. An empty list sorts first
+         ascending, where "none" belongs. */
+      case 'platform':
+        return row.platforms.join(',');
+      case 'content':
+        return row.contentTypes.join(',');
+      case 'activity':
+        return row.activitySummary;
+      case 'status':
+        return WORK_STATUS_META[row.status].label;
       case 'recent':
         /* ⚠️ Never-active sorts as the empty string, which puts it FIRST
            ascending and last descending — the same place a zero would go, and

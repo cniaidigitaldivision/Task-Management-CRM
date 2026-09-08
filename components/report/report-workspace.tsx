@@ -13,7 +13,6 @@ import { Card, CardBody } from '@/components/ui/card';
 import { ReportChartsPanel } from '@/components/report/report-charts-panel';
 import { ReportControls, type ControlState, type ExportFormat } from '@/components/report/report-controls';
 import { WorkReportTables } from '@/components/report/work-report-tables';
-import { WorkDiaryTables } from '@/components/report/work-diary-tables';
 import { Dialog } from '@/components/ui/dialog';
 import { Pagination, usePagination } from '@/components/ui/pagination';
 import { cellText, type Cell, type Report } from '@/lib/domain/reports';
@@ -23,8 +22,8 @@ import {
   DIARY_GROUPING_LABEL,
   DIARY_GROUPINGS,
   type DiaryGrouping,
-  type WorkDiary,
 } from '@/lib/domain/work-diary';
+import type { WorkSort } from '@/lib/domain/work-report';
 import { downloadCsv, openPdfInTab, downloadXlsxFromBase64 } from '@/lib/download';
 import { cn } from '@/lib/utils';
 
@@ -58,7 +57,6 @@ export function ReportWorkspace({
   initialRequest,
   initialCharts,
   initialWork,
-  initialDiary,
   options,
   people,
   nowMs,
@@ -67,8 +65,6 @@ export function ReportWorkspace({
   initialRequest: ReportRequest;
   initialCharts: readonly ChartSpec[];
   initialWork: WorkReport | null;
-  /** Null until somebody picks an arrangement — see `askGrouping` below. */
-  initialDiary: WorkDiary | null;
   options: FilterOptions;
   people: ReadonlyArray<{ id: string; name: string }>;
   /** The server's clock, for every relative age on the page. See lib/now.ts. */
@@ -95,17 +91,21 @@ export function ReportWorkspace({
   const [report, setReport] = React.useState<Report>(initialReport);
   const [charts, setCharts] = React.useState<readonly ChartSpec[]>(initialCharts);
   const [work, setWork] = React.useState<WorkReport | null>(initialWork);
-  const [diary, setDiary] = React.useState<WorkDiary | null>(initialDiary);
 
-  /* -- ⚠️ THE ARRANGEMENT IS ASKED, NOT ASSUMED — owner, 2026-09-08 ---------
-     *"when a period is selected… and in the project all projects are selected
-     and persons are all persons, a modal should pop up. It will ask whether to
-     sort by project or by all members."*
+  /* ── ⚠️ THE QUESTION BELONGS TO THE EXPORT, NOT TO THE PAGE ──────────────
+     Owner, 2026-09-08: *"the thing or the pattern I told you is just for the
+     PDF that will be exported. Each time I click on Export and all projects and
+     all members are selected, by default it should ask which sort order you
+     want."*
 
-     Held as the pending control state rather than a boolean, so the answer can
-     be applied to exactly the change that raised the question. A boolean would
-     have to re-read `state`, which by then may be a different request. */
-  const [asking, setAsking] = React.useState<ControlState | null>(null);
+     An earlier version asked when the report was GENERATED and replaced the
+     table on screen with the day-by-day arrangement. That was a misreading: the
+     table is what people work with, and the diary is what a sheet needs to be
+     readable once it has left the screen.
+
+     Holds the pending FORMAT rather than a boolean — the answer has to be
+     applied to the export somebody actually pressed. */
+  const [askingFor, setAskingFor] = React.useState<ExportFormat | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [downloading, setDownloading] = React.useState<ExportFormat | null>(null);
@@ -127,19 +127,23 @@ export function ReportWorkspace({
      failed change cannot leave the controls describing a report that is not on
      screen — on failure the previous one stays, with the error beside it. */
   /**
-   * Whether this request is the one the owner wants to be asked about.
+   * Whether an export should ask how to arrange the sheet first.
    *
-   * ⚠️ ONLY WHEN NOTHING IS NARROWED. With a project or a person chosen the
-   * reader has already said what they are looking at, and a modal would be a
-   * question they just answered with the filters. The whole point of the ask is
-   * the everything-selected case, where "who did what" and "which project got
-   * what" are two genuinely different reports.
+   * ⚠️ ONLY WHEN NOTHING IS NARROWED, and only for the work report. With a
+   * project or a person already chosen the reader has said what they are
+   * looking at, and the question would be one they just answered with the
+   * filters. The everything-selected case is the one where "who did what" and
+   * "which project got what" are two genuinely different sheets.
+   *
+   * ⚠️ AND NEVER FOR `print`, which prints the page itself — asking how to
+   * arrange a document already on screen, then not rearranging it, is a
+   * question with no effect.
    */
-  const shouldAsk = (next: ControlState): boolean =>
-    next.work &&
-    next.grouping === undefined &&
-    (next.filters?.projectIds.length ?? 0) === 0 &&
-    !next.subjectId;
+  const shouldAsk = (format: ExportFormat): boolean =>
+    format !== 'print' &&
+    state.work &&
+    (state.filters?.projectIds.length ?? 0) === 0 &&
+    !state.subjectId;
 
   const apply = async (next: ControlState) => {
     setState(next);
@@ -153,7 +157,6 @@ export function ReportWorkspace({
         setReport(result.report);
         setCharts(result.charts);
         setWork(result.work);
-        setDiary(result.diary);
       } else setError(result.error);
     } catch {
       setError('That report could not be built — the server did not answer.');
@@ -162,7 +165,7 @@ export function ReportWorkspace({
     }
   };
 
-  const exportAs = async (format: ExportFormat) => {
+  const exportAs = async (format: ExportFormat, grouping?: DiaryGrouping) => {
     if (format === 'print') {
       window.print();
       return;
@@ -171,7 +174,11 @@ export function ReportWorkspace({
     setDownloading(format);
     setError(null);
     try {
-      const result = await exportReportAction(asRequest(state), format);
+      /* ⚠️ THE GROUPING RIDES ON THE REQUEST AND NOWHERE ELSE. The page's own
+         state never carries it, so generating a report can never accidentally
+         produce the day-by-day arrangement on screen — the two paths are told
+         apart by this argument alone. */
+      const result = await exportReportAction({ ...asRequest(state), grouping }, format);
       if (!result.ok) {
         setError(result.error);
         return;
@@ -199,12 +206,14 @@ export function ReportWorkspace({
   return (
     <div className="space-y-5">
       <GroupingDialog
-        pending={asking}
-        onCancel={() => setAsking(null)}
+        format={askingFor}
+        onCancel={() => setAskingFor(null)}
         onPick={(grouping) => {
-          const next = { ...asking!, grouping };
-          setAsking(null);
-          void apply(next);
+          const format = askingFor;
+          setAskingFor(null);
+          /* `undefined` is a real answer — it exports the table as the screen
+             has it, in whatever order the columns are currently sorted. */
+          if (format) void exportAs(format, grouping);
         }}
       />
 
@@ -214,13 +223,13 @@ export function ReportWorkspace({
         people={people}
         busy={busy}
         downloading={downloading}
-        onChange={(next) => {
-          /* The question comes BEFORE the request, so the server is asked once
-             with the answer rather than twice. */
-          if (shouldAsk(next)) setAsking(next);
-          else void apply(next);
+        onChange={(next) => void apply(next)}
+        onExport={(format) => {
+          /* Asked BEFORE the request, so the server builds the sheet once,
+             already arranged. */
+          if (shouldAsk(format)) setAskingFor(format);
+          else void exportAs(format);
         }}
-        onExport={(format) => void exportAs(format)}
       />
 
       {error && (
@@ -242,10 +251,20 @@ export function ReportWorkspace({
           <p className="text-caption text-text-secondary">{report.subtitle}</p>
         </div>
 
-        {diary ? (
-          <WorkDiaryTables diary={diary} />
-        ) : work ? (
-          <WorkReportTables work={work} nowMs={nowMs} />
+        {work ? (
+          <WorkReportTables
+            work={work}
+            nowMs={nowMs}
+            sort={state.workSort}
+            direction={state.workDirection}
+            /* ⚠️ Straight back through `apply`, so a header click is the same
+               kind of change as touching any other control: one request, one
+               response — and the sort dropdown beside it stays in step, because
+               both read the same state. */
+            onSort={(workSort: WorkSort, workDirection: 'asc' | 'desc') =>
+              void apply({ ...state, workSort, workDirection })
+            }
+          />
         ) : (
           <>
             <Figures report={report} />
@@ -408,21 +427,22 @@ function Notes({ report }: { report: Report }) {
  * people learn to dismiss without reading.
  */
 function GroupingDialog({
-  pending,
+  format,
   onPick,
   onCancel,
 }: {
-  pending: ControlState | null;
-  onPick: (grouping: DiaryGrouping) => void;
+  format: ExportFormat | null;
+  /** `undefined` means "as shown" — the summary table, in its current order. */
+  onPick: (grouping?: DiaryGrouping) => void;
   onCancel: () => void;
 }) {
   return (
     <Dialog
-      open={pending !== null}
+      open={format !== null}
       onClose={onCancel}
       size="sm"
-      title="How should this report be arranged?"
-      description="Every project and everybody is selected, so there are two useful ways to read it."
+      title="How should the file be arranged?"
+      description="Every project and everybody is selected, so there are two useful ways to lay the sheet out."
     >
       <div className="space-y-2">
         {DIARY_GROUPINGS.map((grouping) => (
@@ -443,12 +463,17 @@ function GroupingDialog({
           </button>
         ))}
 
+        {/* ⚠️ A THIRD ANSWER, DELIBERATELY. "As shown" exports the table that
+            is on screen, in the order its columns are currently sorted. Without
+            it this dialog would be a toll gate in front of every export — and a
+            dialog that cannot be declined is one people learn to dismiss
+            without reading. */}
         <button
           type="button"
-          onClick={onCancel}
+          onClick={() => onPick(undefined)}
           className="block w-full rounded-xl px-3.5 py-2 text-left text-caption text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary"
         >
-          Keep the summary table instead
+          As shown on screen — the summary table, sorted as it is
         </button>
       </div>
     </Dialog>

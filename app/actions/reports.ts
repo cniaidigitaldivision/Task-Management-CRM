@@ -33,7 +33,6 @@ import {
   diaryToReport,
   DIARY_GROUPINGS,
   type DiaryGrouping,
-  type WorkDiary,
 } from '@/lib/domain/work-diary';
 import { chartsFor, type ChartSpec } from '@/lib/domain/report-charts';
 import {
@@ -124,8 +123,6 @@ export interface ReportResponse {
   readonly options: FilterOptions;
   /** Present only when `work` was asked for. Null for the analytical types. */
   readonly work: WorkReport | null;
-  /** Present only when a grouping was chosen. See `ReportRequest.grouping`. */
-  readonly diary: WorkDiary | null;
 }
 
 /**
@@ -267,11 +264,20 @@ export async function buildReportAction(
       })
     : null;
 
-  /* -- ⚠️ THE DIARY REPLACES THE PAIRING TABLE, IT DOES NOT JOIN IT --------
-     Both are "the work report", and showing them together would put the same
-     tasks on the screen twice under two different arrangements — which is how a
-     reader comes to believe a task was done twice. The grouping the modal asked
-     for decides which one is built. */
+  /* -- ⚠️ THE DIARY IS FOR THE EXPORT, NOT FOR THE SCREEN — owner, 2026-09-08
+     *"the thing or the pattern I told you is just for the PDF that will be
+     exported… The structure that was showing on the page, keep that structure
+     as it is."*
+
+     An earlier version of this put the day-by-day arrangement on the page and
+     replaced the summary table with it, which was a misreading: the table on
+     screen is the one people work with, and the diary is what a printed sheet
+     needs to be readable away from it.
+
+     So `grouping` reaches this function only from `exportReportAction`. The
+     screen never sends it, which is why nothing here has to decide between two
+     renderings — `report` simply becomes the diary when a grouping was asked
+     for, and every writer downstream already speaks that shape. */
   const grouping = DIARY_GROUPINGS.includes(request.grouping as DiaryGrouping)
     ? (request.grouping as DiaryGrouping)
     : null;
@@ -299,8 +305,10 @@ export async function buildReportAction(
       : work
         ? workReportToReport(work, input, new Date(now).toISOString())
         : report,
+    /* ⚠️ NULL WHEN A DIARY WAS BUILT. `composeReportSheet` draws the rich
+       pairing table whenever `work` is present, which would print the summary
+       under a heading promising the day-by-day sheet. */
     work: diary ? null : work,
-    diary,
     /* ⚠️ No charts on the work report. The owner's mockup has none, and it is a
        table of pairings — a chart of it would be a chart of a join. The
        analytical types keep theirs. */

@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildWorkReport, workReportToReport, type WorkReportOptions } from '../work-report';
+import { buildWorkReport, workReportToReport, type WorkReportOptions,
+  WORK_SORTS,
+  WORK_SORT_LABEL,
+  WORK_SORT_OPENS_DESC,
+  type WorkSort,
+} from '../work-report';
 import {
   EMPTY_FILTERS,
   NATURAL_SORT,
@@ -422,6 +427,88 @@ describe('filters and sorting', () => {
 
     const asc = buildWorkReport(input({ tasks }), options({ sort: 'project', direction: 'asc' }));
     expect(asc.rows[0].projectName).toBe('Alpha');
+  });
+
+  /* ── ⚠️ EVERY COLUMN, BECAUSE EVERY HEADING IS NOW A CONTROL — 2026-09-08 ──
+     Owner: *"You can put ascending and descending order on each column so I can
+     arrange the whole table on the basis of that."* Five of the twelve had no
+     sort key at all before this, so their headings would have been buttons that
+     did nothing — which is worse than a heading that is plainly inert. */
+  it('offers exactly one sort per column, and each of them orders something', () => {
+    const tasks = [
+      task({
+        reference: 'A',
+        projectId: 'p1',
+        projectName: 'Alpha',
+        assigneeId: 'u1',
+        assigneeName: 'Ann',
+        platforms: ['tiktok'],
+        contentKind: 'reel',
+      }),
+      task({
+        reference: 'B',
+        projectId: 'p2',
+        projectName: 'Zulu',
+        assigneeId: 'u2',
+        assigneeName: 'Zoe',
+        platforms: ['facebook'],
+        contentKind: 'static',
+      }),
+    ];
+
+    for (const sort of WORK_SORTS) {
+      const asc = buildWorkReport(input({ tasks }), options({ sort, direction: 'asc' }));
+      const desc = buildWorkReport(input({ tasks }), options({ sort, direction: 'desc' }));
+
+      expect(asc.rows).toHaveLength(2);
+      expect(desc.rows).toHaveLength(2);
+
+      /* ⚠️ EXACTLY TWO OUTCOMES ARE ACCEPTABLE, and the test does not presume
+         which: rows that DIFFER on the sorted column come back reversed, and
+         rows that TIE keep their order whichever way the arrow points. Anything
+         else — a shuffle, a dropped row — is a comparator that does not
+         understand the key, which is precisely what a heading wired to an
+         unhandled sort would produce.
+
+         Not asserting the direction per key on purpose: which of these two
+         columns "wins" depends on the fixture, and a test that hard-codes it
+         breaks whenever somebody adds a field to `task()` rather than when the
+         sorting breaks. */
+      const ascKeys = asc.rows.map((r) => r.key);
+      const descKeys = desc.rows.map((r) => r.key);
+      const reversed = [...ascKeys].reverse();
+
+      expect(
+        descKeys.join() === ascKeys.join() || descKeys.join() === reversed.join(),
+      ).toBe(true);
+    }
+
+    /* And the four that genuinely differ in this fixture DO reverse, so the
+       check above cannot be satisfied by a comparator that ties everything. */
+    for (const sort of ['project', 'person', 'platform', 'content'] as WorkSort[]) {
+      const asc = buildWorkReport(input({ tasks }), options({ sort, direction: 'asc' }));
+      const desc = buildWorkReport(input({ tasks }), options({ sort, direction: 'desc' }));
+      expect(desc.rows.map((r) => r.key)).toEqual([...asc.rows.map((r) => r.key)].reverse());
+    }
+  });
+
+  it('has a label and an opening direction for every sort', () => {
+    /* The header renders `WORK_SORT_LABEL[key]` and opens on
+       `WORK_SORT_OPENS_DESC[key]`. A key missing from either would render an
+       empty heading or open the wrong way round. */
+    for (const sort of WORK_SORTS) {
+      expect(WORK_SORT_LABEL[sort]).toBeTruthy();
+      expect(typeof WORK_SORT_OPENS_DESC[sort]).toBe('boolean');
+    }
+  });
+
+  it('⚠️ opens a count high-first and a name A–Z', () => {
+    /* Clicking "Posts Published" means "who published most". Opening it
+       ascending shows a screen of zeros and reads as an empty report. */
+    expect(WORK_SORT_OPENS_DESC.posts).toBe(true);
+    expect(WORK_SORT_OPENS_DESC.done).toBe(true);
+    expect(WORK_SORT_OPENS_DESC.person).toBe(false);
+    expect(WORK_SORT_OPENS_DESC.project).toBe(false);
   });
 });
 
