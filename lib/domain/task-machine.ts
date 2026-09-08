@@ -73,6 +73,36 @@ import {
  * and it is accepted knowingly — anybody senior enough to assign their own work
  * could already have reassigned it to get the same result, so the rule was
  * costing honest people friction while stopping nobody determined.
+ *
+ * ── ⚠️ REVIEW IS THE DOER'S CHOICE — REVISED 2026-09-08 ─────────────────────
+ * Owner:
+ *
+ *   *"When the super admin assigns it, if the team member who is working on
+ *   that task thinks that we need a review from the super admin, then he puts
+ *   in a review. If he thinks that this task doesn't need any review, he just
+ *   puts it as done."*
+ *
+ * So `todo → done` and `in_progress → done` now allow the ASSIGNEE as well as
+ * the creator. Before this the assignee's only exit was In Review, which made
+ * every errand — book the courier, send the file — wait on somebody else's
+ * attention before it could be called finished.
+ *
+ * ⚠️ WHAT THIS GIVES UP, STATED RATHER THAN GLOSSED. The 2026-08-24 rule meant
+ * delegated work could not be closed by the person who did it; now it can, so a
+ * requester may never see the work before it is marked complete. Three things
+ * are deliberately kept as the counterweight:
+ *
+ *   · `in_review → done` still forbids the assignee. Once work has been PUT UP
+ *     for review, the reviewer signs it off — otherwise "send to review, then
+ *     approve yourself" would be a one-click way around the whole idea.
+ *   · The publish gate is untouched: a static post or reel still cannot reach
+ *     Done without a live link, whoever is asking.
+ *   · Closing delegated work notifies whoever raised it, by name and project
+ *     (app/actions/tasks.ts). Reopening is Admin-only, so the requester finds
+ *     out immediately and has a way back.
+ *
+ * The owner was shown this trade and chose it: the reviewer's protection now
+ * comes from being TOLD, rather than from a gate the doer cannot pass.
  * ========================================================================= */
 
 /** Who may perform a transition, in the vocabulary of doc 05 §2's table. */
@@ -141,13 +171,12 @@ export const TRANSITIONS: Readonly<Record<TaskStatus, readonly TransitionRule[]>
        where it forbids the assignee. */
     { to: 'in_review', allow: ['assignee', 'coordinator'] },
     { to: 'backlog', allow: ['coordinator'], note: 'Deprioritised' },
-    /* ⚠️ Straight to Done, and only for the person who raised it — owner,
-       2026-08-24: *"Tasks that are created by a team member themselves can be
-       moved to any status."* Routing a personal to-do through In Progress and
-       Review so its author can approve their own submission is ceremony that
-       teaches people the tool is in the way. No review step, because there is
-       nobody to review it for. */
-    { to: 'done', allow: ['creator'], note: 'Your own task — no review needed' },
+    /* ⚠️ THE ASSIGNEE DECIDES WHETHER THEIR WORK NEEDS REVIEW — owner,
+       2026-09-08. See the header note "Review is the doer's choice". Straight to
+       Done for a self-raised task (nobody to review it for) AND for delegated
+       work the assignee judges finished; `→ in_review` above is the same
+       person's other option when they want the requester to look first. */
+    { to: 'done', allow: ['assignee', 'creator'], note: 'Finished — no review needed' },
     { to: 'cancelled', allow: ['coordinator', 'creator'], requiresReason: true },
   ],
 
@@ -156,10 +185,10 @@ export const TRANSITIONS: Readonly<Record<TaskStatus, readonly TransitionRule[]>
     { to: 'in_review', allow: ['assignee', 'coordinator'] },
     { to: 'todo', allow: ['assignee', 'coordinator'] },
     { to: 'backlog', allow: ['coordinator'], note: 'Deprioritised' },
-    /* Same carve-out as `todo → done`. Note this also lets a Coordinator close
-       work they raised and delegated without a review pass — the requester
-       saying "this is fine" is what approval means, and they are the requester. */
-    { to: 'done', allow: ['creator'], note: 'Raised by you — close it directly' },
+    /* Same as `todo → done`: the assignee may finish it, or send it to review
+       first. A Coordinator closing work they raised and delegated is the
+       requester saying "this is fine", which is what approval means. */
+    { to: 'done', allow: ['assignee', 'creator'], note: 'Finished — no review needed' },
     { to: 'cancelled', allow: ['coordinator', 'creator'], requiresReason: true },
   ],
 

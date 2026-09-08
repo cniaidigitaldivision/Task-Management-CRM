@@ -13,6 +13,12 @@ import type { Role, TaskStatus } from '../constants';
  *
  * One sentence: WHOEVER RAISED IT CLOSES IT.
  *
+ * ⚠️ NARROWED 2026-09-08 to: whoever raised it APPROVES WHAT WAS SUBMITTED TO
+ * THEM. The assignee may now finish delegated work outright, or hand it up for
+ * review — their call. Only `in_review -> done` still belongs to the requester,
+ * and the tests below assert both halves so the boundary cannot drift back by
+ * accident. The reasoning, and what it gives up, is in ../task-machine.ts.
+ *
  * ⚠️ There was no unit test file for the state machine at all before this — the
  * only coverage was one integration test needing a live database and a seed,
  * which is why a Member being unable to finish their own task went unnoticed
@@ -79,20 +85,37 @@ describe('a task you raised yourself', () => {
 });
 
 describe('a task somebody else asked you to do', () => {
-  it('a Member cannot close it — Review is as far as they go', () => {
-    expect(evaluateTransition('in_review', 'done', delegatedToMe('member')).ok).toBe(false);
-    expect(evaluateTransition('todo', 'done', delegatedToMe('member')).ok).toBe(false);
-    expect(evaluateTransition('in_progress', 'done', delegatedToMe('member')).ok).toBe(false);
+  /* ── ⚠️ REVISED 2026-09-08 — THE DOER CHOOSES ────────────────────────────
+     This block used to assert the opposite: *"a Member cannot close it — Review
+     is as far as they go."* Owner: *"if the team member who is working on that
+     task thinks that we need a review from the super admin, then he puts in a
+     review. If he thinks that this task doesn't need any review, he just puts
+     it as done."*
+
+     So the two exits below are BOTH the assignee's to take, and the test now
+     pins that choice. What did not change is asserted immediately after — once
+     work is IN review, the reviewer signs it off. */
+  it('a Member may finish it without a review', () => {
+    expect(evaluateTransition('todo', 'done', delegatedToMe('member')).ok).toBe(true);
+    expect(evaluateTransition('in_progress', 'done', delegatedToMe('member')).ok).toBe(true);
   });
 
-  it('can still be moved INTO Review by the person doing it', () => {
-    /* The half that must keep working — otherwise the work has nowhere to go. */
+  it('or send it for review instead — the other half of the same choice', () => {
     expect(evaluateTransition('in_progress', 'in_review', delegatedToMe('member')).ok).toBe(true);
+    expect(evaluateTransition('todo', 'in_review', delegatedToMe('member')).ok).toBe(true);
   });
 
-  it('the board never offers Done to the assignee', () => {
-    expect(allowedTransitions('in_review', delegatedToMe('member'))).not.toContain('done');
+  it('⚠️ but cannot approve what they have PUT UP for review', () => {
+    /* The gate that survives, and the reason the change above is safe: without
+       it, "submit for review, then approve it yourself" would be a two-click
+       way around every reviewer in the system. */
+    expect(evaluateTransition('in_review', 'done', delegatedToMe('member')).ok).toBe(false);
+  });
+
+  it('the board offers both exits, and never approval of your own submission', () => {
+    expect(allowedTransitions('todo', delegatedToMe('member'))).toContain('done');
     expect(allowedTransitions('in_progress', delegatedToMe('member'))).toContain('in_review');
+    expect(allowedTransitions('in_review', delegatedToMe('member'))).not.toContain('done');
   });
 
   it('says who CAN close it, rather than only that you cannot', () => {

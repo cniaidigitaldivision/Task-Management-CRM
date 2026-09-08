@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 
 import { markAllReadAction } from '@/app/actions/notifications';
+import { notificationHref } from '@/lib/domain/task-notice';
 import { GlobalSearch } from '@/components/layout/global-search';
 import { Button, IconButton } from '@/components/ui/button';
 import { ThemeSwitch } from '@/components/brand/theme-toggle';
@@ -283,7 +284,12 @@ export function Topbar({
                   {notifications.map((item) => (
                     <li key={item.id}>
                       <Link
-                        href={(item.linkTo ?? '/tasks') as '/tasks'}
+                        /* ⚠️ THE TASK, NOT THE BOARD. `item.linkTo` on rows
+                           written before 2026-09-08 is `/my-work` — the right
+                           page and then a hunt. `notificationHref` prefers the
+                           entity id where the kind says it is a task, which
+                           rescues those rows too. */
+                        href={notificationHref(item) as '/tasks'}
                         onClick={() => setBellOpen(false)}
                         className={cn(
                           'block px-3.5 py-2.5 transition-colors hover:bg-bg-surface-sunken',
@@ -314,6 +320,22 @@ export function Topbar({
                     </li>
                   ))}
                 </ul>
+
+                {/* ── ⚠️ THE WAY OUT OF A TWELVE-ROW WINDOW — owner, 2026-09-08
+                    *"If I want to see all the notifications, I will click on the
+                    bottom of the modal and it will bring me to that notification
+                    page."* The dropdown fetches twelve; everything older was
+                    unreachable rather than merely out of sight. Always shown,
+                    including when the list is empty — somebody who has just read
+                    everything is exactly the person who then goes looking for
+                    what they read. */}
+                <Link
+                  href="/notifications"
+                  onClick={() => setBellOpen(false)}
+                  className="block border-t border-border-subtle px-3.5 py-2.5 text-center text-caption font-semibold text-text-brand transition-colors hover:bg-bg-surface-sunken"
+                >
+                  See all notifications
+                </Link>
               </div>
             )}
           </div>

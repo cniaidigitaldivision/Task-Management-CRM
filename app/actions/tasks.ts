@@ -56,6 +56,7 @@ import {
   parseRecurrence,
 } from '@/lib/domain/recurrence';
 import { evaluateTransition, taskLoad } from '@/lib/domain/task-machine';
+import { noticeForStatus, taskNotice } from '@/lib/domain/task-notice';
 import {
   MAX_CONCURRENT_TIMERS,
   TIMER_ALERTS,
@@ -100,9 +101,22 @@ export interface ActionResult {
   /** The caller must re-authenticate before this will be accepted (FR-149).
    *  Only `purgeTasksAction` raises it — nothing else here is irreversible. */
   readonly stepUpRequired?: boolean;
+  /* ── ⚠️ WHICH INPUT THE REFUSAL BELONGS TO — owner, 2026-09-08 ────────────
+     *"If someone has an issue with some field, put the error on that field."*
+
+     A form that answers "Choose a priority" in a banner at the top makes the
+     reader hunt for which of eighteen controls it means. The name here is the
+     `name` attribute of the input, so the dialog can print the sentence under
+     that control and put the cursor in it.
+
+     Absent means the refusal is about the request as a whole — a permission,
+     a project cap — and belongs in the banner. Both paths exist because both
+     kinds of refusal exist; forcing every message onto a field would attach
+     "you do not have permission to create tasks" to the title box. */
+  readonly field?: string;
 }
 
-const fail = (error: string): ActionResult => ({ ok: false, error });
+const fail = (error: string, field?: string): ActionResult => ({ ok: false, error, field });
 
 /** Today in the division's own zone — see `isoDateIn`. Was UTC, which made the
  *  working day run 05:00 → 05:00 for a team in Pakistan, so a post published at
@@ -172,7 +186,18 @@ function isStatus(value: string): value is TaskStatus {
 
 /** Refresh everything a task change can be visible on. */
 function revalidateWork(): void {
-  for (const path of ['/dashboard', '/tasks', '/my-work', '/projects', '/workload', '/reports']) {
+  /* ⚠️ `/notifications` IS IN THE LIST because every action that reaches here
+     can write one. Without it the page behind the bell shows a cached copy
+     from before the thing it is meant to be telling you about. */
+  for (const path of [
+    '/dashboard',
+    '/tasks',
+    '/my-work',
+    '/projects',
+    '/workload',
+    '/reports',
+    '/notifications',
+  ]) {
     revalidatePath(path);
   }
 }
@@ -606,26 +631,29 @@ export async function createTaskAction(_prev: ActionResult, form: FormData): Pro
   const status = str(form, 'status') || 'todo';
   const overrideReason = optional(form, 'overrideReason');
 
-  if (!title) return fail('Give the task a title.');
-  if (!projectId) return fail('Choose a project — every task belongs to one (BR-011).');
-  if (!isPriority(priority)) return fail('Choose a priority.');
-  if (!effort) return fail('Choose an effort estimate.');
-  if (!isStatus(status)) return fail('That is not a valid status.');
+  if (!title) return fail('Give the task a title.', 'title');
+  if (!projectId) return fail('Choose a project — every task belongs to one (BR-011).', 'projectId');
+  if (!isPriority(priority)) return fail('Choose a priority.', 'priority');
+  if (!effort) return fail('Choose an effort estimate.', 'effortSize');
+  if (!isStatus(status)) return fail('That is not a valid status.', 'status');
 
   const repeat = recurrenceFrom(form);
-  if (repeat.error) return fail(repeat.error);
+  if (repeat.error) return fail(repeat.error, 'repeatFreq');
 
   /* A member may only raise work for themselves. RLS enforces this too, but a
      clear sentence beats a policy violation the person cannot interpret. */
   if (user.role === 'member' && assigneeId && assigneeId !== user.id) {
-    return fail('Members can only raise tasks for themselves. Ask a coordinator to reassign it.');
+    return fail(
+      'Members can only raise tasks for themselves. Ask a coordinator to reassign it.',
+      'assigneeId',
+    );
   }
 
   /* Work flows downward — see `rankGate`. Checked before capacity, because
      "you cannot assign to them at all" is a clearer answer than a warning about
      their workload for an assignment that was never going to be permitted. */
   const rankRefusal = await rankGate(user.id, user.role, assigneeId);
-  if (rankRefusal) return fail(rankRefusal);
+  if (rankRefusal) return fail(rankRefusal, 'assigneeId');
 
   let warning: string | null = null;
 
@@ -635,11 +663,15 @@ export async function createTaskAction(_prev: ActionResult, form: FormData): Pro
       priority,
       status,
     });
-    if (gate.blocked) return fail(gate.blocked);
+    if (gate.blocked) return fail(gate.blocked, 'assigneeId');
     if (gate.needsOverride && !overrideReason) {
       return {
         ok: false,
         error: `${gate.projectedPct}% — this puts them over their limit. Type a reason to proceed; it will be logged (BR-003).`,
+        /* The box appears BECAUSE of this refusal (see `overrideAsked` in the
+           dialog), so the message belongs on it rather than in a banner above a
+           field that did not exist a moment ago. */
+        field: 'overrideReason',
       };
     }
     warning = gate.warning;
@@ -683,7 +715,10 @@ export async function createTaskAction(_prev: ActionResult, form: FormData): Pro
         counts: await contentCountsFor(user.id, projectId, dueDate ?? ''),
         projectName: project.name,
       });
-      if (refusal) return fail(refusal);
+      /* ⚠️ ON THE DUE DATE, not on the content kind. The cap is "this DAY is
+         already covered" / "this WEEK is full" — moving the task to another day
+         is the fix, and that is the control the reader needs to reach. */
+      if (refusal) return fail(refusal, 'dueDate');
     }
   }
 
@@ -721,9 +756,15 @@ export async function createTaskAction(_prev: ActionResult, form: FormData): Pro
         await notify(tx, user.id, {
           userId: assigneeId,
           kind: 'task_assigned',
-          title: `${created.reference} assigned to you`,
-          body: title,
-          linkTo: '/my-work',
+          ...taskNotice(
+            {
+              taskId: created.id,
+              taskTitle: title,
+              projectName: created.projectName,
+              actorName: user.fullName,
+            },
+            { event: 'assigned' },
+          ),
           entityId: created.id,
         });
       }
@@ -800,17 +841,20 @@ export async function updateTaskAction(_prev: ActionResult, form: FormData): Pro
   if (user.role === 'member') {
     const nextAssignee = str(form, 'assigneeId');
     if (nextAssignee !== (task.assigneeId ?? '')) {
-      return fail('You cannot hand this task to somebody else. A Coordinator can reassign it.');
+      return fail(
+      'You cannot hand this task to somebody else. A Coordinator can reassign it.',
+      'assigneeId',
+    );
     }
   }
 
   const priority = str(form, 'priority');
   const effort = effortFrom(form);
-  if (!isPriority(priority)) return fail('Choose a priority.');
-  if (!effort) return fail('Choose an effort estimate.');
+  if (!isPriority(priority)) return fail('Choose a priority.', 'priority');
+  if (!effort) return fail('Choose an effort estimate.', 'effortSize');
 
   const repeat = recurrenceFrom(form);
-  if (repeat.error) return fail(repeat.error);
+  if (repeat.error) return fail(repeat.error, 'repeatFreq');
 
   let warning: string | null = null;
 
@@ -830,9 +874,12 @@ export async function updateTaskAction(_prev: ActionResult, form: FormData): Pro
       { effortPoints: effort.points, priority, status: task.status },
       task.id,
     );
-    if (gate.blocked) return fail(gate.blocked);
+    if (gate.blocked) return fail(gate.blocked, 'assigneeId');
     if (gate.needsOverride && !optional(form, 'overrideReason')) {
-      return fail(`${gate.projectedPct}% — that estimate puts them over the limit. A reason is required.`);
+      return fail(
+        `${gate.projectedPct}% — that estimate puts them over the limit. A reason is required.`,
+        'overrideReason',
+      );
     }
     warning = gate.warning;
   }
@@ -1047,6 +1094,15 @@ export async function changeStatusAction(
         after: { status: to, reason: reason ?? null },
       });
 
+      /* Everything below names the task and its project, never its reference
+         code — see lib/domain/task-notice.ts for why. */
+      const subject = {
+        taskId,
+        taskTitle: task.title,
+        projectName: task.projectName,
+        actorName: user.fullName,
+      };
+
       /* Who needs to know depends on which way the work moved. Notifying
          everybody on every change is how a notification feed becomes wallpaper. */
       if (task.assigneeId && task.assigneeId !== user.id) {
@@ -1058,16 +1114,43 @@ export async function changeStatusAction(
         await notify(tx, user.id, {
           userId: task.assigneeId,
           kind,
-          title: `${task.reference} — ${STATUS_META[to].label}`,
-          body: reason?.trim() || task.title,
-          linkTo: '/my-work',
+          ...taskNotice(subject, noticeForStatus(to, reason?.trim() || null, STATUS_META[to].label)),
           entityId: taskId,
         });
       }
 
-      /* In Review needs a reviewer's attention, and the person who submitted it
-         is by definition not that person (BR-002). */
-      if (to === 'in_review') {
+      /* -- ⚠️ THE REQUESTER IS THE AUDIENCE FOR BOTH EXITS — owner, 2026-09-08
+         The person who raised and delegated the task is the one waiting on it,
+         and until now they were told about neither exit:
+
+           · IN REVIEW went to every Admin and Coordinator in the division
+             EXCEPT them — a broadcast to people with no stake in this task,
+             which is how a bell stops being read. *"the notification should be
+             sent to the super admin or the admin, or whoever assigned the
+             task."*
+           · DONE notified nobody at all. The assignee could close delegated
+             work and the requester would find out by going to look.
+
+         The second is load-bearing now that `todo -> done` and
+         `in_progress -> done` allow the assignee (task-machine.ts, same date).
+         Being told is what replaced the gate, so it cannot be best-effort. */
+      const requesterWaits =
+        (to === 'in_review' || to === 'done') && task.createdById !== user.id;
+
+      if (requesterWaits) {
+        await notify(tx, user.id, {
+          userId: task.createdById,
+          kind: to === 'in_review' ? 'review_requested' : 'task_status_changed',
+          ...taskNotice(subject, { event: to === 'in_review' ? 'review_requested' : 'completed' }),
+          entityId: taskId,
+        });
+      }
+
+      /* ⚠️ THE BROADCAST SURVIVES FOR ONE CASE ONLY: work somebody raised for
+         themselves and then submitted. There is no requester to ask, so without
+         this the submission would sit in review with nobody told it exists.
+         Everything else now goes to one person on purpose. */
+      if (to === 'in_review' && task.createdById === user.id) {
         const reviewers = await tx`
           select id from public.users
            where is_active and account_state = 'active'
@@ -1077,9 +1160,7 @@ export async function changeStatusAction(
           await notify(tx, user.id, {
             userId: reviewer.id as string,
             kind: 'review_requested',
-            title: `${task.reference} is ready for review`,
-            body: task.title,
-            linkTo: '/tasks',
+            ...taskNotice(subject, { event: 'review_requested' }),
             entityId: taskId,
           });
         }
@@ -1381,13 +1462,18 @@ export async function assignTaskAction(
         after: { assigneeId, overrideReason: overrideReason ?? null },
       });
 
+      const subject = {
+        taskId,
+        taskTitle: task.title,
+        projectName: task.projectName,
+        actorName: user.fullName,
+      };
+
       if (assigneeId) {
         await notify(tx, user.id, {
           userId: assigneeId,
           kind: 'task_assigned',
-          title: `${task.reference} assigned to you`,
-          body: task.title,
-          linkTo: '/my-work',
+          ...taskNotice(subject, { event: 'assigned' }),
           entityId: taskId,
         });
       }
@@ -1416,9 +1502,12 @@ export async function assignTaskAction(
         await notify(tx, user.id, {
           userId: task.assigneeId,
           kind: 'task_reassigned',
-          title: `${task.reference} was reassigned`,
-          body: task.title,
-          linkTo: '/tasks',
+          ...taskNotice(subject, { event: 'reassigned' }),
+          /* ⚠️ The TITLE is overwritten, because `reassigned` is written from
+             the arriving person's side ("now yours") and this copy goes to the
+             person it left. The body — project and who moved it — is the same
+             fact for both. */
+          title: `${task.title.trim() || 'Untitled task'} — moved to someone else`,
           entityId: taskId,
         });
       }
@@ -1508,9 +1597,15 @@ export async function addCommentAction(taskId: string, body: string): Promise<Ac
       await notify(tx, user.id, {
         userId: target,
         kind: 'task_comment',
-        title: `New comment on ${task.reference}`,
-        body: body.trim().slice(0, 140),
-        linkTo: '/tasks',
+        ...taskNotice(
+          {
+            taskId,
+            taskTitle: task.title,
+            projectName: task.projectName,
+            actorName: user.fullName,
+          },
+          { event: 'commented', excerpt: body.trim().slice(0, 140) },
+        ),
         entityId: taskId,
       });
     }

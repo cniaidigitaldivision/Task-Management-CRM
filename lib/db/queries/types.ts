@@ -237,6 +237,14 @@ export interface NotificationRow {
   readonly title: string;
   readonly body: string | null;
   readonly linkTo: string | null;
+  /* ── ⚠️ WHAT IT IS ABOUT, AND WHY THE LINK IS NOT ENOUGH ──────────────────
+     Every notification has always stored `entity_id`; it was simply never read
+     back. Rows written before 2026-09-08 carry a `link_to` of `/my-work` or
+     `/tasks` — the right page, followed by a hunt — and the only way to turn
+     those into "open THAT task" is the id sitting beside them. New rows link
+     deeply on their own; this is what rescues the ones already in the table.
+     See `notificationHref`, which decides between the two. */
+  readonly entityId: string | null;
   readonly isRead: boolean;
   readonly createdAt: string;
 }

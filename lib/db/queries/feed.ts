@@ -247,12 +247,20 @@ export async function notificationPulse(
 export async function listNotifications(
   actorId: string,
   limit = 30,
+  /* ── ⚠️ OFFSET, NOT A CURSOR, AND ONLY BECAUSE OF WHAT THIS LIST IS ───────
+     A keyset cursor is the right answer for a feed that grows while you read
+     it, and this one barely does: a person accumulates a few notifications an
+     hour, the page shows the newest first, and the rows are immutable once
+     written. The failure an offset invites — a row arriving mid-scroll shifting
+     everything down by one — costs a repeated row on page two, not a lost one.
+     Revisit if this ever becomes a firehose. */
+  offset = 0,
 ): Promise<NotificationRow[]> {
   const rows = await withUser(actorId, (tx) => tx`
-    select id, kind, title, body, link_to, is_read, created_at
+    select id, kind, title, body, link_to, entity_id, is_read, created_at
       from public.notifications
      order by created_at desc
-     limit ${limit}
+     limit ${limit} offset ${offset}
   `);
   return rows.map((row) => ({
     id: row.id as string,
@@ -260,9 +268,23 @@ export async function listNotifications(
     title: row.title as string,
     body: (row.body as string | null) ?? null,
     linkTo: (row.link_to as string | null) ?? null,
+    entityId: (row.entity_id as string | null) ?? null,
     isRead: row.is_read as boolean,
     createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
   }));
+}
+
+/**
+ * How many notifications this person has, ever.
+ *
+ * Used only by the notifications page, to decide whether there is another page
+ * to offer. ⚠️ Through `withUser` like everything else here: RLS scopes
+ * `notifications` to its own user at every rank, so this counts the caller's
+ * own and cannot be widened by passing somebody else's id.
+ */
+export async function countNotifications(actorId: string): Promise<number> {
+  const rows = await withUser(actorId, (tx) => tx`select count(*) as n from public.notifications`);
+  return Number(rows[0]?.n ?? 0);
 }
 
 export async function countUnread(actorId: string): Promise<number> {

@@ -124,7 +124,14 @@ function dueFromEffort(size: EffortSize, from: Date): { date: string; time: stri
  * anybody expects, so the control explains itself rather than leaving somebody
  * to discover it by waiting.
  */
-function RepeatField({ initial }: { initial: string | null }) {
+function RepeatField({
+  initial,
+  error,
+}: {
+  initial: string | null;
+  /** The server's refusal for the rule, shown on the control that made it. */
+  error?: string;
+}) {
   const parsed = initial ? parseRecurrence(initial) : null;
   const [freq, setFreq] = React.useState(parsed?.ok ? parsed.rule.freq : 'none');
   /* No setter: the interval is fixed at 1 now that the "every N" box is gone.
@@ -143,6 +150,7 @@ function RepeatField({ initial }: { initial: string | null }) {
         <Field
           label="Repeats"
           htmlFor="repeatFreq"
+          error={error}
           hint={
             /* ── ⚠️ THIS SENTENCE DESCRIBED THE OPPOSITE BEHAVIOUR ──────────
                It read: *"The next one appears when this is marked done — not on
@@ -298,6 +306,39 @@ export function TaskDialog({
     EMPTY,
   );
 
+  const formRef = React.useRef<HTMLFormElement>(null);
+
+  /* ── ⚠️ WHY THE ACTION IS CALLED BY HAND RATHER THAN PASSED TO `action=` ───
+     Owner, 2026-09-08: *"If there is some issue… I still don't want it to
+     remove the field values that we have added."*
+
+     React resets an uncontrolled form once the action passed to `<form action>`
+     completes — on refusal as much as on success. So a task refused for a
+     missing priority came back with the title, the description, the dates and
+     the links all blanked, and the person had to type the whole thing again to
+     change one dropdown. That is the single most expensive way a form can fail.
+
+     Submitting through `startTransition` instead keeps `useActionState`'s
+     pending flag and its result, and skips the reset entirely: the inputs are
+     never touched, so whatever was typed is still there when the message
+     appears. Nothing is needed for the success path — the dialog closes and
+     `Dialog` unmounts its children, so the next open is blank by construction.
+
+     ⚠️ `event.currentTarget` is read BEFORE the transition. React pools nothing
+     here, but the handler is async from `startTransition`'s point of view and
+     `currentTarget` is null by the time a deferred callback runs. */
+  const submit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    React.startTransition(() => {
+      formAction(data);
+    });
+  };
+
+  /** The refusal that belongs to one named control, if this one does. */
+  const errorFor = (name: string): string | undefined =>
+    !state.ok && state.field === name ? state.error : undefined;
+
   const [projectId, setProjectId] = React.useState(
     task?.projectId ?? lockedProjectId ?? projects[0]?.id ?? '',
   );
@@ -356,21 +397,39 @@ export function TaskDialog({
      overriding anything. */
   const overrideAsked = Boolean(state.error && /reason to proceed|reason is required/i.test(state.error));
 
-  /* ── ⚠️ FIRES ONCE — THE SAME TRAP THE PROJECT DIALOG HAD ─────────────────
-     `useRouter()` returns a new object identity on every render, so `router` in
-     the dependency array makes this eligible to re-run on each one — and
-     `router.refresh()` below causes renders. `state.ok` stays true, so anything
-     that ACCUMULATES runs again and again. The project dialog produced ten
-     stacked notices from one project before this was understood; the shape was
-     identical here and would have done the same the moment a notice was added.
+  /* ── ⚠️ ONCE PER RESULT — NOT ONCE PER LIFETIME. THE BUG THE OWNER HIT ────
+     Owner, 2026-09-08: *"I fill in all the information and when I click, all
+     the information goes. The fields are empty in that form or that modal and
+     it is not closed. No notification is shown that the task has been
+     created."*
 
-     A ref, not state: setting state here would itself cause the render that
-     re-runs the effect. */
-  const announced = React.useRef(false);
+     This effect was guarded by `React.useRef(false)` — a latch that was set on
+     the first successful save and never cleared. `TaskDialog` is mounted for as
+     long as the page is (its parent renders it with `open={false}`; only
+     `Dialog`'s CHILDREN unmount), so the ref outlived every open and close.
+
+     First task of the session: toast, refresh, close. Every task after it:
+     `announced.current` was already true, so the whole block was skipped — no
+     toast, and `onClose()` never ran. The form looked wiped because React
+     resets an uncontrolled form after a form action, which it had been doing
+     all along; nobody noticed while the dialog was also closing.
+
+     The dependency array made it worse rather than better: it listed the
+     FIELDS of the result, so two creations in a row that happened to produce
+     the same warning would not even re-run the effect.
+
+     The fix is to remember WHICH result was announced. `useActionState` hands
+     back a new object for every submission, so reference identity is exactly
+     the question being asked — "have I already acted on this one?" — and the
+     initial EMPTY object is never `ok`, so nothing fires on mount.
+
+     Still a ref rather than state: setting state here would cause the render
+     that re-runs the effect. */
+  const announced = React.useRef<ActionResult | null>(null);
 
   React.useEffect(() => {
-    if (state.ok && !announced.current) {
-      announced.current = true;
+    if (state.ok && announced.current !== state) {
+      announced.current = state;
 
       /* ── Only on CREATE, and the reference is the useful part ──────────────
          Owner, 2026-09-03: *"same way when new Task created, successful
@@ -406,17 +465,27 @@ export function TaskDialog({
       router.refresh();
       onClose();
     }
-  }, [
-    state.ok,
-    state.taskId,
-    state.reference,
-    state.warning,
-    isEdit,
-    task?.reference,
-    onClose,
-    router,
-    toast,
-  ]);
+  }, [state, isEdit, task?.reference, onClose, router, toast]);
+
+  /* ── ⚠️ A REFUSAL PUTS THE CURSOR WHERE THE PROBLEM IS ────────────────────
+     The form is taller than the dialog, so a message printed under a control
+     four fields below the fold is a message nobody reads. Scrolling the named
+     input into view and focusing it is what makes "put the error on that field"
+     true in practice rather than only in the markup.
+
+     ⚠️ Guarded by result identity like the announcement above: without it,
+     every re-render would steal focus back from wherever the person had moved
+     it, which is worse than never focusing at all. */
+  const focused = React.useRef<ActionResult | null>(null);
+
+  React.useEffect(() => {
+    if (state.ok || !state.field || focused.current === state) return;
+    focused.current = state;
+    const control = formRef.current?.querySelector<HTMLElement>(`[name="${state.field}"]`);
+    if (!control) return;
+    control.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    control.focus({ preventScroll: true });
+  }, [state]);
 
   // Members cannot hand work to anyone else (doc 03 §3.3).
   const assignable = currentUser.role === 'member'
@@ -467,10 +536,13 @@ export function TaskDialog({
         </>
       }
     >
-      <form id="task-form" action={formAction} className="space-y-4">
+      <form id="task-form" ref={formRef} onSubmit={submit} className="space-y-4">
         {isEdit && <input type="hidden" name="taskId" value={task?.id} />}
 
-        {state.error && (
+        {/* ⚠️ ONLY WHEN THE REFUSAL HAS NO FIELD. One that does is printed under
+            its own control instead — saying it twice teaches people to read
+            neither. */}
+        {state.error && !state.field && (
           <div
             role="alert"
             className="flex items-start gap-2.5 rounded-lg px-3 py-2.5"
@@ -498,7 +570,12 @@ export function TaskDialog({
             "What needs doing?" is a project manager's phrasing — it asks for a
             description when the field wants a name. Every label on this form was
             reviewed against that: say the noun the person is about to type. */}
-        <Field label="Name the task" htmlFor="title" hint="One line. What is it?">
+        <Field
+          label="Name the task"
+          htmlFor="title"
+          hint="One line. What is it?"
+          error={errorFor('title')}
+        >
           <Input
             id="title"
             name="title"
@@ -529,7 +606,12 @@ export function TaskDialog({
               <input type="hidden" name="projectId" value={lockedProject.id} />
             </Field>
           ) : (
-            <Field label="Project" htmlFor="projectId" hint="Every task belongs to exactly one.">
+            <Field
+              label="Project"
+              htmlFor="projectId"
+              hint="Every task belongs to exactly one."
+              error={errorFor('projectId')}
+            >
               <Select
                 size="md"
                 id="projectId"
@@ -574,6 +656,7 @@ export function TaskDialog({
               label="Assigned to"
               htmlFor="assigneeId"
               hint="You, unless you hand it to somebody on this project."
+              error={errorFor('assigneeId')}
             >
               <Select
                 size="md"
@@ -621,7 +704,7 @@ export function TaskDialog({
             Every short field now pairs into the SAME two-column grid, and
             anything long spans it. Nothing is sized to its content. */}
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Priority" htmlFor="priority">
+          <Field label="Priority" htmlFor="priority" error={errorFor('priority')}>
             <Select size="md" id="priority" name="priority" defaultValue={task?.priority ?? 'medium'} required>
               {PRIORITIES.map((priority) => (
                 <option key={priority} value={priority}>
@@ -649,6 +732,7 @@ export function TaskDialog({
             label="How long will it take?"
             htmlFor="effortSize"
             hint="Fills in the due date below."
+            error={errorFor('effortSize')}
           >
             <Select
               size="md"
@@ -702,7 +786,12 @@ export function TaskDialog({
           {/* Controlled, unlike every other input on this form: these two are the
               ones the effort control writes into. `defaultValue` is read once at
               mount and would ignore every later change. */}
-          <Field label="Due date" htmlFor="dueDate" hint="Filled in from the effort. Change it if you need to.">
+          <Field
+            label="Due date"
+            htmlFor="dueDate"
+            hint="Filled in from the effort. Change it if you need to."
+            error={errorFor('dueDate')}
+          >
             <Input
               id="dueDate"
               name="dueDate"
@@ -727,7 +816,7 @@ export function TaskDialog({
               with the right one empty. A lone field stretched to full width
               would be a third distinct width on the same form. */}
           {!isEdit && (
-            <Field label="Starting status" htmlFor="status">
+            <Field label="Starting status" htmlFor="status" error={errorFor('status')}>
               <Select
                 size="md"
                 id="status"
@@ -764,7 +853,7 @@ export function TaskDialog({
               somebody answer twice. */}
         </div>
 
-        <RepeatField initial={task?.recurrenceRule ?? null} />
+        <RepeatField initial={task?.recurrenceRule ?? null} error={errorFor('repeatFreq')} />
 
         {/* ══ CATEGORY ══════════════════════════════════════════════════════════
             ⚠️ THIS BLOCK WAS FOUR FIELDS AND IS NOW ONE.
@@ -824,6 +913,7 @@ export function TaskDialog({
             label="Reason for going over the limit"
             htmlFor="overrideReason"
             hint="Logged against the task and visible in the audit trail (BR-003)."
+            error={errorFor('overrideReason')}
           >
             <Textarea id="overrideReason" name="overrideReason" rows={2} required />
           </Field>
