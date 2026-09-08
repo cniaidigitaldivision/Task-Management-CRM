@@ -1,5 +1,5 @@
 import {
-  CONTENT_KIND_LABEL,
+  CONTENT_KIND_NAME,
   STATUS_META,
   type ContentKind,
   type TaskStatus,
@@ -681,7 +681,7 @@ function contentMix(tasks: readonly ReportTask[]): ChartDatum[] {
       /* ⚠️ Named, not dropped. Oversight work — reviews, client calls — is the
          only thing the executives on this team are assigned, so a chart that
          silently omitted it would show them doing nothing at all. */
-      label: kind === 'none' ? 'Not content' : CONTENT_KIND_LABEL[kind],
+      label: kind === 'none' ? 'Not content' : CONTENT_KIND_NAME[kind],
       value,
       token: kind === 'none' ? 'status-backlog' : hue(index),
     })),

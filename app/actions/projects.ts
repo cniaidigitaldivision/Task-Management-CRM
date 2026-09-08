@@ -31,6 +31,8 @@ import {
   PROJECT_TYPE_META,
   type ProjectStatus,
   type ProjectType,
+  TOOL_AUDIENCES,
+  type ToolAudience,
 } from '@/lib/domain/constants';
 import { cadenceProblem, contractTargets, type Cadence } from '@/lib/domain/cadence';
 import { can } from '@/lib/domain/permissions';
@@ -149,6 +151,13 @@ const TYPE_FIELDS: Readonly<Record<ProjectType, readonly string[]>> = {
   ],
   business: ['target_completion'],
   self_promotion: ['target_publish_date'],
+  /* ── A TOOL — owner, 2026-09-08 ─────────────────────────────────────────
+     `tool_audience` is NOT here: it is a real column on `projects` (migration
+     107) with a CHECK behind it, not a loose jsonb key. Everything in this map
+     goes into `type_fields`, where nothing can be constrained — which is fine
+     for "who asked for this" and wrong for a value the database has to be able
+     to trust. */
+  tool: ['platform_target', 'stack'],
   other: ['requested_by'],
 };
 
@@ -290,8 +299,34 @@ const REQUIRED_TYPE_FIELDS: Readonly<
   ],
   business: [['target_completion', 'Target completion']],
   self_promotion: [['target_publish_date', 'Target publish date']],
+  /* Nothing compulsory. A tool is often opened the moment somebody agrees to
+     build it, when the stack is exactly what has not been decided yet. */
+  tool: [],
   other: [['requested_by', 'Who asked for this']],
 };
+
+/**
+ * The tool audience the database will accept for this type.
+ *
+ * ── ⚠️ THE TYPE DECIDES, NOT THE FORM ──────────────────────────────────────
+ * Migration 107's CHECK refuses a tool with no audience AND anything else that
+ * has one. Both refusals are correct and neither produces a sentence a person
+ * can act on — a raw constraint error names the constraint, not the field.
+ *
+ * So this normalises rather than validates: a project that is not a tool gets
+ * null whatever was posted, and a tool with a missing or unrecognised value
+ * gets 'internal', which is the common case and the safe one — it grants
+ * nothing. The specific way this goes wrong in practice is somebody switching
+ * an existing project's type in an open form, where the browser happily posts
+ * the audience select that is no longer on screen.
+ */
+function toolAudienceFor(form: FormData, type: ProjectType): ToolAudience | null {
+  if (type !== 'tool') return null;
+  const posted = str(form, 'toolAudience');
+  return (TOOL_AUDIENCES as readonly string[]).includes(posted)
+    ? (posted as ToolAudience)
+    : 'internal';
+}
 
 function collectTypeFields(form: FormData, type: ProjectType): Record<string, unknown> {
   const out: Record<string, unknown> = {};
@@ -517,6 +552,7 @@ export async function createProjectAction(
       targetEndDate: str(form, 'targetEndDate') || null,
       targetEndTime: str(form, 'targetEndTime') || null,
       typeFields: collectTypeFields(form, type),
+      toolAudience: toolAudienceFor(form, type),
       ...commercialFrom(form),
     });
 
@@ -695,6 +731,12 @@ export async function updateProjectAction(
       targetEndDate: str(form, 'targetEndDate') || null,
       targetEndTime: str(form, 'targetEndTime') || null,
       typeFields: { ...existing.typeFields, ...collectTypeFields(form, existing.type) },
+      /* ⚠️ `existing.type`, because the edit form does not offer a type change —
+         it is fixed at creation, since the reference prefix is derived from it
+         and references are permanent. Reading the posted value here would let a
+         hand-crafted request move a client project to `tool` and strip its
+         package in one step. */
+      toolAudience: toolAudienceFor(form, existing.type),
       ...commercialFrom(form),
     });
 

@@ -8,6 +8,7 @@ import type {
   Role,
   TaskStatus,
   TimerState,
+  ToolAudience,
 } from '@/lib/domain/constants';
 
 /* ============================================================================
@@ -30,6 +31,9 @@ export interface ProjectRow {
   readonly description: string | null;
   readonly status: ProjectStatus;
   readonly statusReason: string | null;
+  /** 'internal' | 'external', and only for a tool. Null everywhere else —
+   *  migration 107's CHECK enforces the pairing in both directions. */
+  readonly toolAudience: ToolAudience | null;
   readonly ownerId: string;
   readonly ownerName: string | null;
   readonly startDate: string | null;

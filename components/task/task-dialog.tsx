@@ -27,6 +27,9 @@ import {
   type EffortSize,
   type Role,
   type TaskStatus,
+  CONTENT_KIND_GROUP,
+  CONTENT_KIND_GROUP_LABEL,
+  CONTENT_KIND_OF_GROUP,
 } from '@/lib/domain/constants';
 import type { TaskRow } from '@/lib/db/queries/types';
 
@@ -911,14 +914,33 @@ export function TaskDialog({
             id="contentKind"
             name="contentKind"
             defaultValue={task?.contentKind ?? ''}
-            options={[
-              { value: '', label: 'Not a deliverable' },
-              ...CONTENT_KINDS.map((k) => ({
-                value: k,
-                label: CONTENT_KIND_LABEL[k],
-              })),
-            ]}
-          />
+          >
+            {/* ── ⚠️ GROUPED, AND THE GROUP HEADING CARRIES THE RULE ──────────
+                Owner, 2026-09-08: *"Everybody is confused between static post
+                designing and static post publishing."*
+
+                A flat alphabetical list is what produced that: "Static post"
+                and the thing a designer actually does sat rows apart with
+                nothing to tell them apart, and picking wrong was only
+                discovered later, when the task would not close without a URL.
+
+                `optgroup` puts the rule where the choice is made — the heading
+                says a publishing kind needs a live URL before it can be marked
+                done, so nobody accepts that rule without reading it. Native
+                `<optgroup>` rather than a styled listbox: it is announced by
+                screen readers, works on a phone's native picker, and needs no
+                JavaScript. */}
+            <option value="">Not a deliverable</option>
+            {CONTENT_KIND_GROUP.map((group) => (
+              <optgroup key={group} label={CONTENT_KIND_GROUP_LABEL[group]}>
+                {CONTENT_KINDS.filter((k) => CONTENT_KIND_OF_GROUP[k] === group).map((k) => (
+                  <option key={k} value={k}>
+                    {CONTENT_KIND_LABEL[k]}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </Select>
         </Field>
 
         <Field label="Detail" htmlFor="description" hint="Brief, links, references — anything the person needs.">

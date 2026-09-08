@@ -49,6 +49,25 @@ export async function listStudioProjects(actorId: string): Promise<StudioProject
                     where a.project_id = p.id and a.is_active) as has_accounts
       from public.projects p
      where p.is_draft = false
+       /* ── ⚠️ TOOLS ARE NOT IN THIS LIST — owner, 2026-09-08 ──────────────
+          *"on the studio page, in the dropdown, these projects will not be
+          shown because these are tools. They have no social media accounts so
+          there is no means of trend and engagement."*
+
+          Filtered in the QUERY rather than hidden in the component: the page
+          also picks a DEFAULT project from this list, and a component-level
+          filter would leave the Studio able to open on a tool that the dropdown
+          then could not show — a page describing a project you cannot select.
+
+          ⚠️ NOTE THE ABSENCE OF BACKTICKS in this comment: it lives inside a
+          tagged template literal, so one would end the SQL string and the file
+          would stop parsing. Learned here, immediately.
+
+          ⚠️ And the filter is on the TYPE, not on whether accounts exist, which
+          would be the tempting shortcut. A client
+          project with nothing linked yet SHOULD appear: it is the one somebody
+          opens in order to link something. A tool never will. */
+       and p.type <> 'tool'
      order by has_accounts desc, p.name
   `);
 

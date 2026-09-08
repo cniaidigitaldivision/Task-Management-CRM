@@ -1,5 +1,5 @@
 import {
-  CONTENT_KIND_LABEL,
+  CONTENT_KIND_NAME,
   STATUS_META,
   type ContentKind,
 } from './constants';
@@ -214,6 +214,15 @@ const ACTIVITY_WORD: Readonly<Record<ContentKind, readonly [string, string]>> = 
   carousel: ['carousel', 'carousels'],
   story: ['story', 'stories'],
   video: ['video', 'videos'],
+  /* ⚠️ THE PRODUCTION KINDS READ AS WHAT WAS MADE, NOT AS WHAT WENT OUT.
+     "4 posts" and "4 designs" are different claims, and this column is the one
+     a client-facing summary is written from — calling a design a post is how a
+     month of preparation gets reported as a month of publishing. */
+  static_design: ['design', 'designs'],
+  video_edit: ['edit', 'edits'],
+  ai_generation: ['generation', 'generations'],
+  frontend: ['frontend task', 'frontend tasks'],
+  backend: ['backend task', 'backend tasks'],
   website: ['website update', 'website updates'],
   ad: ['ad', 'ads'],
   report: ['report', 'reports'],
@@ -358,7 +367,7 @@ export function buildWorkReport(input: ReportInput, options: WorkReportOptions):
             description: sameText(task.description, task.title) ? null : task.description,
             /* "Task" for work that is not content — the same word the project
                report uses, so the two do not describe one thing two ways. */
-            category: task.contentKind ? CONTENT_KIND_LABEL[task.contentKind] : 'Task',
+            category: task.contentKind ? CONTENT_KIND_NAME[task.contentKind] : 'Task',
             status: task.status,
             statusLabel: STATUS_META[task.status].label,
             dueDate: task.dueDate,
@@ -371,7 +380,7 @@ export function buildWorkReport(input: ReportInput, options: WorkReportOptions):
       tasksDone: mine.filter(isDone).length,
       tasksPending: open.length,
       postsPublished: published.length,
-      contentTypes: [...kinds.keys()].map((k) => CONTENT_KIND_LABEL[k]),
+      contentTypes: [...kinds.keys()].map((k) => CONTENT_KIND_NAME[k]),
       activitySummary: summarise(kinds),
       status: statusOf(open, input.today),
       lastActive: lastActiveOf(mine),

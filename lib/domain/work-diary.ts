@@ -1,4 +1,4 @@
-import { CONTENT_KIND_LABEL, STATUS_META, type TaskStatus } from './constants';
+import { CONTENT_KIND_NAME, STATUS_META, type TaskStatus } from './constants';
 import type { Cell, Report, ReportPeriod, ReportTask, TaskLink } from './reports';
 
 /* ============================================================================
@@ -139,7 +139,7 @@ export function dayFor(
 }
 
 function categoryOf(task: ReportTask): string {
-  return task.contentKind ? CONTENT_KIND_LABEL[task.contentKind] : 'Task';
+  return task.contentKind ? CONTENT_KIND_NAME[task.contentKind] : 'Task';
 }
 
 function isDone(status: TaskStatus): boolean {

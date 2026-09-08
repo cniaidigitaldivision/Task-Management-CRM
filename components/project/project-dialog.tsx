@@ -13,6 +13,7 @@ import {
   Megaphone,
   Package,
   Tent,
+  Wrench,
 } from 'lucide-react';
 
 import {
@@ -37,6 +38,9 @@ import {
   PROJECT_TYPE_META,
   type ProjectStatus,
   type ProjectType,
+  TOOL_AUDIENCES,
+  TOOL_AUDIENCE_LABEL,
+  hasSocialPresence,
 } from '@/lib/domain/constants';
 
 /* ============================================================================
@@ -108,6 +112,15 @@ const TYPE_FIELD_FORMS: Record<
   self_promotion: [
     { name: 'target_publish_date', label: 'Target publish date', type: 'date', required: true },
   ],
+  tool: [
+    {
+      name: 'platform_target',
+      label: 'What is it for?',
+      placeholder: 'WhatsApp automation, CRM, ERP…',
+      hint: 'One line. What the tool does, in the words you would use out loud.',
+    },
+    { name: 'stack', label: 'Stack', placeholder: 'Next.js + Supabase' },
+  ],
   other: [{ name: 'requested_by', label: 'Who asked for this?' }],
 };
 
@@ -164,6 +177,7 @@ const TYPE_ICONS: Record<ProjectType, React.ComponentType<{ className?: string; 
   event: Tent,
   business: Building,
   self_promotion: Megaphone,
+  tool: Wrench,
   other: Package,
 };
 
@@ -173,6 +187,11 @@ const TYPE_HINTS: Record<ProjectType, string> = {
   event: 'Has a date it must be ready for',
   business: 'Internal build — a site, a system, a deck',
   self_promotion: "The division's own marketing",
+  /* ⚠️ THE SECOND SENTENCE IS THE POINT. Choosing this switches off the
+     posting rhythm, the package targets and the Studio — somebody should know
+     that before they pick it, not discover it when a field they wanted is
+     missing. */
+  tool: 'A product we build — no social posting',
   other: 'Anything that is not really a project',
 };
 
@@ -667,6 +686,22 @@ export function ProjectDialog({
         {/* ---- What we sold them (owner request 2026-08-19) ----
             The commercial shape: internal/external, client, package, and the
             targets the package suggests and the owner then adjusts. */}
+        {/* ── ⚠️ NOT RENDERED FOR A TOOL — owner, 2026-09-08 ────────────────
+            *"For that there is no need for any social media… Exclude that tool
+            for a static post and all those things should be disabled when I
+            select the tool."*
+
+            Every field in this section describes a POSTING agreement: how many
+            static posts a day, which days reels go out, how many assets a month
+            were promised. A tool has none of that, and leaving the section
+            visible-but-disabled would be worse than leaving it out — a greyed
+            row of numbers invites somebody to work out how to enable it.
+
+            ⚠️ AND THE SECTION IS ABSENT RATHER THAN EMPTIED. `PackageFields`
+            posts its own inputs; rendering it hidden would still submit
+            `staticPostsPerDay` and friends, writing a posting rhythm onto a
+            project that cannot post. */}
+        {hasSocialPresence(type) && (
         <Section
           step={3}
           total={4}
@@ -693,6 +728,7 @@ export function ProjectDialog({
             }}
           />
         </Section>
+        )}
 
         {/* ---- The type-specific half of the form (doc 15 §3) ---- */}
         <Section
@@ -702,6 +738,39 @@ export function ProjectDialog({
           hint={`The questions only a ${PROJECT_TYPE_META[type].label.toLowerCase()} project needs.`}
           icon={FileText}
         >
+          {/* ── ⚠️ A REAL COLUMN, NOT A `type_fields` KEY ────────────────────
+              Owner: *"Also mention internal and external. For example maybe I
+              will be creating this for some client but the social media posting
+              is not included in that because that's a tool."*
+
+              `tool_audience` lives on `projects` with a CHECK behind it
+              (migration 107) because the database has to be able to trust it:
+              a tool must say which, and nothing that is not a tool may claim
+              one. Everything else in this section is loose jsonb, where no such
+              rule can be expressed.
+
+              Required, and defaulted to internal — the common case, and the
+              constraint refuses a tool with no answer anyway. */}
+          {type === 'tool' && (
+            <Field
+              label="Whose tool is it?"
+              htmlFor="toolAudience"
+              hint="Internal is ours; external is built for a client. It does not add social posting either way."
+              className="mb-3"
+            >
+              <Select
+                id="toolAudience"
+                name="toolAudience"
+                defaultValue={project?.toolAudience ?? 'internal'}
+                required
+                options={TOOL_AUDIENCES.map((value) => ({
+                  value,
+                  label: TOOL_AUDIENCE_LABEL[value],
+                }))}
+              />
+            </Field>
+          )}
+
           <div className="grid gap-3 sm:grid-cols-2">
             {fields.map((field) => (
               <Field key={field.name} label={field.label} htmlFor={field.name} hint={field.hint}>

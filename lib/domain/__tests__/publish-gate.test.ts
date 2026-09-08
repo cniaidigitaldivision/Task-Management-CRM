@@ -2,11 +2,14 @@ import { describe, expect, it } from 'vitest';
 
 import { allowedTransitions, evaluateTransition } from '../task-machine';
 import {
-  CONTENT_KIND_LABEL,
+  CONTENT_KIND_NAME,
   CONTENT_KINDS,
   PLACEMENT_KINDS,
   PUBLISH_PROOF_KINDS,
   TASK_STATUSES,
+  CONTENT_KIND_GROUP,
+  CONTENT_KIND_OF_GROUP,
+  COUNTS_AS_ASSET,
 } from '../constants';
 import type { ContentKind, Role, TaskStatus } from '../constants';
 
@@ -120,11 +123,14 @@ describe('carousel, story and long video — added 2026-08-24', () => {
     });
 
     it(`a ${kind} refusal names the format, not "content"`, () => {
-      /* CONTENT_KIND_LABEL, lowercased — "a carousel cannot be marked as done",
-         not "a content item". The sentence has to be about the thing on screen. */
+      /* ⚠️ `CONTENT_KIND_NAME`, NOT `CONTENT_KIND_LABEL` — changed 2026-09-08
+         when the label gained its "— publishing" qualifier so the dropdown
+         could say which rule it carries. The refusal is prose: "a static post
+         cannot be marked as done", not "a static post — publishing cannot be".
+         The two maps have different jobs; this test asserts the prose one. */
       const verdict = evaluateTransition('in_review', 'done', mine('member', kind, 0));
       expect(verdict.ok === false && verdict.message.toLowerCase()).toContain(
-        CONTENT_KIND_LABEL[kind].toLowerCase(),
+        CONTENT_KIND_NAME[kind].toLowerCase(),
       );
     });
   }
@@ -253,5 +259,63 @@ describe('a caller that supplies neither field', () => {
         createdById: ME,
       }).ok,
     ).toBe(true);
+  });
+});
+
+/* ============================================================================
+ * MAKING SOMETHING IS NOT PUBLISHING IT — owner, 2026-09-08
+ * ----------------------------------------------------------------------------
+ *   *"if someone is just designing that static post, he should select the
+ *   static post designing category. For that the URL entry is not restricted.
+ *   That's not compulsory for designing purpose, video editing purpose, video
+ *   generating purpose, or any other task."*
+ *
+ * The five kinds added that day are the whole reason the split exists. If any
+ * of them were ever gated, a designer would be back where they started —
+ * unable to close a task for want of a link to a post that has not been made
+ * yet — and the categories would have solved nothing.
+ * ========================================================================= */
+describe('the production kinds are never gated on a URL', () => {
+  const PRODUCTION: readonly ContentKind[] = [
+    'static_design',
+    'video_edit',
+    'ai_generation',
+    'frontend',
+    'backend',
+  ];
+
+  for (const kind of PRODUCTION) {
+    it(`a ${kind} closes with no link at all`, () => {
+      expect(evaluateTransition('in_review', 'done', mine('member', kind, 0)).ok).toBe(true);
+    });
+  }
+
+  it('⚠️ and none of them counts toward a package target', () => {
+    /* The other half of the same rule. A client is promised 14–16 things
+       PUBLISHED; if designing a post counted, one post made and posted would
+       count twice and every package would read as met at half the work. */
+    for (const kind of PRODUCTION) {
+      expect(COUNTS_AS_ASSET).not.toContain(kind);
+      expect(PUBLISH_PROOF_KINDS).not.toContain(kind);
+    }
+  });
+
+  it('while the publishing kinds still are, both ways', () => {
+    /* Guards against the split being applied too widely — the gate has to
+       survive the change that introduced its exceptions. */
+    for (const kind of ['static', 'reel', 'carousel', 'story', 'video'] as ContentKind[]) {
+      expect(PUBLISH_PROOF_KINDS).toContain(kind);
+      expect(evaluateTransition('in_review', 'done', mine('member', kind, 0)).ok).toBe(false);
+    }
+  });
+
+  it('every kind is in exactly one group, and only publishing is gated', () => {
+    /* The dropdown is built by filtering `CONTENT_KINDS` through this map, so a
+       kind missing from it would silently vanish from the form. */
+    for (const kind of CONTENT_KINDS) {
+      const group = CONTENT_KIND_OF_GROUP[kind];
+      expect(CONTENT_KIND_GROUP).toContain(group);
+      expect(PUBLISH_PROOF_KINDS.includes(kind)).toBe(group === 'publishing');
+    }
   });
 });

@@ -44,7 +44,7 @@
  * ========================================================================= */
 
 import type { MonthPlan } from './cadence';
-import { CONTENT_KIND_LABEL, EFFORT_POINTS, type ContentKind, type EffortSize } from './constants';
+import { CONTENT_KIND_NAME, EFFORT_POINTS, type ContentKind, type EffortSize } from './constants';
 
 /** The only two kinds a rhythm can produce. A cadence agrees static posts and
  *  reels; carousels and stories are a human's choice on an individual task. */
@@ -111,7 +111,10 @@ function shortDate(date: string): string {
  * apart.
  */
 function titleFor(kind: ScheduledKind, date: string, slot: number, of: number): string {
-  const label = CONTENT_KIND_LABEL[kind];
+  /* The NOUN, not the dropdown label — see CONTENT_KIND_NAME. A title
+     reading "Static post — publishing — 3 Aug" has two dashes and one
+     word too many. */
+  const label = CONTENT_KIND_NAME[kind];
   const position = of > 1 ? ` ${slot} of ${of}` : '';
   return `${label}${position} — ${shortDate(date)}`;
 }

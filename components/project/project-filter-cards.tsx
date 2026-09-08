@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Building, Handshake, Layers, Megaphone, Package, Tent } from 'lucide-react';
+import { Building, Handshake, Layers, Megaphone, Package, Tent, Wrench } from 'lucide-react';
 
 import { PROJECT_TYPE_META, type ProjectType } from '@/lib/domain/constants';
 import { cn } from '@/lib/utils';
@@ -37,6 +37,7 @@ const TYPE_ICONS: Record<
   event: Tent,
   business: Building,
   self_promotion: Megaphone,
+  tool: Wrench,
   other: Package,
 };
 

@@ -214,12 +214,39 @@ export type Priority = (typeof PRIORITIES)[number];
  * three the packages actually name (STARTER: "static posts, reels and carousel
  * content mix"); the rest exist so non-content work is not forced to lie.
  * ========================================================================= */
+/* ── ⚠️ PUBLISHING AND MAKING ARE DIFFERENT WORK — owner, 2026-09-08 ────────
+   *"Everybody is confused between static post designing and static post
+   publishing so make a different category… for static post publishing or reel
+   publishing there is a rule: you should place the URL… if someone is just
+   designing that static post, he should select the static post designing
+   category. For that the URL entry is not restricted."*
+
+   The confusion was real and it was caused by this list. `static` has always
+   meant a post that GOES OUT — that is why `PUBLISH_PROOF_KINDS` gates it on a
+   live URL — but the dropdown called it "Static post", which is equally the
+   name of the thing a designer makes on Tuesday for Friday. So a designer
+   picked it, could not close their task without a link to a post that did not
+   exist yet, and concluded the rule was broken.
+
+   ⚠️ THE EXISTING VALUES ARE NOT RENAMED. Every stored `static` row means a
+   published post, so renaming would rewrite history to fix a label. The labels
+   below now say "publishing" out loud, and the new values are the work that
+   comes BEFORE a post — none of them gated, because there is nothing to link
+   to yet. Migration 106 adds them to the enum. */
 export const CONTENT_KINDS = [
+  /* Published to a platform — these need a URL before Done. */
   'static',
   'reel',
   'carousel',
   'story',
   'video',
+  /* Made, not published. No URL, because there is nothing live to point at. */
+  'static_design',
+  'video_edit',
+  'ai_generation',
+  'frontend',
+  'backend',
+  /* Neither: real work that was never part of the posting rhythm. */
   'website',
   'ad',
   'report',
@@ -227,20 +254,105 @@ export const CONTENT_KINDS = [
 ] as const;
 export type ContentKind = (typeof CONTENT_KINDS)[number];
 
+/* ⚠️ THE WORD "PUBLISHING" IS THE FIX. It is what tells somebody choosing from
+   this list that they are about to accept the URL rule — before they accept it,
+   rather than at the moment their task refuses to close. */
 export const CONTENT_KIND_LABEL: Readonly<Record<ContentKind, string>> = {
-  static: 'Static post',
-  reel: 'Reel / short video',
-  carousel: 'Carousel',
-  story: 'Story',
-  video: 'Long video',
+  static: 'Static post — publishing',
+  reel: 'Reel — publishing',
+  carousel: 'Carousel — publishing',
+  story: 'Story — publishing',
+  video: 'Long video — publishing',
+
+  static_design: 'Static post — designing',
+  video_edit: 'Video editing',
+  ai_generation: 'AI generation',
+  frontend: 'Frontend development',
+  backend: 'Backend development',
+
   website: 'Website work',
   ad: 'Ad creative',
   report: 'Report',
   other: 'Other',
 };
 
+/* ── ⚠️ THE NOUN, FOR EVERYWHERE THAT IS NOT A DROPDOWN ────────────────────
+   `CONTENT_KIND_LABEL` exists to be CHOSEN from, which is why it carries the
+   "— publishing" qualifier: somebody picking from a list needs to know which
+   rule they are accepting. Everywhere else that qualifier is noise or worse:
+
+     · a generated task title became "Static post — publishing — 3 Aug"
+     · a refusal read "a static post — publishing cannot be marked as done"
+     · a report's narrow category column had to truncate it
+
+   All three were real, and the first two were caught by tests written against
+   the old label. So: the label is for choosing, this is for saying. The two
+   agree on the new kinds — "Static post design" is as clear in prose as in a
+   list — and differ only where the qualifier was doing work.
+
+   ⚠️ Both maps are exhaustive over `ContentKind`, so a kind added to one and
+   forgotten in the other does not compile. */
+export const CONTENT_KIND_NAME: Readonly<Record<ContentKind, string>> = {
+  static: 'Static post',
+  reel: 'Reel',
+  carousel: 'Carousel',
+  story: 'Story',
+  video: 'Long video',
+
+  static_design: 'Static post design',
+  video_edit: 'Video edit',
+  ai_generation: 'AI generation',
+  frontend: 'Frontend',
+  backend: 'Backend',
+
+  website: 'Website work',
+  ad: 'Ad creative',
+  report: 'Report',
+  other: 'Other',
+};
+
+/* ── HOW THE DROPDOWN IS DIVIDED ───────────────────────────────────────────
+   Three groups, and the first one is the only one that carries the URL rule.
+   Rendering them as flat alphabetical options is what let "Static post" and
+   "Static post — designing" sit twelve rows apart, which is the same confusion
+   in a new shape. */
+export const CONTENT_KIND_GROUP = ['publishing', 'production', 'other'] as const;
+export type ContentKindGroup = (typeof CONTENT_KIND_GROUP)[number];
+
+export const CONTENT_KIND_GROUP_LABEL: Readonly<Record<ContentKindGroup, string>> = {
+  publishing: 'Publishing — needs a live URL before it can be marked done',
+  production: 'Making it — no URL needed',
+  other: 'Other work',
+};
+
+export const CONTENT_KIND_OF_GROUP: Readonly<Record<ContentKind, ContentKindGroup>> = {
+  static: 'publishing',
+  reel: 'publishing',
+  carousel: 'publishing',
+  story: 'publishing',
+  video: 'publishing',
+
+  static_design: 'production',
+  video_edit: 'production',
+  ai_generation: 'production',
+  frontend: 'production',
+  backend: 'production',
+
+  website: 'other',
+  ad: 'other',
+  report: 'other',
+  other: 'other',
+};
+
 /** The kinds that count toward a package's monthly asset target. Website work
- *  and internal reports are real work but were never part of "14–16 assets". */
+ *  and internal reports are real work but were never part of "14–16 assets".
+ *
+ *  ⚠️ AND NEITHER IS DESIGNING, EDITING OR DEVELOPMENT — added 2026-09-08 and
+ *  deliberately absent here. A client is promised 14–16 things PUBLISHED; if
+ *  designing a post counted, one post made and posted would count twice and
+ *  every package would look met at half the work. The same reasoning keeps them
+ *  out of `PUBLISH_PROOF_KINDS` below, from the other direction: there is no URL
+ *  to demand for something that has not gone out. */
 export const COUNTS_AS_ASSET: readonly ContentKind[] = [
   'static',
   'reel',
@@ -376,9 +488,48 @@ export const PROJECT_TYPES = [
   'client',
   'business',
   'self_promotion',
+  /* ── ⚠️ A PRODUCT, NOT AN AUDIENCE — owner, 2026-09-08 ──────────────────
+     *"Add one more thing: a tool. Some tools are WhatsApp automation, CRM
+     development, anything like taskly work, this type of a SaaS product or ERP
+     product. For that there is no need for any social media."*
+
+     Every other type answers "whose work is this" — a client's, the division's,
+     an event's. This one answers "what is it", and the answer changes what the
+     project HAS: no posting rhythm, no package targets, no social accounts, and
+     no place in the Trend & Engagement Studio. Three projects were living under
+     `other` for exactly this reason (migration 107). */
+  'tool',
   'other',
 ] as const;
 export type ProjectType = (typeof PROJECT_TYPES)[number];
+
+/* ── WHOSE TOOL IT IS ──────────────────────────────────────────────────────
+   Owner: *"Also mention internal and external. For example maybe I will be
+   creating this for some client but the social media posting is not included in
+   that because that's a tool."*
+
+   ⚠️ ONLY MEANINGFUL FOR A TOOL, and migration 107's CHECK enforces that in
+   both directions — a tool must say which, and nothing else may claim one. A
+   client project is not "external"; the word has no meaning there. */
+export const TOOL_AUDIENCES = ['internal', 'external'] as const;
+export type ToolAudience = (typeof TOOL_AUDIENCES)[number];
+
+export const TOOL_AUDIENCE_LABEL: Readonly<Record<ToolAudience, string>> = {
+  internal: 'Internal — ours',
+  external: 'External — built for a client',
+};
+
+/**
+ * Whether this kind of project posts to social media at all.
+ *
+ * ⚠️ ONE PREDICATE, READ BY EVERY PLACE THAT ASKS. The posting cadence fields,
+ * the package targets, the Studio's project list and the content-kind options
+ * all need the same answer, and four copies of `type !== 'tool'` is four places
+ * for the next non-posting type to be forgotten.
+ */
+export function hasSocialPresence(type: ProjectType): boolean {
+  return type !== 'tool';
+}
 
 export interface ProjectTypeMeta {
   readonly slug: ProjectType;
@@ -418,6 +569,22 @@ export const PROJECT_TYPE_META: Readonly<Record<ProjectType, ProjectTypeMeta>> =
     token: 'project-business',
     icon: 'building',
     shedPriority: 3,
+  },
+  tool: {
+    slug: 'tool',
+    label: 'Tool',
+    /* ⚠️ `OTH`, NOT A NEW PREFIX. Three tool projects already carry OTH
+       references on live tasks (migration 107 moved them from `other`), and a
+       reference is permanent — see the note above this map. Giving tools their
+       own code would make TWO prefixes mean "tool" forever, with the older one
+       unexplainable to anybody who arrived later. */
+    code: 'OTH',
+    token: 'project-other',
+    icon: 'wrench',
+    /* Shed after client and event work but before internal odds and ends: a
+       tool has a delivery date somebody is waiting on, which "other" does
+       not. */
+    shedPriority: 4,
   },
   self_promotion: {
     slug: 'self_promotion',

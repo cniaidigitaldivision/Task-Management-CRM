@@ -1,5 +1,5 @@
 import {
-  CONTENT_KIND_LABEL,
+  CONTENT_KIND_NAME,
   PRIORITY_WEIGHT,
   PUBLISH_PROOF_KINDS,
   STATUS_META,
@@ -398,7 +398,7 @@ export function evaluateTransition(
          says where to go — a refusal that does not say what to do next reads as
          a broken control rather than a rule. */
       message:
-        `A ${CONTENT_KIND_LABEL[ctx.contentKind].toLowerCase()} cannot be marked as done until it is published. ` +
+        `A ${CONTENT_KIND_NAME[ctx.contentKind].toLowerCase()} cannot be marked as done until it is published. ` +
         'Add where it went and paste the post link under "Where it went" on the task, then close it.',
     };
   }

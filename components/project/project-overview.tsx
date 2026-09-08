@@ -68,6 +68,13 @@ const KIND_SHORT: Readonly<Record<ContentKind, string>> = {
   carousel: 'Carousel',
   story: 'Story',
   video: 'Video',
+  /* The production kinds, added 2026-09-08. Shortened the same way — a chip is
+     one word wide, and "Static post — designing" is four. */
+  static_design: 'Design',
+  video_edit: 'Edit',
+  ai_generation: 'AI',
+  frontend: 'Frontend',
+  backend: 'Backend',
   website: 'Website',
   ad: 'Ad',
   report: 'Report',
