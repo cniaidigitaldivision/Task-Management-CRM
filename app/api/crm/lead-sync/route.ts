@@ -58,7 +58,10 @@ export async function GET(request: Request): Promise<NextResponse> {
   const projectId = new URL(request.url).searchParams.get('project');
 
   try {
-    const result = await importLeads({ projectId });
+    /* `?trigger=` only labels the run record — pg_cron leaves it out and gets
+       'cron', a person testing by hand can pass 'manual'. It grants nothing. */
+    const trigger = new URL(request.url).searchParams.get('trigger') ?? 'cron';
+    const result = await importLeads({ projectId, trigger });
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
     /* Unable to run at all — no database, no configuration. Worth retrying. */

@@ -148,7 +148,7 @@ async function leadsForForm(formId: string, token: string): Promise<MetaLead[]> 
  * is not narrowed: adding the second project is an argument, not a rewrite.
  */
 export async function importLeads(
-  options: { readonly projectId?: string | null } = {},
+  options: { readonly projectId?: string | null; readonly trigger?: string } = {},
 ): Promise<ImportResult> {
   const list = await sources(options.projectId ?? null);
 
@@ -236,12 +236,33 @@ export async function importLeads(
     }
   }
 
-  return {
-    sources: list.length,
-    succeeded: results.filter((r) => r.outcome === 'ok').length,
-    failed: results.filter((r) => r.outcome === 'failed').length,
-    leadsNew,
-    leadsUpdated,
-    results,
-  };
+  const succeeded = results.filter((r) => r.outcome === 'ok').length;
+  const failed = results.filter((r) => r.outcome === 'failed').length;
+
+  /* ── ⚠️ THE RUN IS RECORDED WHETHER OR NOT IT WENT WELL ──────────────────
+     Without this a broken import is INVISIBLE: pg_cron gets a request id back
+     and nothing more, the HTTP response lands asynchronously in a table that is
+     garbage-collected, and leads simply stop arriving. In a CRM the first person
+     to notice is whoever wonders why the list has gone quiet, which is weeks.
+
+     ⚠️ And a failure to RECORD must not fail the import — the leads are already
+     safely written by then, and losing them to a bookkeeping error would invert
+     the whole point of this job. */
+  try {
+    await withAppRole((tx) => tx`
+      select app.crm_record_sync_run(
+        ${list.length}, ${succeeded}, ${failed}, ${leadsNew}, ${leadsUpdated},
+        ${tx.json(
+          results
+            .filter((r) => r.outcome === 'failed')
+            .map((r) => ({ project: r.projectName, page: r.pageId, error: r.error })) as never,
+        )},
+        ${options.trigger ?? 'cron'}
+      )
+    `);
+  } catch {
+    console.error('[crm] the lead import ran but its run record could not be written');
+  }
+
+  return { sources: list.length, succeeded, failed, leadsNew, leadsUpdated, results };
 }

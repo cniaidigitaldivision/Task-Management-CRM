@@ -6,10 +6,10 @@
 |---|---|
 | **Branch** | `crm` (from `main` at `0726704`) |
 | **Route** | `/leads` · nav: Growth → Campaign & Lead Desk |
-| **Phase** | **Steps 1–2 DONE. 615 Chitral leads are in the database.** Step 3 (scheduling) is next and needs nothing. |
+| **Phase** | **Steps 1–3 DONE. Module 1 complete.** 615 leads stored, import scheduled. Step 4 (the list screen) is next. |
 | **Scope** | ⚠️ **Chitral Royal Homes only.** One project, end to end. |
 | **Last updated** | 2026-09-09 |
-| **Last migration applied anywhere** | **112.** CRM next: 113. |
+| **Last migration applied anywhere** | **113.** CRM next: 114. |
 
 ---
 
@@ -61,6 +61,25 @@ line of code.
 | The 3 that were not | 2 are Meta test leads (`<test lead: dummy data…>`), 1 is a 10-digit number that is not a mobile. All three correctly refused rather than guessed — the raw value is kept. |
 | **Duplicate numbers** | 615 leads, **597 distinct numbers** — so ~18 leads share a phone with another. Real people who enquired twice. Worth surfacing in Step 6. |
 | ⚠️ Meta test leads | 2 rows are Meta's own test submissions. They are noise in a sales pipeline. Owner's call whether to delete or flag them. |
+
+- [x] **Step 3 · migration 113** — `crm_lead_sync_runs` (a record of every run,
+      so a broken import is visible rather than silent), `app.crm_record_sync_run`,
+      `app.trigger_crm_lead_sync`, and the pg_cron job **on Supabase**,
+      `*/15 * * * *`. Verified: job active, secret present, run rows written.
+
+### ⚠️ The cron 404s until this branch is deployed
+
+Fired the trigger by hand: request accepted, response **404**. The job calls
+`https://taskly.aidigitaldivision.com/api/crm/lead-sync`, and that route exists
+only on the `crm` branch — production is still on `main`.
+
+**This is not a fault and needs no fix.** It starts working by itself the moment
+the branch is merged and deployed, which is why the job was left ACTIVE rather
+than disabled: an active job that heals itself beats a disabled one somebody has
+to remember to switch on. Until then it is 96 harmless 404s a day.
+
+⚠️ **Do not read an empty `crm_lead_sync_runs` as "the import is broken" before
+the merge.** Nothing is recorded because nothing reaches the route.
 
 ## Blocked — on the owner, in Meta rather than in code
 
