@@ -49,14 +49,15 @@ line of code.
 - [ ] **Which project does each of the 6 campaigns belong to?** The names already
       read like project names, so this is a five-minute confirmation.
 
-## Next, now that Q1–Q5 are answered
+## Next — the build order is now `08-TWELVE-STEPS.md`
 
-1. Migration 110 — `crm_leads`, `crm_lead_notes`, `crm_lead_activity`, RLS,
-   self-check as `cni_app` with no session
-2. The importer — list forms, page leads, upsert on `(source, external_id)`
-3. **Run the one-off backfill the same day** ⚠️ 90-day clock
-4. `pg_cron` schedule, every 15 minutes
-5. Only then: the list UI
+**Scope narrowed by the owner 2026-09-10:** *"first start working on Chitral
+Royal Homes. First make them live and mention that for other projects whose leads
+you can't read, it's coming soon or not connected."*
+
+Steps 1–3 (tables, Chitral importer + backfill, schedule) need **nothing from the
+owner** and can start on their word. Everything else is sequenced in that file
+with its dependencies named.
 
 ---
 
@@ -89,6 +90,9 @@ see not just what was decided but when and why.
 | 2026-09-09 | Q10 Testing account | One staff member added to the **sales team**; all leads assigned to them to exercise the staff view. |
 | 2026-09-09 | Storage | ⚠️ **Database-first, always.** Leads and reports are stored in our database and every screen reads from there — never live from Meta. Same rule the Studio already follows. |
 | 2026-09-09 | Q9 Smart dashboard | Owner has an OpenAI key and wants deep intelligence: per-lead coaching, campaign-vs-staff diagnosis, recording of calls/chats/notes. See `07-AI-PLAN.md`. |
+| 2026-09-10 | Scope | **Chitral Royal Homes only, first.** Other projects show "Not connected" with a reason. Owner has PAGE access to Executive Housing / AGC Construction / Investo 21 but **not their business portfolios** — will confirm when that lands. |
+| 2026-09-10 | Build order | Twelve steps, four modules — `08-TWELVE-STEPS.md`. |
+| 2026-09-10 | Database | Growth, indexes, backups and retention written up in `09-DATABASE-MANAGEMENT.md`. Storage is not the constraint; ~5 KB per fully worked lead. |
 
 ---
 

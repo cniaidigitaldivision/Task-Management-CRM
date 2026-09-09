@@ -14,6 +14,8 @@ reference.
 | `05-OPEN-QUESTIONS.md` | What only the owner can decide, and what each answer changes. |
 | `06-CAMPAIGNS-AND-COVERAGE.md` | Which campaigns exist, which pages they post to, and the three we cannot read. |
 | `07-AI-PLAN.md` | What the AI can honestly do, in what order, and what it needs first. |
+| `08-TWELVE-STEPS.md` | **The build order.** Twelve shippable steps, four modules, and what each needs from the owner. |
+| `09-DATABASE-MANAGEMENT.md` | Growth, indexes, backups, retention, and the rules the data follows. |
 
 ---
 
