@@ -57,8 +57,19 @@ export interface AccountSyncResult {
 interface LinkedAccount {
   /** Which Meta Business Suite reaches this account — see migration 103. */
   readonly portfolioName: string;
-  /** That suite's system-user token, or null to use the environment's. */
+  /** That suite's system-user token, or null. See `expectsVaultToken`. */
   readonly token: string | null;
+  /* ── ⚠️ NULL MEANS TWO DIFFERENT THINGS, AND THIS SEPARATES THEM ──────────
+     A suite with no `token_secret_name` deliberately uses the environment's
+     token — that is the division's own, and falling back is right. A suite that
+     NAMES a vault entry which is not there also yields null, and falling back
+     then asks Meta for another company's pages with the division's token:
+     Graph refuses, and the account records "(#100) Object does not exist" — an
+     error about the PAGE, pointing anywhere except at the missing secret.
+
+     Migration 109 returns this flag so the two can be told apart at the one
+     place that can say something useful about it. */
+  readonly expectsVaultToken: boolean;
   readonly id: string;
   readonly projectName: string;
   readonly platformSlug: string;
@@ -105,11 +116,13 @@ async function linkedAccounts(onlyAccountId?: string): Promise<LinkedAccount[]> 
     objectId: String(r.meta_object_id),
     neverSynced: Boolean(r.never_synced),
     portfolioName: String(r.portfolio_name ?? 'CNI AI & Digital Division'),
-    /* ⚠️ NULL MEANS "USE THE ENVIRONMENT", not "no access". Migration 103
-       resolves each suite's system-user token from Supabase Vault; the suite
-       registered before it still keeps its token in the environment, and the
-       client falls back for exactly that case. */
+    /* ⚠️ NULL MEANS "USE THE ENVIRONMENT" ONLY WHEN `expectsVaultToken` IS
+       FALSE. Migration 103 resolves each suite's system-user token from
+       Supabase Vault; the suite registered before it keeps its token in the
+       environment, and the client falls back for exactly that case. 109 added
+       the flag that stops the fallback covering for a missing secret. */
     token: r.token === null || r.token === undefined ? null : String(r.token),
+    expectsVaultToken: Boolean(r.expects_vault_token),
   }));
 }
 
@@ -354,6 +367,22 @@ export async function runMetaSync(options: {
     const since = minusDays(today, full ? BACKFILL_WINDOW_DAYS - 1 : ROUTINE_WINDOW_DAYS - 1);
 
     try {
+      /* ── ⚠️ REFUSED BEFORE A SINGLE CALL IS MADE — see `expectsVaultToken` ──
+         A suite that names a vault entry and resolves nothing is misconfigured.
+         Falling through would ask Meta for this company's pages using the
+         DIVISION's token, and the error Meta returns describes the page rather
+         than the missing secret — which is a diagnosis that costs an hour.
+
+         Thrown rather than skipped, so it lands in the same per-account catch
+         as any other failure: recorded on the account row, counted in
+         `failed`, and visible in Settings & Sync where somebody is looking. */
+      if (account.expectsVaultToken && !account.token) {
+        throw new Error(
+          `The ${account.portfolioName} suite has no token in the vault. ` +
+            'Add its system-user token with scripts/vault-secret.mjs, then sync again.',
+        );
+      }
+
       const metrics = await catalogueFor(account.platformSlug);
 
       const collected =
