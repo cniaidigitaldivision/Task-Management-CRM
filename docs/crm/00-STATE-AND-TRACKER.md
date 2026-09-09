@@ -6,10 +6,10 @@
 |---|---|
 | **Branch** | `crm` (from `main` at `0726704`) |
 | **Route** | `/leads` · nav: Growth → Campaign & Lead Desk |
-| **Phase** | **Step 1 DONE.** Migrations 110 + 111 applied. Step 2 (importer + backfill) is next and needs nothing. |
+| **Phase** | **Steps 1–2 DONE. 615 Chitral leads are in the database.** Step 3 (scheduling) is next and needs nothing. |
 | **Scope** | ⚠️ **Chitral Royal Homes only.** One project, end to end. |
 | **Last updated** | 2026-09-09 |
-| **Last migration applied anywhere** | **111.** CRM next: 112. |
+| **Last migration applied anywhere** | **112.** CRM next: 113. |
 
 ---
 
@@ -41,6 +41,26 @@ line of code.
       all six, self-check green: a member sees only leads assigned to them, a
       duplicate Meta lead is refused, a lost lead needs a reason, and the
       activity log refuses deletion at every rank including Admin
+- [x] **Step 2 · migration 112** — `app.crm_lead_sources` reader and
+      `app.crm_record_leads` writer, both SECURITY DEFINER, self-checked with NO
+      session exactly as the cron will call them
+- [x] **Step 2 · the importer** — `lib/crm/lead-import.ts`, `lib/crm/lead-fields.ts`,
+      `lib/domain/phone.ts`, `/api/crm/lead-sync`, 32 new tests
+- [x] **Step 2 · THE BACKFILL RAN.** 615 Chitral leads imported, 6 forms, 615
+      activity rows. Second run: 0 new, 615 updated — idempotency proved on real
+      data, not just in the self-check.
+
+### ⚠️ What the backfill found
+
+| | |
+|---|---|
+| Leads | **615**, all with a name, phone and city |
+| Oldest lead | **2026-06-11** — 91 days old. Past Meta's 90-day window; caught with days to spare, and some older ones are likely already gone. |
+| Newest | 2026-09-09 |
+| Phone numbers normalised | **612 of 615** |
+| The 3 that were not | 2 are Meta test leads (`<test lead: dummy data…>`), 1 is a 10-digit number that is not a mobile. All three correctly refused rather than guessed — the raw value is kept. |
+| **Duplicate numbers** | 615 leads, **597 distinct numbers** — so ~18 leads share a phone with another. Real people who enquired twice. Worth surfacing in Step 6. |
+| ⚠️ Meta test leads | 2 rows are Meta's own test submissions. They are noise in a sales pipeline. Owner's call whether to delete or flag them. |
 
 ## Blocked — on the owner, in Meta rather than in code
 
