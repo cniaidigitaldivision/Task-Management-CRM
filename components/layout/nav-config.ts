@@ -16,6 +16,7 @@ import {
   Wallet,
   Workflow,
   TrendingUp,
+  Radio,
 } from 'lucide-react';
 
 import type { Route } from 'next';
@@ -139,6 +140,25 @@ export const NAV_SECTIONS: readonly NavSection[] = [
          app/(app)/studio/layout.tsx. Changing it here alone would hide the link
          and grant nobody anything, which is why both were changed. */
       { label: 'Trend & Engagement Studio', href: '/studio', icon: TrendingUp, roles: ADMIN_UP },
+    ],
+  },
+  {
+    /* ── ⚠️ ITS OWN HEADING, NOT UNDER PROJECTS — owner, 2026-09-09 ─────────
+       *"In the left sidebar in that branch I will start working… for all leads
+       management. Leads are coming from the campaigns."*
+
+       The Studio sits under Projects because it reads ONE project's figures. A
+       lead does not start life belonging to a project — it arrives from a
+       campaign and is assigned afterwards — so filing it there would put the
+       answer before the question. Its own heading leaves room for the campaign
+       and source screens that follow.
+
+       ⚠️ ADMIN_UP, and this file is not the floor. `app/(app)/leads/layout.tsx`
+       is (NFR-006); removing the link here would hide the page and grant nobody
+       anything. Both are set together, deliberately. */
+    label: 'Growth',
+    items: [
+      { label: 'Campaign & Lead Desk', href: '/leads', icon: Radio, roles: ADMIN_UP },
     ],
   },
   {

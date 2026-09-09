@@ -47,6 +47,12 @@ const ADMIN_NAV = [
      it is a separate page rather than a project tab. So it creates no nested
      pair and the prefix rule stays unambiguous. */
   '/studio',
+  /* ⚠️ Added 2026-09-09 with the Campaign & Lead Desk. Its own top-level route
+     and its own rail heading — a lead arrives from a campaign and is assigned to
+     a project afterwards, so filing it under Projects would put the answer
+     before the question. Like `/studio` it creates no nested pair, so the prefix
+     rule below stays unambiguous. */
+  '/leads',
   '/team',
   '/reports',
   /* ⚠️ `/monthly-report` IS DELIBERATELY ABSENT since 2026-08-29 — owner
