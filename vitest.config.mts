@@ -10,6 +10,22 @@ import { defineConfig } from 'vitest/config';
  * database and no server — which is exactly why the architecture insists the
  * intelligence lives there. They run in milliseconds and can be exhaustive.
  *
+ * ── ⚠️ `components/**` IS INCLUDED, AND IT STILL NEEDS NO jsdom ────────────
+ * Added 2026-09-10 for the CRM lead desk. A component test here renders with
+ * `renderToStaticMarkup` and asserts on the HTML STRING — no DOM, no jsdom, no
+ * environment change, and it stays in the same millisecond budget as the rest.
+ *
+ * What it is for: the desk decides what a person READS — a phone formatted for
+ * a human, an age counted from when they enquired, "Unassigned" rather than a
+ * blank, and a `tel:` link that is never built from a number we could not parse.
+ * Those are decisions, and a decision that only exists inside JSX is one nothing
+ * can hold still.
+ *
+ * ⚠️ It is NOT a substitute for looking at the page. Layout, contrast and theme
+ * are settled in a browser against the real stylesheet; a string renderer cannot
+ * see them. Both were done for the desk — the strip's empty chips came back at
+ * 2.42:1 and had to be changed.
+ *
  * `.next` is excluded explicitly: Vitest's default exclude list does not cover
  * it, and the build output contains copies of source files that would
  * otherwise be collected and run twice.
@@ -43,7 +59,7 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    include: ['lib/**/__tests__/**/*.test.ts'],
+    include: ['{lib,components}/**/__tests__/**/*.test.{ts,tsx}'],
     exclude: ['**/node_modules/**', '**/.next/**'],
     reporters: 'dot',
   },

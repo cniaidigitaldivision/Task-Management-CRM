@@ -104,23 +104,37 @@ the failure is visible.
 
 ---
 
-### Step 4 · The list, project-scoped ⏳
-The screen replaces the current placeholder page.
+### Step 4 · The list, project-scoped ✅ DONE 2026-09-10
+The screen replaces the placeholder that stood here from 2026-09-09.
 
-- **Project dropdown**, the same pattern and position as the Studio.
-- Chitral shows real leads. Every other project shows an honest state:
-  **"Not connected"** with one line saying why — no page access, or no leads yet.
-- Columns, in the PropForce order because it is right: next action · last outcome
-  · owner · temperature · lead name and when they came · project · **campaign** ·
-  actions.
-- ⚠️ Sorted by **next action**, not created date. That is the difference between
-  a list you work from and a list you scroll.
-- Filters: stage, owner, temperature, campaign, date range.
+- **Project dropdown**, the same pattern and position as the Studio. All 14
+  projects; Chitral reads "615 leads", the other 13 read "not connected".
+- **Three states, not two** — `live`, `no-leads-yet`, `not-connected`. "A form is
+  linked but nothing has come through" and "no form is linked" send a reader to
+  two different places, and collapsing them is what makes somebody redo setup
+  that was already done.
+- Columns: lead · next action · stage · temperature · last outcome · owner ·
+  came from · reach them. ⚠️ **Lead first, not next action** — see the decisions
+  log. No project column: the dropdown already scopes the page, so it would print
+  the same value 25 times.
+- ⚠️ Sorted by **next action**, `nulls last`, then newest first. Unchanged, and it
+  is the difference between a list you work from and a list you scroll.
+- **The stage strip doubles as the stage filter**, and shares one `where` clause
+  with the table — written as two queries, a date filter would leave the strip
+  reading "New 615" above a table of 21 rows.
+- Filters: stage, owner, temperature, form, date range, plus search across name,
+  raw phone and normalised phone.
 
-**Needs from you:** which project each campaign belongs to (Q13), and whether the
-hiring campaign belongs in a sales pipeline at all.
+⚠️ **Four columns are empty and stay drawn.** Owner, temperature, next action and
+outcome are null for all 615 leads because assignment and calling are Steps 6–7.
+A banner says so and removes itself the moment one lead is assigned. A column
+that appears only once it has data is a column nobody plans around.
 
-**Delivers:** you can see the leads and filter them.
+**Still needed from you:** which project each campaign belongs to (Q13), and
+whether the hiring campaign belongs in a sales pipeline at all. Neither blocked
+this step — the column shows the form until campaigns are linked in Step 8.
+
+**Delivered:** you can see the leads, filter them, and reach any of them.
 
 ---
 
