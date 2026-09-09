@@ -1,4 +1,32 @@
-# Phases
+# Phases — SUPERSEDED by `08-TWELVE-STEPS.md`
+
+⚠️ **Do not plan from this file.** It was the first pass, written 2026-09-09 as
+five phases. On 2026-09-10 the owner asked for the work broken into twelve
+steps, and `08-TWELVE-STEPS.md` is that — four modules, twelve shippable steps,
+each naming what it needs from the owner.
+
+Two numbering schemes for one plan is how a plan stops being followed, so this
+file is kept only for the reasoning behind the ORDER, which did not change:
+
+> stop the data loss, then make it usable, then make it clever.
+
+The mapping, if you are cross-referencing an older note:
+
+| This file | `08-TWELVE-STEPS.md` |
+|---|---|
+| Phase 0 — decisions | Done. Answers are in the tracker's decisions log. |
+| Phase 1 — capture and keep | **Module 1**, steps 1–3 |
+| Phase 2 — the desk | **Module 2**, steps 4–7 |
+| Phase 3 — follow-up and reporting | **Module 3**, steps 8–10 |
+| Phase 4 — real-time and integrations | Parked; see the parked table in step 12 |
+| Phase 5 — the AI | **Module 4**, steps 11–12 |
+
+---
+
+*Original text follows.*
+
+---
+
 
 The ordering principle: **stop the data loss, then make it usable, then make it
 clever.** Every phase ends somewhere shippable — no phase leaves the product

@@ -10,7 +10,7 @@ reference.
 | `01-VERIFIED-FACTS.md` | What was proved against the real Meta API, with dates. Not assumptions. |
 | `02-FEATURE-MAP.md` | Every feature the owner named, plus researched ones, sorted by whether they earn their place. |
 | `03-DATA-MODEL.md` | The proposed tables. Draft until the open questions are answered. |
-| `04-PHASES.md` | Order of work, and why that order. |
+| `04-PHASES.md` | ⚠️ Superseded by `08-TWELVE-STEPS.md`. Kept for the reasoning behind the order. |
 | `05-OPEN-QUESTIONS.md` | What only the owner can decide, and what each answer changes. |
 | `06-CAMPAIGNS-AND-COVERAGE.md` | Which campaigns exist, which pages they post to, and the three we cannot read. |
 | `07-AI-PLAN.md` | What the AI can honestly do, in what order, and what it needs first. |
