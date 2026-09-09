@@ -6,10 +6,10 @@
 |---|---|
 | **Branch** | `crm` (from `main` at `0726704`) |
 | **Route** | `/leads` · nav: Growth → Campaign & Lead Desk |
-| **Phase** | **Planning complete → Step 1 ready.** Nothing built yet. |
+| **Phase** | **Step 1 DONE.** Migrations 110 + 111 applied. Step 2 (importer + backfill) is next and needs nothing. |
 | **Scope** | ⚠️ **Chitral Royal Homes only.** One project, end to end. |
 | **Last updated** | 2026-09-09 |
-| **Last migration applied anywhere** | 109. CRM migrations start at 110. |
+| **Last migration applied anywhere** | **111.** CRM next: 112. |
 
 ---
 
@@ -35,7 +35,12 @@ line of code.
 - [x] Confirmed Graph API v26.0 (unaffected by the v20.0 sunset)
 - [x] Market research on CRM features — see `02-FEATURE-MAP.md`
 - [x] Data model drafted — see `03-DATA-MODEL.md`
-- [x] Phases written — see `04-PHASES.md`
+- [x] Phases written — see `04-PHASES.md` (superseded by `08-TWELVE-STEPS.md`)
+- [x] **Step 1 · migration 110** — `sales` added to `project_role`
+- [x] **Step 1 · migration 111** — six CRM tables, 15 policies, 23 indexes, RLS on
+      all six, self-check green: a member sees only leads assigned to them, a
+      duplicate Meta lead is refused, a lost lead needs a reason, and the
+      activity log refuses deletion at every rank including Admin
 
 ## Blocked — on the owner, in Meta rather than in code
 
