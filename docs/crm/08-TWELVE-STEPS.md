@@ -12,6 +12,27 @@ or not connected."*
 
 ---
 
+## ⚠️ ONE PROJECT: CHITRAL ROYAL HOMES
+
+Owner, 2026-09-10: *"just choose one project, like Chitral Royal Homes, and
+implement this whole CRM. Later on I will do the same thing for the other
+projects. I'm not saying that you carry 2 or 3 projects at a time, their leads at
+a time, and every stuff at a time."*
+
+So all twelve steps are built and finished for **Chitral Royal Homes alone**.
+Every other project shows **"Not connected"** with one line saying why.
+
+⚠️ **But the tables keep `project_id`.** Building single-project into the SCHEMA
+would turn "later on I will do the same for the other projects" into a rewrite
+rather than a row in a table. The column costs nothing today and saves the entire
+second build. What is narrowed is the WORK and the DATA — one importer, one
+project in the dropdown, one pipeline to get right — not the shape underneath.
+
+That distinction is the whole reason project #2 will take an afternoon instead of
+a month.
+
+---
+
 ## How to read this
 
 Every step is **shippable on its own** — it ends with something that works, not
