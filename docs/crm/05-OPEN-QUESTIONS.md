@@ -130,6 +130,81 @@ you would want it to tell you when you open it in the morning.
 
 ---
 
-## Answered
+## Answered — 2026-09-09
 
-*(Nothing yet — 2026-09-09.)*
+The full text is in the decisions log in `00-STATE-AND-TRACKER.md`. In short:
+
+- **Q1** Start with Chitral. AI & Digital's ad account is being created.
+- **Q2** Admin + Super Admin see all. Coordinator included. Sales staff see the
+  leads assigned to them, with the whole record.
+- **Q3** Yes, project-scoped, with a campaign column and campaign filters.
+- **Q4** Stages agreed. Lost reasons started; more suggested below.
+- **Q5** Existing four roles. CRM access = Admin, Super Admin, Coordinator, and
+  project members marked **sales**.
+- **Q7** Lead and client are different things; a lead becomes a client on
+  engagement.
+- **Q10** One testing staff member in the sales team, all leads assigned to them.
+- **Q12** See `07-AI-PLAN.md`.
+
+---
+
+## Raised by what the answers revealed — 2026-09-09
+
+### Q13 · Which project does each campaign belong to?
+
+Six live lead campaigns, and their names already read like project names:
+
+| Campaign | Best guess |
+|---|---|
+| chitral royal homes campaign | Chitral Royal Homes |
+| The Executive housing Project campaign | The Executive Housing Project |
+| AGC Construction & Leads campaign | AGC Construction & Interior Design |
+| investo 21 campaign for Etemaad 100 | Investo 21 — **or** ETEMAAD100 GROUP? |
+| Female model Hiring campaign of attari gourp page | Attari Group – AGC. ⚠️ This is *hiring*, not sales. Should hiring leads even enter the sales CRM? |
+| CNI_KSA_LeadGen_RYD-JED_Sep26 | Crescent Nova International |
+
+*Two real questions in there:* which project owns "investo 21 for Etemaad 100",
+and whether a **hiring** campaign belongs in a sales pipeline at all.
+
+### Q14 · Three pages cannot be read at all
+
+The Executive Housing, AGC Construction and Investo 21 run live lead campaigns on
+pages no Taskly token can reach. Their leads are invisible and expiring.
+**Will you assign those three pages to a portfolio the Taskly-App system user can
+access?** Nothing in code can substitute for it.
+
+### Q15 · Lost reasons — the fuller list
+
+Owner gave: wrong number, not serious, budget not enough. Suggested additions,
+each one chosen because it changes a decision somebody makes:
+
+| Reason | What it tells you |
+|---|---|
+| Wrong / invalid number | Lead quality — the campaign form or the audience |
+| Never answered after N attempts | Response time, or bad hours |
+| Budget too low | Targeting is bringing the wrong income band |
+| Wrong location | Geo targeting |
+| Just browsing / not serious | Creative is attracting curiosity, not intent |
+| Bought from a competitor | Lost on price, product or speed — worth a follow-up question |
+| Wants something we do not offer | Product gap, and a real signal |
+| Duplicate | Data hygiene, not a loss |
+| Timing — revisit later | ⚠️ Not a loss at all. Should be its own stage, so these are not written off. |
+
+### Q16 · Does a client belong to one project, or to the division?
+
+A lead belongs to a project. But if Khurram enquires about Chitral *and* about
+Executive Housing, is that one client with two leads across two projects, or two
+clients? *Changes whether `clients` sits above projects or inside them.*
+
+### Q17 · What makes a lead a client, exactly?
+
+The owner said: engagement, a quotation accepted, or work starting. For the system
+this has to be one moment. **Is it reaching the "Won" stage, or a separate
+"convert to client" action a person takes?**
+
+### Q18 · Personal data and the AI
+
+Calling OpenAI sends a lead's name and phone number outside our servers. It can be
+avoided — the same features work with identifiers stripped. **Do you want names
+and numbers sent, or stripped before the call?**
+
