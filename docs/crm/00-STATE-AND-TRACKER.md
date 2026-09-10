@@ -6,10 +6,10 @@
 |---|---|
 | **Branch** | `crm` (from `main` at `0726704`) |
 | **Route** | `/leads` · nav: Growth → Campaign & Lead Desk |
-| **Phase** | **Steps 1–7b DONE.** The desk saves, the CRM belongs to the **Sales department**, and leads are handed out — by hand or shared across the team automatically. Step 7b (what the manager sees) is next and needs nothing. |
+| **Phase** | **Steps 1–8 DONE.** The desk saves, the CRM belongs to the **Sales department**, and leads are handed out — by hand or shared across the team automatically. Step 7b (what the manager sees) is next and needs nothing. |
 | **Scope** | ⚠️ **Chitral Royal Homes only.** One project, end to end. |
 | **Last updated** | 2026-09-10 |
-| **Last migration applied anywhere** | **121.** CRM next: 122. Step 7b needed **no** migration — `crm_sales_roster()` already existed. |
+| **Last migration applied anywhere** | **123.** CRM next: 124. |
 
 ---
 
@@ -28,7 +28,10 @@ database, and response time is stamped where nobody can edit it. What is still
 missing is nothing on the desk itself: a manager shares leads out and sees who
 holds what, a salesperson opens the same screen and sees only theirs, and the
 rota gives each lead to whoever holds the fewest open ones. The manager also has
-a **sales team panel** showing who is carrying what and how fast they answer.
+a **sales team panel** showing who is carrying what and how fast they answer. And
+nothing sits untouched quietly: a due strip on the desk, a morning reminder in
+the bell, and a neglect alert to the manager — all rules, all from pg_cron with
+no route in between.
 
 **And the company now has departments.** Eight of them, with the CRM belonging to
 Sales: the two accounts that run the company plus the three sales testers, and
@@ -236,6 +239,34 @@ more — see the decisions log, and ADR-012.
   ⚠️ **NO CONVERSION RATE while nothing is closed.** "0%" for everybody reads as
   a fact about the people and is a fact about the calendar.
 
+- [x] **Step 8 · follow-ups and reminders** — **migrations 122 + 123**, a due
+      strip on the desk that also filters, `crmDueCounts`, and two notification
+      kinds. **3074 tests green, tsc and eslint clean.**
+
+  ⚠️ **NO HTTP ROUTE.** The lead sync needs one because it calls Meta; this calls
+  nothing, so pg_cron invokes the function directly — which removes the
+  `CRON_SECRET`, the bearer token, the unread `pg_net` response and, notably,
+  **the 404-until-deployed problem** that still affects `crm-lead-sync`. It
+  worked the moment 123 landed.
+
+  ⚠️ **HOURLY, BUT ONCE A DAY.** Runs 08:00–19:00 Karachi so one missed firing
+  does not cost a day; the once-a-day check is read from the `notifications`
+  table rather than a new column, because a second record of what was sent is a
+  second thing to get wrong.
+
+  ⚠️ **ONE NOTIFICATION PER PERSON, NOT PER LEAD** — twenty due leads is one
+  message saying twenty, not twenty messages.
+
+  ⚠️ **AN IMPORT IS NOT ACTIVITY.** All 615 leads carry an `imported` row;
+  counting it would make an untouched lead look freshly worked.
+
+### ⚠️ What Step 8 turned up
+
+| | |
+|---|---|
+| **A test needle matched the table, not the chip** | Third time in three steps: `Overdue` also appears in a lead ROW as "Overdue · 8 Sept", so the cases asserting the strip was absent failed against a correct screen. `>Overdue</span>` is the needle. Same shape as `>Won<` in 7b and `%` matching bar widths. |
+| **`app/api/digest/route.ts` carries a stale claim** | Its header says *"There is no cron in this application and adding one would mean a long-running process to own it."* Untrue since migration 102. Left alone — it sends email and its schedule is somebody else's decision — but noted in 123's header where a reader will find it. |
+
 ### ⚠️ What Step 7b turned up
 
 | | |
@@ -374,6 +405,7 @@ see not just what was decided but when and why.
 | 2026-09-10 | ⚠️ **Who sees the CRM — SUPERSEDES Q2** | **Admin, Super Admin, and the Sales department.** Owner: *"That was the team coordinator, not the sales manager… the team coordinator will be part of a digital creator team. He will manage their tasks… But for the salespersons or for the management of the lead, all this CRM belongs to the sales manager and the salespersons. Plus admin and super admin are by default added."* Migration 118. The 2026-09-09 answer admitting the Coordinator no longer holds. |
 | 2026-09-10 | Sales manager vs salesperson | **Manager sees every lead and who holds it, and can move a lead between salespeople.** A salesperson sees only their own. Owner also asked for automatic, AI-assisted distribution and for the manager to see response times and quotations — Steps 7, 11 and 12. |
 | 2026-09-10 | Departments | **Eight**, as a table rather than an enum — Management, AI & Digital, Development, Sales, Finance & Accounts, HR & People, Operations, Support. Owner asked for *"those five plus HR, Operations and Support"*. See ADR-012. |
+| 2026-09-10 | Neglect threshold | **5 days**, as a function parameter rather than a constant — it is a judgement, not a measurement, and there is not one closed lead to derive it from. Changeable in the cron schedule without a migration. |
 | 2026-09-10 | ⚠️ **Automatic distribution — an earlier refusal reversed** | **Built, in Step 7.** It was parked as needing outcomes; that is true of SCORING and not of dividing work. Owner: *"I think it's not as difficult as you are expecting… the person who has fewer leads will get the lead."* Fewest OPEN leads, then whoever waited longest. |
 | 2026-09-10 | The tie-break | **Whoever went longest without a lead**, decided by me at the owner's invitation — *"You can decide to whom it will give it, right?"* Fair, predictable, and checkable from a person's own timeline. Response time replaces it once there are calls logged. |
 | 2026-09-10 | Who may hand out a lead | **The sales manager and an Admin.** A salesperson cannot push a lead onto a colleague — migration 120's trigger. |

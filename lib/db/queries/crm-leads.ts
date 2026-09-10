@@ -160,6 +160,8 @@ export interface CrmLeadFilters {
   /** Inclusive, on `submitted_at` — when THEY enquired, not when we imported. */
   readonly from?: string | null;
   readonly to?: string | null;
+  /** Step 8: `overdue` · `today` · `no-plan`. */
+  readonly due?: string | null;
 }
 
 /**
@@ -273,6 +275,22 @@ export async function listCrmLeads(
       conditions.push(
         tx`(l.submitted_at at time zone 'Asia/Karachi')::date <= ${filters.to}::date`,
       );
+    }
+
+    /* ⚠️ KARACHI, matching the strip that offers it and migration 123. And
+       `no-plan` is deliberately owned-only: an unassigned lead has no plan by
+       definition, so counting those would make the chip read 312 on a project
+       nobody has started. */
+    if (filters.due === 'overdue') {
+      conditions.push(tx`l.next_action_at is not null
+        and (l.next_action_at at time zone 'Asia/Karachi')::date
+            < (now() at time zone 'Asia/Karachi')::date`);
+    } else if (filters.due === 'today') {
+      conditions.push(tx`l.next_action_at is not null
+        and (l.next_action_at at time zone 'Asia/Karachi')::date
+            = (now() at time zone 'Asia/Karachi')::date`);
+    } else if (filters.due === 'no-plan') {
+      conditions.push(tx`l.next_action_at is null and l.owner_id is not null`);
     }
 
     let where = conditions[0];
@@ -793,6 +811,54 @@ export async function unassignedLeadIds(
      limit ${limit}
   `);
   return (rows as Array<Record<string, unknown>>).map((r) => String(r.id));
+}
+
+/** What is owed on this project right now, for whoever is asking. */
+export interface CrmDueCounts {
+  readonly overdue: number;
+  readonly dueToday: number;
+  /** Open, owned, and with no next action set at all — nothing is planned. */
+  readonly noPlan: number;
+}
+
+/**
+ * The follow-up position — Step 8.
+ *
+ * ⚠️ NARROWED BY RLS, NOT BY A `where owner_id`. A salesperson's counts describe
+ * their own leads because migration 118's policy is what they can see; the
+ * manager's describe the whole project. One query, two meanings, and no second
+ * rule to keep in step.
+ *
+ * ⚠️ AND "TODAY" IS KARACHI, matching migration 123 and the date filter. A UTC
+ * comparison calls a Friday task overdue from 5am Friday.
+ */
+export async function crmDueCounts(actorId: string, projectId: string): Promise<CrmDueCounts> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select
+      count(*) filter (
+        where l.next_action_at is not null
+          and (l.next_action_at at time zone 'Asia/Karachi')::date
+              < (now() at time zone 'Asia/Karachi')::date
+      ) as overdue,
+      count(*) filter (
+        where l.next_action_at is not null
+          and (l.next_action_at at time zone 'Asia/Karachi')::date
+              = (now() at time zone 'Asia/Karachi')::date
+      ) as due_today,
+      count(*) filter (
+        where l.next_action_at is null and l.owner_id is not null
+      ) as no_plan
+      from public.crm_leads l
+     where l.project_id = ${projectId}::uuid
+       and l.stage not in ('won', 'lost')
+  `);
+
+  const r = (rows as Array<Record<string, unknown>>)[0];
+  return {
+    overdue: Number(r?.overdue ?? 0),
+    dueToday: Number(r?.due_today ?? 0),
+    noPlan: Number(r?.no_plan ?? 0),
+  };
 }
 
 /**

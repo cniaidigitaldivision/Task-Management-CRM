@@ -116,10 +116,14 @@ const base = {
     search: null,
     from: null,
     to: null,
+    due: null,
   },
   /* Step 7. The manager's view by default — `canShareOut` false is the
      salesperson's, and has its own cases below. */
   unassigned: 0,
+  /* Step 8. Nothing owed by default — the strip earns its place only when there
+     is something on it, so most cases here should not see it. */
+  due: { overdue: 0, dueToday: 0, noPlan: 0 },
   salesTeam: [
     { id: 'u1', name: 'Sale Tester', avatarUrl: null, isManager: false,
       openLeads: 12, totalLeads: 14, wonLeads: 0, lastGivenAt: '2026-09-10T04:00:00.000Z',
@@ -284,6 +288,66 @@ describe('sharing leads out — Step 7', () => {
 
     expect(html).toContain('Nothing has been given to you yet');
     expect(html).toContain('notification the moment one is yours');
+  });
+});
+
+describe('what is owed — Step 8', () => {
+  /* ⚠️ `>Overdue</span>` IS THE NEEDLE, not a bare "Overdue". A lead ROW whose
+     next action has passed prints "Overdue · 11 Sept" in its own cell, and the
+     first version of these cases failed against a strip that was correctly
+     absent. The chip's label is the whole text node; the row's is not. Same
+     trap as `>Won<` matching a stage chip in Step 7b. */
+  const CHIP = '>Overdue</span>';
+
+  it('⚠️ shows nothing at all on a day with nothing owed', () => {
+    /* A row of three zeroes above every list is furniture, and furniture is
+       what people stop reading. */
+    const html = renderToStaticMarkup(<LeadDesk {...base} selected={PROJECTS[0]} />);
+
+    expect(html).not.toContain(CHIP);
+    expect(html).not.toContain('Due today');
+    expect(html).not.toContain('Nothing planned');
+  });
+
+  it('names the overdue ones when there are any', () => {
+    const html = renderToStaticMarkup(
+      <LeadDesk
+        {...base}
+        selected={PROJECTS[0]}
+        due={{ overdue: 7, dueToday: 3, noPlan: 12 }}
+      />,
+    );
+
+    expect(html).toContain(CHIP);
+    expect(html).toContain('Due today');
+    expect(html).toContain('Nothing planned');
+  });
+
+  it('shows only the counts that are not zero', () => {
+    /* Somebody with three due today and nothing overdue should not be shown a
+       reassuring "0 Overdue" — the absence is the reassurance. */
+    const html = renderToStaticMarkup(
+      <LeadDesk {...base} selected={PROJECTS[0]} due={{ overdue: 0, dueToday: 3, noPlan: 0 }} />,
+    );
+
+    expect(html).toContain('Due today');
+    expect(html).not.toContain(CHIP);
+    expect(html).not.toContain('Nothing planned');
+  });
+
+  it('counts the due filter among the active ones', () => {
+    /* ⚠️ Otherwise "Filters 1" sits above a list cut down by a third, and the
+       reader concludes the count is broken rather than that they filtered. */
+    const html = renderToStaticMarkup(
+      <LeadDesk
+        {...base}
+        selected={PROJECTS[0]}
+        due={{ overdue: 7, dueToday: 0, noPlan: 0 }}
+        filters={{ ...base.filters, due: 'overdue' }}
+      />,
+    );
+
+    expect(html).toContain('aria-pressed="true"');
   });
 });
 

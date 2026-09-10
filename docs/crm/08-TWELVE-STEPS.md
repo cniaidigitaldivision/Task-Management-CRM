@@ -306,12 +306,44 @@ they do not, in which case Step 7's load balancing is already the whole answer.
 
 ---
 
-### Step 8 · Follow-ups and reminders 🔓
-- Due next actions surface on the dashboard and in the bell.
-- Overdue and neglect alerts: *"14 leads assigned to Ali, no activity in 6 days."*
+### Step 8 · Follow-ups and reminders ✅ DONE 2026-09-10
+- **A due strip on the desk** — overdue, due today, nothing planned. Each one
+  filters the list.
+- **A morning reminder in the bell**, to the salesperson: *"7 overdue and 3 due
+  today."*
+- **A neglect alert to the manager**: *"14 leads of Ali have gone quiet."*
 - ⚠️ Rules, not AI. Instant, free, and it cannot hallucinate.
 
-**Delivers:** nothing sits untouched without somebody being told.
+⚠️ **NO HTTP ROUTE, AND THAT IS THE DESIGN.** The lead sync needs one because it
+calls Meta; this calls nothing, so **pg_cron invokes the function directly**.
+That removes every one of the sync's operational problems at once: no
+`CRON_SECRET` in three places, no bearer token, no `pg_net` response nobody
+reads, and **no 404 until the branch is deployed** — it worked the moment
+migration 123 landed.
+
+⚠️ **ONE NOTIFICATION PER PERSON, NOT ONE PER LEAD.** Somebody with twenty leads
+due today wants to be told once that today has twenty. `feed.ts` already records
+what happens otherwise: *"a feed that is mostly noise gets ignored — which then
+costs you the one notification that mattered."*
+
+⚠️ **HOURLY, BUT ONCE A DAY.** The job runs 08:00–19:00 Karachi so that a single
+missed firing does not cost a day of reminders; what stops twenty-four firings
+becoming twenty-four notifications is a check against what was already sent
+today, read from the `notifications` table itself. No `last_reminded_at` column —
+a second record of what was sent is a second thing to get wrong.
+
+⚠️ **AN IMPORT IS NOT ACTIVITY.** Every one of the 615 leads has an `imported`
+row. Counting it would make a lead nobody has ever rung look freshly worked.
+
+⚠️ **THE NEGLECT INTERVAL IS A JUDGEMENT AND IS A PARAMETER.** Five days by
+default. Nothing in this division's data says that is the line — there is not one
+closed lead to learn it from — so it is changeable in the cron schedule without a
+migration, and Step 12 should replace it with the interval that predicts a loss.
+
+⚠️ **AND THE DUE STRIP DISAPPEARS WHEN THERE IS NOTHING OWED.** A row of three
+zeroes above every list is furniture, and furniture is what people stop reading.
+
+**Delivered:** nothing sits untouched without somebody being told.
 
 ---
 

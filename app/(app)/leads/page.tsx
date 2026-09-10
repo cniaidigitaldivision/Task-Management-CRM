@@ -5,6 +5,7 @@ import { requireCrmAccess } from '@/lib/auth/current-user';
 import {
   crmFormOptions,
   crmOwnerOptions,
+  crmDueCounts,
   crmSalesRoster,
   listCrmLeads,
   listCrmProjects,
@@ -88,6 +89,11 @@ export default async function LeadsPage({
     search: params.q ?? null,
     from: params.from ?? null,
     to: params.to ?? null,
+    /* ⚠️ Validated against the three the strip offers, not passed through. This
+       reaches SQL as a branch rather than a value, so an unknown one simply
+       falls through to "no filter" — but a typo silently showing everything is
+       still worth refusing where it is cheap. */
+    due: ['overdue', 'today', 'no-plan'].includes(params.due ?? '') ? (params.due ?? null) : null,
   };
 
   /* Nothing to fetch for a project with no leads — the desk shows its state
@@ -103,6 +109,7 @@ export default async function LeadsPage({
              a check here — which is also how the page knows whether to draw the
              share-out control at all. */
           crmSalesRoster(user.id),
+          crmDueCounts(user.id, selected.id),
         ])
       : null;
 
@@ -121,6 +128,7 @@ export default async function LeadsPage({
       perPage={PER_PAGE}
       filters={filters}
       unassigned={data?.[3] ?? 0}
+      due={data?.[5] ?? { overdue: 0, dueToday: 0, noPlan: 0 }}
       salesTeam={roster}
       canShareOut={roster.length > 0}
       /* ⚠️ The SERVER's clock, so "3d ago" is the same for everyone. Reading it

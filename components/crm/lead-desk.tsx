@@ -19,7 +19,12 @@ import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { PageHeader } from '@/components/ui/page-header';
 import { Pagination } from '@/components/ui/pagination';
-import type { CrmLeadRow, CrmProjectOption, CrmSalesPerson } from '@/lib/db/queries/crm-leads';
+import type {
+  CrmDueCounts,
+  CrmLeadRow,
+  CrmProjectOption,
+  CrmSalesPerson,
+} from '@/lib/db/queries/crm-leads';
 import {
   STAGE_ORDER,
   activityLabel,
@@ -70,6 +75,8 @@ export interface LeadFilterState {
   readonly search: string | null;
   readonly from: string | null;
   readonly to: string | null;
+  /** Step 8: `overdue` · `today` · `no-plan`, or null for all of them. */
+  readonly due: string | null;
 }
 
 interface Option {
@@ -90,6 +97,7 @@ export function LeadDesk({
   perPage,
   filters,
   unassigned,
+  due,
   salesTeam,
   canShareOut,
   nowMs,
@@ -106,6 +114,8 @@ export function LeadDesk({
   filters: LeadFilterState;
   /** How many leads on this project have no owner. */
   unassigned: number;
+  /** What is owed — narrowed by RLS, so it means "mine" for a salesperson. */
+  due: CrmDueCounts;
   /** ⚠️ EMPTY FOR A SALESPERSON, by migration 120's guard inside
    *  `crm_sales_roster()` — colleagues' response times are the manager's view. */
   salesTeam: readonly CrmSalesPerson[];
@@ -137,6 +147,10 @@ export function LeadDesk({
     filters.temperature,
     filters.formId,
     filters.from ?? filters.to,
+    /* ⚠️ The due strip is its own control, but it narrows the table like any
+       other filter and the count has to say so — otherwise "Filters 2" above a
+       list cut down by a third reads as a bug. */
+    filters.due,
   ].filter(Boolean).length;
 
   const pageCount = Math.max(1, Math.ceil(total / perPage));
@@ -184,6 +198,11 @@ export function LeadDesk({
         <NotConnected project={selected} />
       ) : (
         <>
+          {/* ⚠️ ABOVE THE STAGE STRIP, because it is the only thing on this page
+              that is about TIME rather than about position in the funnel — and
+              time is what a salesperson opens the desk to check. */}
+          <DueStrip due={due} active={filters.due} onPick={(v) => setParam('due', v)} />
+
           <StageStrip
             counts={stageCounts}
             active={filters.stage}
@@ -539,6 +558,73 @@ function Choice({
       )}
       {selected && <span aria-hidden="true" className="text-text-brand">✓</span>}
     </button>
+  );
+}
+
+/* ---- What is owed -------------------------------------------------------- */
+
+/**
+ * Overdue, due today, and nothing planned — Step 8.
+ *
+ * ⚠️ IT DISAPPEARS WHEN THERE IS NOTHING TO SAY. A row of three zeroes above
+ * every lead list is furniture, and furniture is what people stop reading. The
+ * strip earns its place only on the days it has something on it.
+ *
+ * ⚠️ AND "NOTHING PLANNED" IS NOT AN ALARM. A lead somebody was given this
+ * morning has no next action and should not; it is here because a lead that has
+ * been owned for a fortnight with no plan is the one that quietly dies, and
+ * there is no other screen that would show it.
+ */
+function DueStrip({
+  due,
+  active,
+  onPick,
+}: {
+  due: CrmDueCounts;
+  active: string | null;
+  onPick: (value: string | null) => void;
+}) {
+  const items = [
+    { key: 'overdue', label: 'Overdue', n: due.overdue, alarming: true },
+    { key: 'today', label: 'Due today', n: due.dueToday, alarming: false },
+    { key: 'no-plan', label: 'Nothing planned', n: due.noPlan, alarming: false },
+  ].filter((i) => i.n > 0);
+
+  if (items.length === 0) return null;
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {items.map((item) => {
+        const on = active === item.key;
+        return (
+          <button
+            key={item.key}
+            type="button"
+            aria-pressed={on}
+            onClick={() => onPick(on ? null : item.key)}
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-caption transition-colors',
+              on
+                ? 'border-border-strong bg-bg-subtle'
+                : 'border-border-subtle bg-bg-surface hover:border-border-default',
+            )}
+          >
+            <span
+              className={cn(
+                'text-body-sm font-semibold tabular-nums',
+                /* ⚠️ `money-out`, not a chart or feedback hue. Measured 6.47:1 in
+                   light and 5.84 in dark; `feedback-success` was 3.77 in light on
+                   the team panel, and these families behave the same way. */
+                item.alarming ? 'text-[var(--money-out)]' : 'text-text-primary',
+              )}
+            >
+              {item.n}
+            </span>
+            <span className="text-text-secondary">{item.label}</span>
+          </button>
+        );
+      })}
+    </div>
   );
 }
 

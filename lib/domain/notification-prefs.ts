@@ -61,6 +61,22 @@ export const PREF_DEFINITIONS: readonly PrefDefinition[] = [
       'Cannot be turned off in-app. A lead is somebody waiting for a call — not knowing you have it helps nobody.',
   },
   {
+    kind: 'lead_due',
+    label: 'Leads waiting on you',
+    help: 'Once each morning, if any of your leads are due or overdue.',
+    group: 'your work',
+    /* ⚠️ NOT LOCKED, unlike `lead_assigned`. Somebody who works from the desk
+       rather than the bell has a real reason to turn this off, and the desk
+       shows the same thing without it. Being GIVEN a lead is different: nobody
+       else will tell you. */
+  },
+  {
+    kind: 'lead_neglected',
+    label: 'Leads that have gone quiet',
+    help: 'For the sales manager: whose leads have had no call, message or note for several days.',
+    group: 'the team',
+  },
+  {
     kind: 'task_reassigned',
     label: 'Work taken off you',
     help: 'A task you held moves to somebody else.',
