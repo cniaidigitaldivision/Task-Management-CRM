@@ -9,7 +9,7 @@
 | **Phase** | **Steps 1–9 DONE.** Step 10 (reports) is next and needs nothing. The desk saves, the CRM belongs to the **Sales department**, and leads are handed out — by hand or shared across the team automatically. Step 7b (what the manager sees) is next and needs nothing. |
 | **Scope** | ⚠️ **Chitral Royal Homes only.** One project, end to end. |
 | **Last updated** | 2026-09-10 |
-| **Last migration applied anywhere** | **126.** CRM next: 127. |
+| **Last migration applied anywhere** | **127.** CRM next: 128. |
 
 ---
 
@@ -298,6 +298,46 @@ more — see the decisions log, and ADR-012.
   three of the 615 have no name, so the number stands in — a won lead must not
   fail because Meta's form did not ask.
 
+- [x] **The form decides the project** — **migration 127**. A lead now inherits
+      its FORM's project, falling back to the page. `app.crm_refile_form()` lets
+      an Admin point a form at a project.
+
+  ⚠️ **URGENT, AND IT ARRIVES TODAY.** Owner, 2026-09-10: *"its three
+  campaigns will be live today: ERP campaign, CRM campaign, Taskly campaign…
+  smartly link."* All three run on ONE page, and 112 filed leads by PAGE — so
+  all three would have landed on one project, with an ERP enquiry
+  indistinguishable from somebody asking about Taskly.
+
+  ⚠️ **THE CAMPAIGN CANNOT ANSWER IT** — `campaign_name` is empty on every
+  lead (see `06-CAMPAIGNS-AND-COVERAGE.md`). The FORM is the only key Meta gives
+  us on every lead, and 112 had already had the foresight not to overwrite a
+  form's project on re-import. The hook existed and nothing used it.
+
+  ⚠️ **RE-FILING DOES NOT MOVE LEADS ALREADY IMPORTED** unless asked. That
+  would change who can read a stranger's phone number, and is not something a
+  fifteen-minute cron should do.
+
+### ⚠️ What the campaign work turned up
+
+| | |
+|---|---|
+| ⚠️ **Three projects do not exist** | The campaigns are ERP, CRM and Taskly. The projects are `Internal CRM`, `Social Media Automation Tool` and `WhatsApp Business API Automation`. **There is no ERP project and no Taskly project**, so two of the three campaigns have nowhere to file to. The owner needs to create them, then re-file each form. |
+| ⚠️ **`CREATE OR REPLACE` cannot change a signature** | 127 renamed a return column and dropped two parameter defaults without meaning to. Both are signature changes and PostgreSQL refuses them — the hint says to DROP, which for `crm_record_leads` would leave the only path that writes leads absent if anything later in the file failed. The fix was to match 112's signature exactly, including `forms_written` and both `default '[]'::jsonb`. |
+| ⚠️ **The old CNI token may stop working** | Owner: *"some things I have changed definitely will not be working more with the old assets. I will renew that access token."* `META_SYSTEM_USER_TOKEN_CNI` is in the Vault and the importer uses it. When it breaks, `crm_lead_sync_runs.errors` records it and **nobody is told** — Step 8 notifies about leads, not about a broken import. Worth closing. |
+
+### ⚠️ One WhatsApp number PER BUSINESS
+
+Owner, 2026-09-10: *"This WhatsApp business number will just work for the one
+app… Chitral Royal Homes will have a different WhatsApp business number. In the
+same way every business has a different business number, right? The lead belongs
+to the number that belongs to the project."*
+
+⚠️ **So the WhatsApp config is per project, in the DATABASE** — one row each,
+the same shape as `meta_accounts` — and **not** a global
+`WHATSAPP_PHONE_NUMBER_ID` env var. The setup brief was written with a single
+global number and has been corrected; the webhook stays shared, because each
+event names the number it arrived on.
+
 ### ⚠️ What Step 9 turned up
 
 | | |
@@ -460,6 +500,9 @@ see not just what was decided but when and why.
 | 2026-09-10 | ⚠️ **Who sees the CRM — SUPERSEDES Q2** | **Admin, Super Admin, and the Sales department.** Owner: *"That was the team coordinator, not the sales manager… the team coordinator will be part of a digital creator team. He will manage their tasks… But for the salespersons or for the management of the lead, all this CRM belongs to the sales manager and the salespersons. Plus admin and super admin are by default added."* Migration 118. The 2026-09-09 answer admitting the Coordinator no longer holds. |
 | 2026-09-10 | Sales manager vs salesperson | **Manager sees every lead and who holds it, and can move a lead between salespeople.** A salesperson sees only their own. Owner also asked for automatic, AI-assisted distribution and for the manager to see response times and quotations — Steps 7, 11 and 12. |
 | 2026-09-10 | Departments | **Eight**, as a table rather than an enum — Management, AI & Digital, Development, Sales, Finance & Accounts, HR & People, Operations, Support. Owner asked for *"those five plus HR, Operations and Support"*. See ADR-012. |
+| 2026-09-10 | ⚠️ **One WhatsApp number per business** | Chitral has its own, AI & Digital has its own, every client business has its own. Config lives per project in the database, not in the environment. The webhook is shared. |
+| 2026-09-10 | Campaign → project, by FORM | `campaign_name` is empty on every lead, so the form is the key. Migration 127; an Admin re-files a form with `app.crm_refile_form()`. |
+| 2026-09-10 | ⚠️ **Live today: ERP, CRM and Taskly campaigns** | On the AI & Digital page, routing to Kashif's department. ⚠️ Two of the three have no project to file to yet. |
 | 2026-09-10 | ⚠️ **Leads route by DEPARTMENT — supersedes 118** | **Chitral → Sales. ERP, CRM and automation → AI & Digital, under Kashif.** Owner: *"the Chitral lead will definitely be sent to the sales team… this is the CRM and automation lead so this will be handled by the developer team"*, then chose *"AI & Digital owns them, under Kashif"* over splitting by campaign. Migration 124. |
 | 2026-09-10 | ⚠️ **Q17 — what makes a client** | **Reaching `Won`.** The owner proposed engagement and asked for my view; I argued engagement is too early — it would produce hundreds of "clients" who have paid nothing and would make Step 12's *"not one closed"* meaningless. Their own 9 Sept answer (*"accept a quotation, or work starts"*) was better, and `Won` IS that moment. "They engaged" is the `qualified` stage, which already exists. |
 | 2026-09-10 | Q16 — client scope | **One project**, as the owner said. Nothing is lost: `crm_leads.client_id` still allows one person to hold leads across several projects. |
