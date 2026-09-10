@@ -77,32 +77,45 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
 
         {/* ══ HERO ══════════════════════════════════════════════════════════ */}
         <div className="hero">
-          {/* The dashboard’s own control-room clip. `src` is set in script so only
-               the cut for the current theme is ever fetched. */}
+          {/* The owner's own clip, shown at its native 16:9 across the full
+              width — see the note in home.css about why it is not `cover`. */}
           <ThemeClip clip="hero" className="hero-clip" />
 
-          <div className="wrap">
-            <h1>The whole agency, on <em>one thread</em>.</h1>
+          <div className="wrap hero-copy">
+            {/* One line, so it is sized to fit the column rather than the column
+                being sized to it. The accent is the two words that say what it
+                is; "AI-powered" is the qualifier and stays in plain ink. */}
+            <h1>AI-powered <em>operations platform</em></h1>
             <p className="standfirst">
-              Taskly follows a piece of work from the moment a stranger fills in a form to the month it
-              is invoiced — the lead, the person who calls them, the task, the post, the credential,
-              the report. One system, one record, nothing left in somebody’s head.
+              One intelligent system for the whole business — tasks, the team behind them, projects,
+              finance, credentials and documentation, your social performance across every platform in
+              the Trend &amp; Engagement Studio, and a lead desk that captures every enquiry and follows
+              it through to a closed deal.
             </p>
             <div className="cta">
               <Link className="btn btn-primary btn-lg" href="/login">Open workspace</Link>
-              <a className="btn btn-ghost btn-lg" href="#films">Watch it work</a>
+              <a className="btn btn-ghost btn-lg" href="#thread">See how it works</a>
             </div>
-            <p className="who">Built and run by the AI & Digital Division of Crescent Nova International.</p>
+          </div>
 
-            <div className="frame">
-              <div className="chrome"><i /><i /><i /><span>taskly.aidigitaldivision.com</span></div>
-              {/* Swap for: <video className="stage" controls playsinline poster="/home/tour-poster.jpg"><source src="/home/tour.mp4" type="video/mp4"></video> */}
-              <div className="stage stage-empty">
-                <span className="play" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span>
-                <strong>A minute inside Taskly</strong>
-                <span>Your walkthrough video goes here</span>
-              </div>
-            </div>
+        </div>
+
+        {/* ⚠️ OUTSIDE `.hero`, DELIBERATELY. The hero is a full screen whose
+            column is bottom-aligned; anything else inside it would be pushed to
+            that same floor and the copy would no longer rest on it. */}
+        {/* Shown whole, at the same width as the headline above it. */}
+        <div className="hero-shot" data-reveal>
+          <div className="frame">
+            <div className="chrome"><i /><i /><i /><span>taskly.aidigitaldivision.com</span></div>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/home/workspace.jpg"
+              alt="The Taskly dashboard: open, in-progress, completed and overdue tasks, the team's capacity, an operations score with its recommendations, and today's attendance."
+              width={1900}
+              height={841}
+              loading="eager"
+              decoding="async"
+            />
           </div>
         </div>
 
