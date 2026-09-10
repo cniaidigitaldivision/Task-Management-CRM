@@ -25,7 +25,7 @@ import { ToggleGroup, Toolbar, ToolbarGroup, ToolbarLabel } from '@/components/u
 import { InviteDialog } from './invite-dialog';
 import type { ResetTrailView } from '@/lib/view/reset-trail';
 
-import { PersonActions } from './person-actions';
+import { PersonActions, type DepartmentOption } from './person-actions';
 import type { PersonWorkload } from '@/lib/db/queries/workload';
 import type { AvailabilityRow, PersonRow, SkillRow, UserSkillRow } from '@/lib/db/queries/types';
 import {
@@ -66,6 +66,7 @@ export function TeamWorkspace({
   canManage,
   canProvision,
   assignableRoles,
+  departments,
   pendingUserIds,
   resetTrails,
 }: {
@@ -79,6 +80,9 @@ export function TeamWorkspace({
   /** doc 03 §3.1 — Admin and above may create and manage accounts. */
   canProvision: boolean;
   assignableRoles: readonly Role[];
+  /** Where people can be moved to. Empty for a viewer who may not move anybody —
+   *  the PAGE decides that, so there is one place to look. Migration 117. */
+  departments: readonly DepartmentOption[];
   /** Invited, not yet activated. They get a re-send option and no capacity edit. */
   pendingUserIds: readonly string[];
   /** The latest forced password reset per person, keyed by user id. Empty for a
@@ -225,7 +229,31 @@ export function TeamWorkspace({
                         </Badge>
                       )}
                     </div>
-                    <p className="text-caption text-text-secondary">{person.roleTitle ?? '—'}</p>
+                    {/* ⚠️ THE DEPARTMENT, THEN THE JOB TITLE — in that order,
+                        because only one of them decides anything. The title is
+                        free text somebody typed about themselves ("SalesMan",
+                        "sale person", "Developer Interne"); the department is
+                        structured and is what opens the CRM. Showing the title
+                        alone made it look authoritative, which is how somebody
+                        would come to believe a typo had locked them out. */}
+                    <p className="flex flex-wrap items-center gap-x-1.5 text-caption text-text-secondary">
+                      {person.departmentName ? (
+                        <span className="font-medium text-text-primary">
+                          {person.departmentName}
+                          {person.isDepartmentManager && ' · manager'}
+                        </span>
+                      ) : (
+                        <span>No department</span>
+                      )}
+                      {person.roleTitle && (
+                        <>
+                          <span aria-hidden="true" className="text-text-disabled">
+                            ·
+                          </span>
+                          <span>{person.roleTitle}</span>
+                        </>
+                      )}
+                    </p>
                     <p className="text-micro text-text-tertiary">{person.email}</p>
                   </div>
 
@@ -283,6 +311,7 @@ export function TeamWorkspace({
                         person={person}
                         currentUser={currentUser}
                         assignableRoles={assignableRoles}
+                      departments={departments}
                         isPendingActivation={pendingUserIds.includes(person.id)}
                         resetTrail={resetTrails[person.id] ?? null}
                       />

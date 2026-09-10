@@ -6,10 +6,10 @@
 |---|---|
 | **Branch** | `crm` (from `main` at `0726704`) |
 | **Route** | `/leads` · nav: Growth → Campaign & Lead Desk |
-| **Phase** | **Steps 1–6 DONE.** 615 leads stored, import scheduled, the list screen built, the record opens, and **the desk saves**. Step 7 (assignment and the staff view) is next — and it needs two answers from the owner. |
+| **Phase** | **Steps 1–6 DONE, plus the org structure.** The desk saves, and the CRM now belongs to the **Sales department** rather than to a rank. Step 7 (assignment and the staff view) is next and is no longer blocked. |
 | **Scope** | ⚠️ **Chitral Royal Homes only.** One project, end to end. |
 | **Last updated** | 2026-09-10 |
-| **Last migration applied anywhere** | **116.** CRM next: 117. |
+| **Last migration applied anywhere** | **118.** CRM next: 119. |
 
 ---
 
@@ -25,8 +25,12 @@ dropdown saying "not connected", which is the truth rather than a placeholder.
 And the desk now **works**: stage, temperature, next action, call outcomes and
 notes all save from the lead itself, the timeline writes itself from the
 database, and response time is stamped where nobody can edit it. What is still
-missing is handing a lead to a salesperson — that is Step 7, and it is the one
-thing on this page that needs the owner.
+missing is handing a lead to a salesperson — that is Step 7.
+
+**And the company now has departments.** Eight of them, with the CRM belonging to
+Sales: the two accounts that run the company plus the three sales testers, and
+nobody else. The Team Coordinator was admitted until 2026-09-10 and is not any
+more — see the decisions log, and ADR-012.
 
 ---
 
@@ -164,6 +168,45 @@ thing on this page that needs the owner.
   entry can only move first contact EARLIER. "No answer" counts — it measures our
   responsiveness, not the lead's.
 
+- [x] **The org structure** — **migrations 117 + 118**, `ADR-012`. Eight
+      departments, `users.department_id` and `users.department_role`, the
+      department shown on every team row, and an Admin-only **Move department**
+      action that asks for re-authentication. `lib/auth/current-user.ts` gains
+      `getCurrentDepartment` and `requireCrmAccess`; the nav gains a department
+      dimension. **3047 tests green, tsc and eslint clean.**
+
+  ⚠️ **NEITHER `office_team` NOR `role_title` COULD BE USED, and both looked like
+  the answer.** `office_team` is a LOCATION — `blue_area` / `wah` — that
+  attendance, compensation and expenses all read as a site. And `role_title` is
+  free text: the live rows hold `'SalesMan'`, `'sales manager'` and
+  `'sale person'` for one team of three, plus `'Coodinator'` and
+  `'Developer Interne'`. An access rule matching on it would have admitted
+  whoever spelled their title the way the code expected.
+
+  ⚠️ **RANK CANNOT EXPRESS THIS AT ALL.** `acting_at_least('team_coordinator')`
+  is a LADDER — it admits that rank and everything above. Sales staff are
+  `member`, the bottom of it, and the desk is their whole job; the Coordinator
+  sits above them and has none. So the CRM policies stopped asking about rank.
+
+  ⚠️ **AND THE SALES MANAGER IS STILL `member` IN `users.role`.** ADR-002 fixed
+  the app at four ranks and this does not add a fifth. Seniority inside a
+  department is a different question from authority over the application.
+
+### ⚠️ Who can see the CRM now — measured, not asserted
+
+Every active person, under their own session, counting `crm_leads`:
+
+| | |
+|---|---|
+| Umm-e-Habiba · admin · Management | **615** |
+| Ammar Afzal Khan · super_admin · Management | **615** |
+| **sale manager tester** · member · Sales **(manager)** | **615** |
+| Sale Tester · member · Sales | 0 — nothing assigned yet (Step 7) |
+| Sale 2 tester · member · Sales | 0 — nothing assigned yet (Step 7) |
+| **Kashif Ayaz · team_coordinator · AI & Digital (manager)** | **0** ⚠️ this is the change |
+| The other 7 in AI & Digital | 0 |
+| Junaid Ahmad, Lararib Rafique · Development | 0 |
+
 ### ⚠️ What Step 6 turned up
 
 | | |
@@ -257,6 +300,10 @@ see not just what was decided but when and why.
 | 2026-09-10 | Paging | **Paged in SQL, 25 a page**, against this app's usual client-side `usePagination`. 615 rows and growing every fifteen minutes; payload size is where this application's slowness has actually been. |
 | 2026-09-10 | Page access | **Still Admin and above**, unchanged. Migration 111's policies already describe the wider rule, but the door stays where it is until assignment exists in Step 6 — widening it now would hand 615 phone numbers to people with no lead to work. |
 | 2026-09-10 | ⚠️ **Scope, confirmed** | **One project: Chitral Royal Homes.** Build the whole CRM for it end to end — capture, desk, follow-through, intelligence — before any second project. Owner: *"I'm not saying that you carry 2 or 3 projects at a time, their leads at a time, and every stuff at a time."* |
+| 2026-09-10 | ⚠️ **Who sees the CRM — SUPERSEDES Q2** | **Admin, Super Admin, and the Sales department.** Owner: *"That was the team coordinator, not the sales manager… the team coordinator will be part of a digital creator team. He will manage their tasks… But for the salespersons or for the management of the lead, all this CRM belongs to the sales manager and the salespersons. Plus admin and super admin are by default added."* Migration 118. The 2026-09-09 answer admitting the Coordinator no longer holds. |
+| 2026-09-10 | Sales manager vs salesperson | **Manager sees every lead and who holds it, and can move a lead between salespeople.** A salesperson sees only their own. Owner also asked for automatic, AI-assisted distribution and for the manager to see response times and quotations — Steps 7, 11 and 12. |
+| 2026-09-10 | Departments | **Eight**, as a table rather than an enum — Management, AI & Digital, Development, Sales, Finance & Accounts, HR & People, Operations, Support. Owner asked for *"those five plus HR, Operations and Support"*. See ADR-012. |
+| 2026-09-10 | A third sales tester | Owner added **Sale 2 tester** so assignment between two salespeople can be exercised: *"I definitely need one more sales tester… so you can implement all these things in a proper intelligent way."* |
 | 2026-09-10 | Schema stays multi-project | ⚠️ The TABLES keep `project_id` even though only one project is used. Hardcoding one project would make "later on I will do the same thing for the other projects" a rewrite instead of a row. Costs nothing now; saves the whole second build. |
 
 ---

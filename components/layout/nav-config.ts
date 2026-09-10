@@ -41,6 +41,16 @@ export interface NavItem {
   href: Route;
   icon: typeof LayoutDashboard;
   roles: readonly Role[];
+  /**
+   * Departments that see this item WHATEVER their rank — migration 117.
+   *
+   * ⚠️ THIS EXISTS BECAUSE RANK CANNOT EXPRESS THE CRM. Sales staff are
+   * `member`, the bottom of the ladder, and the desk is their whole job; the
+   * Team Coordinator is above them and has no lead work. `roles` is a ladder
+   * and departments are not, so the two conditions are ORed rather than one
+   * being bent into the other.
+   */
+  departments?: readonly string[];
   /** Shown as a counter chip. Wired to real data from Phase 3. */
   badgeKey?: 'myTasks' | 'review' | 'overdue';
 }
@@ -153,12 +163,25 @@ export const NAV_SECTIONS: readonly NavSection[] = [
        answer before the question. Its own heading leaves room for the campaign
        and source screens that follow.
 
-       ⚠️ ADMIN_UP, and this file is not the floor. `app/(app)/leads/layout.tsx`
-       is (NFR-006); removing the link here would hide the page and grant nobody
-       anything. Both are set together, deliberately. */
+       ⚠️ ADMIN_UP **plus the sales department** — owner, 2026-09-10: *"all this
+       CRM belongs to the sales manager and the salespersons. Plus admin and
+       super admin are by default added."* The Team Coordinator was admitted
+       until that day and is not any more.
+
+       ⚠️ And this file is not the floor. `app/(app)/leads/layout.tsx` and
+       migration 118 are (NFR-006); removing the link here would hide the page
+       and grant nobody anything. All three are set together, deliberately. */
     label: 'Growth',
     items: [
-      { label: 'Campaign & Lead Desk', href: '/leads', icon: Radio, roles: ADMIN_UP },
+      {
+        label: 'Campaign & Lead Desk',
+        href: '/leads',
+        icon: Radio,
+        roles: ADMIN_UP,
+        /* ⚠️ Sales staff are `member`. Without this line the three people whose
+           entire job is this screen would have no link to it. */
+        departments: ['sales'],
+      },
     ],
   },
   {
@@ -241,16 +264,30 @@ export const NAV_SECTIONS: readonly NavSection[] = [
   },
 ];
 
-export function sectionsForRole(role: Role): NavSection[] {
+/**
+ * What this person is offered.
+ *
+ * ⚠️ `departmentKey` IS OPTIONAL AND DEFAULTS TO NOTHING, so every existing
+ * caller keeps the rank-only behaviour it had. A department only ever ADDS an
+ * item — it can never take one away, because a rule that could remove things
+ * would make "why has my sidebar changed?" a support question.
+ */
+export function sectionsForRole(role: Role, departmentKey?: string | null): NavSection[] {
   return NAV_SECTIONS.map((section) => ({
     ...section,
-    items: section.items.filter((item) => item.roles.includes(role)),
+    items: section.items.filter(
+      (item) =>
+        item.roles.includes(role) ||
+        (departmentKey != null && (item.departments?.includes(departmentKey) ?? false)),
+    ),
   })).filter((section) => section.items.length > 0);
 }
 
 /** Every href a role is offered, for the "which item is current" rule. Flattened
  *  here so the rule itself stays free of the nav's React types — see
  *  `lib/view/nav-active.ts`. */
-export function hrefsForRole(role: Role): string[] {
-  return sectionsForRole(role).flatMap((section) => section.items.map((item) => item.href));
+export function hrefsForRole(role: Role, departmentKey?: string | null): string[] {
+  return sectionsForRole(role, departmentKey).flatMap((section) =>
+    section.items.map((item) => item.href),
+  );
 }

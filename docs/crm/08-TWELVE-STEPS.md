@@ -208,6 +208,24 @@ that nobody can be given a lead yet.
 - ⚠️ One component, two scopes — so the two views cannot drift apart.
 - A notification when a lead is assigned to you, through the existing bell.
 
+⚠️ **The owner asked for more than assignment here — 2026-09-10:**
+
+> *"The manager will see which staff member is managing which deals, like which
+> leads. Plus he can add or move some leads to the other salesperson. The system
+> will automatically, smartly and intelligently divide the leads to the
+> salesperson… The manager can see: who the person is on which lead, who is
+> responsible for which lead, how they are responding, what talks with it, how
+> quotations are given, how instantly they are replying or engaging with the
+> client."*
+
+That is three features, and they should not ship as one:
+
+| | |
+|---|---|
+| **7a · Assignment by hand** | The manager assigns and reassigns; the staff view; the bell. Everything below is ready for it. |
+| **7b · What the manager sees** | Who holds what, response time per person, the note and call history per lead. Arithmetic, not AI — and it needs 7a's data before it says anything. |
+| **7c · Automatic distribution** | ⚠️ **Not yet.** *"The system will automatically, smartly and intelligently divide the leads"* — a round-robin is easy and would be dishonest to call intelligent; a real one needs outcomes to learn from, and there are none. This belongs with Step 11/12, and `07-AI-PLAN.md` already says why scoring before outcomes is confident noise. Build 7a, run it for a few weeks, then this has something to be intelligent about. |
+
 **Three things are already waiting for it, so this is smaller than it looks:**
 
 - 116's trigger logs an assignment the moment `owner_id` changes. Nothing to
@@ -218,14 +236,13 @@ that nobody can be given a lead yet.
 
 ⚠️ **And two things it must do, both already written down:**
 
-- **Add `owner_id` to 116's column grant**, with the rule that only a coordinator
-  may reassign. It was left out deliberately — the narrow start.
-- **Move the floor in two files** — `app/(app)/leads/layout.tsx` and
-  `app/(app)/leads/[id]/page.tsx`. The database does not change: 111's policies
-  already describe the wider rule.
+- **Add `owner_id` to 116's column grant**, with the rule that only the **sales
+  manager** may reassign. It was left out deliberately — the narrow start.
+- ✅ **The floor has already moved** — migrations 117 and 118 did it, and
+  `requireCrmAccess()` replaced `requireRole('admin')` on all three CRM routes.
 
-**Needs from you:** the testing staff account, and which project members are the
-sales team.
+✅ **Needs nothing from you any more.** The three sales testers exist, the Sales
+department exists, and the manager is the one who assigns.
 
 **Delivers:** the two-dashboard split you asked for.
 

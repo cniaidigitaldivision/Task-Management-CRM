@@ -2,7 +2,7 @@ import type { Metadata, Route } from 'next';
 import { notFound } from 'next/navigation';
 
 import { LeadRecord } from '@/components/crm/lead-record';
-import { requireRole } from '@/lib/auth/current-user';
+import { requireCrmAccess } from '@/lib/auth/current-user';
 import { getCrmLead } from '@/lib/db/queries/crm-leads';
 import { nowMs } from '@/lib/now';
 
@@ -19,12 +19,10 @@ export const metadata: Metadata = { title: 'Lead' };
  * whole of what an attacker wants. The two cases are indistinguishable on
  * purpose, all the way from the policy to the screen.
  *
- * ── ⚠️ THE RANK FLOOR IS `../layout.tsx`, AND THIS REPEATS IT ──────────────
+ * ── ⚠️ THE FLOOR IS `../layout.tsx`, AND THIS REPEATS IT ───────────────────
  * The same pattern as the desk: a page is reachable without its layout in some
  * render paths, and a floor that exists in only one of the two is not a floor.
- * Admin and above until Step 7 puts sales members behind it — at which point
- * this changes in exactly two files and the database does not change at all,
- * because migration 111's policies already describe the wider rule.
+ * Admin, Super Admin, or the Sales department — see migration 118.
  * ========================================================================= */
 
 export default async function LeadPage({
@@ -34,7 +32,7 @@ export default async function LeadPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<Record<string, string | undefined>>;
 }) {
-  const user = await requireRole('admin');
+  const { user } = await requireCrmAccess();
   const { id } = await params;
   const query = await searchParams;
 

@@ -60,6 +60,7 @@ function RailBadge({ count, tone }: { count: number; tone: 'neutral' | 'alert' }
 
 export function Sidebar({
   role,
+  departmentKey = null,
   userName,
   userAvatarUrl = null,
   open,
@@ -67,6 +68,10 @@ export function Sidebar({
   pinned = false,
 }: {
   role: Role;
+  /** Their department's key — migration 117. Only ever ADDS a nav item; see
+   *  `sectionsForRole`. Defaults to null so an unassigned person is offered
+   *  exactly what their rank offers. */
+  departmentKey?: string | null;
   userName: string;
   userAvatarUrl?: string | null;
   open: boolean;
@@ -92,7 +97,7 @@ export function Sidebar({
   pinned?: boolean;
 }) {
   const pathname = usePathname();
-  const sections = sectionsForRole(role);
+  const sections = sectionsForRole(role, departmentKey);
 
   /* Exactly one item is current, even where one nav item's route is nested inside
      another's. The rule and its reasoning live in lib/view/nav-active.ts, with

@@ -205,6 +205,89 @@ export async function requireRole(minimum: Role): Promise<CurrentUser> {
   return user;
 }
 
+/* ============================================================================
+ * WHICH DEPARTMENT IS ASKING — migration 117
+ * ----------------------------------------------------------------------------
+ * ⚠️ A SEPARATE LOOKUP, NOT TWO MORE COLUMNS ON `session_resolve`. Widening that
+ * function means DROP and re-CREATE — its return type is fixed — on the one code
+ * path that decides whether anybody can sign in at all. The cost avoided is a
+ * single primary-key lookup, memoised per request; the risk avoided is the whole
+ * team locked out by a migration. `where-the-slowness-actually-is` says plainly
+ * that this application's slowness has been payload size and the router cache,
+ * never a query like this one.
+ *
+ * ⚠️ AND IT IS NOT THE FLOOR. Migrations 117 and 118 decide who reads a lead;
+ * this decides whether a page and a nav item are DRAWN. A caller who forgot it
+ * would show somebody an empty screen, not somebody else's data.
+ * ========================================================================= */
+
+export interface ActingDepartment {
+  /** The stable key — `sales`, `digital`, … — or null if unassigned. */
+  readonly key: string | null;
+  readonly name: string | null;
+  /** True only for the manager OF THAT department. Not an app rank. */
+  readonly isManager: boolean;
+}
+
+const NO_DEPARTMENT: ActingDepartment = { key: null, name: null, isManager: false };
+
+export const getCurrentDepartment = cache(async (): Promise<ActingDepartment> => {
+  const user = await getCurrentUser();
+  if (!user) return NO_DEPARTMENT;
+
+  try {
+    const rows = await withAppRole((tx) => tx`
+      select d.key, d.name, u.department_role::text as department_role
+        from public.users u
+        join public.departments d on d.id = u.department_id
+       where u.id = ${user.id}::uuid
+    `);
+    const row = rows[0];
+    if (!row) return NO_DEPARTMENT;
+
+    return {
+      key: String(row.key),
+      name: String(row.name),
+      isManager: row.department_role === 'manager',
+    };
+  } catch {
+    /* ⚠️ FAILS CLOSED, and closed means "no department" — which grants nothing.
+       The same stance as getCurrentUser: nobody is thrown into a screen on a
+       maybe. */
+    return NO_DEPARTMENT;
+  }
+});
+
+/**
+ * May this session use the Campaign & Lead Desk?
+ *
+ * ⚠️ THIS MIRRORS `app.crm_is_open_to_caller()` IN MIGRATION 118, and the
+ * database is the one that matters. Kept in step by hand because there is no way
+ * to share an expression across TypeScript and a policy — so if one changes, the
+ * other must, and the worst case if they drift is a page that draws and then
+ * shows nothing rather than a page that leaks.
+ *
+ * Owner, 2026-09-10: *"all this CRM belongs to the sales manager and the
+ * salespersons. Plus admin and super admin are by default added."*
+ */
+export function crmIsOpenTo(user: CurrentUser, department: ActingDepartment): boolean {
+  return user.role === 'admin' || user.role === 'super_admin' || department.key === 'sales';
+}
+
+/** The guard for every CRM page. Sends anybody else where they belong. */
+export async function requireCrmAccess(): Promise<{
+  user: CurrentUser;
+  department: ActingDepartment;
+}> {
+  const user = await requireEnrolledUser();
+  const department = await getCurrentDepartment();
+
+  if (!crmIsOpenTo(user, department)) {
+    redirect(user.role === 'member' ? '/my-work' : '/dashboard');
+  }
+  return { user, department };
+}
+
 /** Slide the window. Fire-and-forget: a failure here must never block a page. */
 export async function touchSession(user: CurrentUser): Promise<void> {
   try {

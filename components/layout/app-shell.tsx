@@ -72,6 +72,8 @@ export interface ShellUser {
   readonly email: string;
   readonly role: Role;
   readonly roleTitle: string | null;
+  /** Their department's stable key — `sales`, `digital`, … See migration 117. */
+  readonly departmentKey: string | null;
   readonly theme: Theme;
   /** Their uploaded picture, shown in the rail. CHANGE-PLAN 2.3. */
   readonly avatarUrl: string | null;
@@ -366,6 +368,7 @@ export function AppShell({
     >
       <Sidebar
         role={user.role}
+        departmentKey={user.departmentKey}
         userName={user.name}
         userAvatarUrl={user.avatarUrl}
         open={navOpen}

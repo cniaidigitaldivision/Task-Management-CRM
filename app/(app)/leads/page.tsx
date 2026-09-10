@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 
 import { LeadDesk } from '@/components/crm/lead-desk';
-import { requireRole } from '@/lib/auth/current-user';
+import { requireCrmAccess } from '@/lib/auth/current-user';
 import {
   crmFormOptions,
   crmOwnerOptions,
@@ -40,13 +40,14 @@ const PER_PAGE = 25;
  * migration 113, where a uuid would have been unreadable — and that comment says
  * how to widen it.
  *
- * ── ADMIN AND ABOVE, UNCHANGED ─────────────────────────────────────────────
- * A lead carries a stranger's phone number. Migration 111's policies already
- * describe the wider rule (Coordinator and above see every lead, everybody else
- * sees the ones assigned to them), and the queries rely on those rather than on
- * any check here — but the page's own floor stays at Admin until assignment
- * exists in Step 6. Widening the door before there is anything behind it would
- * hand six hundred phone numbers to people who have no lead to work.
+ * ── ⚠️ SALES, PLUS ADMIN AND SUPER ADMIN ───────────────────────────────────
+ * A lead carries a stranger's phone number, and migration 118 decides who may
+ * read one: the Sales department, plus the two accounts that run the company.
+ * The queries rely on those policies rather than on any check here.
+ *
+ * ⚠️ A SALESPERSON SEES ONLY THEIR OWN LEADS, and today that is nobody's — so
+ * the desk opens empty for them until Step 7 hands leads out. That is the honest
+ * order: the door opens before the room is furnished, not after.
  * ========================================================================= */
 
 export default async function LeadsPage({
@@ -57,7 +58,7 @@ export default async function LeadsPage({
   /* ⚠️ Repeated from the layout on purpose: a page is reachable without its
      layout in some render paths, and a floor that exists in only one of the two
      is not a floor. Same pattern as the Studio. */
-  const user = await requireRole('admin');
+  const { user } = await requireCrmAccess();
   const params = await searchParams;
 
   const projects = await listCrmProjects(user.id);
