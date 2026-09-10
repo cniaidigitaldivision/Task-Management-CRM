@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 
 import { LeadRecord } from '@/components/crm/lead-record';
 import { requireCrmAccess } from '@/lib/auth/current-user';
-import { getCrmLead } from '@/lib/db/queries/crm-leads';
+import { crmSalesRoster, getCrmLead } from '@/lib/db/queries/crm-leads';
 import { nowMs } from '@/lib/now';
 
 export const metadata: Metadata = { title: 'Lead' };
@@ -39,6 +39,12 @@ export default async function LeadPage({
   const record = await getCrmLead(user.id, id);
   if (!record) notFound();
 
+  /* ⚠️ EMPTY FOR A SALESPERSON, by migration 120's own guard inside
+     `crm_sales_roster()` rather than by a check here. So the reassign control is
+     not drawn for them — and if it somehow were, 120's trigger would refuse the
+     write. Two layers, and the database is the one that counts. */
+  const roster = await crmSalesRoster(user.id);
+
   return (
     <LeadRecord
       lead={record.lead}
@@ -52,6 +58,12 @@ export default async function LeadPage({
          database rather than allowed by the screen. */
       viewerId={user.id}
       viewerIsAdmin={user.role === 'admin' || user.role === 'super_admin'}
+      assignableOwners={roster.map((p) => ({
+        id: p.id,
+        name: p.name,
+        openLeads: p.openLeads,
+        isManager: p.isManager,
+      }))}
       /* ⚠️ The SERVER's clock, so "3d ago" is the same for everyone — and so
          React cannot report a reader's wrong system time as a hydration error
          instead of the clock problem it is. Same as the desk. */

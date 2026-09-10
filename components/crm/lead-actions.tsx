@@ -5,11 +5,13 @@ import { Trash2 } from 'lucide-react';
 
 import {
   addNoteAction,
+  assignLeadAction,
   deleteNoteAction,
   logContactAction,
   setNextActionAction,
   setStageAction,
   setTemperatureAction,
+  shareOutLeadsAction,
   type LeadWriteResult,
 } from '@/app/actions/crm-leads';
 import { Button } from '@/components/ui/button';
@@ -388,6 +390,153 @@ export function NoteDeleteButton({
     >
       <Trash2 className="size-3.5" aria-hidden="true" />
     </button>
+  );
+}
+
+/* ---- Who holds it --------------------------------------------------------- */
+
+export interface OwnerOption {
+  readonly id: string;
+  readonly name: string;
+  readonly openLeads: number;
+  readonly isManager: boolean;
+}
+
+/**
+ * ⚠️ RENDERED ONLY FOR SOMEBODY WHO MAY REASSIGN — the record decides that by
+ * passing an empty list. Migration 120's trigger refuses a salesperson whatever
+ * the screen shows, so the worst a mistake here could do is draw a control that
+ * then refuses; it could never hand out a lead that should not move.
+ *
+ * ⚠️ AND THE OPEN COUNT IS ON EVERY NAME. The manager is choosing between
+ * people, and "Sale Tester · 12 open" is the fact that decision turns on. Making
+ * them go and look it up elsewhere is how a lead lands on whoever is top of an
+ * alphabetical list.
+ */
+export function OwnerControl({
+  leadId,
+  leadName,
+  ownerId,
+  owners,
+}: {
+  leadId: string;
+  leadName: string;
+  ownerId: string | null;
+  owners: readonly OwnerOption[];
+}) {
+  const [pending, go] = useAction();
+
+  if (owners.length === 0) return null;
+
+  return (
+    <Field label="Owner">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Select
+          label="Who works this lead"
+          value={ownerId ?? ''}
+          disabled={pending}
+          onChange={(e) => go(() => assignLeadAction(leadId, e.target.value || null, leadName))}
+        >
+          <option value="">Nobody yet</option>
+          {owners.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.name}
+              {o.isManager ? ' (manager)' : ''} · {o.openLeads} open
+            </option>
+          ))}
+        </Select>
+        {ownerId === null && (
+          <span className="text-caption text-text-secondary">
+            Nobody has been asked to ring this person yet.
+          </span>
+        )}
+      </div>
+    </Field>
+  );
+}
+
+/**
+ * Share the unassigned leads out across the sales team.
+ *
+ * ⚠️ THE RULE IS SHOWN, NOT HIDDEN. "Fewest open leads first, then whoever
+ * waited longest" is one sentence, and printing it is what lets a salesperson
+ * check the rota rather than suspect it. `07-AI-PLAN.md`: a conclusion nobody
+ * can reconstruct gets ignored the first time it disagrees with somebody's gut.
+ *
+ * ⚠️ AND IT IS CAPPED. Sharing out all 615 would be one irreversible click and
+ * 615 notifications; the count is chosen deliberately each time.
+ */
+export function ShareOutControl({
+  projectId,
+  unassigned,
+  salesTeam,
+}: {
+  projectId: string;
+  unassigned: number;
+  salesTeam: number;
+}) {
+  const [pending, start] = React.useTransition();
+  const toast = useToast();
+  const [count, setCount] = React.useState(10);
+
+  if (unassigned === 0) return null;
+
+  /* ⚠️ Said plainly rather than drawn as a disabled button somebody has to guess
+     about — with nobody in Sales the rota has nowhere to put anything. */
+  if (salesTeam === 0) {
+    return (
+      <p className="rounded-xl border border-dashed border-border-default bg-bg-surface px-4 py-2.5 text-caption leading-relaxed text-text-secondary">
+        <strong>{unassigned}</strong> {unassigned === 1 ? 'lead has' : 'leads have'} nobody working
+        them, and there is nobody in the Sales department to give them to. Add somebody to Sales on
+        the Team page first.
+      </p>
+    );
+  }
+
+  const take = Math.min(count, unassigned);
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-border-default bg-bg-surface px-4 py-2.5">
+      <p className="min-w-0 flex-1 text-caption leading-relaxed text-text-secondary">
+        <strong className="text-text-primary">{unassigned}</strong>{' '}
+        {unassigned === 1 ? 'lead has' : 'leads have'} nobody working{' '}
+        {unassigned === 1 ? 'it' : 'them'}. Sharing out gives each to whoever holds the{' '}
+        <strong className="text-text-primary">fewest open leads</strong>, and on a tie to whoever
+        has waited longest — oldest enquiry first.
+      </p>
+
+      <input
+        type="number"
+        min={1}
+        max={Math.min(50, unassigned)}
+        value={count}
+        disabled={pending}
+        onChange={(e) => setCount(Math.max(1, Number(e.target.value) || 1))}
+        aria-label="How many to share out"
+        className="min-h-[2.2rem] w-[4.5rem] rounded-lg border border-border-subtle bg-bg-surface px-2 text-body-sm tabular-nums text-text-primary focus:border-accent-primary focus:outline-none"
+      />
+
+      <Button
+        size="sm"
+        variant="primary"
+        disabled={pending}
+        onClick={() =>
+          start(async () => {
+            const result = await shareOutLeadsAction(projectId, take);
+            if (!result.ok) {
+              toast({ tone: 'error', text: result.error ?? 'Nothing was shared out.' });
+              return;
+            }
+            toast({
+              tone: 'ok',
+              text: `Shared out ${result.assigned ?? take} ${(result.assigned ?? take) === 1 ? 'lead' : 'leads'}. Everybody has been told.`,
+            });
+          })
+        }
+      >
+        {pending ? 'Sharing…' : `Share out ${take}`}
+      </Button>
+    </div>
   );
 }
 

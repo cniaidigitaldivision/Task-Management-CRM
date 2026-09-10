@@ -78,6 +78,7 @@ function render(props: Partial<React.ComponentProps<typeof LeadRecord>> = {}) {
       backHref={'/leads?project=abc' as Route}
       viewerId="u1"
       viewerIsAdmin={false}
+      assignableOwners={[]}
       nowMs={NOW}
       {...props}
     />,
@@ -297,6 +298,46 @@ describe('working the lead', () => {
     const html = render({ lead: { ...LEAD, fullName: null } });
 
     expect(html).toContain(encodeURIComponent('Hello, this is regarding your enquiry'));
+  });
+});
+
+describe('handing the lead to somebody', () => {
+  const TEAM = [
+    { id: 'u1', name: 'Sale Tester', openLeads: 12, isManager: false },
+    { id: 'u2', name: 'Sale 2 tester', openLeads: 3, isManager: false },
+    { id: 'u3', name: 'sale manager tester', openLeads: 0, isManager: true },
+  ];
+
+  it('draws no owner control for somebody who may not reassign', () => {
+    /* ⚠️ A salesperson gets an empty roster from migration 120's own guard, so
+       the control is absent — and 120's trigger would refuse the write anyway. */
+    expect(render({ assignableOwners: [] })).not.toContain('Who works this lead');
+  });
+
+  it('shows the sales team with how much each already holds', () => {
+    /* ⚠️ THE OPEN COUNT IS THE FACT THE DECISION TURNS ON. Without it a lead
+       lands on whoever is top of an alphabetical list. */
+    const html = render({ assignableOwners: TEAM });
+
+    expect(html).toContain('Who works this lead');
+    expect(html).toContain('Sale Tester · 12 open');
+    expect(html).toContain('Sale 2 tester · 3 open');
+    expect(html).toContain('sale manager tester (manager) · 0 open');
+  });
+
+  it('says plainly when nobody is on it yet', () => {
+    const html = render({ assignableOwners: TEAM });
+    expect(html).toContain('Nobody has been asked to ring this person yet');
+  });
+
+  it('does not say that once somebody holds it', () => {
+    const html = render({
+      lead: { ...LEAD, ownerId: 'u2', ownerName: 'Sale 2 tester' },
+      assignableOwners: TEAM,
+    });
+
+    expect(html).not.toContain('Nobody has been asked to ring');
+    expect(html).toContain('Sale 2 tester');
   });
 });
 

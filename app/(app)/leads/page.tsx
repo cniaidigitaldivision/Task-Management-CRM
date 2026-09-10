@@ -5,8 +5,10 @@ import { requireCrmAccess } from '@/lib/auth/current-user';
 import {
   crmFormOptions,
   crmOwnerOptions,
+  crmSalesRoster,
   listCrmLeads,
   listCrmProjects,
+  unassignedCount,
 } from '@/lib/db/queries/crm-leads';
 import { isStage } from '@/lib/domain/crm-stages';
 import { nowMs } from '@/lib/now';
@@ -96,8 +98,15 @@ export default async function LeadsPage({
           listCrmLeads(user.id, selected.id, filters, PER_PAGE, (page - 1) * PER_PAGE),
           crmOwnerOptions(user.id, selected.id),
           crmFormOptions(user.id, selected.id),
+          unassignedCount(user.id, selected.id),
+          /* ⚠️ EMPTY FOR A SALESPERSON, by migration 120's guard rather than by
+             a check here — which is also how the page knows whether to draw the
+             share-out control at all. */
+          crmSalesRoster(user.id),
         ])
       : null;
+
+  const roster = data?.[4] ?? [];
 
   return (
     <LeadDesk
@@ -111,6 +120,10 @@ export default async function LeadsPage({
       page={page}
       perPage={PER_PAGE}
       filters={filters}
+      unassigned={data?.[3] ?? 0}
+      /* Only the salespeople are in the rota — the manager runs it. */
+      salesTeamSize={roster.filter((p) => !p.isManager).length}
+      canShareOut={roster.length > 0}
       /* ⚠️ The SERVER's clock, so "3d ago" is the same for everyone. Reading it
          in the browser would let a reader's own wrong system time age a lead
          that arrived this morning, and React would report the mismatch as a

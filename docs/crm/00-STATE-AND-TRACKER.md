@@ -6,10 +6,10 @@
 |---|---|
 | **Branch** | `crm` (from `main` at `0726704`) |
 | **Route** | `/leads` · nav: Growth → Campaign & Lead Desk |
-| **Phase** | **Steps 1–6 DONE, plus the org structure.** The desk saves, and the CRM now belongs to the **Sales department** rather than to a rank. Step 7 (assignment and the staff view) is next and is no longer blocked. |
+| **Phase** | **Steps 1–7 DONE.** The desk saves, the CRM belongs to the **Sales department**, and leads are handed out — by hand or shared across the team automatically. Step 7b (what the manager sees) is next and needs nothing. |
 | **Scope** | ⚠️ **Chitral Royal Homes only.** One project, end to end. |
 | **Last updated** | 2026-09-10 |
-| **Last migration applied anywhere** | **118.** CRM next: 119. |
+| **Last migration applied anywhere** | **121.** CRM next: 122. |
 
 ---
 
@@ -25,7 +25,9 @@ dropdown saying "not connected", which is the truth rather than a placeholder.
 And the desk now **works**: stage, temperature, next action, call outcomes and
 notes all save from the lead itself, the timeline writes itself from the
 database, and response time is stamped where nobody can edit it. What is still
-missing is handing a lead to a salesperson — that is Step 7.
+missing is nothing on the desk itself: a manager shares leads out and sees who
+holds what, a salesperson opens the same screen and sees only theirs, and the
+rota gives each lead to whoever holds the fewest open ones.
 
 **And the company now has departments.** Eight of them, with the CRM belonging to
 Sales: the two accounts that run the company plus the three sales testers, and
@@ -192,6 +194,49 @@ more — see the decisions log, and ADR-012.
   the app at four ranks and this does not add a fifth. Seniority inside a
   department is a different question from authority over the application.
 
+- [x] **Step 7 · assignment and the staff view** — **migrations 119 + 120 + 121**,
+      `assignLeadAction`, `shareOutLeadsAction`, `OwnerControl`, `ShareOutControl`,
+      `app.crm_next_owner()`, `app.crm_sales_roster()`, and a `lead_assigned`
+      notification. **3056 tests green, tsc and eslint clean.**
+
+  ⚠️ **DISTRIBUTION IS ARITHMETIC, AND AN EARLIER NOTE IN THIS FILE WAS WRONG
+  ABOUT IT.** Step 7c was parked as "not yet — needs outcomes". That reasoning
+  applies to SCORING ("this lead is 80% likely to close"), not to dividing work.
+  Owner: *"one salesperson has 2 leads. Definitely the person who has fewer leads
+  will get the lead. Proper intelligence, right?"* — correct. Fewest OPEN leads,
+  then whoever waited longest.
+
+  ⚠️ **OPEN, NOT LIFETIME.** Counting every lead somebody has ever held would
+  permanently punish whoever closes fastest — they would sit at the bottom of the
+  queue for ever while a colleague sat on five untouched ones.
+
+  ⚠️ **ONE `crm_next_owner()` CALL PER LEAD**, not one per batch. Each assignment
+  changes the counts the next call reads; reusing one answer would hand the whole
+  batch to whoever happened to be lowest at the start.
+
+  ⚠️ **`owner_id` NEEDED A TRIGGER, NOT A GRANT.** PostgreSQL has no per-column
+  policy, so a plain grant would have let any salesperson push an awkward lead
+  onto a colleague — `crm_leads_update` allows it, because the row is theirs.
+
+### ⚠️ What Step 7 turned up
+
+| | |
+|---|---|
+| ⚠️ **The 2026-09-08 bug came back, and was caught before it shipped** | The sales manager is `member` in `users.role`, so `users_select` shows them ONE row of the staff table — their own. The lead list read the owner's name with a plain join, so **every colleague would have rendered as "Former member"** on the one screen the manager opens to see who holds what. Measured under their own session, then fixed by migration 121; its self-check asserts the bug so the reader can be deleted if `users_select` ever widens. 114's header predicted this exact moment. |
+| **`now()` is transaction start time** | 120's first self-check assigned to A then B and asserted A had "waited longer". Both rows shared one timestamp to the microsecond, the ordering fell through to `full_name`, and the check failed against a function that was correct. ⚠️ Not a production problem: a bulk share-out stamps identically too, but the OPEN COUNT changes as each lead lands, so the tie-break is never reached inside a batch. |
+
+### ⚠️ The rota, measured on live data
+
+Run against the three real sales accounts, then rolled back:
+
+| Starting position | 4 new leads arrive | Result |
+|---|---|---|
+| Sale Tester **2**, Sale 2 tester **0** | 1 → Sale Tester, **3 → Sale 2 tester** | level at 3 each |
+| both level | ten leads | **5 and 5** |
+| the sales manager | — | **0 in both runs** — they run the rota |
+
+It corrects an imbalance first rather than simply alternating.
+
 ### ⚠️ Who can see the CRM now — measured, not asserted
 
 Every active person, under their own session, counting `crm_leads`:
@@ -303,6 +348,9 @@ see not just what was decided but when and why.
 | 2026-09-10 | ⚠️ **Who sees the CRM — SUPERSEDES Q2** | **Admin, Super Admin, and the Sales department.** Owner: *"That was the team coordinator, not the sales manager… the team coordinator will be part of a digital creator team. He will manage their tasks… But for the salespersons or for the management of the lead, all this CRM belongs to the sales manager and the salespersons. Plus admin and super admin are by default added."* Migration 118. The 2026-09-09 answer admitting the Coordinator no longer holds. |
 | 2026-09-10 | Sales manager vs salesperson | **Manager sees every lead and who holds it, and can move a lead between salespeople.** A salesperson sees only their own. Owner also asked for automatic, AI-assisted distribution and for the manager to see response times and quotations — Steps 7, 11 and 12. |
 | 2026-09-10 | Departments | **Eight**, as a table rather than an enum — Management, AI & Digital, Development, Sales, Finance & Accounts, HR & People, Operations, Support. Owner asked for *"those five plus HR, Operations and Support"*. See ADR-012. |
+| 2026-09-10 | ⚠️ **Automatic distribution — an earlier refusal reversed** | **Built, in Step 7.** It was parked as needing outcomes; that is true of SCORING and not of dividing work. Owner: *"I think it's not as difficult as you are expecting… the person who has fewer leads will get the lead."* Fewest OPEN leads, then whoever waited longest. |
+| 2026-09-10 | The tie-break | **Whoever went longest without a lead**, decided by me at the owner's invitation — *"You can decide to whom it will give it, right?"* Fair, predictable, and checkable from a person's own timeline. Response time replaces it once there are calls logged. |
+| 2026-09-10 | Who may hand out a lead | **The sales manager and an Admin.** A salesperson cannot push a lead onto a colleague — migration 120's trigger. |
 | 2026-09-10 | A third sales tester | Owner added **Sale 2 tester** so assignment between two salespeople can be exercised: *"I definitely need one more sales tester… so you can implement all these things in a proper intelligent way."* |
 | 2026-09-10 | Schema stays multi-project | ⚠️ The TABLES keep `project_id` even though only one project is used. Hardcoding one project would make "later on I will do the same thing for the other projects" a rewrite instead of a row. Costs nothing now; saves the whole second build. |
 

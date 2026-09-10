@@ -6,10 +6,16 @@ import { withUser } from '../client';
  * THE LEAD LIST — LAYER 1
  * ----------------------------------------------------------------------------
  * ── ⚠️ NO AUTHORISATION CODE IN THIS FILE, AND THAT IS THE DESIGN ──────────
- * Everything runs through `withUser`, and migration 111's policies decide who
- * sees what: Coordinator and above see every lead, everybody else sees the leads
- * ASSIGNED TO THEM. So the staff view and the admin view are the same query —
- * the database narrows it.
+ * Everything runs through `withUser`, and migration 118's policies decide who
+ * sees what: Admin, Super Admin and the SALES MANAGER see every lead; a
+ * salesperson sees the leads ASSIGNED TO THEM; nobody else sees any. So the
+ * staff view and the manager's view are the same query — the database narrows
+ * it.
+ *
+ * ⚠️ IT WAS RANK UNTIL 2026-09-10 and is a DEPARTMENT now. Migration 111 wrote
+ * `acting_at_least('team_coordinator')` into six policies; the owner then
+ * separated the jobs, and the Coordinator — who runs the digital team — no
+ * longer reads leads at all. See ADR-012.
  *
  * That is the whole reason the two views cannot drift apart. A `where owner_id =`
  * bolted onto the query would be a second rule to keep in step with the first,
@@ -21,19 +27,23 @@ import { withUser } from '../client';
  * member" on 2026-09-08. A SECURITY DEFINER reader was written for this file to
  * avoid repeating it, and its own self-check proved it unnecessary:
  *
- *   a Member only ever sees leads ASSIGNED TO THEM, so the owner of every lead
- *   they can see IS them, so the join reads their own row and succeeds.
- *   Coordinator and above can read the whole staff table anyway.
+ *   a salesperson only ever sees leads ASSIGNED TO THEM, so the owner of every
+ *   lead they can see IS them, so the join reads their own row and succeeds.
+ *   Admin and above — and the Coordinator — read the whole staff table anyway.
+ *
+ * ⚠️ THE SALES MANAGER IS THE CASE TO WATCH. They see every lead in the
+ * department and are `member` in `users.role`, so `users_select` shows them one
+ * row of the staff table — their own. Today that is harmless because nothing is
+ * assigned; the moment Step 7 hands leads out, the manager's list will show
+ * "Former member" against every colleague's name unless this join is replaced by
+ * a definer reader. Migration 105 is the pattern, and 114 already has two.
  *
  * With today's policies there is no case where the join fails, so the function
  * was deleted rather than shipped unused.
  *
- * ⚠️ IT BECOMES WRONG THE MOMENT VISIBILITY WIDENS. If a sales member is ever
- * allowed to see their PROJECT's leads rather than only their own, they will see
- * leads owned by colleagues, the join will return NULL for those, and the screen
- * will describe working colleagues as former members. Widening
- * `crm_leads_select` means restoring a definer reader here in the same change —
- * migration 105 is the pattern.
+ * ⚠️ AND IT BECOMES WRONG IF VISIBILITY WIDENS FURTHER — if a salesperson is
+ * ever allowed to see their PROJECT's leads rather than only their own, the same
+ * failure appears for them too.
  * ========================================================================= */
 
 export interface CrmProjectOption {
@@ -226,7 +236,7 @@ export async function listCrmLeads(
 ): Promise<{ rows: CrmLeadRow[]; total: number; stageCounts: Record<string, number> }> {
   const search = filters.search?.trim() || null;
 
-  const { rows, counts } = await withUser(actorId, async (tx) => {
+  const { rows, counts, owners } = await withUser(actorId, async (tx) => {
     /* Every condition EXCEPT stage. See the header. */
     const conditions = [tx`l.project_id = ${projectId}::uuid`];
 
@@ -274,7 +284,7 @@ export async function listCrmLeads(
       select l.id, l.full_name, l.phone, l.phone_e164, l.city,
              l.stage::text, l.temperature::text,
              l.next_action, l.next_action_at, l.submitted_at,
-             l.owner_id, u.full_name as owner_name,
+             l.owner_id,
              f.name as form_name,
              c.name as campaign_name,
              (select a.kind::text from public.crm_lead_activity a
@@ -284,7 +294,6 @@ export async function listCrmLeads(
              (select count(*) from public.crm_lead_notes n where n.lead_id = l.id) as note_count,
              count(*) over () as total
         from public.crm_leads l
-        left join public.users          u on u.id = l.owner_id
         left join public.crm_lead_forms f on f.id = l.form_id
         left join public.crm_campaigns  c on c.id = l.campaign_id
        where ${where}
@@ -300,10 +309,25 @@ export async function listCrmLeads(
        group by l.stage
     `;
 
-    return { rows: page, counts: tally };
+    /* ⚠️ NAMES COME THROUGH MIGRATION 121, NOT A JOIN — see this file's header.
+       The sales manager is `member` in `users.role`, so a join to `users` reads
+       one row (their own) and every colleague renders as "Former member". That
+       is the 2026-09-08 bug, and it was measured against this exact query under
+       the manager's own session before 121 was written.
+
+       One extra round trip inside the same transaction, returning at most a
+       handful of rows. */
+    const owners = await tx`select * from app.crm_lead_owners()`;
+
+    return { rows: page, counts: tally, owners };
   });
 
   const list = rows as Array<Record<string, unknown>>;
+
+  const ownerNames = new Map<string, string>();
+  for (const o of owners as Array<Record<string, unknown>>) {
+    ownerNames.set(String(o.id), String(o.full_name ?? 'Unnamed'));
+  }
 
   const stageCounts: Record<string, number> = {};
   for (const r of counts as Array<Record<string, unknown>>) {
@@ -333,7 +357,10 @@ export async function listCrmLeads(
       nextActionAt: r.next_action_at ? new Date(r.next_action_at as string).toISOString() : null,
       submittedAt: new Date(r.submitted_at as string).toISOString(),
       ownerId: (r.owner_id as string | null) ?? null,
-      ownerName: (r.owner_name as string | null) ?? null,
+      /* ⚠️ A name that is missing here means the account is GONE — the reader
+         returns every owner the caller can see. Before 121 it meant "hidden by
+         users_select", which is what made the label a lie. */
+      ownerName: r.owner_id ? (ownerNames.get(String(r.owner_id)) ?? null) : null,
       formName: (r.form_name as string | null) ?? null,
       campaignName: (r.campaign_name as string | null) ?? null,
       lastActivityKind: (r.last_kind as string | null) ?? null,
@@ -391,12 +418,11 @@ export async function getCrmLead(
              l.stage::text, l.temperature::text, l.lost_reason::text,
              l.next_action, l.next_action_at,
              l.submitted_at, l.imported_at, l.first_contacted_at, l.closed_at,
-             l.owner_id, u.full_name as owner_name,
+             l.owner_id,
              f.name as form_name, c.name as campaign_name,
              l.source::text, l.external_id
         from public.crm_leads l
         join public.projects p on p.id = l.project_id
-        left join public.users          u on u.id = l.owner_id
         left join public.crm_lead_forms f on f.id = l.form_id
         left join public.crm_campaigns  c on c.id = l.campaign_id
        where l.id = ${leadId}::uuid
@@ -406,7 +432,13 @@ export async function getCrmLead(
     const row = (found as Array<Record<string, unknown>>)[0];
     if (!row) return null;
 
-    const [noteRows, activityRows, siblingRows] = await Promise.all([
+    /* ⚠️ THE OWNER'S NAME THROUGH 121, for the same reason as the list — the
+       sales manager reads one row of `users` and every colleague would render
+       as "Former member". Added to the same wave, so it costs no extra wait. */
+    const [ownerRows, noteRows, activityRows, siblingRows] = await Promise.all([
+      row.owner_id
+        ? tx`select full_name from app.crm_lead_owners() where id = ${row.owner_id as string}::uuid`
+        : Promise.resolve([]),
       tx`select * from app.crm_lead_notes_with_authors(${leadId}::uuid)`,
       tx`select * from app.crm_lead_activity_with_actors(${leadId}::uuid)`,
       /* ── ⚠️ THE SAME PERSON, ENQUIRING TWICE ─────────────────────────────
@@ -467,7 +499,8 @@ export async function getCrmLead(
           : null,
         closedAt: row.closed_at ? new Date(row.closed_at as string).toISOString() : null,
         ownerId: (row.owner_id as string | null) ?? null,
-        ownerName: (row.owner_name as string | null) ?? null,
+        ownerName:
+          ((ownerRows as Array<Record<string, unknown>>)[0]?.full_name as string | null) ?? null,
         formName: (row.form_name as string | null) ?? null,
         campaignName: (row.campaign_name as string | null) ?? null,
         source: String(row.source),
@@ -658,6 +691,127 @@ export async function deleteLeadNote(actorId: string, noteId: string): Promise<b
   return (rows as unknown[]).length === 1;
 }
 
+/* ============================================================================
+ * ASSIGNMENT — Step 7
+ * ========================================================================= */
+
+/** One salesperson, as the manager sees them when deciding. */
+export interface CrmSalesPerson {
+  readonly id: string;
+  readonly name: string;
+  readonly avatarUrl: string | null;
+  readonly isManager: boolean;
+  readonly openLeads: number;
+  readonly totalLeads: number;
+  readonly wonLeads: number;
+  readonly lastGivenAt: string | null;
+  /** ⚠️ Null until somebody logs a call — never 0, which would read as instant. */
+  readonly medianResponseMinutes: number | null;
+}
+
+/**
+ * The sales team, with the arithmetic the rota runs on.
+ *
+ * ⚠️ EMPTY FOR A SALESPERSON, by migration 120's own guard rather than by a
+ * check here. Colleagues' win counts and response times are the manager's view,
+ * not the team's.
+ */
+export async function crmSalesRoster(actorId: string): Promise<CrmSalesPerson[]> {
+  const rows = await withUser(actorId, (tx) => tx`select * from app.crm_sales_roster()`);
+
+  return (rows as Array<Record<string, unknown>>).map((r) => ({
+    id: String(r.user_id),
+    name: String(r.full_name ?? 'Unnamed'),
+    avatarUrl: (r.avatar_url as string | null) ?? null,
+    isManager: r.is_manager === true,
+    openLeads: Number(r.open_leads ?? 0),
+    totalLeads: Number(r.total_leads ?? 0),
+    wonLeads: Number(r.won_leads ?? 0),
+    lastGivenAt: r.last_given ? new Date(r.last_given as string).toISOString() : null,
+    medianResponseMinutes:
+      r.median_response_minutes === null || r.median_response_minutes === undefined
+        ? null
+        : Number(r.median_response_minutes),
+  }));
+}
+
+/**
+ * Hand one lead to somebody, or take it back with `ownerId = null`.
+ *
+ * ⚠️ NOTHING HERE CHECKS WHO IS ALLOWED TO. Migration 120's trigger refuses
+ * anybody but the sales manager and an Admin, and 116's trigger writes the
+ * timeline entry. Both happen whatever calls this — including a script — which
+ * is the reason neither lives in TypeScript.
+ */
+export async function assignLead(
+  actorId: string,
+  leadId: string,
+  ownerId: string | null,
+): Promise<boolean> {
+  const rows = await withUser(actorId, (tx) => tx`
+    update public.crm_leads
+       set owner_id = ${ownerId}::uuid
+     where id = ${leadId}::uuid
+       and owner_id is distinct from ${ownerId}::uuid
+     returning id
+  `);
+  return (rows as unknown[]).length === 1;
+}
+
+/**
+ * Whose turn it is. Null when there is no salesperson to give a lead to.
+ *
+ * ⚠️ CALLED ONCE PER LEAD, not once per batch, and that is what makes a bulk
+ * share-out balance. Each assignment changes the open counts the next call
+ * reads — a single call reused across twenty leads would give all twenty to
+ * whoever happened to be lowest at the start.
+ */
+export async function crmNextOwner(actorId: string): Promise<string | null> {
+  const rows = await withUser(actorId, (tx) => tx`select app.crm_next_owner() as id`);
+  const id = (rows as Array<Record<string, unknown>>)[0]?.id;
+  return id ? String(id) : null;
+}
+
+/**
+ * The unassigned leads on a project, oldest enquiry first.
+ *
+ * ⚠️ OLDEST FIRST, deliberately. Somebody who filled the form in June has been
+ * waiting longest and their lead is closest to Meta's 90-day deletion; sharing
+ * out the newest first would leave the stalest leads permanently at the back.
+ */
+export async function unassignedLeadIds(
+  actorId: string,
+  projectId: string,
+  limit: number,
+): Promise<string[]> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select id from public.crm_leads
+     where project_id = ${projectId}::uuid
+       and owner_id is null
+       and stage not in ('won', 'lost')
+     order by submitted_at asc
+     limit ${limit}
+  `);
+  return (rows as Array<Record<string, unknown>>).map((r) => String(r.id));
+}
+
+/**
+ * How many leads on this project have nobody working them.
+ *
+ * ⚠️ OPEN ONES ONLY, matching the rota in migration 120. A lead that was closed
+ * without ever being assigned is not waiting for anybody, and counting it would
+ * offer to share out work that does not exist.
+ */
+export async function unassignedCount(actorId: string, projectId: string): Promise<number> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select count(*) as n from public.crm_leads
+     where project_id = ${projectId}::uuid
+       and owner_id is null
+       and stage not in ('won', 'lost')
+  `);
+  return Number((rows as Array<Record<string, unknown>>)[0]?.n ?? 0);
+}
+
 /**
  * The people who hold leads in this project — the owner filter's options.
  *
@@ -670,20 +824,33 @@ export async function crmOwnerOptions(
   actorId: string,
   projectId: string,
 ): Promise<Array<{ id: string; name: string; leads: number }>> {
-  const rows = await withUser(actorId, (tx) => tx`
-    select u.id, u.full_name, count(l.id) as leads
-      from public.crm_leads l
-      join public.users u on u.id = l.owner_id
-     where l.project_id = ${projectId}::uuid
-     group by u.id, u.full_name
-     order by leads desc, u.full_name
-  `);
+  /* ⚠️ THE SAME TRAP AS THE LIST, and it bit here too: this joined `users`, so
+     under the sales manager's session every option came back with a null name.
+     Counted from the leads, named through 121's reader. */
+  const { counts, owners } = await withUser(actorId, async (tx) => {
+    const counts = await tx`
+      select l.owner_id, count(*) as leads
+        from public.crm_leads l
+       where l.project_id = ${projectId}::uuid
+         and l.owner_id is not null
+       group by l.owner_id
+    `;
+    const owners = await tx`select * from app.crm_lead_owners()`;
+    return { counts, owners };
+  });
 
-  return (rows as Array<Record<string, unknown>>).map((r) => ({
-    id: String(r.id),
-    name: String(r.full_name ?? 'Unnamed'),
-    leads: Number(r.leads ?? 0),
-  }));
+  const names = new Map<string, string>();
+  for (const o of owners as Array<Record<string, unknown>>) {
+    names.set(String(o.id), String(o.full_name ?? 'Unnamed'));
+  }
+
+  return (counts as Array<Record<string, unknown>>)
+    .map((r) => ({
+      id: String(r.owner_id),
+      name: names.get(String(r.owner_id)) ?? 'Former member',
+      leads: Number(r.leads ?? 0),
+    }))
+    .sort((a, b) => b.leads - a.leads || a.name.localeCompare(b.name));
 }
 
 /** The forms this project's leads came from — the filter's options. */

@@ -117,6 +117,11 @@ const base = {
     from: null,
     to: null,
   },
+  /* Step 7. The manager's view by default — `canShareOut` false is the
+     salesperson's, and has its own cases below. */
+  unassigned: 0,
+  salesTeamSize: 2,
+  canShareOut: true,
   nowMs: NOW,
 };
 
@@ -191,10 +196,77 @@ describe('the live project', () => {
     expect(html).toContain('615 leads');
   });
 
-  it('hides the unassigned banner once somebody owns a lead', () => {
-    expect(html).not.toContain('No lead here has an owner yet');
-    const none = renderToStaticMarkup(<LeadDesk {...base} selected={PROJECTS[0]} owners={[]} />);
-    expect(none).toContain('No lead here has an owner yet');
+  it('names the owner of a lead somebody holds', () => {
+    /* ⚠️ THE BANNER THAT USED TO BE ASSERTED HERE IS GONE. It said owner and
+       next action "fill in once assignment and calling are built" — both are
+       built now, and the share-out control replaced it (see its own cases
+       below). What still matters is that a held lead names who holds it, which
+       is what migration 121's reader exists for: the sales manager reads one
+       row of `users`, so a plain join would print "Former member" here. */
+    expect(html).toContain('Abdul Moiz');
+    expect(html).not.toContain('Former member');
+  });
+});
+
+describe('sharing leads out — Step 7', () => {
+  it('offers it to the manager, and says what the rule is', () => {
+    /* ⚠️ THE RULE IS PRINTED. A salesperson who cannot see how the rota works
+       has no way to check it, and an unexplained allocation gets argued with. */
+    const html = renderToStaticMarkup(
+      <LeadDesk {...base} selected={PROJECTS[0]} unassigned={312} />,
+    );
+
+    expect(html).toContain('312');
+    expect(html).toContain('fewest open leads');
+    expect(html).toContain('waited longest');
+    expect(html).toContain('Share out');
+  });
+
+  it('⚠️ offers it to nobody who cannot hand leads out', () => {
+    /* A salesperson told "312 leads have nobody working them" is being shown a
+       queue they cannot take from — which reads as a complaint about them. */
+    const html = renderToStaticMarkup(
+      <LeadDesk {...base} selected={PROJECTS[0]} unassigned={312} canShareOut={false} />,
+    );
+
+    expect(html).not.toContain('Share out');
+    expect(html).not.toContain('fewest open leads');
+  });
+
+  it('says so plainly when there is nobody in Sales to give them to', () => {
+    /* ⚠️ Not a disabled button somebody has to guess about. */
+    const html = renderToStaticMarkup(
+      <LeadDesk {...base} selected={PROJECTS[0]} unassigned={312} salesTeamSize={0} />,
+    );
+
+    expect(html).toContain('nobody in the Sales department');
+    expect(html).toContain('Team page');
+    expect(html).not.toContain('Share out');
+  });
+
+  it('disappears once every lead has an owner', () => {
+    const html = renderToStaticMarkup(
+      <LeadDesk {...base} selected={PROJECTS[0]} unassigned={0} />,
+    );
+    expect(html).not.toContain('Share out');
+  });
+
+  it('tells a salesperson with nothing yet where leads come from', () => {
+    /* ⚠️ An empty desk with no sentence reads as broken. It is not — it means
+       the manager has not shared any out. */
+    const html = renderToStaticMarkup(
+      <LeadDesk
+        {...base}
+        selected={PROJECTS[0]}
+        rows={[]}
+        total={0}
+        stageCounts={{}}
+        canShareOut={false}
+      />,
+    );
+
+    expect(html).toContain('Nothing has been given to you yet');
+    expect(html).toContain('notification the moment one is yours');
   });
 });
 

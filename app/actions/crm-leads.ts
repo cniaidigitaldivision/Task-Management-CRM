@@ -3,14 +3,19 @@
 import { revalidatePath } from 'next/cache';
 
 import { requireUser } from '@/lib/auth/current-user';
+import { withUser } from '@/lib/db/client';
+import { notify } from '@/lib/db/queries/feed';
 import {
   addLeadNote,
+  assignLead,
+  crmNextOwner,
   deleteLeadNote,
   isContactKind,
   logLeadContact,
   setLeadNextAction,
   setLeadStage,
   setLeadTemperature,
+  unassignedLeadIds,
 } from '@/lib/db/queries/crm-leads';
 import { isLostReason, isStage, TEMPERATURES } from '@/lib/domain/crm-stages';
 
@@ -207,6 +212,146 @@ export async function addNoteAction(leadId: string, body: string): Promise<LeadW
  * rank, so withdrawing a note removes what was said and leaves the fact that
  * something was said at that hour on the record. That pair is deliberate.
  */
+/* ==========================================================================
+ * HANDING LEADS OUT — Step 7
+ * --------------------------------------------------------------------------
+ * ⚠️ WHO MAY DO THIS IS DECIDED BY MIGRATION 120's TRIGGER, not here. A
+ * salesperson pushing an awkward lead onto a colleague is refused by the
+ * database whatever calls it, and the timeline entry is written by 116's
+ * trigger for the same reason. What lives here is the notification, which the
+ * database has no business sending.
+ * ========================================================================== */
+
+/** Tell somebody a lead is theirs. Never throws — a failed bell must not undo
+ *  an assignment that already happened. */
+async function tellThem(actorId: string, ownerId: string, leadId: string, who: string) {
+  try {
+    await withUser(actorId, (tx) =>
+      notify(tx, actorId, {
+        userId: ownerId,
+        kind: 'lead_assigned',
+        title: `${who} is yours to work`,
+        /* ⚠️ NO PHONE NUMBER IN THE BODY. A notification is pushed to a device
+           and may sit on a lock screen; the lead's own page is one tap away and
+           is behind the access rules. */
+        body: 'Open the lead to see the full record and log your first call.',
+        linkTo: `/leads/${leadId}`,
+        entityId: leadId,
+      }),
+    );
+  } catch {
+    /* Swallowed deliberately — see above. */
+  }
+}
+
+export async function assignLeadAction(
+  leadId: string,
+  ownerId: string | null,
+  leadName: string,
+): Promise<LeadWriteResult> {
+  const user = await requireUser();
+
+  try {
+    const moved = await assignLead(user.id, leadId, ownerId);
+    /* ⚠️ `false` MEANS "ALREADY THEIRS", not a failure. The query only counts a
+       row when the owner actually changes, so re-pressing the same name is a
+       no-op that must not report an error. */
+    if (moved && ownerId) await tellThem(user.id, ownerId, leadId, leadName || 'A lead');
+  } catch {
+    /* 120's trigger raises `insufficient_privilege` for a salesperson. */
+    return {
+      ok: false,
+      error: 'Only the sales manager or an Admin can hand a lead to somebody.',
+    };
+  }
+
+  refresh(leadId);
+  return { ok: true };
+}
+
+/**
+ * Share out the unassigned leads on a project.
+ *
+ * Owner, 2026-09-10: *"The system will automatically, smartly and intelligently
+ * divide the leads to the salesperson… one salesperson has 2 leads. Definitely
+ * the person who has fewer leads will get the lead."*
+ *
+ * ⚠️ THE RULE IS ARITHMETIC AND LIVES IN `app.crm_next_owner()` — fewest OPEN
+ * leads, then whoever waited longest. Migration 120's header carries the full
+ * reasoning, including why lifetime counting would punish whoever closes
+ * fastest.
+ *
+ * ⚠️ ONE `crm_next_owner()` CALL PER LEAD, and that is what makes it balance.
+ * Each assignment changes the counts the next call reads. Fetching the rota once
+ * and reusing it would hand the whole batch to whoever happened to be lowest at
+ * the start — the exact opposite of the intent.
+ *
+ * ⚠️ AND IT STOPS AT A LIMIT. Sharing out all 615 at once would be one
+ * irreversible action, with 615 notifications, decided by a single click.
+ */
+export async function shareOutLeadsAction(
+  projectId: string,
+  count: number,
+): Promise<LeadWriteResult & { assigned?: number }> {
+  const user = await requireUser();
+
+  const wanted = Math.min(Math.max(1, Math.floor(count) || 0), 50);
+
+  let ids: string[];
+  try {
+    ids = await unassignedLeadIds(user.id, projectId, wanted);
+  } catch {
+    return { ok: false, error: 'Those leads could not be read.' };
+  }
+
+  if (ids.length === 0) {
+    return { ok: false, error: 'Every lead on this project already has an owner.' };
+  }
+
+  let assigned = 0;
+  for (const id of ids) {
+    let owner: string | null;
+    try {
+      owner = await crmNextOwner(user.id);
+    } catch {
+      return { ok: false, error: 'The rota could not be read.' };
+    }
+
+    /* ⚠️ REPORTED, NOT SWALLOWED. With nobody in sales this would otherwise
+       assign nothing and say it had succeeded. */
+    if (!owner) {
+      return {
+        ok: false,
+        assigned,
+        error:
+          assigned > 0
+            ? `Shared out ${assigned} before running out of salespeople to give them to.`
+            : 'There is nobody in the Sales department to give a lead to.',
+      };
+    }
+
+    try {
+      const moved = await assignLead(user.id, id, owner);
+      if (moved) {
+        assigned += 1;
+        await tellThem(user.id, owner, id, 'A lead');
+      }
+    } catch {
+      return {
+        ok: false,
+        assigned,
+        error:
+          assigned > 0
+            ? `Shared out ${assigned}, then one was refused. Only the sales manager or an Admin can hand out leads.`
+            : 'Only the sales manager or an Admin can hand out leads.',
+      };
+    }
+  }
+
+  revalidatePath('/leads');
+  return { ok: true, assigned };
+}
+
 export async function deleteNoteAction(leadId: string, noteId: string): Promise<LeadWriteResult> {
   const user = await requireUser();
 

@@ -13,6 +13,7 @@ import {
   X,
 } from 'lucide-react';
 
+import { ShareOutControl } from '@/components/crm/lead-actions';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { PageHeader } from '@/components/ui/page-header';
@@ -87,6 +88,9 @@ export function LeadDesk({
   page,
   perPage,
   filters,
+  unassigned,
+  salesTeamSize,
+  canShareOut,
   nowMs,
 }: {
   projects: readonly CrmProjectOption[];
@@ -99,6 +103,12 @@ export function LeadDesk({
   page: number;
   perPage: number;
   filters: LeadFilterState;
+  /** How many leads on this project have no owner. */
+  unassigned: number;
+  /** How many people are in Sales — 0 means the rota has nowhere to put one. */
+  salesTeamSize: number;
+  /** False for a salesperson: they work leads, they do not hand them out. */
+  canShareOut: boolean;
   nowMs: number;
 }) {
   const router = useRouter();
@@ -178,13 +188,15 @@ export function LeadDesk({
             onPick={(stage) => setParam('stage', filters.stage === stage ? null : stage)}
           />
 
-          {/* ⚠️ Removes itself once one lead is assigned — see the header. */}
-          {owners.length === 0 && (
-            <p className="rounded-xl border border-dashed border-border-default bg-bg-surface px-4 py-2.5 text-caption leading-relaxed text-text-secondary">
-              No lead here has an owner yet. Open one to work it — stage, temperature, next action
-              and what was said all save from the lead itself. The <strong>Owner</strong> column
-              fills in once leads can be handed to a salesperson.
-            </p>
+          {/* ⚠️ ONLY FOR SOMEBODY WHO MAY HAND LEADS OUT. A salesperson seeing
+              "312 leads have nobody working them" would be told about work they
+              cannot take — which reads as a queue they are being blamed for. */}
+          {canShareOut && selected && (
+            <ShareOutControl
+              projectId={selected.id}
+              unassigned={unassigned}
+              salesTeam={salesTeamSize}
+            />
           )}
 
           {/* ⚠️ THE LIST'S OWN QUERY STRING TRAVELS WITH EVERY ROW. A lead
@@ -192,7 +204,18 @@ export function LeadDesk({
               of that filtered list — see `backToDesk` in the detail route.
               Read from the URL rather than rebuilt from `filters`, so a
               parameter this component does not model still survives the trip. */}
+          {/* ⚠️ THE SAME TABLE FOR BOTH VIEWS. A salesperson's list is this one
+              narrowed by migration 118's policy, not a second component — which
+              is what stops the two drifting apart, and the reason
+              08-TWELVE-STEPS asked for one component and two scopes. */}
           <LeadTable rows={rows} nowMs={nowMs} from={search.toString()} />
+
+          {rows.length === 0 && !canShareOut && total === 0 && (
+            <p className="text-caption leading-relaxed text-text-secondary">
+              Nothing has been given to you yet. Leads are shared out by the sales manager, and you
+              will get a notification the moment one is yours.
+            </p>
+          )}
 
           <Pagination
             page={page}

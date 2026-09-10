@@ -8,8 +8,10 @@ import {
   NextActionControl,
   NoteComposer,
   NoteDeleteButton,
+  OwnerControl,
   StageControl,
   TemperatureControl,
+  type OwnerOption,
 } from '@/components/crm/lead-actions';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -69,6 +71,7 @@ export function LeadRecord({
   backHref,
   viewerId,
   viewerIsAdmin,
+  assignableOwners,
   nowMs,
 }: {
   lead: CrmLeadRecord;
@@ -82,6 +85,9 @@ export function LeadRecord({
   /** Who is looking — a note is withdrawable by its author, or by an Admin. */
   viewerId: string;
   viewerIsAdmin: boolean;
+  /** The sales team, or empty for somebody who may not reassign. Migration 120
+   *  refuses them anyway; this decides whether the control is drawn. */
+  assignableOwners: readonly OwnerOption[];
   nowMs: number;
 }) {
   const phone = displayPhone(lead.phoneE164, lead.phone);
@@ -178,6 +184,12 @@ export function LeadRecord({
           <CardTitle>Work this lead</CardTitle>
         </CardHeader>
         <CardBody className="space-y-3">
+          <OwnerControl
+            leadId={lead.id}
+            leadName={lead.fullName ?? 'A lead'}
+            ownerId={lead.ownerId}
+            owners={assignableOwners}
+          />
           <StageControl leadId={lead.id} stage={lead.stage} lostReason={lead.lostReason} />
           <TemperatureControl leadId={lead.id} temperature={lead.temperature} />
           <NextActionControl

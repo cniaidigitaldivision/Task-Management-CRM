@@ -202,49 +202,91 @@ that nobody can be given a lead yet.
 
 ---
 
-### Step 7 · Assignment and the staff view ⏳ ← NEXT
-- Assign a lead to a sales team member; bulk-assign from the list.
-- The staff view: the same component, pre-scoped to "mine", same filters.
-- ⚠️ One component, two scopes — so the two views cannot drift apart.
-- A notification when a lead is assigned to you, through the existing bell.
+### Step 7 · Assignment and the staff view ✅ DONE 2026-09-10
+- Assign a lead to a sales team member, from the lead itself.
+- **Share out** — the unassigned leads, divided across the team automatically.
+- The staff view: **the same component**, narrowed by migration 118's policy
+  rather than by a second query, so the two cannot drift apart.
+- A notification when a lead becomes yours, through the existing bell.
 
-⚠️ **The owner asked for more than assignment here — 2026-09-10:**
+⚠️ **THE RULE IS ARITHMETIC, AND IT IS PRINTED ON THE SCREEN.** Owner:
+*"one salesperson has 2 leads. Definitely the person who has fewer leads will get
+the lead. Proper intelligence, right?"* — correct, and it needed no defending.
+An earlier note in this file conflated distribution with SCORING; only the second
+needs outcomes to learn from. Migration 120:
 
-> *"The manager will see which staff member is managing which deals, like which
-> leads. Plus he can add or move some leads to the other salesperson. The system
-> will automatically, smartly and intelligently divide the leads to the
-> salesperson… The manager can see: who the person is on which lead, who is
-> responsible for which lead, how they are responding, what talks with it, how
-> quotations are given, how instantly they are replying or engaging with the
-> client."*
+1. **Fewest OPEN leads.** ⚠️ Open, not lifetime — counting every lead somebody
+   has ever held would permanently punish whoever closes fastest.
+2. **On a tie, whoever waited longest**, read from the assignment history 116
+   already writes. Somebody who has never had one goes first.
+3. Oldest enquiry shared out first — those are closest to Meta's 90-day deletion.
 
-That is three features, and they should not ship as one:
+Measured on the live database: from 2 leads vs 0, four new ones went **3 to the
+person with fewer and 1 to the other**, ending level. Ten from level went **5 and
+5**. The manager got none in either — they run the rota, and can still be handed
+a lead by hand.
 
-| | |
-|---|---|
-| **7a · Assignment by hand** | The manager assigns and reassigns; the staff view; the bell. Everything below is ready for it. |
-| **7b · What the manager sees** | Who holds what, response time per person, the note and call history per lead. Arithmetic, not AI — and it needs 7a's data before it says anything. |
-| **7c · Automatic distribution** | ⚠️ **Not yet.** *"The system will automatically, smartly and intelligently divide the leads"* — a round-robin is easy and would be dishonest to call intelligent; a real one needs outcomes to learn from, and there are none. This belongs with Step 11/12, and `07-AI-PLAN.md` already says why scoring before outcomes is confident noise. Build 7a, run it for a few weeks, then this has something to be intelligent about. |
+⚠️ **RESPONSE TIME IS THE BETTER TIE-BREAK AND IS NOT USED YET.** 116 stamps
+`first_contacted_at` on every logged call, so it is accumulating from today.
+Ranking people by a number computed from no data is the confident noise
+`07-AI-PLAN.md` refuses. One clause in one `ORDER BY` when there is data.
 
-**Three things are already waiting for it, so this is smaller than it looks:**
+⚠️ **A SALESPERSON CANNOT HAND A LEAD TO A COLLEAGUE.** `owner_id` was left out
+of 116's column grant deliberately; 120 grants it and puts the rule in a trigger,
+because PostgreSQL has no per-column policy and a plain grant would have let
+anybody push an awkward lead onto somebody else.
 
-- 116's trigger logs an assignment the moment `owner_id` changes. Nothing to
-  write.
-- 114's readers exist so a sales member sees who assigned them the lead, instead
-  of "Former member". Their self-check already proves the bug they prevent.
-- The record is a URL, so the bell has somewhere to point.
+⚠️ **AND THIS IS WHERE THE 2026-09-08 BUG CAME BACK.** The sales manager is
+`member` in `users.role`, so `users_select` shows them ONE row of the staff
+table — their own. The lead list read the owner's name with a plain join, so
+every colleague would have rendered as **"Former member"** on the one screen the
+manager opens to see who holds what. Measured under their own session before
+migration 121 was written, and 121's self-check asserts the bug so the reader can
+be deleted if `users_select` ever widens.
 
-⚠️ **And two things it must do, both already written down:**
+**Delivered:** the two-dashboard split. A manager shares leads out and sees who
+holds what; a salesperson opens the same desk and sees only theirs.
 
-- **Add `owner_id` to 116's column grant**, with the rule that only the **sales
-  manager** may reassign. It was left out deliberately — the narrow start.
-- ✅ **The floor has already moved** — migrations 117 and 118 did it, and
-  `requireCrmAccess()` replaced `requireRole('admin')` on all three CRM routes.
+---
 
-✅ **Needs nothing from you any more.** The three sales testers exist, the Sales
-department exists, and the manager is the one who assigns.
+### Step 7b · What the manager sees 🔓 ← NEXT
+The reporting half of what the owner asked for on 2026-09-10:
 
-**Delivers:** the two-dashboard split you asked for.
+> *"who the person is on which lead, who is responsible for which lead, how they
+> are responding, what talks with it, how quotations are given, how instantly
+> they are replying or engaging with the client."*
+
+`app.crm_sales_roster()` already returns the arithmetic — open leads, lifetime,
+won, last given, and median response time per person. Nothing reads it yet beyond
+the assignment dropdown.
+
+- A sales-team panel on the desk: who holds what, and how fast they answer.
+- Response time per person, from `first_contacted_at − submitted_at`.
+- ⚠️ **Shown as arithmetic anybody can check.** The median is NULL until somebody
+  logs a call and must render as "no calls yet", never as 0 — a zero-minute
+  response time reads as instant.
+
+**Needs nothing from you.** Best built after a week of real use, so the figures
+say something.
+
+---
+
+### Step 7c · Distribution that reads the lead ⏳
+Owner: *"AI-integrated ChatGPT API keys are integrated. You will just put that
+into ChatGPT… these leads have 1 sale percent, these have 2 sale percent, and
+this is the specification for that person."*
+
+Matching a lead to the right person, rather than only to the least busy one.
+
+⚠️ **What is missing is not the model — it is the specification.** There is no
+field saying what a salesperson handles. The lead's own answers ARE structured
+(`plots` vs `villa`, `10 marla (commercial)`, the city), so once each salesperson
+has a focus recorded, most matching is a string comparison and needs no model at
+all. Keep the AI for the fuzzy remainder and for writing the sentence over the
+top — the same split `07-AI-PLAN.md` §B2 already argues for.
+
+**Needs from you:** what each salesperson specialises in — or a decision that
+they do not, in which case Step 7's load balancing is already the whole answer.
 
 ---
 
