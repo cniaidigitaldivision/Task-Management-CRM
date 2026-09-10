@@ -3,11 +3,10 @@
 /* ============================================================================
  * THE HOMEPAGE'S MOTION
  * ----------------------------------------------------------------------------
- * Four things, all driven from one observer and one scroll handler so the page
+ * Three things, all driven from one observer and one scroll handler so the page
  * never has a dozen listeners competing:
  *
  *   · sections reveal as they enter the viewport
- *   · the thread's line draws down as you read it
  *   · the header earns a border once the page has moved
  *   · the menu marks the section you are looking at
  *
@@ -72,11 +71,10 @@ export function HomepageMotion() {
     );
     revealing.forEach((el) => shower.observe(el));
 
-    /* ── The header, the thread, and the current section ──────────────────
+    /* ── The header and the current section ──────────────────────────────
        One rAF-throttled handler. A scroll listener that writes to the DOM on
        every event is the classic way to make a page feel heavy. */
     const header = root.querySelector<HTMLElement>('header');
-    const thread = root.querySelector<HTMLElement>('.thread');
     const links = new Map<string, HTMLAnchorElement>();
     for (const id of SECTIONS) {
       const a = root.querySelector<HTMLAnchorElement>(`nav.links a[href="#${id}"]`);
@@ -92,16 +90,6 @@ export function HomepageMotion() {
 
         if (header) header.classList.toggle('stuck', window.scrollY > 12);
 
-        if (thread) {
-          const r = thread.getBoundingClientRect();
-          const h = window.innerHeight;
-          /* 0 when the top of the thread reaches the middle of the screen,
-             1 when its bottom does. Clamped, so over- and under-scroll do not
-             push the line past either end. */
-          const span = r.height || 1;
-          const progress = (h * 0.5 - r.top) / span;
-          thread.style.setProperty('--thread-progress', String(Math.min(1, Math.max(0, progress))));
-        }
 
         /* The section whose top is closest to a third of the way down. */
         let current = '';
@@ -147,7 +135,6 @@ export function HomepageMotion() {
       if (!still.matches) return;
       root.removeAttribute('data-motion');
       revealing.forEach((el) => el.classList.add('in'));
-      thread?.style.removeProperty('--thread-progress');
     };
     still.addEventListener('change', onPreferenceChange);
 

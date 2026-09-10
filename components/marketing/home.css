@@ -534,6 +534,16 @@ html:has(.taskly-home){ background: #04161a; }
   /* ── Sections ───────────────────────────────────────────────────────── */
   .taskly-home section{ padding-block: clamp(64px, 9vw, 112px); }
   .taskly-home .section-head{ max-width: 44ch; }
+
+  /* ── The thread's own head is centred ────────────────────────────────────
+     It sits directly under a centred hero and directly above a full-bleed,
+     centre-weighted film, so a left-aligned head here was the odd one out.
+     `max-width` is widened a little because centred lines want to be shorter
+     than ranged-left ones, and 44ch of centred text at this size stacks into
+     too many short rows. */
+  .taskly-home #thread .section-head{
+    margin-inline: auto; text-align: center; max-width: 52ch;
+  }
   .taskly-home h2{ font-size: clamp(1.75rem, 4.2vw, 2.7rem); line-height: 1.08; font-weight: 800; font-stretch: 108%; letter-spacing: -.028em; margin: 0; }
   .taskly-home .section-head p{ margin: 16px 0 0; color: var(--ink-soft); font-size: 1.02rem; line-height: 1.6; }
 
@@ -579,24 +589,6 @@ html:has(.taskly-home){ background: #04161a; }
     mask-composite: intersect;
   }
 
-  .taskly-home .thread{ margin-top: 52px; position: relative; }
-  .taskly-home .thread::before{
-    content: ""; position: absolute; left: 11px; top: 12px; bottom: 12px; width: 2px;
-    background: linear-gradient(to bottom, transparent, var(--rule-firm) 6%, var(--rule-firm) 94%, transparent);
-  }
-  @media (min-width: 52rem) { .taskly-home .thread::before{ left: 15px; } }
-  .taskly-home .stop{ position: relative; padding-left: 44px; padding-block: 22px; }
-  @media (min-width: 52rem) { .taskly-home .stop{ padding-left: 56px; display: grid; grid-template-columns: minmax(0, 19rem) minmax(0, 1fr); gap: 32px; } }
-  .taskly-home .stop::before{ content: ""; position: absolute; left: 4px; top: 30px; width: 16px; height: 16px; border-radius: 50%; background: var(--base); border: 2px solid var(--brand); }
-  @media (min-width: 52rem) { .taskly-home .stop::before{ left: 8px; } }
-  .taskly-home .stop.gold::before{ border-color: var(--gold-fill); }
-  .taskly-home .stop h3{ margin: 0 0 6px; font-size: 1.18rem; font-weight: 700; letter-spacing: -.015em; line-height: 1.25; }
-  .taskly-home .stop .where{ font-size: .78rem; font-weight: 600; color: var(--brand); margin: 0 0 8px; }
-  .taskly-home .stop.gold .where{ color: var(--gold); }
-  .taskly-home .stop p{ margin: 0; color: var(--ink-soft); font-size: .96rem; line-height: 1.62; max-width: 56ch; }
-  .taskly-home .stop ul{ margin: 12px 0 0; padding-left: 18px; }
-  .taskly-home .stop li{ color: var(--ink-soft); font-size: .9rem; margin-bottom: 5px; }
-  .taskly-home .stop li::marker{ color: var(--ink-faint); }
 
   /* ── Module grid ────────────────────────────────────────────────────── */
   .taskly-home .grid{ display: grid; gap: 1px; margin-top: 48px; background: var(--rule-soft); border: 1px solid var(--rule-soft); border-radius: 14px; overflow: hidden; }
@@ -696,29 +688,6 @@ html:has(.taskly-home){ background: #04161a; }
      compositor layer per element for the life of the page. */
   .taskly-home[data-motion="on"] [data-reveal].done{ will-change: auto; }
 
-  /* ── The thread draws itself as you read down it ────────────────────────
-     The line is a scaleY on the pseudo-element, driven by one custom property
-     the scroll handler writes. Transform only: no layout, no paint. */
-  .taskly-home .thread::before{
-    transform-origin: top;
-    transform: scaleY(var(--thread-progress, 1));
-  }
-  .taskly-home[data-motion="on"] .thread::before{
-    transition: transform .12s linear;
-  }
-  /* Each stop's dot fills in when its stop arrives. */
-  .taskly-home .stop::before{
-    transition: background var(--quick) var(--ease), border-color var(--quick) var(--ease),
-                box-shadow .4s var(--ease-out), transform .4s var(--ease-out);
-  }
-  .taskly-home .stop.in::before{
-    background: var(--brand);
-    box-shadow: 0 0 0 5px rgb(47 163 169 / .16);
-  }
-  .taskly-home .stop.gold.in::before{
-    background: var(--gold-fill); border-color: var(--gold-fill);
-    box-shadow: 0 0 0 5px rgb(224 184 92 / .16);
-  }
 
   /* ── Cards lift, and their edge lights up ───────────────────────────────
      `border-color` and `transform` only — a box-shadow alone on a dark ground
@@ -793,6 +762,17 @@ html:has(.taskly-home){ background: #04161a; }
     transform: scaleX(0); transform-origin: left;
     transition: transform .8s var(--ease-out) .16s;
   }
+  /* ⚠️ THE RULE HAS TO MOVE WITH THE HEADING. Left-anchored under a centred
+     block it would sit off to one side and read as a mistake. Centred by a
+     negative margin rather than `translateX(-50%)`, so the transform stays a
+     pure scaleX and does not fight the reveal animation; and the gradient
+     fades BOTH ways, because a one-sided fade under centred type points
+     somewhere for no reason. */
+  .taskly-home #thread .section-head h2::after{
+    left: 50%; margin-left: -42px;
+    transform-origin: center;
+    background: linear-gradient(90deg, transparent, var(--brand), transparent);
+  }
   .taskly-home .section-head.in h2::after{ transform: scaleX(1); }
 
   /* ── Cards: a lit edge that follows the pointer ──────────────────────────
@@ -850,7 +830,6 @@ html:has(.taskly-home){ background: #04161a; }
       transition-duration: .01ms !important;
       scroll-behavior: auto !important;
     }
-    .taskly-home .thread::before{ transform: none !important; }
     /* The infinite ones cannot merely be shortened — a .01ms loop still loops.
        Named explicitly so a future addition is not silently missed. */
     .taskly-home .mark .brand-mark::before,
