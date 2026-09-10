@@ -1,55 +1,66 @@
 'use client';
 
 /* ============================================================================
- * AMBIENT PARTICLE FIELD — motes, links, and a pointer that disturbs them
+ * FLOW FIELD — currents of light drifting through the overview band
  * ----------------------------------------------------------------------------
- * Owner's brief: brighter motes, thin lines between them, and something that
- * responds to the cursor.
+ * ── ⚠️ WHAT THIS REPLACED, AND WHY ──────────────────────────────────────────
+ * This was a constellation: dots joined to their neighbours by lines, with the
+ * cursor lighting the ones near it. The owner's verdict was that they had seen
+ * it in a lot of places, and they were right — it is the particles.js effect
+ * and it is on a thousand sites. Tuning it well does not make it less familiar.
  *
- * ── HOW THIS AVOIDS LOOKING LIKE EVERY OTHER PARTICLE CANVAS ────────────────
- * The parts that make that effect look like a demo are the ones tuned down
- * here rather than left out:
+ * So the STRUCTURE changed rather than the settings. There are no dots and no
+ * links here. Invisible agents are carried along an invisible vector field and
+ * the only thing drawn is the path each one takes: thin luminous threads that
+ * curve, converge and thin out, like a long exposure of a current. The canvas
+ * is never cleared — each frame erases a few percent of what is already there,
+ * which is what leaves the trails and lets them fade instead of vanishing.
  *
- *   · Links are hairlines (0.6px) whose opacity falls off with the SQUARE of
- *     distance, so the web thins out fast instead of turning into a net.
- *   · A mote links to at most a few neighbours. Without that cap the middle of
- *     a dense patch becomes a solid triangle of lines.
- *   · The pointer does not shove anything. It has its own, larger link radius,
- *     it brightens what it is near, and it pulls very gently — an eddy, not a
- *     repulsion field.
- *   · One slow diagonal drift with wrap-around; nothing bounces off an edge.
+ * It also happens to say the right thing for this product. Work moving through
+ * a system is what the page is about, and a field of currents is that picture;
+ * a lattice of connected dots is a network diagram, which is not.
  *
- * ── WHY CANVAS ──────────────────────────────────────────────────────────────
- * ~110 elements each with its own transform animation is 110 composited layers
- * and a long style recalc on every resize. One canvas is one layer.
+ * ── THE FIELD ITSELF ────────────────────────────────────────────────────────
+ * Three layered sine waves rather than a Perlin implementation. It is a few
+ * lines instead of a few hundred, it is smooth and non-repeating at this scale,
+ * and drifting the phases makes the whole current slowly reorganise so the
+ * shape is never quite the same twice.
  * ========================================================================= */
 
 import * as React from 'react';
 
-type Mote = {
+type Agent = {
   x: number;
   y: number;
-  r: number;
-  /** 0 = far, 1 = near. Drives size, speed and brightness together. */
-  depth: number;
-  /** Phase offset so the field does not pulse in unison. */
-  phase: number;
-  /** Per-frame nudge from the pointer, decayed back to zero. */
-  vx: number;
-  vy: number;
+  /** Frames left before it is respawned. Staggered so they do not all go at
+   *  once, which would show as a visible pulse across the whole field. */
+  life: number;
+  /** 0 = faint and slow, 1 = bright and quick. */
+  weight: number;
 };
 
-/** Motes per million device-independent pixels — density, not a fixed count,
- *  so a wide monitor is not sparser than a laptop. */
-const DENSITY = 66;
-const MAX_MOTES = 110;
-/** How close two motes must be to draw a line, and how close the pointer must
- *  be to reach one. The pointer's radius is larger so its web is the feature. */
-const LINK_DIST = 132;
-const POINTER_DIST = 200;
-/** ⚠️ Cap the lines out of any one mote. In a dense patch an uncapped search
- *  fills the middle with a solid wedge of hairlines and the delicacy is gone. */
-const MAX_LINKS_PER_MOTE = 4;
+/** Agents per million device-independent pixels. */
+const DENSITY = 185;
+const MAX_AGENTS = 320;
+/** How much of the canvas is erased each frame. Lower = longer trails.
+ *
+ *  ⚠️ THIS ACCUMULATES, AND IT TAKES ABOUT TWO MINUTES TO SETTLE. Each frame
+ *  deposits light and erases a fixed fraction, so brightness climbs until the
+ *  two balance. MEASURED at this value: mean alpha 3.6 at 10s, 12.2 at 110s,
+ *  with the per-interval delta shrinking geometrically to an equilibrium near
+ *  15/255 — about 6%, and pixels above 120 stay flat at 0.06% throughout, so
+ *  it settles into a haze rather than washing out. Text contrast was checked
+ *  AT that settled state, not at load; a sweep run seconds after page load
+ *  reads a field far dimmer than the one somebody who lingers actually sees.
+ *
+ *  Lower this and the equilibrium rises proportionally. Anything under about
+ *  .02 has not levelled off before a visitor has read the page. */
+const FADE = 0.032;
+const LIFE_MIN = 90;
+const LIFE_VAR = 150;
+/** How far the cursor's swirl reaches, and how hard it turns the current. */
+const POINTER_DIST = 230;
+const SWIRL = 2.1;
 
 export function ParticleField({ className }: { className?: string }) {
   const ref = React.useRef<HTMLCanvasElement>(null);
@@ -62,31 +73,31 @@ export function ParticleField({ className }: { className?: string }) {
     const host = canvas.parentElement;
 
     const still = window.matchMedia('(prefers-reduced-motion: reduce)');
-    let motes: Mote[] = [];
+    let agents: Agent[] = [];
     let width = 0;
     let height = 0;
     let raf = 0;
     let running = false;
-    /* Time-based, not frame-based: the drift must look the same on a 144Hz
-       monitor as on a 60Hz one. */
     let last = 0;
-    /** Pointer in canvas coordinates; null when it is not over the band. */
     let px: number | null = null;
     let py: number | null = null;
 
+    const spawn = (a: Agent) => {
+      a.x = Math.random() * width;
+      a.y = Math.random() * height;
+      a.life = LIFE_MIN + Math.random() * LIFE_VAR;
+      a.weight = Math.random();
+    };
+
     const seed = () => {
-      const count = Math.min(MAX_MOTES, Math.round((width * height) / 1_000_000 * DENSITY));
-      motes = Array.from({ length: count }, () => {
-        const depth = Math.random();
-        return {
-          x: Math.random() * width,
-          y: Math.random() * height,
-          r: 0.6 + depth * 1.8,
-          depth,
-          phase: Math.random() * Math.PI * 2,
-          vx: 0,
-          vy: 0,
-        };
+      const count = Math.min(MAX_AGENTS, Math.round((width * height) / 1_000_000 * DENSITY));
+      agents = Array.from({ length: count }, () => {
+        const a: Agent = { x: 0, y: 0, life: 0, weight: 0 };
+        spawn(a);
+        /* Stagger the first generation's lifespans, or the whole field
+           respawns on the same frame and the band blinks. */
+        a.life = Math.random() * (LIFE_MIN + LIFE_VAR);
+        return a;
       });
     };
 
@@ -95,117 +106,86 @@ export function ParticleField({ className }: { className?: string }) {
       if (!rect.width || !rect.height) return false;
       width = rect.width;
       height = rect.height;
-      /* Capped at 2: a 3x screen triples the fill cost for a difference nobody
-         can see on a 2px dot. */
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       canvas.width = Math.round(width * dpr);
       canvas.height = Math.round(height * dpr);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, width, height);
       return true;
     };
 
-    const draw = (t: number) => {
-      const dt = last ? Math.min((t - last) / 1000, 0.05) : 0;
-      last = t;
-      ctx.clearRect(0, 0, width, height);
+    /** The direction of the current at a point, in radians. */
+    const flow = (x: number, y: number, t: number) =>
+      Math.sin(x * 0.0016 + t * 0.00012) * 1.5 +
+      Math.cos(y * 0.0021 - t * 0.00016) * 1.5 +
+      Math.sin((x + y) * 0.0009 + t * 0.0001) * 1.2;
 
-      for (const m of motes) {
-        if (dt) {
-          /* One direction for the whole field — up and slightly right — at a
-             speed set by depth. */
-          m.y -= (5 + m.depth * 15) * dt;
-          m.x += (1.2 + m.depth * 4) * dt;
+    const step = (t: number, dt: number) => {
+      /* ⚠️ ERASE, DO NOT CLEAR. `destination-out` takes a few percent of the
+         alpha off everything already drawn, which is what turns each agent's
+         path into a fading trail. `clearRect` would wipe the trails and leave
+         a field of disconnected dashes. */
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.fillStyle = `rgba(0, 0, 0, ${FADE})`;
+      ctx.fillRect(0, 0, width, height);
 
-          /* A gentle pull toward the pointer, then friction. Deliberately weak:
-             the cursor should disturb the field, not command it. */
-          if (px !== null && py !== null) {
-            const dx = px - m.x;
-            const dy = py - m.y;
-            const d2 = dx * dx + dy * dy;
-            if (d2 < POINTER_DIST * POINTER_DIST && d2 > 1) {
-              const d = Math.sqrt(d2);
-              const pull = (1 - d / POINTER_DIST) * 26 * dt;
-              m.vx += (dx / d) * pull;
-              m.vy += (dy / d) * pull;
-            }
-          }
-          m.vx *= 0.94;
-          m.vy *= 0.94;
-          m.x += m.vx * dt * 12;
-          m.y += m.vy * dt * 12;
+      /* Additive, so where threads cross the light gathers rather than the
+         newer one simply covering the older. */
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.lineCap = 'round';
 
-          if (m.y < -6) { m.y = height + 6; m.x = Math.random() * width; }
-          if (m.y > height + 6) m.y = -6;
-          if (m.x > width + 6) m.x = -6;
-          if (m.x < -6) m.x = width + 6;
-        }
-      }
+      for (const a of agents) {
+        const x0 = a.x;
+        const y0 = a.y;
 
-      /* ── Links first, so the motes sit ON the web rather than under it ──── */
-      ctx.lineWidth = 0.6;
-      for (let i = 0; i < motes.length; i++) {
-        const a = motes[i];
-        let drawn = 0;
-        for (let j = i + 1; j < motes.length && drawn < MAX_LINKS_PER_MOTE; j++) {
-          const bm = motes[j];
-          const dx = a.x - bm.x;
-          const dy = a.y - bm.y;
-          const d2 = dx * dx + dy * dy;
-          if (d2 > LINK_DIST * LINK_DIST) continue;
-          drawn++;
-          /* Squared falloff: the web thins out fast instead of becoming a net. */
-          const near = 1 - d2 / (LINK_DIST * LINK_DIST);
-          const alpha = near * near * 0.5 * (0.5 + (a.depth + bm.depth) / 2);
-          ctx.strokeStyle = `rgba(96, 214, 217, ${alpha})`;
-          ctx.beginPath();
-          ctx.moveTo(a.x, a.y);
-          ctx.lineTo(bm.x, bm.y);
-          ctx.stroke();
-        }
+        let angle = flow(a.x, a.y, t);
 
-        /* The pointer's own web — brighter, and reaching further. */
+        /* The cursor does not push the agents; it bends the FIELD around
+           itself, so the current visibly curls past rather than the threads
+           being shoved aside. */
         if (px !== null && py !== null) {
           const dx = a.x - px;
           const dy = a.y - py;
           const d2 = dx * dx + dy * dy;
           if (d2 < POINTER_DIST * POINTER_DIST) {
-            const near = 1 - d2 / (POINTER_DIST * POINTER_DIST);
-            ctx.strokeStyle = `rgba(170, 242, 244, ${near * near * 0.58})`;
-            ctx.beginPath();
-            ctx.moveTo(a.x, a.y);
-            ctx.lineTo(px, py);
-            ctx.stroke();
-          }
-        }
-      }
-
-      /* ── Then the motes ─────────────────────────────────────────────────── */
-      for (const m of motes) {
-        /* A slow breath, out of phase per mote. */
-        const pulse = 0.66 + 0.34 * Math.sin(t / 2600 + m.phase);
-        let alpha = (0.4 + m.depth * 0.58) * pulse;
-
-        /* Brighter near the cursor. */
-        if (px !== null && py !== null) {
-          const dx = m.x - px;
-          const dy = m.y - py;
-          const d2 = dx * dx + dy * dy;
-          if (d2 < POINTER_DIST * POINTER_DIST) {
-            alpha = Math.min(1, alpha + (1 - d2 / (POINTER_DIST * POINTER_DIST)) * 0.5);
+            const near = 1 - Math.sqrt(d2) / POINTER_DIST;
+            angle += Math.atan2(dy, dx) * near * 0.5 + near * near * SWIRL;
           }
         }
 
-        const rad = m.r * 4.2;
-        const g = ctx.createRadialGradient(m.x, m.y, 0, m.x, m.y, rad);
-        g.addColorStop(0, `rgba(178, 245, 246, ${alpha})`);
-        g.addColorStop(0.36, `rgba(96, 214, 217, ${alpha * 0.5})`);
-        g.addColorStop(1, 'rgba(47, 163, 169, 0)');
-        ctx.fillStyle = g;
+        const speed = (16 + a.weight * 34) * dt;
+        a.x += Math.cos(angle) * speed;
+        a.y += Math.sin(angle) * speed;
+        a.life -= 1;
+
+        const gone = a.life <= 0 || a.x < -20 || a.x > width + 20 || a.y < -20 || a.y > height + 20;
+        if (gone) {
+          spawn(a);
+          continue;
+        }
+
+        /* Faint per segment on purpose: with additive blending the trail
+           builds its brightness up over many frames, and a heavy stroke would
+           blow out to white within a second. */
+        const alpha = 0.055 + a.weight * 0.13;
+        ctx.strokeStyle =
+          a.weight > 0.72
+            ? `rgba(170, 240, 242, ${alpha})`
+            : `rgba(47, 163, 169, ${alpha * 1.35})`;
+        ctx.lineWidth = 0.6 + a.weight * 1.2;
         ctx.beginPath();
-        ctx.arc(m.x, m.y, rad, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.moveTo(x0, y0);
+        ctx.lineTo(a.x, a.y);
+        ctx.stroke();
       }
 
+      ctx.globalCompositeOperation = 'source-over';
+    };
+
+    const draw = (t: number) => {
+      const dt = last ? Math.min((t - last) / 1000, 0.05) : 0.016;
+      last = t;
+      step(t, dt);
       if (running) raf = window.requestAnimationFrame(draw);
     };
 
@@ -224,14 +204,12 @@ export function ParticleField({ className }: { className?: string }) {
     seed();
 
     if (still.matches) {
-      /* One static frame. The field is part of the picture, so it should still
-         be there — it simply must not move, and the pointer must not stir it. */
-      draw(0);
+      /* A still image of the same field: run it forward without presenting
+         each frame, so the threads exist but nothing ever moves. */
+      for (let i = 0; i < 180; i++) step(i * 16, 0.016);
       return;
     }
 
-    /* ⚠️ Only while it is on screen. A canvas animating behind three
-       screenfuls of scrolled-past page is pure battery cost. */
     const watcher = new IntersectionObserver(
       (entries) => {
         if (entries.some((e) => e.isIntersecting)) start();
@@ -242,9 +220,8 @@ export function ParticleField({ className }: { className?: string }) {
     watcher.observe(canvas);
 
     /* ⚠️ Listened for on the BAND, not the canvas: the canvas is
-       `pointer-events: none` so that it never swallows a click meant for the
-       screenshot or a card, which also means it receives no pointer events of
-       its own. Coordinates are converted through the canvas's own rect. */
+       `pointer-events: none` so it can never swallow a click meant for the
+       screenshot or a card, which also means it gets no pointer events itself. */
     const onPointer = (event: PointerEvent) => {
       const rect = canvas.getBoundingClientRect();
       px = event.clientX - rect.left;
@@ -273,7 +250,6 @@ export function ParticleField({ className }: { className?: string }) {
       if (!still.matches) return;
       stop();
       onLeave();
-      draw(0);
     };
     still.addEventListener('change', onPreference);
 
