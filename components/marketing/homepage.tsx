@@ -25,6 +25,7 @@
  * ========================================================================= */
 
 import {
+  ArrowRight,
   ChartColumn,
   ClipboardCheck,
   Clock,
@@ -32,6 +33,9 @@ import {
   FileText,
   FolderKanban,
   Layers,
+  Lightbulb,
+  MessageSquare,
+  Search,
   ShieldCheck,
   Sparkles,
   Users,
@@ -309,36 +313,98 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
 
         {/* ══ THE THREAD ════════════════════════════════════════════════════ */}
         <section id="thread">
-          <div className="wrap">
-            <div className="section-head" data-reveal>
-              <h2>One lead, followed all the way</h2>
-              <p>
-                Most tools give you a folder for tasks and a different one for clients, and the join
-                between them lives in a spreadsheet. Taskly keeps the join. Here is the same enquiry,
-                moving through the system.
+          <div className="wrap thread-grid">
+            {/* Film left, words right — the mirror of the Studio above it, so the
+                three showcase sections alternate down the page.
+
+                ⚠️ NOT TILTED, unlike the two panels above. This clip is an
+                infographic whose six step labels have to be readable, and a 3D
+                turn costs a measured ~25% of sharpness on fine text — the same
+                effect that was blurring the Studio screenshot. Tilting a moving
+                image also fights the motion. Flat is the right trade here. */}
+            <div className="thread-film" data-reveal>
+              <ThemeClip
+                clip="thread"
+                className="thread-clip"
+                poster="/home/thread-poster.jpg"
+                playInView
+                rate={0.72}
+              />
+            </div>
+
+            <div className="pitch thread-copy" data-reveal>
+              <p className="pitch-eyebrow">Lead desk</p>
+              {/* Three parts, like the operating layer's heading — white, accent,
+                  white. As two parts the accent ran to 20 characters against the
+                  `.pitch` measure and broke as "followed all the / way", leaving
+                  a one-word line. */}
+              <h2>One lead, <em>followed</em> all the way</h2>
+              <p className="pitch-lede">
+                Most tools keep tasks in one place and clients in another, with the join between them
+                living in a spreadsheet. Taskly keeps the join.
               </p>
             </div>
           </div>
+        </section>
 
-          {/* ⚠️ FULL-BLEED, SO IT BREAKS OUT OF `.wrap` — which is why it sits
-              outside it rather than inside. It plays when it is scrolled to and
-              pauses when it leaves, so nobody meets it halfway through a loop,
-              and it runs a little under speed because the six steps have to be
-              READ while they move. */}
-          <div className="thread-film" data-reveal>
-            <ThemeClip
-              clip="thread"
-              className="thread-clip"
-              poster="/home/thread-poster.jpg"
-              playInView
-              rate={0.72}
-            />
+        {/* ══ THE ASSISTANT ═══════════════════════════════════════════ */}
+        <section id="ai" className="assistant band">
+          <div className="wrap">
+            {/* One bordered panel holding three columns, as the owner's
+                reference has it: the pitch, the clip, and what it is for. */}
+            <div className="assistant-panel" data-reveal>
+              <div className="pitch assistant-copy">
+                <p className="pitch-eyebrow">Your AI assistant</p>
+                <h2>Ask about work. <em>Find your next step.</em></h2>
+                <p className="pitch-lede">
+                  Bring questions about projects, workload and overdue tasks into one place.
+                </p>
+
+                {/* ⚠️ SPANS, NOT BUTTONS. These are examples of what you can ask,
+                    and on a public page there is nothing behind them to ask. A
+                    control styled as a control that does nothing when pressed is
+                    worse than a plain label. */}
+                <p className="assistant-asks">
+                  <span>Which projects need attention?</span>
+                  <span>Who has capacity this week?</span>
+                </p>
+
+                <Link className="assistant-more" href="/login">
+                  Explore the AI Assistant
+                  <ArrowRight aria-hidden="true" />
+                </Link>
+              </div>
+
+              <div className="assistant-clip">
+                <ThemeClip
+                  clip="assistant"
+                  className="assistant-video"
+                  poster="/home/assistant-poster.jpg"
+                  playInView
+                  rate={0.8}
+                />
+              </div>
+
+              <ul className="assistant-points">
+                <li>
+                  <MessageSquare aria-hidden="true" />
+                  <span>Get instant answers about your work</span>
+                </li>
+                <li>
+                  <Search aria-hidden="true" />
+                  <span>Find information across projects and people</span>
+                </li>
+                <li>
+                  <Lightbulb aria-hidden="true" />
+                  <span>Make better decisions with full context</span>
+                </li>
+              </ul>
+            </div>
           </div>
-
         </section>
 
         {/* ══ MODULES ═══════════════════════════════════════════════════════ */}
-        <section id="modules" className="band">
+        <section id="modules">
           <div className="wrap">
             <div className="section-head" data-reveal>
               <h2>And everything else an agency has to keep somewhere</h2>
@@ -403,76 +469,6 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
         </section>
 
         {/* ══ THE ASSISTANT ═════════════════════════════════════════════════ */}
-        <section id="ai" className="ai">
-          <div className="wrap">
-            <div className="section-head" data-reveal>
-              <h2>The assistant knows your data, not the internet</h2>
-              <p>
-                Ask in plain language and it answers from your own tables, through the same permissions
-                you have. It never sees a project you cannot open.
-              </p>
-            </div>
-
-            <div className="ai-stage" data-reveal>
-              {/* The assistant’s own clip, from inside the product. Lazy: it is
-                   around 6 MB a cut, so it is not fetched until it scrolls into view. */}
-              <ThemeClip clip="room" className="brain-clip" lazy />
-              <div className="caption">
-                <p>
-                  Every answer comes with the rows behind it. Nothing is estimated, and where the data
-                  cannot answer a question yet, it says so instead of guessing.
-                </p>
-              </div>
-            </div>
-
-            <div className="ai-list" data-reveal-group>
-              <div className="ai-item on" data-reveal>
-                <h3>Ask about the work</h3>
-                <p>
-                  “What is overdue on Chitral Royal Homes?” “Who is over capacity this week?” “How many
-                  posts went out for this client in August?” Answers with the rows behind them, not a
-                  paragraph you have to take on trust.
-                </p>
-              </div>
-              <div className="ai-item on" data-reveal>
-                <h3>Written reports</h3>
-                <p>
-                  The monthly client report computes its own figures, then the model writes the prose
-                  over the top. The arithmetic is yours; only the wording is drafted.
-                </p>
-              </div>
-              <div className="ai-item on" data-reveal>
-                <h3>Smart lead distribution</h3>
-                <p>
-                  Leads divide themselves across the team by who is genuinely free, so nobody sits on
-                  forty enquiries while a colleague waits for one.
-                </p>
-              </div>
-              <div className="ai-item" data-reveal>
-                <h3>Coaching before a call</h3>
-                <p>
-                  A two-line summary of what a lead wants, talking points before you ring them, and a
-                  drafted follow-up you edit before it sends — never sent for you.
-                </p>
-              </div>
-              <div className="ai-item" data-reveal>
-                <h3>Campaign or staff?</h3>
-                <p>
-                  Same campaign, different people, different results — it is the person. Same person
-                  across campaigns — it is the campaign. Shown as arithmetic anybody can check.
-                </p>
-              </div>
-              <div className="ai-item" data-reveal>
-                <h3>Nothing invented</h3>
-                <p>
-                  The rule the whole system is built on: a screen shows a number only when a real one
-                  exists. No figure is estimated, and an empty report says why it is empty.
-                </p>
-              </div>
-            </div>
-          </div>
-        </section>
-
         {/* ══ FILMS ═════════════════════════════════════════════════════════ */}
         <section id="films" className="band">
           <div className="wrap">

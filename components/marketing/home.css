@@ -669,15 +669,6 @@ html:has(.taskly-home){ background: #04161a; }
   .taskly-home section{ padding-block: clamp(64px, 9vw, 112px); }
   .taskly-home .section-head{ max-width: 44ch; }
 
-  /* ── The thread's own head is centred ────────────────────────────────────
-     It sits directly under a centred hero and directly above a full-bleed,
-     centre-weighted film, so a left-aligned head here was the odd one out.
-     `max-width` is widened a little because centred lines want to be shorter
-     than ranged-left ones, and 44ch of centred text at this size stacks into
-     too many short rows. */
-  .taskly-home #thread .section-head{
-    margin-inline: auto; text-align: center; max-width: 52ch;
-  }
   .taskly-home h2{ font-size: clamp(1.75rem, 4.2vw, 2.7rem); line-height: 1.08; font-weight: 800; font-stretch: 108%; letter-spacing: -.028em; margin: 0; }
   .taskly-home .section-head p{ margin: 16px 0 0; color: var(--ink-soft); font-size: 1.02rem; line-height: 1.6; }
 
@@ -761,21 +752,28 @@ html:has(.taskly-home){ background: #04161a; }
   }
   .taskly-home .studio-shot img{ display: block; width: 100%; height: auto; }
 
-  /* ── ─ THE STEPS, AS FILM ──────────────────────────────────────
-     Edge to edge, because the clip is an infographic whose type has to be
-     readable and the page's 68rem column would shrink it to the point of
-     uselessness. `.hero`-style full-bleed is not needed: this element is
-     already outside `.wrap`, so it simply takes the section's full width.
-
-     ⚠️ THE REVEAL HERE IS SLOWER THAN THE PAGE'S. The default rise is a .72s
-     nudge, which is right for a paragraph arriving. A full-width film wants to
-     settle rather than snap, so it gets its own longer, gentler entrance — the
-     owner's "very smooth, not fast". It is still one movement, not a sequence. */
-  .taskly-home .thread-film{
-    margin: clamp(38px, 5vw, 60px) 0 clamp(10px, 2vw, 24px);
-    position: relative;
-    line-height: 0;
+  /* ══ THE LEAD DESK ═══════════════════════════════════════════════════════
+     Film left, words right. It used to be a centred head over a full-bleed
+     clip; it is now the same two-column shape as the two sections above, and
+     shares their `.pitch` heading rule rather than carrying its own. */
+  .taskly-home .thread-grid{
+    display: grid; gap: clamp(24px, 3vw, 44px);
+    align-items: center;
+    max-width: var(--page-w);
   }
+  @media (min-width: 62rem) {
+    .taskly-home .thread-grid{ grid-template-columns: minmax(0, 1.75fr) minmax(0, 1fr); }
+  }
+
+  .taskly-home .thread-film{
+    position: relative; line-height: 0;
+    border-radius: 14px; overflow: hidden;
+    border: 1px solid var(--rule);
+    box-shadow: 0 26px 60px -22px rgb(0 0 0 / .6);
+  }
+  /* ⚠️ THE REVEAL HERE IS SLOWER THAN THE PAGE'S. The default rise is a .72s
+     nudge, right for a paragraph arriving. A film should settle rather than
+     snap — the owner's "very smooth, not fast". Still one movement. */
   .taskly-home[data-motion="on"] .thread-film[data-reveal]{
     opacity: 0;
     transform: translate3d(0, 34px, 0) scale(.985);
@@ -789,17 +787,6 @@ html:has(.taskly-home){ background: #04161a; }
     aspect-ratio: 1280 / 720;
     object-fit: cover;
     background: url('/home/thread-poster.jpg') center / cover no-repeat;
-    /* Both edges softened into the page so the clip does not sit in the section
-       like a pasted rectangle. Left and right too, because at full bleed its
-       vertical edges meet the page colour with nothing between them. */
-    mask-image:
-      linear-gradient(to bottom, transparent 0%, black 7%, black 93%, transparent 100%),
-      linear-gradient(to right, transparent 0%, black 5%, black 95%, transparent 100%);
-    -webkit-mask-image:
-      linear-gradient(to bottom, transparent 0%, black 7%, black 93%, transparent 100%),
-      linear-gradient(to right, transparent 0%, black 5%, black 95%, transparent 100%);
-    -webkit-mask-composite: source-in;
-    mask-composite: intersect;
   }
 
 
@@ -1022,6 +1009,98 @@ html:has(.taskly-home){ background: #04161a; }
     .taskly-home .point > div{ grid-column: 1 / -1; }
   }
 
+  /* ══ THE ASSISTANT ═══════════════════════════════════════════════════════
+     One bordered panel with three columns: the pitch, the clip, and what it is
+     for. Built to the owner's reference. */
+  .taskly-home .assistant-panel{
+    display: grid; gap: clamp(22px, 3vw, 40px);
+    align-items: center;
+    padding: clamp(24px, 3vw, 40px);
+    border: 1px solid var(--rule); border-radius: 20px;
+    background: color-mix(in oklab, var(--base) 62%, transparent);
+  }
+  /* ⚠️ TWO COLUMNS AND A FULL-WIDTH ROW, NOT THREE COLUMNS. As a third column
+     the clip was 348px wide inside a 1144px panel — a postage stamp beside a
+     48px heading. The points move to their own row underneath, which buys the
+     clip a real column AND gives each point 380px instead of 260 to say its
+     sentence in. */
+  @media (min-width: 64rem) {
+    .taskly-home .assistant-panel{
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+      align-items: center;
+    }
+    .taskly-home .assistant-points{
+      grid-column: 1 / -1;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 24px;
+      padding-top: clamp(20px, 2.4vw, 30px);
+      border-top: 1px solid var(--rule);
+    }
+  }
+
+  /* ⚠️ NO SIZE OVERRIDE HERE. This heading is the same as every other
+     showcase heading — `.pitch` and nothing else. It had its own smaller clamp
+     because it sits inside a panel, and that is exactly the drift the owner has
+     now caught twice. The COLUMN was widened to fit the type instead of the
+     type shrunk to fit the column. */
+
+  .taskly-home .assistant-asks{
+    display: flex; flex-wrap: wrap; gap: 10px; margin: 22px 0 0;
+  }
+  /* Tight enough that both questions sit on one row, as the reference has
+     them — at 15px of padding they totalled 430px against a 410px column and
+     the second one dropped to its own line. */
+  .taskly-home .assistant-asks span{
+    padding: 8px 13px; border-radius: 999px;
+    border: 1px solid var(--rule-firm);
+    background: color-mix(in oklab, var(--surface) 60%, transparent);
+    font-size: .79rem; color: var(--ink-soft); white-space: nowrap;
+  }
+
+  .taskly-home .assistant-more{
+    display: inline-flex; align-items: center; gap: 7px;
+    margin-top: 20px; font-size: .88rem; font-weight: 600;
+    color: var(--brand-lit); text-decoration: none;
+  }
+  .taskly-home .assistant-more svg{
+    width: 16px; height: 16px;
+    transition: transform var(--quick) var(--ease);
+  }
+  .taskly-home .assistant-more:hover svg{ transform: translateX(4px); }
+
+  /* ⚠️ THE CLIP IS A BRIGHT, WHITE-STUDIO SCENE on a dark page — the owner's
+     own asset. It is boxed and slightly dimmed rather than bled into the panel,
+     because at full strength a white rectangle in the middle of a dark band
+     pulls the eye off the words either side of it. */
+  .taskly-home .assistant-clip{
+    border-radius: 14px; overflow: hidden;
+    border: 1px solid var(--rule);
+    line-height: 0;
+  }
+  .taskly-home .assistant-video{
+    display: block; width: 100%; height: auto;
+    aspect-ratio: 1280 / 720; object-fit: cover;
+    opacity: .92;
+    background: url('/home/assistant-poster.jpg') center / cover no-repeat;
+  }
+
+  .taskly-home .assistant-points{
+    list-style: none; margin: 0; padding: 0;
+    display: grid; gap: 20px;
+  }
+  .taskly-home .assistant-points li{
+    display: grid; grid-template-columns: auto minmax(0, 1fr);
+    align-items: center; gap: 13px;
+  }
+  .taskly-home .assistant-points svg{
+    width: 38px; height: 38px; padding: 9px;
+    border-radius: 10px; border: 1px solid var(--rule-firm);
+    color: var(--brand-lit);
+  }
+  .taskly-home .assistant-points span{
+    font-size: .92rem; line-height: 1.45; color: var(--ink-soft);
+  }
+
   .taskly-home .grid{ display: grid; gap: 1px; margin-top: 48px; background: var(--rule-soft); border: 1px solid var(--rule-soft); border-radius: 14px; overflow: hidden; }
   @media (min-width: 40rem) { .taskly-home .grid{ grid-template-columns: 1fr 1fr; } }
   @media (min-width: 62rem) { .taskly-home .grid{ grid-template-columns: repeat(3, 1fr); } }
@@ -1035,8 +1114,8 @@ html:has(.taskly-home){ background: #04161a; }
      the modules and the films had it — which left the whole upper half of the
      page one flat colour.
 
-     The order runs: overview (band) · operating layer · Studio (band) · thread ·
-     modules (band) · assistant · films (band) · close.
+     The order runs: overview (band) · operating layer · Studio (band) · lead
+     desk · assistant (band) · modules · films (band) · close.
 
      ⚠️ A NEW SECTION MUST TAKE ITS TURN. Inserting one without minding this
      puts two of the same ground next to each other and the rhythm dies from
@@ -1048,6 +1127,7 @@ html:has(.taskly-home){ background: #04161a; }
      the overview became a band: the strip cards' fill and the ground behind
      them were both rgb(12,36,41) — a step of 0. Every card-shaped thing on this
      page needs a line here. */
+  .taskly-home .cell{ background: var(--surface); }
   .taskly-home .band .cell{ background: var(--base); }
   .taskly-home .band .strip-item{ background: color-mix(in oklab, var(--base) 88%, transparent); }
   .taskly-home .band .strip-item:hover{ background: var(--base); }
@@ -1212,17 +1292,6 @@ html:has(.taskly-home){ background: #04161a; }
     background: linear-gradient(90deg, var(--brand), transparent);
     transform: scaleX(0); transform-origin: left;
     transition: transform .8s var(--ease-out) .16s;
-  }
-  /* ⚠️ THE RULE HAS TO MOVE WITH THE HEADING. Left-anchored under a centred
-     block it would sit off to one side and read as a mistake. Centred by a
-     negative margin rather than `translateX(-50%)`, so the transform stays a
-     pure scaleX and does not fight the reveal animation; and the gradient
-     fades BOTH ways, because a one-sided fade under centred type points
-     somewhere for no reason. */
-  .taskly-home #thread .section-head h2::after{
-    left: 50%; margin-left: -42px;
-    transform-origin: center;
-    background: linear-gradient(90deg, transparent, var(--brand), transparent);
   }
   .taskly-home .section-head.in h2::after{ transform: scaleX(1); }
 

@@ -36,6 +36,7 @@ const CLIPS = {
   hero: '/home/hero.mp4',
   room: '/dashboard/room-dark.mp4',
   thread: '/home/thread.mp4',
+  assistant: '/home/assistant.mp4',
 } as const;
 
 export function ThemeClip({
