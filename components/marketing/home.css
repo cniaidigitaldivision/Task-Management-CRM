@@ -1,0 +1,319 @@
+/* ============================================================================
+ * THE PUBLIC HOMEPAGE — styles
+ * ----------------------------------------------------------------------------
+ * ⚠️ EVERY SELECTOR IS SCOPED UNDER `.taskly-home`, AND MUST STAY THAT WAY.
+ *
+ * Next.js does not remove a stylesheet when you navigate away from the route
+ * that imported it (its own docs say so — React's Suspense integration keeps it
+ * in the document). So this file is still live after somebody clicks Log in.
+ *
+ * The page was drawn as a standalone document and carries rules for bare
+ * elements — `h1`, `a`, `header`, `section`. Unscoped, those would restyle
+ * /login and every screen behind it the moment a visitor clicked through.
+ * Scoped, the leftover stylesheet matches nothing and does nothing.
+ *
+ * ── COLOURS ARE THE APPLICATION'S TOKENS, BY REFERENCE ──────────────────────
+ * The block below aliases styles/tokens.css rather than copying values out of
+ * it, so the marketing page and the product cannot drift apart. Only the scrim
+ * over the footage and the two stills belong to this page.
+ * ========================================================================= */
+
+
+  /* ══════════════════════════════════════════════════════════════════════
+     TASKLY — the public homepage
+     ----------------------------------------------------------------------
+     The palette is lifted verbatim from styles/tokens.css, both themes, so
+     the marketing page and the product are the same object. Teal #0e5c63 is
+     the core brand; gold #d4a63c is the second voice and is used sparingly.
+
+     Dark is SELECTED, not an automatic flip: its own steps from the same
+     scale, exactly as the app defines them.
+
+     ⚠️ THE VIDEOS ARE THE APP'S OWN. `room-light/dark.mp4` is the control-room
+     clip that sits behind the dashboard; `brain-light/dark.mp4` is the AI
+     assistant's. Both come in a light and a dark cut, which is why the theme
+     toggle changes the footage and not just the paint.
+     ══════════════════════════════════════════════════════════════════════ */
+
+.taskly-home{
+  /* ── EVERY COLOUR IS THE APPLICATION'S OWN TOKEN, BY REFERENCE ───────────
+     Not copied values that happen to match: aliases. styles/tokens.css already
+     switches each of these between light and dark, so this page follows the
+     product's palette permanently and cannot drift from it. The names below are
+     the page's vocabulary; the values are never its own.
+
+     ⚠️ --gold IS --text-gold, WHICH IS NOT THE BRAND GOLD. tokens.css: gold-500
+     on white is 2.1:1, and gold-800 is the only gold safe as light-theme text.
+     --gold-fill is the bright one and is a FILL — borders, rules, dots. Using
+     the brand gold as ink is the mistake the token exists to prevent. */
+  --base:      var(--bg-base);
+  --sunken:    var(--bg-surface-sunken);
+  --surface:   var(--bg-surface);
+  --ink:       var(--text-primary);
+  --ink-soft:  var(--text-secondary);
+  --ink-faint: var(--text-tertiary);
+  --brand:     var(--text-brand);
+  /* ⚠️ THE LIT END OF THE BUTTON GRADIENT, AND IT MUST SWITCH WITH THE THEME.
+     Light wants a step DARKER than --brand, dark wants one LIGHTER, because the
+     ink on top flips too (--text-on-brand is white in light, teal-950 in dark).
+     Frozen at teal-600 for both, the dark button became dark teal under dark
+     ink and measured 2.94:1. The dark override is in the blocks below. */
+  --brand-lit: var(--teal-600);
+  --gold:      var(--text-gold);
+  --gold-fill: var(--gold-500);
+  --rule:      var(--border-default);
+  --rule-soft: var(--border-subtle);
+  --rule-firm: var(--border-strong);
+  --on-brand:  var(--text-on-brand);
+  --shadow:    var(--shadow-md);
+
+  /* ── THE ONLY VALUES THIS PAGE OWNS ──────────────────────────────────────
+     The scrim over the footage, which the application has no equivalent for
+     because nothing in the product puts text on a video.
+
+     MEASURED, NOT CHOSEN: at 58% the 21px standfirst read 3.55:1 and the 13px
+     byline 2.96:1 over the pale studio frame. 74% carries both. The dark cut
+     needs less, its own ground being dark already. */
+  --veil:      rgb(255 255 255 / .74);
+  --veil-firm: rgb(255 255 255 / .86);
+  --clip-op:   .85;
+
+  /* ── THE STILL IS A BACKGROUND, NOT A `poster` ATTRIBUTE ─────────────────
+     A poster would have to be chosen in JavaScript, and the theme is not known
+     until React hydrates — the server render assumes light, so a dark visitor
+     would be shown the light still and then have it swapped under them.
+
+     As a background it is chosen by CSS from `data-theme`, which the pre-paint
+     script in app/layout.tsx stamps BEFORE first paint. The right still is
+     therefore correct from the first frame, needs no JavaScript, and only the
+     one that matches is ever downloaded. The clip covers it once it plays. */
+  --still-room:  url('/dashboard/room-light-poster.jpg');
+  --still-brain: url('/assistant/brain-light-poster.jpg');
+
+  /* This page is designed at 1:1. `body` carries zoom: var(--ui-scale) for the
+     application's 90% density (styles/tokens.css), which would render every
+     size here 10% under what was drawn and measured. Nested zoom multiplies,
+     so this cancels it exactly for this subtree and nothing else. */
+  zoom: calc(1 / var(--ui-scale));
+
+  margin: 0;
+  background: var(--base);
+  color: var(--ink);
+  /* Archivo, self-hosted by next/font from app/page.tsx — no network request to
+     Google, and no layout shift. `wdth` is loaded as well as `wght` because the
+     headlines are set at font-stretch 108-112%; without that axis the browser
+     synthesises the width and the letterforms distort. */
+  font-family: var(--font-archivo), system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+  /* No-JS fallback only: the application's pre-paint script always stamps
+     data-theme, so in practice the attribute block below is what runs. */
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme='light']) .taskly-home{
+  --brand-lit: var(--teal-300);
+  --veil:      rgb(4 22 26 / .68);
+  --veil-firm: rgb(4 22 26 / .9);
+  --clip-op:   .9;
+  --still-room:  url('/dashboard/room-dark-poster.jpg');
+  --still-brain: url('/assistant/brain-dark-poster.jpg');
+    }
+  }
+  :root[data-theme='dark'] .taskly-home{
+  --brand-lit: var(--teal-300);
+  --veil:      rgb(4 22 26 / .68);
+  --veil-firm: rgb(4 22 26 / .9);
+  --clip-op:   .9;
+  --still-room:  url('/dashboard/room-dark-poster.jpg');
+  --still-brain: url('/assistant/brain-dark-poster.jpg');
+  }
+
+  .taskly-home *{ box-sizing: border-box; }
+
+  .taskly-home .wrap{ max-width: 68rem; margin: 0 auto; padding-inline: 20px; }
+  .taskly-home a{ color: inherit; }
+  .taskly-home :focus-visible{ outline: 2px solid var(--brand); outline-offset: 3px; border-radius: 4px; }
+
+  /* ── Header ─────────────────────────────────────────────────────────── */
+  .taskly-home header{
+    position: sticky; top: 0; z-index: 40;
+    background: color-mix(in oklab, var(--base) 84%, transparent);
+    backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--rule-soft);
+  }
+  .taskly-home .bar{ display: flex; align-items: center; gap: 20px; height: 62px; }
+  .taskly-home .mark{ display: flex; align-items: center; gap: 9px; font-weight: 700; letter-spacing: -.02em; font-size: 1.06rem; text-decoration: none; }
+  .taskly-home .mark .glyph{
+    width: 26px; height: 26px; border-radius: 7px; flex: none;
+    background: linear-gradient(135deg, var(--brand-lit), var(--brand));
+    display: grid; place-items: center; color: var(--on-brand); font-size: .78rem; font-weight: 800;
+  }
+  .taskly-home .mark small{ display: block; font-size: .58rem; font-weight: 600; letter-spacing: .1em; color: var(--ink-soft); text-transform: uppercase; margin-top: -2px; }
+  .taskly-home nav.links{ display: none; gap: 22px; margin-left: 12px; }
+  @media (min-width: 62rem) { .taskly-home nav.links{ display: flex; } }
+  .taskly-home nav.links a{ font-size: .88rem; font-weight: 500; color: var(--ink-soft); text-decoration: none; }
+  .taskly-home nav.links a:hover{ color: var(--ink); }
+  .taskly-home .bar .right{ margin-left: auto; display: flex; align-items: center; gap: 10px; }
+
+  .taskly-home .btn{
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    height: 40px; padding-inline: 18px; border-radius: 10px;
+    font-size: .9rem; font-weight: 600; text-decoration: none;
+    border: 1px solid transparent; cursor: pointer;
+    transition: filter .14s ease, border-color .14s ease;
+  }
+  .taskly-home .btn-primary{ background: linear-gradient(135deg, var(--brand-lit), var(--brand)); color: var(--on-brand); }
+  .taskly-home .btn-primary:hover{ filter: brightness(1.08); }
+  .taskly-home .btn-ghost{ border-color: var(--rule-firm); color: var(--ink); background: var(--surface); }
+  .taskly-home .btn-ghost:hover{ border-color: var(--brand); }
+  .taskly-home .btn-lg{ height: 50px; padding-inline: 26px; font-size: 1rem; }
+
+
+  /* ── Hero, over the control-room clip ───────────────────────────────── */
+  .taskly-home .hero{ position: relative; isolation: isolate; overflow: hidden; padding-block: clamp(60px, 10vw, 132px) clamp(48px, 7vw, 88px); }
+
+  /* ⚠️ ONE VIDEO ELEMENT, ITS `src` SWAPPED BY THE TOGGLE — not two cuts with
+     one hidden. The app can afford CSS-switching for this clip at 1.4 MB
+     apiece; a public homepage on mobile data cannot afford both. */
+  .taskly-home .hero-clip{
+    position: absolute; inset-inline: 0; top: 0; z-index: -2;
+    width: 100%; opacity: var(--clip-op);
+    background: var(--still-room) center / cover no-repeat;
+    /* Faded out at its own bottom edge. Without this the clip simply STOPS
+       partway down and, because its lowest rows are the darker studio floor,
+       the cut reads as a hard seam across the full width. */
+    mask-image: linear-gradient(to bottom, black 58%, transparent 94%);
+    -webkit-mask-image: linear-gradient(to bottom, black 58%, transparent 94%);
+    pointer-events: none;
+  }
+  /* The scrim protects the type and nothing else — it must not dim the clip
+     evenly, or the whole thing turns to mud. */
+  .taskly-home .hero::after{
+    content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+    background: linear-gradient(to bottom, var(--veil) 0%, var(--veil) 46%, var(--base) 92%);
+  }
+
+  .taskly-home h1{
+    font-size: clamp(2.5rem, 7.4vw, 5rem);
+    line-height: .98; font-weight: 800; font-stretch: 112%;
+    letter-spacing: -.035em; margin: 0; max-width: 15ch;
+  }
+  .taskly-home h1 em{ font-style: normal; color: var(--brand); }
+  /* Full-strength ink, not `--ink-soft`. The soft and faint tokens are graded
+     against a SOLID surface; over footage they lose the contrast they were
+     picked for, and no scrim thin enough to keep the clip alive buys it back. */
+  .taskly-home .standfirst{ margin: 24px 0 0; font-size: clamp(1.05rem, 2.1vw, 1.3rem); line-height: 1.5; color: var(--ink); max-width: 46ch; }
+  .taskly-home .cta{ display: flex; flex-wrap: wrap; gap: 12px; margin-top: 32px; }
+  .taskly-home .who{ margin: 22px 0 0; font-size: .84rem; color: var(--ink-soft); }
+
+  /* ── A framed screen ────────────────────────────────────────────────── */
+  .taskly-home .frame{ border: 1px solid var(--rule); border-radius: 16px; background: var(--surface); box-shadow: var(--shadow); overflow: hidden; }
+  .taskly-home .hero .frame{ margin-top: clamp(40px, 6vw, 64px); }
+  .taskly-home .frame .chrome{ display: flex; align-items: center; gap: 7px; padding: 11px 14px; border-bottom: 1px solid var(--rule-soft); background: var(--sunken); }
+  .taskly-home .frame .chrome i{ width: 9px; height: 9px; border-radius: 50%; background: var(--rule-firm); }
+  .taskly-home .frame .chrome span{ margin-left: 8px; font-size: .74rem; color: var(--ink-soft); }
+  .taskly-home .stage{ aspect-ratio: 16 / 9; width: 100%; display: block; background: var(--sunken); }
+  .taskly-home .stage-empty{ display: grid; place-content: center; gap: 10px; text-align: center; padding: 24px; color: var(--ink-soft); }
+  .taskly-home .stage-empty strong{ display: block; color: var(--ink-soft); font-size: .95rem; font-weight: 600; }
+  .taskly-home .stage-empty span{ font-size: .8rem; }
+  .taskly-home .play{ width: 54px; height: 54px; border-radius: 50%; margin: 0 auto; background: linear-gradient(135deg, var(--brand-lit), var(--brand)); display: grid; place-items: center; color: var(--on-brand); }
+
+  /* ── Sections ───────────────────────────────────────────────────────── */
+  .taskly-home section{ padding-block: clamp(64px, 9vw, 112px); }
+  .taskly-home .section-head{ max-width: 44ch; }
+  .taskly-home h2{ font-size: clamp(1.75rem, 4.2vw, 2.7rem); line-height: 1.08; font-weight: 800; font-stretch: 108%; letter-spacing: -.028em; margin: 0; }
+  .taskly-home .section-head p{ margin: 16px 0 0; color: var(--ink-soft); font-size: 1.02rem; line-height: 1.6; }
+
+  /* ── The thread ─────────────────────────────────────────────────────── */
+  .taskly-home .thread{ margin-top: 52px; position: relative; }
+  .taskly-home .thread::before{
+    content: ""; position: absolute; left: 11px; top: 12px; bottom: 12px; width: 2px;
+    background: linear-gradient(to bottom, transparent, var(--rule-firm) 6%, var(--rule-firm) 94%, transparent);
+  }
+  @media (min-width: 52rem) { .taskly-home .thread::before{ left: 15px; } }
+  .taskly-home .stop{ position: relative; padding-left: 44px; padding-block: 22px; }
+  @media (min-width: 52rem) { .taskly-home .stop{ padding-left: 56px; display: grid; grid-template-columns: minmax(0, 19rem) minmax(0, 1fr); gap: 32px; } }
+  .taskly-home .stop::before{ content: ""; position: absolute; left: 4px; top: 30px; width: 16px; height: 16px; border-radius: 50%; background: var(--base); border: 2px solid var(--brand); }
+  @media (min-width: 52rem) { .taskly-home .stop::before{ left: 8px; } }
+  .taskly-home .stop.gold::before{ border-color: var(--gold-fill); }
+  .taskly-home .stop h3{ margin: 0 0 6px; font-size: 1.18rem; font-weight: 700; letter-spacing: -.015em; line-height: 1.25; }
+  .taskly-home .stop .where{ font-size: .78rem; font-weight: 600; color: var(--brand); margin: 0 0 8px; }
+  .taskly-home .stop.gold .where{ color: var(--gold); }
+  .taskly-home .stop p{ margin: 0; color: var(--ink-soft); font-size: .96rem; line-height: 1.62; max-width: 56ch; }
+  .taskly-home .stop ul{ margin: 12px 0 0; padding-left: 18px; }
+  .taskly-home .stop li{ color: var(--ink-soft); font-size: .9rem; margin-bottom: 5px; }
+  .taskly-home .stop li::marker{ color: var(--ink-faint); }
+
+  /* ── Module grid ────────────────────────────────────────────────────── */
+  .taskly-home .grid{ display: grid; gap: 1px; margin-top: 48px; background: var(--rule-soft); border: 1px solid var(--rule-soft); border-radius: 14px; overflow: hidden; }
+  @media (min-width: 40rem) { .taskly-home .grid{ grid-template-columns: 1fr 1fr; } }
+  @media (min-width: 62rem) { .taskly-home .grid{ grid-template-columns: repeat(3, 1fr); } }
+  .taskly-home .cell{ background: var(--surface); padding: 26px 24px; }
+  .taskly-home .cell h3{ margin: 0 0 8px; font-size: 1.02rem; font-weight: 700; letter-spacing: -.01em; }
+  .taskly-home .cell p{ margin: 0; font-size: .9rem; line-height: 1.6; color: var(--ink-soft); }
+  .taskly-home .cell .tag{ display: block; font-size: .72rem; font-weight: 600; color: var(--brand); margin-bottom: 7px; }
+  .taskly-home .band{ background: var(--surface); border-block: 1px solid var(--rule); }
+  .taskly-home .band .cell{ background: var(--base); }
+  .taskly-home .band .grid{ background: var(--rule); border-color: var(--rule); }
+
+  /* ── The assistant, over the brain clip ─────────────────────────────── */
+  .taskly-home .ai{ position: relative; isolation: isolate; overflow: hidden; }
+  /* ⚠️ `isolation: isolate` IS LOAD-BEARING, not tidiness. This box paints an
+     opaque --sunken background as the pre-load state (the clip is preload=none).
+     `position: relative` alone does NOT make a stacking context, so the
+     negative-z clip and scrim below escaped to .ai and painted BEHIND that
+     background — the panel rendered as an empty grey box in both themes with
+     the video happily playing, unseen, underneath. Isolating puts the root's
+     own background first in paint order and the negative-z children above it. */
+  .taskly-home .ai-stage{
+    position: relative; isolation: isolate;
+    border-radius: 18px; overflow: hidden;
+    border: 1px solid var(--rule); margin-top: 44px; background: var(--sunken);
+    min-height: 260px; display: grid; align-items: end;
+  }
+  .taskly-home .brain-clip{
+    position: absolute; inset: 0; z-index: -2;
+    width: 100%; height: 100%; object-fit: cover; object-position: center;
+    opacity: var(--clip-op);
+    background: var(--still-brain) center / cover no-repeat;
+  }
+  .taskly-home .ai-stage::after{
+    content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+    background: linear-gradient(to top, var(--veil-firm) 0%, var(--veil) 62%, transparent 100%);
+  }
+  .taskly-home .ai-stage .caption{ position: relative; padding: 28px 26px; }
+  .taskly-home .ai-stage .caption p{ margin: 0; max-width: 44ch; font-size: 1.02rem; line-height: 1.55; color: var(--ink); font-weight: 500; }
+
+  .taskly-home .ai-list{ display: grid; gap: 24px; margin-top: 44px; }
+  @media (min-width: 48rem) { .taskly-home .ai-list{ grid-template-columns: 1fr 1fr; gap: 32px 44px; } }
+  .taskly-home .ai-item{ border-top: 2px solid var(--rule); padding-top: 16px; }
+  .taskly-home .ai-item.on{ border-top-color: var(--brand); }
+  .taskly-home .ai-item h3{ margin: 0 0 6px; font-size: 1.05rem; font-weight: 700; letter-spacing: -.012em; }
+  .taskly-home .ai-item p{ margin: 0; color: var(--ink-soft); font-size: .93rem; line-height: 1.6; }
+
+  /* ── Video gallery ──────────────────────────────────────────────────── */
+  .taskly-home .films{ display: grid; gap: 22px; margin-top: 46px; }
+  @media (min-width: 52rem) { .taskly-home .films{ grid-template-columns: 1fr 1fr; } }
+  .taskly-home .film h3{ margin: 14px 0 4px; font-size: 1rem; font-weight: 700; }
+  .taskly-home .film p{ margin: 0; font-size: .88rem; color: var(--ink-soft); }
+
+  /* ── Close ──────────────────────────────────────────────────────────── */
+  .taskly-home .close{ text-align: center; }
+  .taskly-home .close h2{ margin-inline: auto; max-width: 18ch; }
+  .taskly-home .close p{ margin: 18px auto 0; max-width: 48ch; color: var(--ink-soft); }
+  .taskly-home .close .cta{ justify-content: center; margin-top: 30px; }
+
+  .taskly-home footer{ border-top: 1px solid var(--rule-soft); padding-block: 34px 44px; }
+  .taskly-home .foot{ display: flex; flex-wrap: wrap; gap: 18px; align-items: center; }
+  .taskly-home .foot p{ margin: 0; font-size: .82rem; color: var(--ink-soft); }
+  .taskly-home .foot .spacer{ margin-left: auto; }
+  .taskly-home .foot a{ font-size: .84rem; color: var(--ink-soft); text-decoration: none; font-weight: 500; }
+  .taskly-home .foot a:hover{ color: var(--ink); }
+
+  /* ⚠️ A looping clip is motion nobody asked for. Anybody who has asked their
+     system to stop animating gets the poster frame and no playback — the videos
+     are paused in script, because CSS cannot pause a <video>. */
+  @media (prefers-reduced-motion: reduce) { .taskly-home *{ animation: none !important; transition: none !important; } }
