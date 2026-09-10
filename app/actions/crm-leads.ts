@@ -261,7 +261,7 @@ export async function assignLeadAction(
     /* 120's trigger raises `insufficient_privilege` for a salesperson. */
     return {
       ok: false,
-      error: 'Only the sales manager or an Admin can hand a lead to somebody.',
+      error: "Only this department's manager or an Admin can hand out its leads.",
     };
   }
 
@@ -312,7 +312,7 @@ export async function shareOutLeadsAction(
   for (const id of ids) {
     let owner: string | null;
     try {
-      owner = await crmNextOwner(user.id);
+      owner = await crmNextOwner(user.id, projectId);
     } catch {
       return { ok: false, error: 'The rota could not be read.' };
     }
@@ -325,8 +325,8 @@ export async function shareOutLeadsAction(
         assigned,
         error:
           assigned > 0
-            ? `Shared out ${assigned} before running out of salespeople to give them to.`
-            : 'There is nobody in the Sales department to give a lead to.',
+            ? `Shared out ${assigned} before running out of people to give them to.`
+            : 'Nobody in the department this project belongs to can be given a lead.',
       };
     }
 
@@ -342,8 +342,8 @@ export async function shareOutLeadsAction(
         assigned,
         error:
           assigned > 0
-            ? `Shared out ${assigned}, then one was refused. Only the sales manager or an Admin can hand out leads.`
-            : 'Only the sales manager or an Admin can hand out leads.',
+            ? `Shared out ${assigned}, then one was refused. Only this department's manager or an Admin can hand out its leads.`
+            : "Only this department's manager or an Admin can hand out its leads.",
       };
     }
   }

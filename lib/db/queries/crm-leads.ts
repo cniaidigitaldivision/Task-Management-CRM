@@ -172,19 +172,26 @@ export interface CrmLeadFilters {
  * client is not in it yet. Hiding them would make the dropdown look like the
  * whole world, which is how somebody concludes a client was never set up.
  *
- * ⚠️ Tools are excluded for the same reason the Studio excludes them: a product
- * has no leads and never will.
+ * ⚠️ TOOLS ARE NO LONGER EXCLUDED, AND THE COMMENT THAT EXCLUDED THEM WAS
+ * WRONG. It read *"a product has no leads and never will"* — reasonable when the
+ * only campaigns were a client's. The owner is now advertising the division's
+ * OWN products: *"we are going to start an ERP ad campaign and a CRM ad campaign,
+ * plus a lot of others."* `Internal CRM`, `Social Media Automation Tool` and
+ * `WhatsApp Business API Automation` are all `type = 'tool'`, so those leads
+ * would have imported and then been invisible on this screen.
+ *
+ * ⚠️ AND IT IS NOW SCOPED BY DEPARTMENT. Migration 124 routes each project's
+ * leads to a department; showing a salesperson the ERP project would offer them
+ * a dropdown entry whose table they cannot read. Admin sees everything.
  */
 export async function listCrmProjects(actorId: string): Promise<CrmProjectOption[]> {
-  const rows = await withUser(actorId, (tx) => tx`
-    select p.id, p.name, p.code,
-           (select count(*) from public.crm_leads      l where l.project_id = p.id) as leads,
-           (select count(*) from public.crm_lead_forms f where f.project_id = p.id) as forms
-      from public.projects p
-     where p.is_draft = false
-       and p.type <> 'tool'
-     order by leads desc, p.name
-  `);
+  /* ⚠️ THROUGH MIGRATION 125'S READER, NOT A QUERY ON `projects`. `projects_select`
+     is `app.project_is_visible(id)`, which needs project MEMBERSHIP — and the
+     sales team are not members of Chitral. Read directly, this returned ZERO
+     rows for the sales manager while they could read all 615 leads, so the desk
+     said "No projects are visible to you yet" above six hundred readable leads.
+     Same shape as the "Former member" bug, on a third table. */
+  const rows = await withUser(actorId, (tx) => tx`select * from app.crm_project_options()`);
 
   return (rows as Array<Record<string, unknown>>).map((r) => {
     const leads = Number(r.leads ?? 0);
@@ -730,12 +737,17 @@ export interface CrmSalesPerson {
 /**
  * The sales team, with the arithmetic the rota runs on.
  *
- * ⚠️ EMPTY FOR A SALESPERSON, by migration 120's own guard rather than by a
- * check here. Colleagues' win counts and response times are the manager's view,
- * not the team's.
+ * ⚠️ EMPTY FOR SOMEBODY WHO DOES NOT MANAGE THIS PROJECT, by migration 124's
+ * guard inside the function rather than by a check here. Colleagues' win counts
+ * and response times are the manager's view, not the team's.
  */
-export async function crmSalesRoster(actorId: string): Promise<CrmSalesPerson[]> {
-  const rows = await withUser(actorId, (tx) => tx`select * from app.crm_sales_roster()`);
+export async function crmProjectRoster(
+  actorId: string,
+  projectId: string,
+): Promise<CrmSalesPerson[]> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select * from app.crm_project_roster(${projectId}::uuid)
+  `);
 
   return (rows as Array<Record<string, unknown>>).map((r) => ({
     id: String(r.user_id),
@@ -784,8 +796,10 @@ export async function assignLead(
  * reads — a single call reused across twenty leads would give all twenty to
  * whoever happened to be lowest at the start.
  */
-export async function crmNextOwner(actorId: string): Promise<string | null> {
-  const rows = await withUser(actorId, (tx) => tx`select app.crm_next_owner() as id`);
+export async function crmNextOwner(actorId: string, projectId: string): Promise<string | null> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select app.crm_next_owner(${projectId}::uuid) as id
+  `);
   const id = (rows as Array<Record<string, unknown>>)[0]?.id;
   return id ? String(id) : null;
 }

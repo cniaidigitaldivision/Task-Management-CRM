@@ -42,15 +42,21 @@ export interface NavItem {
   icon: typeof LayoutDashboard;
   roles: readonly Role[];
   /**
-   * Departments that see this item WHATEVER their rank — migration 117.
+   * A capability that opens this item WHATEVER the rank — migration 124.
    *
-   * ⚠️ THIS EXISTS BECAUSE RANK CANNOT EXPRESS THE CRM. Sales staff are
-   * `member`, the bottom of the ladder, and the desk is their whole job; the
-   * Team Coordinator is above them and has no lead work. `roles` is a ladder
-   * and departments are not, so the two conditions are ORed rather than one
-   * being bent into the other.
+   * ⚠️ THIS EXISTS BECAUSE RANK CANNOT EXPRESS THE CRM. The people whose whole
+   * job is the lead desk are `member`, the bottom of the ladder. `roles` is a
+   * ladder and this is not, so the two are ORed rather than one being bent into
+   * the other.
+   *
+   * ⚠️ AND IT IS A CAPABILITY, NOT A DEPARTMENT LIST. It was
+   * `departments: ['sales']` until 2026-09-10, which stopped being right the
+   * moment the division's own product leads routed to AI & Digital instead. A
+   * static list would have had to grow every time a project was re-routed, and
+   * would have been wrong in between. The server already computes the answer —
+   * `crmIsOpenTo()` — so the nav asks for it rather than re-deriving it.
    */
-  departments?: readonly string[];
+  requires?: 'crm';
   /** Shown as a counter chip. Wired to real data from Phase 3. */
   badgeKey?: 'myTasks' | 'review' | 'overdue';
 }
@@ -163,10 +169,12 @@ export const NAV_SECTIONS: readonly NavSection[] = [
        answer before the question. Its own heading leaves room for the campaign
        and source screens that follow.
 
-       ⚠️ ADMIN_UP **plus the sales department** — owner, 2026-09-10: *"all this
-       CRM belongs to the sales manager and the salespersons. Plus admin and
-       super admin are by default added."* The Team Coordinator was admitted
-       until that day and is not any more.
+       ⚠️ ADMIN_UP **plus whoever the leads route to** — owner, 2026-09-10:
+       *"the system should be smart enough to know which campaign these leads are
+       coming from and which project they are from. Who will lead or deal with
+       these leads?"* Chitral routes to Sales, the division's own ERP and CRM
+       leads route to AI & Digital. It was Sales alone for one day; see
+       migration 124.
 
        ⚠️ And this file is not the floor. `app/(app)/leads/layout.tsx` and
        migration 118 are (NFR-006); removing the link here would hide the page
@@ -178,9 +186,9 @@ export const NAV_SECTIONS: readonly NavSection[] = [
         href: '/leads',
         icon: Radio,
         roles: ADMIN_UP,
-        /* ⚠️ Sales staff are `member`. Without this line the three people whose
-           entire job is this screen would have no link to it. */
-        departments: ['sales'],
+        /* ⚠️ The people whose entire job is this screen are `member`. Without
+           this they would have no link to it. */
+        requires: 'crm',
       },
     ],
   },
@@ -264,21 +272,25 @@ export const NAV_SECTIONS: readonly NavSection[] = [
   },
 ];
 
+/** What the viewer can reach beyond their rank. */
+export interface NavCapabilities {
+  /** `crmIsOpenTo()` — see `lib/auth/current-user.ts`. */
+  readonly crm?: boolean;
+}
+
 /**
  * What this person is offered.
  *
- * ⚠️ `departmentKey` IS OPTIONAL AND DEFAULTS TO NOTHING, so every existing
- * caller keeps the rank-only behaviour it had. A department only ever ADDS an
- * item — it can never take one away, because a rule that could remove things
- * would make "why has my sidebar changed?" a support question.
+ * ⚠️ `can` IS OPTIONAL AND DEFAULTS TO NOTHING, so every existing caller keeps
+ * the rank-only behaviour it had. A capability only ever ADDS an item — it can
+ * never take one away, because a rule that could remove things would make "why
+ * has my sidebar changed?" a support question.
  */
-export function sectionsForRole(role: Role, departmentKey?: string | null): NavSection[] {
+export function sectionsForRole(role: Role, can: NavCapabilities = {}): NavSection[] {
   return NAV_SECTIONS.map((section) => ({
     ...section,
     items: section.items.filter(
-      (item) =>
-        item.roles.includes(role) ||
-        (departmentKey != null && (item.departments?.includes(departmentKey) ?? false)),
+      (item) => item.roles.includes(role) || (item.requires ? can[item.requires] === true : false),
     ),
   })).filter((section) => section.items.length > 0);
 }
@@ -286,8 +298,6 @@ export function sectionsForRole(role: Role, departmentKey?: string | null): NavS
 /** Every href a role is offered, for the "which item is current" rule. Flattened
  *  here so the rule itself stays free of the nav's React types — see
  *  `lib/view/nav-active.ts`. */
-export function hrefsForRole(role: Role, departmentKey?: string | null): string[] {
-  return sectionsForRole(role, departmentKey).flatMap((section) =>
-    section.items.map((item) => item.href),
-  );
+export function hrefsForRole(role: Role, can: NavCapabilities = {}): string[] {
+  return sectionsForRole(role, can).flatMap((section) => section.items.map((item) => item.href));
 }

@@ -6,7 +6,7 @@ import {
   crmFormOptions,
   crmOwnerOptions,
   crmDueCounts,
-  crmSalesRoster,
+  crmProjectRoster,
   listCrmLeads,
   listCrmProjects,
   unassignedCount,
@@ -108,7 +108,9 @@ export default async function LeadsPage({
           /* ⚠️ EMPTY FOR A SALESPERSON, by migration 120's guard rather than by
              a check here — which is also how the page knows whether to draw the
              share-out control at all. */
-          crmSalesRoster(user.id),
+          /* ⚠️ Per PROJECT since migration 124 — Chitral's team is Sales,
+             the ERP project's is AI & Digital. */
+          crmProjectRoster(user.id, selected.id),
           crmDueCounts(user.id, selected.id),
         ])
       : null;

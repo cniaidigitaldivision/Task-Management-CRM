@@ -43,36 +43,72 @@ function person(role: CurrentUser['role']): CurrentUser {
   };
 }
 
-const IN = (key: string | null, isManager = false): ActingDepartment => ({
+/**
+ * A department, and whether any project's leads route to it.
+ *
+ * ⚠️ `ownsLeads` IS THE RULE NOW, NOT THE KEY. Until migration 124 this was
+ * `key === 'sales'`; the owner then routed the division's own product leads to
+ * AI & Digital, and access follows the routing rather than one department's
+ * name. These fixtures therefore set the two independently — including the
+ * combination that used to be impossible: a department called `sales` that owns
+ * nothing.
+ */
+const IN = (
+  key: string | null,
+  { manager = false, ownsLeads = false }: { manager?: boolean; ownsLeads?: boolean } = {},
+): ActingDepartment => ({
   key,
   name: key,
-  isManager,
+  isManager: manager,
+  ownsLeadProjects: ownsLeads,
 });
 
-describe('the sales department', () => {
+describe('a department that owns leads', () => {
   it('opens for a salesperson, who is only a Member', () => {
     /* ⚠️ THE CASE RANK CANNOT EXPRESS. All three sales testers are `member` —
        the bottom of the ladder — and this is their whole job. */
-    expect(crmIsOpenTo(person('member'), IN('sales'))).toBe(true);
+    expect(crmIsOpenTo(person('member'), IN('sales', { ownsLeads: true }))).toBe(true);
   });
 
   it('opens for the sales manager, who is also only a Member', () => {
     /* ADR-002 fixed the app at four ranks and Step 6 did not add a fifth.
        Seniority inside a department is a different question from app authority. */
-    expect(crmIsOpenTo(person('member'), IN('sales', true))).toBe(true);
+    expect(
+      crmIsOpenTo(person('member'), IN('sales', { manager: true, ownsLeads: true })),
+    ).toBe(true);
+  });
+
+  it('⚠️ opens for AI & Digital too, since the ERP leads route there', () => {
+    /* The case migration 124 exists for. Owner: *"AI & Digital owns them, under
+       Kashif."* Before 124 this returned false, because the rule was the word
+       "sales" rather than the routing. */
+    expect(crmIsOpenTo(person('member'), IN('digital', { ownsLeads: true }))).toBe(true);
+    expect(
+      crmIsOpenTo(person('team_coordinator'), IN('digital', { manager: true, ownsLeads: true })),
+    ).toBe(true);
+  });
+
+  it('⚠️ refuses a department that owns no project, whatever it is called', () => {
+    /* Including one called `sales`. The name is not the rule — a Sales
+       department with every project routed elsewhere works no leads. */
+    expect(crmIsOpenTo(person('member'), IN('sales', { ownsLeads: false }))).toBe(false);
+    expect(crmIsOpenTo(person('member'), IN('digital', { ownsLeads: false }))).toBe(false);
   });
 });
 
 describe('everybody else', () => {
-  it('⚠️ refuses the Team Coordinator, reversing the answer of 2026-09-09', () => {
-    /* He coordinates the digital team's tasks. Leads were never his work, and
-       migration 118 says the same thing in SQL. */
+  it('⚠️ refuses a Coordinator whose department owns nothing', () => {
+    /* This began as "refuses the Team Coordinator", reversing the answer of
+       2026-09-09 — he coordinates tasks, and leads were never his work. It has
+       since become subtler: Kashif Ayaz IS the Coordinator and now manages
+       AI & Digital, whose product leads route to him. So the rank still decides
+       nothing either way; the routing does. */
     expect(crmIsOpenTo(person('team_coordinator'), IN('digital'))).toBe(false);
     expect(crmIsOpenTo(person('team_coordinator'), IN(null))).toBe(false);
   });
 
-  it('refuses a Member in any other department', () => {
-    for (const dept of ['digital', 'development', 'finance', 'hr', 'operations', 'support']) {
+  it('refuses a Member in a department nothing routes to', () => {
+    for (const dept of ['development', 'finance', 'hr', 'operations', 'support']) {
       expect(crmIsOpenTo(person('member'), IN(dept)), dept).toBe(false);
     }
   });
@@ -83,12 +119,13 @@ describe('everybody else', () => {
     expect(crmIsOpenTo(person('member'), IN(null))).toBe(false);
   });
 
-  it('is not fooled by a department that merely contains the word', () => {
-    /* The key is compared exactly. A department called `sales_support` is a
-       different department, and `after_sales` is not sales either. */
+  it('does not read the department NAME at all any more', () => {
+    /* ⚠️ These used to be the interesting cases — `sales_support` and
+       `after_sales` had to be told apart from `sales` by an exact comparison.
+       Migration 124 removed the comparison entirely, so what decides is the
+       routing and a name can no longer be near-missed. */
     expect(crmIsOpenTo(person('member'), IN('sales_support'))).toBe(false);
-    expect(crmIsOpenTo(person('member'), IN('after_sales'))).toBe(false);
-    expect(crmIsOpenTo(person('member'), IN('Sales'))).toBe(false);
+    expect(crmIsOpenTo(person('member'), IN('after_sales', { ownsLeads: true }))).toBe(true);
   });
 });
 

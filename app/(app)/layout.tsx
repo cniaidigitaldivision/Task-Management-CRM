@@ -4,6 +4,7 @@ import type { Metadata } from 'next';
 import { AppShell } from '@/components/layout/app-shell';
 import { AssistantLauncher } from '@/components/assistant/assistant-launcher';
 import {
+  crmIsOpenTo,
   getCurrentDepartment,
   requireEnrolledUser,
   touchSession,
@@ -89,7 +90,12 @@ export default async function AppGroupLayout({ children }: { children: React.Rea
         email: user.email,
         role: user.role,
         roleTitle: user.roleTitle,
-        departmentKey: department.key,
+        departmentName: department.name,
+        /* ⚠️ COMPUTED ONCE, HERE, and passed down as a boolean. The nav used to
+           be handed the department KEY and compare it to `['sales']` itself —
+           which broke the day the division's own leads routed elsewhere. The
+           rule lives in one function now. */
+        crmOpen: crmIsOpenTo(user, department),
         theme: user.theme,
         avatarUrl: user.avatarUrl,
       }}

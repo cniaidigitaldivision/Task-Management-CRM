@@ -6,10 +6,10 @@
 |---|---|
 | **Branch** | `crm` (from `main` at `0726704`) |
 | **Route** | `/leads` · nav: Growth → Campaign & Lead Desk |
-| **Phase** | **Steps 1–8 DONE.** The desk saves, the CRM belongs to the **Sales department**, and leads are handed out — by hand or shared across the team automatically. Step 7b (what the manager sees) is next and needs nothing. |
+| **Phase** | **Steps 1–8 DONE, and leads now route by department.** Step 9 (clients) is next — both its questions are answered. The desk saves, the CRM belongs to the **Sales department**, and leads are handed out — by hand or shared across the team automatically. Step 7b (what the manager sees) is next and needs nothing. |
 | **Scope** | ⚠️ **Chitral Royal Homes only.** One project, end to end. |
 | **Last updated** | 2026-09-10 |
-| **Last migration applied anywhere** | **123.** CRM next: 124. |
+| **Last migration applied anywhere** | **125.** CRM next: 126. |
 
 ---
 
@@ -260,6 +260,31 @@ more — see the decisions log, and ADR-012.
   ⚠️ **AN IMPORT IS NOT ACTIVITY.** All 615 leads carry an `imported` row;
   counting it would make an untouched lead look freshly worked.
 
+- [x] **Leads route to a department** — **migrations 124 + 125**. A project's
+      leads belong to a department, not to Sales. `projects.lead_department_id`,
+      six helper functions, eleven policies rewritten, the rota and roster made
+      per-project, and the nav's department list replaced with a capability.
+      **3076 tests green, tsc and eslint clean.**
+
+  ⚠️ **THIS REPLACES THE RULE MIGRATION 118 WROTE.** 118 put `d.key = 'sales'`
+  into eleven policies on the owner's instruction at the time. That was true of
+  the only project with leads and stopped being true the moment the division
+  advertised its own products — owner, 2026-09-10: *"we are going to start an ERP
+  ad campaign and a CRM ad campaign… the system should be smart enough to know
+  which campaign these leads are coming from and which project they are from."*
+
+  **Chitral → Sales. The division's own products → AI & Digital, under Kashif.**
+  Measured after the refactor: identical to before it. Nobody gained access.
+
+### ⚠️ What the routing change turned up
+
+| | |
+|---|---|
+| ⚠️ **`type = 'tool'` projects were EXCLUDED from the desk** | My own comment read *"a product has no leads and never will"* — reasonable when every campaign was a client's. `Internal CRM`, `Social Media Automation Tool` and `WhatsApp Business API Automation` are all `type = 'tool'`, and the owner is about to advertise two of them. Those leads would have imported and then been **invisible**. |
+| ⚠️ **The sales team saw 0 projects in the dropdown** | `projects_select` is `app.project_is_visible(id)`, which needs project MEMBERSHIP — and a salesperson is not a member of Chitral. So the desk would have said *"No projects are visible to you yet"* above **615 readable leads**. Migration 125 is a definer reader; **the third time this exact shape has appeared** after 105 and 121. |
+| **A migration cannot drop a function a policy uses** | And `DROP … CASCADE`, which the error suggests, would take the policies with it and leave the tables open if anything later in the file failed. Every dependent policy is dropped explicitly, in the same transaction that puts it back. |
+| **My verification query read through RLS** | 124's self-check confirmed the rota's pick by joining `users` while still acting as the sales manager — who sees one row of that table. It failed against a rota that was correct. Reading a team through RLS while acting as somebody who cannot see the team proves nothing. |
+
 ### ⚠️ What Step 8 turned up
 
 | | |
@@ -405,6 +430,10 @@ see not just what was decided but when and why.
 | 2026-09-10 | ⚠️ **Who sees the CRM — SUPERSEDES Q2** | **Admin, Super Admin, and the Sales department.** Owner: *"That was the team coordinator, not the sales manager… the team coordinator will be part of a digital creator team. He will manage their tasks… But for the salespersons or for the management of the lead, all this CRM belongs to the sales manager and the salespersons. Plus admin and super admin are by default added."* Migration 118. The 2026-09-09 answer admitting the Coordinator no longer holds. |
 | 2026-09-10 | Sales manager vs salesperson | **Manager sees every lead and who holds it, and can move a lead between salespeople.** A salesperson sees only their own. Owner also asked for automatic, AI-assisted distribution and for the manager to see response times and quotations — Steps 7, 11 and 12. |
 | 2026-09-10 | Departments | **Eight**, as a table rather than an enum — Management, AI & Digital, Development, Sales, Finance & Accounts, HR & People, Operations, Support. Owner asked for *"those five plus HR, Operations and Support"*. See ADR-012. |
+| 2026-09-10 | ⚠️ **Leads route by DEPARTMENT — supersedes 118** | **Chitral → Sales. ERP, CRM and automation → AI & Digital, under Kashif.** Owner: *"the Chitral lead will definitely be sent to the sales team… this is the CRM and automation lead so this will be handled by the developer team"*, then chose *"AI & Digital owns them, under Kashif"* over splitting by campaign. Migration 124. |
+| 2026-09-10 | ⚠️ **Q17 — what makes a client** | **Reaching `Won`.** The owner proposed engagement and asked for my view; I argued engagement is too early — it would produce hundreds of "clients" who have paid nothing and would make Step 12's *"not one closed"* meaningless. Their own 9 Sept answer (*"accept a quotation, or work starts"*) was better, and `Won` IS that moment. "They engaged" is the `qualified` stage, which already exists. |
+| 2026-09-10 | Q16 — client scope | **One project**, as the owner said. Nothing is lost: `crm_leads.client_id` still allows one person to hold leads across several projects. |
+| 2026-09-10 | No campaign-level routing | Offered and declined in favour of department-owns-project. `crm_campaigns` is also still empty. One routing rule rather than two that can disagree. |
 | 2026-09-10 | Neglect threshold | **5 days**, as a function parameter rather than a constant — it is a judgement, not a measurement, and there is not one closed lead to derive it from. Changeable in the cron schedule without a migration. |
 | 2026-09-10 | ⚠️ **Automatic distribution — an earlier refusal reversed** | **Built, in Step 7.** It was parked as needing outcomes; that is true of SCORING and not of dividing work. Owner: *"I think it's not as difficult as you are expecting… the person who has fewer leads will get the lead."* Fewest OPEN leads, then whoever waited longest. |
 | 2026-09-10 | The tie-break | **Whoever went longest without a lead**, decided by me at the owner's invitation — *"You can decide to whom it will give it, right?"* Fair, predictable, and checkable from a person's own timeline. Response time replaces it once there are calls logged. |

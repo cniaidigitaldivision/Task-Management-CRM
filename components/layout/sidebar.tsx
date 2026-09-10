@@ -60,7 +60,8 @@ function RailBadge({ count, tone }: { count: number; tone: 'neutral' | 'alert' }
 
 export function Sidebar({
   role,
-  departmentKey = null,
+  departmentName = null,
+  crmOpen = false,
   userName,
   userAvatarUrl = null,
   open,
@@ -68,10 +69,13 @@ export function Sidebar({
   pinned = false,
 }: {
   role: Role;
-  /** Their department's key — migration 117. Only ever ADDS a nav item; see
-   *  `sectionsForRole`. Defaults to null so an unassigned person is offered
-   *  exactly what their rank offers. */
-  departmentKey?: string | null;
+  /** Their department, shown under their name — migration 117. Null until
+   *  somebody files them, which is the default for a new account. */
+  departmentName?: string | null;
+  /** Whether the lead desk is open to them — `crmIsOpenTo()`. Only ever ADDS a
+   *  nav item; see `sectionsForRole`. Defaults to false so somebody with no
+   *  department is offered exactly what their rank offers. */
+  crmOpen?: boolean;
   userName: string;
   userAvatarUrl?: string | null;
   open: boolean;
@@ -97,7 +101,7 @@ export function Sidebar({
   pinned?: boolean;
 }) {
   const pathname = usePathname();
-  const sections = sectionsForRole(role, departmentKey);
+  const sections = sectionsForRole(role, { crm: crmOpen });
 
   /* Exactly one item is current, even where one nav item's route is nested inside
      another's. The rule and its reasoning live in lib/view/nav-active.ts, with
@@ -344,7 +348,12 @@ export function Sidebar({
                 className="block truncate text-micro"
                 style={{ color: 'var(--sidebar-muted)' }}
               >
-                {ROLE_LABEL[role]}
+                {/* ⚠️ THE DEPARTMENT, WHERE IT IS ACTUALLY USEFUL. What decides
+                    whether somebody sees the lead desk is their department, not
+                    their rank — so a rail that showed only "Team Member" left
+                    the load-bearing half of a person's identity off the screen.
+                    Rank second, because it is the half that changes least. */}
+                {departmentName ? `${departmentName} · ${ROLE_LABEL[role]}` : ROLE_LABEL[role]}
               </span>
             </span>
             <span

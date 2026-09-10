@@ -221,62 +221,59 @@ describe('the real navigation tree', () => {
     expect(activeHref(hrefsForRole('team_coordinator'), '/reports')).toBe('/reports');
   });
 
-  /* ══ THE DEPARTMENT DIMENSION — migration 117, owner 2026-09-10 ═══════════
-     *"All this CRM belongs to the sales manager and the salespersons. Plus admin
-     and super admin are by default added."*
+  /* ══ THE CAPABILITY DIMENSION — migrations 117 & 124 ═════════════════════
+     Owner, 2026-09-10: *"the system should be smart enough to know which
+     campaign these leads are coming from and which project they are from. Who
+     will lead or deal with these leads?"*
 
-     ⚠️ RANK CANNOT EXPRESS THIS. Sales staff are `member` — the bottom of the
-     ladder — and the desk is their whole job; the Team Coordinator sits above
-     them and has no lead work. So the nav asks a second question, and these
-     cases pin both halves of it. */
-  describe('the sales department', () => {
-    it('offers the lead desk to a Member who is in sales', () => {
-      /* The three sales testers are all `member`. Without this they would have
-         no link to the one screen they exist to use. */
-      expect(hrefsForRole('member', 'sales')).toContain('/leads');
+     ⚠️ THESE CASES WERE WRITTEN AGAINST A DEPARTMENT NAME AND ARE NOW WRITTEN
+     AGAINST A CAPABILITY. `sectionsForRole(role, 'sales')` was correct for one
+     day; the division's own ERP and CRM leads then routed to AI & Digital, and a
+     nav that compared against `['sales']` would have hidden the desk from the
+     person who owns those leads. The server computes `crmIsOpenTo()` once and
+     the nav asks for the answer.
+
+     ⚠️ RANK STILL CANNOT EXPRESS IT. The people whose whole job is the desk are
+     `member`, the bottom of the ladder. */
+  describe('the lead desk', () => {
+    it('offers it to a Member the CRM is open to', () => {
+      expect(hrefsForRole('member', { crm: true })).toContain('/leads');
     });
 
-    it('⚠️ does NOT offer it to the Team Coordinator, who runs digital', () => {
-      /* This reverses the answer of 2026-09-09, on the owner's instruction.
-         Migration 118 enforces the same rule in SQL, which is the one that
-         matters — this only decides whether a link is drawn. */
-      expect(hrefsForRole('team_coordinator', 'digital')).not.toContain('/leads');
-      expect(hrefsForRole('team_coordinator')).not.toContain('/leads');
-    });
-
-    it('does not offer it to a Member in any other department', () => {
-      expect(hrefsForRole('member', 'digital')).not.toContain('/leads');
-      expect(hrefsForRole('member', 'development')).not.toContain('/leads');
-      expect(hrefsForRole('member', null)).not.toContain('/leads');
+    it('⚠️ does not offer it on rank alone, at any rank below Admin', () => {
       expect(hrefsForRole('member')).not.toContain('/leads');
+      expect(hrefsForRole('team_coordinator')).not.toContain('/leads');
+      expect(hrefsForRole('member', {})).not.toContain('/leads');
+      expect(hrefsForRole('member', { crm: false })).not.toContain('/leads');
     });
 
-    it('still offers it to Admin and Super Admin, department or not', () => {
-      /* *"Plus admin and super admin are by default added."* Their rank carries
-         it, so being in Management — or nowhere — changes nothing. */
-      expect(hrefsForRole('admin', 'management')).toContain('/leads');
-      expect(hrefsForRole('admin', null)).toContain('/leads');
-      expect(hrefsForRole('super_admin', null)).toContain('/leads');
+    it('offers it to a Coordinator whose department owns leads, and not otherwise', () => {
+      /* Kashif Ayaz is the Coordinator AND manages AI & Digital, whose product
+         leads route to him. The rank decides nothing either way. */
+      expect(hrefsForRole('team_coordinator', { crm: true })).toContain('/leads');
+      expect(hrefsForRole('team_coordinator', { crm: false })).not.toContain('/leads');
     });
 
-    it('⚠️ a department only ever ADDS an item, never removes one', () => {
+    it('still offers it to Admin and Super Admin whatever their capabilities', () => {
+      expect(hrefsForRole('admin')).toContain('/leads');
+      expect(hrefsForRole('admin', { crm: false })).toContain('/leads');
+      expect(hrefsForRole('super_admin', { crm: false })).toContain('/leads');
+    });
+
+    it('⚠️ a capability only ever ADDS an item, never removes one', () => {
       /* A rule that could take a link away would make "why has my sidebar
-         changed?" a support question. Every href a rank is offered must survive
-         being in any department. */
+         changed?" a support question. */
       for (const role of ROLES) {
         const bare = hrefsForRole(role);
-        for (const dept of ['sales', 'digital', 'development', 'management', 'finance']) {
-          expect(hrefsForRole(role, dept), `${role} in ${dept}`).toEqual(
-            expect.arrayContaining(bare),
-          );
-        }
+        expect(hrefsForRole(role, { crm: true }), role).toEqual(expect.arrayContaining(bare));
+        expect(hrefsForRole(role, { crm: false }), role).toEqual(bare);
       }
     });
 
-    it('lights exactly one item for a salesperson too', () => {
-      /* The same specificity rule as above, on the tree a sales member actually
-         sees — `/leads/[id]` is nested under `/leads`. */
-      const hrefs = hrefsForRole('member', 'sales');
+    it('lights exactly one item for somebody who only has the desk', () => {
+      /* The same specificity rule as above, on the tree a salesperson sees —
+         `/leads/[id]` is nested under `/leads`. */
+      const hrefs = hrefsForRole('member', { crm: true });
       for (const href of hrefs) {
         expect(hrefs.filter((h) => h === activeHref(hrefs, href)), href).toHaveLength(1);
       }

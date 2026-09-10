@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 
 import { LeadRecord } from '@/components/crm/lead-record';
 import { requireCrmAccess } from '@/lib/auth/current-user';
-import { crmSalesRoster, getCrmLead } from '@/lib/db/queries/crm-leads';
+import { crmProjectRoster, getCrmLead } from '@/lib/db/queries/crm-leads';
 import { nowMs } from '@/lib/now';
 
 export const metadata: Metadata = { title: 'Lead' };
@@ -39,11 +39,15 @@ export default async function LeadPage({
   const record = await getCrmLead(user.id, id);
   if (!record) notFound();
 
-  /* ⚠️ EMPTY FOR A SALESPERSON, by migration 120's own guard inside
-     `crm_sales_roster()` rather than by a check here. So the reassign control is
-     not drawn for them — and if it somehow were, 120's trigger would refuse the
-     write. Two layers, and the database is the one that counts. */
-  const roster = await crmSalesRoster(user.id);
+  /* ⚠️ EMPTY FOR SOMEBODY WHO DOES NOT MANAGE THIS PROJECT, by migration 124's
+     guard inside `crm_project_roster()` rather than by a check here. So the
+     reassign control is not drawn for them — and if it somehow were, 120's
+     trigger would refuse the write. Two layers, and the database is the one
+     that counts.
+
+     ⚠️ SCOPED TO THIS LEAD'S PROJECT. A Chitral lead offers the Sales team; an
+     ERP lead offers AI & Digital. Before migration 124 there was one team. */
+  const roster = await crmProjectRoster(user.id, record.lead.projectId);
 
   return (
     <LeadRecord
@@ -58,11 +62,11 @@ export default async function LeadPage({
          database rather than allowed by the screen. */
       viewerId={user.id}
       viewerIsAdmin={user.role === 'admin' || user.role === 'super_admin'}
-      assignableOwners={roster.map((p) => ({
-        id: p.id,
-        name: p.name,
-        openLeads: p.openLeads,
-        isManager: p.isManager,
+      assignableOwners={roster.map((person) => ({
+        id: person.id,
+        name: person.name,
+        openLeads: person.openLeads,
+        isManager: person.isManager,
       }))}
       /* ⚠️ The SERVER's clock, so "3d ago" is the same for everyone — and so
          React cannot report a reader's wrong system time as a hydration error
