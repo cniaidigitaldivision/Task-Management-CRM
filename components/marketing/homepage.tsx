@@ -98,8 +98,13 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
             <span>Taskly<small>AI & Digital Division</small></span>
           </a>
           <nav className="links">
+            {/* ⚠️ FOUR ITEMS, FOUR SECTIONS. "What it holds" pointed at the
+                modules section, which the owner removed — an anchor to a target
+                that no longer exists does nothing at all when clicked, silently.
+                It is replaced by the Studio, which is a real section. */}
+            <a href="#layer">What it is</a>
+            <a href="#studio">The Studio</a>
             <a href="#thread">How it works</a>
-            <a href="#modules">What it holds</a>
             <a href="#ai">The assistant</a>
             <a href="#films">See it</a>
           </nav>
@@ -410,78 +415,15 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
           </div>
         </section>
 
-        {/* ══ MODULES ═══════════════════════════════════════════════════════ */}
-        <section id="modules">
-          <div className="wrap">
-            <div className="section-head" data-reveal>
-              <h2>And everything else an agency has to keep somewhere</h2>
-              <p>
-                The parts that usually end up in a shared drive, a WhatsApp group, or one person’s
-                memory.
-              </p>
-            </div>
-
-            <div className="grid" data-reveal-group>
-              <div className="cell" data-reveal>
-                <span className="tag">Team</span>
-                <h3>People and departments</h3>
-                <p>
-                  Sales, delivery, development, finance, HR — each with a manager, each seeing what
-                  belongs to them. Four permission levels, and a department that decides what somebody
-                  can actually open.
-                </p>
-              </div>
-              <div className="cell" data-reveal>
-                <span className="tag">Vault</span>
-                <h3>Credentials</h3>
-                <p>
-                  Client logins, API keys and tokens, encrypted and held per project. Who read what is
-                  recorded. Nobody asks in a group chat for a password again.
-                </p>
-              </div>
-              <div className="cell" data-reveal>
-                <span className="tag">Documents</span>
-                <h3>Files and contracts</h3>
-                <p>
-                  Briefs, contracts and deliverables against the project they belong to, with Google
-                  Drive folders linked where the originals already live.
-                </p>
-              </div>
-              <div className="cell" data-reveal>
-                <span className="tag">Attendance</span>
-                <h3>Who is in</h3>
-                <p>
-                  Check in from the app or the office terminal, with late arrivals, missing checkouts
-                  and leave in one place — per office, so two sites never blur together.
-                </p>
-              </div>
-              <div className="cell" data-reveal>
-                <span className="tag">Finance</span>
-                <h3>Invoices and money</h3>
-                <p>
-                  Invoices, payments received, expenses and payroll, per client and per office. A
-                  statement of account for any client, on one screen.
-                </p>
-              </div>
-              <div className="cell" data-reveal>
-                <span className="tag">Security</span>
-                <h3>Accounts and access</h3>
-                <p>
-                  Two-factor sign-in, sessions you can end remotely, forced password resets, and an
-                  audit trail nobody — including an administrator — can quietly edit.
-                </p>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* ══ THE ASSISTANT ═════════════════════════════════════════════════ */}
         {/* ══ FILMS ═════════════════════════════════════════════════════════ */}
-        <section id="films" className="band">
+        <section id="films">
           <div className="wrap">
-            <div className="section-head" data-reveal>
-              <h2>See it working</h2>
-              <p>Short walkthroughs of the parts people ask about most.</p>
+            <div className="pitch films-head" data-reveal>
+              <p className="pitch-eyebrow">See it working</p>
+              <h2>Watch it <em>do the work.</em></h2>
+              <p className="pitch-lede">
+                Short walkthroughs of the parts people ask about most.
+              </p>
             </div>
 
             <div className="films" data-reveal-group>
@@ -504,14 +446,24 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
               <div className="film" data-reveal>
                 <div className="frame">
                   <div className="chrome"><i /><i /><i /><span>Studio</span></div>
-                  {/* <video className="stage" controls playsinline poster="/home/studio-poster.jpg"><source src="/home/studio.mp4" type="video/mp4"></video> */}
-                  <div className="stage stage-empty">
-                    <span className="play" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span>
-                    {/* The title lives on the <h3> below. Repeating it here printed it
-                         twice on the page, and it vanishes the moment the real <video>
-                         above replaces this placeholder. Instruction only. */}
-                    <strong>Drop studio.mp4 here</strong>
-                  </div>
+                  {/* ⚠️ `controls` AND `preload="none"` — BOTH LOAD-BEARING. This is
+                      a 13.5 MB screen recording, the heaviest asset on the page by
+                      a wide margin. It must never autoplay and must never be
+                      fetched until somebody actually presses play; the poster is
+                      87 KB and carries the tile until then. */}
+                  {/* No `<track>`: the file carries a stereo audio stream, but it
+                      is SILENT — decoded and measured, peak amplitude exactly 0.
+                      There is nothing to caption. If a narrated version ever
+                      replaces it, it needs captions and this note is the cue. */}
+                  <video
+                    className="stage"
+                    controls
+                    playsInline
+                    preload="none"
+                    poster="/home/studio-tour-poster.jpg"
+                  >
+                    <source src="/home/studio-tour.mp4" type="video/mp4" />
+                  </video>
                 </div>
                 <h3>Trend & Engagement Studio</h3>
                 <p>What every client’s pages actually did this month.</p>
@@ -522,7 +474,7 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
 
         {/* ══ CLOSE ═════════════════════════════════════════════════════════ */}
         {/* ══ THE PROCESS ══════════════════════════════════════════════ */}
-        <section className="process">
+        <section className="process band">
           <div className="wrap">
             <h2 className="process-title" data-reveal>A simple way to bring work together.</h2>
 
@@ -577,7 +529,7 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
           </a>
 
           <nav className="foot-links">
-            <a href="#modules">Features</a>
+            <a href="#layer">Features</a>
             <a href="#ai">AI Assistant</a>
             <Link href="/login">Sign in</Link>
           </nav>

@@ -1115,7 +1115,7 @@ html:has(.taskly-home){ background: #04161a; }
      page one flat colour.
 
      The order runs: overview (band) · operating layer · Studio (band) · lead
-     desk · assistant (band) · modules · films (band) · close.
+     desk · assistant (band) · films · process (band) · close.
 
      ⚠️ A NEW SECTION MUST TAKE ITS TURN. Inserting one without minding this
      puts two of the same ground next to each other and the rhythm dies from
@@ -1169,6 +1169,7 @@ html:has(.taskly-home){ background: #04161a; }
   .taskly-home .ai-item p{ margin: 0; color: var(--ink-soft); font-size: .93rem; line-height: 1.6; }
 
   /* ── Video gallery ──────────────────────────────────────────────────── */
+  .taskly-home .films-head{ margin-bottom: clamp(28px, 3vw, 40px); }
   .taskly-home .films{ display: grid; gap: 22px; margin-top: 46px; }
   @media (min-width: 52rem) { .taskly-home .films{ grid-template-columns: 1fr 1fr; } }
   .taskly-home .film h3{ margin: 14px 0 4px; font-size: 1rem; font-weight: 700; }
@@ -1216,9 +1217,13 @@ html:has(.taskly-home){ background: #04161a; }
     padding: clamp(28px, 3.4vw, 46px) clamp(24px, 3vw, 44px);
     border: 1px solid color-mix(in oklab, var(--brand) 34%, transparent);
     border-radius: 20px;
+    /* ⚠️ `--base`, NOT `--sunken`. The panel used the band colour, which was
+       invisible while the process above it was unbanded and would now share a
+       ground with it. The page's own colour keeps the panel reading as a panel
+       whichever side of the alternation it lands on. */
     background:
-      radial-gradient(ellipse 70% 130% at 50% 50%, color-mix(in oklab, var(--brand) 13%, transparent), transparent 72%),
-      var(--sunken);
+      radial-gradient(ellipse 70% 130% at 50% 50%, color-mix(in oklab, var(--brand) 15%, transparent), transparent 72%),
+      var(--base);
     text-align: center;
   }
   @media (min-width: 58rem) {

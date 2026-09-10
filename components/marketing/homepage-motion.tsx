@@ -31,7 +31,7 @@ import * as React from 'react';
    that disagrees with the page marks the wrong menu item. `layer` has no menu
    link of its own — it sits between the hero and "How it works" — and that is
    fine: nothing is marked while it is the section being read. */
-const SECTIONS = ['layer', 'studio', 'thread', 'ai', 'modules', 'films'] as const;
+const SECTIONS = ['layer', 'studio', 'thread', 'ai', 'films'] as const;
 
 export function HomepageMotion() {
   React.useEffect(() => {
