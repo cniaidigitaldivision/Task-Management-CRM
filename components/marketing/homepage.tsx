@@ -121,36 +121,6 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
           </div>
         </div>
 
-        {/* ══ THE THREAD ════════════════════════════════════════════════════ */}
-        <section id="thread">
-          <div className="wrap">
-            <div className="section-head" data-reveal>
-              <h2>One lead, followed all the way</h2>
-              <p>
-                Most tools give you a folder for tasks and a different one for clients, and the join
-                between them lives in a spreadsheet. Taskly keeps the join. Here is the same enquiry,
-                moving through the system.
-              </p>
-            </div>
-          </div>
-
-          {/* ⚠️ FULL-BLEED, SO IT BREAKS OUT OF `.wrap` — which is why it sits
-              outside it rather than inside. It plays when it is scrolled to and
-              pauses when it leaves, so nobody meets it halfway through a loop,
-              and it runs a little under speed because the six steps have to be
-              READ while they move. */}
-          <div className="thread-film" data-reveal>
-            <ThemeClip
-              clip="thread"
-              className="thread-clip"
-              poster="/home/thread-poster.jpg"
-              playInView
-              rate={0.72}
-            />
-          </div>
-
-        </section>
-
         {/* ══ THE OPERATING LAYER ═══════════════════════════════════ */}
         <section id="layer" className="layer">
           <div className="wrap layer-grid">
@@ -220,6 +190,36 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
               </div>
             </div>
           </section>
+
+        {/* ══ THE THREAD ════════════════════════════════════════════════════ */}
+        <section id="thread">
+          <div className="wrap">
+            <div className="section-head" data-reveal>
+              <h2>One lead, followed all the way</h2>
+              <p>
+                Most tools give you a folder for tasks and a different one for clients, and the join
+                between them lives in a spreadsheet. Taskly keeps the join. Here is the same enquiry,
+                moving through the system.
+              </p>
+            </div>
+          </div>
+
+          {/* ⚠️ FULL-BLEED, SO IT BREAKS OUT OF `.wrap` — which is why it sits
+              outside it rather than inside. It plays when it is scrolled to and
+              pauses when it leaves, so nobody meets it halfway through a loop,
+              and it runs a little under speed because the six steps have to be
+              READ while they move. */}
+          <div className="thread-film" data-reveal>
+            <ThemeClip
+              clip="thread"
+              className="thread-clip"
+              poster="/home/thread-poster.jpg"
+              playInView
+              rate={0.72}
+            />
+          </div>
+
+        </section>
 
         {/* ══ MODULES ═══════════════════════════════════════════════════════ */}
         <section id="modules" className="band">
