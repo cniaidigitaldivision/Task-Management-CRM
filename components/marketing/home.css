@@ -597,19 +597,44 @@ html:has(.taskly-home){ background: #04161a; }
      had it on the right, and either reads fine because the two halves are
      independent — the `order` on the copy is the only thing that decides it. */
   .taskly-home .layer{ position: relative; }
+  /* ⚠️ THIS GRID IS WIDER THAN THE PAGE'S 68rem READING COLUMN, AND IT HAS TO
+     BE. Giving the artwork a fixed 893px track inside a 1048px content box left
+     the copy 99px — the headline came out one word per line. A wider container
+     plus FRACTIONS rather than a pixel track lets both halves scale together:
+     the artwork takes a little more, the prose keeps a real measure. */
   .taskly-home .layer-grid{
     display: grid; gap: clamp(28px, 4vw, 56px);
     align-items: center;
+    max-width: 84rem;
   }
   @media (min-width: 60rem) {
-    .taskly-home .layer-grid{ grid-template-columns: minmax(0, 570px) minmax(0, 1fr); }
+    .taskly-home .layer-grid{ grid-template-columns: minmax(0, 1.32fr) minmax(0, 1fr); }
   }
 
-  /* ⚠️ CAPPED AT ITS NATIVE 570px AND NEVER STRETCHED. The only transparent
-     copy of this artwork is 570x345; letting it fill a wider column would make
-     it visibly soft. It shrinks below that, it does not grow above it. */
-  .taskly-home .layer-art{ max-width: 570px; margin-inline: auto; }
-  .taskly-home .layer-art img{ display: block; width: 100%; height: auto; }
+  /* ⚠️ CAPPED AT ITS NATIVE 893px AND NEVER STRETCHED. It shrinks below that,
+     it does not grow above it — an upscaled raster only looks soft. */
+  .taskly-home .layer-art{ max-width: 893px; margin-inline: auto; width: 100%; }
+  /* ⚠️ THE ARTWORK'S OWN GROUND IS NOT THE PAGE'S, SO ITS EDGES ARE DISSOLVED.
+     This export has no alpha — its background is baked in at roughly rgb(0,9,14)
+     to rgb(1,19,27) against the page's rgb(4,22,26). Measured across the border:
+     a step of 9 to 13 values, which is small but reads as a rectangle on a dark
+     page. Fading the outer few percent removes the edge without touching the
+     artwork, which is what the owner asked to be used as supplied.
+
+     The stops are asymmetric on purpose: the drawing sits 32px from the top and
+     30px from the left of the file, but only 7px from the bottom and 12px from
+     the right, so a uniform fade would eat the lower grid lines. */
+  .taskly-home .layer-art img{
+    display: block; width: 100%; height: auto;
+    mask-image:
+      linear-gradient(to bottom, transparent 0%, black 4.5%, black 98.5%, transparent 100%),
+      linear-gradient(to right, transparent 0%, black 3%, black 98.8%, transparent 100%);
+    -webkit-mask-image:
+      linear-gradient(to bottom, transparent 0%, black 4.5%, black 98.5%, transparent 100%),
+      linear-gradient(to right, transparent 0%, black 3%, black 98.8%, transparent 100%);
+    -webkit-mask-composite: source-in;
+    mask-composite: intersect;
+  }
 
   .taskly-home .layer-eyebrow{
     margin: 0 0 18px; font-size: .76rem; font-weight: 700;
@@ -641,6 +666,11 @@ html:has(.taskly-home){ background: #04161a; }
   /* ── The three points ─────────────────────────────────────────────────── */
   .taskly-home .layer-points{
     display: grid; gap: 18px; margin-top: clamp(40px, 5vw, 64px);
+    /* Same container AND the same gutter as the grid above, so the three points
+       line up with the artwork's left edge and the copy's right edge. The grid
+       gets its 20px from `.wrap`; this element is not inside one, so it needs
+       its own or it sits 20px wider on each side. */
+    max-width: 84rem; margin-inline: auto; padding-inline: 20px;
   }
   @media (min-width: 54rem) { .taskly-home .layer-points{ grid-template-columns: repeat(3, 1fr); } }
 

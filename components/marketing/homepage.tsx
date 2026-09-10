@@ -156,16 +156,21 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
           <div className="wrap layer-grid">
             {/* ⚠️ THE DIAGRAM IS THE OWNER'S OWN ARTWORK, USED AS SUPPLIED — the
                 nine modules and the hub are drawn in it, so nothing here
-                re-states them. Its native size is 570x345 and it is displayed at
-                that, not stretched: the only transparent copy is that
-                resolution, and upscaling it would only make it soft. */}
+                re-states them. Native size 893x511, displayed at that and never
+                stretched past it.
+
+                This is the owner's second export. It replaced a 570x345
+                transparent copy: 57% more resolution matters more here than
+                transparency does, because the artwork's own ground is within a
+                few values of this page's and the seam is handled in CSS. Its
+                outer 3px were a scrollbar artifact and are cropped. */}
             <div className="layer-art" data-reveal>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src="/home/operating-layer.png"
                 alt="Taskly as an operating layer: a hub connected to Tasks, Projects, Team, Attendance, Documents, Finance, Vault, Reports and AI."
-                width={570}
-                height={345}
+                width={893}
+                height={511}
                 loading="lazy"
                 decoding="async"
               />
@@ -188,8 +193,7 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
             </div>
           </div>
 
-          <div className="wrap">
-            <div className="layer-points" data-reveal-group>
+          <div className="layer-points" data-reveal-group>
               <div className="point point-teal" data-reveal>
                 <span className="point-no">01</span>
                 <Layers className="point-icon" aria-hidden="true" />
@@ -215,8 +219,7 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
                 </div>
               </div>
             </div>
-          </div>
-        </section>
+          </section>
 
         {/* ══ MODULES ═══════════════════════════════════════════════════════ */}
         <section id="modules" className="band">
