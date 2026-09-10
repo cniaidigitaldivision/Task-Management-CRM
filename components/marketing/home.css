@@ -367,12 +367,18 @@ html:has(.taskly-home){ background: #04161a; }
      is taller than that band and the remainder is page colour, which the mask
      below and the scrim's bottom stop blend into so there is no seam. */
   .taskly-home .hero-clip{
-    /* The hero is now a full screen, so the clip covers it. `cover` crops
-       rather than letterboxes; the file is 16:9 and the screen is usually
-       wider than tall, so the crop is modest — nothing like the 41% lost when
-       the hero was 1.045 ratio. */
-    position: absolute; inset: 0; z-index: -2;
-    width: 100%; height: 100%; object-fit: cover;
+    /* ⚠️ NATURAL SCALE, ANCHORED TO THE TOP — NOT `cover`.
+       `cover` on a hero of ratio 1.625 scaled a 1.778 file by its HEIGHT: 23%
+       larger than shot, with 9% cut off the sides at 1440px. That is the
+       "zoomed / cut off the top" the owner kept seeing. Giving the box the
+       file's own ratio at full width means the frame is shown exactly as
+       delivered: nothing enlarged, nothing cropped.
+
+       The hero is taller than that band and the remainder is page colour —
+       which is where the copy sits anyway, and the scrim already lands there,
+       so no seam is visible. */
+    position: absolute; inset-inline: 0; top: 0; z-index: -2;
+    width: 100%; height: auto; aspect-ratio: 1920 / 1080;
     /* The box already matches the file, so these crop nothing today; they are
        here so a clip of a different shape degrades to a centre crop rather
        than stretching. */
@@ -387,6 +393,15 @@ html:has(.taskly-home){ background: #04161a; }
     mask-image: linear-gradient(to bottom, black 78%, transparent 100%);
     -webkit-mask-image: linear-gradient(to bottom, black 78%, transparent 100%);
     pointer-events: none;
+  }
+  /* ⚠️ BELOW 52rem THE TRADE FLIPS. At 400px the natural band is only 225px
+     tall in an 878px hero — a thin strip with a large empty gap under it. A
+     crop is the lesser fault there, so the phone gets `cover`. */
+  @media (max-width: 52rem) {
+    .taskly-home .hero-clip{
+      inset: 0; height: 100%; aspect-ratio: auto;
+      object-fit: cover; object-position: center;
+    }
   }
   /* The scrim protects the type and nothing else — it must not dim the clip
      evenly, or the whole thing turns to mud. */
@@ -429,10 +444,10 @@ html:has(.taskly-home){ background: #04161a; }
   .taskly-home h1{
     /* ⚠️ THE CAP IS WHAT SETS THE COLUMN WIDTH, not a `width` anywhere.
        The headline is one nowrap line, so its size decides how wide it draws —
-       and the shot below is capped at the same 78rem. 4.9rem brings the line to
-       within a few pixels of that cap at desktop, so the two read as one column
-       instead of the picture being visibly wider than the words. */
-    font-size: clamp(1.9rem, 5.4vw, 4.9rem);
+       and the shot below is capped to match it. Owner asked for it smaller, so
+       the cap came down from 4.9rem — and the shot's cap came down with it, or
+       the picture would be visibly wider than the words again. */
+    font-size: clamp(1.75rem, 4.1vw, 3.6rem);
     line-height: 1.05; font-weight: 800; font-stretch: 106%;
     letter-spacing: -.03em; margin: 0;
   }
@@ -447,7 +462,7 @@ html:has(.taskly-home){ background: #04161a; }
     display: flex; flex-direction: column; align-items: center; text-align: center;
     /* Wider than the 68rem reading column the rest of the page uses: this is a
        headline and a single centred paragraph, not running prose. */
-    max-width: 78rem;
+    max-width: 64rem;
   }
   /* ⚠️ A SHADOW UNDER THE WORDS, NOT A PANEL BEHIND THEM. The owner's note
      was that the pool was hiding the film. It is now a soft, wide, low-opacity
@@ -477,11 +492,11 @@ html:has(.taskly-home){ background: #04161a; }
      against a SOLID surface; over footage they lose the contrast they were
      picked for, and no scrim thin enough to keep the clip alive buys it back. */
   .taskly-home .standfirst{
-    margin: 24px 0 0; font-size: clamp(1rem, 1.45vw, 1.16rem);
-    line-height: 1.62; color: var(--ink);
+    margin: 20px 0 0; font-size: clamp(.95rem, 1.2vw, 1.04rem);
+    line-height: 1.6; color: var(--ink);
     /* Wide, but not unbounded: past about 82 characters the eye loses the
        start of the next line, and a centred paragraph loses it sooner. */
-    max-width: 76ch;
+    max-width: 72ch;
   }
   .taskly-home .cta{ display: flex; flex-wrap: wrap; gap: 12px; margin-top: 30px; justify-content: center; }
   /* ⚠️ FULL-STRENGTH INK, NOT --ink-soft. The soft and faint tokens are graded
@@ -498,7 +513,7 @@ html:has(.taskly-home){ background: #04161a; }
      overhanging it, so nothing is cropped. */
   .taskly-home .hero-shot{
     position: relative; z-index: 1;
-    width: 100%; max-width: 78rem;
+    width: 100%; max-width: 64rem;
     margin: clamp(40px, 5vw, 64px) auto 0;
     padding-inline: 20px;
   }
@@ -523,6 +538,47 @@ html:has(.taskly-home){ background: #04161a; }
   .taskly-home .section-head p{ margin: 16px 0 0; color: var(--ink-soft); font-size: 1.02rem; line-height: 1.6; }
 
   /* ── The thread ─────────────────────────────────────────────────────── */
+  /* ── ─ THE STEPS, AS FILM ──────────────────────────────────────
+     Edge to edge, because the clip is an infographic whose type has to be
+     readable and the page's 68rem column would shrink it to the point of
+     uselessness. `.hero`-style full-bleed is not needed: this element is
+     already outside `.wrap`, so it simply takes the section's full width.
+
+     ⚠️ THE REVEAL HERE IS SLOWER THAN THE PAGE'S. The default rise is a .72s
+     nudge, which is right for a paragraph arriving. A full-width film wants to
+     settle rather than snap, so it gets its own longer, gentler entrance — the
+     owner's "very smooth, not fast". It is still one movement, not a sequence. */
+  .taskly-home .thread-film{
+    margin: clamp(38px, 5vw, 60px) 0 clamp(10px, 2vw, 24px);
+    position: relative;
+    line-height: 0;
+  }
+  .taskly-home[data-motion="on"] .thread-film[data-reveal]{
+    opacity: 0;
+    transform: translate3d(0, 34px, 0) scale(.985);
+    transition: opacity 1.15s var(--ease-out), transform 1.25s var(--ease-out);
+  }
+  .taskly-home[data-motion="on"] .thread-film[data-reveal].in{
+    opacity: 1; transform: none;
+  }
+  .taskly-home .thread-clip{
+    display: block; width: 100%; height: auto;
+    aspect-ratio: 1280 / 720;
+    object-fit: cover;
+    background: url('/home/thread-poster.jpg') center / cover no-repeat;
+    /* Both edges softened into the page so the clip does not sit in the section
+       like a pasted rectangle. Left and right too, because at full bleed its
+       vertical edges meet the page colour with nothing between them. */
+    mask-image:
+      linear-gradient(to bottom, transparent 0%, black 7%, black 93%, transparent 100%),
+      linear-gradient(to right, transparent 0%, black 5%, black 95%, transparent 100%);
+    -webkit-mask-image:
+      linear-gradient(to bottom, transparent 0%, black 7%, black 93%, transparent 100%),
+      linear-gradient(to right, transparent 0%, black 5%, black 95%, transparent 100%);
+    -webkit-mask-composite: source-in;
+    mask-composite: intersect;
+  }
+
   .taskly-home .thread{ margin-top: 52px; position: relative; }
   .taskly-home .thread::before{
     content: ""; position: absolute; left: 11px; top: 12px; bottom: 12px; width: 2px;

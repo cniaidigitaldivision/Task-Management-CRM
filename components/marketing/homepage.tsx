@@ -86,11 +86,12 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
                 being sized to it. The accent is the two words that say what it
                 is; "AI-powered" is the qualifier and stays in plain ink. */}
             <h1>AI-powered <em>operations platform</em></h1>
+            {/* Cut from four lines to two. Every item the owner listed is still
+                named; what went is the connective prose between them. */}
             <p className="standfirst">
-              One intelligent system for the whole business — tasks, the team behind them, projects,
-              finance, credentials and documentation, your social performance across every platform in
-              the Trend &amp; Engagement Studio, and a lead desk that captures every enquiry and follows
-              it through to a closed deal.
+              One intelligent system for the whole business — tasks, teams and projects, finance,
+              credentials and documents, social performance in the Trend &amp; Engagement Studio, and a
+              lead desk that closes.
             </p>
             <div className="cta">
               <Link className="btn btn-primary btn-lg" href="/login">Open workspace</Link>
@@ -130,6 +131,24 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
                 moving through the system.
               </p>
             </div>
+          </div>
+
+          {/* ⚠️ FULL-BLEED, SO IT BREAKS OUT OF `.wrap` — which is why it sits
+              outside it rather than inside. It plays when it is scrolled to and
+              pauses when it leaves, so nobody meets it halfway through a loop,
+              and it runs a little under speed because the six steps have to be
+              READ while they move. */}
+          <div className="thread-film" data-reveal>
+            <ThemeClip
+              clip="thread"
+              className="thread-clip"
+              poster="/home/thread-poster.jpg"
+              playInView
+              rate={0.72}
+            />
+          </div>
+
+          <div className="wrap">
 
             <div className="thread">
 

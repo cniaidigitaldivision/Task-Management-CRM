@@ -35,6 +35,7 @@ import * as React from 'react';
 const CLIPS = {
   hero: '/home/hero.mp4',
   room: '/dashboard/room-dark.mp4',
+  thread: '/home/thread.mp4',
 } as const;
 
 export function ThemeClip({
@@ -43,10 +44,22 @@ export function ThemeClip({
   /** Hold the download until the element is nearly on screen. For anything
    *  below the fold; never for the hero. */
   lazy = false,
+  /** Play only while the element is actually on screen, and pause the moment it
+   *  leaves. For a clip somebody is meant to WATCH rather than a background:
+   *  it starts when they arrive at it, so they see it from the beginning
+   *  instead of catching the middle of a loop. */
+  playInView = false,
+  /** Below 1 for a calmer read. An explanatory clip that has to be read while
+   *  it moves is easier to follow a little under speed. */
+  rate = 1,
+  poster,
 }: {
   clip: keyof typeof CLIPS;
   className?: string;
   lazy?: boolean;
+  playInView?: boolean;
+  rate?: number;
+  poster?: string;
 }) {
   const ref = React.useRef<HTMLVideoElement>(null);
 
@@ -59,6 +72,67 @@ export function ThemeClip({
     if (!el) return;
 
     const want = CLIPS[clip];
+    const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    /* ── A clip to be WATCHED, not a background ────────────────────────────
+       Plays from the top when it comes into view and pauses when it leaves, so
+       nobody arrives at the middle of a loop and nobody pays for a video
+       running behind them. The observer is kept, not disconnected, because
+       this one has to react every time the element crosses the edge. */
+    if (playInView) {
+      el.playbackRate = rate;
+      if (still) {
+        el.pause();
+        return;
+      }
+      if (typeof IntersectionObserver === 'undefined') {
+        el.src = want;
+        void el.play().catch(() => {});
+        return;
+      }
+
+      const fetchIt = () => {
+        if (el.getAttribute('src') !== want) {
+          el.src = want;
+          el.load();
+        }
+      };
+
+      /* ⚠️ TWO OBSERVERS, AND THEY WANT DIFFERENT MARGINS.
+         The file is fetched WELL before it is reached, so it is buffered by the
+         time anybody looks at it and the playback is smooth — which is the
+         whole point of this clip. But it is not PLAYED until a third of it is
+         actually on screen, so nobody arrives at the middle of a loop.
+         One observer cannot do both: a rootMargin generous enough to preload
+         would also start it playing far off screen. */
+      const loader = new IntersectionObserver(
+        (entries) => {
+          if (!entries.some((e) => e.isIntersecting)) return;
+          loader.disconnect();
+          fetchIt();
+        },
+        { rootMargin: '700px' },
+      );
+      loader.observe(el);
+
+      const player = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            if (entry.isIntersecting) {
+              fetchIt();
+              el.playbackRate = rate;
+              void el.play().catch(() => {});
+            } else if (!el.paused) {
+              el.pause();
+            }
+          }
+        },
+        { threshold: 0.32 },
+      );
+      player.observe(el);
+
+      return () => { loader.disconnect(); player.disconnect(); };
+    }
 
     const start = () => {
       if (el.getAttribute('src') !== want) {
@@ -95,12 +169,13 @@ export function ThemeClip({
     );
     watcher.observe(el);
     return () => watcher.disconnect();
-  }, [clip, lazy]);
+  }, [clip, lazy, playInView, rate]);
 
   return (
     <video
       ref={ref}
       className={className}
+      poster={poster}
       muted
       loop
       playsInline
