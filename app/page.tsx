@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Archivo } from 'next/font/google';
 import { redirect } from 'next/navigation';
 
@@ -51,6 +51,14 @@ export const metadata: Metadata = {
      whose entire job is to be found — the same exception app/(public) makes for
      the published policies. Every screen behind the login stays unindexed. */
   robots: { index: true, follow: true },
+};
+
+/* ⚠️ ONE COLOUR, NOT THE APPLICATION'S PAIR. app/layout.tsx sets `themeColor`
+   per colour-scheme because the product follows the reader's theme. This page
+   does not — it is dark only — so a light entry would tell a phone to paint its
+   browser chrome pale above a dark page. This overrides it for this route. */
+export const viewport: Viewport = {
+  themeColor: '#04161a',
 };
 
 export default async function RootPage() {

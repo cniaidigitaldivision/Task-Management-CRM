@@ -1,65 +1,139 @@
 'use client';
 
 /* ============================================================================
- * A BACKGROUND CLIP THAT FOLLOWS THE THEME
+ * A BACKGROUND CLIP
  * ----------------------------------------------------------------------------
- * The dashboard's control-room clip and the assistant's brain clip, both of
- * which the application ships in a light and a dark cut. On the homepage the
- * theme switch changes the footage, not only the paint.
+ * ── ⚠️ IT NO LONGER FOLLOWS THE THEME, AND THE NAME IS THE ONLY THING LEFT ──
+ * This used to hold a light and a dark cut of each clip and swap them with the
+ * page's theme switch. The homepage is dark only now (owner's instruction), so
+ * there is one cut per clip and no `useTheme` — which also means this component
+ * no longer re-runs its effect when somebody changes theme inside the product.
  *
- * ── ⚠️ ONE `src`, ASSIGNED HERE — NEVER BOTH CUTS WITH ONE HIDDEN ───────────
- * The dashboard mounts both and hides one in CSS, which is affordable at 1.4 MB
- * a cut inside a tool people are already signed in to. It is not affordable
- * here: HIDING A <video> DOES NOT STOP IT DOWNLOADING, and the assistant's cuts
- * are ~6 MB each. Both cuts of both clips is 15.5 MB before a visitor has read
- * the headline, on whatever connection they arrived on.
+ * ── WHY THERE IS STILL NO `poster` ATTRIBUTE ────────────────────────────────
+ * The still is a CSS background in home.css. It paints with the first frame of
+ * CSS, before this component has mounted, and it is what stands in when
+ * autoplay is refused or motion is unwanted. A `poster` would arrive later and
+ * buy nothing.
  *
- * ── WHY THERE IS NO `poster` ATTRIBUTE ──────────────────────────────────────
- * There is a still for every cut, but it is applied as a CSS background in
- * home.css rather than here. A poster would have to be picked in JavaScript,
- * and the theme is not known until React hydrates — the server render assumes
- * light, so a dark visitor would be handed the light still and have it swapped
- * underneath them. CSS reads `data-theme`, which the pre-paint script stamps
- * before the first frame, so the correct still is right immediately and costs
- * no JavaScript at all. See the note at `--still-room` in home.css.
+ * ── ⚠️ THE HERO CLIP IS 6.4 MB ──────────────────────────────────────────────
+ * Owner-supplied and used as given. It is NOT lazy, because it is the hero and
+ * a visitor is looking straight at it — but it is the single heaviest thing on
+ * the page by a wide margin, and the poster is what carries the first paint
+ * while it streams. The assistant's clip below the fold IS lazy.
  * ========================================================================= */
 
 import * as React from 'react';
 
-import { useTheme } from '@/components/brand/theme-provider';
-
-const CUTS = {
-  room: { light: '/dashboard/room-light.mp4', dark: '/dashboard/room-dark.mp4' },
-  brain: { light: '/assistant/brain-light.mp4', dark: '/assistant/brain-dark.mp4' },
+/* ⚠️ THE ASSISTANT PANEL SHOWS THE CONTROL ROOM, NOT THE BRAIN, AND THAT IS
+   DELIBERATE. The owner's new hero clip is itself a glowing brain, so the
+   assistant's own brain cut directly below it made the page look like it was
+   repeating itself — two near-identical clips within one scroll. The control
+   room reads as "your own tables", which is what that section actually claims,
+   and it is 1.3 MB against the brain's 6.9. Swap `room` back to
+   '/assistant/brain-dark.mp4' to undo this; the still in home.css must change
+   with it. */
+const CLIPS = {
+  hero: '/home/hero.mp4',
+  room: '/dashboard/room-dark.mp4',
+  thread: '/home/thread.mp4',
+  assistant: '/home/assistant.mp4',
 } as const;
 
 export function ThemeClip({
   clip,
   className,
-  /** Hold the download until the element is nearly on screen. For the ~6 MB
-   *  assistant cuts, which sit well below the fold. */
+  /** Hold the download until the element is nearly on screen. For anything
+   *  below the fold; never for the hero. */
   lazy = false,
+  /** Play only while the element is actually on screen, and pause the moment it
+   *  leaves. For a clip somebody is meant to WATCH rather than a background:
+   *  it starts when they arrive at it, so they see it from the beginning
+   *  instead of catching the middle of a loop. */
+  playInView = false,
+  /** Below 1 for a calmer read. An explanatory clip that has to be read while
+   *  it moves is easier to follow a little under speed. */
+  rate = 1,
+  poster,
 }: {
-  clip: keyof typeof CUTS;
+  clip: keyof typeof CLIPS;
   className?: string;
   lazy?: boolean;
+  playInView?: boolean;
+  rate?: number;
+  poster?: string;
 }) {
-  const { resolved, isHydrated } = useTheme();
   const ref = React.useRef<HTMLVideoElement>(null);
 
   /* ⚠️ ONE EFFECT, AND THE OBSERVER STARTS THE LOAD ITSELF. Splitting this into
-     "observe" and "load" needed a piece of state that no render reads, and
-     setting state from an effect body to reach the second one is a cascading
-     render — react-hooks/set-state-in-effect refuses it, correctly. The
-     observer's callback is already the right place to act. */
+     "observe" then "load" needs a piece of state no render reads, and setting
+     state from an effect body to reach the second half is a cascading render
+     that react-hooks/set-state-in-effect refuses, correctly. */
   React.useEffect(() => {
     const el = ref.current;
-    /* Before hydration `resolved` is the server's assumption, not this
-       visitor's theme, so committing to a cut now could fetch the wrong one —
-       megabytes then thrown away. The still is already on screen. */
-    if (!el || !isHydrated) return;
+    if (!el) return;
 
-    const want = CUTS[clip][resolved === 'dark' ? 'dark' : 'light'];
+    const want = CLIPS[clip];
+    const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    /* ── A clip to be WATCHED, not a background ────────────────────────────
+       Plays from the top when it comes into view and pauses when it leaves, so
+       nobody arrives at the middle of a loop and nobody pays for a video
+       running behind them. The observer is kept, not disconnected, because
+       this one has to react every time the element crosses the edge. */
+    if (playInView) {
+      el.playbackRate = rate;
+      if (still) {
+        el.pause();
+        return;
+      }
+      if (typeof IntersectionObserver === 'undefined') {
+        el.src = want;
+        void el.play().catch(() => {});
+        return;
+      }
+
+      const fetchIt = () => {
+        if (el.getAttribute('src') !== want) {
+          el.src = want;
+          el.load();
+        }
+      };
+
+      /* ⚠️ TWO OBSERVERS, AND THEY WANT DIFFERENT MARGINS.
+         The file is fetched WELL before it is reached, so it is buffered by the
+         time anybody looks at it and the playback is smooth — which is the
+         whole point of this clip. But it is not PLAYED until a third of it is
+         actually on screen, so nobody arrives at the middle of a loop.
+         One observer cannot do both: a rootMargin generous enough to preload
+         would also start it playing far off screen. */
+      const loader = new IntersectionObserver(
+        (entries) => {
+          if (!entries.some((e) => e.isIntersecting)) return;
+          loader.disconnect();
+          fetchIt();
+        },
+        { rootMargin: '700px' },
+      );
+      loader.observe(el);
+
+      const player = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            if (entry.isIntersecting) {
+              fetchIt();
+              el.playbackRate = rate;
+              void el.play().catch(() => {});
+            } else if (!el.paused) {
+              el.pause();
+            }
+          }
+        },
+        { threshold: 0.32 },
+      );
+      player.observe(el);
+
+      return () => { loader.disconnect(); player.disconnect(); };
+    }
 
     const start = () => {
       if (el.getAttribute('src') !== want) {
@@ -85,10 +159,7 @@ export function ThemeClip({
     }
 
     /* `rootMargin` starts the fetch early enough that the clip is usually
-       playing by the time it is read. On a theme change this effect re-runs and
-       observes afresh: if the element is on screen the callback fires at once
-       and the cut swaps; if it is not, the swap waits until it is looked at,
-       which is exactly when it matters. */
+       playing by the time it is read. */
     const watcher = new IntersectionObserver(
       (entries) => {
         if (!entries.some((entry) => entry.isIntersecting)) return;
@@ -99,12 +170,13 @@ export function ThemeClip({
     );
     watcher.observe(el);
     return () => watcher.disconnect();
-  }, [clip, resolved, isHydrated, lazy]);
+  }, [clip, lazy, playInView, rate]);
 
   return (
     <video
       ref={ref}
       className={className}
+      poster={poster}
       muted
       loop
       playsInline

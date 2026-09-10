@@ -4,214 +4,658 @@
  * ⚠️ EVERY SELECTOR IS SCOPED UNDER `.taskly-home`, AND MUST STAY THAT WAY.
  *
  * Next.js does not remove a stylesheet when you navigate away from the route
- * that imported it (its own docs say so — React's Suspense integration keeps it
- * in the document). So this file is still live after somebody clicks Log in.
+ * that imported it (its own docs say so). So this file is still live after
+ * somebody clicks Log in, and the page carries rules for bare elements —
+ * `h1`, `a`, `header`, `section`. Unscoped, those would restyle /login.
  *
- * The page was drawn as a standalone document and carries rules for bare
- * elements — `h1`, `a`, `header`, `section`. Unscoped, those would restyle
- * /login and every screen behind it the moment a visitor clicked through.
- * Scoped, the leftover stylesheet matches nothing and does nothing.
+ * ── ⚠️ THIS PAGE IS DARK ONLY, AND IT DOES NOT READ `data-theme` ────────────
+ * Owner's instruction: no theme switch here, dark always. That is NOT the same
+ * as "default to dark". The application stamps `data-theme` on <html> from each
+ * person's saved preference before first paint, so a visitor who last used the
+ * product in light theme arrives with `data-theme="light"` already set. If this
+ * page aliased the semantic tokens (--bg-base, --text-primary…) it would follow
+ * them and render light for exactly those people.
  *
- * ── COLOURS ARE THE APPLICATION'S TOKENS, BY REFERENCE ──────────────────────
- * The block below aliases styles/tokens.css rather than copying values out of
- * it, so the marketing page and the product cannot drift apart. Only the scrim
- * over the footage and the two stills belong to this page.
+ * So the values below are pinned. Where the application has a theme-INVARIANT
+ * ramp step for a colour (--teal-400, --gold-400, --neutral-0 and friends are
+ * declared once, never overridden) it is referenced, because that still tracks
+ * a brand change. Where the only source is a semantic token that flips, the
+ * dark value is written out with the token it came from named beside it.
  * ========================================================================= */
 
-
-  /* ══════════════════════════════════════════════════════════════════════
-     TASKLY — the public homepage
-     ----------------------------------------------------------------------
-     The palette is lifted verbatim from styles/tokens.css, both themes, so
-     the marketing page and the product are the same object. Teal #0e5c63 is
-     the core brand; gold #d4a63c is the second voice and is used sparingly.
-
-     Dark is SELECTED, not an automatic flip: its own steps from the same
-     scale, exactly as the app defines them.
-
-     ⚠️ THE VIDEOS ARE THE APP'S OWN. `room-light/dark.mp4` is the control-room
-     clip that sits behind the dashboard; `brain-light/dark.mp4` is the AI
-     assistant's. Both come in a light and a dark cut, which is why the theme
-     toggle changes the footage and not just the paint.
-     ══════════════════════════════════════════════════════════════════════ */
-
 .taskly-home{
-  /* ── EVERY COLOUR IS THE APPLICATION'S OWN TOKEN, BY REFERENCE ───────────
-     Not copied values that happen to match: aliases. styles/tokens.css already
-     switches each of these between light and dark, so this page follows the
-     product's palette permanently and cannot drift from it. The names below are
-     the page's vocabulary; the values are never its own.
+  /* Ramp steps — declared once in tokens.css and never overridden per theme,
+     so referencing them is safe and keeps the brand in one place. */
+  --brand:     var(--teal-400);
+  --brand-lit: var(--teal-300);
+  --gold:      var(--gold-400);
+  --gold-fill: var(--gold-400);
+  --on-brand:  var(--teal-950);
 
-     ⚠️ --gold IS --text-gold, WHICH IS NOT THE BRAND GOLD. tokens.css: gold-500
-     on white is 2.1:1, and gold-800 is the only gold safe as light-theme text.
-     --gold-fill is the bright one and is a FILL — borders, rules, dots. Using
-     the brand gold as ink is the mistake the token exists to prevent. */
-  --base:      var(--bg-base);
-  --sunken:    var(--bg-surface-sunken);
-  --surface:   var(--bg-surface);
-  --ink:       var(--text-primary);
-  --ink-soft:  var(--text-secondary);
-  --ink-faint: var(--text-tertiary);
-  --brand:     var(--text-brand);
-  /* ⚠️ THE LIT END OF THE BUTTON GRADIENT, AND IT MUST SWITCH WITH THE THEME.
-     Light wants a step DARKER than --brand, dark wants one LIGHTER, because the
-     ink on top flips too (--text-on-brand is white in light, teal-950 in dark).
-     Frozen at teal-600 for both, the dark button became dark teal under dark
-     ink and measured 2.94:1. The dark override is in the blocks below. */
-  --brand-lit: var(--teal-600);
-  --gold:      var(--text-gold);
-  --gold-fill: var(--gold-500);
-  --rule:      var(--border-default);
-  --rule-soft: var(--border-subtle);
-  --rule-firm: var(--border-strong);
-  --on-brand:  var(--text-on-brand);
-  --shadow:    var(--shadow-md);
+  /* Pinned dark values. Each is the dark-theme value of the named token; they
+     are written out rather than referenced because the token itself flips. */
+  --base:      #04161a;   /* --bg-base            dark */
+  --sunken:    #061a1e;   /* --bg-surface-sunken  dark */
+  --surface:   #0c2429;   /* --bg-surface         dark */
+  --ink:       #eaf3f3;   /* --text-primary       dark */
+  --ink-soft:  #a3bcbe;   /* --text-secondary     dark */
+  --ink-faint: #7f999c;   /* --text-tertiary      dark */
+  --rule:      #22484e;   /* --border-default     dark */
+  --rule-soft: #17383d;   /* --border-subtle      dark */
+  --rule-firm: #2f5c63;   /* --border-strong      dark */
+  --shadow:    0 1px 2px rgb(0 0 0 / .35), 0 8px 24px rgb(0 0 0 / .3);
 
-  /* ── THE ONLY VALUES THIS PAGE OWNS ──────────────────────────────────────
-     The scrim over the footage, which the application has no equivalent for
-     because nothing in the product puts text on a video.
+  /* The scrim over the footage. The application has no equivalent because
+     nothing in the product puts text on a video. Measured, not chosen. */
+  --veil:      rgb(4 22 26 / .62);
+  --veil-firm: rgb(4 22 26 / .92);
+  --clip-op:   .9;
 
-     MEASURED, NOT CHOSEN: at 58% the 21px standfirst read 3.55:1 and the 13px
-     byline 2.96:1 over the pale studio frame. 74% carries both. The dark cut
-     needs less, its own ground being dark already. */
-  --veil:      rgb(255 255 255 / .74);
-  --veil-firm: rgb(255 255 255 / .86);
-  --clip-op:   .85;
+  /* ── STILLS ARE BACKGROUNDS, NOT `poster` ATTRIBUTES ─────────────────────
+     A poster attribute has to be set in JavaScript; a background paints with
+     the first frame of CSS and needs none. The clip covers it once it plays,
+     and it is what stands in if autoplay is refused or motion is unwanted. */
+  --still-hero:  url('/home/hero-poster.jpg');
+  --still-brain: url('/dashboard/room-dark-poster.jpg');
 
-  /* ── THE STILL IS A BACKGROUND, NOT A `poster` ATTRIBUTE ─────────────────
-     A poster would have to be chosen in JavaScript, and the theme is not known
-     until React hydrates — the server render assumes light, so a dark visitor
-     would be shown the light still and then have it swapped under them.
+  /* ── MOTION, IN ONE PLACE ────────────────────────────────────────────────
+     Every duration and curve on the page comes from here, so the whole thing
+     can be slowed, sped up or stopped by editing four lines. `--rise` is the
+     distance a revealing element travels; it is set to 0 under reduced motion,
+     which turns every reveal into a plain fade without touching a keyframe. */
+  /* The bar's height in one place: the hero pulls itself up by exactly this to
+     sit UNDERNEATH the header, and pads itself back down by the same amount. */
+  /* ── ⚠️ ONE STRUCTURAL WIDTH FOR THE WHOLE PAGE ────────────────────────
+     Every section's outer container reads this, so the page has a single spine
+     and adjacent sections cannot disagree about where their edges are.
 
-     As a background it is chosen by CSS from `data-theme`, which the pre-paint
-     script in app/layout.tsx stamps BEFORE first paint. The right still is
-     therefore correct from the first frame, needs no JavaScript, and only the
-     one that matches is ever downloaded. The clip covers it once it plays. */
-  --still-room:  url('/dashboard/room-light-poster.jpg');
-  --still-brain: url('/assistant/brain-light-poster.jpg');
+     MEASURED before this existed: the hero copy sat at a 208px gutter, the
+     caption 208, the strip 48, the operating-layer grid 16, its own points row
+     48, the Studio grid 0 — and the Studio screen actually ran 52px PAST the
+     right edge. Six different answers on one page.
+
+     ⚠️ DO NOT give a section its own max-width. Narrow an inner element by a
+     `ch` measure where the prose needs it (see `.section-head`), never by
+     moving the container the section sits in. */
+  --page-w: 84rem;
+
+  --bar-h: 76px;
+
+  --ease:      cubic-bezier(.22, .61, .36, 1);
+  --ease-out:  cubic-bezier(.16, 1, .3, 1);
+  --quick:     .18s;
+  --slow:      .72s;
+  --rise:      26px;
 
   /* This page is designed at 1:1. `body` carries zoom: var(--ui-scale) for the
-     application's 90% density (styles/tokens.css), which would render every
-     size here 10% under what was drawn and measured. Nested zoom multiplies,
-     so this cancels it exactly for this subtree and nothing else. */
+     application's 90% density, which would render every size here 10% under
+     what was drawn and measured. Nested zoom multiplies, so this cancels it
+     for this subtree and nothing else. */
   zoom: calc(1 / var(--ui-scale));
 
   margin: 0;
   background: var(--base);
   color: var(--ink);
-  /* Archivo, self-hosted by next/font from app/page.tsx — no network request to
-     Google, and no layout shift. `wdth` is loaded as well as `wght` because the
-     headlines are set at font-stretch 108-112%; without that axis the browser
-     synthesises the width and the letterforms distort. */
+  /* Archivo, self-hosted by next/font from app/page.tsx. `wdth` is loaded as
+     well as `wght` because the headlines are set at font-stretch 108-112%;
+     without that axis the browser synthesises the width and letterforms
+     distort. */
   font-family: var(--font-archivo), system-ui, -apple-system, 'Segoe UI', sans-serif;
   font-size: 16px;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
-  overflow-x: hidden;
+  /* ⚠️ `clip`, NOT `hidden`, AND THE STICKY HEADER DEPENDS ON IT.
+     `overflow-x: hidden` forces the computed `overflow-y` to `auto`, which makes
+     this element a SCROLL CONTAINER — and a scroll container captures the
+     `position: sticky` of everything inside it. The header then sticks to a box
+     that never scrolls, so it slides away with the page. MEASURED: at scrollY
+     1200 the header's own top was -1200, entirely off screen.
+
+     `clip` does the same job — nothing spills sideways — without creating a
+     scroll container, so the header sticks to the viewport as intended. */
+  overflow-x: clip;
 }
 
-  /* No-JS fallback only: the application's pre-paint script always stamps
-     data-theme, so in practice the attribute block below is what runs. */
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme='light']) .taskly-home{
-  --brand-lit: var(--teal-300);
-  --veil:      rgb(4 22 26 / .68);
-  --veil-firm: rgb(4 22 26 / .9);
-  --clip-op:   .9;
-  --still-room:  url('/dashboard/room-dark-poster.jpg');
-  --still-brain: url('/assistant/brain-dark-poster.jpg');
-    }
-  }
-  :root[data-theme='dark'] .taskly-home{
-  --brand-lit: var(--teal-300);
-  --veil:      rgb(4 22 26 / .68);
-  --veil-firm: rgb(4 22 26 / .9);
-  --clip-op:   .9;
-  --still-room:  url('/dashboard/room-dark-poster.jpg');
-  --still-brain: url('/assistant/brain-dark-poster.jpg');
-  }
+/* ── ⚠️ THE PAGE BEHIND THE PAGE ────────────────────────────────────────────
+   <body> keeps the APPLICATION's background, which is light for anyone whose
+   account is set to light — and this page is dark only. The wrapper covers the
+   viewport so it is invisible most of the time, but it is not invisible when
+   the page is rubber-banded past its top or bottom edge on a trackpad or a
+   phone, which flashes a band of pale grey across a dark page.
 
-  .taskly-home *{ box-sizing: border-box; }
+   `:has()` keeps it scoped: it applies only while this page is in the document
+   and cannot leak onto /login the way a bare `body` rule would. */
+body:has(.taskly-home){ background: #04161a; }
+html:has(.taskly-home){ background: #04161a; }
 
-  .taskly-home .wrap{ max-width: 68rem; margin: 0 auto; padding-inline: 20px; }
+.taskly-home *{ box-sizing: border-box; }
+
+  .taskly-home .wrap{ max-width: var(--page-w); margin: 0 auto; padding-inline: 20px; }
   .taskly-home a{ color: inherit; }
   .taskly-home :focus-visible{ outline: 2px solid var(--brand); outline-offset: 3px; border-radius: 4px; }
 
   /* ── Header ─────────────────────────────────────────────────────────── */
+  /* ⚠️ THREE COLUMNS, NOT A FLEX ROW WITH `margin-left:auto`. The menu is
+     centred on the PAGE, and it only stays centred if the two outer columns are
+     equal — with `1fr auto 1fr` they are, whatever the logo or the button
+     happen to measure. A flex row centres the menu between its neighbours
+     instead, which drifts off-centre the moment either side changes width. */
+  /* ⚠️ GLASS ONLY ONCE THE PAGE HAS MOVED. At the top the bar has no ground
+     at all — the clip runs behind it and the header is just type floating on
+     the footage. The moment the page scrolls, `.stuck` is added by the scroll
+     handler and the glass fades in underneath.
+
+     The TRANSITION is what makes that read as one object rather than two: the
+     background, blur, border and shadow all animate, so nothing snaps. */
   .taskly-home header{
     position: sticky; top: 0; z-index: 40;
-    background: color-mix(in oklab, var(--base) 84%, transparent);
-    backdrop-filter: blur(14px);
-    border-bottom: 1px solid var(--rule-soft);
+    /* ⚠️ NOTHING AT ALL AT SCROLL 0 — no fill, no blur, no border. The bar is
+       type floating on the footage until the page moves. */
+    background: transparent;
+    backdrop-filter: none;
+    border-bottom: 1px solid transparent;
+    box-shadow: none;
+    transition: background .34s var(--ease), backdrop-filter .34s var(--ease),
+                border-color .34s var(--ease), box-shadow .34s var(--ease);
   }
-  .taskly-home .bar{ display: flex; align-items: center; gap: 20px; height: 62px; }
-  .taskly-home .mark{ display: flex; align-items: center; gap: 9px; font-weight: 700; letter-spacing: -.02em; font-size: 1.06rem; text-decoration: none; }
-  .taskly-home .mark .glyph{
-    width: 26px; height: 26px; border-radius: 7px; flex: none;
-    background: linear-gradient(135deg, var(--brand-lit), var(--brand));
-    display: grid; place-items: center; color: var(--on-brand); font-size: .78rem; font-weight: 800;
+  /* ⚠️ A FADE, NOT A BAR. With the clip running behind a fully transparent
+     header the wordmark measured 2.70:1 against the bright frames — the price
+     of "no bar at the top". This is the standard answer and it is not a bar:
+     a gradient that is strongest in the top few pixels and gone by the height
+     of the header again, so there is no edge anywhere, the footage reads
+     through it, and the type has a ground.
+
+     It fades out when `.stuck` arrives, because the glass takes over there. */
+  .taskly-home header::before{
+    content: ""; position: absolute; inset: 0 0 auto; height: 210%;
+    z-index: -1; pointer-events: none;
+    background: linear-gradient(to bottom,
+      rgb(3 16 19 / .82) 0%,
+      rgb(3 16 19 / .52) 42%,
+      rgb(3 16 19 / .18) 72%,
+      transparent 100%);
+    transition: opacity .34s var(--ease);
   }
-  .taskly-home .mark small{ display: block; font-size: .58rem; font-weight: 600; letter-spacing: .1em; color: var(--ink-soft); text-transform: uppercase; margin-top: -2px; }
-  .taskly-home nav.links{ display: none; gap: 22px; margin-left: 12px; }
+  .taskly-home header.stuck::before{ opacity: 0; }
+
+  /* A gradient rather than a flat fill: it holds the type at the top of the bar
+     and releases toward the page, so the seam never draws a line of its own. */
+  .taskly-home header.stuck{
+    background:
+      linear-gradient(to bottom,
+        color-mix(in oklab, var(--base) 96%, transparent) 0%,
+        color-mix(in oklab, var(--base) 88%, transparent) 100%);
+    backdrop-filter: blur(18px) saturate(150%);
+    border-bottom-color: color-mix(in oklab, var(--brand) 22%, transparent);
+    box-shadow: 0 1px 30px rgb(0 0 0 / .46);
+  }
+  /* ⚠️ THE BAR IS NOT HELD IN THE 68rem COLUMN THE REST OF THE PAGE USES.
+     `.wrap` centres content at max-width 68rem, which on a wide screen parks
+     the logo and the button a long way in from the edges — the header then
+     looks like a floating box rather than a bar. The mark goes hard left and
+     the button hard right; only the gutter keeps them off the glass. The grid
+     stays `1fr auto 1fr` so the menu is centred on the PAGE regardless. */
+  .taskly-home .bar{
+    max-width: none;
+    padding-inline: clamp(16px, 2.2vw, 30px);
+    display: grid; grid-template-columns: 1fr auto 1fr;
+    align-items: center; gap: 20px; height: var(--bar-h);
+  }
+
+  .taskly-home .mark{
+    display: inline-flex; align-items: center; gap: 11px; justify-self: start;
+    font-weight: 700; letter-spacing: -.02em; font-size: 1.22rem; text-decoration: none;
+    line-height: 1.15;
+  }
+  /* The supplied artwork, shown through a window by <LogoMark> — never
+     recoloured or re-exported. See the rules at the top of logo.tsx. */
+  /* ── ⚠️ THE MARK GETS ITS OWN LIGHT ────────────────────────────────────
+     The artwork is a dark-teal and gold brain drawn for a light ground. On this
+     page it sits on #04161a and the teal facets nearly vanish into it.
+
+     tokens.css has `.brand-glow`, but it is a WARM gold halo built for the
+     sign-in screen's white background; on dark it reads as a yellow smudge. So
+     the halo here is the page's own — cool, behind the artwork, and nowhere
+     near it. ⛔ The artwork itself is untouched: no filter, no recolour, no
+     second export. A light behind an object does not alter the object. */
+  .taskly-home .mark .brand-mark{
+    flex: none; display: block; position: relative; isolation: isolate;
+    /* ⚠️ NO `overflow: hidden` HERE. This wrapper exists precisely because
+       <LogoMark>'s own span has it, which clipped the halo below into a
+       rectangle. Adding it back would restore the bug. */
+    transition: transform var(--slow) var(--ease-out);
+  }
+  .taskly-home .mark .brand-mark::before{
+    content: ""; position: absolute; inset: -34% -22%; z-index: -1;
+    border-radius: 50%;
+    background: radial-gradient(ellipse 62% 58% at 50% 52%,
+      rgb(47 163 169 / .46) 0%,
+      rgb(47 163 169 / .17) 46%,
+      transparent 74%);
+    /* A slow breath, so the mark looks lit rather than pasted on. */
+    animation: taskly-breathe 5.2s var(--ease) infinite;
+  }
+  @keyframes taskly-breathe {
+    0%, 100% { opacity: .78; transform: scale(1); }
+    50%      { opacity: 1;   transform: scale(1.09); }
+  }
+  .taskly-home .mark:hover .brand-mark{ transform: rotate(-6deg) scale(1.07); }
+  .taskly-home .mark:hover .brand-mark::before{ animation-play-state: paused; opacity: 1; }
+
+  @media (max-width: 61.999rem) {
+    .taskly-home .mark .brand-mark > span{ width: 48px !important; height: 32px !important; }
+  }
+  .taskly-home .mark:hover .brand-mark{ transform: rotate(-6deg) scale(1.06); }
+  .taskly-home .mark small{
+    display: block; font-size: .62rem; font-weight: 600; letter-spacing: .11em;
+    color: var(--ink); opacity: .88; text-transform: uppercase; margin-top: 1px;
+  }
+
+  .taskly-home nav.links{ display: none; gap: 30px; justify-self: center; }
   @media (min-width: 62rem) { .taskly-home nav.links{ display: flex; } }
-  .taskly-home nav.links a{ font-size: .88rem; font-weight: 500; color: var(--ink-soft); text-decoration: none; }
+  /* ⚠️ FULL-STRENGTH INK, FOR THE THIRD TIME ON THIS PAGE. --ink-soft is
+     graded against a SOLID surface; over footage it loses exactly the contrast
+     it was chosen for. These links measured 2.67:1 sitting over the bright
+     centre of the clip. The hover state is the underline, not a colour change,
+     so nothing is lost by starting at full strength. */
+  .taskly-home nav.links a{
+    position: relative; font-size: .88rem; font-weight: 500;
+    color: var(--ink); text-decoration: none; padding-block: 6px;
+    transition: color var(--quick) var(--ease);
+  }
+  /* A rule that grows from the centre out. `scaleX` on a pseudo-element, so it
+     animates on the compositor and never reflows the row it sits in. */
+  .taskly-home nav.links a::after{
+    content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 1.5px;
+    background: var(--brand); border-radius: 2px;
+    transform: scaleX(0); transform-origin: center;
+    transition: transform .26s var(--ease-out);
+  }
   .taskly-home nav.links a:hover{ color: var(--ink); }
-  .taskly-home .bar .right{ margin-left: auto; display: flex; align-items: center; gap: 10px; }
+  .taskly-home nav.links a:hover::after,
+  .taskly-home nav.links a:focus-visible::after{ transform: scaleX(1); }
+  /* The section being read is marked as you scroll, by the same observer that
+     runs the reveals. */
+  .taskly-home nav.links a[aria-current="true"]{ color: var(--ink); }
+  .taskly-home nav.links a[aria-current="true"]::after{ transform: scaleX(1); }
+
+  .taskly-home .bar .right{ justify-self: end; display: flex; align-items: center; gap: 10px; }
+
+  /* ── ⚠️ NARROW: TWO COLUMNS, NOT THREE ────────────────────────────────
+     The menu is hidden below 62rem, but its `auto` column still sat between the
+     two `1fr` columns and squeezed the mark into half the bar — the wordmark
+     wrapped onto three lines and collided with the button. With the menu gone
+     the mark should take exactly what it needs and the button the rest. */
+  @media (max-width: 61.999rem) {
+    .taskly-home{ --bar-h: 68px; }
+    .taskly-home .bar{ grid-template-columns: auto 1fr; gap: 12px; }
+    .taskly-home .mark{ font-size: 1.06rem; }
+    .taskly-home .mark small{ font-size: .55rem; letter-spacing: .08em; }
+  }
+  /* The lockup is a name: it breaks where the design says or not at all. */
+  .taskly-home .mark > span{ white-space: nowrap; }
 
   .taskly-home .btn{
     display: inline-flex; align-items: center; justify-content: center; gap: 8px;
     height: 40px; padding-inline: 18px; border-radius: 10px;
     font-size: .9rem; font-weight: 600; text-decoration: none;
     border: 1px solid transparent; cursor: pointer;
-    transition: filter .14s ease, border-color .14s ease;
+    position: relative; overflow: hidden; isolation: isolate;
+    transition: transform var(--quick) var(--ease), box-shadow var(--quick) var(--ease),
+                border-color var(--quick) var(--ease), color var(--quick) var(--ease);
   }
-  .taskly-home .btn-primary{ background: linear-gradient(135deg, var(--brand-lit), var(--brand)); color: var(--on-brand); }
-  .taskly-home .btn-primary:hover{ filter: brightness(1.08); }
-  .taskly-home .btn-ghost{ border-color: var(--rule-firm); color: var(--ink); background: var(--surface); }
-  .taskly-home .btn-ghost:hover{ border-color: var(--brand); }
+  .taskly-home .btn:active{ transform: translateY(1px); }
+  /* ── ⚠️ A GRADIENT THAT MOVES, NOT A GRADIENT THAT IS ANIMATED ────────
+     `background-position` on an oversized gradient, NOT animating the colour
+     stops. Animating a gradient's stops repaints the element every frame on the
+     main thread; sliding an already-painted background does not. Same picture,
+     a fraction of the cost. */
+  .taskly-home .btn-primary{
+    background: linear-gradient(115deg,
+      var(--brand) 0%, var(--brand-lit) 26%, #7fd4d6 50%, var(--brand-lit) 74%, var(--brand) 100%);
+    background-size: 280% 100%;
+    background-position: 0% 50%;
+    color: var(--on-brand);
+    transition: transform var(--quick) var(--ease), box-shadow var(--quick) var(--ease),
+                background-position .9s var(--ease-out);
+  }
+  .taskly-home .btn-primary:hover{ background-position: 100% 50%; }
+  /* A sheen that crosses the button once on hover. `transform` only, on a
+     pseudo-element, so nothing around it is asked to reflow. */
+  .taskly-home .btn-primary::before{
+    content: ""; position: absolute; inset: 0; z-index: -1;
+    background: linear-gradient(115deg, transparent 20%, rgb(255 255 255 / .3) 50%, transparent 80%);
+    transform: translateX(-120%);
+    transition: transform .62s var(--ease-out);
+  }
+  .taskly-home .btn-primary:hover{
+    transform: translateY(-2px);
+    box-shadow: 0 10px 30px rgb(47 163 169 / .42), 0 0 0 1px rgb(127 212 214 / .35);
+  }
+  .taskly-home .btn-primary:hover::before{ transform: translateX(120%); }
+  .taskly-home .btn-ghost{ border-color: var(--rule-firm); color: var(--ink); background: color-mix(in oklab, var(--surface) 70%, transparent); }
+  .taskly-home .btn-ghost:hover{ border-color: var(--brand); transform: translateY(-2px); box-shadow: 0 10px 26px rgb(0 0 0 / .34); }
   .taskly-home .btn-lg{ height: 50px; padding-inline: 26px; font-size: 1rem; }
 
 
   /* ── Hero, over the control-room clip ───────────────────────────────── */
-  .taskly-home .hero{ position: relative; isolation: isolate; overflow: hidden; padding-block: clamp(60px, 10vw, 132px) clamp(48px, 7vw, 88px); }
+  /* ⚠️ THE COPY SITS AT THE FOOT OF THE FIRST SCREEN, NOT IN THE MIDDLE.
+     A column that is `justify-content: flex-end` inside a full-height box puts
+     the words on the floor of the viewport and leaves the whole screen above
+     them to the clip — which is the point: the footage is the hero, the words
+     are the caption. `svh` and not `vh`, or mobile browser chrome pushes the
+     buttons under the fold. */
+  /* ⚠️ THE HERO STARTS ABOVE THE HEADER, NOT BELOW IT.
+     The header is a sticky sibling that comes first in the flow, so it took its
+     own 76px band at the top of the page and the clip began underneath it —
+     which is why a transparent bar still showed a solid dark strip: there was
+     nothing behind it but the page colour. Measured: header bottom 77, hero top
+     77.
 
-  /* ⚠️ ONE VIDEO ELEMENT, ITS `src` SWAPPED BY THE TOGGLE — not two cuts with
-     one hidden. The app can afford CSS-switching for this clip at 1.4 MB
-     apiece; a public homepage on mobile data cannot afford both. */
+     Pulling the hero up by the bar's exact height puts the footage behind the
+     glass; the same amount is added back as padding so nothing the hero
+     contains moves, and to min-height so it is still one full screen. */
+  .taskly-home .hero{
+    position: relative; isolation: isolate; overflow: hidden;
+    margin-top: calc(-1 * var(--bar-h));
+    /* ⚠️ MULTIPLIED BY THE SCALE, AND THAT IS NOT OPTIONAL. The wrapper carries
+       zoom: 1/--ui-scale, and ANY length inside a zoomed element is interpreted
+       in PRE-ZOOM units — `svh` included. Plain `100svh` therefore laid out
+       100svh and then painted it 1.111x taller than the screen, which put the
+       buttons 25px under the fold. Multiplying by --ui-scale cancels the zoom
+       exactly. Same trap, and same fix, as `min-h-dvh` on <body> in
+       app/layout.tsx — see the long note there. */
+    min-height: calc(100svh * var(--ui-scale) + var(--bar-h));
+    display: flex; flex-direction: column; justify-content: flex-end;
+    padding-block: calc(var(--bar-h) + clamp(70px, 10vw, 120px)) clamp(30px, 4vw, 52px);
+  }
+
+  /* ⚠️ THE CLIP KEEPS ITS OWN 16:9 — IT DOES NOT COVER THE HERO.
+     MEASURED: the hero is 1440x1379 at desktop, a ratio of 1.045 against the
+     file's 1.778, so `object-fit: cover` scaled the video by its HEIGHT and
+     threw the sides away. Only 59% of each frame survived at 1440px, 45% at
+     1024px and 28% at 400px — which is exactly why it read as zoomed in.
+
+     The box now carries the file's own ratio at full width. Nothing is cropped
+     and nothing is enlarged: the frame is shown as shot, edge to edge. The hero
+     is taller than that band and the remainder is page colour, which the mask
+     below and the scrim's bottom stop blend into so there is no seam. */
   .taskly-home .hero-clip{
+    /* ⚠️ NATURAL SCALE, ANCHORED TO THE TOP — NOT `cover`.
+       `cover` on a hero of ratio 1.625 scaled a 1.778 file by its HEIGHT: 23%
+       larger than shot, with 9% cut off the sides at 1440px. That is the
+       "zoomed / cut off the top" the owner kept seeing. Giving the box the
+       file's own ratio at full width means the frame is shown exactly as
+       delivered: nothing enlarged, nothing cropped.
+
+       The hero is taller than that band and the remainder is page colour —
+       which is where the copy sits anyway, and the scrim already lands there,
+       so no seam is visible. */
     position: absolute; inset-inline: 0; top: 0; z-index: -2;
-    width: 100%; opacity: var(--clip-op);
-    background: var(--still-room) center / cover no-repeat;
-    /* Faded out at its own bottom edge. Without this the clip simply STOPS
-       partway down and, because its lowest rows are the darker studio floor,
-       the cut reads as a hard seam across the full width. */
-    mask-image: linear-gradient(to bottom, black 58%, transparent 94%);
-    -webkit-mask-image: linear-gradient(to bottom, black 58%, transparent 94%);
+    width: 100%; height: auto; aspect-ratio: 1920 / 1080;
+    /* The box already matches the file, so these crop nothing today; they are
+       here so a clip of a different shape degrades to a centre crop rather
+       than stretching. */
+    object-position: center;
+    opacity: 1;
+    background: var(--still-hero) center / cover no-repeat;
+    /* Faded out at its own bottom edge, or the band simply STOPS and the cut
+       reads as a hard line across the full width. It starts at 72% rather than
+       58% because the band is now the video's own height rather than the whole
+       hero. MEASURED: at 78% the fade began at page y=633 and the headline
+       starts at y=595 — the clip was dissolving exactly where the copy sits,
+       which is the "blackish area at the bottom". At 90% it holds its full
+       strength down to y=730 and only softens over the last 80px. */
+    mask-image: linear-gradient(to bottom, black 90%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, black 90%, transparent 100%);
     pointer-events: none;
+  }
+  /* ⚠️ BELOW 52rem THE TRADE FLIPS. At 400px the natural band is only 225px
+     tall in an 878px hero — a thin strip with a large empty gap under it. A
+     crop is the lesser fault there, so the phone gets `cover`. */
+  @media (max-width: 52rem) {
+    .taskly-home .hero-clip{
+      inset: 0; height: 100%; aspect-ratio: auto;
+      object-fit: cover; object-position: center;
+    }
   }
   /* The scrim protects the type and nothing else — it must not dim the clip
      evenly, or the whole thing turns to mud. */
+  /* ⚠️ THE SCRIM IS SYMMETRICAL AGAIN. It was weighted to the left because
+     the copy was left-aligned and the brain sat centre-right; with the column
+     centred, that weighting would now shade one side of the headline more than
+     the other. Centre-out instead: heaviest behind the text, releasing toward
+     both edges so the frame's outer thirds stay visible. */
   .taskly-home .hero::after{
     content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
-    background: linear-gradient(to bottom, var(--veil) 0%, var(--veil) 46%, var(--base) 92%);
+    /* ⚠️ MOST OF THE SCREEN IS LEFT ALONE, AND THE FLOOR IS NOW MUCH LIGHTER
+       THAN IT WAS. The owner's note was that the bottom read as a black band
+       hiding the film. This ramp only reaches half opacity at 80% of the hero,
+       where the clip is already its own dark studio floor.
+
+       What replaced its weight is the POOL behind the copy below — targeted at
+       the ellipse the words occupy instead of the full width — because the
+       thing that actually needs a dark ground is the text, not the band.
+
+       ⚠️ THE TOP TWO-THIRDS ARE LEFT ALONE. The brain sits between roughly 11%
+       and 62% of the screen and is untouched — that is the owner's "make the
+       video prominent". The floor is darkened instead, because that is where
+       the copy sits, and the clip's own lower third is already the dark ring
+       and studio floor, so the ramp costs almost nothing visually.
+
+       It has to be a real ramp, not a whisper: the brain's brightest pixels are
+       close to white, and NO ink of any colour passes against those. Text over
+       this clip is only legible where the ground is dark, so the ground under
+       the text is made dark. */
+    background: linear-gradient(to bottom,
+      transparent 0%,
+      transparent 34%,
+      rgb(4 22 26 / .10) 52%,
+      rgb(4 22 26 / .26) 66%,
+      rgb(4 22 26 / .52) 80%,
+      rgb(4 22 26 / .86) 92%,
+      var(--base) 100%);
   }
 
+  /* ⚠️ CENTRED, AND SMALLER. It was 5rem and left-aligned at a 15ch measure.
+     Centred type has to be shorter per line or the eye loses the start of the
+     next one, so the cap comes down to 3.4rem and the measure is set by the
+     column rather than by `max-width` on the heading itself. */
+  /* ⚠️ ONE LINE ON A WIDE SCREEN, AND THE SIZE IS WHAT GIVES WAY.
+     `vw` in the clamp is what keeps it on one line: the type shrinks with the
+     window instead of the words wrapping. `nowrap` is applied only above the
+     width where the full string actually fits — forcing it everywhere would
+     push a 29-character headline off the side of a phone. */
   .taskly-home h1{
-    font-size: clamp(2.5rem, 7.4vw, 5rem);
-    line-height: .98; font-weight: 800; font-stretch: 112%;
-    letter-spacing: -.035em; margin: 0; max-width: 15ch;
+    /* ⚠️ THE CAP IS WHAT SETS THE COLUMN WIDTH, not a `width` anywhere.
+       The headline is one nowrap line, so its size decides how wide it draws —
+       and the shot below is capped to match it. Owner asked for it smaller, so
+       the cap came down from 4.9rem — and the shot's cap came down with it, or
+       the picture would be visibly wider than the words again. */
+    font-size: clamp(1.75rem, 4.1vw, 3.6rem);
+    line-height: 1.05; font-weight: 800; font-stretch: 106%;
+    letter-spacing: -.03em; margin: 0;
+  }
+  @media (min-width: 46rem) { .taskly-home h1{ white-space: nowrap; } }
+
+  /* The hero column: everything in it is centred, including the buttons. */
+  /* `.wrap.hero-copy` and not `.hero-copy`: this element carries BOTH classes,
+     and `.wrap`'s own 68rem cap was winning, so the headline column came out
+     narrower than the shot below it. */
+  .taskly-home .wrap.hero-copy{
+    position: relative; isolation: isolate; width: 100%;
+    display: flex; flex-direction: column; align-items: center; text-align: center;
+    /* ⚠️ NARROWER THAN `--page-w` ON PURPOSE, and the one place that is true.
+       This is a centred headline over a centred paragraph; centred text needs a
+       shorter measure than ranged-left text or the eye loses the start of each
+       line. The caption under the screenshot is narrower for the same reason —
+       it matches the frame it captions rather than the page spine. */
+    max-width: 64rem;
+  }
+  /* ⚠️ A SHADOW UNDER THE WORDS, NOT A PANEL BEHIND THEM. The owner's note
+     was that the pool was hiding the film. It is now a soft, wide, low-opacity
+     pool that seats the type without reading as a box — and the headline
+     carries its own text-shadow as well, which protects the glyph edges
+     locally instead of dimming a whole region.
+
+     ⚠️ WCAG DOES NOT COUNT A TEXT-SHADOW, and neither does the probe: it
+     strips them before measuring. So the numbers below are what the type scores
+     WITHOUT the shadow's help, and the shadow is legibility on top of a figure
+     that already stands on its own. */
+  .taskly-home .hero-copy::before{
+    content: ""; position: absolute; z-index: -1; pointer-events: none;
+    inset: -26% -12% -22%;
+    /* Wider than it is tall: the headline is one long line, so an ellipse that
+       matches its own proportions protects the ends of it as well as the
+       middle. A circular pool left "platform" measurably thinner than
+       "AI-powered". */
+    background: radial-gradient(ellipse 68% 54% at 50% 50%,
+      rgb(3 16 19 / .84) 0%,
+      rgb(3 16 19 / .68) 46%,
+      rgb(3 16 19 / .26) 74%,
+      transparent 92%);
+  }
+  .taskly-home h1,
+  .taskly-home .hero .standfirst{
+    text-shadow: 0 2px 10px rgb(2 12 14 / .72), 0 1px 34px rgb(2 12 14 / .6);
   }
   .taskly-home h1 em{ font-style: normal; color: var(--brand); }
   /* Full-strength ink, not `--ink-soft`. The soft and faint tokens are graded
      against a SOLID surface; over footage they lose the contrast they were
      picked for, and no scrim thin enough to keep the clip alive buys it back. */
-  .taskly-home .standfirst{ margin: 24px 0 0; font-size: clamp(1.05rem, 2.1vw, 1.3rem); line-height: 1.5; color: var(--ink); max-width: 46ch; }
-  .taskly-home .cta{ display: flex; flex-wrap: wrap; gap: 12px; margin-top: 32px; }
-  .taskly-home .who{ margin: 22px 0 0; font-size: .84rem; color: var(--ink-soft); }
+  .taskly-home .standfirst{
+    margin: 20px 0 0; font-size: clamp(.95rem, 1.2vw, 1.04rem);
+    line-height: 1.6; color: var(--ink);
+    /* Wide, but not unbounded: past about 82 characters the eye loses the
+       start of the next line, and a centred paragraph loses it sooner. */
+    max-width: 72ch;
+  }
+  .taskly-home .cta{ display: flex; flex-wrap: wrap; gap: 12px; margin-top: 30px; justify-content: center; }
+  /* ⚠️ FULL-STRENGTH INK, NOT --ink-soft. The soft and faint tokens are graded
+     against a SOLID surface; over footage they lose the contrast they were
+     picked for. At 13px --ink-soft measured 3.61:1 here against a 4.5 floor,
+     and no scrim thin enough to keep the clip alive buys that back. This is the
+     second time the same token has failed in the same place. */
+  .taskly-home .who{ margin: 22px 0 0; font-size: .84rem; color: var(--ink); opacity: .82; }
 
   /* ── A framed screen ────────────────────────────────────────────────── */
   .taskly-home .frame{ border: 1px solid var(--rule); border-radius: 16px; background: var(--surface); box-shadow: var(--shadow); overflow: hidden; }
-  .taskly-home .hero .frame{ margin-top: clamp(40px, 6vw, 64px); }
+  /* ── The band the particle field lives in ────────────────────────────────
+     `isolation` so the canvas's negative z-index stays inside this box rather
+     than escaping to the page root and painting under the section's own
+     background — the same trap that once made the assistant panel render as an
+     empty grey rectangle. */
+  .taskly-home .overview{
+    position: relative; isolation: isolate;
+    padding-bottom: clamp(20px, 3vw, 40px);
+  }
+  .taskly-home .overview-field{
+    position: absolute; inset: 0; z-index: -1;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    /* Faded at top and bottom so the field has no edge of its own; it should
+       look like the page has motes in it, not like a box of them. */
+    mask-image: linear-gradient(to bottom, transparent 0%, black 16%, black 84%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 16%, black 84%, transparent 100%);
+  }
+
+  /* ── THE SYSTEM OVERVIEW BAND ────────────────────────────────────────────
+     Three columns: a quiet label, the screen, a quiet label. The frame keeps
+     its own cap so it stays the same width as the headline above; the flanks
+     take whatever is left, and get out of the way entirely when there is not
+     enough of it. */
+  .taskly-home .hero-shot{
+    position: relative; z-index: 1;
+    width: 100%; max-width: 64rem;
+    margin: clamp(40px, 5vw, 64px) auto 0;
+    padding-inline: 20px;
+  }
+  @media (min-width: 82rem) {
+    .taskly-home .hero-shot{
+      max-width: var(--page-w);
+      display: grid; align-items: center; gap: clamp(20px, 3vw, 44px);
+      grid-template-columns: minmax(0, 1fr) minmax(0, 64rem) minmax(0, 1fr);
+    }
+  }
+
+  .taskly-home .shot-flank{
+    display: none; margin: 0;
+    font-size: .7rem; font-weight: 600; line-height: 1.75;
+    letter-spacing: .16em; text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+  .taskly-home .shot-flank span{ display: block; }
+  /* ⚠️ SHOWN ONLY WHERE THERE IS REAL ROOM BESIDE THE FRAME. Below 82rem the
+     grid collapses to one column and these would stack above and below the
+     screen, where they read as stray text rather than as margin notes. */
+  @media (min-width: 82rem) {
+    .taskly-home .shot-flank{ display: block; }
+    .taskly-home .shot-flank-l{ text-align: right; }
+    .taskly-home .shot-flank-r{ text-align: left; color: var(--ink-soft); }
+  }
+
+  /* ── The caption under the screen ──────────────────────────────────────── */
+  .taskly-home .shot-caption{
+    display: flex; align-items: center; gap: 18px;
+    max-width: 64rem; margin: clamp(22px, 3vw, 34px) auto 0;
+    padding-inline: 20px;
+    font-size: .84rem; font-weight: 600; letter-spacing: .04em;
+    color: var(--brand-lit);
+  }
+  /* A rule either side, drawn by the element rather than by two extra spans. */
+  .taskly-home .shot-caption::before,
+  .taskly-home .shot-caption::after{
+    content: ""; flex: 1; height: 1px;
+    background: linear-gradient(90deg, transparent, color-mix(in oklab, var(--brand) 52%, transparent));
+  }
+  .taskly-home .shot-caption::after{
+    background: linear-gradient(90deg, color-mix(in oklab, var(--brand) 52%, transparent), transparent);
+  }
+  .taskly-home .shot-caption span{ flex: none; }
+
+  /* ── The six screens, as a strip ───────────────────────────────────────── */
+  .taskly-home .shot-strip{
+    display: grid; gap: 12px;
+    max-width: var(--page-w); margin: clamp(24px, 3vw, 36px) auto 0;
+    padding-inline: 20px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  @media (min-width: 40rem) { .taskly-home .shot-strip{ grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  @media (min-width: 68rem) { .taskly-home .shot-strip{ grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+
+  .taskly-home .strip-item{
+    display: flex; align-items: center; gap: 11px;
+    /* Tighter than it looks like it needs to be: at 16px of padding the longest
+       line ("Keep everything organised") wrapped while the other five did not,
+       and one card of two lines in a row of six reads as a mistake. */
+    padding: 15px 13px; border-radius: 12px;
+    border: 1px solid var(--rule-soft);
+    background: color-mix(in oklab, var(--surface) 72%, transparent);
+    transition: transform .3s var(--ease-out), border-color .3s var(--ease),
+                background .3s var(--ease);
+  }
+  .taskly-home .strip-item:hover{
+    transform: translateY(-3px);
+    border-color: color-mix(in oklab, var(--brand) 54%, transparent);
+    background: var(--surface);
+  }
+  .taskly-home .strip-item svg{
+    width: 22px; height: 22px; flex: none; color: var(--brand-lit);
+    transition: transform .3s var(--ease-out);
+  }
+  .taskly-home .strip-item:hover svg{ transform: scale(1.1); }
+  .taskly-home .strip-item h3{
+    margin: 0; font-size: .92rem; font-weight: 700; letter-spacing: -.01em;
+  }
+  .taskly-home .strip-item p{
+    margin: 2px 0 0; font-size: .75rem; line-height: 1.4; color: var(--ink-soft);
+    text-wrap: balance;
+  }
+  .taskly-home .hero-shot .frame{
+    box-shadow: 0 40px 90px -30px rgb(0 0 0 / .8), 0 0 0 1px var(--rule);
+    background: var(--sunken);
+  }
+  .taskly-home .hero-shot img{ display: block; width: 100%; height: auto; }
   .taskly-home .frame .chrome{ display: flex; align-items: center; gap: 7px; padding: 11px 14px; border-bottom: 1px solid var(--rule-soft); background: var(--sunken); }
   .taskly-home .frame .chrome i{ width: 9px; height: 9px; border-radius: 50%; background: var(--rule-firm); }
   .taskly-home .frame .chrome span{ margin-left: 8px; font-size: .74rem; color: var(--ink-soft); }
@@ -224,30 +668,439 @@
   /* ── Sections ───────────────────────────────────────────────────────── */
   .taskly-home section{ padding-block: clamp(64px, 9vw, 112px); }
   .taskly-home .section-head{ max-width: 44ch; }
+
   .taskly-home h2{ font-size: clamp(1.75rem, 4.2vw, 2.7rem); line-height: 1.08; font-weight: 800; font-stretch: 108%; letter-spacing: -.028em; margin: 0; }
   .taskly-home .section-head p{ margin: 16px 0 0; color: var(--ink-soft); font-size: 1.02rem; line-height: 1.6; }
 
   /* ── The thread ─────────────────────────────────────────────────────── */
-  .taskly-home .thread{ margin-top: 52px; position: relative; }
-  .taskly-home .thread::before{
-    content: ""; position: absolute; left: 11px; top: 12px; bottom: 12px; width: 2px;
-    background: linear-gradient(to bottom, transparent, var(--rule-firm) 6%, var(--rule-firm) 94%, transparent);
+  /* ══ THE TREND & ENGAGEMENT STUDIO ═══════════════════════════════════════
+     Copy left, screen right — the mirror of the operating-layer section above,
+     so the two alternate rather than stacking the same way twice. It borrows
+     the same `.pitch` treatment: same role, same rule, and one place to change
+     it if the treatment ever does. */
+  .taskly-home .studio-grid{
+    display: grid; gap: clamp(24px, 3vw, 40px);
+    align-items: center;
+    max-width: var(--page-w);
   }
-  @media (min-width: 52rem) { .taskly-home .thread::before{ left: 15px; } }
-  .taskly-home .stop{ position: relative; padding-left: 44px; padding-block: 22px; }
-  @media (min-width: 52rem) { .taskly-home .stop{ padding-left: 56px; display: grid; grid-template-columns: minmax(0, 19rem) minmax(0, 1fr); gap: 32px; } }
-  .taskly-home .stop::before{ content: ""; position: absolute; left: 4px; top: 30px; width: 16px; height: 16px; border-radius: 50%; background: var(--base); border: 2px solid var(--brand); }
-  @media (min-width: 52rem) { .taskly-home .stop::before{ left: 8px; } }
-  .taskly-home .stop.gold::before{ border-color: var(--gold-fill); }
-  .taskly-home .stop h3{ margin: 0 0 6px; font-size: 1.18rem; font-weight: 700; letter-spacing: -.015em; line-height: 1.25; }
-  .taskly-home .stop .where{ font-size: .78rem; font-weight: 600; color: var(--brand); margin: 0 0 8px; }
-  .taskly-home .stop.gold .where{ color: var(--gold); }
-  .taskly-home .stop p{ margin: 0; color: var(--ink-soft); font-size: .96rem; line-height: 1.62; max-width: 56ch; }
-  .taskly-home .stop ul{ margin: 12px 0 0; padding-left: 18px; }
-  .taskly-home .stop li{ color: var(--ink-soft); font-size: .9rem; margin-bottom: 5px; }
-  .taskly-home .stop li::marker{ color: var(--ink-faint); }
+  /* The screen takes the larger share, as the diagram does in the section
+     above — it was drawing 730 wide against a native 1909, so there is a long
+     way to grow before it softens. */
+  @media (min-width: 62rem) {
+    /* ⚠️ THE MIRROR OF `.layer-grid`, and it has to be, or the two headings
+       cannot share a rule: the same type at the same size needs the same
+       column. The image takes what is left — 843px, against a native 1909, so
+       still nowhere near upscaled. */
+    .taskly-home .studio-grid{ grid-template-columns: minmax(0, 1fr) minmax(0, 1.75fr); }
+  }
+
+
+  /* ── The four measures ─────────────────────────────────────────────────── */
+  .taskly-home .studio-facets{
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px;
+    margin: 24px 0 0; font-size: .92rem; font-weight: 600;
+    color: var(--brand-lit);
+  }
+  /* A dot between them, drawn rather than typed, so the markup stays four
+     plain words and the separators cannot end up read aloud. */
+  .taskly-home .studio-facets span + span::before{
+    content: ""; display: inline-block; vertical-align: middle;
+    width: 3px; height: 3px; border-radius: 50%;
+    background: currentColor; opacity: .55;
+    margin-right: 14px;
+  }
+
+  /* ── The connected accounts ────────────────────────────────────────────── */
+  .taskly-home .studio-accounts{
+    display: grid; gap: 14px; margin-top: 28px;
+    grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+    max-width: 26rem;
+  }
+  .taskly-home .account{
+    display: flex; align-items: center; gap: 12px;
+  }
+  .taskly-home .account h3{
+    margin: 0; font-size: 1rem; font-weight: 700; letter-spacing: -.01em;
+  }
+  .taskly-home .account p{
+    margin: 1px 0 0; font-size: .84rem; font-weight: 600;
+    /* The app's own "connected" green, not the brand teal: this is a STATUS and
+       should read the same here as it does inside the product.
+
+       ⚠️ WRITTEN OUT, NOT REFERENCED. `--feedback-success` is semantic and
+       flips per theme; a visitor whose account is set to light arrives with
+       data-theme="light" and would get #059669, the light-theme green, on this
+       dark ground. Same reason every other colour on this page is pinned. */
+    color: #34d399;   /* --emerald-deep-d, the dark-theme --feedback-success */
+  }
+
+  /* The mirror of the diagram above: this screen sits on the RIGHT, so its
+     right edge comes forward and its left edge recedes. Both panels then face
+     inward, toward the middle of the page. */
+  .taskly-home .studio-shot{ --turn: 1; }
+  /* ⚠️ NO BLEED. An earlier version let this run past the container to buy
+     width, and it broke the page's gutter — the screen ended 52px beyond the
+     right edge while every other section respected it. Height comes from the
+     COLUMN SHARE below instead, which costs nothing structurally. */
+  .taskly-home .studio-shot .frame{
+    /* A visible border, which turns with the panel because the FRAME is what is
+       transformed. The drop-shadow lives on this element too, so the two agree
+       about which way the light falls. */
+    border: 1px solid var(--rule-firm);
+    background: var(--sunken);
+    border-radius: 14px; overflow: hidden;
+  }
+  .taskly-home .studio-shot img{ display: block; width: 100%; height: auto; }
+
+  /* ══ THE LEAD DESK ═══════════════════════════════════════════════════════
+     Film left, words right. It used to be a centred head over a full-bleed
+     clip; it is now the same two-column shape as the two sections above, and
+     shares their `.pitch` heading rule rather than carrying its own. */
+  .taskly-home .thread-grid{
+    display: grid; gap: clamp(24px, 3vw, 44px);
+    align-items: center;
+    max-width: var(--page-w);
+  }
+  @media (min-width: 62rem) {
+    .taskly-home .thread-grid{ grid-template-columns: minmax(0, 1.75fr) minmax(0, 1fr); }
+  }
+
+  .taskly-home .thread-film{
+    position: relative; line-height: 0;
+    border-radius: 14px; overflow: hidden;
+    border: 1px solid var(--rule);
+    box-shadow: 0 26px 60px -22px rgb(0 0 0 / .6);
+  }
+  /* ⚠️ THE REVEAL HERE IS SLOWER THAN THE PAGE'S. The default rise is a .72s
+     nudge, right for a paragraph arriving. A film should settle rather than
+     snap — the owner's "very smooth, not fast". Still one movement. */
+  .taskly-home[data-motion="on"] .thread-film[data-reveal]{
+    opacity: 0;
+    transform: translate3d(0, 34px, 0) scale(.985);
+    transition: opacity 1.15s var(--ease-out), transform 1.25s var(--ease-out);
+  }
+  .taskly-home[data-motion="on"] .thread-film[data-reveal].in{
+    opacity: 1; transform: none;
+  }
+  .taskly-home .thread-clip{
+    display: block; width: 100%; height: auto;
+    aspect-ratio: 1280 / 720;
+    object-fit: cover;
+    background: url('/home/thread-poster.jpg') center / cover no-repeat;
+  }
+
 
   /* ── Module grid ────────────────────────────────────────────────────── */
+  /* ══ THE OPERATING LAYER ══════════════════════════════════════════════
+     Artwork on the left, the argument on the right, then three numbered points
+     across the foot. The owner asked for the diagram on the left; the reference
+     had it on the right, and either reads fine because the two halves are
+     independent — the `order` on the copy is the only thing that decides it. */
+  .taskly-home .layer{ position: relative; }
+  /* ⚠️ THIS GRID IS WIDER THAN THE PAGE'S 68rem READING COLUMN, AND IT HAS TO
+     BE. Giving the artwork a fixed 893px track inside a 1048px content box left
+     the copy 99px — the headline came out one word per line. A wider container
+     plus FRACTIONS rather than a pixel track lets both halves scale together:
+     the artwork takes a little more, the prose keeps a real measure. */
+  .taskly-home .layer-grid{
+    display: grid; gap: clamp(24px, 3vw, 44px);
+    align-items: center;
+    max-width: var(--page-w);
+  }
+  /* The artwork takes the larger share so it can approach its native 893px —
+     it was drawing at 710, which left it noticeably shorter than the column of
+     copy beside it. The copy still gets a real measure at ~480px. */
+  @media (min-width: 60rem) {
+    .taskly-home .layer-grid{ grid-template-columns: minmax(0, 1.75fr) minmax(0, 1fr); }
+  }
+
+  /* ⚠️ CAPPED AT ITS NATIVE 893px AND NEVER STRETCHED. It shrinks below that,
+     it does not grow above it — an upscaled raster only looks soft. */
+  /* ══ A PANEL TURNED IN SPACE ═════════════════════════════════════════════
+     Shared by the operating-layer diagram and the Studio screen, which tilt in
+     OPPOSITE directions — each turns to face the copy beside it, so the two
+     lean toward the middle of the page rather than both leaning the same way.
+     `--turn` carries the sign; nothing else differs.
+
+     ⚠️ `perspective` MUST SIT ON THE ANCESTOR, not on the transformed element.
+     Put it on the image itself alongside the rotation and it is ignored, the
+     rotation flattens to a skew, and the panel looks bent rather than turned.
+     This is the commonest way a CSS 3D tilt goes wrong.
+
+     ⚠️ AND THE ANGLE STAYS SMALL. Past about 12deg the far edge of a raster
+     starts to alias and the labels inside it get hard to read, which costs more
+     than the depth is worth. */
+  .taskly-home .tilt{
+    perspective: 1600px;
+    perspective-origin: calc(50% + var(--turn) * -10%) 50%;
+  }
+  /* ⚠️ THE DIRECT CHILD, NOT THE `img`. Where the panel has a bordered frame
+     the FRAME is what must turn — tilting the image inside a flat frame gave a
+     rectangular border around a skewed picture, and the frame's `overflow:
+     hidden` then clipped the tilted corners off. Measured before the fix: the
+     image's box was 835x396 inside a frame of 843x381, so the corners were
+     being cut. `> *` covers both shapes: the bare image in one section, the
+     frame in the other. */
+  .taskly-home .tilt > *{
+    transform:
+      rotateY(calc(var(--turn) * -7deg))
+      rotateX(2.5deg)
+      rotate(calc(var(--turn) * -.9deg));
+    transform-origin: calc(50% + var(--turn) * 12%) 50%;
+    /* ⚠️ `box-shadow`, NEVER `filter: drop-shadow()`, ON A 3D-TRANSFORMED
+       PANEL. A filter forces the element to be rasterised into a texture which
+       the transform then samples — a second resampling on top of the one the
+       perspective already costs, and the screenshot's fine UI text is exactly
+       what cannot afford it.
+
+       MEASURED (mean absolute horizontal gradient, higher = sharper):
+         flat, no filter      12.31
+         tilted, no filter     8.77   − the perspective's own cost
+         tilted + drop-shadow  7.04   − a further 20% for the shadow alone
+       box-shadow is drawn by the compositor around the layer instead of
+       through it, so it costs nothing in sharpness. */
+    box-shadow: calc(var(--turn) * -22px) 26px 40px -8px rgb(0 0 0 / .55);
+    transition: transform .7s var(--ease-out), box-shadow .7s var(--ease);
+    /* ⚠️ NO `will-change`. The transition only runs on hover, and a permanent
+       hint holds a compositor layer for a ~900px raster — megabytes of GPU
+       memory — for the life of the page, to save one frame of promotion on a
+       hover that may never happen. The reveal system drops its own hint after
+       arriving for the same reason. */
+  }
+  /* Levels out when you look at it — the panel turning to face you. */
+  .taskly-home .tilt:hover > *{
+    transform:
+      rotateY(calc(var(--turn) * -2deg))
+      rotateX(1deg)
+      rotate(calc(var(--turn) * -.3deg))
+      scale(1.015);
+    box-shadow: calc(var(--turn) * -10px) 22px 46px -6px rgb(0 0 0 / .6);
+  }
+
+  /* ⚠️ `--turn: -1` — THE SIGN WAS INVERTED AND BOTH PANELS FACED OUTWARD.
+     A panel on the LEFT faces the middle of the page when its left edge comes
+     FORWARD and its right edge recedes. It was doing the opposite, which turned
+     its face away from the reader and the copy. Same correction on the Studio
+     screen below, mirrored. */
+  /* ⚠️ THE DIAGRAM KEEPS A `filter` SHADOW, and that is deliberate: it has no
+     frame element to hang a box-shadow on, and it is line art on a dark ground
+     rather than 11px UI text, so the extra resampling does not show on it. */
+  .taskly-home .layer-art{
+    --turn: -1;
+    filter: drop-shadow(calc(var(--turn) * -20px) 24px 34px rgb(0 0 0 / .45));
+    max-width: 893px; margin-inline: auto; width: 100%;
+  }
+  /* ⚠️ THE ARTWORK'S OWN GROUND IS NOT THE PAGE'S, SO ITS EDGES ARE DISSOLVED.
+     This export has no alpha — its background is baked in at roughly rgb(0,9,14)
+     to rgb(1,19,27) against the page's rgb(4,22,26). Measured across the border:
+     a step of 9 to 13 values, which is small but reads as a rectangle on a dark
+     page. Fading the outer few percent removes the edge without touching the
+     artwork, which is what the owner asked to be used as supplied.
+
+     The stops are asymmetric on purpose: the drawing sits 32px from the top and
+     30px from the left of the file, but only 7px from the bottom and 12px from
+     the right, so a uniform fade would eat the lower grid lines. */
+  .taskly-home .layer-art img{
+    display: block; width: 100%; height: auto;
+    mask-image:
+      linear-gradient(to bottom, transparent 0%, black 4.5%, black 98.5%, transparent 100%),
+      linear-gradient(to right, transparent 0%, black 3%, black 98.8%, transparent 100%);
+    -webkit-mask-image:
+      linear-gradient(to bottom, transparent 0%, black 4.5%, black 98.5%, transparent 100%),
+      linear-gradient(to right, transparent 0%, black 3%, black 98.8%, transparent 100%);
+    -webkit-mask-composite: source-in;
+    mask-composite: intersect;
+  }
+
+  /* ══ THE SECTION PITCH ═══════════════════════════════════════════════════
+     ⚠️ ONE RULE FOR EVERY SHOWCASE HEADING, and that is the point of it.
+     The operating layer and the Studio had separate rules and had already
+     drifted: 3rem against 2.35rem, and one accent teal while the other was
+     still white. Anything with an eyebrow, a two-part heading and a lede uses
+     `.pitch` — a section must never carry its own copy of this. */
+  .taskly-home .pitch-eyebrow{
+    margin: 0 0 18px; font-size: .76rem; font-weight: 700;
+    letter-spacing: .13em; text-transform: uppercase; color: var(--brand-lit);
+  }
+  .taskly-home .pitch h2{
+    font-size: clamp(1.9rem, 3.6vw, 3rem);
+    line-height: 1.08; font-weight: 800; font-stretch: 106%;
+    letter-spacing: -.028em; margin: 0; max-width: 15ch;
+  }
+  /* The second half of the heading, on its own line and in the accent — the
+     white/teal split the owner asked to be the same everywhere. */
+  .taskly-home .pitch h2 em{ font-style: normal; color: var(--brand-lit); display: block; }
+  .taskly-home .pitch-lede{
+    margin: 20px 0 0; font-size: 1.06rem; line-height: 1.55;
+    color: var(--ink-soft); max-width: 42ch;
+  }
+  .taskly-home .layer-rule{
+    width: 56px; height: 2px; border: 0; border-radius: 2px;
+    background: var(--brand); margin: 26px 0 0;
+  }
+  .taskly-home .layer-claim{
+    display: flex; align-items: center; gap: 14px;
+    margin: 24px 0 0; font-size: 1.06rem; font-weight: 600; line-height: 1.4;
+  }
+  .taskly-home .layer-claim svg{
+    width: 26px; height: 26px; flex: none; color: var(--brand-lit);
+  }
+  .taskly-home .layer-claim em{ font-style: normal; display: block; color: var(--brand-lit); }
+
+  /* ── The three points ─────────────────────────────────────────────────── */
+  .taskly-home .layer-points{
+    display: grid; gap: 18px; margin-top: clamp(40px, 5vw, 64px);
+    /* Same container AND the same gutter as the grid above, so the three points
+       line up with the artwork's left edge and the copy's right edge. The grid
+       gets its 20px from `.wrap`; this element is not inside one, so it needs
+       its own or it sits 20px wider on each side. */
+    max-width: var(--page-w); margin-inline: auto; padding-inline: 20px;
+  }
+  @media (min-width: 54rem) { .taskly-home .layer-points{ grid-template-columns: repeat(3, 1fr); } }
+
+  /* Each point owns one accent, set once as --tone and read by everything
+     inside it, so a colour change is one line rather than four. */
+  .taskly-home .point{
+    position: relative; display: grid;
+    grid-template-columns: auto auto minmax(0, 1fr);
+    align-items: center; gap: 14px;
+    padding: 20px 22px; border-radius: 14px;
+    border: 1px solid color-mix(in oklab, var(--tone) 34%, transparent);
+    background:
+      linear-gradient(135deg, color-mix(in oklab, var(--tone) 9%, transparent), transparent 62%),
+      var(--surface);
+    transition: transform .3s var(--ease-out), border-color .3s var(--ease),
+                box-shadow .3s var(--ease);
+  }
+  .taskly-home .point:hover{
+    transform: translateY(-3px);
+    border-color: color-mix(in oklab, var(--tone) 62%, transparent);
+    box-shadow: 0 14px 34px -14px color-mix(in oklab, var(--tone) 46%, transparent);
+  }
+  .taskly-home .point-teal{ --tone: var(--brand-lit); }
+  .taskly-home .point-gold{ --tone: var(--gold-fill); }
+  .taskly-home .point-violet{ --tone: var(--violet-d); }
+
+  /* ⚠️ THE NUMERAL IS A LIGHTENED STEP OF THE TONE, NOT THE TONE ITSELF.
+     At 13px the raw tones measured 2.52-2.93:1 against a 4.5 floor — gold and
+     violet are mid-tones and the tinted disc behind them lifts the ground as
+     well. Mixing each tone toward white keeps all three colour-coded and puts
+     every one of them over the floor with one line rather than three
+     hand-picked hexes. */
+  .taskly-home .point-no{
+    display: grid; place-items: center;
+    width: 34px; height: 34px; border-radius: 50%;
+    font-size: .8rem; font-weight: 700; letter-spacing: .02em;
+    color: color-mix(in oklab, var(--tone) 34%, white);
+    border: 1px solid color-mix(in oklab, var(--tone) 52%, transparent);
+    background: color-mix(in oklab, var(--tone) 10%, transparent);
+  }
+  .taskly-home .point-icon{
+    width: 30px; height: 30px; flex: none; color: var(--tone);
+  }
+  .taskly-home .point h3{
+    margin: 0 0 3px; font-size: 1rem; font-weight: 700; letter-spacing: -.01em;
+  }
+  .taskly-home .point p{
+    margin: 0; font-size: .88rem; line-height: 1.5; color: var(--ink-soft);
+  }
+  @media (max-width: 34rem) {
+    .taskly-home .point{ grid-template-columns: auto auto; row-gap: 10px; }
+    .taskly-home .point > div{ grid-column: 1 / -1; }
+  }
+
+  /* ══ THE ASSISTANT ═══════════════════════════════════════════════════════
+     One bordered panel with three columns: the pitch, the clip, and what it is
+     for. Built to the owner's reference. */
+  .taskly-home .assistant-panel{
+    display: grid; gap: clamp(22px, 3vw, 40px);
+    align-items: center;
+    padding: clamp(24px, 3vw, 40px);
+    border: 1px solid var(--rule); border-radius: 20px;
+    background: color-mix(in oklab, var(--base) 62%, transparent);
+  }
+  /* ⚠️ TWO COLUMNS AND A FULL-WIDTH ROW, NOT THREE COLUMNS. As a third column
+     the clip was 348px wide inside a 1144px panel — a postage stamp beside a
+     48px heading. The points move to their own row underneath, which buys the
+     clip a real column AND gives each point 380px instead of 260 to say its
+     sentence in. */
+  @media (min-width: 64rem) {
+    .taskly-home .assistant-panel{
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+      align-items: center;
+    }
+    .taskly-home .assistant-points{
+      grid-column: 1 / -1;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 24px;
+      padding-top: clamp(20px, 2.4vw, 30px);
+      border-top: 1px solid var(--rule);
+    }
+  }
+
+  /* ⚠️ NO SIZE OVERRIDE HERE. This heading is the same as every other
+     showcase heading — `.pitch` and nothing else. It had its own smaller clamp
+     because it sits inside a panel, and that is exactly the drift the owner has
+     now caught twice. The COLUMN was widened to fit the type instead of the
+     type shrunk to fit the column. */
+
+  .taskly-home .assistant-asks{
+    display: flex; flex-wrap: wrap; gap: 10px; margin: 22px 0 0;
+  }
+  /* Tight enough that both questions sit on one row, as the reference has
+     them — at 15px of padding they totalled 430px against a 410px column and
+     the second one dropped to its own line. */
+  .taskly-home .assistant-asks span{
+    padding: 8px 13px; border-radius: 999px;
+    border: 1px solid var(--rule-firm);
+    background: color-mix(in oklab, var(--surface) 60%, transparent);
+    font-size: .79rem; color: var(--ink-soft); white-space: nowrap;
+  }
+
+  .taskly-home .assistant-more{
+    display: inline-flex; align-items: center; gap: 7px;
+    margin-top: 20px; font-size: .88rem; font-weight: 600;
+    color: var(--brand-lit); text-decoration: none;
+  }
+  .taskly-home .assistant-more svg{
+    width: 16px; height: 16px;
+    transition: transform var(--quick) var(--ease);
+  }
+  .taskly-home .assistant-more:hover svg{ transform: translateX(4px); }
+
+  /* ⚠️ THE CLIP IS A BRIGHT, WHITE-STUDIO SCENE on a dark page — the owner's
+     own asset. It is boxed and slightly dimmed rather than bled into the panel,
+     because at full strength a white rectangle in the middle of a dark band
+     pulls the eye off the words either side of it. */
+  .taskly-home .assistant-clip{
+    border-radius: 14px; overflow: hidden;
+    border: 1px solid var(--rule);
+    line-height: 0;
+  }
+  .taskly-home .assistant-video{
+    display: block; width: 100%; height: auto;
+    aspect-ratio: 1280 / 720; object-fit: cover;
+    opacity: .92;
+    background: url('/home/assistant-poster.jpg') center / cover no-repeat;
+  }
+
+  .taskly-home .assistant-points{
+    list-style: none; margin: 0; padding: 0;
+    display: grid; gap: 20px;
+  }
+  .taskly-home .assistant-points li{
+    display: grid; grid-template-columns: auto minmax(0, 1fr);
+    align-items: center; gap: 13px;
+  }
+  .taskly-home .assistant-points svg{
+    width: 38px; height: 38px; padding: 9px;
+    border-radius: 10px; border: 1px solid var(--rule-firm);
+    color: var(--brand-lit);
+  }
+  .taskly-home .assistant-points span{
+    font-size: .92rem; line-height: 1.45; color: var(--ink-soft);
+  }
+
   .taskly-home .grid{ display: grid; gap: 1px; margin-top: 48px; background: var(--rule-soft); border: 1px solid var(--rule-soft); border-radius: 14px; overflow: hidden; }
   @media (min-width: 40rem) { .taskly-home .grid{ grid-template-columns: 1fr 1fr; } }
   @media (min-width: 62rem) { .taskly-home .grid{ grid-template-columns: repeat(3, 1fr); } }
@@ -255,8 +1108,29 @@
   .taskly-home .cell h3{ margin: 0 0 8px; font-size: 1.02rem; font-weight: 700; letter-spacing: -.01em; }
   .taskly-home .cell p{ margin: 0; font-size: .9rem; line-height: 1.6; color: var(--ink-soft); }
   .taskly-home .cell .tag{ display: block; font-size: .72rem; font-weight: 600; color: var(--brand); margin-bottom: 7px; }
+  /* ── ⚠️ THE ALTERNATION IS THE PAGE'S RHYTHM, NOT DECORATION ─────────────
+     Every second section carries this, from the top of the page to the bottom,
+     so no two neighbours share a ground. It used to start halfway down — only
+     the modules and the films had it — which left the whole upper half of the
+     page one flat colour.
+
+     The order runs: overview (band) · operating layer · Studio (band) · lead
+     desk · assistant (band) · films · process (band) · close.
+
+     ⚠️ A NEW SECTION MUST TAKE ITS TURN. Inserting one without minding this
+     puts two of the same ground next to each other and the rhythm dies from
+     that point down — which is exactly how it broke the first time. */
   .taskly-home .band{ background: var(--surface); border-block: 1px solid var(--rule); }
+  /* ⚠️ ANY CARD INSIDE A BAND MUST FLIP ITS FILL. A card tinted from
+     `--surface` sits on `--base` perfectly well and then vanishes the moment
+     its section becomes a band, because the band IS `--surface`. Measured when
+     the overview became a band: the strip cards' fill and the ground behind
+     them were both rgb(12,36,41) — a step of 0. Every card-shaped thing on this
+     page needs a line here. */
+  .taskly-home .cell{ background: var(--surface); }
   .taskly-home .band .cell{ background: var(--base); }
+  .taskly-home .band .strip-item{ background: color-mix(in oklab, var(--base) 88%, transparent); }
+  .taskly-home .band .strip-item:hover{ background: var(--base); }
   .taskly-home .band .grid{ background: var(--rule); border-color: var(--rule); }
 
   /* ── The assistant, over the brain clip ─────────────────────────────── */
@@ -295,25 +1169,309 @@
   .taskly-home .ai-item p{ margin: 0; color: var(--ink-soft); font-size: .93rem; line-height: 1.6; }
 
   /* ── Video gallery ──────────────────────────────────────────────────── */
+  .taskly-home .films-head{ margin-bottom: clamp(28px, 3vw, 40px); }
   .taskly-home .films{ display: grid; gap: 22px; margin-top: 46px; }
   @media (min-width: 52rem) { .taskly-home .films{ grid-template-columns: 1fr 1fr; } }
   .taskly-home .film h3{ margin: 14px 0 4px; font-size: 1rem; font-weight: 700; }
   .taskly-home .film p{ margin: 0; font-size: .88rem; color: var(--ink-soft); }
 
   /* ── Close ──────────────────────────────────────────────────────────── */
-  .taskly-home .close{ text-align: center; }
-  .taskly-home .close h2{ margin-inline: auto; max-width: 18ch; }
-  .taskly-home .close p{ margin: 18px auto 0; max-width: 48ch; color: var(--ink-soft); }
-  .taskly-home .close .cta{ justify-content: center; margin-top: 30px; }
+  /* ══ THE PROCESS ═════════════════════════════════════════════════════════ */
+  .taskly-home .process{ padding-block: clamp(56px, 7vw, 92px) clamp(28px, 3vw, 40px); }
+  .taskly-home .process-title{
+    font-size: clamp(1.6rem, 2.9vw, 2.3rem);
+    line-height: 1.15; font-weight: 800; font-stretch: 106%;
+    letter-spacing: -.026em; margin: 0;
+  }
+  .taskly-home .steps{
+    list-style: none; margin: clamp(28px, 3vw, 40px) 0 0; padding: 0;
+    display: grid; gap: clamp(20px, 2.6vw, 36px);
+  }
+  @media (min-width: 56rem) { .taskly-home .steps{ grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  .taskly-home .step{
+    display: grid; grid-template-columns: auto minmax(0, 1fr);
+    align-items: center; gap: 16px;
+  }
+  /* A ring, not a filled disc: the number is a marker for the step, and a solid
+     chip would compete with the three cards in the section above it. */
+  .taskly-home .step-no{
+    display: grid; place-items: center;
+    width: 54px; height: 54px; border-radius: 50%;
+    border: 1.5px solid color-mix(in oklab, var(--brand) 62%, transparent);
+    font-size: 1.02rem; font-weight: 700; color: var(--brand-lit);
+    transition: border-color .3s var(--ease), box-shadow .3s var(--ease);
+  }
+  .taskly-home .step:hover .step-no{
+    border-color: var(--brand-lit);
+    box-shadow: 0 0 0 6px color-mix(in oklab, var(--brand) 12%, transparent);
+  }
+  .taskly-home .step h3{ margin: 0 0 3px; font-size: 1.02rem; font-weight: 700; letter-spacing: -.012em; }
+  .taskly-home .step p{ margin: 0; font-size: .9rem; line-height: 1.45; color: var(--ink-soft); }
 
-  .taskly-home footer{ border-top: 1px solid var(--rule-soft); padding-block: 34px 44px; }
-  .taskly-home .foot{ display: flex; flex-wrap: wrap; gap: 18px; align-items: center; }
-  .taskly-home .foot p{ margin: 0; font-size: .82rem; color: var(--ink-soft); }
-  .taskly-home .foot .spacer{ margin-left: auto; }
-  .taskly-home .foot a{ font-size: .84rem; color: var(--ink-soft); text-decoration: none; font-weight: 500; }
-  .taskly-home .foot a:hover{ color: var(--ink); }
+  /* ══ THE CLOSE ═══════════════════════════════════════════════════════════
+     One bordered panel: the words left, the button right. */
+  .taskly-home .close{ padding-block: clamp(20px, 2.4vw, 32px) clamp(48px, 6vw, 76px); }
+  .taskly-home .close-panel{
+    position: relative; isolation: isolate; overflow: hidden;
+    display: grid; gap: clamp(20px, 3vw, 40px); align-items: center;
+    padding: clamp(28px, 3.4vw, 46px) clamp(24px, 3vw, 44px);
+    border: 1px solid color-mix(in oklab, var(--brand) 34%, transparent);
+    border-radius: 20px;
+    /* ⚠️ `--base`, NOT `--sunken`. The panel used the band colour, which was
+       invisible while the process above it was unbanded and would now share a
+       ground with it. The page's own colour keeps the panel reading as a panel
+       whichever side of the alternation it lands on. */
+    background:
+      radial-gradient(ellipse 70% 130% at 50% 50%, color-mix(in oklab, var(--brand) 15%, transparent), transparent 72%),
+      var(--base);
+    text-align: center;
+  }
+  @media (min-width: 58rem) {
+    .taskly-home .close-panel{ grid-template-columns: minmax(0, 1fr) auto; text-align: left; }
+  }
+  /* ⚠️ HELD BACK HERE, AND THE REASON IS THE STRIP'S SHAPE. This panel is
+     172px tall against the overview band's 766, so each trail crosses it in a
+     fifth of the time and the same field reads as diagonal scratches rather
+     than as currents. Half opacity and a fade on all four edges turns it back
+     into a wash — present, not legible as individual strokes. */
+  .taskly-home .close-field{
+    position: absolute; inset: 0; z-index: -1;
+    width: 100%; height: 100%; pointer-events: none;
+    opacity: .5;
+    mask-image:
+      linear-gradient(to right, transparent 0%, black 14%, black 86%, transparent 100%),
+      linear-gradient(to bottom, transparent 0%, black 26%, black 74%, transparent 100%);
+    -webkit-mask-image:
+      linear-gradient(to right, transparent 0%, black 14%, black 86%, transparent 100%),
+      linear-gradient(to bottom, transparent 0%, black 26%, black 74%, transparent 100%);
+    -webkit-mask-composite: source-in;
+    mask-composite: intersect;
+  }
+  .taskly-home .close-say h2{
+    font-size: clamp(1.55rem, 2.9vw, 2.3rem);
+    line-height: 1.14; font-weight: 800; font-stretch: 106%;
+    letter-spacing: -.026em; margin: 0;
+  }
+  .taskly-home .close-say p{
+    margin: 12px 0 0; font-size: 1rem; color: var(--ink-soft);
+  }
+  .taskly-home .close-go{ justify-self: center; gap: 10px; }
+  @media (min-width: 58rem) { .taskly-home .close-go{ justify-self: end; } }
+  .taskly-home .close-go svg{
+    width: 17px; height: 17px;
+    transition: transform var(--quick) var(--ease);
+  }
+  .taskly-home .close-go:hover svg{ transform: translateX(4px); }
+
+  /* ══ THE FOOTER ══════════════════════════════════════════════════════════ */
+  .taskly-home footer{ border-top: 1px solid var(--rule-soft); padding-block: 30px 26px; }
+  .taskly-home .foot{
+    display: flex; flex-wrap: wrap; gap: 20px 28px; align-items: center;
+  }
+  .taskly-home .foot-mark{ font-size: 1.06rem; }
+  .taskly-home .foot-links{
+    margin-left: auto; display: flex; flex-wrap: wrap; gap: 26px;
+  }
+  .taskly-home .foot-links a{
+    font-size: .86rem; font-weight: 500; color: var(--ink-soft);
+    text-decoration: none; transition: color var(--quick) var(--ease);
+  }
+  .taskly-home .foot-links a:hover{ color: var(--ink); }
+  /* A hairline before the closing line, as the reference has it. It is a rule
+     rather than a character so it never lands alone on a wrapped row. */
+  .taskly-home .foot-note{
+    margin: 0; padding-left: 28px; font-size: .84rem; color: var(--ink-faint);
+    border-left: 1px solid var(--rule);
+  }
+  @media (max-width: 60rem) {
+    .taskly-home .foot-links{ margin-left: 0; }
+    .taskly-home .foot-note{ padding-left: 0; border-left: 0; }
+  }
+
+  .taskly-home .foot-fine{
+    display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center;
+    margin-top: 26px; padding-top: 20px;
+    border-top: 1px solid var(--rule-soft);
+  }
+  .taskly-home .foot-fine p{ margin: 0; font-size: .78rem; color: var(--ink-faint); }
+  .taskly-home .foot-fine nav{ margin-left: auto; display: flex; gap: 20px; }
+  .taskly-home .foot-fine a{
+    font-size: .78rem; color: var(--ink-faint); text-decoration: none;
+    transition: color var(--quick) var(--ease);
+  }
+  .taskly-home .foot-fine a:hover{ color: var(--ink-soft); }
 
   /* ⚠️ A looping clip is motion nobody asked for. Anybody who has asked their
      system to stop animating gets the poster frame and no playback — the videos
      are paused in script, because CSS cannot pause a <video>. */
-  @media (prefers-reduced-motion: reduce) { .taskly-home *{ animation: none !important; transition: none !important; } }
+
+  /* ══ MOTION ═════════════════════════════════════════════════════════════
+     One system, not effects sprinkled per section.
+
+     A revealing element is marked `[data-reveal]` and starts hidden; the
+     observer in homepage-motion.tsx adds `.in` when it enters the viewport.
+     Everything else here is hover, which the browser handles alone.
+
+     ⚠️ THE START STATE IS SET BY SCRIPT, NOT BY THIS FILE. If `[data-reveal]`
+     were opacity:0 in CSS, then a visitor whose JavaScript never runs — a
+     failed chunk, an old browser, a text reader — would get a permanently
+     blank page. The script adds `data-motion="on"` to the wrapper as its first
+     act, and only then does anything hide. No script, no hiding: the page is
+     simply static and complete, which is the correct failure. */
+  .taskly-home[data-motion="on"] [data-reveal]{
+    opacity: 0;
+    transform: translate3d(0, var(--rise), 0);
+    transition: opacity var(--slow) var(--ease-out), transform var(--slow) var(--ease-out);
+    transition-delay: var(--reveal-delay, 0ms);
+    will-change: opacity, transform;
+  }
+  .taskly-home[data-motion="on"] [data-reveal].in{
+    opacity: 1;
+    transform: none;
+  }
+  /* Dropped once the element has arrived — `will-change` left in place holds a
+     compositor layer per element for the life of the page. */
+  .taskly-home[data-motion="on"] [data-reveal].done{ will-change: auto; }
+
+
+  /* ── Cards lift, and their edge lights up ───────────────────────────────
+     `border-color` and `transform` only — a box-shadow alone on a dark ground
+     is nearly invisible, and the lit edge is what actually reads. */
+  .taskly-home .cell{
+    transition: transform .3s var(--ease-out), border-color .3s var(--ease),
+                background .3s var(--ease);
+  }
+  .taskly-home .cell:hover{
+    transform: translateY(-4px);
+    border-color: var(--brand);
+    background: color-mix(in oklab, var(--surface) 86%, var(--brand));
+  }
+  .taskly-home .cell h3{ transition: color var(--quick) var(--ease); }
+  .taskly-home .cell:hover h3{ color: var(--brand); }
+
+  .taskly-home .ai-item{ transition: border-top-color .3s var(--ease); }
+  .taskly-home .ai-item:hover{ border-top-color: var(--brand); }
+
+  /* ── The video slots ────────────────────────────────────────────────────
+     The play button grows and the frame lifts; the whole tile is the target,
+     so the cursor does not have to find the 54px circle. */
+  .taskly-home .film .frame{ transition: transform .3s var(--ease-out), box-shadow .3s var(--ease); }
+  .taskly-home .film:hover .frame{ transform: translateY(-4px); box-shadow: 0 16px 40px rgb(0 0 0 / .45); }
+  .taskly-home .play{ transition: transform .34s var(--ease-out), box-shadow .34s var(--ease); }
+  .taskly-home .film:hover .play,
+  .taskly-home .frame:hover .play{ transform: scale(1.12); box-shadow: 0 0 0 10px rgb(47 163 169 / .12); }
+
+  /* ── The hero settles on load ───────────────────────────────────────────
+     ONE orchestrated moment on arrival, staggered down the column, rather than
+     a separate entrance for every element on the page. */
+  @keyframes taskly-rise {
+    from { opacity: 0; transform: translate3d(0, 22px, 0); }
+    to   { opacity: 1; transform: none; }
+  }
+  .taskly-home[data-motion="on"] .hero h1,
+  .taskly-home[data-motion="on"] .hero .standfirst,
+  .taskly-home[data-motion="on"] .hero .cta,
+  .taskly-home[data-motion="on"] .hero .who,
+  .taskly-home[data-motion="on"] .hero .frame{
+    animation: taskly-rise .82s var(--ease-out) both;
+  }
+  .taskly-home[data-motion="on"] .hero h1         { animation-delay: .06s; }
+  .taskly-home[data-motion="on"] .hero .standfirst{ animation-delay: .18s; }
+  .taskly-home[data-motion="on"] .hero .cta       { animation-delay: .28s; }
+  .taskly-home[data-motion="on"] .hero .who       { animation-delay: .36s; }
+  .taskly-home[data-motion="on"] .hero .frame     { animation-delay: .46s; }
+
+  /* ── ⚠️ THE ACCENT IS A SOLID COLOUR, AND THE SHEEN WAS REMOVED ──────
+     It used to be a gradient clipped into the glyphs and slid by an animation.
+     It looked clever and it was wrong: `background-clip: text` paints whatever
+     slice of the gradient happens to be under the glyphs at that instant, so
+     the colour of the most important line on the page depended on the frame you
+     caught it in. Sampled mid-animation the strokes rendered rgb(137,171,171)
+     — a dull grey-teal — while the gradient's own darkest stop was
+     rgb(95,192,195). The contrast probe read the gradient definition and passed
+     it; the screen showed something duller. A figure that does not match what a
+     reader sees is worse than no figure.
+
+     A solid step off the brand ramp is bright, predictable, and measurable. */
+  .taskly-home h1 em{
+    color: var(--brand-lit);
+    font-style: normal;
+  }
+
+  /* ── Section headings get a rule that draws itself ──────────────────────── */
+  .taskly-home .section-head h2{ position: relative; }
+  .taskly-home .section-head h2::after{
+    content: ""; position: absolute; left: 0; bottom: -14px;
+    width: 84px; height: 3px; border-radius: 3px;
+    background: linear-gradient(90deg, var(--brand), transparent);
+    transform: scaleX(0); transform-origin: left;
+    transition: transform .8s var(--ease-out) .16s;
+  }
+  .taskly-home .section-head.in h2::after{ transform: scaleX(1); }
+
+  /* ── Cards: a lit edge that follows the pointer ──────────────────────────
+     The pointer's position is written to --mx/--my by the motion script, and a
+     radial highlight is drawn at that spot. Only opacity animates; the gradient
+     itself is repositioned, which the compositor handles. */
+  .taskly-home .cell{ position: relative; isolation: isolate; overflow: hidden; }
+  .taskly-home .cell::before{
+    content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+    background: radial-gradient(240px circle at var(--mx, 50%) var(--my, 0%),
+      rgb(47 163 169 / .16), transparent 68%);
+    opacity: 0; transition: opacity .34s var(--ease);
+  }
+  .taskly-home .cell:hover::before{ opacity: 1; }
+
+  /* ── The framed screens get a moving edge on hover ───────────────────────── */
+  .taskly-home .film .frame{ position: relative; }
+  .taskly-home .film .frame::after{
+    content: ""; position: absolute; inset: 0; border-radius: inherit;
+    pointer-events: none;
+    background: linear-gradient(130deg, transparent 42%, rgb(127 212 214 / .16) 50%, transparent 58%);
+    background-size: 300% 300%;
+    background-position: 0% 0%;
+    opacity: 0;
+    transition: opacity .3s var(--ease), background-position 1s var(--ease-out);
+  }
+  .taskly-home .film:hover .frame::after{ opacity: 1; background-position: 100% 100%; }
+
+  /* The close's wash and its `taskly-drift` keyframes are gone: that glow lit
+     a full-width section, and the close is a bordered PANEL now with its own
+     flow field. Two moving washes in one strip is noise. */
+
+  /* ── ⚠️ THE WHOLE SYSTEM STOPS HERE ─────────────────────────────────────
+     Not decoration: a person who has asked their operating system to stop
+     moving things has asked for this too. `--rise: 0` turns every reveal into
+     a plain fade rather than deleting the rule, so nothing can be left stuck
+     invisible; the hero animation and the thread draw are switched off
+     outright; and the clips are paused in JavaScript, because CSS cannot pause
+     a <video>. */
+  @media (prefers-reduced-motion: reduce) {
+    .taskly-home{ --rise: 0px; --slow: .01ms; --quick: .01ms; }
+    .taskly-home *,
+    .taskly-home *::before,
+    .taskly-home *::after{
+      animation-duration: .01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: .01ms !important;
+      scroll-behavior: auto !important;
+    }
+    /* The infinite ones cannot merely be shortened — a .01ms loop still loops.
+       Named explicitly so a future addition is not silently missed. */
+    .taskly-home .mark .brand-mark::before{ animation: none !important; }
+    .taskly-home .section-head h2::after{ transform: scaleX(1) !important; }
+    .taskly-home .btn:hover,
+    .taskly-home .cell:hover,
+    .taskly-home .film:hover .frame{ transform: none !important; }
+    /* ⚠️ NOT `transform: none` FOR THE TILTED PANEL. That would flatten it,
+       and the tilt is a static ANGLE rather than motion — there is nothing in
+       it for somebody who asked things to stop moving. What must not happen is
+       the hover levelling it out, so the hover state is pinned to the resting
+       angle instead. */
+    .taskly-home .tilt:hover > *{
+      transform:
+        rotateY(calc(var(--turn) * -7deg))
+        rotateX(2.5deg)
+        rotate(calc(var(--turn) * -.9deg)) !important;
+    }
+  }
