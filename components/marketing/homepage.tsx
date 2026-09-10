@@ -40,6 +40,7 @@ import Link from 'next/link';
 
 import { LogoMark } from '@/components/brand/logo';
 import { HomepageMotion } from '@/components/marketing/homepage-motion';
+import { PlatformIcon } from '@/components/brand/platform-icon';
 import { ParticleField } from '@/components/marketing/particle-field';
 import { ThemeClip } from '@/components/marketing/theme-clip';
 
@@ -190,7 +191,7 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
                 transparency does, because the artwork's own ground is within a
                 few values of this page's and the seam is handled in CSS. Its
                 outer 3px were a scrollbar artifact and are cropped. */}
-            <div className="layer-art" data-reveal>
+            <div className="layer-art tilt" data-reveal>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src="/home/operating-layer.png"
@@ -246,6 +247,65 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
               </div>
             </div>
           </section>
+
+        {/* ══ THE STUDIO ══════════════════════════════════════════════ */}
+        <section id="studio" className="studio">
+          <div className="wrap studio-grid">
+            <div className="studio-copy" data-reveal>
+              <p className="layer-eyebrow">Trend &amp; Engagement Studio</p>
+              <h2>Connect the work <em>with its results.</em></h2>
+              <p className="layer-lede">
+                Review content targets, published posts and social performance in one place.
+              </p>
+
+              {/* The four things the Studio actually measures, named in its own
+                  order. Not links — there is nothing behind them on a public
+                  page, and a word styled as a link that does nothing is worse
+                  than one that is plainly a label. */}
+              <p className="studio-facets">
+                <span>Targets</span>
+                <span>Content</span>
+                <span>Engagement</span>
+                <span>Reach</span>
+              </p>
+
+              {/* ⚠️ THE APP'S OWN MARKS, VIA <PlatformIcon>. The product draws
+                  Facebook and Instagram from lib/brand/platform-marks.ts, and a
+                  second hand-drawn copy on the marketing page would be one more
+                  thing to miss on the day the brand changes. */}
+              <div className="studio-accounts">
+                <div className="account">
+                  <PlatformIcon slug="facebook" size={38} />
+                  <div>
+                    <h3>Facebook</h3>
+                    <p>Connected</p>
+                  </div>
+                </div>
+                <div className="account">
+                  <PlatformIcon slug="instagram" size={38} />
+                  <div>
+                    <h3>Instagram</h3>
+                    <p>Connected</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="studio-shot tilt" data-reveal>
+              <div className="frame">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/home/studio.jpg"
+                  alt="The Trend & Engagement Studio: monthly target and posts achieved, total followers, engagement rate, views and reach, with a performance chart and top locations."
+                  width={1909}
+                  height={860}
+                  loading="lazy"
+                  decoding="async"
+                />
+              </div>
+            </div>
+          </div>
+        </section>
 
         {/* ══ THE THREAD ════════════════════════════════════════════════════ */}
         <section id="thread">

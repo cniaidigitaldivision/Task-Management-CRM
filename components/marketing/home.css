@@ -665,6 +665,82 @@ html:has(.taskly-home){ background: #04161a; }
   .taskly-home .section-head p{ margin: 16px 0 0; color: var(--ink-soft); font-size: 1.02rem; line-height: 1.6; }
 
   /* ── The thread ─────────────────────────────────────────────────────── */
+  /* ══ THE TREND & ENGAGEMENT STUDIO ═══════════════════════════════════════
+     Copy left, screen right — the mirror of the operating-layer section above,
+     so the two alternate rather than stacking the same way twice. It borrows
+     that section's `.layer-eyebrow` and `.layer-lede`: same role, same
+     treatment, and one rule to change if the treatment ever does. */
+  .taskly-home .studio-grid{
+    display: grid; gap: clamp(24px, 3vw, 44px);
+    align-items: center;
+    max-width: 88rem;
+  }
+  /* The screen takes the larger share, as the diagram does in the section
+     above — it was drawing 730 wide against a native 1909, so there is a long
+     way to grow before it softens. */
+  @media (min-width: 62rem) {
+    .taskly-home .studio-grid{ grid-template-columns: minmax(0, 1fr) minmax(0, 1.75fr); }
+  }
+
+  .taskly-home .studio-copy h2{
+    font-size: clamp(1.9rem, 3.4vw, 2.9rem);
+    line-height: 1.08; font-weight: 800; font-stretch: 106%;
+    letter-spacing: -.028em; margin: 0; max-width: 14ch;
+  }
+  .taskly-home .studio-copy h2 em{ font-style: normal; display: block; }
+
+  /* ── The four measures ─────────────────────────────────────────────────── */
+  .taskly-home .studio-facets{
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px;
+    margin: 24px 0 0; font-size: .92rem; font-weight: 600;
+    color: var(--brand-lit);
+  }
+  /* A dot between them, drawn rather than typed, so the markup stays four
+     plain words and the separators cannot end up read aloud. */
+  .taskly-home .studio-facets span + span::before{
+    content: ""; display: inline-block; vertical-align: middle;
+    width: 3px; height: 3px; border-radius: 50%;
+    background: currentColor; opacity: .55;
+    margin-right: 14px;
+  }
+
+  /* ── The connected accounts ────────────────────────────────────────────── */
+  .taskly-home .studio-accounts{
+    display: grid; gap: 14px; margin-top: 28px;
+    grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+    max-width: 26rem;
+  }
+  .taskly-home .account{
+    display: flex; align-items: center; gap: 12px;
+  }
+  .taskly-home .account h3{
+    margin: 0; font-size: 1rem; font-weight: 700; letter-spacing: -.01em;
+  }
+  .taskly-home .account p{
+    margin: 1px 0 0; font-size: .84rem; font-weight: 600;
+    /* The app's own "connected" green, not the brand teal: this is a STATUS and
+       should read the same here as it does inside the product.
+
+       ⚠️ WRITTEN OUT, NOT REFERENCED. `--feedback-success` is semantic and
+       flips per theme; a visitor whose account is set to light arrives with
+       data-theme="light" and would get #059669, the light-theme green, on this
+       dark ground. Same reason every other colour on this page is pinned. */
+    color: #34d399;   /* --emerald-deep-d, the dark-theme --feedback-success */
+  }
+
+  /* ⚠️ `--turn: -1` — THE MIRROR OF THE DIAGRAM ABOVE. This screen sits on the
+     right, so it turns the other way and faces the copy on its left. Both
+     panels then lean toward the centre of the page. */
+  .taskly-home .studio-shot{ --turn: -1; }
+  .taskly-home .studio-shot .frame{
+    /* The drop-shadow on the image does the depth now; a second box-shadow
+       under the frame would cast in a direction the tilt does not agree with. */
+    box-shadow: 0 0 0 1px var(--rule);
+    background: var(--sunken);
+    border-radius: 14px; overflow: hidden;
+  }
+  .taskly-home .studio-shot img{ display: block; width: 100%; height: auto; }
+
   /* ── ─ THE STEPS, AS FILM ──────────────────────────────────────
      Edge to edge, because the clip is an infographic whose type has to be
      readable and the page's 68rem column would shrink it to the point of
@@ -720,17 +796,67 @@ html:has(.taskly-home){ background: #04161a; }
      plus FRACTIONS rather than a pixel track lets both halves scale together:
      the artwork takes a little more, the prose keeps a real measure. */
   .taskly-home .layer-grid{
-    display: grid; gap: clamp(28px, 4vw, 56px);
+    display: grid; gap: clamp(24px, 3vw, 44px);
     align-items: center;
-    max-width: 84rem;
+    max-width: 88rem;
   }
+  /* The artwork takes the larger share so it can approach its native 893px —
+     it was drawing at 710, which left it noticeably shorter than the column of
+     copy beside it. The copy still gets a real measure at ~480px. */
   @media (min-width: 60rem) {
-    .taskly-home .layer-grid{ grid-template-columns: minmax(0, 1.32fr) minmax(0, 1fr); }
+    .taskly-home .layer-grid{ grid-template-columns: minmax(0, 1.75fr) minmax(0, 1fr); }
   }
 
   /* ⚠️ CAPPED AT ITS NATIVE 893px AND NEVER STRETCHED. It shrinks below that,
      it does not grow above it — an upscaled raster only looks soft. */
-  .taskly-home .layer-art{ max-width: 893px; margin-inline: auto; width: 100%; }
+  /* ══ A PANEL TURNED IN SPACE ═════════════════════════════════════════════
+     Shared by the operating-layer diagram and the Studio screen, which tilt in
+     OPPOSITE directions — each turns to face the copy beside it, so the two
+     lean toward the middle of the page rather than both leaning the same way.
+     `--turn` carries the sign; nothing else differs.
+
+     ⚠️ `perspective` MUST SIT ON THE ANCESTOR, not on the transformed element.
+     Put it on the image itself alongside the rotation and it is ignored, the
+     rotation flattens to a skew, and the panel looks bent rather than turned.
+     This is the commonest way a CSS 3D tilt goes wrong.
+
+     ⚠️ AND THE ANGLE STAYS SMALL. Past about 12deg the far edge of a raster
+     starts to alias and the labels inside it get hard to read, which costs more
+     than the depth is worth. */
+  .taskly-home .tilt{
+    perspective: 1600px;
+    perspective-origin: calc(50% + var(--turn) * -10%) 50%;
+  }
+  .taskly-home .tilt img{
+    transform:
+      rotateY(calc(var(--turn) * -9deg))
+      rotateX(3.5deg)
+      rotate(calc(var(--turn) * -1.2deg));
+    transform-origin: calc(50% + var(--turn) * 12%) 50%;
+    /* Cast to the side the panel turns AWAY from — that is what makes the
+       angle read as depth rather than as a distortion. */
+    filter: drop-shadow(calc(var(--turn) * -22px) 26px 34px rgb(0 0 0 / .5));
+    transition: transform .7s var(--ease-out), filter .7s var(--ease);
+    /* ⚠️ NO `will-change`. The transition only runs on hover, and a permanent
+       hint holds a compositor layer for a ~900px raster — megabytes of GPU
+       memory — for the life of the page, to save one frame of promotion on a
+       hover that may never happen. The reveal system drops its own hint after
+       arriving for the same reason. */
+  }
+  /* Levels out when you look at it — the panel turning to face you. */
+  .taskly-home .tilt:hover img{
+    transform:
+      rotateY(calc(var(--turn) * -2deg))
+      rotateX(1deg)
+      rotate(calc(var(--turn) * -.3deg))
+      scale(1.015);
+    filter: drop-shadow(calc(var(--turn) * -10px) 22px 40px rgb(0 0 0 / .55));
+  }
+
+  .taskly-home .layer-art{
+    --turn: 1;
+    max-width: 893px; margin-inline: auto; width: 100%;
+  }
   /* ⚠️ THE ARTWORK'S OWN GROUND IS NOT THE PAGE'S, SO ITS EDGES ARE DISSOLVED.
      This export has no alpha — its background is baked in at roughly rgb(0,9,14)
      to rgb(1,19,27) against the page's rgb(4,22,26). Measured across the border:
@@ -1089,4 +1215,15 @@ html:has(.taskly-home){ background: #04161a; }
     .taskly-home .btn:hover,
     .taskly-home .cell:hover,
     .taskly-home .film:hover .frame{ transform: none !important; }
+    /* ⚠️ NOT `transform: none` FOR THE TILTED PANEL. That would flatten it,
+       and the tilt is a static ANGLE rather than motion — there is nothing in
+       it for somebody who asked things to stop moving. What must not happen is
+       the hover levelling it out, so the hover state is pinned to the resting
+       angle instead. */
+    .taskly-home .tilt:hover img{
+      transform:
+        rotateY(calc(var(--turn) * -9deg))
+        rotateX(3.5deg)
+        rotate(calc(var(--turn) * -1.2deg)) !important;
+    }
   }
