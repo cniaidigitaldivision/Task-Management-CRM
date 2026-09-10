@@ -6,10 +6,10 @@
 |---|---|
 | **Branch** | `crm` (from `main` at `0726704`) |
 | **Route** | `/leads` · nav: Growth → Campaign & Lead Desk |
-| **Phase** | **Steps 1–7 DONE.** The desk saves, the CRM belongs to the **Sales department**, and leads are handed out — by hand or shared across the team automatically. Step 7b (what the manager sees) is next and needs nothing. |
+| **Phase** | **Steps 1–7b DONE.** The desk saves, the CRM belongs to the **Sales department**, and leads are handed out — by hand or shared across the team automatically. Step 7b (what the manager sees) is next and needs nothing. |
 | **Scope** | ⚠️ **Chitral Royal Homes only.** One project, end to end. |
 | **Last updated** | 2026-09-10 |
-| **Last migration applied anywhere** | **121.** CRM next: 122. |
+| **Last migration applied anywhere** | **121.** CRM next: 122. Step 7b needed **no** migration — `crm_sales_roster()` already existed. |
 
 ---
 
@@ -27,7 +27,8 @@ notes all save from the lead itself, the timeline writes itself from the
 database, and response time is stamped where nobody can edit it. What is still
 missing is nothing on the desk itself: a manager shares leads out and sees who
 holds what, a salesperson opens the same screen and sees only theirs, and the
-rota gives each lead to whoever holds the fewest open ones.
+rota gives each lead to whoever holds the fewest open ones. The manager also has
+a **sales team panel** showing who is carrying what and how fast they answer.
 
 **And the company now has departments.** Eight of them, with the CRM belonging to
 Sales: the two accounts that run the company plus the three sales testers, and
@@ -217,6 +218,31 @@ more — see the decisions log, and ADR-012.
   ⚠️ **`owner_id` NEEDED A TRIGGER, NOT A GRANT.** PostgreSQL has no per-column
   policy, so a plain grant would have let any salesperson push an awkward lead
   onto a colleague — `crm_leads_update` allows it, because the row is theirs.
+
+- [x] **Step 7b · what the manager sees** — `components/crm/sales-team.tsx`,
+      `responseTime()` and `responseBand()` (+8 tests). Who holds what, how many
+      closed, how fast they answer, when they were last given a lead. **No
+      migration** — `app.crm_sales_roster()` was already written in 120.
+      **3070 tests green, tsc and eslint clean.**
+
+  ⚠️ **A TABLE, NOT A CHART.** Three people, four measures. A grouped bar chart
+  of that is four colours carrying no meaning. Only workload is genuinely
+  compared across people, so only workload gets a bar.
+
+  ⚠️ **"No calls yet", NEVER "0m"** — a null median rendered as zero would say a
+  salesperson answers instantly, which is the most flattering possible reading of
+  no data at all.
+
+  ⚠️ **NO CONVERSION RATE while nothing is closed.** "0%" for everybody reads as
+  a fact about the people and is a fact about the calendar.
+
+### ⚠️ What Step 7b turned up
+
+| | |
+|---|---|
+| ⚠️ **`feedback-success` fails as ink — 3.77:1 in light** | I wrote the "answers fast" figure in it and measured it afterwards. Passing in dark (8.40), which is why review would not catch it. It is the `chart-tokens-fail-as-text` trap again: those hues are FILLS. The **`money-*`** family exists precisely for coloured figures — measured `money-in` 5.48/8.40 and `money-out` 6.47/5.84, and both are now used instead. |
+| **A zero should draw no bar** | The bar had a 2px minimum width, so the manager holding nothing showed a stub — which reads as a small quantity rather than none. |
+| **`>Won<` also matches a stage chip** | A test asserting the Won column was absent failed against a panel that was correct: "Won" is a legitimate stage in the strip above. `>Won</th>` is the needle. `%` alone matched the bar widths too. |
 
 ### ⚠️ What Step 7 turned up
 

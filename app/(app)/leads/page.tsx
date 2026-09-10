@@ -121,8 +121,7 @@ export default async function LeadsPage({
       perPage={PER_PAGE}
       filters={filters}
       unassigned={data?.[3] ?? 0}
-      /* Only the salespeople are in the rota — the manager runs it. */
-      salesTeamSize={roster.filter((p) => !p.isManager).length}
+      salesTeam={roster}
       canShareOut={roster.length > 0}
       /* ⚠️ The SERVER's clock, so "3d ago" is the same for everyone. Reading it
          in the browser would let a reader's own wrong system time age a lead

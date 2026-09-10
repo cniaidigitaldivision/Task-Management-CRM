@@ -14,11 +14,12 @@ import {
 } from 'lucide-react';
 
 import { ShareOutControl } from '@/components/crm/lead-actions';
+import { SalesTeamPanel } from '@/components/crm/sales-team';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { PageHeader } from '@/components/ui/page-header';
 import { Pagination } from '@/components/ui/pagination';
-import type { CrmLeadRow, CrmProjectOption } from '@/lib/db/queries/crm-leads';
+import type { CrmLeadRow, CrmProjectOption, CrmSalesPerson } from '@/lib/db/queries/crm-leads';
 import {
   STAGE_ORDER,
   activityLabel,
@@ -89,7 +90,7 @@ export function LeadDesk({
   perPage,
   filters,
   unassigned,
-  salesTeamSize,
+  salesTeam,
   canShareOut,
   nowMs,
 }: {
@@ -105,8 +106,9 @@ export function LeadDesk({
   filters: LeadFilterState;
   /** How many leads on this project have no owner. */
   unassigned: number;
-  /** How many people are in Sales — 0 means the rota has nowhere to put one. */
-  salesTeamSize: number;
+  /** ⚠️ EMPTY FOR A SALESPERSON, by migration 120's guard inside
+   *  `crm_sales_roster()` — colleagues' response times are the manager's view. */
+  salesTeam: readonly CrmSalesPerson[];
   /** False for a salesperson: they work leads, they do not hand them out. */
   canShareOut: boolean;
   nowMs: number;
@@ -195,7 +197,7 @@ export function LeadDesk({
             <ShareOutControl
               projectId={selected.id}
               unassigned={unassigned}
-              salesTeam={salesTeamSize}
+              salesTeam={salesTeam.filter((p) => !p.isManager).length}
             />
           )}
 
@@ -216,6 +218,12 @@ export function LeadDesk({
               will get a notification the moment one is yours.
             </p>
           )}
+
+          {/* ⚠️ BELOW THE LIST, not above it. The desk exists to be worked from;
+              the team's figures are what a manager checks afterwards, and putting
+              them first would push the leads themselves below the fold on the one
+              screen somebody opens between two calls. */}
+          {canShareOut && <SalesTeamPanel team={salesTeam} nowMs={nowMs} />}
 
           <Pagination
             page={page}
@@ -749,7 +757,12 @@ function Row({ lead, nowMs, from }: { lead: CrmLeadRow; nowMs: number; from: str
             <span className="block text-body-sm text-text-primary">
               {activityLabel(lead.lastActivityKind)}
             </span>
-            <span className="mt-0.5 block text-caption text-text-tertiary">
+            {/* ⚠️ SECONDARY, NOT TERTIARY — measured 3.94:1 in light against a
+                4.5 floor. This is the ONLY time on its line: "Spoke · 2h ago" is
+                when the call happened. The ages in the Lead column stay tertiary
+                because the enquiry date sits beside them there, so they genuinely
+                are the supporting half. Same distinction the record makes. */}
+            <span className="mt-0.5 block text-caption text-text-secondary">
               {relativeAge(lead.lastActivityAt, nowMs)}
               {lead.noteCount > 0 && ` · ${lead.noteCount} note${lead.noteCount === 1 ? '' : 's'}`}
             </span>

@@ -249,25 +249,37 @@ holds what; a salesperson opens the same desk and sees only theirs.
 
 ---
 
-### Step 7b · What the manager sees 🔓 ← NEXT
-The reporting half of what the owner asked for on 2026-09-10:
+### Step 7b · What the manager sees ✅ DONE 2026-09-10
+The reporting half of what the owner asked for:
 
 > *"who the person is on which lead, who is responsible for which lead, how they
 > are responding, what talks with it, how quotations are given, how instantly
 > they are replying or engaging with the client."*
 
-`app.crm_sales_roster()` already returns the arithmetic — open leads, lifetime,
-won, last given, and median response time per person. Nothing reads it yet beyond
-the assignment dropdown.
+A **sales team** panel under the list, for the manager and Admins only: who holds
+what, how many they have closed, how fast they usually answer, and when they were
+last given a lead. `app.crm_sales_roster()` computes it; nothing invents it.
 
-- A sales-team panel on the desk: who holds what, and how fast they answer.
-- Response time per person, from `first_contacted_at − submitted_at`.
-- ⚠️ **Shown as arithmetic anybody can check.** The median is NULL until somebody
-  logs a call and must render as "no calls yet", never as 0 — a zero-minute
-  response time reads as instant.
+⚠️ **A TABLE, NOT A CHART, AND THAT IS A DECISION.** Three people and four
+measures each. A grouped bar chart of that is four colours carrying no meaning
+and the reader still has to look up the numbers. The one thing genuinely COMPARED
+across people is workload, so that gets a bar; everything else is a figure.
 
-**Needs nothing from you.** Best built after a week of real use, so the figures
-say something.
+⚠️ **"No calls yet", NEVER "0m".** `median_response_minutes` is null until
+somebody logs a contact, and rendering that as zero would tell a manager their
+salesperson answers instantly — the most flattering possible reading of no data.
+`responseTime()` returns null so it cannot be formatted by accident.
+
+⚠️ **NO CONVERSION RATE, AND NO WON COLUMN, UNTIL SOMETHING IS CLOSED.** A "0%"
+column reads as a fact about the salespeople and is a fact about the calendar —
+the pipeline is three weeks old. The column appears the day somebody wins one.
+
+⚠️ **THE RESPONSE-TIME THRESHOLDS ARE A JUDGEMENT AND ARE LABELLED AS ONE.**
+Under an hour reads fast, over a day reads slow. Nothing in this division's data
+says that is the line; it is the commonly cited one. Step 12 should replace it
+with the line that actually predicts a close.
+
+**Delivered:** the manager can see who is carrying what and who answers quickly.
 
 ---
 

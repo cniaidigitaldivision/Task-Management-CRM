@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import {
   LOST_REASONS,
+  responseBand,
+  responseTime,
   OPEN_STAGES,
   STAGE_ORDER,
   activityLabel,
@@ -135,6 +137,56 @@ describe('why a lead was lost', () => {
 
   it('shows an unknown reason rather than hiding it', () => {
     expect(lostReasonLabel('gazumped')).toBe('gazumped');
+  });
+});
+
+describe('how fast somebody answers', () => {
+  it('⚠️ says NOTHING when there are no calls, rather than zero', () => {
+    /* THE ONE THAT MATTERS. `median_response_minutes` is null until somebody
+       logs a contact, and rendering that as "0m" would tell a manager their
+       salesperson answers instantly — the most flattering possible reading of
+       no data at all. Null so it cannot be formatted by accident. */
+    expect(responseTime(null)).toBeNull();
+    expect(responseTime(undefined)).toBeNull();
+    expect(responseBand(null)).toBeNull();
+  });
+
+  it('distinguishes no data from a genuine zero', () => {
+    /* Somebody who rang within thirty seconds DID respond, and that is not the
+       same fact as never having rung. */
+    expect(responseTime(0)).toBe('under a minute');
+    expect(responseTime(0.4)).toBe('under a minute');
+    expect(responseBand(0)).toBe('fast');
+  });
+
+  it('reads in the units a person would say', () => {
+    expect(responseTime(4)).toBe('4m');
+    expect(responseTime(59)).toBe('59m');
+    expect(responseTime(60)).toBe('1h');
+    expect(responseTime(130)).toBe('2h 10m');
+    expect(responseTime(60 * 24)).toBe('1d');
+    expect(responseTime(60 * 27)).toBe('1d 3h');
+  });
+
+  it('drops the hours once it is a week — nobody acts on 9d 4h', () => {
+    expect(responseTime(60 * 24 * 9 + 240)).toBe('9d');
+  });
+
+  it('refuses a nonsense value rather than printing NaN', () => {
+    /* `first_contacted_at` before `submitted_at` would be negative — impossible,
+       but a backdated entry makes it reachable, and "-3h" on a manager's screen
+       is worse than a blank. */
+    expect(responseTime(Number.NaN)).toBeNull();
+    expect(responseTime(-5)).toBeNull();
+    expect(responseBand(Number.NaN)).toBeNull();
+  });
+
+  it('bands it, with the thresholds stated as a judgement', () => {
+    expect(responseBand(30)).toBe('fast');
+    expect(responseBand(60)).toBe('fast');
+    expect(responseBand(61)).toBe('fair');
+    expect(responseBand(60 * 24)).toBe('fair');
+    expect(responseBand(60 * 25)).toBe('slow');
   });
 });
 

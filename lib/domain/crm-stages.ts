@@ -186,6 +186,56 @@ export function lostReasonLabel(reason: string): string {
   return isLostReason(reason) ? LOST_REASON_LABELS[reason] : reason;
 }
 
+/* ---- How fast somebody answers ------------------------------------------- */
+
+/**
+ * A response time, in the words a person would use.
+ *
+ * ⚠️ NULL IS "no calls yet", NOT ZERO, and the distinction is the whole point.
+ * `median_response_minutes` is null until somebody logs a contact — rendering
+ * that as `0m` would tell a manager their salesperson answers instantly, which
+ * is the most flattering possible reading of no data at all. The caller decides
+ * the wording; this returns null so it cannot be formatted by accident.
+ *
+ * ⚠️ AND IT ROUNDS DOWNWARD IN PRECISION AS IT GROWS. "4m" matters; "2h 10m"
+ * matters; "3d" is enough once it is days — nobody acts differently on 3d 4h.
+ */
+export function responseTime(minutes: number | null | undefined): string | null {
+  if (minutes === null || minutes === undefined || !Number.isFinite(minutes)) return null;
+  if (minutes < 0) return null;
+
+  const m = Math.round(minutes);
+  if (m < 1) return 'under a minute';
+  if (m < 60) return `${m}m`;
+
+  const hours = Math.floor(m / 60);
+  if (hours < 24) {
+    const rest = m % 60;
+    return rest === 0 ? `${hours}h` : `${hours}h ${rest}m`;
+  }
+
+  const days = Math.floor(hours / 24);
+  const restHours = hours % 24;
+  if (days < 7) return restHours === 0 ? `${days}d` : `${days}d ${restHours}h`;
+  return `${days}d`;
+}
+
+/**
+ * How a response time should READ — fast, or slow enough to act on.
+ *
+ * ⚠️ THE THRESHOLDS ARE A JUDGEMENT AND ARE NAMED AS ONE. Nothing in this
+ * division's data says an hour is the line; it is the commonly cited one for
+ * lead response, and it is here so the screen can be consistent rather than so
+ * it can be authoritative. Once there are real outcomes, Step 12 can derive the
+ * line that actually predicts a close — and this should then follow it.
+ */
+export function responseBand(minutes: number | null | undefined): 'fast' | 'fair' | 'slow' | null {
+  if (minutes === null || minutes === undefined || !Number.isFinite(minutes)) return null;
+  if (minutes <= 60) return 'fast';
+  if (minutes <= 60 * 24) return 'fair';
+  return 'slow';
+}
+
 /* ---- Activity, as a past-tense outcome ----------------------------------- */
 
 /**

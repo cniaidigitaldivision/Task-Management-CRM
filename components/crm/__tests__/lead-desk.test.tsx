@@ -120,7 +120,17 @@ const base = {
   /* Step 7. The manager's view by default — `canShareOut` false is the
      salesperson's, and has its own cases below. */
   unassigned: 0,
-  salesTeamSize: 2,
+  salesTeam: [
+    { id: 'u1', name: 'Sale Tester', avatarUrl: null, isManager: false,
+      openLeads: 12, totalLeads: 14, wonLeads: 0, lastGivenAt: '2026-09-10T04:00:00.000Z',
+      medianResponseMinutes: 35 },
+    { id: 'u2', name: 'Sale 2 tester', avatarUrl: null, isManager: false,
+      openLeads: 3, totalLeads: 3, wonLeads: 0, lastGivenAt: null,
+      medianResponseMinutes: null },
+    { id: 'u3', name: 'sale manager tester', avatarUrl: null, isManager: true,
+      openLeads: 0, totalLeads: 0, wonLeads: 0, lastGivenAt: null,
+      medianResponseMinutes: null },
+  ],
   canShareOut: true,
   nowMs: NOW,
 };
@@ -236,7 +246,14 @@ describe('sharing leads out — Step 7', () => {
   it('says so plainly when there is nobody in Sales to give them to', () => {
     /* ⚠️ Not a disabled button somebody has to guess about. */
     const html = renderToStaticMarkup(
-      <LeadDesk {...base} selected={PROJECTS[0]} unassigned={312} salesTeamSize={0} />,
+      /* The manager alone, with no salespeople under them — the rota has
+         nowhere to put a lead. */
+      <LeadDesk
+        {...base}
+        selected={PROJECTS[0]}
+        unassigned={312}
+        salesTeam={base.salesTeam.filter((p) => p.isManager)}
+      />,
     );
 
     expect(html).toContain('nobody in the Sales department');
@@ -267,6 +284,85 @@ describe('sharing leads out — Step 7', () => {
 
     expect(html).toContain('Nothing has been given to you yet');
     expect(html).toContain('notification the moment one is yours');
+  });
+});
+
+describe('the sales team panel — Step 7b', () => {
+  const html = renderToStaticMarkup(<LeadDesk {...base} selected={PROJECTS[0]} />);
+
+  it('shows each person and what they are carrying', () => {
+    expect(html).toContain('The sales team');
+    expect(html).toContain('Sale Tester');
+    expect(html).toContain('Sale 2 tester');
+    expect(html).toContain('Open leads');
+  });
+
+  it('marks the manager as outside the rota', () => {
+    /* Otherwise a manager holding 0 looks idle rather than excluded. */
+    expect(html).toContain('Manager — not in the rota');
+  });
+
+  it('⚠️ says "No calls yet" rather than printing a zero', () => {
+    /* THE ONE THAT MATTERS. A null median rendered as "0m" would tell a manager
+       their salesperson answers instantly — the most flattering possible
+       reading of no data at all. */
+    expect(html).toContain('No calls yet');
+    expect(html).not.toContain('>0m<');
+  });
+
+  it('reads a real response time in words', () => {
+    expect(html).toContain('35m');
+  });
+
+  it('⚠️ draws no bar at all for somebody holding nothing', () => {
+    /* A minimum-width stub against 0 reads as a small quantity, which is a
+       different fact from holding none — and the manager legitimately sits at
+       zero. Two salespeople have bars; the manager has none. */
+    const bars = html.match(/border-radius:9999px|rounded-full/g) ?? [];
+    const withZero = renderToStaticMarkup(
+      <LeadDesk
+        {...base}
+        selected={PROJECTS[0]}
+        salesTeam={base.salesTeam.map((p) => ({ ...p, openLeads: 0 }))}
+      />,
+    );
+    /* Nobody holding anything → strictly fewer rounded marks than when two do. */
+    expect((withZero.match(/rounded-full/g) ?? []).length).toBeLessThan(bars.length);
+  });
+
+  it('⚠️ shows no Won column and no conversion rate while nothing is closed', () => {
+    /* A "0% conversion" column reads as a fact about the salespeople and is a
+       fact about the calendar — the pipeline is three weeks old.
+
+       ⚠️ `</th>` MATTERS IN THIS NEEDLE. A bare `>Won<` also matches the stage
+       chip in the strip above, where "Won" is a legitimate pipeline stage — the
+       first version of this assertion failed against a panel that was correct.
+       Likewise `%` alone matches the bar widths this very panel sets. */
+    expect(html).not.toContain('>Won</th>');
+    expect(html).not.toContain('conversion');
+    expect(html).toContain('No lead has been closed yet');
+  });
+
+  it('adds the Won column the moment somebody closes one', () => {
+    const withWin = renderToStaticMarkup(
+      <LeadDesk
+        {...base}
+        selected={PROJECTS[0]}
+        salesTeam={base.salesTeam.map((p) =>
+          p.id === 'u1' ? { ...p, wonLeads: 2 } : p,
+        )}
+      />,
+    );
+    expect(withWin).toContain('>Won</th>');
+  });
+
+  it('⚠️ is not shown to a salesperson at all', () => {
+    /* Colleagues' response times are the manager's view. Migration 120's guard
+       returns them an empty roster, so this is belt and braces. */
+    const staff = renderToStaticMarkup(
+      <LeadDesk {...base} selected={PROJECTS[0]} canShareOut={false} salesTeam={[]} />,
+    );
+    expect(staff).not.toContain('The sales team');
   });
 });
 
