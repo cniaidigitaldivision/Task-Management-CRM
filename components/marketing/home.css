@@ -591,6 +591,110 @@ html:has(.taskly-home){ background: #04161a; }
 
 
   /* ── Module grid ────────────────────────────────────────────────────── */
+  /* ══ THE OPERATING LAYER ══════════════════════════════════════════════
+     Artwork on the left, the argument on the right, then three numbered points
+     across the foot. The owner asked for the diagram on the left; the reference
+     had it on the right, and either reads fine because the two halves are
+     independent — the `order` on the copy is the only thing that decides it. */
+  .taskly-home .layer{ position: relative; }
+  .taskly-home .layer-grid{
+    display: grid; gap: clamp(28px, 4vw, 56px);
+    align-items: center;
+  }
+  @media (min-width: 60rem) {
+    .taskly-home .layer-grid{ grid-template-columns: minmax(0, 570px) minmax(0, 1fr); }
+  }
+
+  /* ⚠️ CAPPED AT ITS NATIVE 570px AND NEVER STRETCHED. The only transparent
+     copy of this artwork is 570x345; letting it fill a wider column would make
+     it visibly soft. It shrinks below that, it does not grow above it. */
+  .taskly-home .layer-art{ max-width: 570px; margin-inline: auto; }
+  .taskly-home .layer-art img{ display: block; width: 100%; height: auto; }
+
+  .taskly-home .layer-eyebrow{
+    margin: 0 0 18px; font-size: .76rem; font-weight: 700;
+    letter-spacing: .13em; text-transform: uppercase; color: var(--brand-lit);
+  }
+  .taskly-home .layer-copy h2{
+    font-size: clamp(1.9rem, 3.6vw, 3rem);
+    line-height: 1.08; font-weight: 800; font-stretch: 106%;
+    letter-spacing: -.028em; margin: 0; max-width: 15ch;
+  }
+  .taskly-home .layer-copy h2 em{ font-style: normal; color: var(--brand-lit); display: block; }
+  .taskly-home .layer-lede{
+    margin: 20px 0 0; font-size: 1.06rem; line-height: 1.55;
+    color: var(--ink-soft); max-width: 42ch;
+  }
+  .taskly-home .layer-rule{
+    width: 56px; height: 2px; border: 0; border-radius: 2px;
+    background: var(--brand); margin: 26px 0 0;
+  }
+  .taskly-home .layer-claim{
+    display: flex; align-items: center; gap: 14px;
+    margin: 24px 0 0; font-size: 1.06rem; font-weight: 600; line-height: 1.4;
+  }
+  .taskly-home .layer-claim svg{
+    width: 26px; height: 26px; flex: none; color: var(--brand-lit);
+  }
+  .taskly-home .layer-claim em{ font-style: normal; display: block; color: var(--brand-lit); }
+
+  /* ── The three points ─────────────────────────────────────────────────── */
+  .taskly-home .layer-points{
+    display: grid; gap: 18px; margin-top: clamp(40px, 5vw, 64px);
+  }
+  @media (min-width: 54rem) { .taskly-home .layer-points{ grid-template-columns: repeat(3, 1fr); } }
+
+  /* Each point owns one accent, set once as --tone and read by everything
+     inside it, so a colour change is one line rather than four. */
+  .taskly-home .point{
+    position: relative; display: grid;
+    grid-template-columns: auto auto minmax(0, 1fr);
+    align-items: center; gap: 14px;
+    padding: 20px 22px; border-radius: 14px;
+    border: 1px solid color-mix(in oklab, var(--tone) 34%, transparent);
+    background:
+      linear-gradient(135deg, color-mix(in oklab, var(--tone) 9%, transparent), transparent 62%),
+      var(--surface);
+    transition: transform .3s var(--ease-out), border-color .3s var(--ease),
+                box-shadow .3s var(--ease);
+  }
+  .taskly-home .point:hover{
+    transform: translateY(-3px);
+    border-color: color-mix(in oklab, var(--tone) 62%, transparent);
+    box-shadow: 0 14px 34px -14px color-mix(in oklab, var(--tone) 46%, transparent);
+  }
+  .taskly-home .point-teal{ --tone: var(--brand-lit); }
+  .taskly-home .point-gold{ --tone: var(--gold-fill); }
+  .taskly-home .point-violet{ --tone: var(--violet-d); }
+
+  /* ⚠️ THE NUMERAL IS A LIGHTENED STEP OF THE TONE, NOT THE TONE ITSELF.
+     At 13px the raw tones measured 2.52-2.93:1 against a 4.5 floor — gold and
+     violet are mid-tones and the tinted disc behind them lifts the ground as
+     well. Mixing each tone toward white keeps all three colour-coded and puts
+     every one of them over the floor with one line rather than three
+     hand-picked hexes. */
+  .taskly-home .point-no{
+    display: grid; place-items: center;
+    width: 34px; height: 34px; border-radius: 50%;
+    font-size: .8rem; font-weight: 700; letter-spacing: .02em;
+    color: color-mix(in oklab, var(--tone) 34%, white);
+    border: 1px solid color-mix(in oklab, var(--tone) 52%, transparent);
+    background: color-mix(in oklab, var(--tone) 10%, transparent);
+  }
+  .taskly-home .point-icon{
+    width: 30px; height: 30px; flex: none; color: var(--tone);
+  }
+  .taskly-home .point h3{
+    margin: 0 0 3px; font-size: 1rem; font-weight: 700; letter-spacing: -.01em;
+  }
+  .taskly-home .point p{
+    margin: 0; font-size: .88rem; line-height: 1.5; color: var(--ink-soft);
+  }
+  @media (max-width: 34rem) {
+    .taskly-home .point{ grid-template-columns: auto auto; row-gap: 10px; }
+    .taskly-home .point > div{ grid-column: 1 / -1; }
+  }
+
   .taskly-home .grid{ display: grid; gap: 1px; margin-top: 48px; background: var(--rule-soft); border: 1px solid var(--rule-soft); border-radius: 14px; overflow: hidden; }
   @media (min-width: 40rem) { .taskly-home .grid{ grid-template-columns: 1fr 1fr; } }
   @media (min-width: 62rem) { .taskly-home .grid{ grid-template-columns: repeat(3, 1fr); } }

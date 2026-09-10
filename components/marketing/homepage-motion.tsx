@@ -26,7 +26,7 @@
 import * as React from 'react';
 
 /** The sections the menu can mark, in the order they appear. */
-const SECTIONS = ['thread', 'modules', 'ai', 'films'] as const;
+const SECTIONS = ['thread', 'layer', 'modules', 'ai', 'films'] as const;
 
 export function HomepageMotion() {
   React.useEffect(() => {

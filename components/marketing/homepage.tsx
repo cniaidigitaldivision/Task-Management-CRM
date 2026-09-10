@@ -24,6 +24,7 @@
  * The two walkthrough slots are placeholders naming the file to drop in.
  * ========================================================================= */
 
+import { Eye, Layers, ShieldCheck, Sparkles } from 'lucide-react';
 import Link from 'next/link';
 
 import { LogoMark } from '@/components/brand/logo';
@@ -148,6 +149,73 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
             />
           </div>
 
+        </section>
+
+        {/* ══ THE OPERATING LAYER ═══════════════════════════════════ */}
+        <section id="layer" className="layer">
+          <div className="wrap layer-grid">
+            {/* ⚠️ THE DIAGRAM IS THE OWNER'S OWN ARTWORK, USED AS SUPPLIED — the
+                nine modules and the hub are drawn in it, so nothing here
+                re-states them. Its native size is 570x345 and it is displayed at
+                that, not stretched: the only transparent copy is that
+                resolution, and upscaling it would only make it soft. */}
+            <div className="layer-art" data-reveal>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/home/operating-layer.png"
+                alt="Taskly as an operating layer: a hub connected to Tasks, Projects, Team, Attendance, Documents, Finance, Vault, Reports and AI."
+                width={570}
+                height={345}
+                loading="lazy"
+                decoding="async"
+              />
+            </div>
+
+            <div className="layer-copy" data-reveal>
+              <p className="layer-eyebrow">A bigger system than task management</p>
+              <h2>Taskly is an <em>operating layer</em> for the division</h2>
+              <p className="layer-lede">
+                It connects the daily work of teams with the business controls leadership needs.
+              </p>
+              <hr className="layer-rule" />
+              <p className="layer-claim">
+                <ShieldCheck aria-hidden="true" />
+                <span>
+                  One connected layer.
+                  <em>Everything runs better.</em>
+                </span>
+              </p>
+            </div>
+          </div>
+
+          <div className="wrap">
+            <div className="layer-points" data-reveal-group>
+              <div className="point point-teal" data-reveal>
+                <span className="point-no">01</span>
+                <Layers className="point-icon" aria-hidden="true" />
+                <div>
+                  <h3>Structured execution</h3>
+                  <p>Every module works together so teams execute with clarity.</p>
+                </div>
+              </div>
+              <div className="point point-gold" data-reveal>
+                <span className="point-no">02</span>
+                <Eye className="point-icon" aria-hidden="true" />
+                <div>
+                  <h3>Management visibility</h3>
+                  <p>Leaders see work, people, money and risk in one place.</p>
+                </div>
+              </div>
+              <div className="point point-violet" data-reveal>
+                <span className="point-no">03</span>
+                <Sparkles className="point-icon" aria-hidden="true" />
+                <div>
+                  <h3>AI intelligence</h3>
+                  <p>The assistant answers from live workspace data.</p>
+                </div>
+              </div>
+            </div>
+          </div>
         </section>
 
         {/* ══ MODULES ═══════════════════════════════════════════════════════ */}
