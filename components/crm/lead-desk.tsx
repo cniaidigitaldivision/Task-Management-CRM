@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   ChevronDown,
@@ -186,7 +187,12 @@ export function LeadDesk({
             </p>
           )}
 
-          <LeadTable rows={rows} nowMs={nowMs} />
+          {/* ⚠️ THE LIST'S OWN QUERY STRING TRAVELS WITH EVERY ROW. A lead
+              opened from page 9 of a filtered list has to come back to page 9
+              of that filtered list — see `backToDesk` in the detail route.
+              Read from the URL rather than rebuilt from `filters`, so a
+              parameter this component does not model still survives the trip. */}
+          <LeadTable rows={rows} nowMs={nowMs} from={search.toString()} />
 
           <Pagination
             page={page}
@@ -576,7 +582,15 @@ function StageStrip({
 
 /* ---- The table ----------------------------------------------------------- */
 
-function LeadTable({ rows, nowMs }: { rows: readonly CrmLeadRow[]; nowMs: number }) {
+function LeadTable({
+  rows,
+  nowMs,
+  from,
+}: {
+  rows: readonly CrmLeadRow[];
+  nowMs: number;
+  from: string;
+}) {
   if (rows.length === 0) {
     return (
       <Empty
@@ -606,7 +620,7 @@ function LeadTable({ rows, nowMs }: { rows: readonly CrmLeadRow[]; nowMs: number
         </thead>
         <tbody>
           {rows.map((lead) => (
-            <Row key={lead.id} lead={lead} nowMs={nowMs} />
+            <Row key={lead.id} lead={lead} nowMs={nowMs} from={from} />
           ))}
         </tbody>
       </table>
@@ -614,7 +628,7 @@ function LeadTable({ rows, nowMs }: { rows: readonly CrmLeadRow[]; nowMs: number
   );
 }
 
-function Row({ lead, nowMs }: { lead: CrmLeadRow; nowMs: number }) {
+function Row({ lead, nowMs, from }: { lead: CrmLeadRow; nowMs: number; from: string }) {
   const phone = displayPhone(lead.phoneE164, lead.phone);
   const wa = whatsAppDigits(lead.phoneE164 ?? lead.phone);
 
@@ -622,9 +636,17 @@ function Row({ lead, nowMs }: { lead: CrmLeadRow; nowMs: number }) {
     <tr className="border-b border-border-subtle last:border-b-0 hover:bg-bg-subtle/60">
       {/* ── The person ─────────────────────────────────────────────────── */}
       <td className={TD}>
-        <span className="block truncate text-body-sm font-semibold text-text-primary">
+        {/* ⚠️ THE NAME IS THE LINK, NOT THE WHOLE ROW. A clickable `<tr>` needs
+            a click handler, which gives a keyboard user nothing to tab to and
+            steals the text selection from anybody copying a phone number out of
+            the cell below. An anchor is reachable, focusable, opens in a new tab
+            with a middle click, and shows its destination in the status bar. */}
+        <Link
+          href={`/leads/${lead.id}${from ? `?from=${encodeURIComponent(from)}` : ''}`}
+          className="block truncate text-body-sm font-semibold text-text-primary underline-offset-2 hover:text-text-brand hover:underline"
+        >
           {lead.fullName ?? 'Name not given'}
-        </span>
+        </Link>
         <span className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-caption text-text-secondary">
           <span className="tabular-nums">{phone}</span>
           {lead.city && (

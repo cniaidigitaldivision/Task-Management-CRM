@@ -46,13 +46,43 @@ interface StageMeta {
   readonly open: boolean;
 }
 
+/* ── ⚠️ EVERY TOKEN HERE WAS MEASURED THROUGH THE BADGE, IN BOTH THEMES ─────
+   Measured 2026-09-10 on the rendered component, not read off the palette: the
+   Badge does not print the token, it prints
+   `color-mix(in oklab, <token> 70%, var(--text-primary))`, so a hue that fails
+   as raw ink can pass here and the other way round.
+
+   Four of these were below the 4.5:1 floor in LIGHT and comfortably above it in
+   dark — the exact shape recorded for the chart tokens, and the reason nobody
+   caught it: dark theme passes, so review passes.
+
+     follow_up  chart-3      4.35:1   (and 161°, the same green as `won`)
+     visited    chart-6      3.32:1
+     scheduled  accent-gold  3.72:1
+     warm       accent-gold  3.72:1
+
+   ⚠️ AND ALL FOUR WERE INVISIBLE. Every one of the 615 leads is `new`, so no
+   other badge has ever rendered on a screen — these would have appeared for the
+   first time the day somebody moved a lead through the pipeline in Step 6, on a
+   screen already signed off.
+
+   The replacements are measured, not guessed, and the pinks are kept four chips
+   apart in the strip: */
 const STAGES: Record<CrmStage, StageMeta> = {
   new: { label: 'New', token: 'accent-primary', open: true },
   contacted: { label: 'Contacted', token: 'chart-1', open: true },
-  follow_up: { label: 'Follow up', token: 'chart-3', open: true },
+  /* 5.07 light / 6.57 dark. Was chart-3, which failed AND was the same 161°
+     green as `won` — a funnel whose third chip matched its last one. */
+  follow_up: { label: 'Follow up', token: 'status-review', open: true },
   qualified: { label: 'Qualified', token: 'chart-4', open: true },
-  visited: { label: 'Visited', token: 'chart-6', open: true },
-  scheduled: { label: 'Scheduled', token: 'accent-gold', open: true },
+  /* 5.37 / 5.41. Keeps the gold this stage always had — `gold-700` is the step
+     that is legible at BOTH ends, where `accent-gold` is a fill. The palette
+     already records the same lesson one step further down:
+     `--text-gold: var(--gold-800)  ⚠️ NOT gold-500 — fails contrast on white`. */
+  visited: { label: 'Visited', token: 'gold-700', open: true },
+  /* 6.24 / 6.62. Slate reads as booked-and-waiting, and it takes the second gold
+     out of a strip that would otherwise have had two side by side. */
+  scheduled: { label: 'Scheduled', token: 'status-backlog', open: true },
   /* ⚠️ NOT `feedback-warning`, for two reasons. Semantically, negotiation is a
      late-funnel stage, not a warning — the feedback tokens mean good/warning/
      critical and spending one on a neutral stage leaves nothing to say "this
@@ -93,7 +123,9 @@ export type CrmTemperature = (typeof TEMPERATURES)[number];
 
 const TEMPERATURE_META: Record<CrmTemperature, { label: string; token: string }> = {
   hot: { label: 'Hot', token: 'feedback-error' },
-  warm: { label: 'Warm', token: 'accent-gold' },
+  /* ⚠️ `gold-700`, not `accent-gold` — 3.72:1 in light, measured. Same fix and
+     same reason as `visited`; see the note above STAGES. */
+  warm: { label: 'Warm', token: 'gold-700' },
   cold: { label: 'Cold', token: 'chart-1' },
 };
 

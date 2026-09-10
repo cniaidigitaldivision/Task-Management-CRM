@@ -138,11 +138,31 @@ this step — the column shows the form until campaigns are linked in Step 8.
 
 ---
 
-### Step 5 · The lead detail 🔓
+### Step 5 · The lead detail ✅ DONE 2026-09-10
 Click a row, get the whole person: every answer Meta captured, the note thread,
 the activity timeline, the campaign and form that produced them.
 
-**Delivers:** the record a salesperson actually needs before ringing somebody.
+- **A route, `/leads/[id]`, not a drawer.** A lead is a destination somebody is
+  SENT to — "ring this person" is a link pasted into WhatsApp, and Step 7's
+  assignment notification needs a URL to point the bell at.
+- ⚠️ **The list's filters travel with the link**, so "back" returns to page 9 of
+  the filtered list it was opened from rather than to an unfiltered page 1.
+- **The question is asked in words.** Meta's key is
+  `which__size_are_you_interested_in?_`; the screen says "Which size are you
+  interested in?" and keeps the raw value on hover as evidence.
+- ⚠️ **A missing lead and a lead you may not read render the SAME 404.** With a
+  uuid in the URL, confirming that a particular lead exists is the whole of what
+  an attacker wants.
+- **"This number enquired before"** — ~18 of the 615 share a number with another
+  lead. Worth knowing before ringing somebody a colleague already spoke to.
+
+⚠️ **NOTHING ON THIS PAGE WRITES, and it does not pretend to.** Stage, notes and
+call outcomes are Step 6. The tempting version draws the controls now and wires
+them later — a stage dropdown that does not save, a note box with a Post button.
+That is the worst state this page could be in: somebody types what they quoted a
+client, presses the button, and the record silently does not have it.
+
+**Delivered:** the record a salesperson actually needs before ringing somebody.
 
 ---
 

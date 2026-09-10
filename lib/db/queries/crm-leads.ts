@@ -78,6 +78,69 @@ export interface CrmLeadRow {
   readonly noteCount: number;
 }
 
+/**
+ * One lead, whole — everything the record holds about the person.
+ *
+ * Deliberately wider than `CrmLeadRow`: the list carries what a person scans,
+ * this carries what they need in hand before ringing somebody.
+ */
+export interface CrmLeadRecord {
+  readonly id: string;
+  readonly projectId: string;
+  readonly projectName: string;
+  readonly fullName: string | null;
+  readonly phone: string | null;
+  readonly phoneE164: string | null;
+  readonly email: string | null;
+  readonly city: string | null;
+  /** Every answer Meta sent, raw. See `lib/domain/crm-answers.ts`. */
+  readonly answers: Record<string, string>;
+  readonly stage: string;
+  readonly temperature: string | null;
+  readonly lostReason: string | null;
+  readonly nextAction: string | null;
+  readonly nextActionAt: string | null;
+  readonly submittedAt: string;
+  readonly importedAt: string;
+  readonly firstContactedAt: string | null;
+  readonly closedAt: string | null;
+  readonly ownerId: string | null;
+  readonly ownerName: string | null;
+  readonly formName: string | null;
+  readonly campaignName: string | null;
+  readonly source: string;
+  /** Meta's own lead id. Shown so a row can be traced back to the account. */
+  readonly externalId: string | null;
+}
+
+export interface CrmLeadNote {
+  readonly id: string;
+  readonly body: string;
+  readonly createdAt: string;
+  readonly authorId: string | null;
+  readonly authorName: string | null;
+  readonly authorAvatarUrl: string | null;
+}
+
+export interface CrmLeadEvent {
+  readonly id: string;
+  readonly kind: string;
+  readonly outcome: string | null;
+  readonly occurredAt: string;
+  readonly actorId: string | null;
+  readonly actorName: string | null;
+  readonly actorAvatarUrl: string | null;
+}
+
+/** Another lead carrying the same number — the same person, enquiring twice. */
+export interface CrmLeadSibling {
+  readonly id: string;
+  readonly submittedAt: string;
+  readonly stage: string;
+  readonly projectName: string;
+  readonly formName: string | null;
+}
+
 export interface CrmLeadFilters {
   readonly stage?: string | null;
   readonly ownerId?: string | null;
@@ -278,6 +341,164 @@ export async function listCrmLeads(
       noteCount: Number(r.note_count ?? 0),
     })),
   };
+}
+
+/**
+ * One lead and everything hanging off it, or null when the caller cannot read
+ * it — which is the same answer for "no such lead" and "not yours", deliberately.
+ * Distinguishing them would confirm that a lead exists to somebody with no right
+ * to know it.
+ *
+ * ── ⚠️ THE NOTE AND ACTIVITY AUTHORS COME THROUGH MIGRATION 114 ────────────
+ * NOT through a join, and this is the one place in the CRM where that matters.
+ * The header of this file explains why the LIST's owner join is safe: a sales
+ * member only ever sees leads assigned to them, so the owner they read is
+ * themselves. A note's author and an activity's actor are somebody else by
+ * design — an Admin assigns the lead, and the `assigned` row's actor is that
+ * Admin. `users_select` hides them, the join returns NULL, and the screen calls
+ * a working colleague "Former member". That is migration 105's bug, in a new
+ * table, and 114's self-check proves it is real rather than assuming it.
+ *
+ * The lead's OWN owner stays a plain join, for exactly the reason the header
+ * gives. If that ever stops being true, both must change together.
+ *
+ * ── ⚠️ FOUR READS IN ONE TRANSACTION, NOT FOUR ROUND TRIPS ─────────────────
+ * The same reasoning as the client statement in `finance.ts`: one page, one
+ * `withUser`, so the reads share a session and cannot see different states of
+ * the row halfway through.
+ */
+export async function getCrmLead(
+  actorId: string,
+  leadId: string,
+): Promise<{
+  lead: CrmLeadRecord;
+  notes: CrmLeadNote[];
+  activity: CrmLeadEvent[];
+  alsoEnquired: CrmLeadSibling[];
+} | null> {
+  /* ⚠️ A malformed uuid reaches Postgres as a cast error — a 500 on a URL
+     somebody mistyped, rather than the "no such lead" this returns. The route
+     is the one input a person edits by hand. */
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(leadId)) {
+    return null;
+  }
+
+  return withUser(actorId, async (tx) => {
+    const found = await tx`
+      select l.id, l.project_id, p.name as project_name,
+             l.full_name, l.phone, l.phone_e164, l.email, l.city,
+             l.answers,
+             l.stage::text, l.temperature::text, l.lost_reason::text,
+             l.next_action, l.next_action_at,
+             l.submitted_at, l.imported_at, l.first_contacted_at, l.closed_at,
+             l.owner_id, u.full_name as owner_name,
+             f.name as form_name, c.name as campaign_name,
+             l.source::text, l.external_id
+        from public.crm_leads l
+        join public.projects p on p.id = l.project_id
+        left join public.users          u on u.id = l.owner_id
+        left join public.crm_lead_forms f on f.id = l.form_id
+        left join public.crm_campaigns  c on c.id = l.campaign_id
+       where l.id = ${leadId}::uuid
+       limit 1
+    `;
+
+    const row = (found as Array<Record<string, unknown>>)[0];
+    if (!row) return null;
+
+    const [noteRows, activityRows, siblingRows] = await Promise.all([
+      tx`select * from app.crm_lead_notes_with_authors(${leadId}::uuid)`,
+      tx`select * from app.crm_lead_activity_with_actors(${leadId}::uuid)`,
+      /* ── ⚠️ THE SAME PERSON, ENQUIRING TWICE ─────────────────────────────
+         Measured on the live table 2026-09-10: 615 leads carry 597 distinct
+         numbers, so roughly eighteen leads share a number with another. Those
+         are real people who filled the form again, and without this the second
+         salesperson to open one has no way of knowing the first already rang
+         them.
+
+         Matched on `phone_e164`, never on the raw `phone` — the whole reason
+         that column exists is that `0300-1234567` and `+92 300 1234567` are the
+         same person and two different strings (see lib/domain/phone.ts).
+
+         ⚠️ RLS APPLIES HERE, unlike the two readers above, and that is correct
+         but incomplete: a sales member sees only the sibling leads assigned to
+         THEM, so a duplicate held by a colleague stays invisible to them. The
+         screen therefore renders this section only when it has something to
+         show, and never prints a count — "0 other enquiries" would be a
+         sentence this query cannot support. Widening it means a definer reader
+         that discloses the COUNT without the rows. */
+      row.phone_e164
+        ? tx`
+            select l.id, l.submitted_at, l.stage::text, p.name as project_name,
+                   f.name as form_name
+              from public.crm_leads l
+              join public.projects p on p.id = l.project_id
+              left join public.crm_lead_forms f on f.id = l.form_id
+             where l.phone_e164 = ${row.phone_e164 as string}
+               and l.id <> ${leadId}::uuid
+             order by l.submitted_at desc
+             limit 20
+          `
+        : Promise.resolve([]),
+    ]);
+
+    return {
+      lead: {
+        id: String(row.id),
+        projectId: String(row.project_id),
+        projectName: String(row.project_name),
+        fullName: (row.full_name as string | null) ?? null,
+        phone: (row.phone as string | null) ?? null,
+        phoneE164: (row.phone_e164 as string | null) ?? null,
+        email: (row.email as string | null) ?? null,
+        city: (row.city as string | null) ?? null,
+        answers: (row.answers as Record<string, string> | null) ?? {},
+        stage: String(row.stage),
+        temperature: (row.temperature as string | null) ?? null,
+        lostReason: (row.lost_reason as string | null) ?? null,
+        nextAction: (row.next_action as string | null) ?? null,
+        nextActionAt: row.next_action_at
+          ? new Date(row.next_action_at as string).toISOString()
+          : null,
+        submittedAt: new Date(row.submitted_at as string).toISOString(),
+        importedAt: new Date(row.imported_at as string).toISOString(),
+        firstContactedAt: row.first_contacted_at
+          ? new Date(row.first_contacted_at as string).toISOString()
+          : null,
+        closedAt: row.closed_at ? new Date(row.closed_at as string).toISOString() : null,
+        ownerId: (row.owner_id as string | null) ?? null,
+        ownerName: (row.owner_name as string | null) ?? null,
+        formName: (row.form_name as string | null) ?? null,
+        campaignName: (row.campaign_name as string | null) ?? null,
+        source: String(row.source),
+        externalId: (row.external_id as string | null) ?? null,
+      },
+      notes: (noteRows as Array<Record<string, unknown>>).map((n) => ({
+        id: String(n.id),
+        body: String(n.body),
+        createdAt: new Date(n.created_at as string).toISOString(),
+        authorId: (n.author_id as string | null) ?? null,
+        authorName: (n.author_name as string | null) ?? null,
+        authorAvatarUrl: (n.author_avatar_url as string | null) ?? null,
+      })),
+      activity: (activityRows as Array<Record<string, unknown>>).map((a) => ({
+        id: String(a.id),
+        kind: String(a.kind),
+        outcome: (a.outcome as string | null) ?? null,
+        occurredAt: new Date(a.occurred_at as string).toISOString(),
+        actorId: (a.actor_id as string | null) ?? null,
+        actorName: (a.actor_name as string | null) ?? null,
+        actorAvatarUrl: (a.actor_avatar_url as string | null) ?? null,
+      })),
+      alsoEnquired: (siblingRows as Array<Record<string, unknown>>).map((s) => ({
+        id: String(s.id),
+        submittedAt: new Date(s.submitted_at as string).toISOString(),
+        stage: String(s.stage),
+        projectName: String(s.project_name),
+        formName: (s.form_name as string | null) ?? null,
+      })),
+    };
+  });
 }
 
 /**

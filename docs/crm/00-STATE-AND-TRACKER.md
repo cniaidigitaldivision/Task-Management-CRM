@@ -6,22 +6,25 @@
 |---|---|
 | **Branch** | `crm` (from `main` at `0726704`) |
 | **Route** | `/leads` · nav: Growth → Campaign & Lead Desk |
-| **Phase** | **Steps 1–4 DONE.** 615 leads stored, import scheduled, and the list screen is built. Step 5 (the lead detail) is next. |
+| **Phase** | **Steps 1–5 DONE.** 615 leads stored, import scheduled, the list screen is built, and clicking a lead opens the whole record. Step 6 (working the lead) is next. |
 | **Scope** | ⚠️ **Chitral Royal Homes only.** One project, end to end. |
 | **Last updated** | 2026-09-10 |
-| **Last migration applied anywhere** | **113.** CRM next: 114. ⚠️ Step 4 needed **no** migration — see the note under Step 4. |
+| **Last migration applied anywhere** | **114.** CRM next: 115. |
 
 ---
 
 ## Where we are, in one paragraph
 
-Module 1 is finished and Module 2 has started. The tables exist, the importer has
-pulled **615 real Chitral Royal Homes leads** and re-run without duplicating one
-of them, the pg_cron job fires every fifteen minutes, and `/leads` now shows the
-leads themselves — filtered, paged and sorted by what is owed. Thirteen other
-projects sit in the same dropdown saying "not connected", which is the truth
-rather than a placeholder. Nothing on the screen is invented: four columns are
-visibly empty because assignment and calling are Steps 6 and 7.
+Module 1 is finished and Module 2 is most of the way through. The tables exist,
+the importer has pulled **615 real Chitral Royal Homes leads** and re-run without
+duplicating one of them, the pg_cron job fires every fifteen minutes, `/leads`
+shows the leads themselves — filtered, paged and sorted by what is owed — and
+clicking one opens the whole person: every answer Meta captured, where they came
+from, the note thread and the timeline. Thirteen other projects sit in the same
+dropdown saying "not connected", which is the truth rather than a placeholder.
+Nothing on either screen is invented, and nothing on the detail page writes:
+stage, notes and call outcomes are Step 6, so there is no control there that
+looks like it saves.
 
 ---
 
@@ -88,6 +91,47 @@ visibly empty because assignment and calling are Steps 6 and 7.
   ⚠️ **The date filter compares in Karachi, not UTC** — measured, not assumed:
   **109 of 615 leads (18%) have a different UTC date from their Karachi date.**
   A UTC comparison would show the wrong rows for a fifth of the table.
+
+- [x] **Step 5 · the lead record** — `/leads/[id]`, `components/crm/lead-record.tsx`,
+      `lib/domain/crm-answers.ts` (+15 tests), `getCrmLead`, and **migration 114**.
+      Every answer Meta captured, where the lead came from, the note thread, the
+      timeline, and a warning when the same number is on another lead. A route
+      rather than a drawer, because Step 7's assignment notification needs a URL
+      to point the bell at — and the list's filters travel with the link, so
+      "back" returns to page 9 of the filtered list it was opened from.
+      **3020 tests green, tsc and eslint clean.** Looked at in a browser, light
+      and dark, desktop and 400px.
+
+  ⚠️ **Migration 114, and it is NOT the reader Step 4 deleted.** Step 4's owner
+  join is safe because a Member only sees leads assigned to *them*, so the owner
+  they read is themselves. A note's author and an activity's actor are somebody
+  else by design — an Admin assigns the lead and the `assigned` row's actor is
+  that Admin. `users_select` hides them, the join returns NULL, and the screen
+  calls a working colleague "Former member". **114's self-check asserts the bug
+  is real** rather than assuming it: it fails loudly if a Member can ever read an
+  author's name directly, which is the same discipline that got Step 4's reader
+  deleted.
+
+  It is unreachable today — `/leads` is Admin-only and an Admin reads the staff
+  table fine — but that floor is the narrow start and **Step 7 is what moves it**.
+  A safety that holds only because of a floor scheduled to move is a bug with a
+  date on it.
+
+  ⚠️ **`crm_leads_select` was deliberately NOT rewritten to share the predicate.**
+  The tidy version — the policy calling `app.crm_lead_is_visible` — turns a
+  row-local comparison into an index probe on every row of the only query this
+  CRM runs at volume. So 114 holds a second copy for the by-id case, and its
+  self-check proves the two agree for a coordinator, an assigned member and an
+  unassigned member.
+
+### ⚠️ What Step 5 turned up
+
+| | |
+|---|---|
+| **jsonb loses the form's question order** | `answers` is jsonb, and jsonb sorts keys by length then bytewise. Meta's original sequence was gone at INSERT. Any code written to "show the answers in the order they were asked" would look correct and be wrong; the order is ours and chosen — what they asked for first, contact details last. |
+| ⚠️ **Four badges failed WCAG in light and nobody could have seen it** | `follow_up` 4.35:1, `visited` 3.32:1, `scheduled` 3.72:1, `warm` 3.72:1 — all against a 4.5:1 floor, and **all fine in dark**, which is why review passes. And **every one of the 615 leads is `new`, so no other badge has ever rendered on a screen.** They would have appeared for the first time the day somebody moved a lead in Step 6, on a page already signed off. Replaced with measured tokens in `lib/domain/crm-stages.ts`; all 24 badges now pass in both themes. |
+| `chart-3` was the same green as `won` | The old `follow_up` token was 161°, identical to `feedback-success` — a funnel whose third chip matched its last. Fixed by the same change. |
+| **~18 leads share a number** | 615 leads, 597 distinct numbers. The record now says so and links across, so two salespeople do not ring the same person. ⚠️ It renders only when it finds something: a sales member sees only the sibling leads assigned to *them*, so a printed count would be a number the page cannot stand behind. |
 
 ### ⚠️ The cron 404s until this branch is deployed
 
