@@ -26,7 +26,8 @@
 
 import Link from 'next/link';
 
-import { ThemeSwitch } from '@/components/brand/theme-toggle';
+import { LogoMark } from '@/components/brand/logo';
+import { HomepageMotion } from '@/components/marketing/homepage-motion';
 import { ThemeClip } from '@/components/marketing/theme-clip';
 
 import './home.css';
@@ -36,10 +37,28 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
     /* The wrapper undoes the application's 90% density scale (--ui-scale): this
        page was drawn and contrast-measured at 1:1. See home.css. */
     <div className={`taskly-home ${fontClassName}`}>
+      <HomepageMotion />
+
       <header>
+        {/* Three columns — 1fr auto 1fr — so the menu is centred on the PAGE
+            rather than between whatever the logo and the button happen to
+            measure. See the note in home.css. */}
         <div className="wrap bar">
           <a className="mark" href="#top">
-            <span className="glyph" aria-hidden="true">T</span>
+            {/* ⛔ The supplied artwork, shown through a window. It is never
+                recoloured, cropped to a new file, or redrawn — see the rules at
+                the top of logo.tsx. <LogoMark> is the brain alone, which is the
+                only lockup that reads on a dark ground: the supplied wordmark
+                “AI & DIGITAL” is dark teal and measures about 2.3:1 here, so the
+                words beside it are real HTML taking their colour from this
+                page’s own tokens. */}
+            {/* ⚠️ THE GLOW GOES ON A WRAPPER, NOT ON <LogoMark> ITSELF. That component's
+                span carries `overflow-hidden` so its CSS window on the artwork cannot
+                spill — which also clips any pseudo-element placed on it, turning a soft
+                radial halo into a hard-edged rectangle. Ask me how I know. */}
+            <span className="brand-mark">
+              <LogoMark width={72} priority />
+            </span>
             <span>Taskly<small>AI & Digital Division</small></span>
           </a>
           <nav className="links">
@@ -49,12 +68,7 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
             <a href="#films">See it</a>
           </nav>
           <div className="right">
-            {/* The application’s own control, not a copy of it: it writes the
-                choice to the account, so a visitor who signs in keeps the theme
-                they were reading in. A second toggle here would set a different
-                key and the two would disagree the moment somebody logged in. */}
-            <ThemeSwitch />
-            <Link className="btn btn-primary" href="/login">Log in</Link>
+            <Link className="btn btn-primary" href="/login">Open workspace</Link>
           </div>
         </div>
       </header>
@@ -65,7 +79,7 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
         <div className="hero">
           {/* The dashboard’s own control-room clip. `src` is set in script so only
                the cut for the current theme is ever fetched. */}
-          <ThemeClip clip="room" className="hero-clip" />
+          <ThemeClip clip="hero" className="hero-clip" />
 
           <div className="wrap">
             <h1>The whole agency, on <em>one thread</em>.</h1>
@@ -75,7 +89,7 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
               the report. One system, one record, nothing left in somebody’s head.
             </p>
             <div className="cta">
-              <Link className="btn btn-primary btn-lg" href="/login">Log in</Link>
+              <Link className="btn btn-primary btn-lg" href="/login">Open workspace</Link>
               <a className="btn btn-ghost btn-lg" href="#films">Watch it work</a>
             </div>
             <p className="who">Built and run by the AI & Digital Division of Crescent Nova International.</p>
@@ -95,7 +109,7 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
         {/* ══ THE THREAD ════════════════════════════════════════════════════ */}
         <section id="thread">
           <div className="wrap">
-            <div className="section-head">
+            <div className="section-head" data-reveal>
               <h2>One lead, followed all the way</h2>
               <p>
                 Most tools give you a folder for tasks and a different one for clients, and the join
@@ -106,7 +120,7 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
 
             <div className="thread">
 
-              <div className="stop">
+              <div className="stop" data-reveal>
                 <div>
                   <p className="where">Campaign & Lead Desk</p>
                   <h3>Somebody fills in a form</h3>
@@ -126,7 +140,7 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
                 </div>
               </div>
 
-              <div className="stop">
+              <div className="stop" data-reveal>
                 <div>
                   <p className="where">Assignment</p>
                   <h3>It goes to whoever is free</h3>
@@ -145,7 +159,7 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
                 </div>
               </div>
 
-              <div className="stop">
+              <div className="stop" data-reveal>
                 <div>
                   <p className="where">Working the lead</p>
                   <h3>Somebody calls them</h3>
@@ -164,7 +178,7 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
                 </div>
               </div>
 
-              <div className="stop gold">
+              <div className="stop gold" data-reveal>
                 <div>
                   <p className="where">Clients</p>
                   <h3>They say yes</h3>
@@ -178,7 +192,7 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
                 </div>
               </div>
 
-              <div className="stop">
+              <div className="stop" data-reveal>
                 <div>
                   <p className="where">Projects, Tasks, Workload</p>
                   <h3>The work begins</h3>
@@ -197,7 +211,7 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
                 </div>
               </div>
 
-              <div className="stop">
+              <div className="stop" data-reveal>
                 <div>
                   <p className="where">Studio & Reports</p>
                   <h3>You find out whether it worked</h3>
@@ -223,7 +237,7 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
         {/* ══ MODULES ═══════════════════════════════════════════════════════ */}
         <section id="modules" className="band">
           <div className="wrap">
-            <div className="section-head">
+            <div className="section-head" data-reveal>
               <h2>And everything else an agency has to keep somewhere</h2>
               <p>
                 The parts that usually end up in a shared drive, a WhatsApp group, or one person’s
@@ -231,8 +245,8 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
               </p>
             </div>
 
-            <div className="grid">
-              <div className="cell">
+            <div className="grid" data-reveal-group>
+              <div className="cell" data-reveal>
                 <span className="tag">Team</span>
                 <h3>People and departments</h3>
                 <p>
@@ -241,7 +255,7 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
                   can actually open.
                 </p>
               </div>
-              <div className="cell">
+              <div className="cell" data-reveal>
                 <span className="tag">Vault</span>
                 <h3>Credentials</h3>
                 <p>
@@ -249,7 +263,7 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
                   recorded. Nobody asks in a group chat for a password again.
                 </p>
               </div>
-              <div className="cell">
+              <div className="cell" data-reveal>
                 <span className="tag">Documents</span>
                 <h3>Files and contracts</h3>
                 <p>
@@ -257,7 +271,7 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
                   Drive folders linked where the originals already live.
                 </p>
               </div>
-              <div className="cell">
+              <div className="cell" data-reveal>
                 <span className="tag">Attendance</span>
                 <h3>Who is in</h3>
                 <p>
@@ -265,7 +279,7 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
                   and leave in one place — per office, so two sites never blur together.
                 </p>
               </div>
-              <div className="cell">
+              <div className="cell" data-reveal>
                 <span className="tag">Finance</span>
                 <h3>Invoices and money</h3>
                 <p>
@@ -273,7 +287,7 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
                   statement of account for any client, on one screen.
                 </p>
               </div>
-              <div className="cell">
+              <div className="cell" data-reveal>
                 <span className="tag">Security</span>
                 <h3>Accounts and access</h3>
                 <p>
@@ -288,7 +302,7 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
         {/* ══ THE ASSISTANT ═════════════════════════════════════════════════ */}
         <section id="ai" className="ai">
           <div className="wrap">
-            <div className="section-head">
+            <div className="section-head" data-reveal>
               <h2>The assistant knows your data, not the internet</h2>
               <p>
                 Ask in plain language and it answers from your own tables, through the same permissions
@@ -296,10 +310,10 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
               </p>
             </div>
 
-            <div className="ai-stage">
+            <div className="ai-stage" data-reveal>
               {/* The assistant’s own clip, from inside the product. Lazy: it is
                    around 6 MB a cut, so it is not fetched until it scrolls into view. */}
-              <ThemeClip clip="brain" className="brain-clip" lazy />
+              <ThemeClip clip="room" className="brain-clip" lazy />
               <div className="caption">
                 <p>
                   Every answer comes with the rows behind it. Nothing is estimated, and where the data
@@ -308,8 +322,8 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
               </div>
             </div>
 
-            <div className="ai-list">
-              <div className="ai-item on">
+            <div className="ai-list" data-reveal-group>
+              <div className="ai-item on" data-reveal>
                 <h3>Ask about the work</h3>
                 <p>
                   “What is overdue on Chitral Royal Homes?” “Who is over capacity this week?” “How many
@@ -317,35 +331,35 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
                   paragraph you have to take on trust.
                 </p>
               </div>
-              <div className="ai-item on">
+              <div className="ai-item on" data-reveal>
                 <h3>Written reports</h3>
                 <p>
                   The monthly client report computes its own figures, then the model writes the prose
                   over the top. The arithmetic is yours; only the wording is drafted.
                 </p>
               </div>
-              <div className="ai-item on">
+              <div className="ai-item on" data-reveal>
                 <h3>Smart lead distribution</h3>
                 <p>
                   Leads divide themselves across the team by who is genuinely free, so nobody sits on
                   forty enquiries while a colleague waits for one.
                 </p>
               </div>
-              <div className="ai-item">
+              <div className="ai-item" data-reveal>
                 <h3>Coaching before a call</h3>
                 <p>
                   A two-line summary of what a lead wants, talking points before you ring them, and a
                   drafted follow-up you edit before it sends — never sent for you.
                 </p>
               </div>
-              <div className="ai-item">
+              <div className="ai-item" data-reveal>
                 <h3>Campaign or staff?</h3>
                 <p>
                   Same campaign, different people, different results — it is the person. Same person
                   across campaigns — it is the campaign. Shown as arithmetic anybody can check.
                 </p>
               </div>
-              <div className="ai-item">
+              <div className="ai-item" data-reveal>
                 <h3>Nothing invented</h3>
                 <p>
                   The rule the whole system is built on: a screen shows a number only when a real one
@@ -359,13 +373,13 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
         {/* ══ FILMS ═════════════════════════════════════════════════════════ */}
         <section id="films" className="band">
           <div className="wrap">
-            <div className="section-head">
+            <div className="section-head" data-reveal>
               <h2>See it working</h2>
               <p>Short walkthroughs of the parts people ask about most.</p>
             </div>
 
-            <div className="films">
-              <div className="film">
+            <div className="films" data-reveal-group>
+              <div className="film" data-reveal>
                 <div className="frame">
                   <div className="chrome"><i /><i /><i /><span>Lead desk</span></div>
                   {/* <video className="stage" controls playsinline poster="/home/leads-poster.jpg"><source src="/home/leads.mp4" type="video/mp4"></video> */}
@@ -381,7 +395,7 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
                 <p>Arriving, shared out, called, won.</p>
               </div>
 
-              <div className="film">
+              <div className="film" data-reveal>
                 <div className="frame">
                   <div className="chrome"><i /><i /><i /><span>Studio</span></div>
                   {/* <video className="stage" controls playsinline poster="/home/studio-poster.jpg"><source src="/home/studio.mp4" type="video/mp4"></video> */}
@@ -402,14 +416,14 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
 
         {/* ══ CLOSE ═════════════════════════════════════════════════════════ */}
         <section className="close">
-          <div className="wrap">
+          <div className="wrap" data-reveal>
             <h2>Your team is already in here.</h2>
             <p>
-              Sign in with the address your administrator set up. If you have not been given an account
+              Open it with the address your administrator set up. If you have not been given an account
               yet, ask them — accounts are created from inside Taskly, never self-served.
             </p>
             <div className="cta">
-              <Link className="btn btn-primary btn-lg" href="/login">Log in to Taskly</Link>
+              <Link className="btn btn-primary btn-lg" href="/login">Open your workspace</Link>
             </div>
           </div>
         </section>
@@ -423,7 +437,7 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
             <span>Taskly</span>
           </a>
           <p className="spacer">© 2026 Crescent Nova International · AI & Digital Division</p>
-          <Link href="/login">Log in</Link>
+          <Link href="/login">Open workspace</Link>
         </div>
       </footer>
     </div>
