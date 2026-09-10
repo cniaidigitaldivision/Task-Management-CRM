@@ -65,6 +65,20 @@
      which turns every reveal into a plain fade without touching a keyframe. */
   /* The bar's height in one place: the hero pulls itself up by exactly this to
      sit UNDERNEATH the header, and pads itself back down by the same amount. */
+  /* ── ⚠️ ONE STRUCTURAL WIDTH FOR THE WHOLE PAGE ────────────────────────
+     Every section's outer container reads this, so the page has a single spine
+     and adjacent sections cannot disagree about where their edges are.
+
+     MEASURED before this existed: the hero copy sat at a 208px gutter, the
+     caption 208, the strip 48, the operating-layer grid 16, its own points row
+     48, the Studio grid 0 — and the Studio screen actually ran 52px PAST the
+     right edge. Six different answers on one page.
+
+     ⚠️ DO NOT give a section its own max-width. Narrow an inner element by a
+     `ch` measure where the prose needs it (see `.section-head`), never by
+     moving the container the section sits in. */
+  --page-w: 84rem;
+
   --bar-h: 76px;
 
   --ease:      cubic-bezier(.22, .61, .36, 1);
@@ -116,7 +130,7 @@ html:has(.taskly-home){ background: #04161a; }
 
 .taskly-home *{ box-sizing: border-box; }
 
-  .taskly-home .wrap{ max-width: 68rem; margin: 0 auto; padding-inline: 20px; }
+  .taskly-home .wrap{ max-width: var(--page-w); margin: 0 auto; padding-inline: 20px; }
   .taskly-home a{ color: inherit; }
   .taskly-home :focus-visible{ outline: 2px solid var(--brand); outline-offset: 3px; border-radius: 4px; }
 
@@ -471,8 +485,11 @@ html:has(.taskly-home){ background: #04161a; }
   .taskly-home .wrap.hero-copy{
     position: relative; isolation: isolate; width: 100%;
     display: flex; flex-direction: column; align-items: center; text-align: center;
-    /* Wider than the 68rem reading column the rest of the page uses: this is a
-       headline and a single centred paragraph, not running prose. */
+    /* ⚠️ NARROWER THAN `--page-w` ON PURPOSE, and the one place that is true.
+       This is a centred headline over a centred paragraph; centred text needs a
+       shorter measure than ranged-left text or the eye loses the start of each
+       line. The caption under the screenshot is narrower for the same reason —
+       it matches the frame it captions rather than the page spine. */
     max-width: 64rem;
   }
   /* ⚠️ A SHADOW UNDER THE WORDS, NOT A PANEL BEHIND THEM. The owner's note
@@ -555,7 +572,7 @@ html:has(.taskly-home){ background: #04161a; }
   }
   @media (min-width: 82rem) {
     .taskly-home .hero-shot{
-      max-width: 92rem;
+      max-width: var(--page-w);
       display: grid; align-items: center; gap: clamp(20px, 3vw, 44px);
       grid-template-columns: minmax(0, 1fr) minmax(0, 64rem) minmax(0, 1fr);
     }
@@ -599,7 +616,7 @@ html:has(.taskly-home){ background: #04161a; }
   /* ── The six screens, as a strip ───────────────────────────────────────── */
   .taskly-home .shot-strip{
     display: grid; gap: 12px;
-    max-width: 84rem; margin: clamp(24px, 3vw, 36px) auto 0;
+    max-width: var(--page-w); margin: clamp(24px, 3vw, 36px) auto 0;
     padding-inline: 20px;
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -668,26 +685,24 @@ html:has(.taskly-home){ background: #04161a; }
   /* ══ THE TREND & ENGAGEMENT STUDIO ═══════════════════════════════════════
      Copy left, screen right — the mirror of the operating-layer section above,
      so the two alternate rather than stacking the same way twice. It borrows
-     that section's `.layer-eyebrow` and `.layer-lede`: same role, same
-     treatment, and one rule to change if the treatment ever does. */
+     the same `.pitch` treatment: same role, same rule, and one place to change
+     it if the treatment ever does. */
   .taskly-home .studio-grid{
-    display: grid; gap: clamp(24px, 3vw, 44px);
+    display: grid; gap: clamp(24px, 3vw, 40px);
     align-items: center;
-    max-width: 88rem;
+    max-width: var(--page-w);
   }
   /* The screen takes the larger share, as the diagram does in the section
      above — it was drawing 730 wide against a native 1909, so there is a long
      way to grow before it softens. */
   @media (min-width: 62rem) {
+    /* ⚠️ THE MIRROR OF `.layer-grid`, and it has to be, or the two headings
+       cannot share a rule: the same type at the same size needs the same
+       column. The image takes what is left — 843px, against a native 1909, so
+       still nowhere near upscaled. */
     .taskly-home .studio-grid{ grid-template-columns: minmax(0, 1fr) minmax(0, 1.75fr); }
   }
 
-  .taskly-home .studio-copy h2{
-    font-size: clamp(1.9rem, 3.4vw, 2.9rem);
-    line-height: 1.08; font-weight: 800; font-stretch: 106%;
-    letter-spacing: -.028em; margin: 0; max-width: 14ch;
-  }
-  .taskly-home .studio-copy h2 em{ font-style: normal; display: block; }
 
   /* ── The four measures ─────────────────────────────────────────────────── */
   .taskly-home .studio-facets{
@@ -728,14 +743,19 @@ html:has(.taskly-home){ background: #04161a; }
     color: #34d399;   /* --emerald-deep-d, the dark-theme --feedback-success */
   }
 
-  /* ⚠️ `--turn: -1` — THE MIRROR OF THE DIAGRAM ABOVE. This screen sits on the
-     right, so it turns the other way and faces the copy on its left. Both
-     panels then lean toward the centre of the page. */
-  .taskly-home .studio-shot{ --turn: -1; }
+  /* The mirror of the diagram above: this screen sits on the RIGHT, so its
+     right edge comes forward and its left edge recedes. Both panels then face
+     inward, toward the middle of the page. */
+  .taskly-home .studio-shot{ --turn: 1; }
+  /* ⚠️ NO BLEED. An earlier version let this run past the container to buy
+     width, and it broke the page's gutter — the screen ended 52px beyond the
+     right edge while every other section respected it. Height comes from the
+     COLUMN SHARE below instead, which costs nothing structurally. */
   .taskly-home .studio-shot .frame{
-    /* The drop-shadow on the image does the depth now; a second box-shadow
-       under the frame would cast in a direction the tilt does not agree with. */
-    box-shadow: 0 0 0 1px var(--rule);
+    /* A visible border, which turns with the panel because the FRAME is what is
+       transformed. The drop-shadow lives on this element too, so the two agree
+       about which way the light falls. */
+    border: 1px solid var(--rule-firm);
     background: var(--sunken);
     border-radius: 14px; overflow: hidden;
   }
@@ -798,7 +818,7 @@ html:has(.taskly-home){ background: #04161a; }
   .taskly-home .layer-grid{
     display: grid; gap: clamp(24px, 3vw, 44px);
     align-items: center;
-    max-width: 88rem;
+    max-width: var(--page-w);
   }
   /* The artwork takes the larger share so it can approach its native 893px —
      it was drawing at 710, which left it noticeably shorter than the column of
@@ -827,16 +847,33 @@ html:has(.taskly-home){ background: #04161a; }
     perspective: 1600px;
     perspective-origin: calc(50% + var(--turn) * -10%) 50%;
   }
-  .taskly-home .tilt img{
+  /* ⚠️ THE DIRECT CHILD, NOT THE `img`. Where the panel has a bordered frame
+     the FRAME is what must turn — tilting the image inside a flat frame gave a
+     rectangular border around a skewed picture, and the frame's `overflow:
+     hidden` then clipped the tilted corners off. Measured before the fix: the
+     image's box was 835x396 inside a frame of 843x381, so the corners were
+     being cut. `> *` covers both shapes: the bare image in one section, the
+     frame in the other. */
+  .taskly-home .tilt > *{
     transform:
-      rotateY(calc(var(--turn) * -9deg))
-      rotateX(3.5deg)
-      rotate(calc(var(--turn) * -1.2deg));
+      rotateY(calc(var(--turn) * -7deg))
+      rotateX(2.5deg)
+      rotate(calc(var(--turn) * -.9deg));
     transform-origin: calc(50% + var(--turn) * 12%) 50%;
-    /* Cast to the side the panel turns AWAY from — that is what makes the
-       angle read as depth rather than as a distortion. */
-    filter: drop-shadow(calc(var(--turn) * -22px) 26px 34px rgb(0 0 0 / .5));
-    transition: transform .7s var(--ease-out), filter .7s var(--ease);
+    /* ⚠️ `box-shadow`, NEVER `filter: drop-shadow()`, ON A 3D-TRANSFORMED
+       PANEL. A filter forces the element to be rasterised into a texture which
+       the transform then samples — a second resampling on top of the one the
+       perspective already costs, and the screenshot's fine UI text is exactly
+       what cannot afford it.
+
+       MEASURED (mean absolute horizontal gradient, higher = sharper):
+         flat, no filter      12.31
+         tilted, no filter     8.77   − the perspective's own cost
+         tilted + drop-shadow  7.04   − a further 20% for the shadow alone
+       box-shadow is drawn by the compositor around the layer instead of
+       through it, so it costs nothing in sharpness. */
+    box-shadow: calc(var(--turn) * -22px) 26px 40px -8px rgb(0 0 0 / .55);
+    transition: transform .7s var(--ease-out), box-shadow .7s var(--ease);
     /* ⚠️ NO `will-change`. The transition only runs on hover, and a permanent
        hint holds a compositor layer for a ~900px raster — megabytes of GPU
        memory — for the life of the page, to save one frame of promotion on a
@@ -844,17 +881,26 @@ html:has(.taskly-home){ background: #04161a; }
        arriving for the same reason. */
   }
   /* Levels out when you look at it — the panel turning to face you. */
-  .taskly-home .tilt:hover img{
+  .taskly-home .tilt:hover > *{
     transform:
       rotateY(calc(var(--turn) * -2deg))
       rotateX(1deg)
       rotate(calc(var(--turn) * -.3deg))
       scale(1.015);
-    filter: drop-shadow(calc(var(--turn) * -10px) 22px 40px rgb(0 0 0 / .55));
+    box-shadow: calc(var(--turn) * -10px) 22px 46px -6px rgb(0 0 0 / .6);
   }
 
+  /* ⚠️ `--turn: -1` — THE SIGN WAS INVERTED AND BOTH PANELS FACED OUTWARD.
+     A panel on the LEFT faces the middle of the page when its left edge comes
+     FORWARD and its right edge recedes. It was doing the opposite, which turned
+     its face away from the reader and the copy. Same correction on the Studio
+     screen below, mirrored. */
+  /* ⚠️ THE DIAGRAM KEEPS A `filter` SHADOW, and that is deliberate: it has no
+     frame element to hang a box-shadow on, and it is line art on a dark ground
+     rather than 11px UI text, so the extra resampling does not show on it. */
   .taskly-home .layer-art{
-    --turn: 1;
+    --turn: -1;
+    filter: drop-shadow(calc(var(--turn) * -20px) 24px 34px rgb(0 0 0 / .45));
     max-width: 893px; margin-inline: auto; width: 100%;
   }
   /* ⚠️ THE ARTWORK'S OWN GROUND IS NOT THE PAGE'S, SO ITS EDGES ARE DISSOLVED.
@@ -879,17 +925,25 @@ html:has(.taskly-home){ background: #04161a; }
     mask-composite: intersect;
   }
 
-  .taskly-home .layer-eyebrow{
+  /* ══ THE SECTION PITCH ═══════════════════════════════════════════════════
+     ⚠️ ONE RULE FOR EVERY SHOWCASE HEADING, and that is the point of it.
+     The operating layer and the Studio had separate rules and had already
+     drifted: 3rem against 2.35rem, and one accent teal while the other was
+     still white. Anything with an eyebrow, a two-part heading and a lede uses
+     `.pitch` — a section must never carry its own copy of this. */
+  .taskly-home .pitch-eyebrow{
     margin: 0 0 18px; font-size: .76rem; font-weight: 700;
     letter-spacing: .13em; text-transform: uppercase; color: var(--brand-lit);
   }
-  .taskly-home .layer-copy h2{
+  .taskly-home .pitch h2{
     font-size: clamp(1.9rem, 3.6vw, 3rem);
     line-height: 1.08; font-weight: 800; font-stretch: 106%;
     letter-spacing: -.028em; margin: 0; max-width: 15ch;
   }
-  .taskly-home .layer-copy h2 em{ font-style: normal; color: var(--brand-lit); display: block; }
-  .taskly-home .layer-lede{
+  /* The second half of the heading, on its own line and in the accent — the
+     white/teal split the owner asked to be the same everywhere. */
+  .taskly-home .pitch h2 em{ font-style: normal; color: var(--brand-lit); display: block; }
+  .taskly-home .pitch-lede{
     margin: 20px 0 0; font-size: 1.06rem; line-height: 1.55;
     color: var(--ink-soft); max-width: 42ch;
   }
@@ -913,7 +967,7 @@ html:has(.taskly-home){ background: #04161a; }
        line up with the artwork's left edge and the copy's right edge. The grid
        gets its 20px from `.wrap`; this element is not inside one, so it needs
        its own or it sits 20px wider on each side. */
-    max-width: 84rem; margin-inline: auto; padding-inline: 20px;
+    max-width: var(--page-w); margin-inline: auto; padding-inline: 20px;
   }
   @media (min-width: 54rem) { .taskly-home .layer-points{ grid-template-columns: repeat(3, 1fr); } }
 
@@ -975,8 +1029,28 @@ html:has(.taskly-home){ background: #04161a; }
   .taskly-home .cell h3{ margin: 0 0 8px; font-size: 1.02rem; font-weight: 700; letter-spacing: -.01em; }
   .taskly-home .cell p{ margin: 0; font-size: .9rem; line-height: 1.6; color: var(--ink-soft); }
   .taskly-home .cell .tag{ display: block; font-size: .72rem; font-weight: 600; color: var(--brand); margin-bottom: 7px; }
+  /* ── ⚠️ THE ALTERNATION IS THE PAGE'S RHYTHM, NOT DECORATION ─────────────
+     Every second section carries this, from the top of the page to the bottom,
+     so no two neighbours share a ground. It used to start halfway down — only
+     the modules and the films had it — which left the whole upper half of the
+     page one flat colour.
+
+     The order runs: overview (band) · operating layer · Studio (band) · thread ·
+     modules (band) · assistant · films (band) · close.
+
+     ⚠️ A NEW SECTION MUST TAKE ITS TURN. Inserting one without minding this
+     puts two of the same ground next to each other and the rhythm dies from
+     that point down — which is exactly how it broke the first time. */
   .taskly-home .band{ background: var(--surface); border-block: 1px solid var(--rule); }
+  /* ⚠️ ANY CARD INSIDE A BAND MUST FLIP ITS FILL. A card tinted from
+     `--surface` sits on `--base` perfectly well and then vanishes the moment
+     its section becomes a band, because the band IS `--surface`. Measured when
+     the overview became a band: the strip cards' fill and the ground behind
+     them were both rgb(12,36,41) — a step of 0. Every card-shaped thing on this
+     page needs a line here. */
   .taskly-home .band .cell{ background: var(--base); }
+  .taskly-home .band .strip-item{ background: color-mix(in oklab, var(--base) 88%, transparent); }
+  .taskly-home .band .strip-item:hover{ background: var(--base); }
   .taskly-home .band .grid{ background: var(--rule); border-color: var(--rule); }
 
   /* ── The assistant, over the brain clip ─────────────────────────────── */
@@ -1220,10 +1294,10 @@ html:has(.taskly-home){ background: #04161a; }
        it for somebody who asked things to stop moving. What must not happen is
        the hover levelling it out, so the hover state is pinned to the resting
        angle instead. */
-    .taskly-home .tilt:hover img{
+    .taskly-home .tilt:hover > *{
       transform:
-        rotateY(calc(var(--turn) * -9deg))
-        rotateX(3.5deg)
-        rotate(calc(var(--turn) * -1.2deg)) !important;
+        rotateY(calc(var(--turn) * -7deg))
+        rotateX(2.5deg)
+        rotate(calc(var(--turn) * -.9deg)) !important;
     }
   }

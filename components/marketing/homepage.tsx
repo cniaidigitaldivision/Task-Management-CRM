@@ -130,7 +130,7 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
             column is bottom-aligned; anything else inside it would be pushed to
             that same floor and the copy would no longer rest on it. */}
         {/* ══ THE SYSTEM OVERVIEW ════════════════════════════════════ */}
-        <div className="overview">
+        <div className="overview band">
           <ParticleField className="overview-field" />
 
         {/* Shown whole, flanked by two quiet labels and captioned beneath — the
@@ -203,10 +203,10 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
               />
             </div>
 
-            <div className="layer-copy" data-reveal>
-              <p className="layer-eyebrow">A bigger system than task management</p>
+            <div className="pitch layer-copy" data-reveal>
+              <p className="pitch-eyebrow">A bigger system than task management</p>
               <h2>Taskly is an <em>operating layer</em> for the division</h2>
-              <p className="layer-lede">
+              <p className="pitch-lede">
                 It connects the daily work of teams with the business controls leadership needs.
               </p>
               <hr className="layer-rule" />
@@ -249,12 +249,12 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
           </section>
 
         {/* ══ THE STUDIO ══════════════════════════════════════════════ */}
-        <section id="studio" className="studio">
+        <section id="studio" className="studio band">
           <div className="wrap studio-grid">
-            <div className="studio-copy" data-reveal>
-              <p className="layer-eyebrow">Trend &amp; Engagement Studio</p>
+            <div className="pitch studio-copy" data-reveal>
+              <p className="pitch-eyebrow">Trend &amp; Engagement Studio</p>
               <h2>Connect the work <em>with its results.</em></h2>
-              <p className="layer-lede">
+              <p className="pitch-lede">
                 Review content targets, published posts and social performance in one place.
               </p>
 
