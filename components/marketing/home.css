@@ -508,14 +508,116 @@ html:has(.taskly-home){ background: #04161a; }
 
   /* ── A framed screen ────────────────────────────────────────────────── */
   .taskly-home .frame{ border: 1px solid var(--rule); border-radius: 16px; background: var(--surface); box-shadow: var(--shadow); overflow: hidden; }
-  /* The shot is shown WHOLE, at the same 78rem the headline is set in, so the
-     two line up as one column. It sits below the first screen rather than
-     overhanging it, so nothing is cropped. */
+  /* ── The band the particle field lives in ────────────────────────────────
+     `isolation` so the canvas's negative z-index stays inside this box rather
+     than escaping to the page root and painting under the section's own
+     background — the same trap that once made the assistant panel render as an
+     empty grey rectangle. */
+  .taskly-home .overview{
+    position: relative; isolation: isolate;
+    padding-bottom: clamp(20px, 3vw, 40px);
+  }
+  .taskly-home .overview-field{
+    position: absolute; inset: 0; z-index: -1;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    /* Faded at top and bottom so the field has no edge of its own; it should
+       look like the page has motes in it, not like a box of them. */
+    mask-image: linear-gradient(to bottom, transparent 0%, black 16%, black 84%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 16%, black 84%, transparent 100%);
+  }
+
+  /* ── THE SYSTEM OVERVIEW BAND ────────────────────────────────────────────
+     Three columns: a quiet label, the screen, a quiet label. The frame keeps
+     its own cap so it stays the same width as the headline above; the flanks
+     take whatever is left, and get out of the way entirely when there is not
+     enough of it. */
   .taskly-home .hero-shot{
     position: relative; z-index: 1;
     width: 100%; max-width: 64rem;
     margin: clamp(40px, 5vw, 64px) auto 0;
     padding-inline: 20px;
+  }
+  @media (min-width: 82rem) {
+    .taskly-home .hero-shot{
+      max-width: 92rem;
+      display: grid; align-items: center; gap: clamp(20px, 3vw, 44px);
+      grid-template-columns: minmax(0, 1fr) minmax(0, 64rem) minmax(0, 1fr);
+    }
+  }
+
+  .taskly-home .shot-flank{
+    display: none; margin: 0;
+    font-size: .7rem; font-weight: 600; line-height: 1.75;
+    letter-spacing: .16em; text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+  .taskly-home .shot-flank span{ display: block; }
+  /* ⚠️ SHOWN ONLY WHERE THERE IS REAL ROOM BESIDE THE FRAME. Below 82rem the
+     grid collapses to one column and these would stack above and below the
+     screen, where they read as stray text rather than as margin notes. */
+  @media (min-width: 82rem) {
+    .taskly-home .shot-flank{ display: block; }
+    .taskly-home .shot-flank-l{ text-align: right; }
+    .taskly-home .shot-flank-r{ text-align: left; color: var(--ink-soft); }
+  }
+
+  /* ── The caption under the screen ──────────────────────────────────────── */
+  .taskly-home .shot-caption{
+    display: flex; align-items: center; gap: 18px;
+    max-width: 64rem; margin: clamp(22px, 3vw, 34px) auto 0;
+    padding-inline: 20px;
+    font-size: .84rem; font-weight: 600; letter-spacing: .04em;
+    color: var(--brand-lit);
+  }
+  /* A rule either side, drawn by the element rather than by two extra spans. */
+  .taskly-home .shot-caption::before,
+  .taskly-home .shot-caption::after{
+    content: ""; flex: 1; height: 1px;
+    background: linear-gradient(90deg, transparent, color-mix(in oklab, var(--brand) 52%, transparent));
+  }
+  .taskly-home .shot-caption::after{
+    background: linear-gradient(90deg, color-mix(in oklab, var(--brand) 52%, transparent), transparent);
+  }
+  .taskly-home .shot-caption span{ flex: none; }
+
+  /* ── The six screens, as a strip ───────────────────────────────────────── */
+  .taskly-home .shot-strip{
+    display: grid; gap: 12px;
+    max-width: 84rem; margin: clamp(24px, 3vw, 36px) auto 0;
+    padding-inline: 20px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  @media (min-width: 40rem) { .taskly-home .shot-strip{ grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  @media (min-width: 68rem) { .taskly-home .shot-strip{ grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+
+  .taskly-home .strip-item{
+    display: flex; align-items: center; gap: 11px;
+    /* Tighter than it looks like it needs to be: at 16px of padding the longest
+       line ("Keep everything organised") wrapped while the other five did not,
+       and one card of two lines in a row of six reads as a mistake. */
+    padding: 15px 13px; border-radius: 12px;
+    border: 1px solid var(--rule-soft);
+    background: color-mix(in oklab, var(--surface) 72%, transparent);
+    transition: transform .3s var(--ease-out), border-color .3s var(--ease),
+                background .3s var(--ease);
+  }
+  .taskly-home .strip-item:hover{
+    transform: translateY(-3px);
+    border-color: color-mix(in oklab, var(--brand) 54%, transparent);
+    background: var(--surface);
+  }
+  .taskly-home .strip-item svg{
+    width: 22px; height: 22px; flex: none; color: var(--brand-lit);
+    transition: transform .3s var(--ease-out);
+  }
+  .taskly-home .strip-item:hover svg{ transform: scale(1.1); }
+  .taskly-home .strip-item h3{
+    margin: 0; font-size: .92rem; font-weight: 700; letter-spacing: -.01em;
+  }
+  .taskly-home .strip-item p{
+    margin: 2px 0 0; font-size: .75rem; line-height: 1.4; color: var(--ink-soft);
+    text-wrap: balance;
   }
   .taskly-home .hero-shot .frame{
     box-shadow: 0 40px 90px -30px rgb(0 0 0 / .8), 0 0 0 1px var(--rule);

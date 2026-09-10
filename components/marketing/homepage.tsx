@@ -24,14 +24,37 @@
  * The two walkthrough slots are placeholders naming the file to drop in.
  * ========================================================================= */
 
-import { Eye, Layers, ShieldCheck, Sparkles } from 'lucide-react';
+import {
+  ChartColumn,
+  ClipboardCheck,
+  Clock,
+  Eye,
+  FileText,
+  FolderKanban,
+  Layers,
+  ShieldCheck,
+  Sparkles,
+  Users,
+} from 'lucide-react';
 import Link from 'next/link';
 
 import { LogoMark } from '@/components/brand/logo';
 import { HomepageMotion } from '@/components/marketing/homepage-motion';
+import { ParticleField } from '@/components/marketing/particle-field';
 import { ThemeClip } from '@/components/marketing/theme-clip';
 
 import './home.css';
+
+/* The six the reference names, in its order. Each is a real screen in the
+   product — nothing here is aspirational. */
+const SHOT_STRIP = [
+  { icon: ClipboardCheck, name: 'Tasks', line: 'Plan and track work' },
+  { icon: FolderKanban, name: 'Projects', line: 'Keep everything organised' },
+  { icon: Users, name: 'Team', line: 'Manage your people' },
+  { icon: Clock, name: 'Attendance', line: 'Track time and presence' },
+  { icon: ChartColumn, name: 'Reports', line: 'Turn data into clarity' },
+  { icon: FileText, name: 'Documents', line: 'Store what matters' },
+] as const;
 
 export function Homepage({ fontClassName }: { fontClassName: string }) {
   return (
@@ -105,8 +128,17 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
         {/* ⚠️ OUTSIDE `.hero`, DELIBERATELY. The hero is a full screen whose
             column is bottom-aligned; anything else inside it would be pushed to
             that same floor and the copy would no longer rest on it. */}
-        {/* Shown whole, at the same width as the headline above it. */}
+        {/* ══ THE SYSTEM OVERVIEW ════════════════════════════════════ */}
+        <div className="overview">
+          <ParticleField className="overview-field" />
+
+        {/* Shown whole, flanked by two quiet labels and captioned beneath — the
+            owner's reference for this band. */}
         <div className="hero-shot" data-reveal>
+          <p className="shot-flank shot-flank-l" aria-hidden="true">
+            <span>People</span><span>Projects</span><span>Progress</span><span>A brighter tomorrow</span>
+          </p>
+
           <div className="frame">
             <div className="chrome"><i /><i /><i /><span>taskly.aidigitaldivision.com</span></div>
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -119,6 +151,30 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
               decoding="async"
             />
           </div>
+
+          {/* ⚠️ aria-hidden, and both of them. These two labels are atmosphere,
+              not information — read aloud between the headline and the caption they
+              would interrupt the sentence the page is actually making. */}
+          <p className="shot-flank shot-flank-r" aria-hidden="true">
+            <span>Same work,</span><span>higher clarity.</span>
+          </p>
+        </div>
+
+        <p className="shot-caption" data-reveal>
+          <span>A clear view of your entire operation</span>
+        </p>
+
+        <div className="shot-strip" data-reveal-group>
+          {SHOT_STRIP.map(({ icon: Icon, name, line }) => (
+            <div className="strip-item" key={name} data-reveal>
+              <Icon aria-hidden="true" />
+              <div>
+                <h3>{name}</h3>
+                <p>{line}</p>
+              </div>
+            </div>
+          ))}
+        </div>
         </div>
 
         {/* ══ THE OPERATING LAYER ═══════════════════════════════════ */}
