@@ -1175,17 +1175,126 @@ html:has(.taskly-home){ background: #04161a; }
   .taskly-home .film p{ margin: 0; font-size: .88rem; color: var(--ink-soft); }
 
   /* ── Close ──────────────────────────────────────────────────────────── */
-  .taskly-home .close{ text-align: center; }
-  .taskly-home .close h2{ margin-inline: auto; max-width: 18ch; }
-  .taskly-home .close p{ margin: 18px auto 0; max-width: 48ch; color: var(--ink-soft); }
-  .taskly-home .close .cta{ justify-content: center; margin-top: 30px; }
+  /* ══ THE PROCESS ═════════════════════════════════════════════════════════ */
+  .taskly-home .process{ padding-block: clamp(56px, 7vw, 92px) clamp(28px, 3vw, 40px); }
+  .taskly-home .process-title{
+    font-size: clamp(1.6rem, 2.9vw, 2.3rem);
+    line-height: 1.15; font-weight: 800; font-stretch: 106%;
+    letter-spacing: -.026em; margin: 0;
+  }
+  .taskly-home .steps{
+    list-style: none; margin: clamp(28px, 3vw, 40px) 0 0; padding: 0;
+    display: grid; gap: clamp(20px, 2.6vw, 36px);
+  }
+  @media (min-width: 56rem) { .taskly-home .steps{ grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  .taskly-home .step{
+    display: grid; grid-template-columns: auto minmax(0, 1fr);
+    align-items: center; gap: 16px;
+  }
+  /* A ring, not a filled disc: the number is a marker for the step, and a solid
+     chip would compete with the three cards in the section above it. */
+  .taskly-home .step-no{
+    display: grid; place-items: center;
+    width: 54px; height: 54px; border-radius: 50%;
+    border: 1.5px solid color-mix(in oklab, var(--brand) 62%, transparent);
+    font-size: 1.02rem; font-weight: 700; color: var(--brand-lit);
+    transition: border-color .3s var(--ease), box-shadow .3s var(--ease);
+  }
+  .taskly-home .step:hover .step-no{
+    border-color: var(--brand-lit);
+    box-shadow: 0 0 0 6px color-mix(in oklab, var(--brand) 12%, transparent);
+  }
+  .taskly-home .step h3{ margin: 0 0 3px; font-size: 1.02rem; font-weight: 700; letter-spacing: -.012em; }
+  .taskly-home .step p{ margin: 0; font-size: .9rem; line-height: 1.45; color: var(--ink-soft); }
 
-  .taskly-home footer{ border-top: 1px solid var(--rule-soft); padding-block: 34px 44px; }
-  .taskly-home .foot{ display: flex; flex-wrap: wrap; gap: 18px; align-items: center; }
-  .taskly-home .foot p{ margin: 0; font-size: .82rem; color: var(--ink-soft); }
-  .taskly-home .foot .spacer{ margin-left: auto; }
-  .taskly-home .foot a{ font-size: .84rem; color: var(--ink-soft); text-decoration: none; font-weight: 500; }
-  .taskly-home .foot a:hover{ color: var(--ink); }
+  /* ══ THE CLOSE ═══════════════════════════════════════════════════════════
+     One bordered panel: the words left, the button right. */
+  .taskly-home .close{ padding-block: clamp(20px, 2.4vw, 32px) clamp(48px, 6vw, 76px); }
+  .taskly-home .close-panel{
+    position: relative; isolation: isolate; overflow: hidden;
+    display: grid; gap: clamp(20px, 3vw, 40px); align-items: center;
+    padding: clamp(28px, 3.4vw, 46px) clamp(24px, 3vw, 44px);
+    border: 1px solid color-mix(in oklab, var(--brand) 34%, transparent);
+    border-radius: 20px;
+    background:
+      radial-gradient(ellipse 70% 130% at 50% 50%, color-mix(in oklab, var(--brand) 13%, transparent), transparent 72%),
+      var(--sunken);
+    text-align: center;
+  }
+  @media (min-width: 58rem) {
+    .taskly-home .close-panel{ grid-template-columns: minmax(0, 1fr) auto; text-align: left; }
+  }
+  /* ⚠️ HELD BACK HERE, AND THE REASON IS THE STRIP'S SHAPE. This panel is
+     172px tall against the overview band's 766, so each trail crosses it in a
+     fifth of the time and the same field reads as diagonal scratches rather
+     than as currents. Half opacity and a fade on all four edges turns it back
+     into a wash — present, not legible as individual strokes. */
+  .taskly-home .close-field{
+    position: absolute; inset: 0; z-index: -1;
+    width: 100%; height: 100%; pointer-events: none;
+    opacity: .5;
+    mask-image:
+      linear-gradient(to right, transparent 0%, black 14%, black 86%, transparent 100%),
+      linear-gradient(to bottom, transparent 0%, black 26%, black 74%, transparent 100%);
+    -webkit-mask-image:
+      linear-gradient(to right, transparent 0%, black 14%, black 86%, transparent 100%),
+      linear-gradient(to bottom, transparent 0%, black 26%, black 74%, transparent 100%);
+    -webkit-mask-composite: source-in;
+    mask-composite: intersect;
+  }
+  .taskly-home .close-say h2{
+    font-size: clamp(1.55rem, 2.9vw, 2.3rem);
+    line-height: 1.14; font-weight: 800; font-stretch: 106%;
+    letter-spacing: -.026em; margin: 0;
+  }
+  .taskly-home .close-say p{
+    margin: 12px 0 0; font-size: 1rem; color: var(--ink-soft);
+  }
+  .taskly-home .close-go{ justify-self: center; gap: 10px; }
+  @media (min-width: 58rem) { .taskly-home .close-go{ justify-self: end; } }
+  .taskly-home .close-go svg{
+    width: 17px; height: 17px;
+    transition: transform var(--quick) var(--ease);
+  }
+  .taskly-home .close-go:hover svg{ transform: translateX(4px); }
+
+  /* ══ THE FOOTER ══════════════════════════════════════════════════════════ */
+  .taskly-home footer{ border-top: 1px solid var(--rule-soft); padding-block: 30px 26px; }
+  .taskly-home .foot{
+    display: flex; flex-wrap: wrap; gap: 20px 28px; align-items: center;
+  }
+  .taskly-home .foot-mark{ font-size: 1.06rem; }
+  .taskly-home .foot-links{
+    margin-left: auto; display: flex; flex-wrap: wrap; gap: 26px;
+  }
+  .taskly-home .foot-links a{
+    font-size: .86rem; font-weight: 500; color: var(--ink-soft);
+    text-decoration: none; transition: color var(--quick) var(--ease);
+  }
+  .taskly-home .foot-links a:hover{ color: var(--ink); }
+  /* A hairline before the closing line, as the reference has it. It is a rule
+     rather than a character so it never lands alone on a wrapped row. */
+  .taskly-home .foot-note{
+    margin: 0; padding-left: 28px; font-size: .84rem; color: var(--ink-faint);
+    border-left: 1px solid var(--rule);
+  }
+  @media (max-width: 60rem) {
+    .taskly-home .foot-links{ margin-left: 0; }
+    .taskly-home .foot-note{ padding-left: 0; border-left: 0; }
+  }
+
+  .taskly-home .foot-fine{
+    display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center;
+    margin-top: 26px; padding-top: 20px;
+    border-top: 1px solid var(--rule-soft);
+  }
+  .taskly-home .foot-fine p{ margin: 0; font-size: .78rem; color: var(--ink-faint); }
+  .taskly-home .foot-fine nav{ margin-left: auto; display: flex; gap: 20px; }
+  .taskly-home .foot-fine a{
+    font-size: .78rem; color: var(--ink-faint); text-decoration: none;
+    transition: color var(--quick) var(--ease);
+  }
+  .taskly-home .foot-fine a:hover{ color: var(--ink-soft); }
 
   /* ⚠️ A looping clip is motion nobody asked for. Anybody who has asked their
      system to stop animating gets the poster frame and no playback — the videos
@@ -1321,17 +1430,9 @@ html:has(.taskly-home){ background: #04161a; }
   }
   .taskly-home .film:hover .frame::after{ opacity: 1; background-position: 100% 100%; }
 
-  /* ── The close, over a quiet moving wash ─────────────────────────────────── */
-  .taskly-home .close{ position: relative; isolation: isolate; overflow: hidden; }
-  .taskly-home .close::before{
-    content: ""; position: absolute; inset: -40% -10%; z-index: -1; pointer-events: none;
-    background: radial-gradient(ellipse 46% 40% at 50% 50%, rgb(47 163 169 / .13), transparent 70%);
-    animation: taskly-drift 15s var(--ease) infinite;
-  }
-  @keyframes taskly-drift {
-    0%, 100% { transform: translate3d(-4%, 0, 0) scale(1); }
-    50%      { transform: translate3d(4%, 2%, 0) scale(1.12); }
-  }
+  /* The close's wash and its `taskly-drift` keyframes are gone: that glow lit
+     a full-width section, and the close is a bordered PANEL now with its own
+     flow field. Two moving washes in one strip is noise. */
 
   /* ── ⚠️ THE WHOLE SYSTEM STOPS HERE ─────────────────────────────────────
      Not decoration: a person who has asked their operating system to stop
@@ -1352,8 +1453,7 @@ html:has(.taskly-home){ background: #04161a; }
     }
     /* The infinite ones cannot merely be shortened — a .01ms loop still loops.
        Named explicitly so a future addition is not silently missed. */
-    .taskly-home .mark .brand-mark::before,
-    .taskly-home .close::before{ animation: none !important; }
+    .taskly-home .mark .brand-mark::before{ animation: none !important; }
     .taskly-home .section-head h2::after{ transform: scaleX(1) !important; }
     .taskly-home .btn:hover,
     .taskly-home .cell:hover,

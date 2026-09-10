@@ -61,6 +61,13 @@ const SHOT_STRIP = [
   { icon: FileText, name: 'Documents', line: 'Store what matters' },
 ] as const;
 
+/* Three steps, and they are a real sequence — see the note at the markup. */
+const PROCESS = [
+  { no: '01', name: 'Set up your projects', line: 'Create projects and add your team.' },
+  { no: '02', name: 'Assign and track tasks', line: 'Keep work moving, every day.' },
+  { no: '03', name: 'Review the bigger picture', line: 'See progress, performance and what’s next.' },
+] as const;
+
 export function Homepage({ fontClassName }: { fontClassName: string }) {
   return (
     /* The wrapper undoes the application's 90% density scale (--ui-scale): this
@@ -514,15 +521,44 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
         </section>
 
         {/* ══ CLOSE ═════════════════════════════════════════════════════════ */}
+        {/* ══ THE PROCESS ══════════════════════════════════════════════ */}
+        <section className="process">
+          <div className="wrap">
+            <h2 className="process-title" data-reveal>A simple way to bring work together.</h2>
+
+            {/* ⚠️ NUMBERED BECAUSE IT REALLY IS A SEQUENCE. You set projects up,
+                then work moves, then you review it — each step depends on the one
+                before. Numbering something that is merely a list is decoration;
+                here it carries the order. */}
+            <ol className="steps" data-reveal-group>
+              {PROCESS.map(({ no, name, line }) => (
+                <li className="step" key={no} data-reveal>
+                  <span className="step-no" aria-hidden="true">{no}</span>
+                  <div>
+                    <h3>{name}</h3>
+                    <p>{line}</p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </section>
+
+        {/* ══ THE CLOSE ════════════════════════════════════════════════ */}
         <section className="close">
-          <div className="wrap" data-reveal>
-            <h2>Your team is already in here.</h2>
-            <p>
-              Open it with the address your administrator set up. If you have not been given an account
-              yet, ask them — accounts are created from inside Taskly, never self-served.
-            </p>
-            <div className="cta">
-              <Link className="btn btn-primary btn-lg" href="/login">Open your workspace</Link>
+          <div className="wrap">
+            <div className="close-panel" data-reveal>
+              {/* The same flow field as the overview band, at a lower density —
+                  it is a 200px strip here, not a screenful. */}
+              <ParticleField className="close-field" />
+              <div className="close-say">
+                <h2>One place to keep work moving.</h2>
+                <p>Your next task, your team and the bigger picture.</p>
+              </div>
+              <Link className="btn btn-primary btn-lg close-go" href="/login">
+                Open workspace
+                <ArrowRight aria-hidden="true" />
+              </Link>
             </div>
           </div>
         </section>
@@ -531,12 +567,30 @@ export function Homepage({ fontClassName }: { fontClassName: string }) {
 
       <footer>
         <div className="wrap foot">
-          <a className="mark" href="#top">
-            <span className="glyph" aria-hidden="true">T</span>
-            <span>Taskly</span>
+          <a className="mark foot-mark" href="#top">
+            {/* ⛔ The supplied artwork through its window, as the header uses —
+                never the letter "T" in a box, which is what stood here. */}
+            <span className="brand-mark">
+              <LogoMark width={44} />
+            </span>
+            <span>Taskly<small>AI &amp; Digital Division</small></span>
           </a>
-          <p className="spacer">© 2026 Crescent Nova International · AI & Digital Division</p>
-          <Link href="/login">Open workspace</Link>
+
+          <nav className="foot-links">
+            <a href="#modules">Features</a>
+            <a href="#ai">AI Assistant</a>
+            <Link href="/login">Sign in</Link>
+          </nav>
+
+          <p className="foot-note">Built for modern teams.</p>
+        </div>
+
+        <div className="wrap foot-fine">
+          <p>© 2026 Crescent Nova International · AI &amp; Digital Division</p>
+          <nav>
+            <Link href="/privacy">Privacy</Link>
+            <Link href="/terms">Terms</Link>
+          </nav>
         </div>
       </footer>
     </div>
