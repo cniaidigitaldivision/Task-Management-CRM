@@ -388,10 +388,12 @@ html:has(.taskly-home){ background: #04161a; }
     /* Faded out at its own bottom edge, or the band simply STOPS and the cut
        reads as a hard line across the full width. It starts at 72% rather than
        58% because the band is now the video's own height rather than the whole
-       hero — fading from 58% would eat a quarter of the frame the owner
-       asked to see. */
-    mask-image: linear-gradient(to bottom, black 78%, transparent 100%);
-    -webkit-mask-image: linear-gradient(to bottom, black 78%, transparent 100%);
+       hero. MEASURED: at 78% the fade began at page y=633 and the headline
+       starts at y=595 — the clip was dissolving exactly where the copy sits,
+       which is the "blackish area at the bottom". At 90% it holds its full
+       strength down to y=730 and only softens over the last 80px. */
+    mask-image: linear-gradient(to bottom, black 90%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, black 90%, transparent 100%);
     pointer-events: none;
   }
   /* ⚠️ BELOW 52rem THE TRADE FLIPS. At 400px the natural band is only 225px
@@ -412,7 +414,16 @@ html:has(.taskly-home){ background: #04161a; }
      both edges so the frame's outer thirds stay visible. */
   .taskly-home .hero::after{
     content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
-    /* ⚠️ THE TOP TWO-THIRDS ARE LEFT ALONE. The brain sits between roughly 11%
+    /* ⚠️ MOST OF THE SCREEN IS LEFT ALONE, AND THE FLOOR IS NOW MUCH LIGHTER
+       THAN IT WAS. The owner's note was that the bottom read as a black band
+       hiding the film. This ramp only reaches half opacity at 80% of the hero,
+       where the clip is already its own dark studio floor.
+
+       What replaced its weight is the POOL behind the copy below — targeted at
+       the ellipse the words occupy instead of the full width — because the
+       thing that actually needs a dark ground is the text, not the band.
+
+       ⚠️ THE TOP TWO-THIRDS ARE LEFT ALONE. The brain sits between roughly 11%
        and 62% of the screen and is untouched — that is the owner's "make the
        video prominent". The floor is darkened instead, because that is where
        the copy sits, and the clip's own lower third is already the dark ring
@@ -424,12 +435,12 @@ html:has(.taskly-home){ background: #04161a; }
        the text is made dark. */
     background: linear-gradient(to bottom,
       transparent 0%,
-      transparent 22%,
-      rgb(4 22 26 / .18) 38%,
-      rgb(4 22 26 / .48) 50%,
-      rgb(4 22 26 / .86) 60%,
-      rgb(4 22 26 / .95) 70%,
-      var(--base) 92%);
+      transparent 34%,
+      rgb(4 22 26 / .10) 52%,
+      rgb(4 22 26 / .26) 66%,
+      rgb(4 22 26 / .52) 80%,
+      rgb(4 22 26 / .86) 92%,
+      var(--base) 100%);
   }
 
   /* ⚠️ CENTRED, AND SMALLER. It was 5rem and left-aligned at a 15ch measure.
@@ -476,12 +487,16 @@ html:has(.taskly-home){ background: #04161a; }
      that already stands on its own. */
   .taskly-home .hero-copy::before{
     content: ""; position: absolute; z-index: -1; pointer-events: none;
-    inset: -22% -14% -18%;
-    background: radial-gradient(ellipse 58% 54% at 50% 50%,
-      rgb(3 16 19 / .62) 0%,
-      rgb(3 16 19 / .44) 46%,
-      rgb(3 16 19 / .16) 72%,
-      transparent 90%);
+    inset: -26% -12% -22%;
+    /* Wider than it is tall: the headline is one long line, so an ellipse that
+       matches its own proportions protects the ends of it as well as the
+       middle. A circular pool left "platform" measurably thinner than
+       "AI-powered". */
+    background: radial-gradient(ellipse 68% 54% at 50% 50%,
+      rgb(3 16 19 / .84) 0%,
+      rgb(3 16 19 / .68) 46%,
+      rgb(3 16 19 / .26) 74%,
+      transparent 92%);
   }
   .taskly-home h1,
   .taskly-home .hero .standfirst{
