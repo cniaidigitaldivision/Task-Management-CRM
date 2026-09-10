@@ -6,10 +6,10 @@
 |---|---|
 | **Branch** | `crm` (from `main` at `0726704`) |
 | **Route** | `/leads` · nav: Growth → Campaign & Lead Desk |
-| **Phase** | **Steps 1–8 DONE, and leads now route by department.** Step 9 (clients) is next — both its questions are answered. The desk saves, the CRM belongs to the **Sales department**, and leads are handed out — by hand or shared across the team automatically. Step 7b (what the manager sees) is next and needs nothing. |
+| **Phase** | **Steps 1–9 DONE.** Step 10 (reports) is next and needs nothing. The desk saves, the CRM belongs to the **Sales department**, and leads are handed out — by hand or shared across the team automatically. Step 7b (what the manager sees) is next and needs nothing. |
 | **Scope** | ⚠️ **Chitral Royal Homes only.** One project, end to end. |
 | **Last updated** | 2026-09-10 |
-| **Last migration applied anywhere** | **125.** CRM next: 126. |
+| **Last migration applied anywhere** | **126.** CRM next: 127. |
 
 ---
 
@@ -275,6 +275,36 @@ more — see the decisions log, and ADR-012.
 
   **Chitral → Sales. The division's own products → AI & Digital, under Kashif.**
   Measured after the refactor: identical to before it. Nobody gained access.
+
+- [x] **Step 9 · clients** — **migration 126**, `/clients`, `crmClients`,
+      `ClientList` (+13 tests). Winning a lead makes a client; the same number
+      stays one person. **3087 tests green, tsc and eslint clean.**
+
+  ⚠️ **`Won` IS THE CONVERSION, AND I ARGUED THE OWNER OUT OF THEIR FIRST
+  ANSWER.** They proposed engagement and invited my view. Engagement would have
+  produced hundreds of "clients" who had paid nothing and would have made Step
+  12's *"not one closed"* meaningless. Their own 9 Sept answer was better and
+  they agreed.
+
+  ⚠️ **THE SAME NUMBER STAYS ONE PERSON.** ~18 of the 615 enquired twice;
+  winning a second lead links to the existing client rather than making a twin,
+  matched on `phone_e164`. That is what makes the lead-count column possible.
+
+  ⚠️ **REOPENING DOES NOT UNMAKE THEM.** A client is a person who may have notes
+  and other leads — deleting them on a stage change would turn a mis-click into
+  data loss.
+
+  ⚠️ **A nameless lead still converts.** `crm_clients.full_name` is NOT NULL and
+  three of the 615 have no name, so the number stands in — a won lead must not
+  fail because Meta's form did not ask.
+
+### ⚠️ What Step 9 turned up
+
+| | |
+|---|---|
+| **`/clients`, not `/leads/clients`** | A static segment beside `/leads/[id]` resolves — but it makes a lead whose id was the string "clients" unreachable, and means anybody reading the tree has to know Next's precedence rule. Its own route costs nothing. |
+| **The pinned nav fixture earned its keep** | Adding the route failed `nav-active.test.ts` immediately, exactly as its own comment promised it would. |
+| ⚠️ **A loose test needle, for the fourth step running** | `%` matches the page header's own CSS lengths, so "prints no percentage" failed against a page with none. Before that: `>Won<` matched a stage chip, `Overdue` matched a table cell, and `>wrong_number<` matched a form value. The habit to fix is asserting on markup where the intent is about what a reader sees. |
 
 ### ⚠️ What the routing change turned up
 

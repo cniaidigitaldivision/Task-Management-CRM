@@ -53,6 +53,11 @@ const ADMIN_NAV = [
      before the question. Like `/studio` it creates no nested pair, so the prefix
      rule below stays unambiguous. */
   '/leads',
+  /* Step 9. ⚠️ `/clients`, NOT `/leads/clients` — a static segment beside
+     `/leads/[id]` would resolve, and would make a lead whose id was the string
+     "clients" unreachable. Its own route reads as what it is: the owner's
+     reference names "Clients & Leads" as two things. */
+  '/clients',
   '/team',
   '/reports',
   /* ⚠️ `/monthly-report` IS DELIBERATELY ABSENT since 2026-08-29 — owner

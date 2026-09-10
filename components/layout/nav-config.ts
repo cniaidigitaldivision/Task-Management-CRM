@@ -17,6 +17,7 @@ import {
   Workflow,
   TrendingUp,
   Radio,
+  UserCheck,
 } from 'lucide-react';
 
 import type { Route } from 'next';
@@ -188,6 +189,18 @@ export const NAV_SECTIONS: readonly NavSection[] = [
         roles: ADMIN_UP,
         /* ⚠️ The people whose entire job is this screen are `member`. Without
            this they would have no link to it. */
+        requires: 'crm',
+      },
+      {
+        /* ⚠️ ITS OWN ITEM, BESIDE THE DESK. The owner's reference names them
+           together — "Clients & Leads" — and they are genuinely two screens: the
+           desk is scoped to one project and sorted by what is owed; this lists
+           PEOPLE across every project, because a client has no project of their
+           own (migration 111). Same audience, same capability. */
+        label: 'Clients',
+        href: '/clients',
+        icon: UserCheck,
+        roles: ADMIN_UP,
         requires: 'crm',
       },
     ],

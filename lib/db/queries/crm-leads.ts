@@ -827,6 +827,54 @@ export async function unassignedLeadIds(
   return (rows as Array<Record<string, unknown>>).map((r) => String(r.id));
 }
 
+/* ============================================================================
+ * CLIENTS — Step 9
+ * ========================================================================= */
+
+/** Somebody who bought. `Won` is what makes one — see migration 126. */
+export interface CrmClient {
+  readonly id: string;
+  readonly name: string;
+  readonly phoneE164: string | null;
+  readonly email: string | null;
+  readonly city: string | null;
+  /** When they FIRST came to us, across every lead of theirs. */
+  readonly firstLeadAt: string | null;
+  readonly convertedAt: string;
+  /** How many leads they hold — the "Khurram · 16 Leads" figure. */
+  readonly leadCount: number;
+  readonly wonCount: number;
+  readonly projects: readonly string[];
+}
+
+/**
+ * The clients the caller can see.
+ *
+ * ⚠️ THROUGH MIGRATION 126'S READER, and the project names are the reason.
+ * `projects_select` needs project membership, which the sales team does not
+ * have — read directly the project column would be empty for exactly the people
+ * whose job this is. Same trap as 125.
+ *
+ * ⚠️ VISIBILITY FOLLOWS THE LEADS, not a rule of its own: a salesperson sees the
+ * clients they closed, a department manager sees their department's.
+ */
+export async function crmClients(actorId: string): Promise<CrmClient[]> {
+  const rows = await withUser(actorId, (tx) => tx`select * from app.crm_client_list()`);
+
+  return (rows as Array<Record<string, unknown>>).map((r) => ({
+    id: String(r.id),
+    name: String(r.full_name ?? 'Unnamed'),
+    phoneE164: (r.phone_e164 as string | null) ?? null,
+    email: (r.email as string | null) ?? null,
+    city: (r.city as string | null) ?? null,
+    firstLeadAt: r.first_lead_at ? new Date(r.first_lead_at as string).toISOString() : null,
+    convertedAt: new Date(r.converted_at as string).toISOString(),
+    leadCount: Number(r.lead_count ?? 0),
+    wonCount: Number(r.won_count ?? 0),
+    projects: ((r.projects as string[] | null) ?? []).map(String),
+  }));
+}
+
 /** What is owed on this project right now, for whoever is asking. */
 export interface CrmDueCounts {
   readonly overdue: number;

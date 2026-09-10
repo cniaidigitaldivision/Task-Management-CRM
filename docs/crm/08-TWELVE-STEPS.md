@@ -347,14 +347,44 @@ zeroes above every list is furniture, and furniture is what people stop reading.
 
 ---
 
-### Step 9 · Clients ⏳
+### Step 9 · Clients ✅ DONE 2026-09-10
 A lead is an enquiry; a client is someone who engaged. One client, many leads —
-the *"Khurram · 16 Leads"* column in your reference screenshot.
+the *"Khurram · 16 Leads"* column in the reference screenshot.
 
-**Needs from you:** what exactly converts a lead into a client (Q17), and whether
-a client belongs to one project or to the division (Q16).
+⚠️ **`Won` IS THE CONVERSION, AND THE OWNER'S FIRST ANSWER WAS DECLINED.** Asked
+what converts a lead, they said: *"If they engage and we show some intro,
+definitely that will convert the lead… maybe you are a sales expert or you know
+better."* Put back with the reasoning — **engagement is too early**: within a
+month there would be two hundred "clients" who had paid nothing, and the word
+would stop carrying information. Their own 9 September answer was better
+(*"accept a quotation, or work starts"*) and they agreed. "They engaged" is the
+`qualified` stage, which already exists.
 
-**Delivers:** contact management, and the repeat-enquiry picture.
+⚠️ **It also protects Step 12.** *"6,000 leads and not one closed"* only means
+something if closed means money.
+
+⚠️ **A TRIGGER, NOT A BUTTON.** The same reasoning as 116's timeline: the second
+caller is the one that forgets, and a won lead that is not a client is a state
+nobody can explain and every report has to allow for.
+
+⚠️ **THE SAME NUMBER IS THE SAME PERSON.** 615 leads carry 597 distinct numbers,
+so ~18 people enquired twice. Winning a second lead LINKS to the client who
+exists — matched on `phone_e164`, never the raw `phone`, because `0300-1234567`
+and `+92 300 1234567` are one person and two strings. That is what makes the
+lead-count column possible at all.
+
+⚠️ **REOPENING A LEAD DOES NOT UNMAKE THE CLIENT.** 116 clears `closed_at` and
+`lost_reason` because those describe the lead. A client is a person, may have
+notes, and may hold other leads — a trigger that deleted people on a stage change
+would turn one mis-click into data loss. A mistake leaves a client who should not
+be one: visible, and removable by an Admin.
+
+⚠️ **AND IT COUNTS, IT DOES NOT RATE.** No conversion %, no average deal, no
+lifetime value — each divides by a number that is zero or a price this system has
+never been told. The same refusal as the sales team panel.
+
+**Delivered:** contact management, and the repeat-enquiry picture. `/clients`,
+its own route beside the desk.
 
 ---
 
