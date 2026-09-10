@@ -203,6 +203,18 @@ export const NAV_SECTIONS: readonly NavSection[] = [
         roles: ADMIN_UP,
         requires: 'crm',
       },
+      {
+        /* ⚠️ NOT UNDER `/reports`, and the reason is a floor rather than a
+           preference: that page requires `team_coordinator` and above, and the
+           sales manager is `member` (ADR-012). A nested layout cannot widen a
+           parent's floor, so `/reports/leads` would have blocked exactly the
+           person these reports are for. */
+        label: 'Lead reports',
+        href: '/lead-reports',
+        icon: BarChart3,
+        roles: ADMIN_UP,
+        requires: 'crm',
+      },
     ],
   },
   {

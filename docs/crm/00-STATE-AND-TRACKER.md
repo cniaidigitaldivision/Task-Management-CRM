@@ -6,10 +6,10 @@
 |---|---|
 | **Branch** | `crm` (from `main` at `0726704`) |
 | **Route** | `/leads` · nav: Growth → Campaign & Lead Desk |
-| **Phase** | **Steps 1–9 DONE.** Step 10 (reports) is next and needs nothing. The desk saves, the CRM belongs to the **Sales department**, and leads are handed out — by hand or shared across the team automatically. Step 7b (what the manager sees) is next and needs nothing. |
+| **Phase** | **Steps 1–10 DONE.** Only Module 4 is left — Steps 11 and 12, both of which need the OpenAI key and a few weeks of real use. The desk saves, the CRM belongs to the **Sales department**, and leads are handed out — by hand or shared across the team automatically. Step 7b (what the manager sees) is next and needs nothing. |
 | **Scope** | ⚠️ **Chitral Royal Homes only.** One project, end to end. |
 | **Last updated** | 2026-09-10 |
-| **Last migration applied anywhere** | **127.** CRM next: 128. |
+| **Last migration applied anywhere** | **128.** CRM next: 129. |
 
 ---
 
@@ -317,6 +317,34 @@ more — see the decisions log, and ADR-012.
   would change who can read a stranger's phone number, and is not something a
   fifteen-minute cron should do.
 
+- [x] **Step 10 · reports, stored** — **migration 128**, `/lead-reports`,
+      `lib/domain/crm-reports.ts` (+24 tests), and a CSV download that writes the
+      FROZEN payload through the existing writers. **3111 tests green, tsc and
+      eslint clean.**
+
+  ⚠️ **THE STATED REASON FOR STORING THEM WAS WRONG.** `08-TWELVE-STEPS`
+  said it was Meta's 90-day deletion — but we keep the leads, so that has no
+  bearing. The real reason: a report is a statement made on a date, and
+  re-running it later legitimately gives different numbers.
+
+  **Proved live:** stored an ageing report, won five leads, the live count moved
+  615 → 610, and the frozen copy still read 615.
+
+  ⚠️ **APPEND-ONLY FOR EVERYBODY** — no UPDATE, no DELETE, not even Admin.
+
+  ⚠️ **AND NOTHING INVENTS A RATE.** NULL survives from SQL to the screen and
+  renders as an em dash in a TEXT cell, so a spreadsheet averaging win rates
+  excludes it rather than being dragged down by a zero nobody measured.
+
+### ⚠️ What Step 10 turned up
+
+| | |
+|---|---|
+| ⚠️ **553 of 615 open leads are over a month old, and NOT ONE has been contacted** | 90% of them; the oldest at 90 days, past Meta's window. The ageing report exists to say this out loud rather than leave it in a migration comment. It also reframes the owner's question: leads arriving and nobody ringing them is a different problem from leads arriving and not converting, and only one of those is the campaign's fault. |
+| ⚠️ **A client component imported VALUES from a `server-only` module** | `REPORT_KINDS` and `REPORT_LABEL` were in `lib/db/queries/crm-reports.ts`. That type-checks and **breaks the production build**. `design-tokens.test.ts` guards exactly this and caught it; the vocabulary moved to `lib/domain/`, where doc 20 §1 says it belongs. Types are fine — they are erased. |
+| ⚠️ **`react-hooks/purity` refused `Date.now()` in a render** | The default period was computed in the component. A render that reads the clock is not a pure function of its props, so server and browser disagree and React reports a hydration mismatch rather than the clock problem. Computed on the server and passed down — the same lesson `lib/view/relative-age.ts` already documents. |
+| **`/lead-reports`, not `/reports/leads`** | `/reports` requires `team_coordinator` and above, and the sales manager is `member` (ADR-012). A nested layout cannot widen a parent's floor — the parent runs first and redirects — so the natural URL would have blocked exactly the person these reports are for. |
+
 ### ⚠️ What the campaign work turned up
 
 | | |
@@ -500,6 +528,7 @@ see not just what was decided but when and why.
 | 2026-09-10 | ⚠️ **Who sees the CRM — SUPERSEDES Q2** | **Admin, Super Admin, and the Sales department.** Owner: *"That was the team coordinator, not the sales manager… the team coordinator will be part of a digital creator team. He will manage their tasks… But for the salespersons or for the management of the lead, all this CRM belongs to the sales manager and the salespersons. Plus admin and super admin are by default added."* Migration 118. The 2026-09-09 answer admitting the Coordinator no longer holds. |
 | 2026-09-10 | Sales manager vs salesperson | **Manager sees every lead and who holds it, and can move a lead between salespeople.** A salesperson sees only their own. Owner also asked for automatic, AI-assisted distribution and for the manager to see response times and quotations — Steps 7, 11 and 12. |
 | 2026-09-10 | Departments | **Eight**, as a table rather than an enum — Management, AI & Digital, Development, Sales, Finance & Accounts, HR & People, Operations, Support. Owner asked for *"those five plus HR, Operations and Support"*. See ADR-012. |
+| 2026-09-10 | Reports are frozen, not cached | Computed once, stored whole, never refreshed. The reason is not Meta's deletion (we keep the leads) but that a report is a statement made on a date. Append-only for every rank. |
 | 2026-09-10 | ⚠️ **One WhatsApp number per business** | Chitral has its own, AI & Digital has its own, every client business has its own. Config lives per project in the database, not in the environment. The webhook is shared. |
 | 2026-09-10 | Campaign → project, by FORM | `campaign_name` is empty on every lead, so the form is the key. Migration 127; an Admin re-files a form with `app.crm_refile_form()`. |
 | 2026-09-10 | ⚠️ **Live today: ERP, CRM and Taskly campaigns** | On the AI & Digital page, routing to Kashif's department. ⚠️ Two of the three have no project to file to yet. |

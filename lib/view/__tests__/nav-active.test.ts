@@ -58,6 +58,10 @@ const ADMIN_NAV = [
      "clients" unreachable. Its own route reads as what it is: the owner's
      reference names "Clients & Leads" as two things. */
   '/clients',
+  /* Step 10. ⚠️ `/lead-reports`, NOT `/reports/leads` — that page's layout
+     requires `team_coordinator` and above, and the sales manager is `member`.
+     A nested layout cannot widen a parent's floor. */
+  '/lead-reports',
   '/team',
   '/reports',
   /* ⚠️ `/monthly-report` IS DELIBERATELY ABSENT since 2026-08-29 — owner

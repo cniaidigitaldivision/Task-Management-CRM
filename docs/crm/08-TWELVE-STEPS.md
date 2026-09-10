@@ -388,18 +388,53 @@ its own route beside the desk.
 
 ---
 
-### Step 10 · Reports, stored 🔓
-⚠️ Your rule, recorded: *"first save in a database and always fetch from the
-database."* Every report is computed, **stored**, and read back from storage —
-the same shape `report_exports` already uses, so a report you generated in
-October still says in December what it said in October.
+### Step 10 · Reports, stored ✅ DONE 2026-09-10
+Four reports at `/lead-reports`, each computed once and kept:
 
-- Source and campaign → conversion
-- Per-staff: leads, response time, closes
-- Ageing and stage funnel
-- Reuses the existing CSV / XLSX / PDF writers.
+| | |
+|---|---|
+| **How long leads have been waiting** | Ageing buckets. ⚠️ The one with real signal today. |
+| **Where the leads came from** | Per form: leads, contacted, won, lost, win rate. |
+| **Lead funnel** | Every stage in pipeline order, including the empty ones. |
+| **How the team is doing** | Per person: held, contacted, closed, response time. |
 
-**Delivers:** "which campaign is worth the money", answerable.
+⚠️ **THE STATED REASON FOR STORING THEM WAS WRONG, AND A BETTER ONE HOLDS.**
+This file said reports must be stored *"so a report you generated in October
+still says in December what it said in October"*, because Meta deletes at 90
+days. That is not it — **we keep the leads**, so Meta's deletion has no bearing.
+The real reason is smaller and true: a report is **a statement made on a date**.
+Re-running "September, by source" in December legitimately gives different
+numbers, because leads get reassigned and stages move. What matters is what it
+said when somebody read it.
+
+**Proved on the live database:** an ageing report was stored, five leads were then
+won, the live count moved 615 → 610, and the frozen copy still read 615.
+
+⚠️ **AND IT IS NOT A CACHE.** Never refreshed, never invalidated. A stale
+snapshot is the *correct* answer to "what did we report in September".
+
+⚠️ **APPEND-ONLY, INCLUDING FOR ADMIN.** No UPDATE and no DELETE policy — the
+same rule as `report_exports` and the activity log. A report somebody can quietly
+revise is not evidence of anything.
+
+⚠️ **NOTHING INVENTS A RATE.** A win rate arrives NULL from SQL while nothing
+has closed and renders as an em dash, not 0% — as a text cell, so a spreadsheet
+averaging the column excludes it rather than being dragged down by a zero nobody
+measured. Same for response time.
+
+⚠️ **AND EACH REPORT SAYS WHAT IT CANNOT YET TELL YOU.** The sources report
+states that nobody has been contacted at all, so nothing in it judges a campaign;
+the funnel says 615-at-New is a pipeline snapshot rather than a conversion
+measure; the team report says there is nothing to compare until leads are shared
+out. `lib/domain/reports.ts`: *"a number without its definition is how two people
+read the same report and disagree."*
+
+**What it turned out to say:** 553 of the 615 open leads are over a month old
+— 90% of them — the oldest at 90 days, and **not one has ever been contacted.**
+
+**Delivered:** "which campaign is worth the money" is answerable the day the
+leads are worked. Today the reports answer a different and more urgent question,
+and say so.
 
 ---
 
