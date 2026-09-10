@@ -6,10 +6,64 @@
 |---|---|
 | **Branch** | `crm` (from `main` at `0726704`) |
 | **Route** | `/leads` · nav: Growth → Campaign & Lead Desk |
-| **Phase** | **Steps 1–10 DONE.** Only Module 4 is left — Steps 11 and 12, both of which need the OpenAI key and a few weeks of real use. The desk saves, the CRM belongs to the **Sales department**, and leads are handed out — by hand or shared across the team automatically. Step 7b (what the manager sees) is next and needs nothing. |
+| **Phase** | ⏸️ **PAUSED 2026-09-10, at Steps 1–10 of 12.** Everything that can be built without Meta has been. What is left is blocked, not unfinished — see the section below. | The desk saves, the CRM belongs to the **Sales department**, and leads are handed out — by hand or shared across the team automatically. Step 7b (what the manager sees) is next and needs nothing. |
 | **Scope** | ⚠️ **Chitral Royal Homes only.** One project, end to end. |
 | **Last updated** | 2026-09-10 |
 | **Last migration applied anywhere** | **128.** CRM next: 129. |
+
+---
+
+## ⏸️ PAUSED — read this before starting anything
+
+**Paused 2026-09-10 by the owner**, to move onto the public homepage on `main`.
+
+> *"Everything is still paused because of the WhatsApp business verification. I
+> still didn't get the correct document, so WhatsApp integration is pending, Meta
+> app verification is pending, and everything is pending… we can't proceed right
+> now."*
+
+⚠️ **NOTHING HERE IS HALF-BUILT.** Steps 1–10 are complete, tested and
+committed on the `crm` branch. The three remaining items are each waiting on
+something outside the code, and none of them can be honestly built first.
+
+### What is blocked, and on what
+
+| Blocked | Waiting on | Can it be worked around? |
+|---|---|---|
+| **WhatsApp integration** | Business verification documents, then the six owner steps in the setup brief | **No.** No number means no messages. The `wa.me` link on every lead keeps working meanwhile. |
+| **Meta app review** | The same verification | **No.** Also the reason `campaign_name` is empty on every lead. |
+| **Step 11 · per-lead AI** | The OpenAI key into Supabase Vault, and Q18 — may a lead's name and number leave our servers, or be stripped first | **No.** A summariser with no key is a button that fails. |
+| **Step 12 · campaign vs staff** | A few weeks of real use. **Zero leads have ever been contacted** | **No**, and this is the honest one: the arithmetic is already built in Step 10. It has nothing to divide. |
+| **Step 7c · matching by specialisation** | What each salesperson handles — there is no field for it, and inventing one before the owner says what goes in it is guessing | Partly. Step 7's load balancing already works and may be all that is wanted. |
+| **ERP + Taskly campaigns filing correctly** | Two projects that do not exist yet | ⚠️ **This one is the owner's to do and takes minutes.** See below. |
+
+### ⚠️ The one thing that is not blocked and is not done
+
+**Two of the three live AI & Digital campaigns have nowhere to file to.** The
+projects are `Internal CRM`, `Social Media Automation Tool` and
+`WhatsApp Business API Automation` — there is **no ERP project and no Taskly
+project**. Migration 127 makes a lead follow its FORM's project, so the mechanism
+is ready; the destinations are not.
+
+To fix: create the two projects, then for each campaign's form call
+`app.crm_refile_form('<meta form id>', '<project id>', false)`. Admin only.
+Until then all three campaigns' leads land under one project together.
+
+### ⚠️ And one gap worth closing when work resumes
+
+**A broken import is silent.** The owner is renewing the CNI access token
+(*"some things I have changed definitely will not be working more with the old
+assets"*), which will break `META_SYSTEM_USER_TOKEN_CNI`. When it does,
+`crm_lead_sync_runs.errors` records it and **nobody is told** — Step 8 notifies
+about leads going quiet, not about the importer dying. Small to fix; the
+notification kinds and the hourly job already exist.
+
+### How to resume
+
+1. Read this file top to bottom.
+2. Check whether Meta verification has landed. If not, nothing above changes.
+3. Do the ERP/Taskly projects, which need nobody but an Admin.
+4. `08-TWELVE-STEPS.md` has the order and the reasoning for everything else.
 
 ---
 
