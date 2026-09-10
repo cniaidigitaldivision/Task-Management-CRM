@@ -181,9 +181,9 @@ export function LeadDesk({
           {/* ⚠️ Removes itself once one lead is assigned — see the header. */}
           {owners.length === 0 && (
             <p className="rounded-xl border border-dashed border-border-default bg-bg-surface px-4 py-2.5 text-caption leading-relaxed text-text-secondary">
-              Every lead here is unassigned and sitting at <strong>New</strong>. Owner, temperature
-              and next action fill in once assignment and calling are built — they are drawn now so
-              the columns do not move under you later.
+              No lead here has an owner yet. Open one to work it — stage, temperature, next action
+              and what was said all save from the lead itself. The <strong>Owner</strong> column
+              fills in once leads can be handed to a salesperson.
             </p>
           )}
 
@@ -686,7 +686,7 @@ function Row({ lead, nowMs, from }: { lead: CrmLeadRow; nowMs: number; from: str
                   'mt-0.5 block text-caption tabular-nums',
                   Date.parse(lead.nextActionAt) < nowMs
                     ? 'font-semibold text-feedback-error'
-                    : 'text-text-tertiary',
+                    : 'text-text-secondary',
                 )}
               >
                 {Date.parse(lead.nextActionAt) < nowMs ? 'Overdue · ' : 'Due · '}

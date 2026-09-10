@@ -6,25 +6,27 @@
 |---|---|
 | **Branch** | `crm` (from `main` at `0726704`) |
 | **Route** | `/leads` · nav: Growth → Campaign & Lead Desk |
-| **Phase** | **Steps 1–5 DONE.** 615 leads stored, import scheduled, the list screen is built, and clicking a lead opens the whole record. Step 6 (working the lead) is next. |
+| **Phase** | **Steps 1–6 DONE.** 615 leads stored, import scheduled, the list screen built, the record opens, and **the desk saves**. Step 7 (assignment and the staff view) is next — and it needs two answers from the owner. |
 | **Scope** | ⚠️ **Chitral Royal Homes only.** One project, end to end. |
 | **Last updated** | 2026-09-10 |
-| **Last migration applied anywhere** | **114.** CRM next: 115. |
+| **Last migration applied anywhere** | **116.** CRM next: 117. |
 
 ---
 
 ## Where we are, in one paragraph
 
-Module 1 is finished and Module 2 is most of the way through. The tables exist,
+Module 1 is finished and Module 2 is done bar assignment. The tables exist,
 the importer has pulled **615 real Chitral Royal Homes leads** and re-run without
 duplicating one of them, the pg_cron job fires every fifteen minutes, `/leads`
 shows the leads themselves — filtered, paged and sorted by what is owed — and
 clicking one opens the whole person: every answer Meta captured, where they came
 from, the note thread and the timeline. Thirteen other projects sit in the same
 dropdown saying "not connected", which is the truth rather than a placeholder.
-Nothing on either screen is invented, and nothing on the detail page writes:
-stage, notes and call outcomes are Step 6, so there is no control there that
-looks like it saves.
+And the desk now **works**: stage, temperature, next action, call outcomes and
+notes all save from the lead itself, the timeline writes itself from the
+database, and response time is stamped where nobody can edit it. What is still
+missing is handing a lead to a salesperson — that is Step 7, and it is the one
+thing on this page that needs the owner.
 
 ---
 
@@ -123,6 +125,52 @@ looks like it saves.
   CRM runs at volume. So 114 holds a second copy for the by-id case, and its
   self-check proves the two agree for a coordinator, an assigned member and an
   unassigned member.
+
+- [x] **Step 6 · the desk saves** — `app/actions/crm-leads.ts`,
+      `components/crm/lead-actions.tsx`, six mutations in `crm-leads.ts`, and
+      **migrations 115 + 116**. Change the stage, mark it hot, set what is owed
+      and when, log a call, write a note, mark it lost with a reason from the
+      agreed list, and open WhatsApp with a first line already in the box.
+      **3034 tests green, tsc and eslint clean.** Looked at in a browser, light
+      and dark, desktop and 400px.
+
+  ⚠️ **THE TIMELINE IS WRITTEN BY THE DATABASE, NOT BY THE CALLER.** The obvious
+  build is "update the lead, then insert the activity row". It works, and the
+  SECOND caller is the one that forgets — a bulk action, a script, a fix run by
+  hand — and a timeline with a hole in it looks complete. 116's triggers write
+  every derived entry, so a stage change carries its own history whatever
+  changed it.
+
+  ⚠️ **AND THE GUARDS ARE THE WHOLE TRICK.** The importer updates all 615 leads
+  every fifteen minutes. A trigger that logged "updated" would write **615 rows
+  a run, ~59,000 a day**, and bury every row that means something. The
+  self-check proves an importer-shaped update writes nothing at all.
+
+  ⚠️ **A session can change exactly five columns.** 111's policy decides which
+  ROWS; nothing decided which columns, so an owner could have refiled their lead
+  to another project, rewritten the number Meta captured, or backdated
+  `first_contacted_at` to flatter their own response time. 116 revokes the blanket
+  grant: `stage`, `temperature`, `lost_reason`, `next_action`, `next_action_at`,
+  and nothing else. ⚠️ **Step 7 must add `owner_id`** — the trigger that logs an
+  assignment is already written and waiting.
+
+  ⚠️ **And a session may only log what a PERSON does.** `crm_lead_activity_insert`
+  now names the five contact kinds. Without it, anybody who can see a lead could
+  insert a `won` row into an append-only log that nobody can delete, and the
+  pipeline reports read that log.
+
+  ⚠️ **Response time is stamped from `occurred_at`, not from the clock.** A call
+  logged an hour late happened an hour ago, and `least(...)` means a backdated
+  entry can only move first contact EARLIER. "No answer" counts — it measures our
+  responsiveness, not the lead's.
+
+### ⚠️ What Step 6 turned up
+
+| | |
+|---|---|
+| **An RLS refusal is `42501`, not `23514`** | 116's own self-check caught its forged-`won` insert with `when check_violation`, the real error escaped, and a migration whose policy was working perfectly failed. A policy's WITH CHECK and a CHECK constraint read almost the same in English and are different SQLSTATEs. |
+| **Every failure message was read off the database first** | Measured as `cni_app` under a real session: an UPDATE on a lead you cannot see returns **0 rows and never throws**; an INSERT on one **throws 42501**. So an update returns a boolean and an insert is wrapped. Assuming both behaved alike would have produced a screen that said "saved" when nothing was. |
+| ⚠️ **"Due" dates failed contrast, and had never rendered** | `text-tertiary` at 3.94:1 against a 4.5 floor, on both the record and the desk — invisible until Step 6 because **no lead had ever had a next action**. The same shape as the four badges Step 5 found. Both fixed. |
 
 ### ⚠️ What Step 5 turned up
 

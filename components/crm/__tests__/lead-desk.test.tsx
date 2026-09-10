@@ -192,9 +192,9 @@ describe('the live project', () => {
   });
 
   it('hides the unassigned banner once somebody owns a lead', () => {
-    expect(html).not.toContain('Every lead here is unassigned');
+    expect(html).not.toContain('No lead here has an owner yet');
     const none = renderToStaticMarkup(<LeadDesk {...base} selected={PROJECTS[0]} owners={[]} />);
-    expect(none).toContain('Every lead here is unassigned');
+    expect(none).toContain('No lead here has an owner yet');
   });
 });
 

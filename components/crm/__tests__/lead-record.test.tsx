@@ -76,6 +76,8 @@ function render(props: Partial<React.ComponentProps<typeof LeadRecord>> = {}) {
       activity={[IMPORTED]}
       alsoEnquired={[]}
       backHref={'/leads?project=abc' as Route}
+      viewerId="u1"
+      viewerIsAdmin={false}
       nowMs={NOW}
       {...props}
     />,
@@ -97,7 +99,9 @@ describe('the person, and reaching them', () => {
     const html = render();
 
     expect(html).toContain('href="tel:+923439040510"');
-    expect(html).toContain('href="https://wa.me/923439040510"');
+    /* The digits, with no plus and no punctuation — what wa.me wants. The
+       pre-filled opener follows it; see below. */
+    expect(html).toContain('href="https://wa.me/923439040510?text=');
   });
 
   it('refuses both links when the number could not be parsed, and says why', () => {
@@ -187,7 +191,11 @@ describe('the record', () => {
     const html = render({ lead: { ...LEAD, stage: 'lost', lostReason: 'wrong_number' } });
 
     expect(html).toContain('Wrong or invalid number');
-    expect(html).not.toContain('wrong_number');
+    /* ⚠️ `>wrong_number<`, not the bare string. The enum IS in the markup now —
+       as the `value` of the lost-reason option, which is a form value and not
+       something a person reads. What must never appear is the raw enum rendered
+       as text. */
+    expect(html).not.toContain('>wrong_number<');
   });
 });
 
@@ -223,15 +231,95 @@ describe('the timeline', () => {
   });
 });
 
+describe('working the lead', () => {
+  it('offers every stage, in pipeline order', () => {
+    const html = render();
+
+    /* The order is the funnel — see STAGE_ORDER. A select that listed these
+       alphabetically would put Contacted after Anything-with-an-A. */
+    expect(html.indexOf('>New<')).toBeLessThan(html.indexOf('>Contacted<'));
+    expect(html.indexOf('>Contacted<')).toBeLessThan(html.indexOf('>Negotiation<'));
+    expect(html).toContain('>Won<');
+    expect(html).toContain('>Lost<');
+  });
+
+  it('does not ask why until the lead is actually lost', () => {
+    /* ⚠️ Moving to Lost is two decisions — that it is, and why — and the why is
+       what makes the lost-reason report worth reading. Every other stage saves
+       on the select; this one waits. */
+    expect(render()).not.toContain('Mark lost');
+
+    const lost = render({ lead: { ...LEAD, stage: 'lost', lostReason: 'wrong_number' } });
+    expect(lost).toContain('Mark lost');
+    expect(lost).toContain('Wrong or invalid number');
+  });
+
+  it('lets a temperature be taken back off', () => {
+    /* "Cold" and "not judged yet" are different facts. Without a way back the
+       first mis-click would be permanent. */
+    expect(render()).toContain('Not judged yet');
+    expect(render({ lead: { ...LEAD, temperature: 'hot' } })).toContain('aria-pressed="true"');
+  });
+
+  it('logs no-answer as a thing that happened', () => {
+    /* ⚠️ It counts as contact and stamps response time — that measures OUR
+       responsiveness, not the lead's. Somebody who rang in four minutes and got
+       no answer responded in four minutes. */
+    const html = render();
+
+    expect(html).toContain('Log what happened');
+    expect(html).toContain('No answer');
+    expect(html).toContain('Spoke to them');
+    expect(html).toContain('WhatsApp sent');
+  });
+
+  it('still reaches them by LINK, never by a button that claims to log', () => {
+    /* ⚠️ The one thing Step 6 must not do: opening a chat is not evidence a
+       message was sent. The header stays anchors; logging is its own control. */
+    const html = render();
+
+    expect(html).toContain('<a href="tel:+923439040510"');
+    expect(html).toContain('<a href="https://wa.me/923439040510?text=');
+  });
+
+  it('pre-fills WhatsApp with something true and nothing else', () => {
+    /* ⚠️ A pre-filled sentence is the one somebody sends without reading. So it
+       carries their name and the project they enquired about — no price, no
+       offer, no claim about availability. */
+    const html = render();
+
+    expect(html).toContain(
+      encodeURIComponent('Hello Mukhtar Ahmad, this is regarding your enquiry about Chitral Royal Homes.'),
+    );
+  });
+
+  it('greets an unnamed lead without a gap where the name would go', () => {
+    const html = render({ lead: { ...LEAD, fullName: null } });
+
+    expect(html).toContain(encodeURIComponent('Hello, this is regarding your enquiry'));
+  });
+});
+
 describe('notes', () => {
-  it('says where writing will appear rather than drawing a box that does not save', () => {
-    /* ⚠️ Step 5 READS. A note box that looked live and dropped what somebody
-       typed about a quotation is the worst state this page could be in. */
+  it('offers somewhere to write, and says a note cannot be edited after', () => {
     const html = render();
 
     expect(html).toContain('Nothing has been written about this lead yet');
-    expect(html).not.toContain('<textarea');
-    expect(html).not.toContain('<button');
+    expect(html).toContain('<textarea');
+    expect(html).toContain('cannot be edited afterwards');
+  });
+
+  it('lets the author withdraw their own note and nobody else', () => {
+    const mine: CrmLeadNote = {
+      id: 'n1', body: 'Quoted 5 marla.', createdAt: '2026-09-10T07:00:00.000Z',
+      authorId: 'u1', authorName: 'Ume Habiba', authorAvatarUrl: null,
+    };
+    const theirs: CrmLeadNote = { ...mine, id: 'n2', authorId: 'u2', authorName: 'Kashif Mehmood' };
+
+    expect(render({ notes: [mine] })).toContain('Remove this note');
+    expect(render({ notes: [theirs] })).not.toContain('Remove this note');
+    /* ⚠️ An Admin may remove anybody's — 111's policy, and the screen agrees. */
+    expect(render({ notes: [theirs], viewerIsAdmin: true })).toContain('Remove this note');
   });
 
   it('shows a note with its author', () => {

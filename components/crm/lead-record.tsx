@@ -3,6 +3,14 @@ import type { Route } from 'next';
 import Link from 'next/link';
 import { ArrowLeft, MessageCircle, Phone, Radio } from 'lucide-react';
 
+import {
+  LogContactControl,
+  NextActionControl,
+  NoteComposer,
+  NoteDeleteButton,
+  StageControl,
+  TemperatureControl,
+} from '@/components/crm/lead-actions';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/card';
@@ -15,6 +23,7 @@ import type {
 import { orderedAnswers } from '@/lib/domain/crm-answers';
 import {
   activityLabel,
+  lostReasonLabel,
   stageLabel,
   stageToken,
   temperatureLabel,
@@ -58,6 +67,8 @@ export function LeadRecord({
   activity,
   alsoEnquired,
   backHref,
+  viewerId,
+  viewerIsAdmin,
   nowMs,
 }: {
   lead: CrmLeadRecord;
@@ -68,6 +79,9 @@ export function LeadRecord({
      this component cannot verify would be a build error rather than a 404 a
      reader finds. The detail route builds it; see `backToDesk` there. */
   backHref: Route;
+  /** Who is looking — a note is withdrawable by its author, or by an Admin. */
+  viewerId: string;
+  viewerIsAdmin: boolean;
   nowMs: number;
 }) {
   const phone = displayPhone(lead.phoneE164, lead.phone);
@@ -133,7 +147,11 @@ export function LeadRecord({
                   Call {phone}
                 </ReachButton>
                 {wa && (
-                  <ReachButton href={`https://wa.me/${wa}`} icon={MessageCircle} external>
+                  <ReachButton
+                    href={`https://wa.me/${wa}?text=${encodeURIComponent(whatsAppOpener(lead.fullName, lead.projectName))}`}
+                    icon={MessageCircle}
+                    external
+                  >
                     WhatsApp
                   </ReachButton>
                 )}
@@ -147,6 +165,30 @@ export function LeadRecord({
               </p>
             )}
           </div>
+        </CardBody>
+      </Card>
+
+      {/* ── ⚠️ THE CONTROLS SIT IN ONE PLACE, ABOVE THE FOLD AND ABOVE THE
+          READING. A salesperson opens this between two calls: what they came to
+          do is change a stage and write down what was said, and hunting for
+          those among the answers is what makes people keep a separate
+          spreadsheet. Everything that saves is in `lead-actions.tsx`. */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Work this lead</CardTitle>
+        </CardHeader>
+        <CardBody className="space-y-3">
+          <StageControl leadId={lead.id} stage={lead.stage} lostReason={lead.lostReason} />
+          <TemperatureControl leadId={lead.id} temperature={lead.temperature} />
+          <NextActionControl
+            leadId={lead.id}
+            action={lead.nextAction}
+            /* ⚠️ KARACHI, resolved here rather than in the browser. The input is
+               a calendar date; slicing the ISO string would show the UTC day,
+               which for anything set after 7pm local is yesterday. */
+            dueDate={lead.nextActionAt ? karachiInputDate(lead.nextActionAt) : null}
+          />
+          <LogContactControl leadId={lead.id} />
         </CardBody>
       </Card>
 
@@ -201,35 +243,43 @@ export function LeadRecord({
               <CardTitle>Notes</CardTitle>
             </CardHeader>
             <CardBody>
-              {notes.length === 0 ? (
-                <Nothing>
-                  Nothing has been written about this lead yet. Notes — what was discussed, what
-                  quotation was given — are added once working the lead is built, and they will
-                  appear here.
-                </Nothing>
-              ) : (
-                <ul className="space-y-3">
-                  {notes.map((n) => (
-                    <li key={n.id} className="flex gap-2.5">
-                      <Person name={n.authorName} avatarUrl={n.authorAvatarUrl} />
-                      <div className="min-w-0 flex-1">
-                        <p className="flex flex-wrap items-baseline gap-x-1.5">
-                          <span className="text-body-sm font-semibold text-text-primary">
-                            {/* ⚠️ Null means the account is GONE, not hidden —
-                                migration 114 is what makes that true. Before it,
-                                a colleague across the room read as this. */}
-                            {n.authorName ?? 'Former member'}
-                          </span>
-                          <Stamp iso={n.createdAt} nowMs={nowMs} />
-                        </p>
-                        <p className="mt-0.5 whitespace-pre-wrap text-body-sm leading-relaxed text-text-secondary">
-                          {n.body}
-                        </p>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
+              <div className="space-y-4">
+                {notes.length === 0 ? (
+                  <Nothing>
+                    Nothing has been written about this lead yet — what was discussed, what
+                    quotation was given.
+                  </Nothing>
+                ) : (
+                  <ul className="space-y-3">
+                    {notes.map((n) => (
+                      <li key={n.id} className="flex gap-2.5">
+                        <Person name={n.authorName} avatarUrl={n.authorAvatarUrl} />
+                        <div className="min-w-0 flex-1">
+                          <p className="flex flex-wrap items-baseline gap-x-1.5">
+                            <span className="text-body-sm font-semibold text-text-primary">
+                              {/* ⚠️ Null means the account is GONE, not hidden —
+                                  migration 114 is what makes that true. Before
+                                  it, a colleague across the room read as this. */}
+                              {n.authorName ?? 'Former member'}
+                            </span>
+                            <Stamp iso={n.createdAt} nowMs={nowMs} />
+                          </p>
+                          <p className="mt-0.5 whitespace-pre-wrap text-body-sm leading-relaxed text-text-secondary">
+                            {n.body}
+                          </p>
+                        </div>
+                        <NoteDeleteButton
+                          leadId={lead.id}
+                          noteId={n.id}
+                          canDelete={viewerIsAdmin || n.authorId === viewerId}
+                        />
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                <NoteComposer leadId={lead.id} />
+              </div>
             </CardBody>
           </Card>
         </div>
@@ -299,7 +349,7 @@ export function LeadRecord({
                             'mt-0.5 block text-caption tabular-nums',
                             Date.parse(lead.nextActionAt) < nowMs
                               ? 'font-semibold text-feedback-error'
-                              : 'text-text-tertiary',
+                              : 'text-text-secondary',
                           )}
                         >
                           {Date.parse(lead.nextActionAt) < nowMs ? 'Overdue · ' : 'Due · '}
@@ -485,21 +535,34 @@ function karachiDate(iso: string): string {
   });
 }
 
-/** The nine values of `public.crm_lost_reason`, as the words the team says. */
-const LOST_REASONS: Record<string, string> = {
-  wrong_number: 'Wrong or invalid number',
-  not_serious: 'Just browsing — not serious',
-  budget_too_low: 'Budget too low',
-  wrong_location: 'Wrong location',
-  no_answer: 'Never answered',
-  bought_elsewhere: 'Bought from a competitor',
-  wants_what_we_dont_offer: 'Wants something we do not offer',
-  duplicate: 'Duplicate',
-  revisit_later: 'Timing — revisit later',
-};
+/**
+ * The first line, waiting in the WhatsApp box for somebody to edit and send.
+ *
+ * ⚠️ IT SAYS ONLY WHAT IS TRUE. Their name, and the project they actually
+ * enquired about — no price, no offer, no claim about availability, because a
+ * pre-filled sentence is the one somebody sends without reading when they are
+ * in a hurry, and it goes out under the division's name.
+ *
+ * ⚠️ AND IT IS PRE-FILL, NOT A SEND. `wa.me?text=` drops the text into the input
+ * on the person's own device; nothing leaves until they press send. That is the
+ * whole difference between this and the auto-sending the AI plan refuses.
+ */
+function whatsAppOpener(name: string | null, project: string): string {
+  const greeting = name ? `Hello ${name}` : 'Hello';
+  return `${greeting}, this is regarding your enquiry about ${project}.`;
+}
 
-function lostReasonLabel(reason: string): string {
-  return LOST_REASONS[reason] ?? reason;
+/**
+ * The date input's value, in Karachi.
+ *
+ * ⚠️ NOT `iso.slice(0, 10)`. That is the UTC day, and 109 of the 615 leads
+ * already prove those are different days — a next action set for Friday evening
+ * would open the picker on Friday and save as Saturday, or the other way round,
+ * depending on the hour somebody looked.
+ */
+function karachiInputDate(iso: string): string {
+  /* en-CA gives YYYY-MM-DD, which is what <input type="date"> wants. */
+  return new Date(iso).toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' });
 }
 
 function Dot() {

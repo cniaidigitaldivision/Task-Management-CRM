@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  LOST_REASONS,
   OPEN_STAGES,
   STAGE_ORDER,
   activityLabel,
+  isLostReason,
   isOpen,
   isStage,
+  lostReasonLabel,
   stageLabel,
   stageToken,
   TEMPERATURES,
@@ -49,8 +52,25 @@ const ENUM_ACTIVITY = [
   'call_no_answer',
   'whatsapp_sent',
   'email_sent',
+  /* Added by migration 115 — Step 6 marks a temperature and sets a next action,
+     and the log had no word for either. */
+  'temperature_set',
+  'next_action_set',
   'won',
   'lost',
+];
+
+/** The nine values of `crm_lost_reason`, likewise copied from `pg_enum`. */
+const ENUM_LOST_REASONS = [
+  'wrong_number',
+  'not_serious',
+  'budget_too_low',
+  'wrong_location',
+  'no_answer',
+  'bought_elsewhere',
+  'wants_what_we_dont_offer',
+  'duplicate',
+  'revisit_later',
 ];
 
 describe('every database value has a word', () => {
@@ -77,6 +97,44 @@ describe('every database value has a word', () => {
        would make a salesperson decode their own screen. */
     expect(activityLabel('call_no_answer')).toBe('No answer');
     expect(activityLabel('call_connected')).toBe('Spoke');
+  });
+});
+
+describe('why a lead was lost', () => {
+  it('covers every reason the database will accept, and invents none', () => {
+    /* ⚠️ A reason in the enum but not here would render as `wrong_number` in a
+       dropdown; one here but not in the enum reaches Postgres as an invalid
+       enum cast and comes back a 500. Both directions matter. */
+    expect([...LOST_REASONS].sort()).toEqual([...ENUM_LOST_REASONS].sort());
+  });
+
+  it('gives each one words a person would say out loud', () => {
+    for (const reason of ENUM_LOST_REASONS) {
+      expect(lostReasonLabel(reason)).not.toBe(reason);
+      expect(lostReasonLabel(reason)).not.toContain('_');
+    }
+  });
+
+  it('⚠️ puts the three the owner named first, first', () => {
+    /* This is picked at the end of a call somebody would rather not have had.
+       The further down the list a reason is, the more thought it takes. */
+    expect(LOST_REASONS.slice(0, 3)).toEqual(['wrong_number', 'not_serious', 'budget_too_low']);
+  });
+
+  it('⚠️ keeps "revisit later" last, because it is not a loss', () => {
+    /* It exists so an early enquiry does not get filed under "not serious".
+       Step 8's follow-up rules should pick these back up. */
+    expect(LOST_REASONS.at(-1)).toBe('revisit_later');
+  });
+
+  it('is rejected by the type guard, which is what keeps it out of SQL', () => {
+    expect(isLostReason('budget_too_low')).toBe(true);
+    expect(isLostReason('changed_their_mind')).toBe(false);
+    expect(isLostReason('')).toBe(false);
+  });
+
+  it('shows an unknown reason rather than hiding it', () => {
+    expect(lostReasonLabel('gazumped')).toBe('gazumped');
   });
 });
 

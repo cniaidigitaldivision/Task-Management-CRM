@@ -48,6 +48,12 @@ export default async function LeadPage({
       activity={record.activity}
       alsoEnquired={record.alsoEnquired}
       backHref={backToDesk(query.from, record.lead.projectId)}
+      /* ⚠️ Who is looking, for one decision only: whether a note carries a
+         withdraw button. The DELETE itself is decided by 111's policy — author
+         or Admin — so a viewer who got this wrong would be refused by the
+         database rather than allowed by the screen. */
+      viewerId={user.id}
+      viewerIsAdmin={user.role === 'admin' || user.role === 'super_admin'}
       /* ⚠️ The SERVER's clock, so "3d ago" is the same for everyone — and so
          React cannot report a reader's wrong system time as a hydration error
          instead of the clock problem it is. Same as the desk. */

@@ -137,6 +137,55 @@ export function temperatureToken(value: string): string {
   return value in TEMPERATURE_META ? TEMPERATURE_META[value as CrmTemperature].token : 'neutral-500';
 }
 
+/* ---- Why a lead was lost -------------------------------------------------- */
+
+/**
+ * The nine values of `public.crm_lost_reason`, in the words the team says.
+ *
+ * ⚠️ ORDERED BY HOW OFTEN THEY GET PICKED, not alphabetically. This is a
+ * dropdown somebody uses at the end of a call they would rather not have had;
+ * the three the owner named first are first, and the further down the list a
+ * reason is, the more thought it takes to choose it.
+ *
+ * ⚠️ `revisit_later` IS NOT A LOSS and it sits last for that reason. It is here
+ * because giving it a name is what stops somebody filing an early enquiry under
+ * "not serious" — see migration 111. Step 8's follow-up rules should pick these
+ * leads back up rather than treat them as closed.
+ */
+export const LOST_REASONS = [
+  'wrong_number',
+  'not_serious',
+  'budget_too_low',
+  'no_answer',
+  'wrong_location',
+  'bought_elsewhere',
+  'wants_what_we_dont_offer',
+  'duplicate',
+  'revisit_later',
+] as const;
+
+export type CrmLostReason = (typeof LOST_REASONS)[number];
+
+const LOST_REASON_LABELS: Record<CrmLostReason, string> = {
+  wrong_number: 'Wrong or invalid number',
+  not_serious: 'Just browsing — not serious',
+  budget_too_low: 'Budget too low',
+  no_answer: 'Never answered',
+  wrong_location: 'Wrong location',
+  bought_elsewhere: 'Bought from a competitor',
+  wants_what_we_dont_offer: 'Wants something we do not offer',
+  duplicate: 'Duplicate',
+  revisit_later: 'Timing — revisit later',
+};
+
+export function isLostReason(value: string): value is CrmLostReason {
+  return Object.hasOwn(LOST_REASON_LABELS, value);
+}
+
+export function lostReasonLabel(reason: string): string {
+  return isLostReason(reason) ? LOST_REASON_LABELS[reason] : reason;
+}
+
 /* ---- Activity, as a past-tense outcome ----------------------------------- */
 
 /**
@@ -157,6 +206,10 @@ const ACTIVITY_LABELS: Record<string, string> = {
   call_no_answer: 'No answer',
   whatsapp_sent: 'WhatsApp sent',
   email_sent: 'Email sent',
+  /* Added by migration 115 — the timeline had no word for either, so marking a
+     lead hot or setting what is owed happened with the log silent about it. */
+  temperature_set: 'Temperature set',
+  next_action_set: 'Next action set',
   won: 'Won',
   lost: 'Lost',
 };

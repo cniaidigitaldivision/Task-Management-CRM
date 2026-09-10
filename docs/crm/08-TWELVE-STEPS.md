@@ -166,7 +166,7 @@ client, presses the button, and the record silently does not have it.
 
 ---
 
-### Step 6 · Working the lead 🔓
+### Step 6 · Working the lead ✅ DONE 2026-09-10
 The actions that need no new integration and cover most of the daily job:
 
 - Change stage · set the next action and its date
@@ -176,15 +176,53 @@ The actions that need no new integration and cover most of the daily job:
 - **WhatsApp button** — `wa.me/{phone}` opens the chat, pre-filled. Zero setup.
 - Mark lost, with a reason from the agreed list
 
-**Delivers:** the desk works. A salesperson can run their day from it.
+All six, in a **Work this lead** card at the top of the record — where somebody
+between two calls looks first, rather than below the reading.
+
+⚠️ **THE TIMELINE IS WRITTEN BY THE DATABASE.** Migrations 115 + 116: a stage
+change, a temperature, a next action, an assignment and a note each write their
+own history from a trigger, so it happens whatever made the change — this app, a
+bulk action later, or a script somebody runs by hand. The caller cannot forget,
+because the caller is not asked.
+
+⚠️ **A session can change exactly five columns**, and `owner_id` is not one of
+them — **Step 7 adds it**. Before 116 a salesperson could have refiled their lead
+to another project, rewritten the number Meta captured, or backdated their own
+response time.
+
+⚠️ **Marking lost does not save on the select.** Every other stage does. Lost is
+two decisions — that it is, and why — and the why is what makes the lost-reason
+report worth reading.
+
+⚠️ **Opening WhatsApp still logs nothing.** A chat window is not evidence a
+message was sent. "WhatsApp sent" is its own button, next to the four others.
+
+**Delivered:** the desk works. A salesperson can run their day from it — except
+that nobody can be given a lead yet.
 
 ---
 
-### Step 7 · Assignment and the staff view ⏳
+### Step 7 · Assignment and the staff view ⏳ ← NEXT
 - Assign a lead to a sales team member; bulk-assign from the list.
 - The staff view: the same component, pre-scoped to "mine", same filters.
 - ⚠️ One component, two scopes — so the two views cannot drift apart.
 - A notification when a lead is assigned to you, through the existing bell.
+
+**Three things are already waiting for it, so this is smaller than it looks:**
+
+- 116's trigger logs an assignment the moment `owner_id` changes. Nothing to
+  write.
+- 114's readers exist so a sales member sees who assigned them the lead, instead
+  of "Former member". Their self-check already proves the bug they prevent.
+- The record is a URL, so the bell has somewhere to point.
+
+⚠️ **And two things it must do, both already written down:**
+
+- **Add `owner_id` to 116's column grant**, with the rule that only a coordinator
+  may reassign. It was left out deliberately — the narrow start.
+- **Move the floor in two files** — `app/(app)/leads/layout.tsx` and
+  `app/(app)/leads/[id]/page.tsx`. The database does not change: 111's policies
+  already describe the wider rule.
 
 **Needs from you:** the testing staff account, and which project members are the
 sales team.

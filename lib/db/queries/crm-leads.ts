@@ -501,6 +501,163 @@ export async function getCrmLead(
   });
 }
 
+/* ============================================================================
+ * WRITING — Step 6
+ * ----------------------------------------------------------------------------
+ * ── ⚠️ NOT ONE OF THESE WRITES TO `crm_lead_activity` ──────────────────────
+ * Migration 116's triggers do, and that is the whole design. The obvious build
+ * is "update the lead, then insert the timeline row", which works until the
+ * SECOND caller — a bulk action, a script, a fix somebody runs by hand — forgets
+ * the second half. A timeline with a hole in it looks complete.
+ *
+ * So a stage change here is one UPDATE, and the history is the database's job.
+ * The exception is `logLeadContact`, where the activity row IS the thing that
+ * happened rather than a record of something else.
+ *
+ * ── ⚠️ AND NOT ONE OF THEM CHECKS A ROLE ───────────────────────────────────
+ * 111's policy decides which rows, and 116's column grant decides which columns:
+ * a session can change exactly five, so `project_id`, the number Meta captured
+ * and `first_contacted_at` are unreachable from here whatever this file does.
+ * A `can(...)` call would be a third rule to keep in step with two that cannot
+ * be forgotten.
+ * ========================================================================= */
+
+/** The kinds a person may log. Mirrors 116's `crm_lead_activity_insert`. */
+export const CONTACT_KINDS = [
+  'call_attempted',
+  'call_connected',
+  'call_no_answer',
+  'whatsapp_sent',
+  'email_sent',
+] as const;
+
+export type CrmContactKind = (typeof CONTACT_KINDS)[number];
+
+export function isContactKind(value: string): value is CrmContactKind {
+  return (CONTACT_KINDS as readonly string[]).includes(value);
+}
+
+/**
+ * Move a lead along the pipeline.
+ *
+ * ⚠️ `lost_reason` IS SENT ON EVERY CALL, including as null. Sending it only
+ * when the stage is `lost` would leave a reopened lead carrying the reason it
+ * was lost for — 116's BEFORE trigger clears it anyway, but a query that relies
+ * on a trigger to undo what it just wrote is one refactor away from not being
+ * undone.
+ */
+export async function setLeadStage(
+  actorId: string,
+  leadId: string,
+  stage: string,
+  lostReason: string | null,
+): Promise<boolean> {
+  const rows = await withUser(actorId, (tx) => tx`
+    update public.crm_leads
+       set stage       = ${stage}::public.crm_stage,
+           lost_reason = ${lostReason}::public.crm_lost_reason
+     where id = ${leadId}::uuid
+     returning id
+  `);
+  return (rows as unknown[]).length === 1;
+}
+
+export async function setLeadTemperature(
+  actorId: string,
+  leadId: string,
+  temperature: string | null,
+): Promise<boolean> {
+  const rows = await withUser(actorId, (tx) => tx`
+    update public.crm_leads
+       set temperature = ${temperature}::public.crm_temperature
+     where id = ${leadId}::uuid
+     returning id
+  `);
+  return (rows as unknown[]).length === 1;
+}
+
+/**
+ * What is owed on this lead, and when.
+ *
+ * ⚠️ THE DATE IS READ IN KARACHI. `next_action_at` is a timestamptz and the
+ * input is a calendar date off a date picker; `'2026-09-12'::timestamptz` under
+ * a UTC server means 05:00 Karachi on the 12th, so "due the 12th" would show as
+ * overdue to anybody looking before five in the morning — and every one of this
+ * division's users is in Karachi. Anchored at the end of that day, because a
+ * task due "on Friday" is not overdue at nine on Friday morning.
+ */
+export async function setLeadNextAction(
+  actorId: string,
+  leadId: string,
+  action: string | null,
+  dueDate: string | null,
+): Promise<boolean> {
+  const rows = await withUser(actorId, (tx) => tx`
+    update public.crm_leads
+       set next_action    = ${action},
+           next_action_at = case
+             when ${dueDate}::text is null then null
+             else ((${dueDate}::date + interval '1 day' - interval '1 second')
+                     at time zone 'Asia/Karachi')
+           end
+     where id = ${leadId}::uuid
+     returning id
+  `);
+  return (rows as unknown[]).length === 1;
+}
+
+/**
+ * Record that somebody reached out.
+ *
+ * ⚠️ THIS is what stamps `first_contacted_at`, through 116's trigger, and that
+ * is the number every response-time report is built on. It is measured from
+ * `occurred_at` — the default is now, but a call logged tomorrow morning for
+ * yesterday afternoon must be able to say so.
+ */
+export async function logLeadContact(
+  actorId: string,
+  leadId: string,
+  kind: CrmContactKind,
+  outcome: string | null,
+): Promise<boolean> {
+  const rows = await withUser(actorId, (tx) => tx`
+    insert into public.crm_lead_activity (lead_id, actor_id, kind, outcome)
+    values (${leadId}::uuid, ${actorId}::uuid, ${kind}::public.crm_activity_kind, ${outcome})
+    returning id
+  `);
+  return (rows as unknown[]).length === 1;
+}
+
+/** ⚠️ The author is the caller, always — 111's policy refuses anything else. */
+export async function addLeadNote(
+  actorId: string,
+  leadId: string,
+  body: string,
+): Promise<boolean> {
+  const rows = await withUser(actorId, (tx) => tx`
+    insert into public.crm_lead_notes (lead_id, author_id, body)
+    values (${leadId}::uuid, ${actorId}::uuid, ${body})
+    returning id
+  `);
+  return (rows as unknown[]).length === 1;
+}
+
+/**
+ * Withdraw a note.
+ *
+ * ⚠️ A REAL DELETE, and the `note_added` row in the timeline STAYS — activity
+ * has no delete policy at any rank. That is the right pair: the text somebody
+ * withdrew is gone, and the fact that something was written at that hour is
+ * still on the record. 111 lets an author remove their own and an Admin remove
+ * anybody's; this file adds no rule of its own.
+ */
+export async function deleteLeadNote(actorId: string, noteId: string): Promise<boolean> {
+  const rows = await withUser(actorId, (tx) => tx`
+    delete from public.crm_lead_notes where id = ${noteId}::uuid returning id
+  `);
+  return (rows as unknown[]).length === 1;
+}
+
 /**
  * The people who hold leads in this project — the owner filter's options.
  *
