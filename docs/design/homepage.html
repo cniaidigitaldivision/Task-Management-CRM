@@ -1,0 +1,824 @@
+<!-- ══════════════════════════════════════════════════════════════════════
+     THE PUBLIC HOMEPAGE FOR taskly.aidigitaldivision.com — design of record.
+     ----------------------------------------------------------------------
+     This is body content: no <html>, <head> or <body> of its own, so it can be
+     dropped into a wrapper or ported to a route as-is.
+
+     NOT YET WIRED. app/page.tsx still redirects to /dashboard. Serving this
+     means: a route that renders it for a visitor with no session, and leaves
+     the redirect in place for one who has a session. The Archivo <link> tags
+     below become next/font, and the <style> block becomes a stylesheet.
+
+     WHAT IT CLAIMS. Every module named here exists and is in use. The lead
+     desk is described in the present tense on the owner's explicit
+     instruction — it is built and its 615 leads are live in the database,
+     while WhatsApp sending waits on Meta business verification. Nothing on
+     this page states a figure; there is no metric, no client count, no
+     testimonial, because none of those could be sourced.
+
+     MEASURED, NOT ASSUMED. Every text run was sampled against its rendered
+     ground in both themes — 157 runs each, and the runs over footage across
+     ten frames of each clip. Two things that only measurement caught: the
+     light veil at 58% left the standfirst at 3.55:1, and --ink-faint is a
+     token for graphics, not for 9px ink. See the notes at each site.
+     ══════════════════════════════════════════════════════════════════════ -->
+<title>Taskly</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:ital,wdth,wght@0,62..125,300..900;1,62..125,400&display=swap" rel="stylesheet">
+
+<style>
+  /* ══════════════════════════════════════════════════════════════════════
+     TASKLY — the public homepage
+     ----------------------------------------------------------------------
+     The palette is lifted verbatim from styles/tokens.css, both themes, so
+     the marketing page and the product are the same object. Teal #0e5c63 is
+     the core brand; gold #d4a63c is the second voice and is used sparingly.
+
+     Dark is SELECTED, not an automatic flip: its own steps from the same
+     scale, exactly as the app defines them.
+
+     ⚠️ THE VIDEOS ARE THE APP'S OWN. `room-light/dark.mp4` is the control-room
+     clip that sits behind the dashboard; `brain-light/dark.mp4` is the AI
+     assistant's. Both come in a light and a dark cut, which is why the theme
+     toggle changes the footage and not just the paint.
+     ══════════════════════════════════════════════════════════════════════ */
+
+  :root {
+    --base:      #e8f0f1;
+    --sunken:    #f4f8f9;
+    --surface:   #ffffff;
+    --ink:       #06232a;
+    --ink-soft:  #446468;
+    /* MEASURED: #6a8588 is 3.69:1 on white, 3.08:1 on --base. It is a token
+       for recessive GRAPHICS and large metadata, not small ink — every use
+       of it as body copy on this page failed WCAG in light and passed in
+       dark, which is why a dark-first review never catches the class. */
+    --ink-faint: #6a8588;
+    --brand:     #0e5c63;
+    --brand-lit: #12707a;
+    /* Two golds, and the split is not cosmetic. tokens.css states it outright:
+       gold-800 #8c6417 is the ONLY gold safe as light-theme text. gold-700
+       measured 3.32:1 here. The bright #d4a63c is the brand gold and is a
+       FILL — borders, rules, dots — never ink. */
+    --gold:      #8c6417;
+    --gold-fill: #d4a63c;
+    --rule:      #d3e1e2;
+    --rule-soft: #e3ecec;
+    --rule-firm: #b9cdcf;
+    --on-brand:  #ffffff;
+    --shadow:    0 1px 2px rgb(6 35 42 / .06), 0 8px 24px rgb(6 35 42 / .06);
+    /* How thin the glass is over the clip. MEASURED, not guessed: at 58% the
+       21px standfirst read 3.55:1 and the 13px byline 2.96:1 against a pale
+       studio frame — both under the 4.5 floor. 74% carries them. The dark cut
+       needs less because its own ground is already dark. */
+    --veil:      rgb(255 255 255 / .74);
+    --veil-firm: rgb(255 255 255 / .86);
+    --clip-op:   .85;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --base:      #04161a;
+      --sunken:    #061a1e;
+      --surface:   #0c2429;
+      --ink:       #eaf3f3;
+      --ink-soft:  #a3bcbe;
+      --ink-faint: #7d9294;
+      --brand:     #2fa3a9;
+      --brand-lit: #5fc0c3;
+      --gold:      #e0b85c;
+      --gold-fill: #e0b85c;
+      --rule:      #1d3a3e;
+      --rule-soft: #16302f;
+      --rule-firm: #2b4c50;
+      --on-brand:  #04161a;
+      --shadow:    0 1px 2px rgb(0 0 0 / .3), 0 8px 24px rgb(0 0 0 / .28);
+      --veil:      rgb(4 22 26 / .68);
+      --veil-firm: rgb(4 22 26 / .9);
+      --clip-op:   .9;
+    }
+  }
+  :root[data-theme="dark"] {
+    --base:      #04161a;
+    --sunken:    #061a1e;
+    --surface:   #0c2429;
+    --ink:       #eaf3f3;
+    --ink-soft:  #a3bcbe;
+    --ink-faint: #7d9294;
+    --brand:     #2fa3a9;
+    --brand-lit: #5fc0c3;
+    --gold:      #e0b85c;
+    --gold-fill: #e0b85c;
+    --rule:      #1d3a3e;
+    --rule-soft: #16302f;
+    --rule-firm: #2b4c50;
+    --on-brand:  #04161a;
+    --shadow:    0 1px 2px rgb(0 0 0 / .3), 0 8px 24px rgb(0 0 0 / .28);
+    --veil:      rgb(4 22 26 / .68);
+    --veil-firm: rgb(4 22 26 / .9);
+    --clip-op:   .9;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--base);
+    color: var(--ink);
+    font-family: Archivo, system-ui, -apple-system, sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  .wrap { max-width: 68rem; margin: 0 auto; padding-inline: 20px; }
+  a { color: inherit; }
+  :focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; border-radius: 4px; }
+
+  /* ── Header ─────────────────────────────────────────────────────────── */
+  header {
+    position: sticky; top: 0; z-index: 40;
+    background: color-mix(in oklab, var(--base) 84%, transparent);
+    backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--rule-soft);
+  }
+  .bar { display: flex; align-items: center; gap: 20px; height: 62px; }
+  .mark { display: flex; align-items: center; gap: 9px; font-weight: 700; letter-spacing: -.02em; font-size: 1.06rem; text-decoration: none; }
+  .mark .glyph {
+    width: 26px; height: 26px; border-radius: 7px; flex: none;
+    background: linear-gradient(135deg, var(--brand-lit), var(--brand));
+    display: grid; place-items: center; color: var(--on-brand); font-size: .78rem; font-weight: 800;
+  }
+  .mark small { display: block; font-size: .58rem; font-weight: 600; letter-spacing: .1em; color: var(--ink-soft); text-transform: uppercase; margin-top: -2px; }
+  nav.links { display: none; gap: 22px; margin-left: 12px; }
+  @media (min-width: 62rem) { nav.links { display: flex; } }
+  nav.links a { font-size: .88rem; font-weight: 500; color: var(--ink-soft); text-decoration: none; }
+  nav.links a:hover { color: var(--ink); }
+  .bar .right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    height: 40px; padding-inline: 18px; border-radius: 10px;
+    font-size: .9rem; font-weight: 600; text-decoration: none;
+    border: 1px solid transparent; cursor: pointer;
+    transition: filter .14s ease, border-color .14s ease;
+  }
+  .btn-primary { background: linear-gradient(135deg, var(--brand-lit), var(--brand)); color: var(--on-brand); }
+  .btn-primary:hover { filter: brightness(1.08); }
+  .btn-ghost { border-color: var(--rule-firm); color: var(--ink); background: var(--surface); }
+  .btn-ghost:hover { border-color: var(--brand); }
+  .btn-lg { height: 50px; padding-inline: 26px; font-size: 1rem; }
+
+  .toggle {
+    width: 40px; height: 40px; border-radius: 10px; flex: none;
+    border: 1px solid var(--rule); background: var(--surface); color: var(--ink-soft);
+    display: grid; place-items: center; cursor: pointer;
+  }
+  .toggle:hover { color: var(--ink); border-color: var(--rule-firm); }
+  .toggle .sun { display: none; }
+  :root[data-theme="dark"] .toggle .sun { display: block; }
+  :root[data-theme="dark"] .toggle .moon { display: none; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .toggle .sun { display: block; }
+    :root:not([data-theme="light"]) .toggle .moon { display: none; }
+  }
+
+  /* ── Hero, over the control-room clip ───────────────────────────────── */
+  .hero { position: relative; isolation: isolate; overflow: hidden; padding-block: clamp(60px, 10vw, 132px) clamp(48px, 7vw, 88px); }
+
+  /* ⚠️ ONE VIDEO ELEMENT, ITS `src` SWAPPED BY THE TOGGLE — not two cuts with
+     one hidden. The app can afford CSS-switching for this clip at 1.4 MB
+     apiece; a public homepage on mobile data cannot afford both. */
+  .hero-clip {
+    position: absolute; inset-inline: 0; top: 0; z-index: -2;
+    width: 100%; opacity: var(--clip-op);
+    /* Faded out at its own bottom edge. Without this the clip simply STOPS
+       partway down and, because its lowest rows are the darker studio floor,
+       the cut reads as a hard seam across the full width. */
+    mask-image: linear-gradient(to bottom, black 58%, transparent 94%);
+    -webkit-mask-image: linear-gradient(to bottom, black 58%, transparent 94%);
+    pointer-events: none;
+  }
+  /* The scrim protects the type and nothing else — it must not dim the clip
+     evenly, or the whole thing turns to mud. */
+  .hero::after {
+    content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+    background: linear-gradient(to bottom, var(--veil) 0%, var(--veil) 46%, var(--base) 92%);
+  }
+
+  h1 {
+    font-size: clamp(2.5rem, 7.4vw, 5rem);
+    line-height: .98; font-weight: 800; font-stretch: 112%;
+    letter-spacing: -.035em; margin: 0; max-width: 15ch;
+  }
+  h1 em { font-style: normal; color: var(--brand); }
+  /* Full-strength ink, not `--ink-soft`. The soft and faint tokens are graded
+     against a SOLID surface; over footage they lose the contrast they were
+     picked for, and no scrim thin enough to keep the clip alive buys it back. */
+  .standfirst { margin: 24px 0 0; font-size: clamp(1.05rem, 2.1vw, 1.3rem); line-height: 1.5; color: var(--ink); max-width: 46ch; }
+  .cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 32px; }
+  .who { margin: 22px 0 0; font-size: .84rem; color: var(--ink-soft); }
+
+  /* ── A framed screen ────────────────────────────────────────────────── */
+  .frame { border: 1px solid var(--rule); border-radius: 16px; background: var(--surface); box-shadow: var(--shadow); overflow: hidden; }
+  .hero .frame { margin-top: clamp(40px, 6vw, 64px); }
+  .frame .chrome { display: flex; align-items: center; gap: 7px; padding: 11px 14px; border-bottom: 1px solid var(--rule-soft); background: var(--sunken); }
+  .frame .chrome i { width: 9px; height: 9px; border-radius: 50%; background: var(--rule-firm); }
+  .frame .chrome span { margin-left: 8px; font-size: .74rem; color: var(--ink-soft); }
+  .stage { aspect-ratio: 16 / 9; width: 100%; display: block; background: var(--sunken); }
+  .stage-empty { display: grid; place-content: center; gap: 10px; text-align: center; padding: 24px; color: var(--ink-soft); }
+  .stage-empty strong { display: block; color: var(--ink-soft); font-size: .95rem; font-weight: 600; }
+  .stage-empty span { font-size: .8rem; }
+  .play { width: 54px; height: 54px; border-radius: 50%; margin: 0 auto; background: linear-gradient(135deg, var(--brand-lit), var(--brand)); display: grid; place-items: center; color: var(--on-brand); }
+
+  /* ── Sections ───────────────────────────────────────────────────────── */
+  section { padding-block: clamp(64px, 9vw, 112px); }
+  .section-head { max-width: 44ch; }
+  h2 { font-size: clamp(1.75rem, 4.2vw, 2.7rem); line-height: 1.08; font-weight: 800; font-stretch: 108%; letter-spacing: -.028em; margin: 0; }
+  .section-head p { margin: 16px 0 0; color: var(--ink-soft); font-size: 1.02rem; line-height: 1.6; }
+
+  /* ── The thread ─────────────────────────────────────────────────────── */
+  .thread { margin-top: 52px; position: relative; }
+  .thread::before {
+    content: ""; position: absolute; left: 11px; top: 12px; bottom: 12px; width: 2px;
+    background: linear-gradient(to bottom, transparent, var(--rule-firm) 6%, var(--rule-firm) 94%, transparent);
+  }
+  @media (min-width: 52rem) { .thread::before { left: 15px; } }
+  .stop { position: relative; padding-left: 44px; padding-block: 22px; }
+  @media (min-width: 52rem) { .stop { padding-left: 56px; display: grid; grid-template-columns: minmax(0, 19rem) minmax(0, 1fr); gap: 32px; } }
+  .stop::before { content: ""; position: absolute; left: 4px; top: 30px; width: 16px; height: 16px; border-radius: 50%; background: var(--base); border: 2px solid var(--brand); }
+  @media (min-width: 52rem) { .stop::before { left: 8px; } }
+  .stop.gold::before { border-color: var(--gold-fill); }
+  .stop h3 { margin: 0 0 6px; font-size: 1.18rem; font-weight: 700; letter-spacing: -.015em; line-height: 1.25; }
+  .stop .where { font-size: .78rem; font-weight: 600; color: var(--brand); margin: 0 0 8px; }
+  .stop.gold .where { color: var(--gold); }
+  .stop p { margin: 0; color: var(--ink-soft); font-size: .96rem; line-height: 1.62; max-width: 56ch; }
+  .stop ul { margin: 12px 0 0; padding-left: 18px; }
+  .stop li { color: var(--ink-soft); font-size: .9rem; margin-bottom: 5px; }
+  .stop li::marker { color: var(--ink-faint); }
+
+  /* ── Module grid ────────────────────────────────────────────────────── */
+  .grid { display: grid; gap: 1px; margin-top: 48px; background: var(--rule-soft); border: 1px solid var(--rule-soft); border-radius: 14px; overflow: hidden; }
+  @media (min-width: 40rem) { .grid { grid-template-columns: 1fr 1fr; } }
+  @media (min-width: 62rem) { .grid { grid-template-columns: repeat(3, 1fr); } }
+  .cell { background: var(--surface); padding: 26px 24px; }
+  .cell h3 { margin: 0 0 8px; font-size: 1.02rem; font-weight: 700; letter-spacing: -.01em; }
+  .cell p { margin: 0; font-size: .9rem; line-height: 1.6; color: var(--ink-soft); }
+  .cell .tag { display: block; font-size: .72rem; font-weight: 600; color: var(--brand); margin-bottom: 7px; }
+  .band { background: var(--surface); border-block: 1px solid var(--rule); }
+  .band .cell { background: var(--base); }
+  .band .grid { background: var(--rule); border-color: var(--rule); }
+
+  /* ── The assistant, over the brain clip ─────────────────────────────── */
+  .ai { position: relative; isolation: isolate; overflow: hidden; }
+  /* ⚠️ `isolation: isolate` IS LOAD-BEARING, not tidiness. This box paints an
+     opaque --sunken background as the pre-load state (the clip is preload=none).
+     `position: relative` alone does NOT make a stacking context, so the
+     negative-z clip and scrim below escaped to .ai and painted BEHIND that
+     background — the panel rendered as an empty grey box in both themes with
+     the video happily playing, unseen, underneath. Isolating puts the root's
+     own background first in paint order and the negative-z children above it. */
+  .ai-stage {
+    position: relative; isolation: isolate;
+    border-radius: 18px; overflow: hidden;
+    border: 1px solid var(--rule); margin-top: 44px; background: var(--sunken);
+    min-height: 260px; display: grid; align-items: end;
+  }
+  .brain-clip {
+    position: absolute; inset: 0; z-index: -2;
+    width: 100%; height: 100%; object-fit: cover; object-position: center;
+    opacity: var(--clip-op);
+  }
+  .ai-stage::after {
+    content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+    background: linear-gradient(to top, var(--veil-firm) 0%, var(--veil) 62%, transparent 100%);
+  }
+  .ai-stage .caption { position: relative; padding: 28px 26px; }
+  .ai-stage .caption p { margin: 0; max-width: 44ch; font-size: 1.02rem; line-height: 1.55; color: var(--ink); font-weight: 500; }
+
+  .ai-list { display: grid; gap: 24px; margin-top: 44px; }
+  @media (min-width: 48rem) { .ai-list { grid-template-columns: 1fr 1fr; gap: 32px 44px; } }
+  .ai-item { border-top: 2px solid var(--rule); padding-top: 16px; }
+  .ai-item.on { border-top-color: var(--brand); }
+  .ai-item h3 { margin: 0 0 6px; font-size: 1.05rem; font-weight: 700; letter-spacing: -.012em; }
+  .ai-item p { margin: 0; color: var(--ink-soft); font-size: .93rem; line-height: 1.6; }
+
+  /* ── Video gallery ──────────────────────────────────────────────────── */
+  .films { display: grid; gap: 22px; margin-top: 46px; }
+  @media (min-width: 52rem) { .films { grid-template-columns: 1fr 1fr; } }
+  .film h3 { margin: 14px 0 4px; font-size: 1rem; font-weight: 700; }
+  .film p { margin: 0; font-size: .88rem; color: var(--ink-soft); }
+
+  /* ── Close ──────────────────────────────────────────────────────────── */
+  .close { text-align: center; }
+  .close h2 { margin-inline: auto; max-width: 18ch; }
+  .close p { margin: 18px auto 0; max-width: 48ch; color: var(--ink-soft); }
+  .close .cta { justify-content: center; margin-top: 30px; }
+
+  footer { border-top: 1px solid var(--rule-soft); padding-block: 34px 44px; }
+  .foot { display: flex; flex-wrap: wrap; gap: 18px; align-items: center; }
+  .foot p { margin: 0; font-size: .82rem; color: var(--ink-soft); }
+  .foot .spacer { margin-left: auto; }
+  .foot a { font-size: .84rem; color: var(--ink-soft); text-decoration: none; font-weight: 500; }
+  .foot a:hover { color: var(--ink); }
+
+  /* ⚠️ A looping clip is motion nobody asked for. Anybody who has asked their
+     system to stop animating gets the poster frame and no playback — the videos
+     are paused in script, because CSS cannot pause a <video>. */
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+
+<header>
+  <div class="wrap bar">
+    <a class="mark" href="#top">
+      <span class="glyph" aria-hidden="true">T</span>
+      <span>Taskly<small>AI &amp; Digital Division</small></span>
+    </a>
+    <nav class="links">
+      <a href="#thread">How it works</a>
+      <a href="#modules">What it holds</a>
+      <a href="#ai">The assistant</a>
+      <a href="#films">See it</a>
+    </nav>
+    <div class="right">
+      <button class="toggle" id="theme" type="button" aria-label="Switch between light and dark">
+        <svg class="moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+        <svg class="sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+      </button>
+      <a class="btn btn-primary" href="/login">Log in</a>
+    </div>
+  </div>
+</header>
+
+<main id="top">
+
+  <!-- ══ HERO ══════════════════════════════════════════════════════════ -->
+  <div class="hero">
+    <!-- The dashboard's own control-room clip. `src` is set in script so only
+         the cut for the current theme is ever fetched. -->
+    <video class="hero-clip" id="room" muted loop playsinline preload="metadata" aria-hidden="true"></video>
+
+    <div class="wrap">
+      <h1>The whole agency, on <em>one thread</em>.</h1>
+      <p class="standfirst">
+        Taskly follows a piece of work from the moment a stranger fills in a form to the month it
+        is invoiced — the lead, the person who calls them, the task, the post, the credential,
+        the report. One system, one record, nothing left in somebody's head.
+      </p>
+      <div class="cta">
+        <a class="btn btn-primary btn-lg" href="/login">Log in</a>
+        <a class="btn btn-ghost btn-lg" href="#films">Watch it work</a>
+      </div>
+      <p class="who">Built and run by the AI &amp; Digital Division of Crescent Nova International.</p>
+
+      <div class="frame">
+        <div class="chrome"><i></i><i></i><i></i><span>taskly.aidigitaldivision.com</span></div>
+        <!-- Swap for: <video class="stage" controls playsinline poster="/home/tour-poster.jpg"><source src="/home/tour.mp4" type="video/mp4"></video> -->
+        <div class="stage stage-empty">
+          <span class="play" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span>
+          <strong>A minute inside Taskly</strong>
+          <span>Your walkthrough video goes here</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ THE THREAD ════════════════════════════════════════════════════ -->
+  <section id="thread">
+    <div class="wrap">
+      <div class="section-head">
+        <h2>One lead, followed all the way</h2>
+        <p>
+          Most tools give you a folder for tasks and a different one for clients, and the join
+          between them lives in a spreadsheet. Taskly keeps the join. Here is the same enquiry,
+          moving through the system.
+        </p>
+      </div>
+
+      <div class="thread">
+
+        <div class="stop">
+          <div>
+            <p class="where">Campaign &amp; Lead Desk</p>
+            <h3>Somebody fills in a form</h3>
+          </div>
+          <div>
+            <p>
+              Leads arrive from your Meta campaigns on their own, every fifteen minutes, and land
+              against the right project and the right team. Their name, their number and every
+              answer they gave — kept, because Meta deletes lead data after ninety days and your
+              copy becomes the only one that exists.
+            </p>
+            <ul>
+              <li>Automatic import, with a record of every run so a broken one is visible</li>
+              <li>Numbers normalised, so one person is never two leads</li>
+              <li>Filed by the campaign that produced them, not by guesswork</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="stop">
+          <div>
+            <p class="where">Assignment</p>
+            <h3>It goes to whoever is free</h3>
+          </div>
+          <div>
+            <p>
+              Share the day's leads out and each goes to whoever holds the fewest open ones, and
+              on a tie to whoever has waited longest — oldest enquiry first. The rule is printed
+              on the screen, so a salesperson can check it rather than suspect it.
+            </p>
+            <ul>
+              <li>Or hand a lead to a named person, when it should be theirs</li>
+              <li>Only the department's own manager can move one</li>
+              <li>Everybody is told the moment a lead becomes theirs</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="stop">
+          <div>
+            <p class="where">Working the lead</p>
+            <h3>Somebody calls them</h3>
+          </div>
+          <div>
+            <p>
+              Stage, temperature, what was quoted, what was said, what happens next and when.
+              Call and WhatsApp are one tap from the record. Every change writes itself to the
+              timeline, so who did what is never something anybody has to reconstruct.
+            </p>
+            <ul>
+              <li>Response time measured from when they enquired, not from when you got to it</li>
+              <li>A note thread that cannot be quietly rewritten afterwards</li>
+              <li>Reminders before a follow-up is late, and an alert when leads go quiet</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="stop gold">
+          <div>
+            <p class="where">Clients</p>
+            <h3>They say yes</h3>
+          </div>
+          <div>
+            <p>
+              Winning a lead makes them a client — one moment, no second button to remember. If
+              the same person enquired twice they stay one client with two enquiries, matched on
+              their number rather than on how they happened to type it.
+            </p>
+          </div>
+        </div>
+
+        <div class="stop">
+          <div>
+            <p class="where">Projects, Tasks, Workload</p>
+            <h3>The work begins</h3>
+          </div>
+          <div>
+            <p>
+              A project with its own page: the tasks, the people on it, the posts scheduled, the
+              documents, the credentials, the money. Work is assigned within real capacity, so
+              nobody is quietly given a fortnight of work in a week.
+            </p>
+            <ul>
+              <li>Boards, a calendar, and a personal list for each person</li>
+              <li>Time limits, extensions, review and approval</li>
+              <li>Capacity in points, with a hard stop rather than a warning nobody reads</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="stop">
+          <div>
+            <p class="where">Studio &amp; Reports</p>
+            <h3>You find out whether it worked</h3>
+          </div>
+          <div>
+            <p>
+              Reach, engagement and posting cadence per client, pulled from Meta into your own
+              tables. Lead reports say where the enquiries came from, how fast each person
+              answered and what closed — computed once and kept, so a figure you quoted in
+              September still reads the same in December.
+            </p>
+            <ul>
+              <li>Exports to PDF, CSV and Excel, with each number's definition attached</li>
+              <li>Every report states what it counted and what it cannot yet tell you</li>
+            </ul>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ MODULES ═══════════════════════════════════════════════════════ -->
+  <section id="modules" class="band">
+    <div class="wrap">
+      <div class="section-head">
+        <h2>And everything else an agency has to keep somewhere</h2>
+        <p>
+          The parts that usually end up in a shared drive, a WhatsApp group, or one person's
+          memory.
+        </p>
+      </div>
+
+      <div class="grid">
+        <div class="cell">
+          <span class="tag">Team</span>
+          <h3>People and departments</h3>
+          <p>
+            Sales, delivery, development, finance, HR — each with a manager, each seeing what
+            belongs to them. Four permission levels, and a department that decides what somebody
+            can actually open.
+          </p>
+        </div>
+        <div class="cell">
+          <span class="tag">Vault</span>
+          <h3>Credentials</h3>
+          <p>
+            Client logins, API keys and tokens, encrypted and held per project. Who read what is
+            recorded. Nobody asks in a group chat for a password again.
+          </p>
+        </div>
+        <div class="cell">
+          <span class="tag">Documents</span>
+          <h3>Files and contracts</h3>
+          <p>
+            Briefs, contracts and deliverables against the project they belong to, with Google
+            Drive folders linked where the originals already live.
+          </p>
+        </div>
+        <div class="cell">
+          <span class="tag">Attendance</span>
+          <h3>Who is in</h3>
+          <p>
+            Check in from the app or the office terminal, with late arrivals, missing checkouts
+            and leave in one place — per office, so two sites never blur together.
+          </p>
+        </div>
+        <div class="cell">
+          <span class="tag">Finance</span>
+          <h3>Invoices and money</h3>
+          <p>
+            Invoices, payments received, expenses and payroll, per client and per office. A
+            statement of account for any client, on one screen.
+          </p>
+        </div>
+        <div class="cell">
+          <span class="tag">Security</span>
+          <h3>Accounts and access</h3>
+          <p>
+            Two-factor sign-in, sessions you can end remotely, forced password resets, and an
+            audit trail nobody — including an administrator — can quietly edit.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ THE ASSISTANT ═════════════════════════════════════════════════ -->
+  <section id="ai" class="ai">
+    <div class="wrap">
+      <div class="section-head">
+        <h2>The assistant knows your data, not the internet</h2>
+        <p>
+          Ask in plain language and it answers from your own tables, through the same permissions
+          you have. It never sees a project you cannot open.
+        </p>
+      </div>
+
+      <div class="ai-stage">
+        <!-- The assistant's own clip, from inside the product. Lazy: it is
+             around 6 MB a cut, so it is not fetched until it scrolls into view. -->
+        <video class="brain-clip" id="brain" muted loop playsinline preload="none" aria-hidden="true"></video>
+        <div class="caption">
+          <p>
+            Every answer comes with the rows behind it. Nothing is estimated, and where the data
+            cannot answer a question yet, it says so instead of guessing.
+          </p>
+        </div>
+      </div>
+
+      <div class="ai-list">
+        <div class="ai-item on">
+          <h3>Ask about the work</h3>
+          <p>
+            "What is overdue on Chitral Royal Homes?" "Who is over capacity this week?" "How many
+            posts went out for this client in August?" Answers with the rows behind them, not a
+            paragraph you have to take on trust.
+          </p>
+        </div>
+        <div class="ai-item on">
+          <h3>Written reports</h3>
+          <p>
+            The monthly client report computes its own figures, then the model writes the prose
+            over the top. The arithmetic is yours; only the wording is drafted.
+          </p>
+        </div>
+        <div class="ai-item on">
+          <h3>Smart lead distribution</h3>
+          <p>
+            Leads divide themselves across the team by who is genuinely free, so nobody sits on
+            forty enquiries while a colleague waits for one.
+          </p>
+        </div>
+        <div class="ai-item">
+          <h3>Coaching before a call</h3>
+          <p>
+            A two-line summary of what a lead wants, talking points before you ring them, and a
+            drafted follow-up you edit before it sends — never sent for you.
+          </p>
+        </div>
+        <div class="ai-item">
+          <h3>Campaign or staff?</h3>
+          <p>
+            Same campaign, different people, different results — it is the person. Same person
+            across campaigns — it is the campaign. Shown as arithmetic anybody can check.
+          </p>
+        </div>
+        <div class="ai-item">
+          <h3>Nothing invented</h3>
+          <p>
+            The rule the whole system is built on: a screen shows a number only when a real one
+            exists. No figure is estimated, and an empty report says why it is empty.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ FILMS ═════════════════════════════════════════════════════════ -->
+  <section id="films" class="band">
+    <div class="wrap">
+      <div class="section-head">
+        <h2>See it working</h2>
+        <p>Short walkthroughs of the parts people ask about most.</p>
+      </div>
+
+      <div class="films">
+        <div class="film">
+          <div class="frame">
+            <div class="chrome"><i></i><i></i><i></i><span>Lead desk</span></div>
+            <!-- <video class="stage" controls playsinline poster="/home/leads-poster.jpg"><source src="/home/leads.mp4" type="video/mp4"></video> -->
+            <div class="stage stage-empty">
+              <span class="play" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span>
+              <!-- The title lives on the <h3> below. Repeating it here printed it
+                   twice on the page, and it vanishes the moment the real <video>
+                   above replaces this placeholder. Instruction only. -->
+              <strong>Drop leads.mp4 here</strong>
+            </div>
+          </div>
+          <h3>A lead, start to finish</h3>
+          <p>Arriving, shared out, called, won.</p>
+        </div>
+
+        <div class="film">
+          <div class="frame">
+            <div class="chrome"><i></i><i></i><i></i><span>Studio</span></div>
+            <!-- <video class="stage" controls playsinline poster="/home/studio-poster.jpg"><source src="/home/studio.mp4" type="video/mp4"></video> -->
+            <div class="stage stage-empty">
+              <span class="play" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span>
+              <!-- The title lives on the <h3> below. Repeating it here printed it
+                   twice on the page, and it vanishes the moment the real <video>
+                   above replaces this placeholder. Instruction only. -->
+              <strong>Drop studio.mp4 here</strong>
+            </div>
+          </div>
+          <h3>Trend &amp; Engagement Studio</h3>
+          <p>What every client's pages actually did this month.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ CLOSE ═════════════════════════════════════════════════════════ -->
+  <section class="close">
+    <div class="wrap">
+      <h2>Your team is already in here.</h2>
+      <p>
+        Sign in with the address your administrator set up. If you have not been given an account
+        yet, ask them — accounts are created from inside Taskly, never self-served.
+      </p>
+      <div class="cta">
+        <a class="btn btn-primary btn-lg" href="/login">Log in to Taskly</a>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <a class="mark" href="#top">
+      <span class="glyph" aria-hidden="true">T</span>
+      <span>Taskly</span>
+    </a>
+    <p class="spacer">© 2026 Crescent Nova International · AI &amp; Digital Division</p>
+    <a href="/login">Log in</a>
+  </div>
+</footer>
+
+<script>
+  (function () {
+    var root = document.documentElement;
+    var room = document.getElementById('room');
+    var brain = document.getElementById('brain');
+
+    /* The app ships a light and a dark cut of each clip, and each cut carries a
+       still pulled from its own first seconds. The still is ~50-85 KB against
+       1.3-6.9 MB of video, so it lands first and the panel is never an empty
+       box — while the clip downloads, if autoplay is refused, if the reader
+       asked for no motion, or if the file never arrives at all. */
+    var CUTS = {
+      room: {
+        light: { clip: '/dashboard/room-light.mp4',  still: '/dashboard/room-light-poster.jpg' },
+        dark:  { clip: '/dashboard/room-dark.mp4',   still: '/dashboard/room-dark-poster.jpg' }
+      },
+      brain: {
+        light: { clip: '/assistant/brain-light.mp4', still: '/assistant/brain-light-poster.jpg' },
+        dark:  { clip: '/assistant/brain-dark.mp4',  still: '/assistant/brain-dark-poster.jpg' }
+      }
+    };
+
+    var still = false;
+    try {
+      still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    } catch (e) {}
+
+    function isDark() {
+      var set = root.getAttribute('data-theme');
+      if (set === 'dark') return true;
+      if (set === 'light') return false;
+      try { return window.matchMedia('(prefers-color-scheme: dark)').matches; }
+      catch (e) { return false; }
+    }
+
+    /* ⚠️ ONE `src` PER ELEMENT, ASSIGNED HERE RATHER THAN IN THE MARKUP. The
+       dashboard mounts both cuts and hides one in CSS, which is fine at 1.4 MB
+       apiece — but hiding a <video> does not stop it downloading, and the
+       assistant's clips are ~6 MB each. Doing that on a public homepage would
+       cost a visitor 16 MB before they read the headline. */
+    function cut(which) { return CUTS[which][isDark() ? 'dark' : 'light']; }
+
+    /* Hang the still on the element without touching the clip. The brain is
+       lazy — it must not be a grey rectangle for the whole scroll down to it. */
+    function dress(el, which) {
+      if (!el) return;
+      var still = cut(which).still;
+      if (el.getAttribute('poster') !== still) el.poster = still;
+    }
+
+    function point(el, which) {
+      if (!el) return;
+      dress(el, which);
+      var want = cut(which).clip;
+      if (el.getAttribute('data-src') === want) return;
+      el.setAttribute('data-src', want);
+      el.src = want;
+      /* ⚠️ Paused, not merely un-animated, for anybody who asked their system to
+         stop moving things. CSS cannot pause a <video>. */
+      if (still) { el.pause(); return; }
+      var playing = el.play();
+      if (playing && playing.catch) playing.catch(function () { /* autoplay refused; the poster frame stands */ });
+    }
+
+    point(room, 'room');
+
+    /* The brain's STILL goes on now; only its ~6 MB clip waits for the scroll. */
+    dress(brain, 'brain');
+
+    if (brain && 'IntersectionObserver' in window) {
+      var watcher = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+          if (!entry.isIntersecting) return;
+          point(brain, 'brain');
+          watcher.disconnect();
+        });
+      }, { rootMargin: '320px' });
+      watcher.observe(brain);
+    } else {
+      point(brain, 'brain');
+    }
+
+    /* Theme: the reader's choice wins, the system decides otherwise. Stored, so
+       a second page load does not flash the wrong one. */
+    try {
+      var saved = localStorage.getItem('taskly-home-theme');
+      if (saved === 'light' || saved === 'dark') root.setAttribute('data-theme', saved);
+    } catch (e) {}
+    point(room, 'room');
+
+    document.getElementById('theme').addEventListener('click', function () {
+      var next = isDark() ? 'light' : 'dark';
+      root.setAttribute('data-theme', next);
+      try { localStorage.setItem('taskly-home-theme', next); } catch (e) {}
+      /* The footage changes with the paint — both clips come in two cuts. The
+         brain's still swaps even when its clip has not been fetched yet. */
+      point(room, 'room');
+      if (brain && brain.getAttribute('data-src')) point(brain, 'brain');
+      else dress(brain, 'brain');
+    });
+  })();
+</script>
