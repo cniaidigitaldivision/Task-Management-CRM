@@ -1009,3 +1009,43 @@ export async function crmFormOptions(
     leads: Number(r.leads ?? 0),
   }));
 }
+
+/* ==========================================================================
+ * THE ROTA, WITH ITS REASONING — migration 133
+ * ========================================================================== */
+
+export interface CrmRotaRow {
+  readonly userId: string;
+  readonly name: string;
+  readonly openLeads: number;
+  readonly weightedLoad: number;
+  /** ⚠️ Null means never measured — NOT fast. See migration 133. */
+  readonly medianMinutes: number | null;
+  readonly atWork: boolean;
+  /** 999 means they have never acted on a lead at all. */
+  readonly daysQuiet: number;
+}
+
+/**
+ * Everybody who could take a lead on this project, best first, with every
+ * number the ordering used.
+ *
+ * ⚠️ READ BEFORE ASSIGNING, NEVER AFTER. The moment a lead lands, the winner's
+ * load has already changed — so an explanation built from a later read would
+ * justify the decision with the figures the decision itself produced, which is
+ * how a correct rota comes to look wrong to the person watching it.
+ */
+export async function crmLeadRota(actorId: string, projectId: string): Promise<CrmRotaRow[]> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select * from app.crm_lead_rota(${projectId}::uuid)
+  `);
+  return (rows as Array<Record<string, unknown>>).map((r) => ({
+    userId: String(r.user_id),
+    name: String(r.full_name),
+    openLeads: Number(r.open_leads ?? 0),
+    weightedLoad: Number(r.weighted_load ?? 0),
+    medianMinutes: r.median_minutes === null ? null : Number(r.median_minutes),
+    atWork: r.at_work === true,
+    daysQuiet: Number(r.days_quiet ?? 999),
+  }));
+}

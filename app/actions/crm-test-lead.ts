@@ -35,7 +35,7 @@ import { revalidatePath } from 'next/cache';
 import { requireUser } from '@/lib/auth/current-user';
 import { withUser } from '@/lib/db/client';
 import { notify } from '@/lib/db/queries/feed';
-import { assignLead, crmNextOwner, crmProjectRoster } from '@/lib/db/queries/crm-leads';
+import { assignLead, crmLeadRota, crmNextOwner } from '@/lib/db/queries/crm-leads';
 import { toE164 } from '@/lib/domain/phone';
 
 /** The marker `scripts/seed-crm-demo.mjs` puts on everything it makes. */
@@ -121,11 +121,11 @@ export async function createTestLeadAction(input: {
     };
   }
 
-  /* The counts BEFORE anything lands, so the explanation is the one the rota
-     actually reasoned from. */
-  let before: Awaited<ReturnType<typeof crmProjectRoster>> = [];
+  /* The rota BEFORE anything lands, so the explanation is the one it actually
+     reasoned from — see `crmLeadRota`. */
+  let before: Awaited<ReturnType<typeof crmLeadRota>> = [];
   try {
-    before = await crmProjectRoster(user.id, input.projectId);
+    before = await crmLeadRota(user.id, input.projectId);
   } catch {
     /* Not fatal — the lead still arrives, it just lands without an explanation. */
   }
@@ -192,15 +192,45 @@ export async function createTestLeadAction(input: {
     return { ok: true, leadId, error: 'The lead arrived but could not be handed out.' };
   }
 
-  const chosen = before.find((p) => p.id === owner);
-  const rivals = before.filter((p) => p.id !== owner && !p.isManager);
-  const because = chosen
-    ? rivals.length
-      ? `${chosen.name} held ${chosen.openLeads} open ${chosen.openLeads === 1 ? 'lead' : 'leads'} — fewest on the team (${rivals
-          .map((r) => `${r.name} ${r.openLeads}`)
-          .join(', ')}).`
-      : `${chosen.name} held ${chosen.openLeads}, and is the only person who can take it.`
-    : 'The rota chose them.';
+  /* ── ⚠️ THE EXPLANATION IS THE FEATURE, AND IT NOW HAS FOUR SIGNALS TO SHOW ──
+     It reads as a sentence somebody can check rather than a score they have to
+     trust — the same rule the workload page follows. Each clause is only
+     included when it actually did something, because a sentence that always
+     lists four reasons stops being read after the second lead. */
+  const chosen = before.find((p) => p.userId === owner);
+  const rivals = before.filter((p) => p.userId !== owner);
+  let because: string;
+
+  if (!chosen) {
+    because = 'The rota chose them.';
+  } else if (rivals.length === 0) {
+    because = `${chosen.name} is the only person who can take it.`;
+  } else {
+    const rival = rivals[0];
+    const parts: string[] = [];
+
+    /* Signal 3 — the load that actually decided it. Shown as the weight AND the
+       headcount, because they disagree and that disagreement is the point. */
+    parts.push(
+      `carrying ${chosen.weightedLoad} of work across ${chosen.openLeads} ${chosen.openLeads === 1 ? 'lead' : 'leads'}, against ${rival.name}'s ${rival.weightedLoad} across ${rival.openLeads}`,
+    );
+
+    /* Signal 2 — only worth saying when it separated them. */
+    if (chosen.atWork && !rival.atWork) {
+      parts.push(`and ${chosen.name} is at work right now while ${rival.name} is not`);
+    } else if (!chosen.atWork && !rival.atWork) {
+      parts.push('and nobody is on shift at the moment, so this went on workload alone');
+    }
+
+    /* Signal 1 — only when the loads tied and speed broke it. */
+    if (chosen.weightedLoad === rival.weightedLoad && chosen.medianMinutes !== null) {
+      parts.push(
+        `and answers in about ${Math.round(chosen.medianMinutes)} minutes`,
+      );
+    }
+
+    because = `${chosen.name} — ${parts.join(', ')}.`;
+  }
 
   revalidatePath('/leads');
   return { ok: true, leadId, assignedTo: chosen?.name ?? 'a salesperson', because };
