@@ -2,8 +2,13 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { AlertTriangle, CheckCircle2, Copy, Loader2, Mail, UserPlus } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Copy, Loader2, Mail, Plus, UserPlus } from 'lucide-react';
 
+import {
+  createDepartmentAction,
+  listColleaguesAction,
+  listDepartmentsAction,
+} from '@/app/actions/departments';
 import { invitePersonAction, type TeamActionResult } from '@/app/actions/team';
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
@@ -47,6 +52,72 @@ export function InviteDialog({
   const router = useRouter();
   const [state, formAction, pending] = React.useActionState(invitePersonAction, EMPTY);
   const [copied, setCopied] = React.useState(false);
+
+  /* ── ⚠️ WHAT THE LAST ATTEMPT SENT ────────────────────────────────────────
+     React 19 resets a form once its action returns, so an uncontrolled input is
+     already empty by the time the error renders. Owner, 2026-09-12: *"in case
+     some error occurs, the fields will not remove the value entered. I don't
+     need to enter it again and again."* Every field below reads through this.
+     Same shape as `app/(auth)/setup/setup-form.tsx`, which has always done it. */
+  const keep = (field: string, fallback = '') => state.sent?.[field] ?? fallback;
+
+  const [departments, setDepartments] = React.useState<
+    Array<{ id: string; key: string; name: string; people: number }>
+  >([]);
+  const [colleagues, setColleagues] = React.useState<
+    Array<{ id: string; name: string; role: string; department: string | null }>
+  >([]);
+  /* ⚠️ DERIVED DURING RENDER, NOT RESTORED IN AN EFFECT. `picked` is null until
+     somebody actually chooses; until then the value falls back to whatever the
+     last rejected submit sent. So a failed invite keeps the department without
+     a second render pass, and the first open starts empty. */
+  const [picked, setPicked] = React.useState<string | null>(null);
+  const departmentId = picked ?? state.sent?.departmentId ?? '';
+  const [newDeptOpen, setNewDeptOpen] = React.useState(false);
+  const [newDeptName, setNewDeptName] = React.useState('');
+  const [newDeptError, setNewDeptError] = React.useState<string | null>(null);
+  const [savingDept, setSavingDept] = React.useState(false);
+
+
+  React.useEffect(() => {
+    if (!open) return;
+    /* ⚠️ Both awaited inside the async body rather than set synchronously — the
+       linter is right that a setState in an effect body cascades renders, and
+       a fetch that resolves later does not. */
+    let live = true;
+    void (async () => {
+      const [depts, people] = await Promise.all([listDepartmentsAction(), listColleaguesAction()]);
+      if (!live) return;
+      setDepartments(depts);
+      setColleagues(people);
+    })();
+    return () => {
+      live = false;
+    };
+  }, [open]);
+
+  async function addDepartment() {
+    setSavingDept(true);
+    setNewDeptError(null);
+    const result = await createDepartmentAction(newDeptName);
+    setSavingDept(false);
+    if (!result.ok) {
+      setNewDeptError(result.error ?? 'That did not work.');
+      return;
+    }
+    /* ⚠️ Reloaded and SELECTED, so the reason somebody opened this dialog —
+       filing the person they are inviting — completes in one step. */
+    setDepartments(await listDepartmentsAction());
+    if (result.id) setPicked(result.id);
+    setNewDeptName('');
+    setNewDeptOpen(false);
+  }
+
+  /* Does this department work leads? Then ask what the person handles.
+     ⚠️ Matched on the department the owner is filing them into, not on the word
+     "sales" — the division's own product leads route to AI & Digital. */
+  const chosen = departments.find((d) => d.id === departmentId);
+  const showSpecialisation = Boolean(chosen);
 
   React.useEffect(() => {
     if (state.ok) router.refresh();
@@ -171,7 +242,7 @@ export function InviteDialog({
         )}
 
         <Field label="Their full name" htmlFor="fullName">
-          <Input id="fullName" name="fullName" placeholder="Kashif Ahmed" required autoFocus />
+          <Input id="fullName" name="fullName" placeholder="Kashif Ahmed" defaultValue={keep('fullName')} required autoFocus />
         </Field>
 
         <Field
@@ -179,7 +250,7 @@ export function InviteDialog({
           htmlFor="email"
           hint="This becomes their sign-in address, and where the invitation goes."
         >
-          <Input id="email" name="email" type="email" inputMode="email" required />
+          <Input id="email" name="email" type="email" inputMode="email" defaultValue={keep('email')} required />
         </Field>
 
         <div className="grid gap-4 sm:grid-cols-2">
@@ -188,7 +259,7 @@ export function InviteDialog({
             htmlFor="role"
             hint={`As ${actorRoleLabel} you can appoint these.`}
           >
-            <Select size="md" id="role" name="role" defaultValue={assignableRoles.at(-1)} required>
+            <Select size="md" id="role" name="role" defaultValue={keep('role', assignableRoles.at(-1) ?? '')} required>
               {assignableRoles.map((role) => (
                 <option key={role} value={role}>
                   {ROLE_LABEL[role]}
@@ -198,7 +269,184 @@ export function InviteDialog({
           </Field>
 
           <Field label="Job title" htmlFor="roleTitle" hint="What they actually do.">
-            <Input id="roleTitle" name="roleTitle" placeholder="Graphic Designer" />
+            <Input id="roleTitle" name="roleTitle" placeholder="Graphic Designer" defaultValue={keep('roleTitle')} />
+          </Field>
+        </div>
+
+        {/* ══ WHERE THEY SIT IN THE COMPANY ═══════════════════════
+            Added 2026-09-12. Owner: "when adding a new team member, the
+            department should be coming from the department tables."
+
+            ⚠️ UNTIL NOW THE FORM DID NOT ASK. Somebody was invited, and their
+            department was set afterwards from a second action — so anybody who
+            forgot left a person filed nowhere, which is how four departments
+            came to hold nobody at all. */}
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field
+            label="Department"
+            htmlFor="departmentId"
+            hint={
+              departments.length === 0
+                ? 'None yet — create one with the button below.'
+                : 'Decides what they can open, and where their leads come from.'
+            }
+          >
+            <Select
+              size="md"
+              id="departmentId"
+              name="departmentId"
+              value={departmentId}
+              onChange={(e) => setPicked(e.target.value)}
+            >
+              <option value="">Not filed yet</option>
+              {departments.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                  {d.people > 0 ? ` — ${d.people}` : ' — empty'}
+                </option>
+              ))}
+            </Select>
+          </Field>
+
+          <Field
+            label="In that department they are a"
+            htmlFor="departmentRole"
+            hint="A manager sees everyone's work in it."
+          >
+            <Select
+              size="md"
+              id="departmentRole"
+              name="departmentRole"
+              defaultValue={keep('departmentRole', 'member')}
+            >
+              <option value="member">Member</option>
+              <option value="manager">Manager</option>
+            </Select>
+          </Field>
+        </div>
+
+        <div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => setNewDeptOpen((v) => !v)}
+          >
+            <Plus className="size-4" aria-hidden="true" />
+            New department
+          </Button>
+
+          {newDeptOpen && (
+            <div className="mt-2 rounded-lg border border-border-subtle bg-bg-subtle p-3">
+              <Field label="What is it called?" htmlFor="newDeptName">
+                <Input
+                  id="newDeptName"
+                  value={newDeptName}
+                  onChange={(e) => setNewDeptName(e.target.value)}
+                  placeholder="Procurement"
+                  onKeyDown={(e) => {
+                    /* ⚠️ Enter must NOT submit the invite behind it. */
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      void addDepartment();
+                    }
+                  }}
+                />
+              </Field>
+              {newDeptError && (
+                <p className="mt-1 text-caption" style={{ color: 'var(--feedback-error)' }}>
+                  {newDeptError}
+                </p>
+              )}
+              <div className="mt-2 flex gap-2">
+                <Button type="button" size="sm" onClick={() => void addDepartment()} disabled={savingDept}>
+                  {savingDept ? 'Adding…' : 'Add it'}
+                </Button>
+                <Button type="button" size="sm" variant="ghost" onClick={() => setNewDeptOpen(false)}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ⚠️ ONLY ONCE A DEPARTMENT IS CHOSEN, and free text on purpose. Q19:
+            the owner has not yet asked the sales team what they specialise in,
+            and agreed the field must not be invented meanwhile. So this imposes
+            no list. It becomes structured when real answers show a real
+            pattern, not before. */}
+        {showSpecialisation && (
+          <Field
+            label={`What does this person handle in ${chosen?.name}?`}
+            htmlFor="specialisation"
+            hint="Optional, and in your own words — products, a city, a budget range, a language."
+          >
+            <Input
+              id="specialisation"
+              name="specialisation"
+              placeholder="ERP enquiries, Islamabad, speaks Pashto"
+              defaultValue={keep('specialisation')}
+            />
+          </Field>
+        )}
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field
+            label="Reports to"
+            htmlFor="reportsToId"
+            hint="Who approves their leave, and sees their work."
+          >
+            <Select size="md" id="reportsToId" name="reportsToId" defaultValue={keep('reportsToId')}>
+              <option value="">Nobody yet</option>
+              {colleagues.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                  {c.department ? ` — ${c.department}` : ''}
+                </option>
+              ))}
+            </Select>
+          </Field>
+
+          <Field label="Joined on" htmlFor="joinedOn" hint="Optional. Used for tenure.">
+            <Input id="joinedOn" name="joinedOn" type="date" defaultValue={keep('joinedOn')} />
+          </Field>
+        </div>
+
+        {/* ⚠️ BOTH OR NEITHER — the action refuses one half. Half a working day
+            cannot answer "are they at work now", which is the only question
+            these exist for. See docs/crm/10-LEAD-ASSIGNMENT.md, signal 2. */}
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Working day starts" htmlFor="workStartsAt" hint="Optional. Their local time.">
+            <Input id="workStartsAt" name="workStartsAt" type="time" defaultValue={keep('workStartsAt')} />
+          </Field>
+          <Field label="and ends" htmlFor="workEndsAt" hint="Leave both empty if it varies.">
+            <Input id="workEndsAt" name="workEndsAt" type="time" defaultValue={keep('workEndsAt')} />
+          </Field>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field
+            label="How they check in"
+            htmlFor="attendanceMode"
+            hint="Terminal only means the office device, never the app."
+          >
+            <Select
+              size="md"
+              id="attendanceMode"
+              name="attendanceMode"
+              defaultValue={keep('attendanceMode', 'either')}
+            >
+              <option value="either">App or the office terminal</option>
+              <option value="terminal_only">Office terminal only</option>
+            </Select>
+          </Field>
+
+          <Field
+            label="Terminal ID"
+            htmlFor="devicePersonNo"
+            hint="Their number on the office device. Without it, terminal check-ins never match them."
+          >
+            <Input id="devicePersonNo" name="devicePersonNo" defaultValue={keep('devicePersonNo')} />
           </Field>
         </div>
 
@@ -213,7 +461,7 @@ export function InviteDialog({
             htmlFor="officeTeam"
             hint="Decides their day off, and their attendance."
           >
-            <Select size="md" id="officeTeam" name="officeTeam" defaultValue="blue_area" required>
+            <Select size="md" id="officeTeam" name="officeTeam" defaultValue={keep('officeTeam', 'blue_area')} required>
               {OFFICE_TEAM_KEYS.map((key) => (
                 <option key={key} value={key}>
                   {OFFICE_TEAMS[key].label} — {OFFICE_TEAMS[key].where} ({OFFICE_TEAMS[key].restDay})
@@ -223,7 +471,7 @@ export function InviteDialog({
           </Field>
 
           <Field label="Phone" htmlFor="phone" hint="Optional.">
-            <Input id="phone" name="phone" type="tel" inputMode="tel" placeholder="+92 300 1234567" />
+            <Input id="phone" name="phone" type="tel" inputMode="tel" placeholder="+92 300 1234567" defaultValue={keep('phone')} />
           </Field>
         </div>
 
@@ -236,10 +484,10 @@ export function InviteDialog({
             <Input
               id="weeklyCapacityPoints"
               name="weeklyCapacityPoints"
+              defaultValue={keep('weeklyCapacityPoints', String(SYSTEM_DEFAULTS.defaultWeeklyCapacity))}
               type="number"
               min="1"
               max="48"
-              defaultValue={SYSTEM_DEFAULTS.defaultWeeklyCapacity}
             />
           </Field>
 
@@ -251,10 +499,10 @@ export function InviteDialog({
             <Input
               id="maxConcurrentTasks"
               name="maxConcurrentTasks"
+              defaultValue={keep('maxConcurrentTasks', String(SYSTEM_DEFAULTS.defaultMaxConcurrentTasks))}
               type="number"
               min="1"
               max="20"
-              defaultValue={SYSTEM_DEFAULTS.defaultMaxConcurrentTasks}
             />
           </Field>
         </div>
@@ -275,6 +523,7 @@ export function InviteDialog({
               <Input
                 id="monthlySalary"
                 name="monthlySalary"
+                defaultValue={keep('monthlySalary')}
                 type="number"
                 min="0"
                 step="1000"

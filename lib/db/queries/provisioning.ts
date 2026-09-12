@@ -75,12 +75,31 @@ export async function createPerson(
      */
     officeTeam?: OfficeTeam;
     phone?: string | null;
+    /* ── ⚠️ EVERY FIELD BELOW IS OPTIONAL, FOR THE SAME REASON `officeTeam` IS ──
+       Making any of them required would break every existing caller — the
+       first-run setup route and the tests among them — for no benefit. Each
+       column is nullable (migration 131) and the database keeps its own
+       default, so an omitted field behaves exactly as it did before these
+       existed. That is what lets the invite form grow without anything else
+       noticing. */
+    departmentId?: string | null;
+    departmentRole?: 'manager' | 'member';
+    specialisation?: string | null;
+    workStartsAt?: string | null;
+    workEndsAt?: string | null;
+    joinedOn?: string | null;
+    reportsToId?: string | null;
+    attendanceMode?: 'either' | 'terminal_only';
+    devicePersonNo?: string | null;
   },
 ): Promise<string> {
   const rows = await withUser(actorId, (tx) => tx`
     insert into public.users (
       full_name, email, phone, role, role_title, account_state, is_active,
-      weekly_capacity_points, max_concurrent_tasks, office_team, created_by_id
+      weekly_capacity_points, max_concurrent_tasks, office_team, created_by_id,
+      department_id, department_role, specialisation,
+      work_starts_at, work_ends_at, joined_on, reports_to_id,
+      attendance_mode, device_person_no
     ) values (
       ${input.fullName.trim()},
       ${input.email.trim().toLowerCase()},
@@ -92,7 +111,16 @@ export async function createPerson(
       ${input.weeklyCapacityPoints},
       ${input.maxConcurrentTasks},
       ${input.officeTeam ?? 'blue_area'}::public.office_team,
-      ${actorId}
+      ${actorId},
+      ${input.departmentId ?? null},
+      ${input.departmentRole ?? 'member'}::public.department_role,
+      ${input.specialisation?.trim() || null},
+      ${input.workStartsAt || null}::time,
+      ${input.workEndsAt || null}::time,
+      ${input.joinedOn || null}::date,
+      ${input.reportsToId ?? null},
+      ${input.attendanceMode ?? 'either'}::public.attendance_mode,
+      ${input.devicePersonNo?.trim() || null}
     )
     returning id
   `);

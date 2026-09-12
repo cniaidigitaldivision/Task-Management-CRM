@@ -78,9 +78,27 @@ import { describeEmailFailure } from '@/lib/view/reset-trail';
  * back in the result either way, so it can always be delivered by hand.
  * ========================================================================= */
 
+/**
+ * What the invite form sent, handed back so a rejection does not empty it.
+ *
+ * ⚠️ THIS EXISTS BECAUSE REACT 19 RESETS A FORM AFTER ITS ACTION RUNS. With
+ * uncontrolled inputs the browser's values are gone by the time the error is
+ * rendered, so somebody who mistypes an email loses the other nine fields and
+ * types them again. Owner, 2026-09-12: *"in case some error occurs, the fields
+ * will not remove the value entered. I don't need to enter it again and again."*
+ *
+ * `app/(auth)/setup/setup-form.tsx` already solved this the same way; the invite
+ * dialog was simply never given it.
+ */
+export interface InviteEcho {
+  readonly [field: string]: string;
+}
+
 export interface TeamActionResult {
   readonly ok: boolean;
   readonly error?: string;
+  /** Every field as submitted, so a failed invite can be corrected not retyped. */
+  readonly sent?: InviteEcho;
   /** Shown so an invitation can be delivered by hand when mail is not working. */
   readonly activationUrl?: string;
   readonly emailNote?: string;
@@ -129,6 +147,23 @@ export async function invitePersonAction(
   const user = await requireUser();
   const actor = { role: user.role, id: user.id };
 
+  /* ── ⚠️ EVERYTHING THE FORM SENT, CAPTURED BEFORE THE FIRST VALIDATION ────
+     Every `return` below carries this back, so a rejection corrects one field
+     instead of emptying ten. Captured here rather than at each exit because a
+     single missed exit is exactly the bug this is fixing. */
+  const FIELDS = [
+    'fullName', 'email', 'role', 'roleTitle', 'officeTeam', 'phone',
+    'weeklyCapacityPoints', 'maxConcurrentTasks', 'monthlySalary',
+    'departmentId', 'departmentRole', 'specialisation',
+    'workStartsAt', 'workEndsAt', 'joinedOn', 'reportsToId',
+    'attendanceMode', 'devicePersonNo',
+  ] as const;
+  const sent: Record<string, string> = {};
+  for (const f of FIELDS) sent[f] = str(form, f);
+  /* ⚠️ Shadows the module-level `fail` inside this action ONLY. Every other
+     action in this file keeps the plain one — they have no form to preserve. */
+  const fail = (error: string): TeamActionResult => ({ ok: false, error, sent });
+
   if (!can(actor, 'user.create')) {
     return fail('Only an Admin can add people to the team (doc 03 §3.1).');
   }
@@ -171,6 +206,30 @@ export async function invitePersonAction(
 
   const phone = str(form, 'phone');
 
+  /* ── The person's record, added 2026-09-12 (migration 131) ─────────────────
+     ⚠️ EVERY ONE OF THESE IS OPTIONAL AND NULLABLE. An invite that fills in
+     none of them behaves exactly as it did before they existed — which is the
+     whole reason the form could grow without the setup route, the tests or any
+     existing caller noticing. */
+  const departmentId = str(form, 'departmentId') || null;
+  const departmentRole = str(form, 'departmentRole') === 'manager' ? 'manager' : 'member';
+  const specialisation = str(form, 'specialisation') || null;
+  const joinedOn = str(form, 'joinedOn') || null;
+  const reportsToId = str(form, 'reportsToId') || null;
+  const devicePersonNo = str(form, 'devicePersonNo') || null;
+  const attendanceMode = str(form, 'attendanceMode') === 'terminal_only' ? 'terminal_only' : 'either';
+
+  const workStartsAt = str(form, 'workStartsAt') || null;
+  const workEndsAt = str(form, 'workEndsAt') || null;
+  /* ⚠️ Both or neither. One half of a working day cannot answer "are they at
+     work now", which is the only question these two exist to answer. */
+  if ((workStartsAt === null) !== (workEndsAt === null)) {
+    return fail('Give both a start and an end time for their working day, or leave both empty.');
+  }
+  if (workStartsAt && workEndsAt && workStartsAt >= workEndsAt) {
+    return fail('Their working day has to end after it starts.');
+  }
+
   /* ── ⚠️ SALARY IS OPTIONAL HERE, AND ADMIN-ONLY EVERYWHERE ────────────────
      Optional because an invite should not be blocked on a figure that may not
      be agreed yet — the person can be added and paid later.
@@ -201,6 +260,15 @@ export async function invitePersonAction(
       maxConcurrentTasks: maxTasks,
       officeTeam,
       phone: phone || null,
+      departmentId,
+      departmentRole,
+      specialisation,
+      workStartsAt,
+      workEndsAt,
+      joinedOn,
+      reportsToId,
+      attendanceMode,
+      devicePersonNo,
     });
   } catch {
     return fail(
