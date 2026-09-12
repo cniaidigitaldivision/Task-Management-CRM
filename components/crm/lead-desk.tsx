@@ -15,6 +15,8 @@ import {
 
 import { ShareOutControl } from '@/components/crm/lead-actions';
 import { SalesTeamPanel } from '@/components/crm/sales-team';
+/* ⚠️⚠️ TEMPORARY — delete with the block that uses it. See below. */
+import { TestLeadButton } from '@/components/crm/test-lead-modal';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { PageHeader } from '@/components/ui/page-header';
@@ -208,6 +210,15 @@ export function LeadDesk({
             active={filters.stage}
             onPick={(stage) => setParam('stage', filters.stage === stage ? null : stage)}
           />
+
+          {/* ⚠️⚠️ TEMPORARY — DELETE THIS BLOCK, ITS IMPORT, `components/crm/
+              test-lead-modal.tsx` AND `app/actions/crm-test-lead.ts` WHEN THE
+              TESTING IS DONE. Owner, 2026-09-12: "I will remove this once I make
+              sure that the thing or the system is working smartly."
+
+              Only on the demo project, and the SERVER re-checks that on every
+              call — a hidden button is not a permission. */}
+          {selected?.name.endsWith('[demo]') && <TestLeadButton projectId={selected.id} />}
 
           {/* ⚠️ ONLY FOR SOMEBODY WHO MAY HAND LEADS OUT. A salesperson seeing
               "312 leads have nobody working them" would be told about work they
