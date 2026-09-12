@@ -156,7 +156,7 @@ export async function invitePersonAction(
     'weeklyCapacityPoints', 'maxConcurrentTasks', 'monthlySalary',
     'departmentId', 'departmentRole', 'specialisation',
     'workStartsAt', 'workEndsAt', 'joinedOn', 'reportsToId',
-    'attendanceMode', 'devicePersonNo',
+    'attendanceMode', 'devicePersonNo', 'address',
   ] as const;
   const sent: Record<string, string> = {};
   for (const f of FIELDS) sent[f] = str(form, f);
@@ -217,6 +217,7 @@ export async function invitePersonAction(
   const joinedOn = str(form, 'joinedOn') || null;
   const reportsToId = str(form, 'reportsToId') || null;
   const devicePersonNo = str(form, 'devicePersonNo') || null;
+  const address = str(form, 'address') || null;
   const attendanceMode = str(form, 'attendanceMode') === 'terminal_only' ? 'terminal_only' : 'either';
 
   const workStartsAt = str(form, 'workStartsAt') || null;
@@ -269,6 +270,7 @@ export async function invitePersonAction(
       reportsToId,
       attendanceMode,
       devicePersonNo,
+      address,
     });
   } catch {
     return fail(

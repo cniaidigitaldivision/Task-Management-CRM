@@ -180,3 +180,56 @@ export async function listColleaguesAction(): Promise<
     return [];
   }
 }
+
+/**
+ * Remove a department — ONLY while nothing depends on it.
+ *
+ * Owner, 2026-09-12: *"also add a Delete Department option."*
+ *
+ * ⚠️ REFUSED WHILE ANYBODY IS IN IT, OR ANY PROJECT ROUTES LEADS TO IT, and the
+ * refusal says which. `users.department_id` and `projects.lead_department_id`
+ * both point here: deleting underneath them would either orphan people from
+ * every department-scoped rule they rely on, or — for a lead-routed project —
+ * silently shut the CRM to whoever worked it, which is the bug migration 129
+ * already cost a day of.
+ *
+ * So the empty ones can go, which is the real case: four departments were
+ * created by a migration and have never held anybody. A department with history
+ * keeps it, and the message says how to empty it first.
+ */
+export async function deleteDepartmentAction(id: string): Promise<DepartmentResult> {
+  const user = await requireUser();
+  if (user.role !== 'admin' && user.role !== 'super_admin') {
+    return { ok: false, error: 'Only an Admin can remove a department.' };
+  }
+
+  try {
+    const [counts] = (await withUser(user.id, (tx) => tx`
+      select
+        (select count(*) from public.users u where u.department_id = ${id}::uuid) as people,
+        (select count(*) from public.projects p where p.lead_department_id = ${id}::uuid) as projects,
+        (select name from public.departments d where d.id = ${id}::uuid) as name
+    `)) as Array<Record<string, unknown>>;
+
+    if (!counts?.name) return { ok: false, error: 'That department no longer exists.' };
+
+    const people = Number(counts.people ?? 0);
+    const projects = Number(counts.projects ?? 0);
+
+    if (people > 0 || projects > 0) {
+      const parts: string[] = [];
+      if (people > 0) parts.push(`${people} ${people === 1 ? 'person is' : 'people are'} in it`);
+      if (projects > 0) parts.push(`${projects} ${projects === 1 ? 'project routes its leads' : 'projects route their leads'} to it`);
+      return {
+        ok: false,
+        error: `"${String(counts.name)}" cannot be removed — ${parts.join(', and ')}. Move them first.`,
+      };
+    }
+
+    await withUser(user.id, (tx) => tx`delete from public.departments where id = ${id}::uuid`);
+    revalidatePath('/team');
+    return { ok: true };
+  } catch {
+    return { ok: false, error: 'That department could not be removed.' };
+  }
+}

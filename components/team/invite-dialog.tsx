@@ -2,10 +2,11 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { AlertTriangle, CheckCircle2, Copy, Loader2, Mail, Plus, UserPlus } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Copy, Loader2, Mail, Plus, Trash2, UserPlus } from 'lucide-react';
 
 import {
   createDepartmentAction,
+  deleteDepartmentAction,
   listColleaguesAction,
   listDepartmentsAction,
 } from '@/app/actions/departments';
@@ -14,7 +15,8 @@ import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
 import { Field, Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
-import { OFFICE_TEAMS, OFFICE_TEAM_KEYS } from '@/lib/domain/attendance';
+import { CHECK_IN_MINUTES, CHECK_OUT_MINUTES, OFFICE_TEAMS, OFFICE_TEAM_KEYS } from '@/lib/domain/attendance';
+import { MODE_META } from '@/lib/domain/attendance-device';
 import { ROLE_LABEL, SYSTEM_DEFAULTS, type Role } from '@/lib/domain/constants';
 
 /* ============================================================================
@@ -73,6 +75,33 @@ export function InviteDialog({
      a second render pass, and the first open starts empty. */
   const [picked, setPicked] = React.useState<string | null>(null);
   const departmentId = picked ?? state.sent?.departmentId ?? '';
+
+  /* ── ⚠️ WHAT THE FORM FILLS IN FOR YOU ────────────────────────────
+     Owner, 2026-09-12: *"The system should be smart enough. I don't want to add
+     each and everything by myself. It should be auto-added. If I want to edit,
+     definitely I will."*
+
+     ⚠️ THE HOURS ARE READ FROM THE ATTENDANCE DOMAIN, NOT INVENTED HERE.
+     `CHECK_IN_MINUTES` is 10:00 and `CHECK_OUT_MINUTES` is 18:00 — the same
+     constants that decide who is late and when an absence settles. A second
+     pair of numbers typed into this file would be a second source of truth that
+     drifts the first time somebody changes the working day.
+
+     ⚠️ AND THEY DO NOT VARY BY OFFICE. `attendance.ts` records the owner's own
+     answer: *"The timings of both teams are the same."* Blue Area and Wah differ
+     only in which DAY they rest, which is why the office field shows the rest
+     day rather than a second set of hours. */
+  const hhmm = (minutes: number) =>
+    `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+  const DEFAULT_IN = hhmm(CHECK_IN_MINUTES);
+  const DEFAULT_OUT = hhmm(CHECK_OUT_MINUTES);
+  /* Today, in the viewer's own date, for the joining date. */
+  const TODAY = new Date().toLocaleDateString('en-CA');
+
+  const [officeTeam, setOfficeTeam] = React.useState<string | null>(null);
+  const office = OFFICE_TEAMS[(officeTeam ?? state.sent?.officeTeam ?? 'blue_area') as 'blue_area' | 'wah'];
+
+  const [deletingDept, setDeletingDept] = React.useState(false);
   const [newDeptOpen, setNewDeptOpen] = React.useState(false);
   const [newDeptName, setNewDeptName] = React.useState('');
   const [newDeptError, setNewDeptError] = React.useState<string | null>(null);
@@ -111,6 +140,22 @@ export function InviteDialog({
     if (result.id) setPicked(result.id);
     setNewDeptName('');
     setNewDeptOpen(false);
+  }
+
+  async function removeDepartment() {
+    if (!chosen) return;
+    setDeletingDept(true);
+    setNewDeptError(null);
+    const result = await deleteDepartmentAction(chosen.id);
+    setDeletingDept(false);
+    if (!result.ok) {
+      /* ⚠️ Shown, never swallowed. The refusal names what is still attached,
+         which is the only useful thing it could say. */
+      setNewDeptError(result.error ?? 'That did not work.');
+      return;
+    }
+    setDepartments(await listDepartmentsAction());
+    setPicked('');
   }
 
   /* Does this department work leads? Then ask what the person handles.
@@ -300,29 +345,49 @@ export function InviteDialog({
             >
               <option value="">Not filed yet</option>
               {departments.map((d) => (
+                /* ⚠️ NAME ONLY. The headcount was here and the owner removed it:
+                   *"The number of employees in that department in a dropdown is
+                   not needed."* It answered a question nobody asks while
+                   filing one person. */
                 <option key={d.id} value={d.id}>
                   {d.name}
-                  {d.people > 0 ? ` — ${d.people}` : ' — empty'}
                 </option>
               ))}
             </Select>
           </Field>
 
-          <Field
-            label="In that department they are a"
-            htmlFor="departmentRole"
-            hint="A manager sees everyone's work in it."
-          >
-            <Select
-              size="md"
-              id="departmentRole"
-              name="departmentRole"
-              defaultValue={keep('departmentRole', 'member')}
-            >
-              <option value="member">Member</option>
-              <option value="manager">Manager</option>
-            </Select>
-          </Field>
+          {/* ⚠️ A CHECKBOX, NOT A SECOND DROPDOWN OF THE SAME WORDS. This was a
+              Member/Manager select beside a Role select that also says "Member",
+              and the owner read it as the same question twice: *"they are the
+              same thing, right? Why did you add them as separators?"*
+
+              They are not the same — `users.role` is authority over the
+              APPLICATION and `department_role` is seniority INSIDE a department,
+              which is how a sales manager stays a Member and still runs their
+              team (ADR-002, ADR-012). But two dropdowns offering the word
+              "Member" is a terrible way to say that, and deleting the field
+              outright would leave no way to appoint a manager at all — which
+              `crmReportsOpenTo()` and the lead rota both read.
+
+              One tick, only once a department is chosen, where it cannot be
+              mistaken for the rank above it. */}
+          {chosen && (
+            <Field label={`Seniority in ${chosen.name}`} htmlFor="departmentRole">
+              <label className="flex items-center gap-2 py-2">
+                <input
+                  type="checkbox"
+                  id="departmentRole"
+                  name="departmentRole"
+                  value="manager"
+                  defaultChecked={keep('departmentRole') === 'manager'}
+                  className="size-4 accent-[var(--brand-primary)]"
+                />
+                <span className="text-body text-text-primary">
+                  They manage {chosen.name}
+                </span>
+              </label>
+            </Field>
+          )}
         </div>
 
         <div>
@@ -335,6 +400,23 @@ export function InviteDialog({
             <Plus className="size-4" aria-hidden="true" />
             New department
           </Button>
+
+          {/* ⚠️ ONLY FOR THE ONE CURRENTLY CHOSEN, and the action refuses it if
+              anybody is in it or any project routes leads to it — naming which.
+              So the four that have never held anybody can go, and one with
+              history cannot be removed underneath the people in it. */}
+          {chosen && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => void removeDepartment()}
+              disabled={deletingDept}
+            >
+              <Trash2 className="size-4" aria-hidden="true" />
+              {deletingDept ? 'Removing…' : `Remove ${chosen.name}`}
+            </Button>
+          )}
 
           {newDeptOpen && (
             <div className="mt-2 rounded-lg border border-border-subtle bg-bg-subtle p-3">
@@ -407,20 +489,38 @@ export function InviteDialog({
             </Select>
           </Field>
 
-          <Field label="Joined on" htmlFor="joinedOn" hint="Optional. Used for tenure.">
-            <Input id="joinedOn" name="joinedOn" type="date" defaultValue={keep('joinedOn')} />
+          {/* ⚠️ TODAY BY DEFAULT — owner: *"Join On Date should auto-select
+              today."* Almost every invite is somebody starting now, and the
+              rare back-dated one is one click to change. */}
+          <Field label="Joined on" htmlFor="joinedOn" hint="Today, unless you change it.">
+            <Input id="joinedOn" name="joinedOn" type="date" defaultValue={keep('joinedOn', TODAY)} />
           </Field>
         </div>
 
-        {/* ⚠️ BOTH OR NEITHER — the action refuses one half. Half a working day
-            cannot answer "are they at work now", which is the only question
-            these exist for. See docs/crm/10-LEAD-ASSIGNMENT.md, signal 2. */}
+        {/* ⚠️ FILLED IN ALREADY, from the same constants the attendance system
+            uses to decide who is late. Both or neither — the action refuses one
+            half, because half a working day cannot answer "are they at work
+            now", which is the only question these exist for. */}
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Working day starts" htmlFor="workStartsAt" hint="Optional. Their local time.">
-            <Input id="workStartsAt" name="workStartsAt" type="time" defaultValue={keep('workStartsAt')} />
+          <Field
+            label="Working day starts"
+            htmlFor="workStartsAt"
+            hint={`${office.label}: ${office.days}, ${office.restDay}.`}
+          >
+            <Input
+              id="workStartsAt"
+              name="workStartsAt"
+              type="time"
+              defaultValue={keep('workStartsAt', DEFAULT_IN)}
+            />
           </Field>
-          <Field label="and ends" htmlFor="workEndsAt" hint="Leave both empty if it varies.">
-            <Input id="workEndsAt" name="workEndsAt" type="time" defaultValue={keep('workEndsAt')} />
+          <Field label="and ends" htmlFor="workEndsAt" hint="The standard day. Change it if theirs differs.">
+            <Input
+              id="workEndsAt"
+              name="workEndsAt"
+              type="time"
+              defaultValue={keep('workEndsAt', DEFAULT_OUT)}
+            />
           </Field>
         </div>
 
@@ -430,25 +530,40 @@ export function InviteDialog({
             htmlFor="attendanceMode"
             hint="Terminal only means the office device, never the app."
           >
+            {/* ⚠️ THE LABELS COME FROM `MODE_META`, AND MY OWN WERE THE BUG. I
+                wrote "App or the office terminal", which reads as *pick one* —
+                so the owner asked for a third option meaning "both". There are
+                only two modes because `either` ALREADY means both are allowed;
+                adding a third would invent a mode the attendance system does
+                not enforce anywhere. The real names say so plainly. */}
             <Select
               size="md"
               id="attendanceMode"
               name="attendanceMode"
               defaultValue={keep('attendanceMode', 'either')}
             >
-              <option value="either">App or the office terminal</option>
-              <option value="terminal_only">Office terminal only</option>
+              <option value="either">{MODE_META.either.label} — both work</option>
+              <option value="terminal_only">{MODE_META.terminal_only.label}</option>
             </Select>
           </Field>
 
           <Field
             label="Terminal ID"
             htmlFor="devicePersonNo"
-            hint="Their number on the office device. Without it, terminal check-ins never match them."
+            hint="Optional — set it later from Attendance if you do not know it yet."
           >
             <Input id="devicePersonNo" name="devicePersonNo" defaultValue={keep('devicePersonNo')} />
           </Field>
         </div>
+
+        {/* ⚠️ OPTIONAL, AND FREE TEXT. Owner: *"their address field is still
+            missing. You can add it but that should be optional."* Not split into
+            house / street / sector: an address here is as likely to read
+            "House 12-B, Street 4, G-11/3" as anything a form can decompose, and
+            splitting it makes it neat rather than correct. */}
+        <Field label="Address" htmlFor="address" hint="Optional.">
+          <Input id="address" name="address" placeholder="House 12-B, Street 4, G-11/3, Islamabad" defaultValue={keep('address')} />
+        </Field>
 
         <div className="grid gap-4 sm:grid-cols-2">
           {/* ── ⚠️ THE OFFICE IS NOT COSMETIC ────────────────────────────────
@@ -461,7 +576,14 @@ export function InviteDialog({
             htmlFor="officeTeam"
             hint="Decides their day off, and their attendance."
           >
-            <Select size="md" id="officeTeam" name="officeTeam" defaultValue={keep('officeTeam', 'blue_area')} required>
+            <Select
+              size="md"
+              id="officeTeam"
+              name="officeTeam"
+              value={officeTeam ?? keep('officeTeam', 'blue_area')}
+              onChange={(e) => setOfficeTeam(e.target.value)}
+              required
+            >
               {OFFICE_TEAM_KEYS.map((key) => (
                 <option key={key} value={key}>
                   {OFFICE_TEAMS[key].label} — {OFFICE_TEAMS[key].where} ({OFFICE_TEAMS[key].restDay})

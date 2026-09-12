@@ -91,6 +91,7 @@ export async function createPerson(
     reportsToId?: string | null;
     attendanceMode?: 'either' | 'terminal_only';
     devicePersonNo?: string | null;
+    address?: string | null;
   },
 ): Promise<string> {
   const rows = await withUser(actorId, (tx) => tx`
@@ -99,7 +100,7 @@ export async function createPerson(
       weekly_capacity_points, max_concurrent_tasks, office_team, created_by_id,
       department_id, department_role, specialisation,
       work_starts_at, work_ends_at, joined_on, reports_to_id,
-      attendance_mode, device_person_no
+      attendance_mode, device_person_no, address
     ) values (
       ${input.fullName.trim()},
       ${input.email.trim().toLowerCase()},
@@ -120,7 +121,8 @@ export async function createPerson(
       ${input.joinedOn || null}::date,
       ${input.reportsToId ?? null},
       ${input.attendanceMode ?? 'either'}::public.attendance_mode,
-      ${input.devicePersonNo?.trim() || null}
+      ${input.devicePersonNo?.trim() || null},
+      ${input.address?.trim() || null}
     )
     returning id
   `);
