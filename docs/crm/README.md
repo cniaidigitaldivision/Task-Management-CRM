@@ -16,6 +16,7 @@ reference.
 | `07-AI-PLAN.md` | What the AI can honestly do, in what order, and what it needs first. |
 | `08-TWELVE-STEPS.md` | **The build order.** Twelve shippable steps, four modules, and what each needs from the owner. |
 | `09-DATABASE-MANAGEMENT.md` | Growth, indexes, backups, retention, and the rules the data follows. |
+| `10-LEAD-ASSIGNMENT.md` | **How leads are handed out, and the honest answer to "is that AI?"** The four signals to add, and the one to leave out. |
 
 ---
 

@@ -202,9 +202,37 @@ The owner said: engagement, a quotation accepted, or work starting. For the syst
 this has to be one moment. **Is it reaching the "Won" stage, or a separate
 "convert to client" action a person takes?**
 
-### Q18 · Personal data and the AI
+### Q19 · What does each salesperson specialise in? — ✅ ANSWERED 2026-09-12: NOTHING
 
-Calling OpenAI sends a lead's name and phone number outside our servers. It can be
-avoided — the same features work with identifiers stripped. **Do you want names
-and numbers sent, or stripped before the call?**
+Owner: *"this type of any specific specialization, I didn't ask for sale persons
+like that. I don't know anyone and I have no knowledge of that."*
+
+**Step 7c is closed, not parked.** There is no specialisation to match on, so
+nothing will pretend there is. `10-LEAD-ASSIGNMENT.md` deliberately builds a
+router that uses none — its four signals are workload, response speed,
+availability and recent activity, all of which the system already holds.
+
+⚠️ **Do not invent the field.** A `specialisation` column filled in by guesswork
+would route real leads on made-up information, and it would look authoritative
+while doing it. Revisit only if the owner later says a real one exists — most
+likely after the team restructuring, when Sales has actual people in it.
+
+### Q18 · Personal data and the AI — ✅ ANSWERED 2026-09-12: STRIP THEM
+
+Owner: *"Name and their number to Open AI, right? No, for right now."*
+
+**No name and no phone number leaves our servers.** The form answers and the
+notes go; identifiers are replaced with a placeholder and substituted back
+locally after the model replies.
+
+⚠️ **This costs almost nothing.** Of every planned AI feature, only the drafted
+message genuinely wants a name — and `Assalam o Alaikum {{name}}` with a local
+substitution produces an identical result. The summary, the talking points, the
+quality flags and every per-person analysis need no identifier at all. The
+phone number has **no use whatsoever**: the model never dials anyone.
+
+⚠️ **And the larger version of this question is still open.** Reading WhatsApp
+conversations (Tier C) sends far more than a name — what somebody can afford,
+their family situation, why they are moving. That is a separate decision and
+must not be settled by precedent from this one. See `07-AI-PLAN.md`.
 

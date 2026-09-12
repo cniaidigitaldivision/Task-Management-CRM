@@ -4,12 +4,61 @@
 
 | | |
 |---|---|
-| **Branch** | `crm` (from `main` at `0726704`) |
-| **Route** | `/leads` · nav: Growth → Campaign & Lead Desk |
-| **Phase** | ⏸️ **PAUSED 2026-09-10, at Steps 1–10 of 12.** Everything that can be built without Meta has been. What is left is blocked, not unfinished — see the section below. | The desk saves, the CRM belongs to the **Sales department**, and leads are handed out — by hand or shared across the team automatically. Step 7b (what the manager sees) is next and needs nothing. |
-| **Scope** | ⚠️ **Chitral Royal Homes only.** One project, end to end. |
-| **Last updated** | 2026-09-10 |
-| **Last migration applied anywhere** | **128.** CRM next: 129. |
+| **Branch** | ⚠️ **`main`.** The CRM was merged and deployed 2026-09-12; `crm` still exists but is behind. |
+| **Route** | `/leads` · `/clients` · `/lead-reports` · nav: Growth → Campaign & Lead Desk |
+| **Phase** | ⏸️ **PAUSED 2026-09-12, at Steps 1–10 of 12 — LIVE IN PRODUCTION.** The desk works, the importer runs itself, and a demo testbed exists for proving the rest. Paused by the owner to restructure the company's teams first. |
+| **Scope** | Chitral Royal Homes (real, 625 leads) + a removable demo project for testing. |
+| **Last updated** | 2026-09-12 |
+| **Last migration applied anywhere** | **130.** CRM next: 131. |
+
+---
+
+## ⏸️ PAUSED — read this before starting anything
+
+**Paused 2026-09-12 by the owner**, to restructure the company's teams before
+any more CRM work.
+
+> *"Right now just one team, the AI and Digital team, is implemented. No finance
+> team, no sales team, no HR team, and no other team… Not even their form is
+> properly working so I want that to be properly working first. Then I will come
+> back to this CRM and maybe it will be easier for me to tell you which things I
+> will assign to which."*
+
+⚠️ **THIS IS THE RIGHT ORDER, AND THE CRM IS THE REASON.** Every unanswered
+question left in this file is a question about PEOPLE: who specialises in what,
+who a lead should go to, who may read a report. The CRM cannot answer any of
+them while Sales, Finance and HR exist as rows in a `departments` table with
+nobody meaningfully in them. Restructuring the teams is not a detour from this
+work — it is the input this work is waiting on.
+
+**The next work happens on a new branch** (`team-restructuring` or similar),
+which merges to `main` before the CRM resumes. Nothing here is half-built:
+everything committed is deployed, tested and working.
+
+### ⛔ Still genuinely blocked, and on what
+
+| Blocked | Waiting on | Workaround |
+|---|---|---|
+| **WhatsApp sending** | ⚠️ **Business verification — applied for, ~12 days as of 2026-09-12.** Meta refuses to add a test recipient until the business is verified. | The `wa.me` link works today. Receiving is already proven. |
+| **Step 12 · campaign vs staff** | Weeks of real use. Nothing is closed. | None, and honestly so. |
+| **Step 7c · specialisation matching** | ⚠️ **Answered and PARKED** — owner, 2026-09-12: *"this type of any specific specialization, I didn't ask for sale persons like that. I don't know anyone and I have no knowledge of that."* | ✅ **Not needed.** The four-signal router in `10-LEAD-ASSIGNMENT.md` uses none of it. |
+
+### ✅ Unblocked and waiting to be built
+
+All of this can start the moment the team restructuring is done — none of it
+needs Meta, WhatsApp, or a single closed lead:
+
+1. **The four-signal router** — see `10-LEAD-ASSIGNMENT.md`. The honest answer
+   to *"is one check enough to call this AI?"* and what to do about it.
+2. **Live updates on the desk** — a lead appearing at the top of the table
+   without a refresh.
+3. **Manager and salesperson dashboards** — their own pages, rather than a panel
+   under the list.
+4. **The importer-failure alert** — still the oldest open gap. If the Meta token
+   breaks, `crm_lead_sync_runs.errors` records it and nobody is told.
+5. **Step 11 · per-lead AI** — the key is in the Vault and Q18 is answered.
+
+---
 
 ---
 
@@ -64,6 +113,91 @@ notification kinds and the hourly job already exist.
 2. Check whether Meta verification has landed. If not, nothing above changes.
 3. Do the ERP/Taskly projects, which need nobody but an Admin.
 4. `08-TWELVE-STEPS.md` has the order and the reasoning for everything else.
+
+---
+
+## ⚠️ 2026-09-12 — THE DAY IT WENT LIVE, AND FIVE BUGS ONLY A REAL USER FOUND
+
+The single most important entry in this file. Everything below was found by the
+owner logging in as the people the software is *for* — which nobody had ever
+done, because every previous check was made from an Admin session.
+
+### It is deployed, and the importer was never broken
+
+`pg_cron` had been firing every fifteen minutes and getting a **404** since
+2026-09-09. The diagnosis took one comparison:
+
+| Endpoint | Response | Meaning |
+|---|---|---|
+| `/api/meta-sync` | 401 | route exists, refused a missing token |
+| `/api/crm/lead-sync` | **404** | route does not exist |
+
+Production served `main`; every line of the CRM lived on `crm`. Not an API
+fault, not a token, not Meta — **the CRM had never been deployed.** Merged
+(cleanly) and released; the very next cron run returned 200 and imported
+**8 new leads and 2 forms** nobody had seen. It has run clean every 15 minutes
+since.
+
+⚠️ **AND META'S DELETION IS NO LONGER THEORETICAL.** The 553-lead form read 537
+three days later. Exactly 16 of our leads had passed 90 days — the arithmetic
+closes: 615 held − 16 deleted + 8 missing = 607, which is what Meta reported.
+**Those 16 people now exist only in our database.** The backfill of 9 September
+has paid for itself, visibly.
+
+### ⚠️ THE SAME BUG, FIVE TIMES, ON FIVE TABLES
+
+`projects_select` is `app.project_is_visible(id)` — it needs project
+**MEMBERSHIP**. A salesperson is not a member of the project whose leads they
+work; that is the *premise* of department routing. Every time a query touches
+`projects` on their behalf, it returns nothing, and **RLS failing closed reads
+as "no data" rather than "not allowed"**:
+
+| # | Migration | What broke | How it looked |
+|---|---|---|---|
+| 1 | 105 | remark authors | "Former member" |
+| 2 | 121 | lead owner names | "Former member" |
+| 3 | 125 | the project dropdown | *"No projects are visible to you yet"* above 615 readable leads |
+| 4 | **129** | **`getCurrentDepartment`** | **the whole CRM was unreachable** — no nav item, and `requireCrmAccess` redirected the sales team away |
+| 5 | **130** | **`getCrmLead`** | **every lead 404'd** for its own owner |
+
+⚠️ **NUMBER 4 MEANS THE SALES TEAM COULD NEVER OPEN THE CRM AT ALL.**
+`getCurrentDepartment` asked through `withAppRole` — no `app.user_id` — so
+`users_select` hid every row and it returned `NO_DEPARTMENT`. And even with a
+session set, the `EXISTS` over `projects` was false anyway. Two independent
+faults, either sufficient alone.
+
+⚠️ **NUMBER 5 MEANS THE LEAD RECORD HAD NEVER WORKED FOR ANYBODY IT WAS FOR.**
+Not "worked then broke" — every lead, every salesperson, since Step 5. The bell
+said a lead was theirs and the link 404'd. The owner diagnosed it from the
+symptom alone: *"it was showing that the project actually does not exist."*
+
+⚠️ **WHY ALL FIVE SURVIVED: `crmIsOpenTo()` SHORT-CIRCUITS ON RANK.** An Admin
+is a member of nothing and sees everything, so an Admin session cannot reach any
+of these paths. **A screen signed off from an Admin account has not been tested.**
+
+### And what else changed
+
+- **The demo testbed** — `scripts/seed-crm-demo.mjs`. 18 leads about our own
+  products on their own Sales-routed project, three designed tester profiles,
+  `--remove` clears it. ⚠️ Sixteen carry `(demo — no number)` so they are
+  **unmessageable by construction**; only two hold the owner's own handset.
+- **A temporary test form** on the desk — admin-only, demo-project-only, stands
+  in for a Meta lead arriving so the rota can be watched deciding. ⚠️ **Marked
+  for deletion in all three files.**
+- **"All leads" chip** on the stage strip. The toggle always existed; nothing on
+  screen said so.
+- **Lead reports narrowed to managers** — `crmReportsOpenTo()`. They name and
+  compare people.
+- **The WhatsApp webhook is proven on both halves** — the GET handshake echoes
+  byte-exactly, and a correctly-signed POST returns `EVENT_RECEIVED`. ⚠️ Green
+  in Meta only ever proves the GET; a wrong `META_APP_SECRET` verifies fine and
+  then rejects every real message with a 403 that surfaces nowhere.
+
+⚠️ **AND ONE FALSE ALARM, RECORDED SO IT IS NOT REPEATED.** `META_APP_SECRET`
+was reported as mismatched and the owner was sent to re-copy a correct value.
+The fault was a naive `.env.local` parser keeping a trailing `# comment` as part
+of the value. **Parse the way dotenv does — quoted group first — or a
+diagnostic tool confidently blames a credential that was always right.**
 
 ---
 
@@ -596,6 +730,17 @@ see not just what was decided but when and why.
 | 2026-09-10 | Who may hand out a lead | **The sales manager and an Admin.** A salesperson cannot push a lead onto a colleague — migration 120's trigger. |
 | 2026-09-10 | A third sales tester | Owner added **Sale 2 tester** so assignment between two salespeople can be exercised: *"I definitely need one more sales tester… so you can implement all these things in a proper intelligent way."* |
 | 2026-09-10 | Schema stays multi-project | ⚠️ The TABLES keep `project_id` even though only one project is used. Hardcoding one project would make "later on I will do the same thing for the other projects" a rewrite instead of a row. Costs nothing now; saves the whole second build. |
+| 2026-09-12 | ⚠️ **Deploy, not a fix** | The importer's 404 was never a fault. Production served `main`; the CRM lived on `crm` and had never been released. Merged and deployed; the next cron run imported the 8 stranded leads by itself. |
+| 2026-09-12 | ⚠️ **Q18 — personal data and the AI. ANSWERED: STRIP IT** | Owner: *"Name and their number to Open AI, right? No, for right now."* **No name and no phone number leaves our servers.** The answers and notes go; identifiers are replaced with a placeholder and substituted back locally. Costs almost nothing — the only feature that genuinely wants a name is the drafted message, and `{{name}}` handles that. |
+| 2026-09-12 | ⚠️ **Q13/7c — specialisation. ANSWERED: THERE ISN'T ONE** | Owner: *"this type of any specific specialization, I didn't ask for sale persons like that. I don't know anyone and I have no knowledge of that."* Step 7c is **closed, not parked**. The router in `10-LEAD-ASSIGNMENT.md` deliberately uses no specialisation field. Revisit only if the owner later says one exists. |
+| 2026-09-12 | **Lead reports are the manager's** | Owner: *"lead reports will not be seen by the salesperson… the sales manager should see it. Also admin/super admin by default will see everything."* `crmReportsOpenTo()` — Admin, Super Admin, or the **manager** of a department the leads route to. Keyed off `department_role`, never `users.role`. |
+| 2026-09-12 | ⚠️ **The sales manager stays a `member` — a promotion was DECLINED with reasons** | The owner asked to raise them to `team_coordinator`. That rank also unlocks **Finance — invoices, payments, expenses, payroll** — plus Workload and the company's Reports. The narrow grant they actually wanted was the reports, and `department_role` already delivered it. ADR-002 and ADR-012 stand. ⚠️ If the owner reaffirms after the team restructuring, do it knowingly. |
+| 2026-09-12 | **Test on our own business, never a client's** | Owner: *"Chitral Royal Homes or any other project is my client. I can't use their data for testing purposes. I will use my own."* The demo project, its 18 leads and the test form all exist for this. **Client data is captured and kept; it is never the material we experiment on.** |
+| 2026-09-12 | ⚠️ **Dummy leads are unmessageable by construction** | 16 of 18 carry `(demo — no number)`, which normalises to NULL, and both screens gate the call and WhatsApp buttons on `phone_e164`. A plausible-looking invented Pakistani number belongs to a real stranger who would receive the first test message. |
+| 2026-09-12 | **Meta Cloud API direct, not a BSP** | Twilio and 360dialog were considered. The committed webhook verifies `X-Hub-Signature-256`; a BSP uses its own scheme and its own send API, so going through one is a rewrite plus a permanent per-message markup. |
+| 2026-09-12 | ⚠️ **Coexistence is NOT available for our own number** | Meta's own documentation: *"You must already be a Solution Partner or Tech Provider"* and *"this feature applies to business customers only — not your own organization."* ⚠️ **And it would undermine the goal anyway:** replies sent from a shared handset arrive as echoes with no way to tell WHICH salesperson sent them, which destroys per-person response time — the measurement this CRM exists for. |
+| 2026-09-12 | **Meta's free test number first** | Proves the whole flow without deleting the business number from WhatsApp — the one irreversible step. ⚠️ Blocked: Meta refuses to add a test recipient until business verification clears (~12 days from 2026-09-12). |
+| 2026-09-12 | ⚠️ **PAUSED for team restructuring** | Owner: *"Right now just one team, the AI and Digital team, is implemented. No finance team, no sales team, no HR team… Then I will come back to this CRM and maybe it will be easier for me to tell you which things I will assign to which."* **The right order** — every open question here is a question about people. Next work on a `team-restructuring` branch, merged to `main` before the CRM resumes. |
 
 ---
 
@@ -615,8 +760,26 @@ The exact calls to re-run are at the foot of `01-VERIFIED-FACTS.md`.
 
 ## How to resume cold
 
-1. Read this file.
-2. Read `01-VERIFIED-FACTS.md` — what is true, and what was never checked.
-3. Check the decisions log above. If Q1–Q5 are still unanswered, the job is to
-   get them answered, not to start building.
-4. `04-PHASES.md` has the order of work and the reason for that order.
+1. **Read this file top to bottom**, especially the 2026-09-12 section. Five
+   access bugs were found in one afternoon by logging in as somebody who was not
+   an Admin, and nothing else in this documentation would have predicted them.
+2. **Check whether the team restructuring has landed.** The CRM is paused for
+   it, and it is the input several open questions are waiting on. Its branch
+   merges to `main` before this work resumes.
+3. **Check whether Meta business verification has cleared** (~12 days from
+   2026-09-12). Only WhatsApp sending depends on it; nothing else does.
+4. **`10-LEAD-ASSIGNMENT.md` is the next build**, and it needs nothing from
+   anybody — four signals, no AI, no new credentials, no closed leads.
+5. `08-TWELVE-STEPS.md` holds the overall order. `04-PHASES.md` is superseded
+   and kept only for the reasoning behind it.
+
+### ⚠️ The one habit this project has had to learn five times
+
+**A screen signed off from an Admin session has not been tested.** An Admin is a
+member of nothing and sees everything, so every predicate that turns on
+membership or department silently passes for them. Migrations 105, 121, 125,
+129 and 130 are all the same bug on five different tables, and every one of
+them was found by a real person logging in as themselves.
+
+Before calling anything done: open it as a salesperson, as their manager, and as
+somebody in a department that should see nothing.
