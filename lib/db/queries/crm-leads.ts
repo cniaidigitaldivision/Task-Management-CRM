@@ -437,7 +437,14 @@ export async function getCrmLead(
 
   return withUser(actorId, async (tx) => {
     const found = await tx`
-      select l.id, l.project_id, p.name as project_name,
+      select l.id, l.project_id,
+             /* A DEFINER READER, NOT A JOIN - migration 130. projects_select
+                needs project MEMBERSHIP and a salesperson is not a member of
+                the project whose leads they work, so an inner join here matched
+                nothing and every salesperson got a 404 on every lead they
+                owned. A LEFT JOIN would print a dash where the project belongs,
+                on the one screen that exists to say where a lead came from. */
+             app.crm_project_name(l.project_id) as project_name,
              l.full_name, l.phone, l.phone_e164, l.email, l.city,
              l.answers,
              l.stage::text, l.temperature::text, l.lost_reason::text,
@@ -447,7 +454,6 @@ export async function getCrmLead(
              f.name as form_name, c.name as campaign_name,
              l.source::text, l.external_id
         from public.crm_leads l
-        join public.projects p on p.id = l.project_id
         left join public.crm_lead_forms f on f.id = l.form_id
         left join public.crm_campaigns  c on c.id = l.campaign_id
        where l.id = ${leadId}::uuid
@@ -486,10 +492,11 @@ export async function getCrmLead(
          that discloses the COUNT without the rows. */
       row.phone_e164
         ? tx`
-            select l.id, l.submitted_at, l.stage::text, p.name as project_name,
+            select l.id, l.submitted_at, l.stage::text,
+                   /* Same definer reader, same reason — migration 130. */
+                   app.crm_project_name(l.project_id) as project_name,
                    f.name as form_name
               from public.crm_leads l
-              join public.projects p on p.id = l.project_id
               left join public.crm_lead_forms f on f.id = l.form_id
              where l.phone_e164 = ${row.phone_e164 as string}
                and l.id <> ${leadId}::uuid
