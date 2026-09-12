@@ -1092,3 +1092,65 @@ export async function crmLeadPulse(
     return { leads: -1, latestLead: null };
   }
 }
+
+/* ==========================================================================
+ * THE MANAGER'S LIVE PICTURE — migration 135
+ *
+ * ⚠️ NOT STORED, and that is the distinction from `/lead-reports`. A frozen
+ * report answers "what did we say in September". These answer "what is wrong
+ * right now", and a snapshot is the wrong shape for that — correct and out of
+ * date, which is worse than either.
+ * ========================================================================== */
+
+export interface CrmAttention {
+  readonly overdue: number;
+  readonly dueToday: number;
+  readonly unassigned: number;
+  /** ⚠️ Kept separate from overdue. A lead nobody ever rang is a different
+   *  failure from one whose follow-up slipped. */
+  readonly neverContacted: number;
+  readonly goneQuiet: number;
+}
+
+/** Null when the caller does not manage this project — the function returns no
+ *  row at all rather than a row of zeros, so the page can say whose screen it
+ *  is instead of reporting a reassuring nothing. */
+export async function crmLeadAttention(
+  actorId: string,
+  projectId: string,
+): Promise<CrmAttention | null> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select * from app.crm_lead_attention(${projectId}::uuid)
+  `);
+  const r = (rows as Array<Record<string, unknown>>)[0];
+  if (!r) return null;
+  return {
+    overdue: Number(r.overdue ?? 0),
+    dueToday: Number(r.due_today ?? 0),
+    unassigned: Number(r.unassigned ?? 0),
+    neverContacted: Number(r.never_contacted ?? 0),
+    goneQuiet: Number(r.gone_quiet ?? 0),
+  };
+}
+
+export interface CrmArrival {
+  readonly date: string;
+  readonly arrived: number;
+  readonly contacted: number;
+}
+
+/** Leads per day, and how many of that day's intake was ever answered. */
+export async function crmLeadArrivals(
+  actorId: string,
+  projectId: string,
+  days = 14,
+): Promise<CrmArrival[]> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select * from app.crm_lead_arrivals(${projectId}::uuid, ${days})
+  `);
+  return (rows as Array<Record<string, unknown>>).map((r) => ({
+    date: String(r.on_date).slice(0, 10),
+    arrived: Number(r.arrived ?? 0),
+    contacted: Number(r.contacted ?? 0),
+  }));
+}

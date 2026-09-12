@@ -9,7 +9,7 @@
 | **Phase** | ⏸️ **PAUSED 2026-09-12, at Steps 1–10 of 12 — LIVE IN PRODUCTION.** The desk works, the importer runs itself, and a demo testbed exists for proving the rest. Paused by the owner to restructure the company's teams first. |
 | **Scope** | Chitral Royal Homes (real, 625 leads) + a removable demo project for testing. |
 | **Last updated** | 2026-09-12 |
-| **Last migration applied anywhere** | **134.** CRM next: 135. |
+| **Last migration applied anywhere** | **135.** CRM next: 136. |
 
 ---
 
@@ -53,7 +53,7 @@ What follows is everything still to do, with what each one actually involves.
 | ~~1~~ | ✅ **Live updates** — done 2026-09-13 (no migration; the pulse carries a lead count) |  |
 | ~~2~~ | ✅ **Editing an existing person** — done 2026-09-13 |  |
 | ~~3~~ | ✅ **Importer-failure alert** — done 2026-09-13 (migration 134) |  |
-| **4** | **Manager dashboard** | nothing | Its own page rather than a panel under the list: trend over time, per-campaign comparison, who is overdue right now, SLA breaches. |
+| ~~4~~ | ✅ **Manager dashboard** — done 2026-09-13, `/lead-overview` (migration 135) |  |
 | **5** | **Salesperson dashboard** | nothing | "My day" — what is due, what is overdue, what went quiet, my own response time. |
 | **6** | **Step 11 · per-lead AI** | ✅ key in Vault, ✅ Q18 answered | Two-line summary, talking points, a drafted message the person edits. ⚠️ Never auto-sent. Cached on the row and regenerated only when the lead changes — generating per page load is the difference between a few dollars a month and a few hundred. |
 | **7** | **Specialisation in the rota** | ⏳ the sales manager | Once there is a real answer, it becomes a FILTER in front of the router, not a replacement for it. ⚠️ Do not invent the taxonomy — Q19. |

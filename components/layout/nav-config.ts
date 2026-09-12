@@ -1,4 +1,5 @@
 import {
+  Activity,
   BarChart3,
   CalendarClock,
   CalendarDays,
@@ -202,6 +203,19 @@ export const NAV_SECTIONS: readonly NavSection[] = [
         icon: UserCheck,
         roles: ADMIN_UP,
         requires: 'crm',
+      },
+      {
+        /* ⚠️ ABOVE "Lead reports", AND THE PAIR IS THE POINT. This is live and
+           computed on read; that one is FROZEN by design, because a report is a
+           statement made on a date. A manager wanting "what is wrong this
+           morning" and one wanting "what did we say in September" are asking
+           different questions, and one screen answering both would be correct
+           and out of date. Same audience, same capability. */
+        label: 'Live overview',
+        href: '/lead-overview',
+        icon: Activity,
+        roles: ADMIN_UP,
+        requires: 'crmReports',
       },
       {
         /* ⚠️ NOT UNDER `/reports`, and the reason is a floor rather than a

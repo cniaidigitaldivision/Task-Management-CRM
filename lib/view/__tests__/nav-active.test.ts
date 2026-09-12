@@ -58,6 +58,12 @@ const ADMIN_NAV = [
      "clients" unreachable. Its own route reads as what it is: the owner's
      reference names "Clients & Leads" as two things. */
   '/clients',
+  /* Step 4 of the nine, 2026-09-13. ⚠️ THE PAIR BELOW IS DELIBERATE AND IS NOT
+     A DUPLICATE. `/lead-overview` is LIVE — computed on read, answering "what is
+     wrong this morning". `/lead-reports` is FROZEN — stored whole and never
+     refreshed, answering "what did we say in September". One screen doing both
+     would be correct and out of date. */
+  '/lead-overview',
   /* Step 10. ⚠️ `/lead-reports`, NOT `/reports/leads` — that page's layout
      requires `team_coordinator` and above, and the sales manager is `member`.
      A nested layout cannot widen a parent's floor. */
