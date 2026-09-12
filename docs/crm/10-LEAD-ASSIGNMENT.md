@@ -154,8 +154,8 @@ Not in the routing. In these, in this order:
 
 | | Needs |
 |---|---|
-| **Per-lead summary, talking points, drafted message** | The OpenAI key ✅ in Vault, and Q18 ✅ answered — **strip identifiers** |
-| **Matching a lead to the right person** | ⛔ **Closed.** Owner, 2026-09-12: there is no specialisation to match on. Revisit only if that changes. |
+| **Per-lead summary, talking points, drafted message** | The OpenAI key ✅ in Vault, and Q18 ✅ answered — **identifiers may be sent** |
+| **Matching a lead to the right person** | ⏳ **Deferred.** No specialisation field exists yet; the owner will ask the sales manager what people actually handle and bring the real answer back. ⚠️ The field must not be invented meanwhile. |
 | **Lead scoring from outcomes** | ~200 closed leads. No shortcut exists. |
 | **Campaign versus staff** (Step 12) | Weeks of real use by real people. |
 
@@ -165,7 +165,7 @@ Not in the routing. In these, in this order:
 
 **Nothing.** That is the point of choosing these four signals.
 
-- No specialisation field — deliberately, since there is none
+- No specialisation field — deliberately, since there is none *yet*
 - No OpenAI key — it uses no model at all
 - No WhatsApp — unaffected by the verification wait
 - No closed leads — it measures effort, not outcome

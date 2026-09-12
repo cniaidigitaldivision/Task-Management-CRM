@@ -202,37 +202,70 @@ The owner said: engagement, a quotation accepted, or work starting. For the syst
 this has to be one moment. **Is it reaching the "Won" stage, or a separate
 "convert to client" action a person takes?**
 
-### Q19 · What does each salesperson specialise in? — ✅ ANSWERED 2026-09-12: NOTHING
+### Q19 · What does each salesperson specialise in? — ⏳ DEFERRED, NOT CLOSED
 
-Owner: *"this type of any specific specialization, I didn't ask for sale persons
-like that. I don't know anyone and I have no knowledge of that."*
+Owner, 2026-09-12: *"Definitely I will ask the salespersons what their
+specialties are and on what things they have trained. I will definitely add that
+to the sales team… Right now I don't know because I'm not a salesperson. I don't
+know what the things are and what the working phenomena are. Definitely I will
+ask the sales manager."*
 
-**Step 7c is closed, not parked.** There is no specialisation to match on, so
-nothing will pretend there is. `10-LEAD-ASSIGNMENT.md` deliberately builds a
-router that uses none — its four signals are workload, response speed,
-availability and recent activity, all of which the system already holds.
+**There is no specialisation field today, and there will be one later.** The
+owner will ask the sales manager and the salespeople directly once the team
+exists, and bring back the real answer.
 
-⚠️ **Do not invent the field.** A `specialisation` column filled in by guesswork
-would route real leads on made-up information, and it would look authoritative
-while doing it. Revisit only if the owner later says a real one exists — most
-likely after the team restructuring, when Sales has actual people in it.
+⚠️ **DO NOT INVENT THE COLUMN IN THE MEANTIME** — owner, on being warned:
+*"Please don't do that."* A `specialisation` filled in by guesswork would route
+real leads on made-up information and look authoritative while doing it. The
+field arrives when somebody who actually sells has said what belongs in it.
 
-### Q18 · Personal data and the AI — ✅ ANSWERED 2026-09-12: STRIP THEM
+**So Step 7c is deferred, not cancelled.** `10-LEAD-ASSIGNMENT.md` builds a
+router that needs none of it — workload, response speed, availability and recent
+activity — so nothing waits on this. When the answer arrives it becomes a filter
+in front of that router rather than a replacement for it.
 
-Owner: *"Name and their number to Open AI, right? No, for right now."*
+**What to ask the sales manager, when there is one:**
 
-**No name and no phone number leaves our servers.** The form answers and the
-notes go; identifiers are replaced with a placeholder and substituted back
-locally after the model replies.
+- Does anybody handle a particular **product** — ERP versus CRM versus marketing?
+- A particular **city or region**?
+- A **budget band** — who takes the large enquiries?
+- A **language** — Urdu, English, Pashto?
+- Is anybody **new enough** to need a lighter or easier share?
 
-⚠️ **This costs almost nothing.** Of every planned AI feature, only the drafted
-message genuinely wants a name — and `Assalam o Alaikum {{name}}` with a local
-substitution produces an identical result. The summary, the talking points, the
-quality flags and every per-person analysis need no identifier at all. The
-phone number has **no use whatsoever**: the model never dials anyone.
+⚠️ Any of those that comes back as "no" should be recorded as a no. A field with
+one real value and four invented ones is worse than no field.
 
-⚠️ **And the larger version of this question is still open.** Reading WhatsApp
-conversations (Tier C) sends far more than a name — what somebody can afford,
-their family situation, why they are moving. That is a separate decision and
-must not be settled by precedent from this one. See `07-AI-PLAN.md`.
+### Q18 · Personal data and the AI — ✅ ANSWERED 2026-09-12: SEND THEM
 
+Owner: *"Question number 18: strip identifiers. No I didn't say that. I said:
+add name and number. No problem with that."*
+
+**The lead's name and phone number go to OpenAI with the rest of the record.**
+
+⚠️ **THIS REVERSES WHAT THIS FILE SAID FOR ONE DAY, AND THE MISTAKE WAS MINE.**
+I read a sentence break in the wrong place and wrote down the opposite answer.
+Recorded rather than quietly overwritten: a decisions log that silently changes
+its mind is worth less than one that shows where it was corrected.
+
+#### What is being chosen, stated rather than argued again
+
+- The data leaves our servers and leaves Pakistan; a US company processes it.
+- OpenAI does not train on API data by default but retains it for a period for
+  abuse monitoring. ⚠️ Check their current terms rather than a figure quoted
+  here — these change.
+- ⚠️ **Chitral's leads are a CLIENT's data, not ours.** We are an agency holding
+  a developer's customer list. That is a commercial and trust question rather
+  than a technical one. It was put to the owner and the owner decided.
+
+#### What it changes in the build — less than expected
+
+Of every planned AI feature only the drafted message genuinely *wants* a name.
+The summary, the talking points, the quality flags and every per-person analysis
+work identically either way, and the **phone number is read by none of them** —
+the model never dials anyone. So identifiers travel because the owner is content
+for them to, not because a feature needs them.
+
+⚠️ **THE LARGER QUESTION IS STILL OPEN AND MUST NOT INHERIT THIS ANSWER.**
+Letting the AI read WhatsApp *conversations* (Tier C) sends far more than a
+name: what somebody can afford, their family situation, why they are moving.
+Ask that separately when it arrives. See `07-AI-PLAN.md`.
