@@ -1049,3 +1049,46 @@ export async function crmLeadRota(actorId: string, projectId: string): Promise<C
     daysQuiet: Number(r.days_quiet ?? 999),
   }));
 }
+
+/**
+ * Two numbers that say "a lead has arrived", for the 25-second pulse.
+ *
+ * ⚠️ NO DEFINER, AND THAT IS THE POINT. `crm_leads_select` is a row-local
+ * comparison — it does NOT need project membership, unlike `projects_select` —
+ * so running this as the caller gives each person exactly the leads they may
+ * see, with no second copy of the visibility rule to keep in step. A
+ * salesperson's reading moves when a lead lands on THEIR desk; their manager's
+ * moves when one lands anywhere on the project.
+ *
+ * ⚠️ MEASURED BEFORE SHIPPING, because this is paid every 25 seconds by every
+ * open tab in the office: **0.65 ms, 92 buffers, all cache hits** over 647
+ * leads. It is a Seq Scan and therefore linear — at fifty thousand leads it is
+ * still single-digit milliseconds, but that is the number to re-measure rather
+ * than assume. See docs/crm/09-DATABASE-MANAGEMENT.md.
+ *
+ * ⚠️ AND IT RETURNS NUMBERS, NEVER ROWS. This is fetched every 25 seconds by
+ * every open tab. A name or a phone number in the answer would put a stranger's
+ * details into a response nobody reads, on a timer, for the life of the tab —
+ * the same reason `notificationPulse` returns a count and a timestamp and
+ * nothing about the task.
+ */
+export async function crmLeadPulse(
+  actorId: string,
+): Promise<{ leads: number; latestLead: string | null }> {
+  try {
+    const rows = await withUser(actorId, (tx) => tx`
+      select count(*)::int as leads, max(imported_at) as latest
+        from public.crm_leads
+    `);
+    const row = (rows as Array<Record<string, unknown>>)[0] ?? {};
+    return {
+      leads: Number(row.leads ?? 0),
+      latestLead: row.latest ? new Date(row.latest as string).toISOString() : null,
+    };
+  } catch {
+    /* ⚠️ Fails to a STABLE reading, not to zero. Zero would differ from the
+       last one and trigger a refresh on every failed poll — turning a blip into
+       a refresh loop on every open tab at once. */
+    return { leads: -1, latestLead: null };
+  }
+}

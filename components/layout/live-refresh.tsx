@@ -48,6 +48,13 @@ interface Pulse {
   signedIn: boolean;
   unread?: number;
   latest?: string | null;
+  /* ⚠️ Added 2026-09-13 for the lead desk. Owner: *"as soon as the lead drops,
+     it should silently be added to the top of the leader table."* A lead
+     arriving from the importer sends NO notification — nobody is assigned yet —
+     so the notification pulse alone could never see it. A lead assigned to
+     somebody ELSE is the same story for their manager watching the desk. */
+  leads?: number;
+  latestLead?: string | null;
 }
 
 export function LiveRefresh() {
@@ -69,7 +76,10 @@ export function LiveRefresh() {
         const pulse = (await response.json()) as Pulse;
         if (!pulse.signedIn) return;
 
-        const reading = `${pulse.unread ?? 0}:${pulse.latest ?? ''}`;
+        /* One string, four numbers. Any of them moving is news; none of them
+           moving is the answer almost every time, which is the whole reason the
+           pulse is asked before anything is re-rendered. */
+        const reading = `${pulse.unread ?? 0}:${pulse.latest ?? ''}:${pulse.leads ?? 0}:${pulse.latestLead ?? ''}`;
 
         if (seen.at === null) {
           /* Baseline. See the header — the first answer is not news. */

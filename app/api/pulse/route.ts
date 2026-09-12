@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { getCurrentUser } from '@/lib/auth/current-user';
+import { crmLeadPulse } from '@/lib/db/queries/crm-leads';
 import { notificationPulse } from '@/lib/db/queries/feed';
 
 /* ============================================================================
@@ -47,10 +48,15 @@ export async function GET(): Promise<NextResponse> {
     );
   }
 
-  const pulse = await notificationPulse(user.id);
+  /* ⚠️ BOTH IN PARALLEL, because this runs on a timer in every open tab and two
+     round trips would double a cost paid all day by everybody. */
+  const [pulse, leads] = await Promise.all([
+    notificationPulse(user.id),
+    crmLeadPulse(user.id),
+  ]);
 
   return NextResponse.json(
-    { signedIn: true, ...pulse },
+    { signedIn: true, ...pulse, ...leads },
     { headers: { 'Cache-Control': 'no-store' } },
   );
 }
