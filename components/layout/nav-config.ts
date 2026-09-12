@@ -1,5 +1,6 @@
 import {
   Activity,
+  ClipboardList,
   BarChart3,
   CalendarClock,
   CalendarDays,
@@ -190,6 +191,19 @@ export const NAV_SECTIONS: readonly NavSection[] = [
         roles: ADMIN_UP,
         /* ⚠️ The people whose entire job is this screen are `member`. Without
            this they would have no link to it. */
+        requires: 'crm',
+      },
+      {
+        /* ⚠️ `requires: 'crm'`, NOT `crmReports` — this is the one screen in the
+           Growth section that belongs to a SALESPERSON rather than to whoever
+           manages them. Everything on it is filtered to the caller's own leads
+           (migration 136), so it discloses nothing they could not already read
+           off the desk; it simply answers "what is mine today" without their
+           having to build the filter themselves. */
+        label: 'My leads',
+        href: '/my-leads',
+        icon: ClipboardList,
+        roles: ADMIN_UP,
         requires: 'crm',
       },
       {

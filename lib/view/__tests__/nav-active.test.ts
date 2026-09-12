@@ -63,6 +63,9 @@ const ADMIN_NAV = [
      wrong this morning". `/lead-reports` is FROZEN — stored whole and never
      refreshed, answering "what did we say in September". One screen doing both
      would be correct and out of date. */
+  /* Step 5, 2026-09-13. The salesperson's own day — the only item in Growth
+     that belongs to the person rather than to whoever manages them. */
+  '/my-leads',
   '/lead-overview',
   /* Step 10. ⚠️ `/lead-reports`, NOT `/reports/leads` — that page's layout
      requires `team_coordinator` and above, and the sales manager is `member`.

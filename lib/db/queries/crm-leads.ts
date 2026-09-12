@@ -1154,3 +1154,44 @@ export async function crmLeadArrivals(
     contacted: Number(r.contacted ?? 0),
   }));
 }
+
+export interface CrmMyDay {
+  readonly openTotal: number;
+  readonly overdue: number;
+  readonly dueToday: number;
+  readonly neverContacted: number;
+  readonly goneQuiet: number;
+  readonly wonTotal: number;
+  /** ⚠️ Null means never measured, NOT fast. Renders as "no calls yet". */
+  readonly medianMinutes: number | null;
+}
+
+/**
+ * One salesperson's own leads on one project, plus their own response time.
+ *
+ * ⚠️ THE RESPONSE TIME IS RETURNED ON PURPOSE. It is the number their manager
+ * judges them on — the first column of the sales team panel, and signal 1 of
+ * the rota. Somebody who cannot see the measure applied to them cannot improve
+ * it, and learning at an appraisal what has been on a screen for months is the
+ * worst version of this product.
+ */
+export async function crmMyDay(actorId: string, projectId: string): Promise<CrmMyDay | null> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select * from app.crm_my_day(${projectId}::uuid)
+  `);
+  const r = (rows as Array<Record<string, unknown>>)[0];
+  if (!r) return null;
+  return {
+    openTotal: Number(r.open_total ?? 0),
+    overdue: Number(r.overdue ?? 0),
+    dueToday: Number(r.due_today ?? 0),
+    neverContacted: Number(r.never_contacted ?? 0),
+    goneQuiet: Number(r.gone_quiet ?? 0),
+    wonTotal: Number(r.won_total ?? 0),
+    /* ⚠️ NOT `Number(x ?? 0)`. That would turn "never measured" into "instant",
+       which is the single most flattering possible misreading of no data. */
+    medianMinutes: r.median_minutes === null || r.median_minutes === undefined
+      ? null
+      : Number(r.median_minutes),
+  };
+}
