@@ -9,7 +9,7 @@
 | **Phase** | ⏸️ **PAUSED 2026-09-12, at Steps 1–10 of 12 — LIVE IN PRODUCTION.** The desk works, the importer runs itself, and a demo testbed exists for proving the rest. Paused by the owner to restructure the company's teams first. |
 | **Scope** | Chitral Royal Homes (real, 625 leads) + a removable demo project for testing. |
 | **Last updated** | 2026-09-12 |
-| **Last migration applied anywhere** | **130.** CRM next: 131. |
+| **Last migration applied anywhere** | **134.** CRM next: 135. |
 
 ---
 
@@ -50,9 +50,9 @@ What follows is everything still to do, with what each one actually involves.
 
 | # | Step | Needs | What it is |
 |---|---|---|---|
-| **1** | **Live updates on the desk** | nothing | A lead appears at the top of the table without a refresh. Supabase realtime on `crm_leads`, subscribed per project, inserted in place. ⚠️ Must respect the active filter — a lead that does not match what somebody is looking at should not jump into their list. |
-| **2** | **Editing an existing person** | nothing | The team form only sets department, hours, specialisation and the rest at INVITE time, so all 17 existing people have them empty. Until this exists the owner cannot record what the sales manager tells them about specialisation. ⚠️ Blocks step 7. |
-| **3** | **The importer-failure alert** | nothing | The oldest open gap. If the Meta token breaks, `crm_lead_sync_runs.errors` records it and **nobody is told** — Step 8 notifies about quiet leads, not a dead importer. The notification kinds and the hourly job already exist. |
+| ~~1~~ | ✅ **Live updates** — done 2026-09-13 (no migration; the pulse carries a lead count) |  |
+| ~~2~~ | ✅ **Editing an existing person** — done 2026-09-13 |  |
+| ~~3~~ | ✅ **Importer-failure alert** — done 2026-09-13 (migration 134) |  |
 | **4** | **Manager dashboard** | nothing | Its own page rather than a panel under the list: trend over time, per-campaign comparison, who is overdue right now, SLA breaches. |
 | **5** | **Salesperson dashboard** | nothing | "My day" — what is due, what is overdue, what went quiet, my own response time. |
 | **6** | **Step 11 · per-lead AI** | ✅ key in Vault, ✅ Q18 answered | Two-line summary, talking points, a drafted message the person edits. ⚠️ Never auto-sent. Cached on the row and regenerated only when the lead changes — generating per page load is the difference between a few dollars a month and a few hundred. |
@@ -60,7 +60,7 @@ What follows is everything still to do, with what each one actually involves.
 | **8** | **WhatsApp conversations** | ⛔ business verification | Two tables (a thread per lead, the messages in it), a reply box on the record, matched to the lead by normalised number. Verification was applied for ~2026-09-12 and takes around 12 days. |
 | **9** | **Step 12 · campaign vs staff** | ⏳ weeks of real use | The owner's headline question. Same campaign different people → the person; same person different campaigns → the campaign. Arithmetic, with the model writing the sentence over it. |
 
-⚠️ **Steps 1–6 need NOTHING from anybody** and can run straight through. Only
+⚠️ **Steps 4, 5 and 6 need NOTHING from anybody** — 1, 2 and 3 are done and can run straight through. Only
 7, 8 and 9 wait on the outside world.
 
 ### ⚠️ Two owner tasks that are still not done
