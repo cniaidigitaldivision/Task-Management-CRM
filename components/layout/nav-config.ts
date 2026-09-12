@@ -57,7 +57,7 @@ export interface NavItem {
    * would have been wrong in between. The server already computes the answer —
    * `crmIsOpenTo()` — so the nav asks for it rather than re-deriving it.
    */
-  requires?: 'crm';
+  requires?: 'crm' | 'crmReports';
   /** Shown as a counter chip. Wired to real data from Phase 3. */
   badgeKey?: 'myTasks' | 'review' | 'overdue';
 }
@@ -213,7 +213,11 @@ export const NAV_SECTIONS: readonly NavSection[] = [
         href: '/lead-reports',
         icon: BarChart3,
         roles: ADMIN_UP,
-        requires: 'crm',
+        /* ⚠️ `crmReports`, NOT `crm` — the desk is the whole sales team's, these
+           reports are the manager's. A salesperson who followed this link would
+           be redirected by the layout anyway; the link is removed so they are
+           not offered a door that shuts in their face. */
+        requires: 'crmReports',
       },
     ],
   },
@@ -301,6 +305,10 @@ export const NAV_SECTIONS: readonly NavSection[] = [
 export interface NavCapabilities {
   /** `crmIsOpenTo()` — see `lib/auth/current-user.ts`. */
   readonly crm?: boolean;
+  /** ⚠️ NARROWER THAN `crm`. `crmReportsOpenTo()` — the lead reports name and
+   *  compare people, so they are the department MANAGER's and an Admin's, never
+   *  a salesperson's. Owner, 2026-09-12. */
+  readonly crmReports?: boolean;
 }
 
 /**

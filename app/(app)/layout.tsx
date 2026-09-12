@@ -5,6 +5,7 @@ import { AppShell } from '@/components/layout/app-shell';
 import { AssistantLauncher } from '@/components/assistant/assistant-launcher';
 import {
   crmIsOpenTo,
+  crmReportsOpenTo,
   getCurrentDepartment,
   requireEnrolledUser,
   touchSession,
@@ -96,6 +97,9 @@ export default async function AppGroupLayout({ children }: { children: React.Rea
            which broke the day the division's own leads routed elsewhere. The
            rule lives in one function now. */
         crmOpen: crmIsOpenTo(user, department),
+        /* ⚠️ NARROWER THAN crmOpen — the lead reports compare people by name,
+           so they are the manager's and an Admin's. Owner, 2026-09-12. */
+        crmReportsOpen: crmReportsOpenTo(user, department),
         theme: user.theme,
         avatarUrl: user.avatarUrl,
       }}

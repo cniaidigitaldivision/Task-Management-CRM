@@ -322,6 +322,47 @@ export async function requireCrmAccess(): Promise<{
   return { user, department };
 }
 
+/**
+ * May this session read the LEAD REPORTS?
+ *
+ * ⚠️ NARROWER THAN THE DESK, ON PURPOSE. Owner, 2026-09-12: *"lead reports will
+ * not be seen by the salesperson… the sales manager should see it. Also
+ * admin/super admin by default will see everything."*
+ *
+ * The reports compare people by name — how many each holds, how fast each
+ * answers, who closed what. That is a management document. A salesperson
+ * reading their colleagues' response times is a different product from one
+ * reading their own leads, and it is not the one that was asked for.
+ *
+ * ⚠️ AND IT KEYS OFF `department_role`, NOT `users.role`. ADR-002 fixes the
+ * application at four ranks and ADR-012 kept the sales manager a `member`,
+ * because seniority inside a department is a different question from authority
+ * over the application. Promoting them to `team_coordinator` to unlock this one
+ * page would also hand them Finance — invoices, payments, payroll — and the
+ * whole company's Reports. This is the narrow grant that was actually wanted.
+ */
+export function crmReportsOpenTo(user: CurrentUser, department: ActingDepartment): boolean {
+  if (user.role === 'admin' || user.role === 'super_admin') return true;
+  return department.ownsLeadProjects && department.isManager;
+}
+
+/** The guard for `/lead-reports`. A salesperson lands back on their own desk. */
+export async function requireCrmReports(): Promise<{
+  user: CurrentUser;
+  department: ActingDepartment;
+}> {
+  const user = await requireEnrolledUser();
+  const department = await getCurrentDepartment();
+
+  if (!crmReportsOpenTo(user, department)) {
+    /* ⚠️ Somebody who can work leads but not read the reports is sent to the
+       desk, not to `/my-work` — they are not lost, they are simply one door
+       further than they may go. */
+    redirect(crmIsOpenTo(user, department) ? '/leads' : '/my-work');
+  }
+  return { user, department };
+}
+
 /** Slide the window. Fire-and-forget: a failure here must never block a page. */
 export async function touchSession(user: CurrentUser): Promise<void> {
   try {

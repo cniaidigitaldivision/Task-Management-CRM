@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { crmIsOpenTo, type ActingDepartment, type CurrentUser } from '../current-user';
+import {
+  crmIsOpenTo,
+  crmReportsOpenTo,
+  type ActingDepartment,
+  type CurrentUser,
+} from '../current-user';
 
 /* ============================================================================
  * WHO THE CAMPAIGN & LEAD DESK IS OPEN TO
@@ -137,5 +142,64 @@ describe('admin and super admin, by default', () => {
       expect(crmIsOpenTo(person('admin'), IN(dept)), `admin/${dept}`).toBe(true);
       expect(crmIsOpenTo(person('super_admin'), IN(dept)), `super/${dept}`).toBe(true);
     }
+  });
+});
+
+/* ============================================================================
+ * AND WHO THE LEAD REPORTS ARE OPEN TO — NARROWER THAN THE DESK
+ * ----------------------------------------------------------------------------
+ * Owner, 2026-09-12: *"lead reports will not be seen by the salesperson. In the
+ * sales tester it shouldn't be shown in their dashboard but the sales manager
+ * should see it… Also admin/super admin by default will see everything."*
+ *
+ * ⚠️ THE DISTINCTION IS `department_role`, NOT `users.role`, AND THAT IS THE
+ * WHOLE POINT OF THESE CASES. The sales manager and the salespeople are all
+ * `member` in the application's four ranks — ADR-002 fixed that and ADR-012
+ * kept it, because seniority inside a department is a different question from
+ * authority over the application. Every case below therefore passes the SAME
+ * rank and varies only the department, which is the one thing rank cannot
+ * express.
+ * ========================================================================= */
+describe('the lead reports', () => {
+  it('⚠️ are hidden from a salesperson, who can still work the desk', () => {
+    const salesperson = IN('sales', { ownsLeads: true });
+    /* The pair that matters: the desk opens, the reports do not. */
+    expect(crmIsOpenTo(person('member'), salesperson)).toBe(true);
+    expect(crmReportsOpenTo(person('member'), salesperson)).toBe(false);
+  });
+
+  it('open for the sales manager, who is also only a Member', () => {
+    expect(
+      crmReportsOpenTo(person('member'), IN('sales', { manager: true, ownsLeads: true })),
+    ).toBe(true);
+  });
+
+  it('open for an Admin and a Super Admin regardless of department', () => {
+    /* "Admin/super admin by default will see everything" — including from
+       Management, which owns no lead-routed project at all. */
+    expect(crmReportsOpenTo(person('admin'), IN('management'))).toBe(true);
+    expect(crmReportsOpenTo(person('super_admin'), IN(null))).toBe(true);
+  });
+
+  it('⚠️ stay shut for a manager whose department owns no leads', () => {
+    /* Managing a department is not the qualification; managing a department the
+       leads route to is. Otherwise every department head in the company reads
+       the sales team's response times. */
+    expect(
+      crmReportsOpenTo(person('member'), IN('development', { manager: true })),
+    ).toBe(false);
+  });
+
+  it('⚠️ stay shut for a Team Coordinator who manages no lead department', () => {
+    /* The rank is above `member` and buys nothing here. Promoting somebody to
+       team_coordinator to unlock this page would hand them Finance and the
+       company's Reports instead — see `crmReportsOpenTo`. */
+    expect(crmReportsOpenTo(person('team_coordinator'), IN('development'))).toBe(false);
+  });
+
+  it('open for Kashif — AI & Digital manages its own product leads', () => {
+    expect(
+      crmReportsOpenTo(person('team_coordinator'), IN('digital', { manager: true, ownsLeads: true })),
+    ).toBe(true);
   });
 });

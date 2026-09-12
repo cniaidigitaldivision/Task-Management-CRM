@@ -76,6 +76,8 @@ export interface ShellUser {
   readonly departmentName: string | null;
   /** Whether the lead desk is open to them — `crmIsOpenTo()`, migration 124. */
   readonly crmOpen: boolean;
+  /** ⚠️ Narrower than crmOpen — the lead reports are the manager's. */
+  readonly crmReportsOpen: boolean;
   readonly theme: Theme;
   /** Their uploaded picture, shown in the rail. CHANGE-PLAN 2.3. */
   readonly avatarUrl: string | null;
@@ -372,6 +374,7 @@ export function AppShell({
         role={user.role}
         departmentName={user.departmentName}
         crmOpen={user.crmOpen}
+        crmReportsOpen={user.crmReportsOpen}
         userName={user.name}
         userAvatarUrl={user.avatarUrl}
         open={navOpen}

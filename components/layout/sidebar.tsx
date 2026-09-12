@@ -62,6 +62,7 @@ export function Sidebar({
   role,
   departmentName = null,
   crmOpen = false,
+  crmReportsOpen = false,
   userName,
   userAvatarUrl = null,
   open,
@@ -76,6 +77,10 @@ export function Sidebar({
    *  nav item; see `sectionsForRole`. Defaults to false so somebody with no
    *  department is offered exactly what their rank offers. */
   crmOpen?: boolean;
+  /** ⚠️ NARROWER THAN `crmOpen`. The lead reports name and compare people, so
+   *  they belong to the department manager and an Admin — never to a
+   *  salesperson. Defaults false, so it can only ever ADD the item. */
+  crmReportsOpen?: boolean;
   userName: string;
   userAvatarUrl?: string | null;
   open: boolean;
@@ -101,7 +106,7 @@ export function Sidebar({
   pinned?: boolean;
 }) {
   const pathname = usePathname();
-  const sections = sectionsForRole(role, { crm: crmOpen });
+  const sections = sectionsForRole(role, { crm: crmOpen, crmReports: crmReportsOpen });
 
   /* Exactly one item is current, even where one nav item's route is nested inside
      another's. The rule and its reasoning live in lib/view/nav-active.ts, with
