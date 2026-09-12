@@ -643,6 +643,15 @@ function DueStrip({
  * against a 4.5:1 floor. These chips are BUTTONS — clicking "Qualified 0" filters
  * to it — so a control nobody can read is worse than a loud one. The zero is
  * signal enough on its own; it needs no help from opacity.
+ *
+ * ⚠️ AND IT OPENS WITH "ALL LEADS", BECAUSE THE WAY BACK WAS INVISIBLE. Owner,
+ * 2026-09-12: *"once I click someone new, it starts new but when I want to go
+ * back to see all of the leads, there is no button available."* Clicking the
+ * active chip a second time always cleared the filter — but nothing on the
+ * screen said so, and a toggle whose off-state is hidden inside the on-control
+ * is a toggle only its author can find. The count on it is the sum of the
+ * strip, so it also answers "how many are there altogether" without the reader
+ * adding nine numbers up.
  */
 function StageStrip({
   counts,
@@ -651,10 +660,31 @@ function StageStrip({
 }: {
   counts: Record<string, number>;
   active: string | null;
-  onPick: (stage: string) => void;
+  onPick: (stage: string | null) => void;
 }) {
+  const all = STAGE_ORDER.reduce((sum, stage) => sum + (counts[stage] ?? 0), 0);
+
   return (
     <div className="flex flex-wrap gap-1.5">
+      <button
+        type="button"
+        onClick={() => onPick(null)}
+        aria-pressed={active === null}
+        className={cn(
+          'flex min-w-[6.5rem] flex-col items-start gap-0.5 rounded-xl border px-3 py-2 text-left transition-colors',
+          active === null
+            ? 'border-border-strong bg-bg-subtle'
+            : 'border-border-subtle bg-bg-surface hover:border-border-default',
+        )}
+      >
+        <span className="flex items-center gap-1.5">
+          {/* No stage dot: this chip is not a stage, and giving it one would
+              put a tenth colour in a funnel that has exactly nine. */}
+          <span className="text-[0.62rem] font-medium text-text-secondary">All leads</span>
+        </span>
+        <span className="text-body font-semibold tabular-nums text-text-primary">{all}</span>
+      </button>
+
       {STAGE_ORDER.map((stage) => {
         const n = counts[stage] ?? 0;
         const on = active === stage;
