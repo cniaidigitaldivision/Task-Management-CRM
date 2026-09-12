@@ -213,6 +213,16 @@ export interface PersonRow {
   readonly isDepartmentManager: boolean;
   readonly devicePersonNo: string | null;
   readonly attendanceMode: 'either' | 'terminal_only';
+  /* ── Migrations 131 and 132 ────────────────────────────────────────────────
+     ⚠️ `workStartsAt` and `workEndsAt` are what `app.crm_is_at_work()` reads to
+     decide whether somebody is on shift when a lead arrives, so they are not
+     decoration — an empty pair silently counts as AVAILABLE (133). */
+  readonly specialisation: string | null;
+  readonly workStartsAt: string | null;
+  readonly workEndsAt: string | null;
+  readonly joinedOn: string | null;
+  readonly reportsToId: string | null;
+  readonly address: string | null;
   readonly monthlySalary: number | null;
   readonly lastLoginAt: string | null;
   readonly lockedAt: string | null;

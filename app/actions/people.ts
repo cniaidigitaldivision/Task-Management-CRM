@@ -171,6 +171,29 @@ export async function updateCapacityAction(
       ...(isAdmin && form.has('devicePersonNo')
         ? { devicePersonNo: employeeNo || null }
         : {}),
+      /* ── ⚠️ SPREAD ON `form.has`, NOT ON A VALUE ────────────────────────
+         These fields are OPTIONAL EVERYWHERE. A dialog that does not render
+         one must not clear it, and `has` is the only thing that tells the two
+         cases apart — an absent field and a field deliberately emptied both
+         arrive as '' otherwise, and the second must be able to blank a value.
+
+         ⚠️ AND THEY ARE ADMIN-ONLY, like the office and terminal fields above:
+         department decides what somebody can OPEN (crmIsOpenTo), and
+         department_role decides whether they read the lead reports. Letting a
+         Coordinator set either would be a privilege escalation through a
+         profile form. */
+      ...(isAdmin && form.has('departmentId')
+        ? { departmentId: str(form, 'departmentId') || null }
+        : {}),
+      ...(isAdmin && form.has('departmentRole')
+        ? { departmentRole: str(form, 'departmentRole') === 'manager' ? ('manager' as const) : ('member' as const) }
+        : {}),
+      ...(form.has('specialisation') ? { specialisation: str(form, 'specialisation') || null } : {}),
+      ...(form.has('workStartsAt') ? { workStartsAt: str(form, 'workStartsAt') || null } : {}),
+      ...(form.has('workEndsAt') ? { workEndsAt: str(form, 'workEndsAt') || null } : {}),
+      ...(form.has('joinedOn') ? { joinedOn: str(form, 'joinedOn') || null } : {}),
+      ...(isAdmin && form.has('reportsToId') ? { reportsToId: str(form, 'reportsToId') || null } : {}),
+      ...(form.has('address') ? { address: str(form, 'address') || null } : {}),
       ...(isAdmin && form.has('attendanceMode')
         ? {
             attendanceMode:

@@ -393,6 +393,8 @@ export function TeamWorkspace({
              rank the pay and terminal fields need. Passing it rather than
              re-deriving keeps one answer to "may this person edit everything". */
           canManageAll={canManage}
+          departments={departments}
+          people={people}
           onClose={() => setEditing(null)}
         />
       )}
@@ -459,12 +461,19 @@ function ActionError({ error }: { error?: string }) {
 function CapacityDialog({
   person,
   canManageAll,
+  departments,
+  people,
   onClose,
 }: {
   person: PersonRow;
   /** `attendance.manage_devices` — Admin and Super Admin. Decides whether the
    *  pay and terminal fields exist at all on this form. */
   canManageAll: boolean;
+  /** ⚠️ Passed in rather than fetched here. The page already has both lists, and
+   *  a dialog that loads its own would flash an empty dropdown on open and make
+   *  two more round trips every time somebody edits anybody. */
+  departments: readonly DepartmentOption[];
+  people: readonly PersonRow[];
   onClose: () => void;
 }) {
   const router = useRouter();
@@ -609,6 +618,133 @@ function CapacityDialog({
                       { value: 'either', label: 'Terminal or Taskly' },
                       { value: 'terminal_only', label: 'Terminal only' },
                     ]}
+                  />
+                </Field>
+              </div>
+
+              {/* ══ WHERE THEY SIT, AND WHEN THEY WORK ═══════════════════
+                  ⚠️ EVERY FIELD BELOW COULD ONLY BE SET AT INVITE TIME UNTIL NOW, so
+                  all 17 people who existed before 2026-09-12 had them empty with
+                  no way to fill them in. That blocked two real things: the
+                  specialisation the sales manager is being asked for, and the
+                  working hours `app.crm_is_at_work()` reads to decide who is on
+                  shift when a lead arrives. */}
+              <div className="space-y-4 border-t border-border-subtle pt-4">
+                <p className="text-micro font-semibold uppercase tracking-wide text-text-tertiary">
+                  Department, hours and record
+                </p>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field
+                    label="Department"
+                    htmlFor="departmentId"
+                    hint="Decides what they can open, and whose leads they work."
+                  >
+                    <Select
+                      id="departmentId"
+                      name="departmentId"
+                      defaultValue={person.departmentId ?? ''}
+                      options={[
+                        { value: '', label: 'Not filed' },
+                        ...departments.map((d) => ({ value: d.id, label: d.name })),
+                      ]}
+                    />
+                  </Field>
+
+                  {/* ⚠️ A TICKBOX, NOT A SECOND "Member/Manager" DROPDOWN — the owner
+                      read two of those as the same question asked twice. This is
+                      seniority INSIDE the department, which is what decides who
+                      reads the lead reports; the rank above is authority over the
+                      application. */}
+                  <Field label="Seniority" htmlFor="departmentRole">
+                    <label className="flex items-center gap-2 py-2">
+                      <input
+                        type="checkbox"
+                        id="departmentRole"
+                        name="departmentRole"
+                        value="manager"
+                        defaultChecked={person.isDepartmentManager}
+                        className="size-4 accent-[var(--brand-primary)]"
+                      />
+                      <span className="text-body text-text-primary">
+                        They manage their department
+                      </span>
+                    </label>
+                  </Field>
+                </div>
+
+                {/* ⚠️ FREE TEXT. Q19 — the taxonomy is not known yet and must not
+                    be invented; the owner will bring back what the sales manager
+                    actually says. */}
+                <Field
+                  label="What they handle"
+                  htmlFor="specialisation"
+                  hint="Optional, in your own words — products, a city, a budget range, a language."
+                >
+                  <Input
+                    id="specialisation"
+                    name="specialisation"
+                    defaultValue={person.specialisation ?? ''}
+                    placeholder="ERP enquiries, Islamabad, speaks Pashto"
+                  />
+                </Field>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field
+                    label="Working day starts"
+                    htmlFor="workStartsAt"
+                    hint="The lead rota reads this to see who is on shift."
+                  >
+                    <Input
+                      id="workStartsAt"
+                      name="workStartsAt"
+                      type="time"
+                      defaultValue={person.workStartsAt ?? ''}
+                    />
+                  </Field>
+                  <Field label="and ends" htmlFor="workEndsAt" hint="Leave both empty if it varies.">
+                    <Input
+                      id="workEndsAt"
+                      name="workEndsAt"
+                      type="time"
+                      defaultValue={person.workEndsAt ?? ''}
+                    />
+                  </Field>
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field label="Joined on" htmlFor="joinedOn" hint="Optional. Used for tenure.">
+                    <Input
+                      id="joinedOn"
+                      name="joinedOn"
+                      type="date"
+                      defaultValue={person.joinedOn ?? ''}
+                    />
+                  </Field>
+
+                  <Field label="Reports to" htmlFor="reportsToId" hint="Who approves their leave.">
+                    <Select
+                      id="reportsToId"
+                      name="reportsToId"
+                      defaultValue={person.reportsToId ?? ''}
+                      options={[
+                        { value: '', label: 'Nobody' },
+                        /* ⚠️ Themselves excluded — the writer also refuses it, but
+                           an option nobody may pick should not be offered. */
+                        ...people
+                          .filter((c) => c.id !== person.id && c.isActive)
+                          .map((c) => ({ value: c.id, label: c.fullName })),
+                      ]}
+                    />
+                  </Field>
+                </div>
+
+                <Field label="Address" htmlFor="address" hint="Optional.">
+                  <Input
+                    id="address"
+                    name="address"
+                    defaultValue={person.address ?? ''}
+                    placeholder="House 12-B, Street 4, G-11/3, Islamabad"
                   />
                 </Field>
               </div>

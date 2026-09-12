@@ -42,6 +42,13 @@ function toPerson(row: Record<string, unknown>): PersonRow {
     isDepartmentManager: row.department_role === 'manager',
     devicePersonNo: (row.device_person_no as string | null) ?? null,
     attendanceMode: (row.attendance_mode as 'either' | 'terminal_only') ?? 'either',
+    specialisation: (row.specialisation as string | null) ?? null,
+    /* `time` comes back as 'HH:MM:SS'; the <input type="time"> wants 'HH:MM'. */
+    workStartsAt: row.work_starts_at ? String(row.work_starts_at).slice(0, 5) : null,
+    workEndsAt: row.work_ends_at ? String(row.work_ends_at).slice(0, 5) : null,
+    joinedOn: row.joined_on ? String(row.joined_on).slice(0, 10) : null,
+    reportsToId: (row.reports_to_id as string | null) ?? null,
+    address: (row.address as string | null) ?? null,
     /* Absent unless the query asked for it — see the join in `listPeople`. */
     monthlySalary:
       row.monthly_salary === null || row.monthly_salary === undefined
@@ -227,6 +234,20 @@ export interface ProfileEdit {
   officeTeam?: 'blue_area' | 'wah';
   devicePersonNo?: string | null;
   attendanceMode?: 'either' | 'terminal_only';
+  /* ── Migrations 131 and 132. ⚠️ Every one of these was settable at INVITE
+     time and nowhere else, so all 17 people who existed before 2026-09-12 had
+     them empty with no way to fill them in — which blocked the specialisation
+     the sales manager is being asked for, and the working hours the lead rota
+     reads to decide who is on shift. Same `case when has(...)` treatment as
+     everything above: a field absent from the form is left exactly as it was. */
+  departmentId?: string | null;
+  departmentRole?: 'manager' | 'member';
+  specialisation?: string | null;
+  workStartsAt?: string | null;
+  workEndsAt?: string | null;
+  joinedOn?: string | null;
+  reportsToId?: string | null;
+  address?: string | null;
   /* ⚠️ Written in the SAME transaction as the rest, deliberately - see the
      note in updateCapacity. null means "not on payroll", which is the absence of
      a compensation row rather than a row holding null. */
@@ -277,7 +298,24 @@ export async function updateCapacity(
       device_person_no = case when ${has('devicePersonNo')}
         then ${input.devicePersonNo ?? null} else device_person_no end,
       attendance_mode = case when ${has('attendanceMode')}
-        then ${input.attendanceMode ?? null}::public.attendance_mode else attendance_mode end
+        then ${input.attendanceMode ?? null}::public.attendance_mode else attendance_mode end,
+      department_id = case when ${has('departmentId')}
+        then ${input.departmentId ?? null}::uuid else department_id end,
+      department_role = case when ${has('departmentRole')}
+        then ${input.departmentRole ?? null}::public.department_role else department_role end,
+      specialisation = case when ${has('specialisation')}
+        then ${input.specialisation ?? null} else specialisation end,
+      work_starts_at = case when ${has('workStartsAt')}
+        then ${input.workStartsAt ?? null}::time else work_starts_at end,
+      work_ends_at = case when ${has('workEndsAt')}
+        then ${input.workEndsAt ?? null}::time else work_ends_at end,
+      joined_on = case when ${has('joinedOn')}
+        then ${input.joinedOn ?? null}::date else joined_on end,
+      /* ⚠️ Nobody reports to themselves. Left as-is rather than refused, because
+         a self-reference is a mis-click on a long dropdown, not an attack. */
+      reports_to_id = case when ${has('reportsToId')} and ${input.reportsToId ?? null}::uuid is distinct from ${userId}::uuid
+        then ${input.reportsToId ?? null}::uuid else reports_to_id end,
+      address = case when ${has('address')} then ${input.address ?? null} else address end
     where id = ${userId}
   `;
 
