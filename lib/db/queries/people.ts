@@ -36,6 +36,10 @@ function toPerson(row: Record<string, unknown>): PersonRow {
     timezone: row.timezone as string,
     phone: (row.phone as string | null) ?? null,
     officeTeam: (row.office_team as 'blue_area' | 'wah') ?? 'blue_area',
+    departmentId: (row.department_id as string | null) ?? null,
+    departmentKey: (row.department_key as string | null) ?? null,
+    departmentName: (row.department_name as string | null) ?? null,
+    isDepartmentManager: row.department_role === 'manager',
     devicePersonNo: (row.device_person_no as string | null) ?? null,
     attendanceMode: (row.attendance_mode as 'either' | 'terminal_only') ?? 'either',
     /* Absent unless the query asked for it — see the join in `listPeople`. */
@@ -68,9 +72,11 @@ export async function listPeople(
        what keeps the payload honest, not the dialog declining to render a
        field. Same lesson as lib/view/project-finance.ts.
        (No backticks: this sits inside a JS template literal.) */
-    select u.*, c.monthly_salary
+    select u.*, c.monthly_salary,
+           d.key as department_key, d.name as department_name
       from public.users u
       left join public.employee_compensation c on c.user_id = u.id
+      left join public.departments d on d.id = u.department_id
      where ${options.includeInactive ? tx`true` : tx`u.is_active`}
      order by
        case u.role when 'super_admin' then 0 when 'admin' then 1
@@ -82,9 +88,11 @@ export async function listPeople(
 
 export async function getPerson(actorId: string, userId: string): Promise<PersonRow | null> {
   const rows = await withUser(actorId, (tx) => tx`
-    select u.*, c.monthly_salary
+    select u.*, c.monthly_salary,
+           d.key as department_key, d.name as department_name
       from public.users u
       left join public.employee_compensation c on c.user_id = u.id
+      left join public.departments d on d.id = u.department_id
      where u.id = ${userId}
   `);
   return rows[0] ? toPerson(rows[0]) : null;

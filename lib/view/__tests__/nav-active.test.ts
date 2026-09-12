@@ -47,6 +47,21 @@ const ADMIN_NAV = [
      it is a separate page rather than a project tab. So it creates no nested
      pair and the prefix rule stays unambiguous. */
   '/studio',
+  /* ⚠️ Added 2026-09-09 with the Campaign & Lead Desk. Its own top-level route
+     and its own rail heading — a lead arrives from a campaign and is assigned to
+     a project afterwards, so filing it under Projects would put the answer
+     before the question. Like `/studio` it creates no nested pair, so the prefix
+     rule below stays unambiguous. */
+  '/leads',
+  /* Step 9. ⚠️ `/clients`, NOT `/leads/clients` — a static segment beside
+     `/leads/[id]` would resolve, and would make a lead whose id was the string
+     "clients" unreachable. Its own route reads as what it is: the owner's
+     reference names "Clients & Leads" as two things. */
+  '/clients',
+  /* Step 10. ⚠️ `/lead-reports`, NOT `/reports/leads` — that page's layout
+     requires `team_coordinator` and above, and the sales manager is `member`.
+     A nested layout cannot widen a parent's floor. */
+  '/lead-reports',
   '/team',
   '/reports',
   /* ⚠️ `/monthly-report` IS DELIBERATELY ABSENT since 2026-08-29 — owner
@@ -213,5 +228,65 @@ describe('the real navigation tree', () => {
 
   it('keeps Reports lit for a Coordinator, who is offered no child item', () => {
     expect(activeHref(hrefsForRole('team_coordinator'), '/reports')).toBe('/reports');
+  });
+
+  /* ══ THE CAPABILITY DIMENSION — migrations 117 & 124 ═════════════════════
+     Owner, 2026-09-10: *"the system should be smart enough to know which
+     campaign these leads are coming from and which project they are from. Who
+     will lead or deal with these leads?"*
+
+     ⚠️ THESE CASES WERE WRITTEN AGAINST A DEPARTMENT NAME AND ARE NOW WRITTEN
+     AGAINST A CAPABILITY. `sectionsForRole(role, 'sales')` was correct for one
+     day; the division's own ERP and CRM leads then routed to AI & Digital, and a
+     nav that compared against `['sales']` would have hidden the desk from the
+     person who owns those leads. The server computes `crmIsOpenTo()` once and
+     the nav asks for the answer.
+
+     ⚠️ RANK STILL CANNOT EXPRESS IT. The people whose whole job is the desk are
+     `member`, the bottom of the ladder. */
+  describe('the lead desk', () => {
+    it('offers it to a Member the CRM is open to', () => {
+      expect(hrefsForRole('member', { crm: true })).toContain('/leads');
+    });
+
+    it('⚠️ does not offer it on rank alone, at any rank below Admin', () => {
+      expect(hrefsForRole('member')).not.toContain('/leads');
+      expect(hrefsForRole('team_coordinator')).not.toContain('/leads');
+      expect(hrefsForRole('member', {})).not.toContain('/leads');
+      expect(hrefsForRole('member', { crm: false })).not.toContain('/leads');
+    });
+
+    it('offers it to a Coordinator whose department owns leads, and not otherwise', () => {
+      /* Kashif Ayaz is the Coordinator AND manages AI & Digital, whose product
+         leads route to him. The rank decides nothing either way. */
+      expect(hrefsForRole('team_coordinator', { crm: true })).toContain('/leads');
+      expect(hrefsForRole('team_coordinator', { crm: false })).not.toContain('/leads');
+    });
+
+    it('still offers it to Admin and Super Admin whatever their capabilities', () => {
+      expect(hrefsForRole('admin')).toContain('/leads');
+      expect(hrefsForRole('admin', { crm: false })).toContain('/leads');
+      expect(hrefsForRole('super_admin', { crm: false })).toContain('/leads');
+    });
+
+    it('⚠️ a capability only ever ADDS an item, never removes one', () => {
+      /* A rule that could take a link away would make "why has my sidebar
+         changed?" a support question. */
+      for (const role of ROLES) {
+        const bare = hrefsForRole(role);
+        expect(hrefsForRole(role, { crm: true }), role).toEqual(expect.arrayContaining(bare));
+        expect(hrefsForRole(role, { crm: false }), role).toEqual(bare);
+      }
+    });
+
+    it('lights exactly one item for somebody who only has the desk', () => {
+      /* The same specificity rule as above, on the tree a salesperson sees —
+         `/leads/[id]` is nested under `/leads`. */
+      const hrefs = hrefsForRole('member', { crm: true });
+      for (const href of hrefs) {
+        expect(hrefs.filter((h) => h === activeHref(hrefs, href)), href).toHaveLength(1);
+      }
+      expect(activeHref(hrefs, '/leads/955d695c-1ae8-4052-81f0-18bafea1f635')).toBe('/leads');
+    });
   });
 });

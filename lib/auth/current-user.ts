@@ -205,6 +205,111 @@ export async function requireRole(minimum: Role): Promise<CurrentUser> {
   return user;
 }
 
+/* ============================================================================
+ * WHICH DEPARTMENT IS ASKING — migration 117
+ * ----------------------------------------------------------------------------
+ * ⚠️ A SEPARATE LOOKUP, NOT TWO MORE COLUMNS ON `session_resolve`. Widening that
+ * function means DROP and re-CREATE — its return type is fixed — on the one code
+ * path that decides whether anybody can sign in at all. The cost avoided is a
+ * single primary-key lookup, memoised per request; the risk avoided is the whole
+ * team locked out by a migration. `where-the-slowness-actually-is` says plainly
+ * that this application's slowness has been payload size and the router cache,
+ * never a query like this one.
+ *
+ * ⚠️ AND IT IS NOT THE FLOOR. Migrations 117 and 118 decide who reads a lead;
+ * this decides whether a page and a nav item are DRAWN. A caller who forgot it
+ * would show somebody an empty screen, not somebody else's data.
+ * ========================================================================= */
+
+export interface ActingDepartment {
+  /** The stable key — `sales`, `digital`, … — or null if unassigned. */
+  readonly key: string | null;
+  readonly name: string | null;
+  /** True only for the manager OF THAT department. Not an app rank. */
+  readonly isManager: boolean;
+  /**
+   * Whether any project's leads route to this department — migration 124.
+   *
+   * ⚠️ THIS REPLACED A HARDCODED `key === 'sales'`. Until 2026-09-10 the CRM
+   * belonged to Sales and the check was a string comparison. It now belongs to
+   * whichever department a project is routed to, so the question is "does your
+   * department own leads", and only the database can answer it.
+   */
+  readonly ownsLeadProjects: boolean;
+}
+
+const NO_DEPARTMENT: ActingDepartment = {
+  key: null,
+  name: null,
+  isManager: false,
+  ownsLeadProjects: false,
+};
+
+export const getCurrentDepartment = cache(async (): Promise<ActingDepartment> => {
+  const user = await getCurrentUser();
+  if (!user) return NO_DEPARTMENT;
+
+  try {
+    const rows = await withAppRole((tx) => tx`
+      select d.key, d.name, u.department_role::text as department_role,
+             exists (
+               select 1 from public.projects p
+                where p.lead_department_id = d.id and not p.is_draft
+             ) as owns_leads
+        from public.users u
+        join public.departments d on d.id = u.department_id
+       where u.id = ${user.id}::uuid
+    `);
+    const row = rows[0];
+    if (!row) return NO_DEPARTMENT;
+
+    return {
+      key: String(row.key),
+      name: String(row.name),
+      isManager: row.department_role === 'manager',
+      ownsLeadProjects: row.owns_leads === true,
+    };
+  } catch {
+    /* ⚠️ FAILS CLOSED, and closed means "no department" — which grants nothing.
+       The same stance as getCurrentUser: nobody is thrown into a screen on a
+       maybe. */
+    return NO_DEPARTMENT;
+  }
+});
+
+/**
+ * May this session use the Campaign & Lead Desk?
+ *
+ * ⚠️ THIS MIRRORS `app.crm_is_open_to_caller()` IN MIGRATION 124, and the
+ * database is the one that matters. Kept in step by hand because there is no way
+ * to share an expression across TypeScript and a policy — so if one changes, the
+ * other must, and the worst case if they drift is a page that draws and then
+ * shows nothing rather than a page that leaks.
+ *
+ * ⚠️ NO LONGER `key === 'sales'`. Owner, 2026-09-10: *"the system should be
+ * smart enough to know which campaign these leads are coming from and which
+ * project they are from. Who will lead or deal with these leads?"* An ERP
+ * enquiry is AI & Digital's, a Chitral enquiry is Sales's, and the rule is the
+ * routing rather than the name of one department.
+ */
+export function crmIsOpenTo(user: CurrentUser, department: ActingDepartment): boolean {
+  return user.role === 'admin' || user.role === 'super_admin' || department.ownsLeadProjects;
+}
+
+/** The guard for every CRM page. Sends anybody else where they belong. */
+export async function requireCrmAccess(): Promise<{
+  user: CurrentUser;
+  department: ActingDepartment;
+}> {
+  const user = await requireEnrolledUser();
+  const department = await getCurrentDepartment();
+
+  if (!crmIsOpenTo(user, department)) {
+    redirect(user.role === 'member' ? '/my-work' : '/dashboard');
+  }
+  return { user, department };
+}
+
 /** Slide the window. Fire-and-forget: a failure here must never block a page. */
 export async function touchSession(user: CurrentUser): Promise<void> {
   try {

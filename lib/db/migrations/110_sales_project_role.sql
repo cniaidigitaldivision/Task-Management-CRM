@@ -1,0 +1,28 @@
+-- ============================================================================
+-- 110 · A PROJECT MEMBER CAN BE SALES TEAM — owner, 2026-09-09
+-- ----------------------------------------------------------------------------
+-- *"Right now the team coordinator and the member… this one is a sales team
+-- that will manage all these leads. I will add the sales team as a member in a
+-- project and mention them as a sales team… Definitely the AI digital division,
+-- the development, the AI content creator, or the campaign live persons don't
+-- need it, have no impact, or are not working on this."*
+--
+-- `project_members.role` already answers "what does this person do on this
+-- project" — manager, content, design, development, ads, video, other. Sales is
+-- simply the value that was missing, and it becomes the CRM's access rule:
+--
+--     Admin · Super Admin · Team Coordinator · project members marked `sales`
+--
+-- ── ⚠️ WHY THIS FILE CONTAINS ONE LINE ─────────────────────────────────────
+-- `ALTER TYPE … ADD VALUE` may run inside a transaction on PostgreSQL 12+, but
+-- the new label CANNOT BE USED until that transaction commits — any reference
+-- raises "unsafe use of new value". `scripts/migrate.mjs` wraps every file in
+-- one transaction, so a self-check here that inserted a member with role
+-- 'sales', or a policy in 111 that named it, would fail on a migration that is
+-- otherwise correct.
+--
+-- Migrations 106 and 107 were split for exactly this reason. 111 does everything
+-- that needs the value.
+-- ============================================================================
+
+alter type public.project_role add value if not exists 'sales';

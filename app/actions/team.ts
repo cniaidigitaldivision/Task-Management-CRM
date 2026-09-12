@@ -669,6 +669,107 @@ export async function changeRoleAction(userId: string, role: Role): Promise<Team
 }
 
 /* ==========================================================================
+ * WHICH DEPARTMENT SOMEBODY IS IN — owner, 2026-09-10
+ * --------------------------------------------------------------------------
+ * *"Properly organize the team. Then it will be easier to divide on a role
+ * basis who can see, who can manage the CRM, or who can do what."*
+ *
+ * ⚠️ THIS GRANTS ACCESS, AND THAT IS WHY IT IS GUARDED LIKE A ROLE CHANGE.
+ * Migration 118 makes the Sales department the CRM's audience, so moving
+ * somebody into it hands them 615 strangers' names and phone numbers — a
+ * quieter act than promoting them to Admin, and no less consequential. It asks
+ * for re-authentication for the same reason `changeRoleAction` does: a session
+ * taken over at an unlocked laptop must not be able to do it.
+ * ========================================================================== */
+
+export async function setDepartmentAction(
+  userId: string,
+  departmentId: string | null,
+  isManager: boolean,
+): Promise<TeamActionResult> {
+  const user = await requireUser();
+  const target = await P.getAccountState(user.id, userId);
+  if (!target) return fail('That person is no longer available.');
+
+  if (target.role === 'super_admin' && userId !== user.id) {
+    return fail('The Super Admin cannot be altered by anybody else (BR-027, FR-140).');
+  }
+
+  /* ⚠️ ADMIN AND ABOVE, matching `departments_write` in migration 117. A
+     Coordinator manages their team's WORK, not who is in which department. */
+  if (user.role !== 'admin' && user.role !== 'super_admin') {
+    return fail('Only an Admin can move somebody between departments.');
+  }
+
+  const departments = await P.listDepartments(user.id);
+  const department = departmentId ? departments.find((d) => d.id === departmentId) : null;
+  if (departmentId !== null && !department) return fail('That is not a department.');
+
+  /* ⚠️ ONE MANAGER PER DEPARTMENT, refused here rather than in the database.
+     Nothing in the schema forbids two — the owner said *"they have one sales
+     manager"*, which is a rule about this company rather than about the shape
+     of the data, and a second manager should be a decision somebody makes by
+     demoting the first. */
+  if (department && isManager) {
+    const held = departments.find((d) => d.id === departmentId)?.managerName;
+    if (held && held !== target.fullName) {
+      return fail(
+        `${held} already manages ${department.name}. Move them out of the manager seat first — a department has one manager.`,
+      );
+    }
+  }
+
+  if (!stepUpIsFresh(user, nowMs())) {
+    return {
+      ok: false,
+      stepUpRequired: true,
+      error: 'Confirm it is you before changing somebody’s department.',
+    };
+  }
+
+  try {
+    await P.setPersonDepartment(user.id, userId, departmentId, isManager);
+
+    const where = department
+      ? `${department.name}${isManager ? ' (manager)' : ''}`
+      : 'no department';
+
+    await withUser(user.id, async (tx) => {
+      await record(tx, user.id, {
+        entityType: 'user',
+        entityId: userId,
+        action: 'department_changed',
+        summary: `moved ${target.fullName} to ${where}`,
+        after: { departmentId, isManager },
+      });
+      /* ⚠️ AUDITED, because this is an access grant. Sales sees the CRM. */
+      await audit(tx, user, {
+        entityType: 'user',
+        entityId: userId,
+        action: 'user.department_changed',
+        after: { departmentId, department: department?.key ?? null, isManager },
+      });
+    });
+
+    revalidatePath('/team');
+    revalidatePath('/leads');
+
+    return {
+      ok: true,
+      /* ⚠️ SAYS WHAT IT ACTUALLY DID when the department is Sales. "Moved to
+         Sales" and "can now read every lead in the system" are the same event,
+         and only one of them is obvious. */
+      warning:
+        department?.key === 'sales'
+          ? `${target.fullName} is now in Sales${isManager ? ' as its manager' : ''} — which means the Campaign & Lead Desk is open to them from their next page load.${isManager ? ' A manager sees every lead in the department.' : ' They will see the leads assigned to them.'}`
+          : `${target.fullName} is now in ${where}.`,
+    };
+  } catch {
+    return fail('That change was refused.');
+  }
+}
+
+/* ==========================================================================
  * FORCE A PASSWORD RESET
  * ========================================================================== */
 

@@ -11,6 +11,7 @@ import {
   RotateCcw,
   Send,
   ShieldAlert,
+  Building2,
   Trash2,
   UserMinus,
   UserPlus,
@@ -22,6 +23,7 @@ import {
   purgePersonAction,
   resendInvitationAction,
   setActiveAction,
+  setDepartmentAction,
   type TeamActionResult,
 } from '@/app/actions/team';
 import { StepUpDialog } from '@/components/security/step-up-dialog';
@@ -56,20 +58,31 @@ import { cn } from '@/lib/utils';
  * ========================================================================= */
 
 type Pending = null | {
-  kind: 'deactivate' | 'restore' | 'role' | 'reset' | 'delete';
+  kind: 'deactivate' | 'restore' | 'role' | 'reset' | 'delete' | 'department';
   role?: Role;
 };
+
+/** The departments a person can be put in — passed down from the page. */
+export interface DepartmentOption {
+  readonly id: string;
+  readonly key: string;
+  readonly name: string;
+  readonly managerName: string | null;
+}
 
 export function PersonActions({
   person,
   currentUser,
   assignableRoles,
+  departments,
   isPendingActivation,
   resetTrail,
 }: {
   person: PersonRow;
   currentUser: { id: string; role: Role };
   assignableRoles: readonly Role[];
+  /** Empty for anybody who may not move people — the PAGE decides that. */
+  departments: readonly DepartmentOption[];
   isPendingActivation: boolean;
   /** The latest forced reset for this person, or null. Comes down with the page
    *  (see `getForcedResetTrails`), so the status panel needs no fetch of its own. */
@@ -82,6 +95,8 @@ export function PersonActions({
   const [confirm, setConfirm] = React.useState<Pending>(null);
   const [trailOpen, setTrailOpen] = React.useState(false);
   const [nextRole, setNextRole] = React.useState<Role>(person.role);
+  const [nextDept, setNextDept] = React.useState<string>(person.departmentId ?? '');
+  const [nextIsManager, setNextIsManager] = React.useState(person.isDepartmentManager);
   /* ── ⚠️ HELD FOR REPLAY AFTER RE-AUTHENTICATION — FR-149 ──────────────────
      Changing a role now demands password + second factor even inside a valid
      session. The server answers `stepUpRequired` instead of failing, the
@@ -255,6 +270,23 @@ export function PersonActions({
               </button>
             )}
 
+            {departments.length > 0 && (
+              <button
+                type="button"
+                className={item}
+                disabled={busy}
+                onClick={() => {
+                  setNextDept(person.departmentId ?? '');
+                  setNextIsManager(person.isDepartmentManager);
+                  setConfirm({ kind: 'department' });
+                  setOpen(false);
+                }}
+              >
+                <Building2 className="h-3.5 w-3.5 shrink-0" strokeWidth={2} aria-hidden="true" />
+                Move department
+              </button>
+            )}
+
             {!isPendingActivation && (
               <button
                 type="button"
@@ -376,7 +408,10 @@ export function PersonActions({
                 busy ||
                 (confirm?.kind === 'role' && nextRole === person.role) ||
                 /* Nothing typed yet — the server would only refuse it. */
-                (confirm?.kind === 'delete' && deletePassword.length === 0)
+                (confirm?.kind === 'delete' && deletePassword.length === 0) ||
+                (confirm?.kind === 'department' &&
+                  (nextDept || null) === (person.departmentId ?? null) &&
+                  nextIsManager === person.isDepartmentManager)
               }
               onClick={() => {
                 if (confirm?.kind === 'deactivate')
@@ -387,6 +422,11 @@ export function PersonActions({
                   return void run(() => forceResetAction(person.id), `Forcing a password reset for ${person.fullName}`);
                 if (confirm?.kind === 'role')
                   return void run(() => changeRoleAction(person.id, nextRole), `Changing ${person.fullName}'s role`);
+                if (confirm?.kind === 'department')
+                  return void run(
+                    () => setDepartmentAction(person.id, nextDept || null, nextIsManager),
+                    `Moving ${person.fullName}`,
+                  );
               }}
             >
               {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
@@ -396,7 +436,9 @@ export function PersonActions({
                   ? 'Delete permanently'
                   : confirm?.kind === 'reset'
                     ? 'Force the reset'
-                    : 'Change the role'}
+                    : confirm?.kind === 'department'
+                      ? 'Move them'
+                      : 'Change the role'}
             </Button>
           </>
         }
@@ -465,6 +507,69 @@ export function PersonActions({
             whether it arrived, and resend or revoke it, under{' '}
             <span className="font-semibold text-text-primary">Reset status</span> in this menu.
           </p>
+        )}
+
+        {confirm?.kind === 'department' && (
+          <div className="space-y-3">
+            <p className="text-caption text-text-secondary">
+              Currently{' '}
+              <span className="font-semibold text-text-primary">
+                {person.departmentName ?? 'in no department'}
+                {person.isDepartmentManager && ' — its manager'}
+              </span>
+              . A department is what somebody DOES, not where they sit; the office they attend from
+              is separate and does not change here.
+            </p>
+
+            <Select
+              size="md"
+              label={`Department for ${person.fullName}`}
+              value={nextDept}
+              onChange={(event) => {
+                setNextDept(event.target.value);
+                /* Leaving a department cannot leave somebody managing it —
+                   `users_manager_needs_department` refuses exactly that row. */
+                if (event.target.value === '') setNextIsManager(false);
+              }}
+              className="w-full"
+            >
+              <option value="">No department</option>
+              {departments.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </Select>
+
+            <label className="flex items-start gap-2 text-caption text-text-secondary">
+              <input
+                type="checkbox"
+                checked={nextIsManager}
+                disabled={nextDept === ''}
+                onChange={(event) => setNextIsManager(event.target.checked)}
+                className="mt-0.5 size-3.5 shrink-0 accent-[var(--accent-primary)]"
+              />
+              <span>
+                They manage this department.
+                <span className="mt-0.5 block text-micro text-text-tertiary">
+                  A manager sees everything their department holds. ⚠️ This is not an app role —
+                  they stay {ROLE_LABEL[person.role]}.
+                </span>
+              </span>
+            </label>
+
+            {/* ⚠️ SAYS WHAT MOVING SOMEBODY INTO SALES ACTUALLY DOES. "Moved to
+                Sales" and "can now read 615 strangers' phone numbers" are the
+                same event, and only one of them is obvious from the dropdown. */}
+            {departments.find((d) => d.id === nextDept)?.key === 'sales' && (
+              <p className="rounded-lg border border-dashed border-border-default px-3 py-2 text-micro leading-relaxed text-text-secondary">
+                Sales is the department that owns the Campaign &amp; Lead Desk.{' '}
+                {nextIsManager
+                  ? 'As its manager they will see every lead in the system, and who is working each one.'
+                  : 'They will see the leads assigned to them, with the full record — name, phone and everything on it.'}
+              </p>
+            )}
+          </div>
         )}
 
         {confirm?.kind === 'role' && (

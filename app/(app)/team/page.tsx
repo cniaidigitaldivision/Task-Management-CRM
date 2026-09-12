@@ -19,7 +19,7 @@ import { getForcedResetTrails, type ResetTrail } from '@/lib/db/queries/auth';
 import { toResetTrailView } from '@/lib/view/reset-trail';
 import { teamWorkload } from '@/lib/db/queries/workload';
 import { ROLE_LABEL } from '@/lib/domain/constants';
-import { listPendingInvitations } from '@/lib/db/queries/provisioning';
+import { listDepartments, listPendingInvitations } from '@/lib/db/queries/provisioning';
 import { assignableRolesFor } from '@/app/actions/team';
 import { describeSender } from '@/lib/email/send';
 import {
@@ -78,6 +78,7 @@ export default async function TeamPage() {
     pending,
     assignableRoles,
     trails,
+    departments,
     unmatchedScans,
     enrolments,
   ] = await Promise.all([
@@ -96,6 +97,13 @@ export default async function TeamPage() {
     canProvision
       ? getForcedResetTrails(user.id)
       : Promise.resolve(new Map<string, ResetTrail>()),
+    /* ⚠️ ADMIN AND ABOVE, matching `departments_write` in migration 117 and the
+       check inside `setDepartmentAction`. Everybody can READ the org chart —
+       the policy allows it and the roster shows each person's department — but
+       only these two accounts can MOVE anybody, because moving somebody into
+       Sales is what opens the CRM to them. An empty list here is what removes
+       the menu item for everyone else. */
+    canProvision ? listDepartments(user.id) : Promise.resolve([]),
     /* The terminal mapping. Admin+ only, and not even queried otherwise — RLS
        would return empty (079), but a round trip for data the page will not draw
        is a round trip for nothing. */
@@ -245,6 +253,7 @@ export default async function TeamPage() {
           canManage={canManage}
           canProvision={canProvision}
           assignableRoles={assignableRoles}
+          departments={departments}
           pendingUserIds={pendingUserIds}
           resetTrails={resetTrails}
         />

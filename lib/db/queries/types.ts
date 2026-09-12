@@ -202,6 +202,15 @@ export interface PersonRow {
      for an Admin, so a Coordinator's payload never carries a pay figure. */
   readonly phone: string | null;
   readonly officeTeam: 'blue_area' | 'wah';
+  /* ── ⚠️ `officeTeam` IS A LOCATION, `department` IS A JOB — migration 117 ──
+     The two sit next to each other and are constantly confused. `officeTeam` is
+     which building somebody sits in (Blue Area or Wah) and attendance, payroll
+     and expenses all group by it. The department is what they DO, and it is what
+     decides whether the CRM opens for them. */
+  readonly departmentId: string | null;
+  readonly departmentKey: string | null;
+  readonly departmentName: string | null;
+  readonly isDepartmentManager: boolean;
   readonly devicePersonNo: string | null;
   readonly attendanceMode: 'either' | 'terminal_only';
   readonly monthlySalary: number | null;

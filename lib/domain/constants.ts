@@ -991,6 +991,14 @@ export const NOTIFICATION_KINDS = [
   'time_extension_decided',
   'project_status_changed',
   'security_alert',
+  /* Step 7. ⚠️ NOT `task_assigned` reused: a lead is a stranger waiting for a
+     call, not a task, and sharing the kind would let somebody silence their
+     task notifications and lose their leads with them. */
+  'lead_assigned',
+  /* Step 8. ⚠️ NOT `task_due_soon` reused — sharing the kind would let somebody
+     silence their task reminders and lose their lead reminders with them. */
+  'lead_due',
+  'lead_neglected',
 ] as const;
 
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];

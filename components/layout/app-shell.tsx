@@ -72,6 +72,10 @@ export interface ShellUser {
   readonly email: string;
   readonly role: Role;
   readonly roleTitle: string | null;
+  /** Their department's name, shown in the rail's footer. Migration 117. */
+  readonly departmentName: string | null;
+  /** Whether the lead desk is open to them — `crmIsOpenTo()`, migration 124. */
+  readonly crmOpen: boolean;
   readonly theme: Theme;
   /** Their uploaded picture, shown in the rail. CHANGE-PLAN 2.3. */
   readonly avatarUrl: string | null;
@@ -366,6 +370,8 @@ export function AppShell({
     >
       <Sidebar
         role={user.role}
+        departmentName={user.departmentName}
+        crmOpen={user.crmOpen}
         userName={user.name}
         userAvatarUrl={user.avatarUrl}
         open={navOpen}

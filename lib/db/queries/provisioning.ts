@@ -275,6 +275,81 @@ export async function setPersonRole(
   `);
 }
 
+/* ==========================================================================
+ * DEPARTMENTS — migration 117
+ * ========================================================================== */
+
+export interface DepartmentRow {
+  readonly id: string;
+  readonly key: string;
+  readonly name: string;
+  readonly description: string | null;
+  readonly people: number;
+  readonly managerName: string | null;
+}
+
+/**
+ * Every department, with its headcount and who runs it.
+ *
+ * ⚠️ INCLUDES THE EMPTY ONES. Finance, HR, Operations and Support have nobody in
+ * them yet, and hiding them would make the first hire into one a question of
+ * "where did that department go?" rather than a dropdown. An org chart shows the
+ * boxes that exist, not only the full ones.
+ */
+export async function listDepartments(actorId: string): Promise<DepartmentRow[]> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select d.id, d.key, d.name, d.description,
+           count(u.id) filter (where u.is_active) as people,
+           (select m.full_name
+              from public.users m
+             where m.department_id = d.id
+               and m.department_role = 'manager'
+               and m.is_active
+             order by m.full_name
+             limit 1) as manager_name
+      from public.departments d
+      left join public.users u on u.department_id = d.id
+     group by d.id, d.key, d.name, d.description, d.sort_order
+     order by d.sort_order, d.name
+  `);
+
+  return (rows as Array<Record<string, unknown>>).map((r) => ({
+    id: String(r.id),
+    key: String(r.key),
+    name: String(r.name),
+    description: (r.description as string | null) ?? null,
+    people: Number(r.people ?? 0),
+    managerName: (r.manager_name as string | null) ?? null,
+  }));
+}
+
+/**
+ * Put somebody in a department, or take them out of one.
+ *
+ * ⚠️ ONE STATEMENT, BOTH COLUMNS. `users_manager_needs_department` refuses a
+ * manager with no department, so clearing the department and demoting to member
+ * as two updates would fail on whichever ran first. Written together, the row is
+ * never momentarily invalid.
+ *
+ * ⚠️ AND CLEARING A DEPARTMENT FORCES `member`. Somebody moved out of Sales must
+ * not stay flagged as a manager of nothing — that is exactly the state the CHECK
+ * exists to refuse.
+ */
+export async function setPersonDepartment(
+  actorId: string,
+  userId: string,
+  departmentId: string | null,
+  isManager: boolean,
+): Promise<void> {
+  await withUser(actorId, (tx) => tx`
+    update public.users
+       set department_id   = ${departmentId}::uuid,
+           department_role = ${departmentId === null ? 'member' : isManager ? 'manager' : 'member'}::public.department_role,
+           updated_at      = now()
+     where id = ${userId}
+  `);
+}
+
 /** FR-155: force the next sign-in to go through a password change. */
 export async function forcePasswordReset(actorId: string, userId: string): Promise<void> {
   await withUser(actorId, (tx) => tx`

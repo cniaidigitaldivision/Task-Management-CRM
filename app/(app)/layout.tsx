@@ -3,7 +3,12 @@ import type { Metadata } from 'next';
 
 import { AppShell } from '@/components/layout/app-shell';
 import { AssistantLauncher } from '@/components/assistant/assistant-launcher';
-import { requireEnrolledUser, touchSession } from '@/lib/auth/current-user';
+import {
+  crmIsOpenTo,
+  getCurrentDepartment,
+  requireEnrolledUser,
+  touchSession,
+} from '@/lib/auth/current-user';
 import { assistantAccessFor } from '@/lib/db/queries/assistant';
 import { mayUseAssistant } from '@/lib/domain/assistant-access';
 import { countUnread, listNotifications } from '@/lib/db/queries/feed';
@@ -45,6 +50,10 @@ export default async function AppGroupLayout({ children }: { children: React.Rea
   /* FR-145: a privileged account with no verified second factor is redirected
      to enrolment here, at the boundary — not merely pointed at it by the sign-in. */
   const user = await requireEnrolledUser();
+  /* Which department is asking — migration 117. Memoised per request alongside
+     the user, and it decides only what the sidebar DRAWS: the CRM pages have
+     their own floor, and migration 118 has the real one. */
+  const department = await getCurrentDepartment();
 
   /* Independent reads, so they go together. Four sequential round trips to
      Supabase on every navigation is roughly 200ms of nothing happening. */
@@ -81,6 +90,12 @@ export default async function AppGroupLayout({ children }: { children: React.Rea
         email: user.email,
         role: user.role,
         roleTitle: user.roleTitle,
+        departmentName: department.name,
+        /* ⚠️ COMPUTED ONCE, HERE, and passed down as a boolean. The nav used to
+           be handed the department KEY and compare it to `['sales']` itself —
+           which broke the day the division's own leads routed elsewhere. The
+           rule lives in one function now. */
+        crmOpen: crmIsOpenTo(user, department),
         theme: user.theme,
         avatarUrl: user.avatarUrl,
       }}

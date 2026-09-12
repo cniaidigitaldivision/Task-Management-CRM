@@ -16,6 +16,8 @@ import {
   Wallet,
   Workflow,
   TrendingUp,
+  Radio,
+  UserCheck,
 } from 'lucide-react';
 
 import type { Route } from 'next';
@@ -40,6 +42,22 @@ export interface NavItem {
   href: Route;
   icon: typeof LayoutDashboard;
   roles: readonly Role[];
+  /**
+   * A capability that opens this item WHATEVER the rank — migration 124.
+   *
+   * ⚠️ THIS EXISTS BECAUSE RANK CANNOT EXPRESS THE CRM. The people whose whole
+   * job is the lead desk are `member`, the bottom of the ladder. `roles` is a
+   * ladder and this is not, so the two are ORed rather than one being bent into
+   * the other.
+   *
+   * ⚠️ AND IT IS A CAPABILITY, NOT A DEPARTMENT LIST. It was
+   * `departments: ['sales']` until 2026-09-10, which stopped being right the
+   * moment the division's own product leads routed to AI & Digital instead. A
+   * static list would have had to grow every time a project was re-routed, and
+   * would have been wrong in between. The server already computes the answer —
+   * `crmIsOpenTo()` — so the nav asks for it rather than re-deriving it.
+   */
+  requires?: 'crm';
   /** Shown as a counter chip. Wired to real data from Phase 3. */
   badgeKey?: 'myTasks' | 'review' | 'overdue';
 }
@@ -142,6 +160,64 @@ export const NAV_SECTIONS: readonly NavSection[] = [
     ],
   },
   {
+    /* ── ⚠️ ITS OWN HEADING, NOT UNDER PROJECTS — owner, 2026-09-09 ─────────
+       *"In the left sidebar in that branch I will start working… for all leads
+       management. Leads are coming from the campaigns."*
+
+       The Studio sits under Projects because it reads ONE project's figures. A
+       lead does not start life belonging to a project — it arrives from a
+       campaign and is assigned afterwards — so filing it there would put the
+       answer before the question. Its own heading leaves room for the campaign
+       and source screens that follow.
+
+       ⚠️ ADMIN_UP **plus whoever the leads route to** — owner, 2026-09-10:
+       *"the system should be smart enough to know which campaign these leads are
+       coming from and which project they are from. Who will lead or deal with
+       these leads?"* Chitral routes to Sales, the division's own ERP and CRM
+       leads route to AI & Digital. It was Sales alone for one day; see
+       migration 124.
+
+       ⚠️ And this file is not the floor. `app/(app)/leads/layout.tsx` and
+       migration 118 are (NFR-006); removing the link here would hide the page
+       and grant nobody anything. All three are set together, deliberately. */
+    label: 'Growth',
+    items: [
+      {
+        label: 'Campaign & Lead Desk',
+        href: '/leads',
+        icon: Radio,
+        roles: ADMIN_UP,
+        /* ⚠️ The people whose entire job is this screen are `member`. Without
+           this they would have no link to it. */
+        requires: 'crm',
+      },
+      {
+        /* ⚠️ ITS OWN ITEM, BESIDE THE DESK. The owner's reference names them
+           together — "Clients & Leads" — and they are genuinely two screens: the
+           desk is scoped to one project and sorted by what is owed; this lists
+           PEOPLE across every project, because a client has no project of their
+           own (migration 111). Same audience, same capability. */
+        label: 'Clients',
+        href: '/clients',
+        icon: UserCheck,
+        roles: ADMIN_UP,
+        requires: 'crm',
+      },
+      {
+        /* ⚠️ NOT UNDER `/reports`, and the reason is a floor rather than a
+           preference: that page requires `team_coordinator` and above, and the
+           sales manager is `member` (ADR-012). A nested layout cannot widen a
+           parent's floor, so `/reports/leads` would have blocked exactly the
+           person these reports are for. */
+        label: 'Lead reports',
+        href: '/lead-reports',
+        icon: BarChart3,
+        roles: ADMIN_UP,
+        requires: 'crm',
+      },
+    ],
+  },
+  {
     label: 'Team',
     items: [
       { label: 'Team', href: '/team', icon: Users, roles: ADMIN_UP },
@@ -221,16 +297,32 @@ export const NAV_SECTIONS: readonly NavSection[] = [
   },
 ];
 
-export function sectionsForRole(role: Role): NavSection[] {
+/** What the viewer can reach beyond their rank. */
+export interface NavCapabilities {
+  /** `crmIsOpenTo()` — see `lib/auth/current-user.ts`. */
+  readonly crm?: boolean;
+}
+
+/**
+ * What this person is offered.
+ *
+ * ⚠️ `can` IS OPTIONAL AND DEFAULTS TO NOTHING, so every existing caller keeps
+ * the rank-only behaviour it had. A capability only ever ADDS an item — it can
+ * never take one away, because a rule that could remove things would make "why
+ * has my sidebar changed?" a support question.
+ */
+export function sectionsForRole(role: Role, can: NavCapabilities = {}): NavSection[] {
   return NAV_SECTIONS.map((section) => ({
     ...section,
-    items: section.items.filter((item) => item.roles.includes(role)),
+    items: section.items.filter(
+      (item) => item.roles.includes(role) || (item.requires ? can[item.requires] === true : false),
+    ),
   })).filter((section) => section.items.length > 0);
 }
 
 /** Every href a role is offered, for the "which item is current" rule. Flattened
  *  here so the rule itself stays free of the nav's React types — see
  *  `lib/view/nav-active.ts`. */
-export function hrefsForRole(role: Role): string[] {
-  return sectionsForRole(role).flatMap((section) => section.items.map((item) => item.href));
+export function hrefsForRole(role: Role, can: NavCapabilities = {}): string[] {
+  return sectionsForRole(role, can).flatMap((section) => section.items.map((item) => item.href));
 }

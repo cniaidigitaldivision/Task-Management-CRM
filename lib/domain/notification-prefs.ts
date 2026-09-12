@@ -48,6 +48,35 @@ export const PREF_DEFINITIONS: readonly PrefDefinition[] = [
       'Cannot be turned off in-app. Work arriving on your plate without you knowing helps nobody.',
   },
   {
+    kind: 'lead_assigned',
+    label: 'A lead given to you',
+    help: 'Somebody hands you an enquiry to work — or the system does.',
+    group: 'your work',
+    /* ⚠️ Locked for the same reason as `task_assigned`, and it matters more: a
+       lead is a real person who filled in a form and is waiting for a call.
+       Somebody who silenced this would lose leads quietly, and the first sign
+       would be a stranger who was never rung. */
+    locked: 'inApp',
+    lockedReason:
+      'Cannot be turned off in-app. A lead is somebody waiting for a call — not knowing you have it helps nobody.',
+  },
+  {
+    kind: 'lead_due',
+    label: 'Leads waiting on you',
+    help: 'Once each morning, if any of your leads are due or overdue.',
+    group: 'your work',
+    /* ⚠️ NOT LOCKED, unlike `lead_assigned`. Somebody who works from the desk
+       rather than the bell has a real reason to turn this off, and the desk
+       shows the same thing without it. Being GIVEN a lead is different: nobody
+       else will tell you. */
+  },
+  {
+    kind: 'lead_neglected',
+    label: 'Leads that have gone quiet',
+    help: 'For the sales manager: whose leads have had no call, message or note for several days.',
+    group: 'the team',
+  },
+  {
     kind: 'task_reassigned',
     label: 'Work taken off you',
     help: 'A task you held moves to somebody else.',
@@ -168,6 +197,7 @@ export const PREF_BY_KIND: ReadonlyMap<NotificationKind, PrefDefinition> = new M
  */
 const EMAIL_BY_DEFAULT: ReadonlySet<NotificationKind> = new Set<NotificationKind>([
   'task_assigned',
+  'lead_assigned',
   'task_mention',
   'revisions_requested',
   'review_requested',
