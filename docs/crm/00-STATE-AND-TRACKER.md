@@ -65,8 +65,22 @@ What follows is everything still to do, with what each one actually involves.
 
 ### ⚠️ Two owner tasks that are still not done
 
-- **The ERP and Taskly projects do not exist.** Two of the three live AI & Digital
-  campaigns have nowhere to file to. Minutes of work, Admin only.
+- ~~**The ERP and Taskly projects do not exist.**~~ ⚠️ **CLOSED 2026-09-13, and
+  it was never a task.** This file said for three days that two campaigns had
+  "nowhere to file to". Untrue: the AI & Digital PAGE already maps to the
+  **AI & Digital Division** project, so every lead from the ERP, CRM and Taskly
+  campaigns lands there and routes to Kashif — no extra record needed.
+
+  Owner: *"I just want to run a campaign which is definitely for the AI digital
+  campaigns… No need to assign or link to some project. The DBN itself is
+  enough."* Correct. Two `type = 'tool'` rows were created on that mistaken
+  reading and have been deleted again.
+
+  ⚠️ **AND THE CAMPAIGNS STAY DISTINGUISHABLE ANYWAY** — which was the original
+  worry. Migration 127 files a lead by its FORM, and the desk's "Came from"
+  column shows that form, so an ERP enquiry is still tellable from a Taskly one
+  while both sit on one project. Separate projects were never what made that
+  work.
 - **`procurment` is spelled wrong** — created while testing the new department
   button. Rename fixes it and the key underneath does not move.
 
