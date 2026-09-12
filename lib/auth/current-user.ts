@@ -4,7 +4,7 @@ import { cache } from 'react';
 import { redirect } from 'next/navigation';
 
 import { MFA_REQUIRED_ROLES, type Role, type Theme } from '@/lib/domain/constants';
-import { withAppRole } from '@/lib/db/client';
+import { withAppRole, withUser } from '@/lib/db/client';
 
 import { clearSessionCookie, readSessionTokenHash } from './session';
 
@@ -250,15 +250,27 @@ export const getCurrentDepartment = cache(async (): Promise<ActingDepartment> =>
   if (!user) return NO_DEPARTMENT;
 
   try {
-    const rows = await withAppRole((tx) => tx`
-      select d.key, d.name, u.department_role::text as department_role,
-             exists (
-               select 1 from public.projects p
-                where p.lead_department_id = d.id and not p.is_draft
-             ) as owns_leads
-        from public.users u
-        join public.departments d on d.id = u.department_id
-       where u.id = ${user.id}::uuid
+    /* ⚠️ THROUGH MIGRATION 129'S DEFINER READER, NOT A QUERY ON `users` AND
+       `projects`. This was written as a plain `withAppRole` join and was wrong
+       in two independent ways, either of which was enough on its own:
+
+         · `withAppRole` sets NO `app.user_id`, so `users_select` hid every row
+           and the join returned nothing at all;
+         · and `projects_select` is `app.project_is_visible(id)`, which needs
+           project MEMBERSHIP — a salesperson is not a member of Chitral, so the
+           EXISTS was false even once a session was set.
+
+       Measured 2026-09-12, as the app ran it: `withAppRole` → no rows;
+       `withUser(Sale Tester)` → `owns_leads = false`. Either way
+       `ownsLeadProjects` came back false, `crmIsOpenTo()` said no, and
+       `requireCrmAccess()` redirected the three people whose whole job this is.
+
+       ⚠️ AND IT WAS INVISIBLE FROM AN ADMIN SESSION — `crmIsOpenTo()`
+       short-circuits on rank and never reads the department — which is why it
+       survived every browser check. Same shape as 105, 121 and 125. */
+    const rows = await withUser(user.id, (tx) => tx`
+      select key, name, department_role, owns_leads
+        from app.crm_acting_department()
     `);
     const row = rows[0];
     if (!row) return NO_DEPARTMENT;
