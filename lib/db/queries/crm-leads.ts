@@ -1195,3 +1195,43 @@ export async function crmMyDay(actorId: string, projectId: string): Promise<CrmM
       : Number(r.median_minutes),
   };
 }
+
+export interface CrmLeadInsight {
+  readonly summary: string;
+  readonly talkingPoints: string[];
+  readonly draftMessage: string | null;
+  readonly generatedAt: string;
+  readonly model: string;
+  /** ⚠️ False when the lead has moved since — the panel then offers a refresh
+   *  rather than quietly showing advice about a stage the lead has left. */
+  readonly current: boolean;
+}
+
+/**
+ * The cached AI reading, and whether it still matches the lead.
+ *
+ * ⚠️ NEVER GENERATES. This is a read; producing one costs money and happens
+ * only when somebody presses the button — see `app/actions/crm-lead-ai.ts`.
+ */
+export async function crmLeadInsight(
+  actorId: string,
+  leadId: string,
+  currentFingerprint: string,
+): Promise<CrmLeadInsight | null> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select summary, talking_points, draft_message, generated_at, model, source_fingerprint
+      from public.crm_lead_insights where lead_id = ${leadId}::uuid
+  `);
+  const r = (rows as Array<Record<string, unknown>>)[0];
+  if (!r) return null;
+  return {
+    summary: String(r.summary),
+    talkingPoints: Array.isArray(r.talking_points)
+      ? (r.talking_points as unknown[]).filter((p): p is string => typeof p === 'string')
+      : [],
+    draftMessage: (r.draft_message as string | null) ?? null,
+    generatedAt: new Date(r.generated_at as string).toISOString(),
+    model: String(r.model),
+    current: r.source_fingerprint === currentFingerprint,
+  };
+}

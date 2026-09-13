@@ -75,6 +75,9 @@ function render(props: Partial<React.ComponentProps<typeof LeadRecord>> = {}) {
       notes={[]}
       activity={[IMPORTED]}
       alsoEnquired={[]}
+      /* Step 11. Null is the state 627 of these leads stay in: nobody has
+         pressed the button, so nothing has been generated or paid for. */
+      insight={null}
       backHref={'/leads?project=abc' as Route}
       viewerId="u1"
       viewerIsAdmin={false}

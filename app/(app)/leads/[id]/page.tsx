@@ -3,7 +3,8 @@ import { notFound } from 'next/navigation';
 
 import { LeadRecord } from '@/components/crm/lead-record';
 import { requireCrmAccess } from '@/lib/auth/current-user';
-import { crmProjectRoster, getCrmLead } from '@/lib/db/queries/crm-leads';
+import { crmLeadInsight, crmProjectRoster, getCrmLead } from '@/lib/db/queries/crm-leads';
+import { fingerprint } from '@/lib/ai/lead-insight';
 import { nowMs } from '@/lib/now';
 
 export const metadata: Metadata = { title: 'Lead' };
@@ -49,12 +50,30 @@ export default async function LeadPage({
      ERP lead offers AI & Digital. Before migration 124 there was one team. */
   const roster = await crmProjectRoster(user.id, record.lead.projectId);
 
+  /* ⚠️ A READ, NOT A GENERATION. Producing a reading costs money and happens
+     only when somebody presses the button (`app/actions/crm-lead-ai.ts`). This
+     just fetches whatever is already cached — null when nobody has asked, which
+     is the state 627 of these leads will stay in. The fingerprint is recomputed
+     here so the panel can say whether the cached reading still matches the
+     lead, rather than showing advice about a stage it has left. */
+  const insight = await crmLeadInsight(
+    user.id,
+    id,
+    fingerprint({
+      answers: record.lead.answers,
+      stage: record.lead.stage,
+      noteCount: record.notes.length,
+      city: record.lead.city,
+    }),
+  );
+
   return (
     <LeadRecord
       lead={record.lead}
       notes={record.notes}
       activity={record.activity}
       alsoEnquired={record.alsoEnquired}
+      insight={insight}
       backHref={backToDesk(query.from, record.lead.projectId)}
       /* ⚠️ Who is looking, for one decision only: whether a note carries a
          withdraw button. The DELETE itself is decided by 111's policy — author

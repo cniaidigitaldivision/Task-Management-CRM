@@ -13,6 +13,7 @@ import {
   TemperatureControl,
   type OwnerOption,
 } from '@/components/crm/lead-actions';
+import { LeadInsightPanel } from '@/components/crm/lead-insight-panel';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/card';
@@ -20,6 +21,7 @@ import type {
   CrmLeadEvent,
   CrmLeadNote,
   CrmLeadRecord,
+  CrmLeadInsight,
   CrmLeadSibling,
 } from '@/lib/db/queries/crm-leads';
 import { orderedAnswers } from '@/lib/domain/crm-answers';
@@ -68,6 +70,7 @@ export function LeadRecord({
   notes,
   activity,
   alsoEnquired,
+  insight,
   backHref,
   viewerId,
   viewerIsAdmin,
@@ -78,6 +81,8 @@ export function LeadRecord({
   notes: readonly CrmLeadNote[];
   activity: readonly CrmLeadEvent[];
   alsoEnquired: readonly CrmLeadSibling[];
+  /** The cached AI reading, or null if nobody has asked for one. */
+  insight: CrmLeadInsight | null;
   /* ⚠️ `Route`, not `string` — typedRoutes is on (next.config.ts), so a link
      this component cannot verify would be a build error rather than a 404 a
      reader finds. The detail route builds it; see `backToDesk` there. */
@@ -206,6 +211,14 @@ export function LeadRecord({
 
       <div className="grid gap-4 lg:grid-cols-[1.35fr_1fr]">
         <div className="min-w-0 space-y-4">
+          {/* ── ⚠️ ABOVE THE ANSWERS, BECAUSE OF WHEN IT IS READ ───────────
+              This screen is opened between two calls. The summary is the thing
+              somebody wants in the four seconds before the phone connects; the
+              raw answers are what they check afterwards, when something in the
+              conversation needs confirming. Below the answers it would be found
+              only by people who were already scrolling. */}
+          <LeadInsightPanel leadId={lead.id} insight={insight} />
+
           {/* ── What they actually asked for ──────────────────────────────── */}
           <Card>
             <CardHeader>
