@@ -1,7 +1,7 @@
 import * as React from 'react';
 import type { Route } from 'next';
 import Link from 'next/link';
-import { ArrowLeft, MessageCircle, Phone, Radio } from 'lucide-react';
+import { ArrowLeft, Phone, Radio } from 'lucide-react';
 
 import {
   LogContactControl,
@@ -13,6 +13,8 @@ import {
   TemperatureControl,
   type OwnerOption,
 } from '@/components/crm/lead-actions';
+import { OpenWhatsAppButton } from '@/components/crm/open-whatsapp-button';
+import { WA_GREEN, WhatsAppMark } from '@/components/crm/whatsapp-mark';
 import { LeadInsightPanel } from '@/components/crm/lead-insight-panel';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -75,6 +77,7 @@ export function LeadRecord({
   viewerId,
   viewerIsAdmin,
   assignableOwners,
+  canWhatsApp,
   nowMs,
 }: {
   lead: CrmLeadRecord;
@@ -93,6 +96,10 @@ export function LeadRecord({
   /** The sales team, or empty for somebody who may not reassign. Migration 120
    *  refuses them anyway; this decides whether the control is drawn. */
   assignableOwners: readonly OwnerOption[];
+  /** Whether THIS lead's project has a WhatsApp number of its own (migration
+   *  139). False for every client project so far, and that is the ordinary
+   *  state — it decides whether "WhatsApp" opens our thread or their handset. */
+  canWhatsApp: boolean;
   nowMs: number;
 }) {
   const phone = displayPhone(lead.phoneE164, lead.phone);
@@ -146,25 +153,35 @@ export function LeadRecord({
             </div>
           </div>
 
-          {/* ⚠️ LINKS, NOT ACTIONS — the same rule as the desk's row. `tel:` and
-              `wa.me` hand the number to the device and record NOTHING. Logging
-              the attempt is Step 6, and a button that looked like it logged a
-              call while logging nothing would make the timeline below lie about
-              work that was actually done. */}
+          {/* ⚠️ `tel:` IS STILL A LINK THAT RECORDS NOTHING, and that is the
+              honest state of a phone call: it hands the number to the device,
+              logging the attempt is Step 6, and a button that looked like it
+              logged a call while logging nothing would make the timeline below
+              lie about work that was actually done.
+
+              ⚠️ WHATSAPP IS NO LONGER ONE OF THOSE. Since migration 139 a
+              project can send from its own number, so the green button opens
+              OUR thread — recorded, attributed, and readable by the manager.
+              `wa.me` survives only where there is no number to send from; see
+              `open-whatsapp-button.tsx`. */}
           <div className="flex flex-wrap items-center gap-2">
             {lead.phoneE164 ? (
               <>
                 <ReachButton href={`tel:${lead.phoneE164}`} icon={Phone}>
                   Call {phone}
                 </ReachButton>
-                {wa && (
-                  <ReachButton
-                    href={`https://wa.me/${wa}?text=${encodeURIComponent(whatsAppOpener(lead.fullName, lead.projectName))}`}
-                    icon={MessageCircle}
-                    external
-                  >
-                    WhatsApp
-                  </ReachButton>
+                {canWhatsApp ? (
+                  <OpenWhatsAppButton leadName={lead.fullName ?? 'this lead'} />
+                ) : (
+                  wa && (
+                    <ReachButton
+                      href={`https://wa.me/${wa}?text=${encodeURIComponent(whatsAppOpener(lead.fullName, lead.projectName))}`}
+                      icon={WhatsAppIcon}
+                      external
+                    >
+                      WhatsApp
+                    </ReachButton>
+                  )
                 )}
               </>
             ) : (
@@ -606,6 +623,19 @@ function Dot() {
  */
 function Nothing({ children }: { children: React.ReactNode }) {
   return <p className="text-caption leading-relaxed text-text-secondary">{children}</p>;
+}
+
+/**
+ * WhatsApp's mark in WhatsApp's green, shaped like a lucide icon so `ReachButton`
+ * can take it. ⚠️ The green is a brand colour and is the one hard-coded value on
+ * these screens — see `whatsapp-mark.tsx`.
+ */
+function WhatsAppIcon({ className }: { className?: string }) {
+  return (
+    <span className="inline-flex" style={{ color: WA_GREEN }}>
+      <WhatsAppMark className={className} />
+    </span>
+  );
 }
 
 function ReachButton({

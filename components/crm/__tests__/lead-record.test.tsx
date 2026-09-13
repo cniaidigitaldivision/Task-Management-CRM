@@ -82,6 +82,10 @@ function render(props: Partial<React.ComponentProps<typeof LeadRecord>> = {}) {
       viewerId="u1"
       viewerIsAdmin={false}
       assignableOwners={[]}
+      /* Step 8. No number on the project by default — the ordinary state for
+         every client project — so WhatsApp falls back to `wa.me`. The case that
+         CAN send is asserted on its own below. */
+      canWhatsApp={false}
       nowMs={NOW}
       {...props}
     />,
@@ -416,5 +420,30 @@ describe('getting back', () => {
 
     expect(html).toContain('href="/leads?project=abc&amp;stage=new&amp;page=9"');
     expect(html).toContain('Back to the lead desk');
+  });
+});
+
+/* ============================================================================
+ * THE WHATSAPP BUTTON — Step 8
+ * ----------------------------------------------------------------------------
+ * ⚠️ `wa.me` OPENS THE SALESPERSON'S OWN WHATSAPP. The message leaves from a
+ * personal handset and `crm_lead_messages` never sees it — no thread, no
+ * response time, no "who replied". Once a project has a number of its own, that
+ * link actively undoes the feature it sits beside, so the rule is asserted here
+ * rather than trusted.
+ * ========================================================================= */
+describe('the WhatsApp button', () => {
+  it('opens our own recorded thread once the project has a number', () => {
+    const html = render({ canWhatsApp: true });
+
+    expect(html).toContain('Open the WhatsApp chat with');
+    expect(html).not.toContain('wa.me');
+  });
+
+  it('falls back to wa.me only where there is no number to send from', () => {
+    const html = render();
+
+    expect(html).toContain('https://wa.me/');
+    expect(html).not.toContain('Open the WhatsApp chat with');
   });
 });

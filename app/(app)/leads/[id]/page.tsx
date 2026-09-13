@@ -116,12 +116,20 @@ export default async function LeadPage({
          React cannot report a reader's wrong system time as a hydration error
          instead of the clock problem it is. Same as the desk. */
       nowMs={nowMs()}
+      /* Step 8. Decides whether "WhatsApp" opens our recorded thread or falls
+         back to the salesperson's own handset. */
+      canWhatsApp={canWhatsApp}
     />
       <WhatsAppChat
         leadId={record.lead.id}
         leadName={record.lead.fullName ?? record.lead.phone ?? 'this lead'}
         messages={thread}
         canSend={canWhatsApp && Boolean(record.lead.phoneE164)}
+        /* ⚠️ ARRIVING FROM THE DESK. The row's WhatsApp icon links here with
+           `?chat=1`, so one click from the list lands on an OPEN conversation
+           rather than on a page with a button still to find. Owner, 2026-09-13:
+           *"It's not opening the chat in the right bottom."* */
+        defaultOpen={query.chat === '1'}
         reason={
           !record.lead.phoneE164
             ? 'This lead has no usable number, so nothing can be sent.'

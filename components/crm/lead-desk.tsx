@@ -1,11 +1,11 @@
 'use client';
 
 import * as React from 'react';
+import type { Route } from 'next';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   ChevronDown,
-  MessageCircle,
   Phone,
   Radio,
   Search,
@@ -15,6 +15,7 @@ import {
 
 import { ShareOutControl } from '@/components/crm/lead-actions';
 import { SalesTeamPanel } from '@/components/crm/sales-team';
+import { WA_GREEN, WhatsAppMark } from '@/components/crm/whatsapp-mark';
 /* ⚠️⚠️ TEMPORARY — delete with the block that uses it. See below. */
 import { TestLeadButton } from '@/components/crm/test-lead-modal';
 import { Avatar } from '@/components/ui/avatar';
@@ -102,6 +103,7 @@ export function LeadDesk({
   due,
   salesTeam,
   canShareOut,
+  canWhatsApp,
   nowMs,
 }: {
   projects: readonly CrmProjectOption[];
@@ -123,6 +125,8 @@ export function LeadDesk({
   salesTeam: readonly CrmSalesPerson[];
   /** False for a salesperson: they work leads, they do not hand them out. */
   canShareOut: boolean;
+  /** Whether the SELECTED project has a WhatsApp number of its own. */
+  canWhatsApp: boolean;
   nowMs: number;
 }) {
   const router = useRouter();
@@ -240,7 +244,7 @@ export function LeadDesk({
               narrowed by migration 118's policy, not a second component — which
               is what stops the two drifting apart, and the reason
               08-TWELVE-STEPS asked for one component and two scopes. */}
-          <LeadTable rows={rows} nowMs={nowMs} from={search.toString()} />
+          <LeadTable rows={rows} nowMs={nowMs} from={search.toString()} canWhatsApp={canWhatsApp} />
 
           {rows.length === 0 && !canShareOut && total === 0 && (
             <p className="text-caption leading-relaxed text-text-secondary">
@@ -744,10 +748,13 @@ function LeadTable({
   rows,
   nowMs,
   from,
+  canWhatsApp,
 }: {
   rows: readonly CrmLeadRow[];
   nowMs: number;
   from: string;
+  /** Threaded down to the row's WhatsApp icon — see `Row`. */
+  canWhatsApp: boolean;
 }) {
   if (rows.length === 0) {
     return (
@@ -778,7 +785,7 @@ function LeadTable({
         </thead>
         <tbody>
           {rows.map((lead) => (
-            <Row key={lead.id} lead={lead} nowMs={nowMs} from={from} />
+            <Row key={lead.id} lead={lead} nowMs={nowMs} from={from} canWhatsApp={canWhatsApp} />
           ))}
         </tbody>
       </table>
@@ -786,7 +793,19 @@ function LeadTable({
   );
 }
 
-function Row({ lead, nowMs, from }: { lead: CrmLeadRow; nowMs: number; from: string }) {
+function Row({
+  lead,
+  nowMs,
+  from,
+  canWhatsApp,
+}: {
+  lead: CrmLeadRow;
+  nowMs: number;
+  from: string;
+  /** Whether this lead's project can send WhatsApp itself — decides whether the
+   *  green mark opens OUR conversation or hands the number to the device. */
+  canWhatsApp: boolean;
+}) {
   const phone = displayPhone(lead.phoneE164, lead.phone);
   const wa = whatsAppDigits(lead.phoneE164 ?? lead.phone);
 
@@ -933,14 +952,41 @@ function Row({ lead, nowMs, from }: { lead: CrmLeadRow; nowMs: number; from: str
               <ReachLink href={`tel:${lead.phoneE164}`} label={`Call ${lead.fullName ?? 'lead'}`}>
                 <Phone className="size-3.5" aria-hidden="true" />
               </ReachLink>
-              {wa && (
+              {/* ⚠️ THE CHAT FIRST, AND `wa.me` ONLY AS A FALLBACK — owner,
+                  2026-09-13: *"it brings me to that link of whatsapp on the
+                  web. It's not opening the chat in the right bottom."*
+
+                  It was doing worse than that. `wa.me` opens the SALESPERSON'S
+                  OWN WhatsApp, so the message goes out from their personal
+                  number and nothing is recorded — no thread, no response time,
+                  no "who replied". Once a project has a number of its own, that
+                  link actively undoes the feature it sits next to.
+
+                  So when the project can send, this opens the lead with its
+                  conversation already up (`?chat=1`). When it cannot — Chitral
+                  has no number yet — `wa.me` is still the only way to reach
+                  somebody, and it stays. */}
+              {canWhatsApp ? (
                 <ReachLink
-                  href={`https://wa.me/${wa}`}
-                  external
-                  label={`WhatsApp ${lead.fullName ?? 'lead'}`}
+                  href={`/leads/${lead.id}?chat=1` as Route}
+                  label={`Open the WhatsApp chat with ${lead.fullName ?? 'lead'}`}
                 >
-                  <MessageCircle className="size-3.5" aria-hidden="true" />
+                  <span style={{ color: WA_GREEN }}>
+                    <WhatsAppMark className="size-3.5" />
+                  </span>
                 </ReachLink>
+              ) : (
+                wa && (
+                  <ReachLink
+                    href={`https://wa.me/${wa}`}
+                    external
+                    label={`WhatsApp ${lead.fullName ?? 'lead'} from your own phone`}
+                  >
+                    <span style={{ color: WA_GREEN }}>
+                      <WhatsAppMark className="size-3.5" />
+                    </span>
+                  </ReachLink>
+                )
               )}
             </>
           ) : (

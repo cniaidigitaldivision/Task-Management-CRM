@@ -136,6 +136,10 @@ const base = {
       medianResponseMinutes: null },
   ],
   canShareOut: true,
+  /* Step 8. Most projects have no WhatsApp number of their own — Chitral's is a
+     different business with a different number — so "cannot send" is the
+     default here, and the cases that can send say so explicitly. */
+  canWhatsApp: false,
   nowMs: NOW,
 };
 
@@ -449,5 +453,42 @@ describe('an empty filter result', () => {
   it('says the leads still exist rather than looking deleted', () => {
     const html = renderToStaticMarkup(<LeadDesk {...base} selected={PROJECTS[0]} rows={[]} total={0} />);
     expect(html).toContain('No leads match these filters');
+  });
+});
+
+/* ============================================================================
+ * THE WHATSAPP ICON ON A ROW — Step 8
+ * ----------------------------------------------------------------------------
+ * Owner, 2026-09-13: *"When I click on the chat button or the whatsapp button in
+ * the row, it brings me to that link of whatsapp on the web. It's not opening
+ * the chat in the right bottom."*
+ *
+ * ⚠️ THIS IS NOT A COSMETIC TEST. `wa.me` opens the SALESPERSON'S OWN WhatsApp
+ * on their own handset: the message goes out from a personal number, and nothing
+ * about it is recorded — no thread, no response time, no "who replied". Every
+ * feature built on `crm_lead_messages` is silently bypassed by one click. So the
+ * rule is asserted rather than trusted: where the project can send, the icon
+ * must NOT be an external link.
+ * ========================================================================= */
+describe('the WhatsApp icon on a row', () => {
+  it('opens our own chat when the project has a number', () => {
+    const html = renderToStaticMarkup(
+      <LeadDesk {...base} selected={PROJECTS[0]} canWhatsApp />,
+    );
+
+    expect(html).toContain(`/leads/${ROWS[0].id}?chat=1`);
+    /* ⚠️ The whole point: not one `wa.me` link left on the desk. */
+    expect(html).not.toContain('wa.me');
+  });
+
+  it('falls back to wa.me only where we cannot send at all', () => {
+    /* Chitral is a client's pipeline with no number of its own yet. Removing the
+       link there would leave a salesperson with no way to reach anybody. */
+    const html = renderToStaticMarkup(
+      <LeadDesk {...base} selected={PROJECTS[0]} canWhatsApp={false} />,
+    );
+
+    expect(html).toContain('https://wa.me/923439040510');
+    expect(html).not.toContain('?chat=1');
   });
 });

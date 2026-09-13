@@ -8,6 +8,7 @@ import {
   crmDueCounts,
   crmProjectRoster,
   listCrmLeads,
+  crmProjectCanWhatsApp,
   listCrmProjects,
   unassignedCount,
 } from '@/lib/db/queries/crm-leads';
@@ -112,10 +113,15 @@ export default async function LeadsPage({
              the ERP project's is AI & Digital. */
           crmProjectRoster(user.id, selected.id),
           crmDueCounts(user.id, selected.id),
+          /* ⚠️ Decides whether the row's green mark opens OUR conversation or
+             hands the number to the device. In the same wave rather than a
+             seventh round trip — it is one boolean off `projects`. */
+          crmProjectCanWhatsApp(user.id, selected.id),
         ])
       : null;
 
   const roster = data?.[4] ?? [];
+  const canWhatsApp = data?.[6] ?? false;
 
   return (
     <LeadDesk
@@ -133,6 +139,7 @@ export default async function LeadsPage({
       due={data?.[5] ?? { overdue: 0, dueToday: 0, noPlan: 0 }}
       salesTeam={roster}
       canShareOut={roster.length > 0}
+      canWhatsApp={canWhatsApp}
       /* ⚠️ The SERVER's clock, so "3d ago" is the same for everyone. Reading it
          in the browser would let a reader's own wrong system time age a lead
          that arrived this morning, and React would report the mismatch as a
