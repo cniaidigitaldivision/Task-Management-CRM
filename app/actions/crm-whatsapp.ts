@@ -26,7 +26,8 @@ import { requireUser } from '@/lib/auth/current-user';
 import { sendMedia, sendText, whatsAppConfigFor } from '@/lib/crm/whatsapp';
 import type { WhatsAppConfigResult } from '@/lib/crm/whatsapp';
 import { withUser } from '@/lib/db/client';
-import { getCrmLead } from '@/lib/db/queries/crm-leads';
+import { crmLeadThread, getCrmLead } from '@/lib/db/queries/crm-leads';
+import type { CrmMessage } from '@/lib/db/queries/crm-leads';
 
 export interface WhatsAppSendResult {
   readonly ok: boolean;
@@ -171,4 +172,29 @@ export async function sendWhatsAppFileAction(
 
   revalidatePath(`/leads/${leadId}`);
   return result.ok ? { ok: true } : { ok: false, error: result.error };
+}
+
+/* ============================================================================
+ * READING THE THREAD BACK, WHILE THE PANEL IS OPEN
+ * ----------------------------------------------------------------------------
+ * Owner, 2026-09-13: *"Messaging messages are sending but when I reply back from
+ * there, it is not receiving in a chat."* Two separate faults wore that one
+ * sentence. Migration 142 fixed the first — the reply was being filed against a
+ * sibling lead sharing the number. This is the second: nothing on the page ever
+ * asked again, so a message that arrived after render stayed invisible until
+ * somebody reloaded.
+ *
+ * ── ⚠️ THIS, NOT `router.refresh()` ────────────────────────────────────────
+ * A refresh re-runs the whole lead page — the record, the roster, the cached AI
+ * reading, the siblings — every few seconds, for one line of text. This reads
+ * the thread and nothing else.
+ *
+ * ⚠️ AND IT IS RLS-SCOPED LIKE EVERYTHING ELSE. `crmLeadThread` runs under
+ * `withUser`, and 138's policy delegates to the lead, so somebody polling a lead
+ * that is not theirs gets an empty list rather than a refusal — the same answer
+ * the page would have given them.
+ * ========================================================================= */
+export async function readWhatsAppThreadAction(leadId: string): Promise<readonly CrmMessage[]> {
+  const user = await requireUser();
+  return crmLeadThread(user.id, leadId);
 }

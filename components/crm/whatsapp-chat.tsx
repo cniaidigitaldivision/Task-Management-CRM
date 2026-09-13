@@ -1,11 +1,14 @@
 'use client';
 
 import * as React from 'react';
-import { useRouter } from 'next/navigation';
 import { Paperclip, Send, X, Check, CheckCheck, AlertTriangle, FileText, Image as ImageIcon } from 'lucide-react';
 
 
-import { sendWhatsAppFileAction, sendWhatsAppTextAction } from '@/app/actions/crm-whatsapp';
+import {
+  readWhatsAppThreadAction,
+  sendWhatsAppFileAction,
+  sendWhatsAppTextAction,
+} from '@/app/actions/crm-whatsapp';
 import { useToast } from '@/components/ui/toast';
 import type { CrmMessage } from '@/lib/db/queries/crm-leads';
 import { cn } from '@/lib/utils';
@@ -34,16 +37,24 @@ import { cn } from '@/lib/utils';
 import { OPEN_WHATSAPP_EVENT } from '@/components/crm/open-whatsapp-button';
 import { WA_BUBBLE_INK, WA_GREEN, WhatsAppMark } from '@/components/crm/whatsapp-mark';
 
+/** ⚠️ 5s while the panel is open and the tab is in front. Fast enough that a
+ *  reply feels like it arrived, cheap enough that it is one small query — and
+ *  paused entirely when the tab is hidden, which is where a naive poll spends
+ *  most of its budget. */
+const POLL_MS = 5_000;
+
 export function WhatsAppChat({
   leadId,
   leadName,
-  messages,
+  messages: initialMessages,
   canSend,
   reason,
   defaultOpen = false,
 }: {
   leadId: string;
   leadName: string;
+  /** The thread as the server rendered it. Kept as the starting point; the
+   *  panel polls for anything that arrives after. */
   messages: readonly CrmMessage[];
   /** False when the project has no number configured. */
   canSend: boolean;
@@ -55,12 +66,64 @@ export function WhatsAppChat({
   defaultOpen?: boolean;
 }) {
   const toast = useToast();
-  const router = useRouter();
   const [open, setOpen] = React.useState(defaultOpen);
+  const [messages, setMessages] = React.useState<readonly CrmMessage[]>(initialMessages);
   const [draft, setDraft] = React.useState('');
   const [busy, setBusy] = React.useState(false);
   const fileInput = React.useRef<HTMLInputElement>(null);
   const endRef = React.useRef<HTMLDivElement>(null);
+
+  /* ⚠️ ADJUSTED DURING RENDER, NOT IN AN EFFECT. A fresh server render wins —
+     a navigation has just read the thread and it is newer than whatever was
+     polled — but doing that in an effect paints the stale thread first and then
+     replaces it, and `react-hooks/set-state-in-effect` refuses it outright.
+     This is React's documented shape for reconciling state with a prop. */
+  const [seededFrom, setSeededFrom] = React.useState(initialMessages);
+  if (seededFrom !== initialMessages) {
+    setSeededFrom(initialMessages);
+    setMessages(initialMessages);
+  }
+
+  /* ── ⚠️ THE REPLY HAS TO ARRIVE BY ITSELF ─────────────────────────────────
+     Owner, 2026-09-13: *"when I reply back from there, it is not receiving in a
+     chat."* Half of that was migration 142 — the reply was filed against a
+     sibling lead sharing the number. The other half is here: nothing on the page
+     ever asked again, so a message that landed after render stayed invisible
+     until a reload.
+
+     ⚠️ ONLY WHILE OPEN AND ONLY WHILE THE TAB IS IN FRONT. A CRM tab sits
+     abandoned for hours; a poll that keeps running behind it spends the whole
+     day's queries on a panel nobody is looking at. `visibilitychange` also
+     fires a read on the way back, so returning to the tab is instant rather
+     than up to POLL_MS late. */
+  React.useEffect(() => {
+    if (!open) return;
+
+    let alive = true;
+    const read = async () => {
+      if (document.visibilityState !== 'visible') return;
+      try {
+        const fresh = await readWhatsAppThreadAction(leadId);
+        /* ⚠️ Guarded — the panel can close, or the lead change, while this is in
+           flight, and writing then would resurrect a dead thread. */
+        if (alive) setMessages(fresh);
+      } catch {
+        /* A dropped poll is not worth a toast. The next one is 5s away, and the
+           thread on screen is still the last thing that was true. */
+      }
+    };
+
+    void read();
+    const timer = window.setInterval(() => void read(), POLL_MS);
+    const onVisible = () => void read();
+    document.addEventListener('visibilitychange', onVisible);
+
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [open, leadId]);
 
   /* ⚠️ OPENED FROM ELSEWHERE ON THE PAGE. The record's "WhatsApp" button is a
      sibling, not a parent — see `open-whatsapp-button.tsx` for why the state
@@ -94,7 +157,10 @@ export function WhatsAppChat({
     /* Cleared only on success — a refused message stays in the box so nobody
        has to retype what WhatsApp would not take. */
     setDraft('');
-    router.refresh();
+    /* ⚠️ The thread, not the page. This used to be `router.refresh()`, which
+       re-ran the record, the roster and the cached AI reading to show one
+       bubble — and took the router hook with it. */
+    setMessages(await readWhatsAppThreadAction(leadId));
   }
 
   async function sendFile(file: File) {
@@ -109,10 +175,22 @@ export function WhatsAppChat({
       return;
     }
     setDraft('');
-    router.refresh();
+    setMessages(await readWhatsAppThreadAction(leadId));
   }
 
-  const unread = messages.filter((m) => m.direction === 'inbound').length;
+  /* ⚠️ "THEY SAID SOMETHING YOU HAVE NOT ANSWERED", not "how many times they
+     have ever written". Counting every inbound message put a permanent 4 on the
+     button of a conversation that was finished, which reads as a fault. There is
+     no read-state column and this needs none: anything inbound after the last
+     thing we said is, by definition, still owed a reply. */
+  const lastOutboundAt = messages.reduce(
+    (latest, m) =>
+      m.direction === 'outbound' ? Math.max(latest, Date.parse(m.occurredAt)) : latest,
+    0,
+  );
+  const unread = messages.filter(
+    (m) => m.direction === 'inbound' && Date.parse(m.occurredAt) > lastOutboundAt,
+  ).length;
 
   return (
     <>
