@@ -32,26 +32,54 @@ export interface WhatsAppConfig {
 }
 
 /**
+ * Why a project cannot send. ⚠️ TWO DIFFERENT FAULTS WITH TWO DIFFERENT OWNERS,
+ * and they must never wear the same sentence.
+ *
+ * Owner, 2026-09-13: *"Also assign a whatsapp testing number to this demo
+ * project. Right now I'm trying to send a message. He is saying that there is no
+ * number assigned to this project."* The number WAS assigned — migration 139 set
+ * it, Meta confirms it live (+1 555-660-8298, quality GREEN). The message was
+ * naming a cause it had not checked.
+ *
+ * `whatsAppConfigFor` used to return a bare `null` for both "this project has no
+ * number" and "this server has no token", and the caller printed the first one.
+ * So a missing deployment variable sent the reader to the Projects screen to fix
+ * something that was already correct.
+ */
+export type WhatsAppConfigResult =
+  | { readonly ok: true; readonly config: WhatsAppConfig }
+  /** The project genuinely has no number. The ordinary state for most projects. */
+  | { readonly ok: false; readonly why: 'no-number' }
+  /** `META_SYSTEM_USER_TOKEN` is missing from this environment. Nothing to do
+   *  with the project, and no project can send until it is set. */
+  | { readonly ok: false; readonly why: 'no-token' };
+
+/** Whether this environment could send for ANY project. Cheap, and separate,
+ *  so a screen can decline to draw a composer that cannot possibly work. */
+export function whatsAppTokenPresent(): boolean {
+  return Boolean(process.env.META_SYSTEM_USER_TOKEN?.trim());
+}
+
+/**
  * The number a given project sends from.
  *
- * ⚠️ RETURNS NULL RATHER THAN THROWING when a project has no number configured.
- * Most projects will not have one for a long time — Chitral's is a different
- * business with its own number, and the client projects have none at all — so
- * "not set up" is the ordinary case and the screen says so.
+ * ⚠️ NEVER THROWS. Most projects will not have a number for a long time —
+ * Chitral's is a different business with its own, and the client projects have
+ * none at all — so "not set up" is the ordinary case and the screen says so.
  */
-export async function whatsAppConfigFor(projectId: string): Promise<WhatsAppConfig | null> {
+export async function whatsAppConfigFor(projectId: string): Promise<WhatsAppConfigResult> {
   const token = process.env.META_SYSTEM_USER_TOKEN?.trim();
   const apiVersion = process.env.META_API_VERSION?.trim() || 'v26.0';
-  if (!token) return null;
+  if (!token) return { ok: false, why: 'no-token' };
 
   const rows = await withAppRole((tx) => tx`
     select whatsapp_phone_number_id
       from public.projects where id = ${projectId}::uuid
   `);
   const id = (rows as Array<Record<string, unknown>>)[0]?.whatsapp_phone_number_id;
-  if (!id) return null;
+  if (!id) return { ok: false, why: 'no-number' };
 
-  return { phoneNumberId: String(id), token, apiVersion };
+  return { ok: true, config: { phoneNumberId: String(id), token, apiVersion } };
 }
 
 export interface SendResult {

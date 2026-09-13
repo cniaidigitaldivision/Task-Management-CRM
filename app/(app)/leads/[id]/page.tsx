@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation';
 import { WhatsAppChat } from '@/components/crm/whatsapp-chat';
 import { LeadRecord } from '@/components/crm/lead-record';
 import { requireCrmAccess } from '@/lib/auth/current-user';
+import { whatsAppTokenPresent } from '@/lib/crm/whatsapp';
 import {
   crmLeadInsight,
   crmLeadThread,
@@ -77,6 +78,11 @@ export default async function LeadPage({
   /* ⚠️ The thread is READ here and the composer's availability with it, in one
      wave — three sequential awaits to Singapore is most of this page's budget
      and none of them depends on another. */
+  /* ⚠️ Read on the SERVER, at render time. It says whether this deployment could
+     send for any project at all — a different question from whether this project
+     has a number, and the one that was being mistaken for it. */
+  const tokenPresent = whatsAppTokenPresent();
+
   const [thread, canWhatsApp] = await Promise.all([
     crmLeadThread(user.id, id),
     crmProjectCanWhatsApp(user.id, record.lead.projectId),
@@ -124,16 +130,25 @@ export default async function LeadPage({
         leadId={record.lead.id}
         leadName={record.lead.fullName ?? record.lead.phone ?? 'this lead'}
         messages={thread}
-        canSend={canWhatsApp && Boolean(record.lead.phoneE164)}
+        canSend={canWhatsApp && tokenPresent && Boolean(record.lead.phoneE164)}
         /* ⚠️ ARRIVING FROM THE DESK. The row's WhatsApp icon links here with
            `?chat=1`, so one click from the list lands on an OPEN conversation
            rather than on a page with a button still to find. Owner, 2026-09-13:
            *"It's not opening the chat in the right bottom."* */
         defaultOpen={query.chat === '1'}
+        /* ⚠️ THREE DIFFERENT FAULTS, THREE DIFFERENT SENTENCES, and the order
+           runs from the most specific outward. Owner, 2026-09-13, on a project
+           that was correctly set up: *"He is saying that there is no number
+           assigned to this project."* It was assigned — the screen was naming a
+           cause it had not checked. A missing deployment variable must not read
+           as a project somebody needs to go and fix. */
         reason={
           !record.lead.phoneE164
             ? 'This lead has no usable number, so nothing can be sent.'
-            : `${record.lead.projectName} has no WhatsApp number set up yet. An Admin adds it against the project.`
+            : !tokenPresent
+              ? 'This server has no WhatsApp connection configured — META_SYSTEM_USER_TOKEN is missing from the environment. '
+                + 'That is a deployment setting, not anything to fix on this project.'
+              : `${record.lead.projectName} has no WhatsApp number set up yet. An Admin adds it against the project.`
         }
       />
     </>

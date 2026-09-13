@@ -24,12 +24,27 @@ import { revalidatePath } from 'next/cache';
 
 import { requireUser } from '@/lib/auth/current-user';
 import { sendMedia, sendText, whatsAppConfigFor } from '@/lib/crm/whatsapp';
+import type { WhatsAppConfigResult } from '@/lib/crm/whatsapp';
 import { withUser } from '@/lib/db/client';
 import { getCrmLead } from '@/lib/db/queries/crm-leads';
 
 export interface WhatsAppSendResult {
   readonly ok: boolean;
   readonly error?: string;
+}
+
+/**
+ * ⚠️ THE REFUSAL NAMES THE FAULT IT ACTUALLY FOUND. Owner, 2026-09-13, holding a
+ * project that was correctly set up: *"I'm trying to send a message. He is
+ * saying that there is no number assigned to this project."* It was assigned.
+ * Both faults used to print the project's sentence, so a missing deployment
+ * variable sent the reader to fix something that was already right.
+ */
+function whyNotSendable(result: Extract<WhatsAppConfigResult, { ok: false }>, projectName: string): string {
+  return result.why === 'no-token'
+    ? 'This server has no WhatsApp connection configured — META_SYSTEM_USER_TOKEN is missing from the environment. '
+      + `That is a deployment setting, not anything to fix on ${projectName}.`
+    : `${projectName} has no WhatsApp number set up yet. An Admin adds it against the project.`;
 }
 
 /** 16 MB is WhatsApp's own ceiling for documents and video. */
@@ -82,15 +97,10 @@ export async function sendWhatsAppTextAction(
     return { ok: false, error: 'This lead has no usable number, so nothing can be sent.' };
   }
 
-  const config = await whatsAppConfigFor(lead.projectId);
-  if (!config) {
-    return {
-      ok: false,
-      error: `${lead.projectName} has no WhatsApp number set up yet. An Admin adds it against the project.`,
-    };
-  }
+  const ready = await whatsAppConfigFor(lead.projectId);
+  if (!ready.ok) return { ok: false, error: whyNotSendable(ready, lead.projectName) };
 
-  const result = await sendText(config, lead.phoneE164, text);
+  const result = await sendText(ready.config, lead.phoneE164, text);
 
   /* ⚠️ RECORDED EITHER WAY. A refusal is part of the conversation — it is how
      somebody finds out the 24-hour window has closed, and a failure that leaves
@@ -130,15 +140,13 @@ export async function sendWhatsAppFileAction(
     return { ok: false, error: 'This lead has no usable number, so nothing can be sent.' };
   }
 
-  const config = await whatsAppConfigFor(lead.projectId);
-  if (!config) {
-    return { ok: false, error: `${lead.projectName} has no WhatsApp number set up yet.` };
-  }
+  const ready = await whatsAppConfigFor(lead.projectId);
+  if (!ready.ok) return { ok: false, error: whyNotSendable(ready, lead.projectName) };
 
   const data = Buffer.from(await file.arrayBuffer());
   const mime = file.type || 'application/octet-stream';
   const result = await sendMedia(
-    config,
+    ready.config,
     lead.phoneE164,
     { data, mime, filename: file.name },
     caption,
