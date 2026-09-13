@@ -219,6 +219,7 @@ export function LeadRecord({
               only by people who were already scrolling. */}
           <LeadInsightPanel leadId={lead.id} insight={insight} />
 
+
           {/* ── What they actually asked for ──────────────────────────────── */}
           <Card>
             <CardHeader>

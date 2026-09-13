@@ -1,9 +1,16 @@
 import type { Metadata, Route } from 'next';
 import { notFound } from 'next/navigation';
 
+import { WhatsAppChat } from '@/components/crm/whatsapp-chat';
 import { LeadRecord } from '@/components/crm/lead-record';
 import { requireCrmAccess } from '@/lib/auth/current-user';
-import { crmLeadInsight, crmProjectRoster, getCrmLead } from '@/lib/db/queries/crm-leads';
+import {
+  crmLeadInsight,
+  crmLeadThread,
+  crmProjectCanWhatsApp,
+  crmProjectRoster,
+  getCrmLead,
+} from '@/lib/db/queries/crm-leads';
 import { fingerprint } from '@/lib/ai/lead-insight';
 import { nowMs } from '@/lib/now';
 
@@ -67,7 +74,25 @@ export default async function LeadPage({
     }),
   );
 
+  /* ⚠️ The thread is READ here and the composer's availability with it, in one
+     wave — three sequential awaits to Singapore is most of this page's budget
+     and none of them depends on another. */
+  const [thread, canWhatsApp] = await Promise.all([
+    crmLeadThread(user.id, id),
+    crmProjectCanWhatsApp(user.id, record.lead.projectId),
+  ]);
+
   return (
+    <>
+      {/* ⚠️ MOUNTED BESIDE `LeadRecord`, NOT INSIDE IT, AND THE TESTS ARE WHY.
+          This panel calls `useRouter` to refresh after a send; `LeadRecord` is
+          rendered by 30 cases with `renderToStaticMarkup`, where no router is
+          mounted, and putting it inside broke every one of them.
+
+          It costs nothing structurally: the panel is `position: fixed`, so it
+          docks to the viewport regardless of where it sits in the tree — and
+          keeping `LeadRecord` free of router hooks is what keeps it testable
+          without a harness. */}
     <LeadRecord
       lead={record.lead}
       notes={record.notes}
@@ -92,6 +117,18 @@ export default async function LeadPage({
          instead of the clock problem it is. Same as the desk. */
       nowMs={nowMs()}
     />
+      <WhatsAppChat
+        leadId={record.lead.id}
+        leadName={record.lead.fullName ?? record.lead.phone ?? 'this lead'}
+        messages={thread}
+        canSend={canWhatsApp && Boolean(record.lead.phoneE164)}
+        reason={
+          !record.lead.phoneE164
+            ? 'This lead has no usable number, so nothing can be sent.'
+            : `${record.lead.projectName} has no WhatsApp number set up yet. An Admin adds it against the project.`
+        }
+      />
+    </>
   );
 }
 

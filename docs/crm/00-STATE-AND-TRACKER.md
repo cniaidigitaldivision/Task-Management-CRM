@@ -9,7 +9,7 @@
 | **Phase** | ⏸️ **PAUSED 2026-09-12, at Steps 1–10 of 12 — LIVE IN PRODUCTION.** The desk works, the importer runs itself, and a demo testbed exists for proving the rest. Paused by the owner to restructure the company's teams first. |
 | **Scope** | Chitral Royal Homes (real, 625 leads) + a removable demo project for testing. |
 | **Last updated** | 2026-09-12 |
-| **Last migration applied anywhere** | **137.** CRM next: 138. |
+| **Last migration applied anywhere** | **139.** CRM next: 140. |
 
 ---
 
@@ -57,7 +57,7 @@ What follows is everything still to do, with what each one actually involves.
 | ~~5~~ | ✅ **Salesperson dashboard** — done 2026-09-13, `/my-leads` (migration 136) |  |
 | ~~6~~ | ✅ **Step 11 · per-lead AI** — done 2026-09-13 (migration 137). Cached per lead; ~362 tokens, 3.2s, roughly $0.003 a read |  |
 | **7** | **Specialisation in the rota** | ⏳ the sales manager | Once there is a real answer, it becomes a FILTER in front of the router, not a replacement for it. ⚠️ Do not invent the taxonomy — Q19. |
-| **8** | **WhatsApp conversations** | ⛔ business verification | Two tables (a thread per lead, the messages in it), a reply box on the record, matched to the lead by normalised number. Verification was applied for ~2026-09-12 and takes around 12 days. |
+| ~~8~~ | ✅ **WhatsApp conversations** — done 2026-09-13 (migrations 138, 139). Verification cleared; sending and receiving both proved on Meta's test number |  |
 | **9** | **Step 12 · campaign vs staff** | ⏳ weeks of real use | The owner's headline question. Same campaign different people → the person; same person different campaigns → the campaign. Arithmetic, with the model writing the sentence over it. |
 
 ⚠️ **Steps 4, 5 and 6 need NOTHING from anybody** — 1, 2 and 3 are done and can run straight through. Only

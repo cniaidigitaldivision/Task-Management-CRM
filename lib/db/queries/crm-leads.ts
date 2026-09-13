@@ -1235,3 +1235,76 @@ export async function crmLeadInsight(
     current: r.source_fingerprint === currentFingerprint,
   };
 }
+
+/* ==========================================================================
+ * THE WHATSAPP THREAD — migration 138
+ * ========================================================================== */
+
+export interface CrmMessage {
+  readonly id: string;
+  readonly direction: 'inbound' | 'outbound';
+  readonly kind: string;
+  readonly body: string | null;
+  readonly mediaId: string | null;
+  readonly mediaMime: string | null;
+  readonly mediaFilename: string | null;
+  readonly status: string | null;
+  readonly errorDetail: string | null;
+  readonly sentByName: string | null;
+  readonly occurredAt: string;
+}
+
+/**
+ * One lead's conversation, oldest first.
+ *
+ * ⚠️ NO EXPLICIT OWNER CHECK, AND THAT IS CORRECT. `crm_lead_messages_select`
+ * delegates to the lead by EXISTS, so a salesperson querying a colleague's
+ * thread gets zero rows from the database rather than being refused by a line
+ * of TypeScript. Restating the rule here would be the sixth copy of a predicate
+ * that has already cost five migrations.
+ *
+ * ⚠️ THE SENDER'S NAME COMES FROM `app.crm_lead_owners()` (121), NOT A JOIN TO
+ * `users`. A salesperson sees ONE row of that table — their own — so a plain
+ * join renders every colleague as "Former member", which is the 2026-09-08 bug
+ * that migration 121 exists to prevent.
+ *
+ * ⚠️ AND I FIRST WROTE `app.crm_owner_name`, WHICH DOES NOT EXIST. `tsc` passed,
+ * because SQL inside a template literal is a string to TypeScript — the exact
+ * trap `lib/db/queries` has hit before. The function was checked against
+ * `pg_proc` rather than assumed.
+ */
+export async function crmLeadThread(actorId: string, leadId: string): Promise<CrmMessage[]> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select m.id, m.direction::text, m.kind::text, m.body,
+           m.media_id, m.media_mime, m.media_filename,
+           m.status::text, m.error_detail, m.occurred_at,
+           (select o.full_name from app.crm_lead_owners() o where o.id = m.sent_by_id)
+             as sent_by_name
+      from public.crm_lead_messages m
+     where m.lead_id = ${leadId}::uuid
+     order by m.occurred_at asc
+     limit 500
+  `);
+  return (rows as Array<Record<string, unknown>>).map((r) => ({
+    id: String(r.id),
+    direction: r.direction === 'inbound' ? 'inbound' : 'outbound',
+    kind: String(r.kind),
+    body: (r.body as string | null) ?? null,
+    mediaId: (r.media_id as string | null) ?? null,
+    mediaMime: (r.media_mime as string | null) ?? null,
+    mediaFilename: (r.media_filename as string | null) ?? null,
+    status: (r.status as string | null) ?? null,
+    errorDetail: (r.error_detail as string | null) ?? null,
+    sentByName: (r.sent_by_name as string | null) ?? null,
+    occurredAt: new Date(r.occurred_at as string).toISOString(),
+  }));
+}
+
+/** Can this project send at all? Decides whether the composer is drawn. */
+export async function crmProjectCanWhatsApp(actorId: string, projectId: string): Promise<boolean> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select whatsapp_phone_number_id is not null as ready
+      from public.projects where id = ${projectId}::uuid
+  `);
+  return (rows as Array<Record<string, unknown>>)[0]?.ready === true;
+}

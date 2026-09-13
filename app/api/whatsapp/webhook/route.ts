@@ -1,5 +1,10 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
+/* ⚠️ `withAppRole`, NOT `withUser` — there is no user here. This route is
+   authenticated by Meta's signature, not by a login, so it writes through the
+   SECURITY DEFINER functions in migration 138 exactly as the importer does. */
+import { withAppRole } from '@/lib/db/client';
+
 /* ============================================================================
  * WHERE META POSTS WHATSAPP EVENTS — owner request 2026-09-10
  * ----------------------------------------------------------------------------
@@ -136,15 +141,130 @@ export async function POST(request: Request): Promise<Response> {
      Meta redeliver a payload that will fail identically next time, and enough
      of those disable the subscription. */
   try {
-    const payload: unknown = JSON.parse(rawBody);
-    /* Logged rather than stored: the tables that will hold a WhatsApp
-       conversation do not exist yet (Phase 4 — docs/crm/04-PHASES.md), and a
-       route that pretends to save what it drops is worse than one that says so.
-       This is what makes a delivered test event visible in the Vercel log. */
-    console.info('[whatsapp-webhook] event', JSON.stringify(payload));
-  } catch {
-    console.error('[whatsapp-webhook] body was signed but is not JSON');
+    const payload = JSON.parse(rawBody) as WhatsAppPayload;
+    await store(payload);
+  } catch (error) {
+    /* ⚠️ LOGGED AND SWALLOWED, DELIBERATELY. A message we failed to store is
+       lost, which is bad — but answering anything other than 200 makes Meta
+       redeliver a payload that will fail identically, and enough of those
+       switch the subscription off, which loses every message after it too. */
+    console.error('[whatsapp-webhook] could not store event:', error);
   }
 
   return text('EVENT_RECEIVED', 200);
+}
+
+/* ==========================================================================
+ * WHAT META SENDS, AND WHAT WE KEEP OF IT
+ * ========================================================================== */
+
+interface WhatsAppPayload {
+  readonly entry?: ReadonlyArray<{
+    readonly changes?: ReadonlyArray<{
+      readonly field?: string;
+      readonly value?: {
+        readonly messages?: ReadonlyArray<Record<string, unknown>>;
+        readonly statuses?: ReadonlyArray<Record<string, unknown>>;
+      };
+    }>;
+  }>;
+}
+
+/**
+ * Walk the payload and record what it holds.
+ *
+ * ⚠️ META NESTS EVERYTHING THREE DEEP AND BATCHES IT. One webhook can carry
+ * several entries, each with several changes, each with several messages. Code
+ * that read `entry[0].changes[0].value.messages[0]` works in every test and
+ * silently drops the second message of a busy minute.
+ */
+async function store(payload: WhatsAppPayload): Promise<void> {
+  for (const entry of payload.entry ?? []) {
+    for (const change of entry.changes ?? []) {
+      const value = change.value;
+      if (!value) continue;
+
+      for (const message of value.messages ?? []) await storeMessage(message);
+      for (const status of value.statuses ?? []) await storeStatus(status);
+    }
+  }
+}
+
+/** The five media shapes, flattened to the four columns the table keeps. */
+function readMedia(message: Record<string, unknown>, kind: string) {
+  const media = message[kind] as Record<string, unknown> | undefined;
+  if (!media) return { id: null, mime: null, filename: null, caption: null };
+  return {
+    id: (media.id as string | undefined) ?? null,
+    mime: (media.mime_type as string | undefined) ?? null,
+    filename: (media.filename as string | undefined) ?? null,
+    caption: (media.caption as string | undefined) ?? null,
+  };
+}
+
+async function storeMessage(message: Record<string, unknown>): Promise<void> {
+  const wamid = message.id as string | undefined;
+  const from = message.from as string | undefined;
+  const kind = (message.type as string | undefined) ?? 'unknown';
+  if (!wamid || !from) return;
+
+  /* ⚠️ META SENDS THE NUMBER WITHOUT A PLUS — `923121531511`. Every lead is
+     stored in E.164 WITH one, so matching the raw value finds nothing at all,
+     on every message, for ever. The kind of bug that looks like "WhatsApp is
+     not working" rather than like a missing character. */
+  const e164 = from.startsWith('+') ? from : `+${from}`;
+
+  let body: string | null = null;
+  let media = { id: null as string | null, mime: null as string | null, filename: null as string | null };
+
+  if (kind === 'text') {
+    body = ((message.text as Record<string, unknown> | undefined)?.body as string | undefined) ?? null;
+  } else if (kind === 'button') {
+    body = ((message.button as Record<string, unknown> | undefined)?.text as string | undefined) ?? null;
+  } else {
+    const found = readMedia(message, kind);
+    /* A caption IS the message text when there is one — an image with
+       "is this the 5 marla one?" under it reads as blank without this. */
+    body = found.caption;
+    media = { id: found.id, mime: found.mime, filename: found.filename };
+  }
+
+  /* Meta sends seconds; Postgres wants an instant. */
+  const at = message.timestamp
+    ? new Date(Number(message.timestamp) * 1000).toISOString()
+    : new Date().toISOString();
+
+  const stored = await withAppRole((tx) => tx`
+    select app.crm_record_inbound_message(
+      ${e164}, ${wamid}, ${kind}, ${body},
+      ${media.id}, ${media.mime}, ${media.filename}, ${at}::timestamptz
+    ) as id
+  `);
+
+  /* ⚠️ NULL IS ORDINARY, NOT A FAILURE. Somebody messaging the business
+     number who is not a lead — a supplier, a wrong number, a colleague — gets
+     no row and no error. Logged without the message body, because that body is
+     a stranger's words and a log is not the place for them. */
+  if (!(stored as Array<Record<string, unknown>>)[0]?.id) {
+    console.info('[whatsapp-webhook] message from a number matching no lead');
+  }
+}
+
+async function storeStatus(status: Record<string, unknown>): Promise<void> {
+  const wamid = status.id as string | undefined;
+  const state = status.status as string | undefined;
+  if (!wamid || !state) return;
+
+  const errors = status.errors as ReadonlyArray<Record<string, unknown>> | undefined;
+  const detail = errors?.[0]
+    ? String(errors[0].title ?? errors[0].message ?? '').slice(0, 300)
+    : null;
+
+  const at = status.timestamp
+    ? new Date(Number(status.timestamp) * 1000).toISOString()
+    : new Date().toISOString();
+
+  await withAppRole((tx) => tx`
+    select app.crm_record_message_status(${wamid}, ${state}, ${detail}, ${at}::timestamptz)
+  `);
 }

@@ -1,0 +1,166 @@
+'use server';
+
+/* ============================================================================
+ * REPLYING TO A LEAD ON WHATSAPP — Step 8
+ * ----------------------------------------------------------------------------
+ * ── ⚠️ THERE IS NO SHARED INBOX, AND THIS IS WHERE THAT IS ENFORCED ────────
+ * Owner, 2026-09-13: *"The lead, which is attached to salesperson 1, will always
+ * reply to him… This is not a good way: the lead is with one person and talking
+ * to some other person."*
+ *
+ * Every path below reads the lead through `getCrmLead`, which is RLS-scoped. A
+ * salesperson who does not own the lead gets null and is refused — not by a
+ * check written here, but by the same policy that decides whether they can see
+ * the lead at all. The manager and an Admin pass, because they manage the
+ * project; that is the one deliberate exception and the owner confirmed it.
+ *
+ * ── ⚠️ AND THE MESSAGE IS RECORDED AS THE SENDER'S ─────────────────────────
+ * `sent_by_id` is the acting user, and 138's policy refuses any other value. On
+ * the phone app "who replied" is unknowable; that column is the entire reason
+ * this feature exists rather than four people sharing a handset.
+ * ========================================================================= */
+
+import { revalidatePath } from 'next/cache';
+
+import { requireUser } from '@/lib/auth/current-user';
+import { sendMedia, sendText, whatsAppConfigFor } from '@/lib/crm/whatsapp';
+import { withUser } from '@/lib/db/client';
+import { getCrmLead } from '@/lib/db/queries/crm-leads';
+
+export interface WhatsAppSendResult {
+  readonly ok: boolean;
+  readonly error?: string;
+}
+
+/** 16 MB is WhatsApp's own ceiling for documents and video. */
+const MAX_FILE_BYTES = 16 * 1024 * 1024;
+
+async function recordOutbound(
+  actorId: string,
+  leadId: string,
+  input: {
+    wamid: string | null;
+    kind: string;
+    body: string | null;
+    mime?: string | null;
+    filename?: string | null;
+    error?: string | null;
+  },
+): Promise<void> {
+  await withUser(actorId, (tx) => tx`
+    insert into public.crm_lead_messages
+      (lead_id, wa_message_id, direction, kind, body, media_mime, media_filename,
+       status, status_at, error_detail, sent_by_id, occurred_at)
+    values (
+      ${leadId}::uuid, ${input.wamid}, 'outbound',
+      ${input.kind}::public.crm_message_kind, ${input.body},
+      ${input.mime ?? null}, ${input.filename ?? null},
+      ${input.error ? 'failed' : 'sent'}::public.crm_message_status, now(),
+      ${input.error ?? null}, ${actorId}::uuid, now()
+    )
+    on conflict (wa_message_id) do nothing
+  `);
+}
+
+export async function sendWhatsAppTextAction(
+  leadId: string,
+  body: string,
+): Promise<WhatsAppSendResult> {
+  const user = await requireUser();
+
+  const text = body.trim();
+  if (!text) return { ok: false, error: 'Write something first.' };
+  /* WhatsApp's own limit. Refused here so the failure is a sentence rather than
+     a rejection from Meta after the reader has pressed send. */
+  if (text.length > 4096) return { ok: false, error: 'That is longer than WhatsApp allows (4096 characters).' };
+
+  const found = await getCrmLead(user.id, leadId);
+  if (!found) return { ok: false, error: 'That lead is not yours.' };
+  const lead = found.lead;
+
+  if (!lead.phoneE164) {
+    return { ok: false, error: 'This lead has no usable number, so nothing can be sent.' };
+  }
+
+  const config = await whatsAppConfigFor(lead.projectId);
+  if (!config) {
+    return {
+      ok: false,
+      error: `${lead.projectName} has no WhatsApp number set up yet. An Admin adds it against the project.`,
+    };
+  }
+
+  const result = await sendText(config, lead.phoneE164, text);
+
+  /* ⚠️ RECORDED EITHER WAY. A refusal is part of the conversation — it is how
+     somebody finds out the 24-hour window has closed, and a failure that leaves
+     no trace looks like a message that was never written. */
+  await recordOutbound(user.id, leadId, {
+    wamid: result.wamid ?? null,
+    kind: 'text',
+    body: text,
+    error: result.ok ? null : (result.error ?? 'refused'),
+  });
+
+  revalidatePath(`/leads/${leadId}`);
+  return result.ok ? { ok: true } : { ok: false, error: result.error };
+}
+
+export async function sendWhatsAppFileAction(
+  leadId: string,
+  form: FormData,
+): Promise<WhatsAppSendResult> {
+  const user = await requireUser();
+
+  const file = form.get('file');
+  if (!(file instanceof File) || file.size === 0) {
+    return { ok: false, error: 'Choose a file first.' };
+  }
+  if (file.size > MAX_FILE_BYTES) {
+    return { ok: false, error: 'WhatsApp will not take a file over 16 MB.' };
+  }
+
+  const caption = String(form.get('caption') ?? '').trim() || null;
+
+  const found = await getCrmLead(user.id, leadId);
+  if (!found) return { ok: false, error: 'That lead is not yours.' };
+  const lead = found.lead;
+
+  if (!lead.phoneE164) {
+    return { ok: false, error: 'This lead has no usable number, so nothing can be sent.' };
+  }
+
+  const config = await whatsAppConfigFor(lead.projectId);
+  if (!config) {
+    return { ok: false, error: `${lead.projectName} has no WhatsApp number set up yet.` };
+  }
+
+  const data = Buffer.from(await file.arrayBuffer());
+  const mime = file.type || 'application/octet-stream';
+  const result = await sendMedia(
+    config,
+    lead.phoneE164,
+    { data, mime, filename: file.name },
+    caption,
+  );
+
+  const kind = mime.startsWith('image/')
+    ? 'image'
+    : mime.startsWith('video/')
+      ? 'video'
+      : mime.startsWith('audio/')
+        ? 'audio'
+        : 'document';
+
+  await recordOutbound(user.id, leadId, {
+    wamid: result.wamid ?? null,
+    kind,
+    body: caption,
+    mime,
+    filename: file.name,
+    error: result.ok ? null : (result.error ?? 'refused'),
+  });
+
+  revalidatePath(`/leads/${leadId}`);
+  return result.ok ? { ok: true } : { ok: false, error: result.error };
+}
