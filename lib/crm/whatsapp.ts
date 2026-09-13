@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { withAppRole } from '@/lib/db/client';
+import { withUser } from '@/lib/db/client';
 
 /* ============================================================================
  * SENDING A WHATSAPP MESSAGE — Step 8
@@ -67,16 +67,28 @@ export function whatsAppTokenPresent(): boolean {
  * Chitral's is a different business with its own, and the client projects have
  * none at all — so "not set up" is the ordinary case and the screen says so.
  */
-export async function whatsAppConfigFor(projectId: string): Promise<WhatsAppConfigResult> {
+export async function whatsAppConfigFor(
+  actorId: string,
+  projectId: string,
+): Promise<WhatsAppConfigResult> {
   const token = process.env.META_SYSTEM_USER_TOKEN?.trim();
   const apiVersion = process.env.META_API_VERSION?.trim() || 'v26.0';
   if (!token) return { ok: false, why: 'no-token' };
 
-  const rows = await withAppRole((tx) => tx`
-    select whatsapp_phone_number_id
-      from public.projects where id = ${projectId}::uuid
+  /* ⚠️ `withUser` AND A DEFINER — migration 141, and it is the reason nothing
+     could ever be sent. This used to run under `withAppRole`, which sets
+     `role = cni_app` and no session. `cni_app` has no BYPASSRLS and does not own
+     the table, so RLS still applied and `projects_select` evaluated for a user
+     that did not exist: ZERO ROWS, for every project and every caller, always.
+     The refusal then read "this project has no WhatsApp number set up yet" on a
+     project whose number was set, live and GREEN at Meta.
+
+     Setting the role and skipping the session narrows HARDER than `withUser`,
+     not less. It is the same policies evaluated for nobody. */
+  const rows = await withUser(actorId, (tx) => tx`
+    select app.crm_project_wa_number(${projectId}::uuid) as phone_number_id
   `);
-  const id = (rows as Array<Record<string, unknown>>)[0]?.whatsapp_phone_number_id;
+  const id = (rows as Array<Record<string, unknown>>)[0]?.phone_number_id;
   if (!id) return { ok: false, why: 'no-number' };
 
   return { ok: true, config: { phoneNumberId: String(id), token, apiVersion } };

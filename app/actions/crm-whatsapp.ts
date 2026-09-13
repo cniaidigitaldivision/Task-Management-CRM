@@ -97,7 +97,7 @@ export async function sendWhatsAppTextAction(
     return { ok: false, error: 'This lead has no usable number, so nothing can be sent.' };
   }
 
-  const ready = await whatsAppConfigFor(lead.projectId);
+  const ready = await whatsAppConfigFor(user.id, lead.projectId);
   if (!ready.ok) return { ok: false, error: whyNotSendable(ready, lead.projectName) };
 
   const result = await sendText(ready.config, lead.phoneE164, text);
@@ -140,7 +140,7 @@ export async function sendWhatsAppFileAction(
     return { ok: false, error: 'This lead has no usable number, so nothing can be sent.' };
   }
 
-  const ready = await whatsAppConfigFor(lead.projectId);
+  const ready = await whatsAppConfigFor(user.id, lead.projectId);
   if (!ready.ok) return { ok: false, error: whyNotSendable(ready, lead.projectName) };
 
   const data = Buffer.from(await file.arrayBuffer());
