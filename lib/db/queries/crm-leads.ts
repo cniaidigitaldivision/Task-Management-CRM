@@ -1300,11 +1300,21 @@ export async function crmLeadThread(actorId: string, leadId: string): Promise<Cr
   }));
 }
 
-/** Can this project send at all? Decides whether the composer is drawn. */
+/**
+ * Can this project send at all? Decides whether the composer is drawn, and
+ * whether the WhatsApp buttons open OUR thread or fall back to `wa.me`.
+ *
+ * ⚠️ THROUGH A DEFINER, NOT `public.projects` — migration 140, and the sixth
+ * time this exact shape has bitten. `projects_select` needs project MEMBERSHIP
+ * and a salesperson is a member of nothing, so the direct read returned zero
+ * rows for the entire sales team. Zero rows reads as `false`, `false` means
+ * "cannot send", and "cannot send" pointed every salesperson at `wa.me` — their
+ * own handset, off the record. An Admin sees every project, so it worked
+ * perfectly in the only session anybody had tested it from.
+ */
 export async function crmProjectCanWhatsApp(actorId: string, projectId: string): Promise<boolean> {
   const rows = await withUser(actorId, (tx) => tx`
-    select whatsapp_phone_number_id is not null as ready
-      from public.projects where id = ${projectId}::uuid
+    select app.crm_project_can_whatsapp(${projectId}::uuid) as ready
   `);
   return (rows as Array<Record<string, unknown>>)[0]?.ready === true;
 }
