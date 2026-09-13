@@ -115,6 +115,26 @@ if (!env.DATABASE_URL) {
    ⚠️ `null` means never contacted — NOT zero. A lead nobody rang must leave
    `first_contacted_at` NULL so the panel reads "No calls yet" rather than
    flattering somebody with an instant response they never gave. */
+/* ── ⚠️ INVENTED, AND ONLY BECAUSE THESE ARE NOT REAL PEOPLE ────────────────
+   Q19 is explicit that a specialisation must NOT be invented for the actual
+   sales team — owner, 2026-09-12: *"Please don't do that."* That warning is
+   about real salespeople, whose specialities only the sales manager can supply.
+
+   These three are test accounts, so a made-up speciality here is the same kind
+   of thing as a made-up lead: something to exercise the feature with. Every one
+   carries the `[demo]` mark so a later reader cannot mistake it for an answer
+   somebody actually gave, and `--remove` clears them.
+
+   ⚠️ They deliberately MATCH the demo enquiries below — ERP and CRM to one
+   person, Taskly and automation to the other — so that when specialisation
+   becomes a filter in front of the rota (step 7) there is something coherent
+   for it to sort on, rather than noise that makes a correct matcher look wrong. */
+const SPECIALITIES = {
+  'Sale Tester': `ERP and CRM enquiries, manufacturing and retail, Punjab ${MARK}`,
+  'Sale 2 tester': `Taskly and automation, agencies and services, Islamabad ${MARK}`,
+  'sale manager tester': `Runs the desk; takes escalations only ${MARK}`,
+};
+
 const PROFILES = {
   strong: {
     who: 'Sale Tester',
@@ -241,6 +261,12 @@ try {
                and not exists (select 1 from public.crm_leads l where l.client_id = c.id)
             returning id`
         : [];
+
+      /* ⚠️ Cleared by the MARK, never by name — a real speciality recorded on a
+         tester since must survive a teardown of the demo data. */
+      await tx`
+        update public.users set specialisation = null
+         where specialisation like ${'%' + MARK}`;
 
       const forms = await tx`
         delete from public.crm_lead_forms
@@ -424,6 +450,20 @@ try {
 
   await work(strong, strongLeads, PROFILES.strong);
   await work(weak, weakLeads, PROFILES.weak);
+
+  /* ── The testers' specialities ────────────────────────────────────────────
+     ⚠️ Only ever written where the field is EMPTY or already carries the demo
+     mark. If somebody has since recorded a real speciality — which is the whole
+     point of the field — this must not overwrite it with an invention. */
+  await asUser(admin.id, async (tx) => {
+    for (const [name, speciality] of Object.entries(SPECIALITIES)) {
+      await tx`
+        update public.users
+           set specialisation = ${speciality}
+         where full_name = ${name}
+           and (specialisation is null or specialisation like ${'%' + MARK})`;
+    }
+  });
 
   /* ── 6 · What was actually made ─────────────────────────────────────────── */
   const summary = await sql`
