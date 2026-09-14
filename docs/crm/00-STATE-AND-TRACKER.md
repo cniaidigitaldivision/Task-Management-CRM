@@ -50,6 +50,32 @@ the line to change to remove the CEO too.
 table means no restriction, so there is nothing else to undo — and nothing to
 tidy away by accident.
 
+### 📞 Calling — researched and parked, see `11-CALLING.md`
+
+Owner, 2026-09-14, after spotting that I had said "taking calls" too loosely:
+*"Is the call facility available in the WhatsApp API?"* … *"Instead of talking on
+a desktop, if he wants to talk on a mobile, is it not possible?"* … *"I'm not
+talking about implementing this right now but definitely once the system is
+running… I will implement this thing."*
+
+Short version — **yes to all of it, and the blocker is a number that only real
+use can move:**
+
+| | |
+|---|---|
+| WhatsApp does voice calls | ✅ Business Calling API, both directions |
+| He can talk on his **mobile**, not a desktop | ✅ **SIP → PBX → softphone.** Rings when locked; recording comes free, server-side |
+| Can we start now | ❌ needs **≥ 2,000 recipients/day**; we are on **`TIER_250`** |
+| Business-initiated from the test number | ❌ it is `+1`, and US numbers are blocked |
+
+⚠️ **THE TIER RISES ONLY BY MESSAGING REAL PEOPLE WELL** — so the few weeks of
+tester use are themselves the prerequisite, and this cannot be brought forward.
+
+⚠️ **AND AN APK CANNOT RECORD CALLS.** Android closed that at 10; Google banned
+the Accessibility workaround on 11 May 2022. Recording is server-side or it does
+not happen — which is exactly why the SIP route is the one. `11-CALLING.md` has
+the three dead ends written out so they are not researched twice.
+
 ### Four bugs in Step 8, each one worse than the last
 
 | # | What | Fix |
