@@ -1232,8 +1232,16 @@ function LeadTable({
     /* ⚠️ The scroll lives on this wrapper, not on the page. A table this wide
        would otherwise scroll the whole document sideways on a laptop, taking the
        sidebar with it. */
+    /* ⚠️ NO `min-width`, SO NO SCROLLBAR. Owner, 2026-09-14: *"Why did you add a
+       scrollbar in a table?"* It was 62rem of forced width across nine columns,
+       which on a laptop pushed the Actions column — the one every row is
+       actually worked from — off the right edge behind a scrollbar nobody
+       noticed. Losing "Came from" took a column out, and the rest now lay out to
+       the space available. `overflow-x-auto` stays as the floor: if somebody
+       drops the sidebar to a phone width the table scrolls rather than the page
+       going sideways with the nav. */
     <div className="overflow-x-auto rounded-xl border border-border-default bg-bg-surface">
-      <table className="w-full min-w-[62rem] border-collapse text-left">
+      <table className="w-full border-collapse text-left">
         <thead>
           <tr className="border-b border-border-default bg-bg-subtle">
             {/* ⚠️ SELECTION WORKS; THERE IS NOTHING TO DO WITH IT YET. Owner,
@@ -1257,7 +1265,6 @@ function LeadTable({
             <Th>Next follow-up</Th>
             <Th>Sequence</Th>
             <Th>Owner</Th>
-            <Th>Came from</Th>
             <Th>Actions</Th>
           </tr>
         </thead>
@@ -1386,19 +1393,20 @@ function Row({
       <td className={TD}>
         {lead.lastMessageAt ? (
           <span className="flex min-w-0 items-start gap-2">
-            {/* ⚠️ A TINTED BADGE, NOT A BARE GLYPH. Owner, 2026-09-14: *"the
-                icons are very small, even very difficult to read or focus on…
-                not visible at first glance."* At 14px with no ground behind it,
-                a channel mark is decoration; at 32px on its own tint it is the
-                first thing the eye lands on in the cell, which is the job — this
-                column is scanned, not read. */}
+            {/* ⚠️ A BARE GLYPH, NOT A TINTED BOX — corrected 2026-09-14 after
+                seeing it beside the design. I had put every channel mark on its
+                own filled square to make it findable; four filled squares per
+                row is what turns a list into a grid of chips, and the owner's
+                read was right: *"the reference image is looking very good but
+                when I see my dashboard it's not as attractive."*
+
+                The size stays (20px, not the 14px it started at) and the colour
+                does all the work. That is how the design does it, and it is why
+                the design breathes. */}
             <span
               aria-hidden="true"
-              className="grid size-8 shrink-0 place-items-center rounded-lg"
-              style={{
-                backgroundColor: `color-mix(in oklab, ${WA_GREEN} 14%, transparent)`,
-                color: WA_GREEN,
-              }}
+              className="mt-0.5 shrink-0"
+              style={{ color: WA_GREEN }}
             >
               <WhatsAppMark className="size-5" />
             </span>
@@ -1426,17 +1434,13 @@ function Row({
           /* No message, but something was logged — a call, a note. Still the
              most recent thing that happened to this lead. */
           <span className="flex min-w-0 items-start gap-2">
-            {/* The same badge shape in the accent hue, so the column has one
-                rhythm whether the last thing was a message or a logged step. */}
+            {/* Same treatment for a logged step: bare, blue, 20px. */}
             <span
               aria-hidden="true"
-              className="grid size-8 shrink-0 place-items-center rounded-lg"
-              style={{
-                backgroundColor: 'color-mix(in oklab, var(--accent-primary) 12%, transparent)',
-                color: 'var(--accent-primary)',
-              }}
+              className="mt-0.5 shrink-0"
+              style={{ color: 'var(--accent-primary)' }}
             >
-              <Mail className="size-4" />
+              <Mail className="size-5" />
             </span>
             <span className="min-w-0">
             <span className="block truncate text-body-sm text-text-primary">
@@ -1463,20 +1467,15 @@ function Row({
                 column is scanned down, not read across. */}
             <span
               aria-hidden="true"
-              className="grid size-8 shrink-0 place-items-center rounded-lg"
-              style={
-                lead.nextActionAt && Date.parse(lead.nextActionAt) < nowMs
-                  ? {
-                      backgroundColor: 'color-mix(in oklab, var(--feedback-error) 12%, transparent)',
-                      color: 'var(--feedback-error)',
-                    }
-                  : {
-                      backgroundColor: 'color-mix(in oklab, var(--accent-primary) 12%, transparent)',
-                      color: 'var(--accent-primary)',
-                    }
-              }
+              className="mt-0.5 shrink-0"
+              style={{
+                color:
+                  lead.nextActionAt && Date.parse(lead.nextActionAt) < nowMs
+                    ? 'var(--feedback-error)'
+                    : 'var(--accent-primary)',
+              }}
             >
-              <CalendarDays className="size-4" />
+              <CalendarDays className="size-5" />
             </span>
             <span className="min-w-0">
               <span className="block truncate text-body-sm text-text-primary">
@@ -1563,17 +1562,6 @@ function Row({
           </span>
         ) : (
           <Nothing>Unassigned</Nothing>
-        )}
-      </td>
-
-      <td className={TD}>
-        <span className="block truncate text-caption text-text-secondary">
-          {lead.campaignName ?? lead.formName ?? '—'}
-        </span>
-        {lead.campaignName && lead.formName && (
-          <span className="mt-0.5 block truncate text-micro text-text-tertiary">
-            {lead.formName}
-          </span>
         )}
       </td>
 
@@ -1769,7 +1757,13 @@ function followUpWhen(iso: string, nowMs: number): string {
     month: 'short',
     timeZone: KARACHI,
   });
-  return at < nowMs ? `Overdue · ${date} ${time}` : `${date} ${time}`;
+
+  /* ⚠️ NO CLOCK TIME ON AN OVERDUE ONE. "Overdue · 12 Sep 7:34 PM" wrapped to
+     two lines and the minute was worthless anyway — nobody rings a lead at the
+     hour it went overdue three days ago. The date is the fact; the time only
+     matters while it is still ahead of you, which is exactly the today and
+     tomorrow cases above. */
+  return at < nowMs ? `Overdue · ${date}` : `${date} ${time}`;
 }
 
 /* ⚠️ THE WHATSAPP CONTROL IS GREEN ON GREEN, and that is the point of it.
@@ -1780,7 +1774,7 @@ function followUpWhen(iso: string, nowMs: number): string {
    So the WhatsApp control gets #25D366 ink on a 12% wash of itself, which is
    what makes it findable in a row of four. */
 const REACH_TONE = {
-  plain: 'border-border-subtle text-text-secondary hover:border-border-default hover:bg-bg-subtle hover:text-text-primary',
+  plain: 'border-transparent bg-bg-subtle text-text-secondary hover:bg-border-subtle hover:text-text-primary',
   wa: 'border-transparent hover:brightness-95',
 } as const;
 

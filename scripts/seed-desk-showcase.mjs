@@ -155,6 +155,27 @@ const run = async () => {
     console.log(`cleared ${ids.length} previous showcase row(s)\n`);
   }
 
+  /* ⚠️ AND THE OLDER DEMO SEED'S ROWS OF THE SAME PEOPLE. `seed-crm-demo.mjs`
+     invented some of the same names, so running this on top of it put "Hina
+     Shahzad" on the desk twice — which reads as a duplicate-import bug rather
+     than as two seeds meeting. Only the demo project, only `demo:` rows, only
+     the names this file is about to write. */
+  const names = ROWS.map((r) => r.name);
+  const clash = await sql`
+    select id from public.crm_leads
+     where project_id = ${project.id}
+       and external_id like 'demo:%'
+       and full_name = any(${names}::text[])`;
+  if (clash.length > 0) {
+    const ids = clash.map((r) => r.id);
+    await sql`delete from public.crm_lead_messages where lead_id = any(${ids}::uuid[])`;
+    await sql`delete from public.crm_lead_activity where lead_id = any(${ids}::uuid[])`;
+    await sql`delete from public.crm_lead_notes    where lead_id = any(${ids}::uuid[])`;
+    await sql`delete from public.crm_leads         where id      = any(${ids}::uuid[])`;
+    console.log(`cleared ${ids.length} older demo row(s) with the same names
+`);
+  }
+
   let n = 0;
   for (const [i, r] of ROWS.entries()) {
     const owner = owners[r.owner % owners.length];

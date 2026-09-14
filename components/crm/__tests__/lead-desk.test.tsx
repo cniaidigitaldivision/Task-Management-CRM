@@ -282,9 +282,18 @@ describe('the live project', () => {
     }
   });
 
-  it('shows the campaign when there is one, the form when there is not', () => {
-    expect(html).toContain('CRH Sept Plots');
-    expect(html).toContain('Chitral Royal Homes-copy-copy-copy');
+  it('⚠️ no longer carries a "Came from" column, and that is deliberate', () => {
+    /* Owner, 2026-09-14: *"the 'From which campaign' column: it can be shown
+       when I click on that leader. I can view this information from there. Don't
+       display it here."* Right — it was the widest low-value column on the desk
+       and it was what forced the table past the window, putting Actions behind a
+       horizontal scrollbar nobody noticed.
+
+       ⚠️ THE DATA IS NOT GONE. `campaignName` and `formName` still ride on the
+       row and the lead record still shows both; what changed is that the list
+       does not spend a column on them. This case now guards that the column
+       stays gone rather than creeping back. */
+    expect(html).not.toContain('>Came from</th>');
   });
 
   it('marks the other projects in the dropdown', () => {
