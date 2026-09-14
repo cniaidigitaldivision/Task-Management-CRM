@@ -36,6 +36,12 @@ export default function ComposerPage() {
   const [scheduleDate, setScheduleDate] = React.useState('');
   const [showSuccess, setShowSuccess] = React.useState(false);
   const [successDetails, setSuccessDetails] = React.useState<{date: string, platforms: string[]}>({ date: '', platforms: [] });
+
+  const [tiktokPrivacy, setTiktokPrivacy] = React.useState('Public');
+  const [tiktokDuet, setTiktokDuet] = React.useState(true);
+  const [tiktokStitch, setTiktokStitch] = React.useState(true);
+  const [tiktokComments, setTiktokComments] = React.useState(true);
+  const [tiktokBranded, setTiktokBranded] = React.useState(false);
   
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -43,6 +49,7 @@ export default function ComposerPage() {
   const hasAccount = selectedPlatforms.size > 0;
   const hasCaption = caption.trim().length > 0;
   const isYoutube = selectedPlatforms.has('youtube');
+  const isTiktok = selectedPlatforms.has('tiktok');
   const hasYoutubeTitle = youtubeTitle.trim().length > 0;
   
   const mediaType = mediaFile?.type.startsWith('video/') ? 'video' : mediaFile?.type.startsWith('image/') ? 'image' : null;
@@ -163,6 +170,91 @@ export default function ComposerPage() {
               </div>
             </Field>
 
+            {/* TikTok Settings */}
+            {isTiktok && (
+              <div className="rounded-xl border border-border-default bg-bg-surface-sunken p-5 space-y-5">
+                <h3 className="text-body-sm font-semibold text-text-primary border-b border-border-subtle pb-2">TikTok Settings</h3>
+                
+                {/* 1. Creator Info */}
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-neutral-900 text-white font-semibold shadow-sm">
+                    {PLATFORMS.find(p => p.id === 'tiktok')?.account?.charAt(1).toUpperCase() || 'C'}
+                  </div>
+                  <div className="flex flex-col min-w-0">
+                    <span className="text-body-sm font-medium text-text-primary">
+                      {PLATFORMS.find(p => p.id === 'tiktok')?.account || '@cnidigital'}
+                    </span>
+                    <span className="text-micro text-text-secondary truncate">
+                      TikTok Creator
+                    </span>
+                  </div>
+                </div>
+
+                {/* 2. Privacy Selector */}
+                <Field label="Who can view this post">
+                  <select 
+                    value={tiktokPrivacy}
+                    onChange={(e) => setTiktokPrivacy(e.target.value)}
+                    className={cn(
+                      'w-full min-w-0 px-3 text-text-primary rounded-lg h-9 bg-bg-surface',
+                      'border border-border-default hover:border-border-strong focus:border-border-brand focus:outline-none focus:ring-1 focus:ring-focus-ring',
+                      'text-body-sm'
+                    )}
+                  >
+                    <option value="Public">Public</option>
+                    <option value="Friends Only">Friends Only</option>
+                    <option value="Self Only">Self Only</option>
+                  </select>
+                </Field>
+
+                {/* 3. Toggles */}
+                <div className="space-y-3 pt-2">
+                  {[
+                    { label: 'Allow Duet', state: tiktokDuet, setter: setTiktokDuet },
+                    { label: 'Allow Stitch', state: tiktokStitch, setter: setTiktokStitch },
+                    { label: 'Allow Comments', state: tiktokComments, setter: setTiktokComments }
+                  ].map(({ label, state, setter }) => (
+                    <label key={label} className="flex items-center justify-between cursor-pointer group">
+                      <span className="text-body-sm text-text-primary">{label}</span>
+                      <div className="relative inline-flex h-5 w-9 items-center rounded-full bg-[var(--border-default)] transition-colors group-hover:bg-[var(--border-strong)]"
+                        style={{ backgroundColor: state ? 'var(--accent-primary)' : undefined }}>
+                        <input
+                          type="checkbox"
+                          className="sr-only"
+                          checked={state}
+                          onChange={(e) => setter(e.target.checked)}
+                        />
+                        <span className={cn(
+                          "inline-block h-4 w-4 transform rounded-full bg-white transition-transform shadow-sm",
+                          state ? "translate-x-4" : "translate-x-1"
+                        )} />
+                      </div>
+                    </label>
+                  ))}
+                </div>
+
+                {/* 4. Commercial Content */}
+                <div className="pt-3 border-t border-border-subtle">
+                  <label className="flex items-start gap-2 cursor-pointer group">
+                    <input
+                      type="checkbox"
+                      checked={tiktokBranded}
+                      onChange={(e) => setTiktokBranded(e.target.checked)}
+                      className="mt-1 h-4 w-4 rounded border-border-strong text-accent-primary focus:ring-[var(--focus-ring)]"
+                    />
+                    <div className="flex flex-col">
+                      <span className="text-body-sm text-text-primary group-hover:text-text-primary">
+                        This video contains paid promotion, gifts, or other incentives.
+                      </span>
+                      <span className="text-micro text-text-secondary mt-0.5">
+                        You are responsible for complying with TikTok's Branded Content Policy.
+                      </span>
+                    </div>
+                  </label>
+                </div>
+              </div>
+            )}
+
             {/* YouTube Title */}
             {isYoutube && (
               <Field 
@@ -201,17 +293,28 @@ export default function ComposerPage() {
             >
               <div className="mt-2">
                 {mediaPreview ? (
-                  <div className="relative inline-block rounded-xl border border-border-subtle overflow-hidden">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={mediaPreview} alt="Media preview" className="max-h-64 object-contain" />
-                    <button
-                      type="button"
-                      onClick={clearMedia}
-                      className="absolute top-2 right-2 flex h-7 w-7 items-center justify-center rounded-full bg-neutral-800/60 text-white backdrop-blur-md hover:bg-neutral-800/80 transition-colors"
-                      aria-label="Remove media"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
+                  <div className="space-y-2">
+                    <div className="relative inline-block rounded-xl border border-border-subtle overflow-hidden bg-bg-surface-sunken">
+                      {mediaType === 'video' ? (
+                        <video src={mediaPreview} controls muted className="max-h-64 max-w-full object-contain" />
+                      ) : (
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        <img src={mediaPreview} alt="Media preview" className="max-h-64 max-w-full object-contain" />
+                      )}
+                      <button
+                        type="button"
+                        onClick={clearMedia}
+                        className="absolute top-2 right-2 flex h-7 w-7 items-center justify-center rounded-full bg-neutral-800/60 text-white backdrop-blur-md hover:bg-neutral-800/80 transition-colors"
+                        aria-label="Remove media"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                    {mediaFile && (
+                      <p className="text-micro text-text-secondary">
+                        {mediaFile.name} &middot; {(mediaFile.size / (1024 * 1024)).toFixed(1)} MB
+                      </p>
+                    )}
                   </div>
                 ) : (
                   <div
