@@ -14,7 +14,7 @@ export const metadata: Metadata = {
  * PRIVACY POLICY
  * ----------------------------------------------------------------------------
  * ⚠️ EVERY FACTUAL CLAIM HERE WAS CHECKED AGAINST THE SYSTEM, not written from a
- * template. Three in particular, because they are the ones that would be
+ * template. Two in particular, because they are the ones that would be
  * embarrassing to have wrong:
  *
  *   · The biometric paragraph (§3). `attendance_scans.raw` was inspected — its
@@ -23,12 +23,8 @@ export const metadata: Metadata = {
  *     payload; the terminal matches on-device and sends an employee number. The
  *     policy says exactly that and no more.
  *   · The personal fields listed in §2 are the real columns on `public.users`.
- *   · The Meta section (§5) is written in the FUTURE conditional because the
- *     integration is planned and not built — see docs/META-INTEGRATION-PLAN.md.
- *     Claiming a live integration that does not exist would be a false statement
- *     in a document submitted for review.
  *
- * If any of those three change, this page changes with them.
+ * If any of those two change, this page changes with them.
  * ========================================================================= */
 
 export default function PrivacyPage() {
@@ -151,6 +147,16 @@ export default function PrivacyPage() {
               detail:
                 'Powers the in-app assistant. Where the assistant is used, the relevant question and the records needed to answer it are sent to be processed, and are not used to train models.',
             },
+            {
+              term: 'Buffer',
+              detail:
+                'Publishes to TikTok on our behalf, using an API key; no personal data beyond scheduled post content is shared.',
+            },
+            {
+              term: 'Social platforms',
+              detail:
+                'Meta (Facebook and Instagram), LinkedIn, and Google (YouTube) receive scheduled post content directly via the division’s own registered apps. They process only the content an employee composed for that platform.',
+            },
           ]}
         />
         <P>
@@ -159,45 +165,69 @@ export default function PrivacyPage() {
         </P>
       </Section>
 
-      <Section n={5} title="Social media accounts and Meta">
+      <Section n={5} title="Social media accounts">
         <P>
-          The division manages Facebook and Instagram accounts on behalf of clients. Where a client
-          asks us to, we may connect their Facebook Page and Instagram Business account to{' '}
-          {APP_NAME} so that performance figures appear next to the work that produced them.
+          The division operates an internal social media scheduling tool that connects to social accounts{' '}
+          <strong className="font-semibold text-text-primary">owned by Crescent Nova International itself</strong>{' '}
+          across Facebook, Instagram, LinkedIn, TikTok, and YouTube.
         </P>
-        <P>Should that connection be made, the following applies:</P>
+        <P>Where these connections are active, the following applies:</P>
         <UL>
           <>
-            We would read <strong className="font-semibold text-text-primary">statistics only</strong> —
-            reach, views, engagement counts, follower totals and per-post performance for the
-            connected accounts.
+            For Facebook, Instagram, LinkedIn, and TikTok, the tool{' '}
+            <strong className="font-semibold text-text-primary">publishes scheduled posts</strong>{' '}
+            (text, images, video) that employees compose.
           </>
           <>
-            We would <strong className="font-semibold text-text-primary">not</strong> read private
+            We do <strong className="font-semibold text-text-primary">not</strong> read private
             messages, comments&rsquo; author details, or the personal profiles of the people who
             follow or interact with a page.
           </>
           <>
-            Aggregate audience information provided by Meta, such as the countries or age bands a
-            page&rsquo;s followers fall into, would be stored as aggregates and never as records
-            about identifiable individuals.
+            Access tokens (where applicable) are encrypted at rest and used solely to publish scheduled content.
           </>
           <>
-            Access tokens would be encrypted at rest and used solely to fetch those statistics on a
-            schedule.
-          </>
-          <>
-            Access is granted by the account owner and can be withdrawn by them at any time, from
-            Meta&rsquo;s own settings, without our involvement. Withdrawal stops all further
-            collection.
+            Access can be revoked by the account owner at any time from that platform&rsquo;s own settings, which
+            immediately stops any further publishing capability.
           </>
         </UL>
         <Note>
-          As of {`3 September 2026`}, this integration is{' '}
-          <strong className="font-semibold text-text-primary">planned and not yet built</strong>. It
-          is described here in advance so that the statement exists before any connection is made,
-          rather than after. No Meta data is being collected today.
+          As of {`12 September 2026`}, these integrations are live.
         </Note>
+      </Section>
+
+      <Section n="5a" title="YouTube specifically">
+        <P>
+          The tool uses the YouTube Data API to upload videos to YouTube channels owned or managed by{' '}
+          Crescent Nova International&rsquo;s own team — no other user&rsquo;s or the public&rsquo;s YouTube data is accessed.
+        </P>
+        <P>
+          Google&rsquo;s use of information from this integration is governed by the Google Privacy Policy:{' '}
+          <Link
+            href="https://policies.google.com/privacy"
+            className="font-medium text-text-brand underline-offset-4 hover:underline"
+            target="_blank"
+            rel="noreferrer"
+          >
+            https://policies.google.com/privacy
+          </Link>
+        </P>
+        <P>
+          Any team member&rsquo;s Google account authorization can be revoked at any time from{' '}
+          <Link
+            href="https://myaccount.google.com/permissions"
+            className="font-medium text-text-brand underline-offset-4 hover:underline"
+            target="_blank"
+            rel="noreferrer"
+          >
+            https://myaccount.google.com/permissions
+          </Link>
+          , which immediately stops this tool&rsquo;s ability to upload videos to that account&rsquo;s channel.
+        </P>
+        <P>
+          Disconnecting an account from this tool removes the local record of that connection, but it does
+          not retroactively delete videos already uploaded to YouTube itself (only YouTube Studio can do that).
+        </P>
       </Section>
 
       <Section n={6} title="How long it is kept">

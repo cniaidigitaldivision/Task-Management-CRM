@@ -97,6 +97,15 @@ const ADMIN_NAV = [
   /* Reached the Admin's rail on 2026-08-22 — owner decision, see migration 040. */
   '/security',
   '/workflow',
+  /* ⚠️ Added 2026-09-14 by the `composer` merge — Larry's post composer, its own
+     `Social` rail heading. Merged so the screenshots can be taken; the page is a
+     client-side mock with no server action and no database behind it yet.
+
+     ⚠️ AND IT IS OFFERED TO EVERY RANK (`roles: ALL` in nav-config), which is
+     how the branch was written and is deliberately left alone here. If it should
+     be narrowed while it is a mock, that is a change to the nav entry, not to
+     this fixture — this list only describes what the tree actually offers. */
+  '/composer',
 ] as const;
 
 describe('activeHref', () => {
