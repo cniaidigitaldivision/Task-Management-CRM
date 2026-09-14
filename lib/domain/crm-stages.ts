@@ -24,17 +24,34 @@
  * score is how a "pipeline health" figure ends up rewarding losing deals.
  * ========================================================================= */
 
+/* ⚠️ `follow_up` AND `scheduled` ARE GONE FROM THIS LIST — migrations 148/149,
+   on the owner's decision of 2026-09-14. They remain in the database enum
+   because PostgreSQL has no `DROP VALUE`, and 149 proved no row wears either.
+
+   The reasoning is the owner's and it is right: a follow-up is an ACTIVITY, not
+   a position. A qualified lead, a lead holding a live quotation and a lead in
+   negotiation can all be awaiting one — `next_action` + `next_action_at` already
+   carry that, on any stage.
+
+   ⚠️ AND "NEW REPLY" IS NOT HERE EITHER, though the reference design shows it as
+   a stage. It is a conversation state: a lead that replies while in negotiation
+   must still be in negotiation, or the funnel forgets where they were. */
 export const STAGE_ORDER = [
   'new',
   'contacted',
-  'follow_up',
   'qualified',
+  'proposal_pending',
+  'quotation_sent',
+  'visit_scheduled',
   'visited',
-  'scheduled',
   'negotiation',
   'won',
   'lost',
 ] as const;
+
+/** ⚠️ Retired, and kept only so a legacy row renders a word rather than a raw
+ *  enum. Never offered in a picker; never counted in the strip. */
+export const RETIRED_STAGES = ['follow_up', 'scheduled'] as const;
 
 export type CrmStage = (typeof STAGE_ORDER)[number];
 
@@ -68,13 +85,37 @@ interface StageMeta {
 
    The replacements are measured, not guessed, and the pinks are kept four chips
    apart in the strip: */
-const STAGES: Record<CrmStage, StageMeta> = {
+/* ⚠️ KEYED BY `string`, NOT `CrmStage`, and only here. `CrmStage` is now the
+   TEN live stages, and this map must also answer for the two retired ones —
+   `follow_up` and `scheduled` — because the database enum still holds them and a
+   row written before 149, or by hand, must render a word rather than a raw
+   label. `isStage()` below is what keeps the retired pair out of everything
+   else. */
+const STAGES: Record<string, StageMeta> = {
   new: { label: 'New', token: 'accent-primary', open: true },
   contacted: { label: 'Contacted', token: 'chart-1', open: true },
   /* 5.07 light / 6.57 dark. Was chart-3, which failed AND was the same 161°
      green as `won` — a funnel whose third chip matched its last one. */
+  /* ⚠️ RETIRED (149). Kept so a legacy row renders a word; absent from
+     STAGE_ORDER so nothing offers it. */
   follow_up: { label: 'Follow up', token: 'status-review', open: true },
   qualified: { label: 'Qualified', token: 'chart-4', open: true },
+  /* ⚠️ THE MOST ATTENTION-HUNGRY STATE IN THE FUNNEL: the client has asked for
+     something and the clock is running on US. Takes the pink `follow_up` used to
+     wear — measured 5.07 light / 6.57 dark through the Badge, and freed when
+     that stage retired in 149. */
+  proposal_pending: { label: 'Proposal pending', token: 'status-review', open: true },
+  /* Sent, and now owed a chase. Slate reads as "out with them, waiting" — the
+     token `scheduled` wore, measured 6.24 / 6.62, freed by the same migration. */
+  quotation_sent: { label: 'Quotation sent', token: 'status-backlog', open: true },
+  /* ⚠️ THE ONE TOKEN IN THIS MAP THAT HAS NOT BEEN MEASURED THROUGH THE BADGE.
+     Every other line here carries a figure from 2026-09-10; this stage is new
+     and `status-todo` (blue) was chosen for meaning — blue is "in the diary"
+     everywhere else on the desk — not from a reading. It needs the same browser
+     check the others had before this strip is signed off, and it is flagged
+     rather than assumed because four tokens failed that check last time and all
+     four passed in dark. */
+  visit_scheduled: { label: 'Visit scheduled', token: 'status-todo', open: true },
   /* 5.37 / 5.41. Keeps the gold this stage always had — `gold-700` is the step
      that is legible at BOTH ends, where `accent-gold` is a fill. The palette
      already records the same lesson one step further down:
@@ -82,6 +123,7 @@ const STAGES: Record<CrmStage, StageMeta> = {
   visited: { label: 'Visited', token: 'gold-700', open: true },
   /* 6.24 / 6.62. Slate reads as booked-and-waiting, and it takes the second gold
      out of a strip that would otherwise have had two side by side. */
+  /* ⚠️ RETIRED (149) — folded into the appointment record. Same treatment. */
   scheduled: { label: 'Scheduled', token: 'status-backlog', open: true },
   /* ⚠️ NOT `feedback-warning`, for two reasons. Semantically, negotiation is a
      late-funnel stage, not a warning — the feedback tokens mean good/warning/

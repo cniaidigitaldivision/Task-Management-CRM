@@ -78,16 +78,17 @@ describe('the vocabulary', () => {
 });
 
 describe('the funnel', () => {
-  it('⚠️ draws every stage, including the eight that are empty', () => {
+  it('⚠️ draws every stage, including the nine that are empty', () => {
     /* The database returns only `new`. A funnel whose middle is missing looks
        like a complete funnel with a narrow waist — the shape is carried by the
        gaps as much as by the numbers. */
     const report = buildFunnelReport(FUNNEL, CTX);
 
-    expect(report.rows).toHaveLength(9);
+    /* Ten since 148/149 — three stages added, two retired. */
+    expect(report.rows).toHaveLength(10);
     expect(cellText(report.rows[0][0])).toBe('New');
-    expect(cellText(report.rows[8][0])).toBe('Lost');
-    expect(cellText(report.rows[8][1])).toBe('0');
+    expect(cellText(report.rows[9][0])).toBe('Lost');
+    expect(cellText(report.rows[9][1])).toBe('0');
   });
 
   it('⚠️ says this is a pipeline snapshot, not a conversion measure', () => {

@@ -30,17 +30,26 @@ import {
 
 /** Copied from `select enumlabel from pg_enum` on 2026-09-10, not from the
  *  module under test — a fixture derived from the code proves nothing. */
+/* ⚠️ THE TEN LIVE STAGES, not every label in the database enum. Migrations 148
+   and 149 added three and retired two — `follow_up` and `scheduled` — and
+   PostgreSQL has no `DROP VALUE`, so the type still carries twelve labels while
+   the funnel has ten. 149's self-check proves no ROW wears the retired pair;
+   this list is what the application offers. */
 const ENUM_STAGES = [
   'new',
   'contacted',
-  'follow_up',
   'qualified',
+  'proposal_pending',
+  'quotation_sent',
+  'visit_scheduled',
   'visited',
-  'scheduled',
   'negotiation',
   'won',
   'lost',
 ];
+
+/** Still in the type, never in the funnel. See RETIRED_STAGES. */
+const RETIRED = ['follow_up', 'scheduled'];
 
 const ENUM_TEMPERATURES = ['hot', 'warm', 'cold'];
 
@@ -76,8 +85,19 @@ const ENUM_LOST_REASONS = [
 ];
 
 describe('every database value has a word', () => {
-  it('covers all nine stages, and no invented ones', () => {
+  it('covers all ten live stages, and no invented ones', () => {
     expect([...STAGE_ORDER].sort()).toEqual([...ENUM_STAGES].sort());
+  });
+
+  it('⚠️ still labels the two retired stages, without offering them', () => {
+    /* A row written before 149, or by hand, must render a word rather than a
+       raw enum — but nothing may put them back in the funnel. Both halves
+       matter: drop the labels and an old row shows "follow_up"; leave them in
+       STAGE_ORDER and the strip grows a chip nobody can reach. */
+    for (const stage of RETIRED) {
+      expect(stageLabel(stage)).not.toBe(stage);
+      expect(STAGE_ORDER).not.toContain(stage);
+    }
   });
 
   it('gives every stage a label that is not its raw name', () => {
@@ -206,8 +226,9 @@ describe('the order is the pipeline', () => {
     expect(isOpen('negotiation')).toBe(true);
   });
 
-  it('lists exactly the seven open stages', () => {
-    expect(OPEN_STAGES).toHaveLength(7);
+  it('lists exactly the eight open stages', () => {
+    /* Ten live stages, less `won` and `lost` — the two exits. */
+    expect(OPEN_STAGES).toHaveLength(8);
     expect(OPEN_STAGES).not.toContain('won');
     expect(OPEN_STAGES).not.toContain('lost');
   });

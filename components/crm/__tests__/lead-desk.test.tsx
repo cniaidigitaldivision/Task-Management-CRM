@@ -268,12 +268,16 @@ describe('the live project', () => {
 
   it('draws every stage in the strip, including the empty ones', () => {
     for (const label of [
+      /* ⚠️ THE FUNNEL AFTER 148/149. `Follow up` and `Scheduled` are gone — a
+         follow-up is an activity that can sit on ANY stage, and a booked visit
+         is an appointment. Three arrived in their place. */
       'New',
       'Contacted',
-      'Follow up',
       'Qualified',
+      'Proposal pending',
+      'Quotation sent',
+      'Visit scheduled',
       'Visited',
-      'Scheduled',
       'Negotiation',
       'Won',
       'Lost',
