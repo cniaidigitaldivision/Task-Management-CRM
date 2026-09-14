@@ -43,6 +43,55 @@ import { WA_BUBBLE_INK, WA_GREEN, WhatsAppMark } from '@/components/crm/whatsapp
  *  most of its budget. */
 const POLL_MS = 5_000;
 
+/* ============================================================================
+ * META'S 24-HOUR WINDOW, SAID OUT LOUD
+ * ----------------------------------------------------------------------------
+ * WhatsApp allows free-form text only within 24 hours of the CUSTOMER'S last
+ * message. Outside it Meta refuses everything but an approved template — refuses
+ * at the API, not as a guideline.
+ *
+ * ⚠️ IT WAS INVISIBLE UNTIL THE MOMENT IT COST SOMETHING. The composer looked
+ * identical whether the window was open or three days shut, so the way a
+ * salesperson found out was by writing a message, pressing send, and reading a
+ * refusal. During the weeks of tester use this is the friction they will meet
+ * most often, and "it stopped working" is what it looks like from the outside.
+ *
+ * ⚠️ AND THE CLOCK STARTS AT THEIR MESSAGE, NOT OURS. Replying does not extend
+ * it — only the customer writing again does. Measuring from the last message of
+ * either direction would show a window that is open when Meta thinks it is shut,
+ * which is worse than showing nothing.
+ *
+ * ⚠️ WARNED, NOT BLOCKED. Meta is the authority on its own window: our copy of
+ * the conversation can be missing a message, and a clock can drift. So a closed
+ * window greys nothing out — it says what will happen, and the refusal in Meta's
+ * own words is still the backstop.
+ * ========================================================================= */
+const WINDOW_MS = 24 * 60 * 60 * 1000;
+
+function freeWindow(messages: readonly CrmMessage[], nowMs: number) {
+  let lastInbound = 0;
+  for (const m of messages) {
+    if (m.direction === 'inbound') {
+      lastInbound = Math.max(lastInbound, Date.parse(m.occurredAt));
+    }
+  }
+  /* Nobody has ever written to us: there is no window, and there never was one.
+     A lead who only ever filled in a form can be reached by template only. */
+  if (lastInbound === 0) return { state: 'never' as const, leftMs: 0 };
+
+  const leftMs = lastInbound + WINDOW_MS - nowMs;
+  return leftMs > 0
+    ? { state: 'open' as const, leftMs }
+    : { state: 'closed' as const, leftMs: 0 };
+}
+
+function humanLeft(ms: number): string {
+  const mins = Math.floor(ms / 60_000);
+  if (mins < 60) return `${mins} min`;
+  const hours = Math.floor(mins / 60);
+  return hours === 1 ? '1 hour' : `${hours} hours`;
+}
+
 export function WhatsAppChat({
   leadId,
   leadName,
@@ -188,6 +237,19 @@ export function WhatsAppChat({
       m.direction === 'outbound' ? Math.max(latest, Date.parse(m.occurredAt)) : latest,
     0,
   );
+  /* ⚠️ A TICKING CLOCK, NOT A RENDER-TIME SNAPSHOT. "closes in 1 hour" that
+     still says an hour later is worse than no number at all. One minute is
+     plenty — the thing being counted is 24 hours long — and it only runs while
+     the panel is open. */
+  const [nowMs, setNowMs] = React.useState(() => Date.now());
+  React.useEffect(() => {
+    if (!open) return;
+    const t = window.setInterval(() => setNowMs(Date.now()), 60_000);
+    return () => window.clearInterval(t);
+  }, [open]);
+
+  const windowState = freeWindow(messages, nowMs);
+
   const unread = messages.filter(
     (m) => m.direction === 'inbound' && Date.parse(m.occurredAt) > lastOutboundAt,
   ).length;
@@ -240,6 +302,26 @@ export function WhatsAppChat({
 
           {canSend ? (
             <div className="border-t border-border-subtle p-2">
+              {windowState.state !== 'open' && (
+                /* ⚠️ ABOVE THE BOX, NOT AFTER THE SEND. The point is to be read
+                   before somebody spends a paragraph on it. */
+                <p className="mb-1.5 flex items-start gap-1.5 rounded-lg bg-bg-subtle px-2 py-1.5 text-caption text-text-secondary">
+                  <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+                  <span>
+                    {windowState.state === 'closed'
+                      ? 'They last wrote over 24 hours ago, so WhatsApp will refuse a free message. Only an approved template can reach them now.'
+                      : 'They have never messaged us, so WhatsApp will only accept an approved template.'}
+                  </span>
+                </p>
+              )}
+              {windowState.state === 'open' && windowState.leftMs < 3 * 60 * 60 * 1000 && (
+                /* ⚠️ ONLY IN THE LAST THREE HOURS. A badge that is always there
+                   is furniture; one that appears when the clock matters is a
+                   prompt. */
+                <p className="mb-1.5 text-caption text-text-secondary">
+                  Free reply closes in {humanLeft(windowState.leftMs)}.
+                </p>
+              )}
               <div className="flex items-end gap-1.5">
                 <button
                   type="button"
