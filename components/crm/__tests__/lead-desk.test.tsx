@@ -54,6 +54,11 @@ const ROWS: CrmLeadRow[] = [
     lastActivityKind: 'imported',
     lastActivityAt: '2026-09-09T19:00:00.000Z',
     noteCount: 0,
+    projectName: 'Chitral Royal Homes',
+    /* Nobody has messaged them. The state 627 of the 632 are in. */
+    lastMessageBody: null,
+    lastMessageAt: null,
+    lastMessageDirection: null,
   },
   /* The unparseable-number case — one of the three. */
   {
@@ -74,6 +79,10 @@ const ROWS: CrmLeadRow[] = [
     lastActivityKind: 'imported',
     lastActivityAt: null,
     noteCount: 0,
+    projectName: 'Chitral Royal Homes',
+    lastMessageBody: null,
+    lastMessageAt: null,
+    lastMessageDirection: null,
   },
   /* A fully worked lead — the shape Steps 6-7 will produce. */
   {
@@ -94,6 +103,12 @@ const ROWS: CrmLeadRow[] = [
     lastActivityKind: 'call_no_answer',
     lastActivityAt: '2026-09-09T08:00:00.000Z',
     noteCount: 3,
+    projectName: 'Chitral Royal Homes',
+    /* ⚠️ INBOUND — THEY wrote last, so this lead is waiting on US. That is what
+       the "Waiting for reply" tab counts and what the green flag marks. */
+    lastMessageBody: 'Please send the plan for the corner plot',
+    lastMessageAt: '2026-09-10T05:40:00.000Z',
+    lastMessageDirection: 'inbound',
   },
 ];
 
@@ -123,7 +138,7 @@ const base = {
   unassigned: 0,
   /* Step 8. Nothing owed by default — the strip earns its place only when there
      is something on it, so most cases here should not see it. */
-  due: { overdue: 0, dueToday: 0, noPlan: 0 },
+  due: { overdue: 0, dueToday: 0, noPlan: 0, waitingForReply: 0 },
   salesTeam: [
     { id: 'u1', name: 'Sale Tester', avatarUrl: null, isManager: false,
       openLeads: 12, totalLeads: 14, wonLeads: 0, lastGivenAt: '2026-09-10T04:00:00.000Z',
@@ -150,10 +165,16 @@ describe('the live project', () => {
     expect(html.length).toBeGreaterThan(1000);
   });
 
-  it('shows the people, their numbers formatted, and their cities', () => {
+  it('shows the people, their project, their city — and keeps the number reachable', () => {
     expect(html).toContain('Mukhtar Ahmad');
-    expect(html).toContain('0343 9040510');
+    expect(html).toContain('Chitral Royal Homes');
     expect(html).toContain('CHITHRAL');
+    /* ⚠️ THE NUMBER LEFT THE CELL, NOT THE ROW. The design the owner supplied
+       puts the project where the number was, so the number now rides on the call
+       control's accessible name — which `ReachLink` also renders as `title`, so
+       it is a hover away rather than a page away. If that ever silently drops,
+       a salesperson has to open the record to read a phone number. */
+    expect(html).toContain('0343 9040510');
   });
 
   it('ages a lead from when THEY enquired', () => {
@@ -167,10 +188,30 @@ describe('the live project', () => {
 
   it('shows stage and temperature as words, never enum names', () => {
     expect(html).toContain('Negotiation');
+    /* Temperature lost its own column in the 2026-09-14 redesign and now rides
+       under the owner's name, which is where the supplied design has it. Still a
+       word, still never the enum. */
     expect(html).toContain('Hot');
     expect(html).not.toContain('follow_up');
     expect(html).not.toContain('call_no_answer');
-    expect(html).toContain('No answer');
+  });
+
+  /* ══ THE RECENT CONVERSATION COLUMN — 2026-09-14 ═══════════════════════════
+     ⚠️ IT OUTRANKS THE ACTIVITY LOG, and that is the change. The old column
+     showed the last logged OUTCOME — what somebody remembered to press after a
+     call. Since migration 138 there is a real conversation, and the last thing
+     actually SAID is what a salesperson scans for. The log is still on the
+     record, where there is room to read it. */
+  it('shows the last message, and marks an inbound one as owed a reply', () => {
+    expect(html).toContain('Please send the plan for the corner plot');
+    expect(html).toContain('New reply');
+  });
+
+  it('⚠️ falls back to the activity log for a lead nobody has messaged', () => {
+    /* 627 of the 632 are in exactly this state. If the fallback ever breaks, the
+       column reads "Nothing yet" for almost every row and the change looks like
+       a regression in the importer rather than in this cell. */
+    expect(html).toContain('Imported');
   });
 
   it('names the owner, and says Unassigned rather than blank', () => {
@@ -301,42 +342,54 @@ describe('what is owed — Step 8', () => {
      first version of these cases failed against a strip that was correctly
      absent. The chip's label is the whole text node; the row's is not. Same
      trap as `>Won<` matching a stage chip in Step 7b. */
-  const CHIP = '>Overdue</span>';
+  const CHIP = 'Overdue follow-ups';
 
-  it('⚠️ shows nothing at all on a day with nothing owed', () => {
-    /* A row of three zeroes above every list is furniture, and furniture is
-       what people stop reading. */
+  /* ══ ⚠️ THIS BEHAVIOUR CHANGED ON PURPOSE, 2026-09-14 ══════════════════════
+     The strip these cases were written for hid any figure that was zero — "a row
+     of three zeroes above every list is furniture". The owner then supplied a
+     design with all four always present, as cards, and asked for it exactly:
+     *"exactly the same colors, the same sleekness… the shape, the colors, the
+     sleekness, the table."* Both readings are defensible and the owner's wins.
+
+     What is kept is the part that was never about zeroes: each figure is a
+     FILTER, and pressing it narrows the list to the rows it counted. */
+
+  it('shows all four figures, including the zeroes', () => {
     const html = renderToStaticMarkup(<LeadDesk {...base} selected={PROJECTS[0]} />);
 
-    expect(html).not.toContain(CHIP);
-    expect(html).not.toContain('Due today');
-    expect(html).not.toContain('Nothing planned');
+    expect(html).toContain('Total leads');
+    expect(html).toContain(CHIP);
+    expect(html).toContain('Due today');
+    expect(html).toContain('No next action');
   });
 
-  it('names the overdue ones when there are any', () => {
+  it('carries the real figures when there are any', () => {
     const html = renderToStaticMarkup(
       <LeadDesk
         {...base}
         selected={PROJECTS[0]}
-        due={{ overdue: 7, dueToday: 3, noPlan: 12 }}
+        due={{ overdue: 7, dueToday: 3, noPlan: 12, waitingForReply: 4 }}
       />,
     );
 
-    expect(html).toContain(CHIP);
-    expect(html).toContain('Due today');
-    expect(html).toContain('Nothing planned');
+    expect(html).toContain('>7</span>');
+    expect(html).toContain('>3</span>');
+    expect(html).toContain('>12</span>');
+    /* The tab, not a card — "waiting for reply" is counted from the
+       conversation rather than from the follow-up date. */
+    expect(html).toContain('Waiting for reply (4)');
   });
 
-  it('shows only the counts that are not zero', () => {
-    /* Somebody with three due today and nothing overdue should not be shown a
-       reassuring "0 Overdue" — the absence is the reassurance. */
+  it('⚠️ every figure is a button, because every figure is a filter', () => {
+    /* A number somebody then has to reproduce by hand is the shape this is not.
+       If these ever render as plain text the page still looks right and quietly
+       stops working. */
     const html = renderToStaticMarkup(
-      <LeadDesk {...base} selected={PROJECTS[0]} due={{ overdue: 0, dueToday: 3, noPlan: 0 }} />,
+      <LeadDesk {...base} selected={PROJECTS[0]} due={{ overdue: 0, dueToday: 3, noPlan: 0, waitingForReply: 0 }} />,
     );
 
     expect(html).toContain('Due today');
-    expect(html).not.toContain(CHIP);
-    expect(html).not.toContain('Nothing planned');
+    expect(html).toContain('aria-pressed');
   });
 
   it('counts the due filter among the active ones', () => {
@@ -346,7 +399,7 @@ describe('what is owed — Step 8', () => {
       <LeadDesk
         {...base}
         selected={PROJECTS[0]}
-        due={{ overdue: 7, dueToday: 0, noPlan: 0 }}
+        due={{ overdue: 7, dueToday: 0, noPlan: 0, waitingForReply: 0 }}
         filters={{ ...base.filters, due: 'overdue' }}
       />,
     );

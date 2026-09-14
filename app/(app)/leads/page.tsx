@@ -136,7 +136,7 @@ export default async function LeadsPage({
       perPage={PER_PAGE}
       filters={filters}
       unassigned={data?.[3] ?? 0}
-      due={data?.[5] ?? { overdue: 0, dueToday: 0, noPlan: 0 }}
+      due={data?.[5] ?? { overdue: 0, dueToday: 0, noPlan: 0, waitingForReply: 0 }}
       salesTeam={roster}
       canShareOut={roster.length > 0}
       canWhatsApp={canWhatsApp}

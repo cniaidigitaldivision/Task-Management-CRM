@@ -5,7 +5,11 @@ import type { Route } from 'next';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
+  AlarmClock,
+  CalendarDays,
   ChevronDown,
+  FileQuestion,
+  Users,
   Phone,
   Radio,
   Search,
@@ -204,10 +208,28 @@ export function LeadDesk({
         <NotConnected project={selected} />
       ) : (
         <>
-          {/* ⚠️ ABOVE THE STAGE STRIP, because it is the only thing on this page
+          {/* ⚠️ ABOVE EVERYTHING, because it is the only thing on this page
               that is about TIME rather than about position in the funnel — and
-              time is what a salesperson opens the desk to check. */}
-          <DueStrip due={due} active={filters.due} onPick={(v) => setParam('due', v)} />
+              time is what a salesperson opens the desk to check.
+
+              ⚠️ AND THEY ARE FILTERS, NOT DECORATION. Every figure here is a
+              button that narrows the list to exactly the rows it counted. A
+              dashboard tile that states a number somebody then has to go and
+              find by hand is the shape this deliberately is not. */}
+          <DueCards
+            total={total}
+            due={due}
+            active={filters.due}
+            onPick={(v) => setParam('due', v)}
+          />
+
+          <ViewTabs
+            total={total}
+            due={due}
+            waiting={due.waitingForReply}
+            active={filters.due}
+            onPick={(v) => setParam('due', v)}
+          />
 
           <StageStrip
             counts={stageCounts}
@@ -259,15 +281,31 @@ export function LeadDesk({
               screen somebody opens between two calls. */}
           {canShareOut && <SalesTeamPanel team={salesTeam} nowMs={nowMs} />}
 
-          <Pagination
-            page={page}
-            pageCount={pageCount}
-            onPage={(n) => setParam('page', String(n))}
-            from={from}
-            to={from === 0 ? 0 : from + rows.length - 1}
-            total={total}
-            label="leads"
-          />
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <Pagination
+              page={page}
+              pageCount={pageCount}
+              onPage={(n) => setParam('page', String(n))}
+              from={from}
+              to={from === 0 ? 0 : from + rows.length - 1}
+              total={total}
+              label="leads"
+            />
+            {/* ⚠️ ONE CHANNEL, NOT TWO. The mockup this was drawn from shows
+                "Email connected" beside it; there is no email integration, so
+                claiming one would be a green dot that means nothing. WhatsApp is
+                real and per-project (139), which is why it can say so. */}
+            <p className="flex items-center gap-1.5 text-caption text-text-secondary">
+              <span
+                aria-hidden="true"
+                className="size-1.5 rounded-full"
+                style={{ backgroundColor: canWhatsApp ? WA_GREEN : 'var(--text-disabled)' }}
+              />
+              {canWhatsApp
+                ? `WhatsApp connected · ${selected.name}`
+                : `${selected.name} has no WhatsApp number`}
+            </p>
+          </div>
         </>
       )}
     </div>
@@ -590,58 +628,163 @@ function Choice({
  * been owned for a fortnight with no plan is the one that quietly dies, and
  * there is no other screen that would show it.
  */
-function DueStrip({
+/* ============================================================================
+ * THE FOUR FIGURES, AS CARDS — the desk's redesign, 2026-09-14
+ * ----------------------------------------------------------------------------
+ * ⚠️ EVERY CARD IS A FILTER, NOT A TILE. Pressing one narrows the list to
+ * exactly the rows it counted, and pressing it again clears it. A figure that
+ * somebody then has to go and reproduce by hand is the shape this is not — and
+ * it is why the active card is outlined rather than merely tinted: a filter
+ * that is on has to be obvious, or the next reader thinks the desk is empty.
+ *
+ * ⚠️ AND THE COUNTS ARE RLS-NARROWED, SO THEY MEAN "MINE" FOR A SALESPERSON
+ * and "the project's" for a manager. Same numbers the list is drawn from, from
+ * the same query — never a second count that can disagree with the rows under it.
+ * ========================================================================= */
+function DueCards({
+  total,
   due,
   active,
   onPick,
 }: {
+  total: number;
   due: CrmDueCounts;
   active: string | null;
   onPick: (value: string | null) => void;
 }) {
-  const items = [
-    { key: 'overdue', label: 'Overdue', n: due.overdue, alarming: true },
-    { key: 'today', label: 'Due today', n: due.dueToday, alarming: false },
-    { key: 'no-plan', label: 'Nothing planned', n: due.noPlan, alarming: false },
-  ].filter((i) => i.n > 0);
-
-  if (items.length === 0) return null;
+  const cards = [
+    {
+      key: null as string | null,
+      label: 'Total leads',
+      value: total,
+      icon: Users,
+      token: 'accent-primary',
+    },
+    {
+      key: 'overdue',
+      label: 'Overdue follow-ups',
+      value: due.overdue,
+      icon: AlarmClock,
+      token: 'feedback-error',
+    },
+    {
+      key: 'today',
+      label: 'Due today',
+      value: due.dueToday,
+      icon: CalendarDays,
+      token: 'accent-primary',
+    },
+    {
+      key: 'no-plan',
+      label: 'No next action',
+      value: due.noPlan,
+      icon: FileQuestion,
+      token: 'text-secondary',
+    },
+  ];
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      {items.map((item) => {
-        const on = active === item.key;
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      {cards.map((c) => {
+        const on = active === c.key && !(c.key === null && active === null);
+        const Icon = c.icon;
         return (
           <button
-            key={item.key}
+            key={c.label}
             type="button"
+            onClick={() => onPick(active === c.key ? null : c.key)}
             aria-pressed={on}
-            onClick={() => onPick(on ? null : item.key)}
             className={cn(
-              'inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-caption transition-colors',
+              'flex items-center gap-3 rounded-2xl border bg-bg-surface px-4 py-3.5 text-left transition-colors',
               on
-                ? 'border-border-strong bg-bg-subtle'
-                : 'border-border-subtle bg-bg-surface hover:border-border-default',
+                ? 'border-accent-primary ring-1 ring-accent-primary'
+                : 'border-border-subtle hover:border-border-default',
             )}
           >
             <span
-              className={cn(
-                'text-body-sm font-semibold tabular-nums',
-                /* ⚠️ `money-out`, not a chart or feedback hue. Measured 6.47:1 in
-                   light and 5.84 in dark; `feedback-success` was 3.77 in light on
-                   the team panel, and these families behave the same way. */
-                item.alarming ? 'text-[var(--money-out)]' : 'text-text-primary',
-              )}
+              aria-hidden="true"
+              className="grid size-10 shrink-0 place-items-center rounded-full"
+              /* ⚠️ A TINT OF THE TOKEN, not a second hardcoded palette. 12% keeps
+                 the circle readable in both themes — a fixed light fill goes
+                 invisible on the dark ground. */
+              style={{
+                backgroundColor: `color-mix(in oklab, var(--${c.token}) 12%, transparent)`,
+                color: `var(--${c.token})`,
+              }}
             >
-              {item.n}
+              <Icon className="size-5" />
             </span>
-            <span className="text-text-secondary">{item.label}</span>
+            <span className="min-w-0">
+              <span className="block truncate text-caption text-text-secondary">{c.label}</span>
+              <span className="block text-h3 font-semibold tabular-nums text-text-primary">
+                {c.value}
+              </span>
+            </span>
           </button>
         );
       })}
     </div>
   );
 }
+
+/* ============================================================================
+ * THE VIEW TABS
+ * ----------------------------------------------------------------------------
+ * ⚠️ THREE, NOT FOUR. The design this follows carries an "Active sequences" tab.
+ * There are no sequences — no table, no scheduler, nothing to count — so the tab
+ * is absent rather than drawn over a zero that could never move. The same reason
+ * the Board toggle beside it is absent: a view that does not exist is worse as a
+ * dead control than as no control.
+ *
+ * ⚠️ "WAITING FOR REPLY" IS REAL AND IS NOT A GUESS: it counts the leads whose
+ * LAST WhatsApp message came from them. That is exactly "they spoke last and we
+ * have not answered", and it is the one number on this page that carries a
+ * deadline — Meta's free window shuts 24 hours after their message.
+ * ========================================================================= */
+function ViewTabs({
+  total,
+  due,
+  waiting,
+  active,
+  onPick,
+}: {
+  total: number;
+  due: CrmDueCounts;
+  waiting: number;
+  active: string | null;
+  onPick: (value: string | null) => void;
+}) {
+  const tabs = [
+    { key: null as string | null, label: 'All leads', n: total },
+    { key: 'overdue', label: 'Needs attention', n: due.overdue },
+    { key: 'waiting', label: 'Waiting for reply', n: waiting },
+  ];
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {tabs.map((t) => {
+        const on = active === t.key;
+        return (
+          <button
+            key={t.label}
+            type="button"
+            onClick={() => onPick(t.key)}
+            aria-pressed={on}
+            className={cn(
+              'rounded-lg px-3 py-1.5 text-body-sm font-medium transition-colors',
+              on
+                ? 'bg-accent-primary text-white'
+                : 'text-text-secondary hover:bg-bg-subtle hover:text-text-primary',
+            )}
+          >
+            {t.label} ({t.n})
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 
 /* ---- The stage strip ----------------------------------------------------- */
 
@@ -773,14 +916,13 @@ function LeadTable({
       <table className="w-full min-w-[62rem] border-collapse text-left">
         <thead>
           <tr className="border-b border-border-default bg-bg-subtle">
-            <Th>Lead</Th>
-            <Th>Next action</Th>
+            <Th>Lead / project</Th>
             <Th>Stage</Th>
-            <Th>Temp.</Th>
-            <Th>Last outcome</Th>
+            <Th>Recent conversation</Th>
+            <Th>Next follow-up</Th>
             <Th>Owner</Th>
             <Th>Came from</Th>
-            <Th>Reach them</Th>
+            <Th>Actions</Th>
           </tr>
         </thead>
         <tbody>
@@ -824,13 +966,21 @@ function Row({
         >
           {lead.fullName ?? 'Name not given'}
         </Link>
+        {/* ⚠️ THE PROJECT, NOT THE PHONE NUMBER. The desk can be filtered to one
+            project, but it does not have to be — and once it is not, "Chitral
+            Royal Homes" is the difference between a plot enquiry and a frozen
+            food enquiry sitting in the same list. The number moved to the hover
+            title on the WhatsApp and call controls, where it is used rather than
+            read. */}
         <span className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-caption text-text-secondary">
-          <span className="tabular-nums">{phone}</span>
+          {lead.projectName && <span className="truncate">{lead.projectName}</span>}
           {lead.city && (
             <>
-              <span aria-hidden="true" className="text-text-disabled">
-                ·
-              </span>
+              {lead.projectName && (
+                <span aria-hidden="true" className="text-text-disabled">
+                  ·
+                </span>
+              )}
               <span>{lead.city}</span>
             </>
           )}
@@ -850,6 +1000,71 @@ function Row({
             {relativeAge(lead.submittedAt, nowMs)}
           </time>
         </span>
+      </td>
+
+      <td className={TD}>
+        <Badge token={stageToken(lead.stage)} size="sm">
+          {stageLabel(lead.stage)}
+        </Badge>
+      </td>
+
+      {/* ── ⚠️ THE CONVERSATION, NOT THE ACTIVITY LOG ────────────────────
+          This column used to show the last logged OUTCOME ("Spoke to them · 2h
+          ago"), which is what somebody remembered to press afterwards. Since
+          migration 138 there is a real conversation, and what a salesperson
+          scans for is the last thing actually SAID.
+
+          ⚠️ AND WHO SAID IT IS THE WHOLE POINT. An inbound message means they
+          are waiting on us and Meta's free reply window is running out; an
+          outbound one means the ball is in their court. Same colour would make
+          the two indistinguishable at a glance, which is the glance this column
+          exists for. The activity log is still on the record, where there is
+          room to read it. */}
+      <td className={TD}>
+        {lead.lastMessageAt ? (
+          <span className="flex min-w-0 items-start gap-2">
+            <span
+              aria-hidden="true"
+              className="mt-0.5 shrink-0"
+              style={{ color: lead.lastMessageDirection === 'inbound' ? WA_GREEN : 'var(--text-tertiary)' }}
+            >
+              <WhatsAppMark className="size-3.5" />
+            </span>
+            <span className="min-w-0">
+              <span className="block truncate text-body-sm text-text-primary">
+                {lead.lastMessageBody?.trim() || 'An attachment'}
+              </span>
+              <span className="mt-0.5 flex items-center gap-1.5 text-caption text-text-secondary">
+                {relativeAge(lead.lastMessageAt, nowMs)}
+                {lead.lastMessageDirection === 'inbound' && (
+                  <span
+                    className="rounded-full px-1.5 py-px text-micro font-medium"
+                    style={{
+                      backgroundColor: `color-mix(in oklab, ${WA_GREEN} 16%, transparent)`,
+                      color: 'var(--text-primary)',
+                    }}
+                  >
+                    New reply
+                  </span>
+                )}
+              </span>
+            </span>
+          </span>
+        ) : lead.lastActivityKind ? (
+          /* No message, but something was logged — a call, a note. Still the
+             most recent thing that happened to this lead. */
+          <>
+            <span className="block text-body-sm text-text-primary">
+              {activityLabel(lead.lastActivityKind)}
+            </span>
+            <span className="mt-0.5 block text-caption text-text-secondary">
+              {relativeAge(lead.lastActivityAt, nowMs)}
+              {lead.noteCount > 0 && ` · ${lead.noteCount} note${lead.noteCount === 1 ? '' : 's'}`}
+            </span>
+          </>
+        ) : (
+          <Nothing>Nothing yet</Nothing>
+        )}
       </td>
 
       {/* ── What is owed ───────────────────────────────────────────────── */}
@@ -880,49 +1095,32 @@ function Row({
         )}
       </td>
 
-      <td className={TD}>
-        <Badge token={stageToken(lead.stage)} size="sm">
-          {stageLabel(lead.stage)}
-        </Badge>
-      </td>
 
-      <td className={TD}>
-        {lead.temperature ? (
-          <Badge token={temperatureToken(lead.temperature)} size="sm">
-            {temperatureLabel(lead.temperature)}
-          </Badge>
-        ) : (
-          <Nothing>—</Nothing>
-        )}
-      </td>
-
-      {/* ── The last thing that happened ───────────────────────────────── */}
-      <td className={TD}>
-        {lead.lastActivityKind ? (
-          <>
-            <span className="block text-body-sm text-text-primary">
-              {activityLabel(lead.lastActivityKind)}
-            </span>
-            {/* ⚠️ SECONDARY, NOT TERTIARY — measured 3.94:1 in light against a
-                4.5 floor. This is the ONLY time on its line: "Spoke · 2h ago" is
-                when the call happened. The ages in the Lead column stay tertiary
-                because the enquiry date sits beside them there, so they genuinely
-                are the supporting half. Same distinction the record makes. */}
-            <span className="mt-0.5 block text-caption text-text-secondary">
-              {relativeAge(lead.lastActivityAt, nowMs)}
-              {lead.noteCount > 0 && ` · ${lead.noteCount} note${lead.noteCount === 1 ? '' : 's'}`}
-            </span>
-          </>
-        ) : (
-          <Nothing>Nothing yet</Nothing>
-        )}
-      </td>
-
+      {/* ── ⚠️ WHO HOLDS IT, AND HOW WARM IT IS, IN ONE CELL ──────────────
+          The temperature had a column of its own and no longer does — the design
+          the owner supplied carries it as a line under the name, which is where
+          it belongs: "hot" is a fact ABOUT this person's lead, not an
+          independent axis to scan down. Nothing is lost; a `cold` lead still
+          says so, and an unjudged one says nothing rather than guessing. */}
       <td className={TD}>
         {lead.ownerName ? (
           <span className="flex min-w-0 items-center gap-2">
             <Avatar name={lead.ownerName} size="xs" />
-            <span className="truncate text-body-sm text-text-primary">{lead.ownerName}</span>
+            <span className="min-w-0">
+              <span className="block truncate text-body-sm text-text-primary">
+                {lead.ownerName}
+              </span>
+              {lead.temperature && (
+                <span className="mt-0.5 flex items-center gap-1 text-caption text-text-secondary">
+                  <span
+                    aria-hidden="true"
+                    className="size-1.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: `var(--${temperatureToken(lead.temperature)})` }}
+                  />
+                  {temperatureLabel(lead.temperature)}
+                </span>
+              )}
+            </span>
           </span>
         ) : (
           <Nothing>Unassigned</Nothing>
@@ -949,7 +1147,14 @@ function Row({
         <span className="flex items-center gap-1">
           {lead.phoneE164 ? (
             <>
-              <ReachLink href={`tel:${lead.phoneE164}`} label={`Call ${lead.fullName ?? 'lead'}`}>
+              {/* ⚠️ THE NUMBER IS IN THE LABEL, and the label is the accessible
+                  name AND the hover title. It left the Lead column when the
+                  project took its place, and a number nobody can read is a
+                  number somebody has to open the record for. */}
+              <ReachLink
+                href={`tel:${lead.phoneE164}`}
+                label={`Call ${lead.fullName ?? 'lead'} on ${phone}`}
+              >
                 <Phone className="size-3.5" aria-hidden="true" />
               </ReachLink>
               {/* ⚠️ THE CHAT FIRST, AND `wa.me` ONLY AS A FALLBACK — owner,

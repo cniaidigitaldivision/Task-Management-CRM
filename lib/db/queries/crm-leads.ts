@@ -86,6 +86,18 @@ export interface CrmLeadRow {
   readonly lastActivityKind: string | null;
   readonly lastActivityAt: string | null;
   readonly noteCount: number;
+  /* ── The desk's redesign, 2026-09-14 ──────────────────────────────────────
+     ⚠️ THE PROJECT IS READ THROUGH THE DEFINER, NOT A JOIN. `projects_select`
+     needs membership and a salesperson is a member of nothing — the same bug as
+     130, which 404'd every lead for its own owner. A join here would empty the
+     whole desk for the people it is for. */
+  readonly projectName: string | null;
+  /** The last WhatsApp message either way, for the "Recent conversation"
+   *  column. Null for a lead nobody has messaged, which is most of them. */
+  readonly lastMessageBody: string | null;
+  readonly lastMessageAt: string | null;
+  /** 'inbound' when THEY wrote last — which is what "waiting for reply" means. */
+  readonly lastMessageDirection: 'inbound' | 'outbound' | null;
 }
 
 /**
@@ -298,6 +310,13 @@ export async function listCrmLeads(
             = (now() at time zone 'Asia/Karachi')::date`);
     } else if (filters.due === 'no-plan') {
       conditions.push(tx`l.next_action_at is null and l.owner_id is not null`);
+    } else if (filters.due === 'waiting') {
+      /* ⚠️ THE SAME EXPRESSION AS THE COUNT ABOVE, deliberately — a tab whose
+         number and whose rows are computed two different ways is a tab that
+         eventually says 3 and shows 2. */
+      conditions.push(tx`(select m.direction from public.crm_lead_messages m
+                           where m.lead_id = l.id
+                           order by m.occurred_at desc, m.id desc limit 1) = 'inbound'`);
     }
 
     let where = conditions[0];
@@ -317,10 +336,29 @@ export async function listCrmLeads(
              (select a.occurred_at from public.crm_lead_activity a
                where a.lead_id = l.id order by a.occurred_at desc limit 1) as last_at,
              (select count(*) from public.crm_lead_notes n where n.lead_id = l.id) as note_count,
+             /* ⚠️ THE DEFINER, NOT A JOIN TO public.projects — see the note on
+                projectName in CrmLeadRow. Migration 130 exists because of
+                exactly this. */
+             app.crm_project_name(l.project_id) as project_name,
+             msg.body as last_message_body,
+             msg.occurred_at as last_message_at,
+             msg.direction::text as last_message_direction,
              count(*) over () as total
         from public.crm_leads l
         left join public.crm_lead_forms f on f.id = l.form_id
         left join public.crm_campaigns  c on c.id = l.campaign_id
+        /* ⚠️ ONE LATERAL, NOT THREE CORRELATED SUBQUERIES. The body, the time
+           and the direction all come from the SAME message; three separate
+           "order by occurred_at desc limit 1" reads can disagree the moment two
+           messages share a timestamp, and then the desk shows one message's text
+           over another's arrow. */
+        left join lateral (
+          select m.body, m.occurred_at, m.direction
+            from public.crm_lead_messages m
+           where m.lead_id = l.id
+           order by m.occurred_at desc, m.id desc
+           limit 1
+        ) msg on true
        where ${where}
          and (${stage}::text is null or l.stage::text = ${stage})
        order by l.next_action_at asc nulls last, l.submitted_at desc
@@ -391,6 +429,17 @@ export async function listCrmLeads(
       lastActivityKind: (r.last_kind as string | null) ?? null,
       lastActivityAt: r.last_at ? new Date(r.last_at as string).toISOString() : null,
       noteCount: Number(r.note_count ?? 0),
+      projectName: (r.project_name as string | null) ?? null,
+      lastMessageBody: (r.last_message_body as string | null) ?? null,
+      lastMessageAt: r.last_message_at
+        ? new Date(r.last_message_at as string).toISOString()
+        : null,
+      lastMessageDirection:
+        r.last_message_direction === 'inbound'
+          ? ('inbound' as const)
+          : r.last_message_direction === 'outbound'
+            ? ('outbound' as const)
+            : null,
     })),
   };
 }
@@ -888,6 +937,11 @@ export interface CrmDueCounts {
   readonly dueToday: number;
   /** Open, owned, and with no next action set at all — nothing is planned. */
   readonly noPlan: number;
+  /* ⚠️ THEY SPOKE LAST. Counted from the CONVERSATION, not from the follow-up
+     date — a lead can have a tidy plan for Friday and an unanswered message from
+     this morning, and it is the message that is running out of time. Meta's free
+     window shuts 24 hours after they wrote. */
+  readonly waitingForReply: number;
 }
 
 /**
@@ -916,7 +970,12 @@ export async function crmDueCounts(actorId: string, projectId: string): Promise<
       ) as due_today,
       count(*) filter (
         where l.next_action_at is null and l.owner_id is not null
-      ) as no_plan
+      ) as no_plan,
+      count(*) filter (
+        where (select m.direction from public.crm_lead_messages m
+                where m.lead_id = l.id
+                order by m.occurred_at desc, m.id desc limit 1) = 'inbound'
+      ) as waiting_for_reply
       from public.crm_leads l
      where l.project_id = ${projectId}::uuid
        and l.stage not in ('won', 'lost')
@@ -927,6 +986,7 @@ export async function crmDueCounts(actorId: string, projectId: string): Promise<
     overdue: Number(r?.overdue ?? 0),
     dueToday: Number(r?.due_today ?? 0),
     noPlan: Number(r?.no_plan ?? 0),
+    waitingForReply: Number(r?.waiting_for_reply ?? 0),
   };
 }
 
