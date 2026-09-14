@@ -17,6 +17,7 @@ reference.
 | `08-TWELVE-STEPS.md` | **The build order.** Twelve shippable steps, four modules, and what each needs from the owner. |
 | `09-DATABASE-MANAGEMENT.md` | Growth, indexes, backups, retention, and the rules the data follows. |
 | `10-LEAD-ASSIGNMENT.md` | **How leads are handed out, and the honest answer to "is that AI?"** The four signals to add, and the one to leave out. |
+| `12-LIFECYCLE-SPEC.md` | ⭐ **READ THIS BEFORE BUILDING ANYTHING ELSE.** The owner's own lifecycle research (2026-09-14), what the system does against it measured line by line, the three things I would push back on, and the eight phases in dependency order. |
 | `11-CALLING.md` | **Calling — researched 2026-09-14, parked until the tier is earned.** Whether WhatsApp does voice, whether he can talk on his mobile (yes — SIP), and the three dead ends. Read this whenever the owner says "call recording" or "auto-dial". |
 
 ---

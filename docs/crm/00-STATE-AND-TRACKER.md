@@ -13,6 +13,32 @@
 
 ---
 
+## 📋 2026-09-14 — THE OWNER'S LIFECYCLE SPEC ARRIVED · see `12-LIFECYCLE-SPEC.md`
+
+The owner brought a full lead-lifecycle specification — capture, duplicates,
+eligibility, assignment reasons, qualification, quotations, sequences,
+appointments, closing — and asked for it to be understood and documented before
+anything is built. **Nothing from it was implemented on the day it arrived.**
+
+⚠️ **IT RESETS WHAT "DONE" MEANS.** Steps 1–11 of `08-TWELVE-STEPS.md` are still
+done, and they are roughly the capture → assign → work → converse half. The spec
+is mostly about the other half — qualify → quote → visit → close — which is why
+it reads as almost entirely new. `12-LIFECYCLE-SPEC.md` has the line-by-line
+measurement and the eight phases in dependency order.
+
+Three things from it to decide EARLY, because they get more expensive daily:
+
+| | |
+|---|---|
+| **The stage list** | The spec wants `quotation_sent` added and `follow_up` demoted to an activity state. Both are right; together they reshape the funnel, the strip, the board and every stage-weighted figure. ⚠️ Decide once, migrate once, before Phase 4 — later means rewriting `crm_lead_activity` history. |
+| **WhatsApp templates** | The sequence engine cannot send anything past the 24-hour window without Meta-approved templates. Approval is outside our control. ⚠️ Start it long before Phase 6 needs it. |
+| **Per-project catalogue** | Chitral sells plots; AI & Digital sells services. The property module needs a per-project switch or it reads as wrong on half the projects. |
+
+Renamed at the owner's request so conversation is unambiguous: **Sale Tester →
+Sarah**, **Sale 2 tester → Sahad**, the manager unchanged.
+
+---
+
 ## 🔒 2026-09-14 — WHO CAN SEE IT, AND THE LAST OF STEP 8
 
 ### The CRM is a preview now — migration 143
