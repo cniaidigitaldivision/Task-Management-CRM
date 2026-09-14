@@ -106,6 +106,14 @@ export interface CrmLeadRow {
      (the salesperson's own handset, unrecorded) or hidden the chat on rows that
      can use it. Read through the definer; see migration 140. */
   readonly canWhatsApp: boolean;
+  /* ── Migration 147 ────────────────────────────────────────────────────────
+     ⚠️ STATE ONLY. Nothing advances these — the scheduler is not built — so
+     every value on screen was put there by a person or a seed, and nothing
+     claims an automation ran. */
+  readonly sequenceState: string;
+  readonly sequenceStep: number | null;
+  readonly sequenceTotal: number | null;
+  readonly sequenceNote: string | null;
 }
 
 /**
@@ -357,6 +365,7 @@ export async function listCrmLeads(
                 exactly this. */
              app.crm_project_name(l.project_id) as project_name,
              app.crm_project_can_whatsapp(l.project_id) as can_whatsapp,
+             l.sequence_state::text, l.sequence_step, l.sequence_total, l.sequence_note,
              msg.body as last_message_body,
              msg.occurred_at as last_message_at,
              msg.direction::text as last_message_direction,
@@ -449,6 +458,10 @@ export async function listCrmLeads(
       noteCount: Number(r.note_count ?? 0),
       projectName: (r.project_name as string | null) ?? null,
       canWhatsApp: r.can_whatsapp === true,
+      sequenceState: String(r.sequence_state ?? 'not_started'),
+      sequenceStep: r.sequence_step === null || r.sequence_step === undefined ? null : Number(r.sequence_step),
+      sequenceTotal: r.sequence_total === null || r.sequence_total === undefined ? null : Number(r.sequence_total),
+      sequenceNote: (r.sequence_note as string | null) ?? null,
       lastMessageBody: (r.last_message_body as string | null) ?? null,
       lastMessageAt: r.last_message_at
         ? new Date(r.last_message_at as string).toISOString()

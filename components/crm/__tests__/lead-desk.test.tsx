@@ -61,6 +61,10 @@ const ROWS: CrmLeadRow[] = [
     lastMessageAt: null,
     lastMessageDirection: null,
     canWhatsApp: false,
+    sequenceState: 'not_started',
+    sequenceStep: null,
+    sequenceTotal: null,
+    sequenceNote: null,
   },
   /* The unparseable-number case — one of the three. */
   {
@@ -87,6 +91,10 @@ const ROWS: CrmLeadRow[] = [
     lastMessageAt: null,
     lastMessageDirection: null,
     canWhatsApp: false,
+    sequenceState: 'not_started',
+    sequenceStep: null,
+    sequenceTotal: null,
+    sequenceNote: null,
   },
   /* A fully worked lead — the shape Steps 6-7 will produce. */
   {
@@ -115,6 +123,10 @@ const ROWS: CrmLeadRow[] = [
     lastMessageAt: '2026-09-10T05:40:00.000Z',
     lastMessageDirection: 'inbound',
     canWhatsApp: true,
+    sequenceState: 'active',
+    sequenceStep: 2,
+    sequenceTotal: 3,
+    sequenceNote: null,
   },
 ];
 

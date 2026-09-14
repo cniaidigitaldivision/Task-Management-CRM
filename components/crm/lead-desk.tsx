@@ -1400,7 +1400,7 @@ function Row({
                 color: WA_GREEN,
               }}
             >
-              <WhatsAppMark className="size-4" />
+              <WhatsAppMark className="size-5" />
             </span>
             <span className="min-w-0">
               <span className="block truncate text-body-sm text-text-primary">
@@ -1515,21 +1515,23 @@ function Row({
         )}
       </td>
 
-      {/* ── ⚠️ SEQUENCE — DRAWN, NOT BUILT ───────────────────────────────
-          Owner, 2026-09-14: *"If the system doesn't have that thing but the UI is
-          showing them, you have to show them. I will make them work
-          definitely."* So the column exists, in its final shape and position.
+      {/* ── ⚠️ SEQUENCE — THE STATE IS REAL, THE ENGINE IS NOT ────────────
+          Migration 147 stores where a lead sits; nothing advances it yet. So
+          every pill on screen was put there by a person or a seed, and none of
+          them claims an automation ran. When the scheduler lands it writes these
+          same columns and this cell does not change.
 
-          ⚠️ AND IT SAYS "Not started" FOR EVERY LEAD, BECAUSE THAT IS TRUE.
-          There is no sequences table, no scheduler and no step counter, so the
-          only honest value is the one every lead genuinely has. Printing
-          "Active · 2/3" against a real person to match a mock-up would be a
-          figure a salesperson could act on and nothing behind it. When sequences
-          ship, this cell reads them and the pill stops being a constant. */}
+          ⚠️ THE COLOURS CARRY THE STATE, because this column is glanced at
+          rather than read: amber for paused (somebody stopped it on purpose),
+          green for running, grey for never started, and the reason spelled out
+          where one was given — "Stopped · Booked" says more than "Stopped". */}
       <td className={TD}>
-        <span className="inline-flex items-center rounded-md border border-border-subtle bg-bg-surface px-1.5 py-0.5 text-caption text-text-secondary">
-          Not started
-        </span>
+        <SequencePill
+          state={lead.sequenceState}
+          step={lead.sequenceStep}
+          total={lead.sequenceTotal}
+          note={lead.sequenceNote}
+        />
       </td>
 
 
@@ -1625,20 +1627,18 @@ function Row({
             <ReachLink
               href={`/leads/${lead.id}?chat=1` as Route}
               label={`Open the WhatsApp chat with ${lead.fullName ?? 'lead'}`}
+              tone="wa"
             >
-              <span style={{ color: WA_GREEN }}>
-                <WhatsAppMark className="size-4" />
-              </span>
+              <WhatsAppMark className="size-5" />
             </ReachLink>
           ) : wa ? (
             <ReachLink
               href={`https://wa.me/${wa}`}
               external
               label={`WhatsApp ${lead.fullName ?? 'lead'} from your own phone`}
+              tone="wa"
             >
-              <span style={{ color: WA_GREEN }}>
-                <WhatsAppMark className="size-4" />
-              </span>
+              <WhatsAppMark className="size-5" />
             </ReachLink>
           ) : (
             <ReachExplain
@@ -1649,9 +1649,7 @@ function Row({
                   : 'This lead has no WhatsApp number on record, so there is nothing to open.'
               }
             >
-              <span style={{ color: WA_GREEN }}>
-                <WhatsAppMark className="size-4" />
-              </span>
+              <WhatsAppMark className="size-5" />
             </ReachExplain>
           )}
 
@@ -1729,7 +1727,7 @@ function ReachExplain({
       /* Dimmed, not disabled: a `disabled` button takes no click, gives no
          keyboard focus and so can never explain itself — which is the whole
          job here. */
-      className="grid size-9 place-items-center rounded-lg border border-border-subtle text-text-disabled opacity-60 transition-colors hover:border-border-default hover:bg-bg-subtle hover:opacity-100"
+      className="grid size-9 shrink-0 place-items-center rounded-lg border border-dashed border-border-default text-text-disabled transition-colors hover:bg-bg-subtle hover:text-text-secondary"
     >
       {children}
     </button>
@@ -1774,15 +1772,79 @@ function followUpWhen(iso: string, nowMs: number): string {
   return at < nowMs ? `Overdue · ${date} ${time}` : `${date} ${time}`;
 }
 
+/* ⚠️ THE WHATSAPP CONTROL IS GREEN ON GREEN, and that is the point of it.
+   Owner, 2026-09-14: *"Even the WhatsApp icon is not properly in green. The
+   icons are still very small."* A brand mark drawn in secondary ink on a plain
+   bordered box is a grey squiggle — it is recognised by its colour before it is
+   recognised by its shape, and at that size the shape alone carries nothing.
+   So the WhatsApp control gets #25D366 ink on a 12% wash of itself, which is
+   what makes it findable in a row of four. */
+const REACH_TONE = {
+  plain: 'border-border-subtle text-text-secondary hover:border-border-default hover:bg-bg-subtle hover:text-text-primary',
+  wa: 'border-transparent hover:brightness-95',
+} as const;
+
+/** The sequence column's pill. See migration 147 for what is and is not real. */
+function SequencePill({
+  state,
+  step,
+  total,
+  note,
+}: {
+  state: string;
+  step: number | null;
+  total: number | null;
+  note: string | null;
+}) {
+  if (state === 'not_started') {
+    return (
+      <span className="inline-flex items-center rounded-md border border-border-subtle bg-bg-surface px-2 py-0.5 text-caption text-text-secondary">
+        Not started
+      </span>
+    );
+  }
+
+  const progress = step !== null && total !== null ? `${step}/${total}` : null;
+  const look: Record<string, { label: string; token: string }> = {
+    scheduled: { label: 'Scheduled', token: 'accent-primary' },
+    active: { label: 'Active', token: 'feedback-success' },
+    paused: { label: 'Paused', token: 'feedback-warning' },
+    stopped: { label: 'Stopped', token: 'text-secondary' },
+  };
+  const it = look[state] ?? { label: state, token: 'text-secondary' };
+  /* "Stopped · Booked" — the reason beats the progress once it has ended. */
+  const tail = state === 'stopped' ? (note ?? progress) : progress;
+
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-caption font-medium"
+      style={{
+        backgroundColor: `color-mix(in oklab, var(--${it.token}) 14%, transparent)`,
+        color: `var(--${it.token})`,
+      }}
+    >
+      <span
+        aria-hidden="true"
+        className="size-1.5 rounded-full"
+        style={{ backgroundColor: 'currentColor' }}
+      />
+      {it.label}
+      {tail && <span className="tabular-nums opacity-80">· {tail}</span>}
+    </span>
+  );
+}
+
 function ReachLink({
   href,
   label,
   external,
+  tone = 'plain',
   children,
 }: {
   href: string;
   label: string;
   external?: boolean;
+  tone?: keyof typeof REACH_TONE;
   children: React.ReactNode;
 }) {
   return (
@@ -1791,7 +1853,18 @@ function ReachLink({
       aria-label={label}
       title={label}
       {...(external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
-      className="grid size-9 place-items-center rounded-lg border border-border-subtle text-text-secondary transition-colors hover:border-border-default hover:bg-bg-subtle hover:text-text-primary"
+      style={
+        tone === 'wa'
+          ? {
+              backgroundColor: `color-mix(in oklab, ${WA_GREEN} 14%, transparent)`,
+              color: WA_GREEN,
+            }
+          : undefined
+      }
+      className={cn(
+        'grid size-9 shrink-0 place-items-center rounded-lg border transition-colors',
+        REACH_TONE[tone],
+      )}
     >
       {children}
     </a>
