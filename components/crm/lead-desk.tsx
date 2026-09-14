@@ -89,8 +89,12 @@ export interface LeadFilterState {
   readonly search: string | null;
   readonly from: string | null;
   readonly to: string | null;
-  /** Step 8: `overdue` · `today` · `no-plan`, or null for all of them. */
+  /** Step 8: `overdue` · `today` · `no-plan` · `waiting`, or null for all. */
   readonly due: string | null;
+  /** ⚠️ `board` or null. In the URL rather than in state so "look at this"
+   *  arrives on the view the sender was looking at, and so a filter change does
+   *  not silently drop somebody back to the table. */
+  readonly view: string | null;
 }
 
 interface Option {
@@ -114,7 +118,7 @@ export function LeadDesk({
   due,
   salesTeam,
   canShareOut,
-  canWhatsApp,
+  allProjects,
   nowMs,
 }: {
   projects: readonly CrmProjectOption[];
@@ -137,10 +141,17 @@ export function LeadDesk({
   /** False for a salesperson: they work leads, they do not hand them out. */
   canShareOut: boolean;
   /** Whether the SELECTED project has a WhatsApp number of its own. */
-  canWhatsApp: boolean;
+  /** True when the reader chose "All projects". Decides whether the page can
+   *  talk about one project's name, number or roster at all. */
+  allProjects: boolean;
   nowMs: number;
 }) {
   const router = useRouter();
+  /* ⚠️ READ OFF THE ROWS, not off a page-wide flag — since "All projects" the
+     desk can hold leads from several projects and only some of them have a
+     number. This line says "at least one lead here can be messaged", which is
+     the honest claim; each row's own control says the rest. */
+  const anyCanWhatsApp = rows.some((r) => r.canWhatsApp);
   const search = useSearchParams();
 
   /* One helper for every control, so changing a filter keeps the others.
@@ -204,65 +215,12 @@ export function LeadDesk({
         }
       />
 
-      {/* ── Project, search, filters — ⚠️ no card around them, as the Studio ── */}
-      <div className="flex flex-wrap items-center gap-2">
-        <ProjectSelect
-          projects={projects}
-          selectedId={selected?.id ?? ''}
-          onSelect={(id) => setParam('project', id)}
-        />
-
-        {selected?.connection === 'live' && (
-          <>
-            <SearchBox value={filters.search ?? ''} onSearch={(q) => setParam('q', q)} />
-
-            {/* ⚠️ OWNER IS OUT HERE, NOT ONLY INSIDE `Filters`. It is still in
-                the menu too, and that is on purpose rather than a duplicate: the
-                menu is where somebody assembles a query, and this is the one
-                dimension a manager flips through all day — "show me Sara's, now
-                show me Omar's". A filter you change twenty times a session does
-                not belong two clicks deep.
-
-                ⚠️ EMPTY FOR A SALESPERSON, and it disappears rather than
-                offering them a list of one. Migration 120's guard returns them
-                an empty roster; this reads that rather than re-deciding it. */}
-            {owners.length > 0 && (
-              <OwnerSelect
-                owners={owners}
-                selectedId={filters.ownerId ?? ''}
-                onSelect={(id) => setParam('owner', id || null)}
-              />
-            )}
-
-            <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-              {/* ⚠️⚠️ TEMPORARY — DELETE WITH ITS IMPORT, `components/crm/
-                  test-lead-modal.tsx` AND `app/actions/crm-test-lead.ts` WHEN
-                  THE TESTING IS DONE. Owner, 2026-09-12: "I will remove this
-                  once I make sure that the system is working smartly."
-
-                  Moved up here 2026-09-14: it used to sit alone on a line of its
-                  own between the chips and the table, which in the owner's own
-                  screenshot is the widest piece of empty space on the page. Only
-                  on the demo project, and the SERVER re-checks that on every
-                  call — a hidden button is not a permission. */}
-              <FilterMenu
-                filters={filters}
-                owners={owners}
-                forms={forms}
-                count={activeFilters}
-                onSet={setParam}
-              />
-            </div>
-          </>
-        )}
-      </div>
-
-      {selected === null ? (
+      {selected === null && !allProjects ? (
         <Empty
           title="No projects are visible to you yet"
           detail="A lead belongs to a project, so there is nowhere to put one until a project exists."
         />
-      ) : selected.connection !== 'live' ? (
+      ) : selected !== null && selected.connection !== 'live' ? (
         <NotConnected project={selected} />
       ) : (
         <>
@@ -281,6 +239,60 @@ export function LeadDesk({
             onPick={(v) => setParam('due', v)}
           />
 
+          {/* ── Project, search, filters — ⚠️ no card around them, as the Studio ── */}
+          <div className="flex flex-wrap items-center gap-2">
+            <ProjectSelect
+              projects={projects}
+              selectedId={allProjects ? 'all' : (selected?.id ?? '')}
+              onSelect={(id) => setParam('project', id)}
+            />
+
+            {selected?.connection === 'live' && (
+              <>
+                <SearchBox value={filters.search ?? ''} onSearch={(q) => setParam('q', q)} />
+
+                    {/* ⚠️ OWNER IS OUT HERE, NOT ONLY INSIDE `Filters`. It is still in
+                    the menu too, and that is on purpose rather than a duplicate: the
+                    menu is where somebody assembles a query, and this is the one
+                    dimension a manager flips through all day — "show me Sara's, now
+                    show me Omar's". A filter you change twenty times a session does
+                    not belong two clicks deep.
+
+                    ⚠️ EMPTY FOR A SALESPERSON, and it disappears rather than
+                    offering them a list of one. Migration 120's guard returns them
+                    an empty roster; this reads that rather than re-deciding it. */}
+                {owners.length > 0 && (
+                  <OwnerSelect
+                    owners={owners}
+                    selectedId={filters.ownerId ?? ''}
+                    onSelect={(id) => setParam('owner', id || null)}
+                  />
+                )}
+
+                <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+                      {/* ⚠️⚠️ TEMPORARY — DELETE WITH ITS IMPORT, `components/crm/
+                      test-lead-modal.tsx` AND `app/actions/crm-test-lead.ts` WHEN
+                      THE TESTING IS DONE. Owner, 2026-09-12: "I will remove this
+                      once I make sure that the system is working smartly."
+
+                      Moved up here 2026-09-14: it used to sit alone on a line of its
+                      own between the chips and the table, which in the owner's own
+                      screenshot is the widest piece of empty space on the page. Only
+                      on the demo project, and the SERVER re-checks that on every
+                      call — a hidden button is not a permission. */}
+                  <FilterMenu
+                    filters={filters}
+                    owners={owners}
+                    forms={forms}
+                    count={activeFilters}
+                    onSet={setParam}
+                  />
+                </div>
+              </>
+            )}
+          </div>
+
+
           <div className="flex flex-wrap items-center justify-between gap-2">
             <ViewTabs
               total={total}
@@ -290,24 +302,41 @@ export function LeadDesk({
               onPick={(v) => setParam('due', v)}
             />
 
-            {/* ⚠️ DRAWN, NOT BUILT — owner, 2026-09-14: *"If the system doesn't
-                have that thing but the UI is showing them, you have to show
-                them."* Table is the live view and reads as selected; Board is
-                present, in position, and says what it is waiting for rather than
-                doing nothing when pressed. A control that silently ignores a
-                click is the one thing worse than a control that explains. */}
+            {/* ⚠️ BOTH VIEWS ARE REAL NOW. Owner, 2026-09-14: *"Table view is
+                working but board view is not working. Board view should be
+                working."* Quite right — it was drawn and inert.
+
+                ⚠️ THE CHOICE LIVES IN THE URL, not in component state. A
+                salesperson who sends "look at this" wants the other person to
+                land on the same view, and a `useState` here would lose the
+                board on every filter change. */}
             <div className="flex items-center gap-1 rounded-lg border border-border-subtle bg-bg-surface p-0.5">
-              <span className="inline-flex items-center gap-1.5 rounded-md bg-accent-primary px-2.5 py-1 text-caption font-medium text-white">
-                <Table2 className="size-3.5" aria-hidden="true" />
-                Table
-              </span>
-              <span
-                title="The board view is not built yet."
-                className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-md px-2.5 py-1 text-caption font-medium text-text-disabled"
-              >
-                <Columns3 className="size-3.5" aria-hidden="true" />
-                Board
-              </span>
+              {(
+                [
+                  { key: 'table', label: 'Table', icon: Table2 },
+                  { key: 'board', label: 'Board', icon: Columns3 },
+                ] as const
+              ).map((v) => {
+                const on = (filters.view ?? 'table') === v.key;
+                const Icon = v.icon;
+                return (
+                  <button
+                    key={v.key}
+                    type="button"
+                    onClick={() => setParam('view', v.key === 'table' ? null : v.key)}
+                    aria-pressed={on}
+                    className={cn(
+                      'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-caption font-medium transition-colors',
+                      on
+                        ? 'bg-accent-primary text-white'
+                        : 'text-text-secondary hover:bg-bg-subtle hover:text-text-primary',
+                    )}
+                  >
+                    <Icon className="size-4" aria-hidden="true" />
+                    {v.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -344,7 +373,15 @@ export function LeadDesk({
               narrowed by migration 118's policy, not a second component — which
               is what stops the two drifting apart, and the reason
               08-TWELVE-STEPS asked for one component and two scopes. */}
-          <LeadTable rows={rows} nowMs={nowMs} from={search.toString()} canWhatsApp={canWhatsApp} />
+          {(filters.view ?? 'table') === 'board' ? (
+            <LeadBoard rows={rows} nowMs={nowMs} from={search.toString()} />
+          ) : (
+            <LeadTable
+              rows={rows}
+              nowMs={nowMs}
+              from={search.toString()}
+            />
+          )}
 
           {rows.length === 0 && !canShareOut && total === 0 && (
             <p className="text-caption leading-relaxed text-text-secondary">
@@ -389,15 +426,15 @@ export function LeadDesk({
               </span>
 
               <span className="flex items-center gap-1.5">
-                <span style={{ color: canWhatsApp ? WA_GREEN : 'var(--text-disabled)' }}>
+                <span style={{ color: anyCanWhatsApp ? WA_GREEN : 'var(--text-disabled)' }}>
                   <WhatsAppMark className="size-3.5" />
                 </span>
                 <span
                   aria-hidden="true"
                   className="size-1.5 rounded-full"
-                  style={{ backgroundColor: canWhatsApp ? WA_GREEN : 'var(--text-disabled)' }}
+                  style={{ backgroundColor: anyCanWhatsApp ? WA_GREEN : 'var(--text-disabled)' }}
                 />
-                {canWhatsApp ? 'WhatsApp connected' : 'WhatsApp not connected'}
+                {anyCanWhatsApp ? 'WhatsApp connected' : 'WhatsApp not connected'}
               </span>
 
               {/* ⚠️ THE TIMEZONE IS NAMED, and that is not decoration: every date
@@ -479,6 +516,12 @@ function ProjectSelect({
         onChange={(e) => onSelect(e.target.value)}
         className="min-h-[2.6rem] min-w-[16rem] cursor-pointer appearance-none rounded-xl border border-border-subtle bg-bg-surface px-3 pr-9 text-body-sm font-medium text-text-primary transition-colors hover:border-border-default focus:border-accent-primary focus:outline-none"
       >
+        {/* ⚠️ EVERY PROJECT AT ONCE, and it is a real query rather than a
+            client-side merge — the counts, the stage strip and the pages all
+            come back for the whole set. RLS narrows it exactly as it narrows one
+            project, so a salesperson choosing this still sees only their own
+            leads, across whichever projects those sit on. */}
+        <option value="all">All projects</option>
         {projects.map((p) => (
           <option key={p.id} value={p.id}>
             {p.name}
@@ -1013,19 +1056,150 @@ function StageStrip({
   );
 }
 
+/* ============================================================================
+ * THE BOARD — the same leads, stood up in their stages
+ * ----------------------------------------------------------------------------
+ * ⚠️ IT SHOWS THE PAGE, NOT THE PROJECT, and says so. Ten leads at a time is the
+ * table's unit, and a board that silently held a different set would make the
+ * two views disagree about how many leads exist — which is the bug somebody
+ * reports as "the board is missing leads". The honest fix is the sentence under
+ * the heading, not a second query with its own paging rules.
+ *
+ * ⚠️ AND IT IS NOT DRAG-AND-DROP. Moving a card between columns is a stage
+ * change, and a stage change here would be an unlogged one — `crm_lead_activity`
+ * would miss it and the timeline would start lying about who moved what. The
+ * card opens the record, where the change is recorded with its note.
+ * ========================================================================= */
+function LeadBoard({
+  rows,
+  nowMs,
+  from,
+}: {
+  rows: readonly CrmLeadRow[];
+  nowMs: number;
+  from: string;
+}) {
+  if (rows.length === 0) {
+    return (
+      <Empty
+        title="No leads match these filters"
+        detail="Clear a filter, or widen the dates. Nothing has been deleted — the counts above show the whole project."
+      />
+    );
+  }
+
+  /* ⚠️ EVERY STAGE GETS A COLUMN, including the empty ones. A board whose
+     columns appear and disappear as leads move is a board nobody can learn the
+     shape of. */
+  const byStage = new Map<string, CrmLeadRow[]>(STAGE_ORDER.map((st) => [st, []]));
+  for (const lead of rows) {
+    const bucket = byStage.get(lead.stage);
+    if (bucket) bucket.push(lead);
+  }
+
+  return (
+    <div className="space-y-2">
+      <p className="text-caption text-text-secondary">
+        The {rows.length} lead{rows.length === 1 ? '' : 's'} on this page, by stage. Use the pages
+        below to see the rest.
+      </p>
+
+      {/* The scroll lives here, never on the page — nine columns will not fit a
+          laptop and taking the sidebar sideways with them is worse. */}
+      <div className="overflow-x-auto pb-2">
+        <div className="flex min-w-max gap-3">
+          {STAGE_ORDER.map((stage) => {
+            const cards = byStage.get(stage) ?? [];
+            return (
+              <section key={stage} className="w-[15rem] shrink-0">
+                <header className="mb-2 flex items-center gap-1.5 px-1">
+                  <span
+                    aria-hidden="true"
+                    className="size-2 rounded-full"
+                    style={{ backgroundColor: `var(--${stageToken(stage)})` }}
+                  />
+                  <h3 className="text-caption font-semibold text-text-primary">
+                    {stageLabel(stage)}
+                  </h3>
+                  <span className="ml-auto text-caption tabular-nums text-text-tertiary">
+                    {cards.length}
+                  </span>
+                </header>
+
+                <div className="space-y-2 rounded-xl bg-bg-subtle/60 p-2">
+                  {cards.length === 0 ? (
+                    <p className="px-1 py-3 text-center text-caption text-text-tertiary">Empty</p>
+                  ) : (
+                    cards.map((lead) => {
+                      const late =
+                        lead.nextActionAt !== null && Date.parse(lead.nextActionAt) < nowMs;
+                      return (
+                        <Link
+                          key={lead.id}
+                          href={
+                            `/leads/${lead.id}${from ? `?from=${encodeURIComponent(from)}` : ''}` as Route
+                          }
+                          className="block rounded-lg border border-border-subtle bg-bg-surface p-2.5 transition-colors hover:border-border-default hover:bg-[color-mix(in_oklab,var(--accent-primary)_6%,transparent)]"
+                        >
+                          <span className="block truncate text-body-sm font-semibold text-text-primary">
+                            {lead.fullName ?? 'Name not given'}
+                          </span>
+                          {lead.city && (
+                            <span className="mt-0.5 block truncate text-caption text-text-secondary">
+                              {lead.city}
+                            </span>
+                          )}
+
+                          {lead.lastMessageBody && (
+                            <span className="mt-1.5 flex items-center gap-1.5">
+                              <span aria-hidden="true" style={{ color: WA_GREEN }}>
+                                <WhatsAppMark className="size-3.5" />
+                              </span>
+                              <span className="truncate text-caption text-text-secondary">
+                                {lead.lastMessageBody}
+                              </span>
+                            </span>
+                          )}
+
+                          <span className="mt-1.5 flex items-center justify-between gap-2">
+                            <span className="truncate text-caption text-text-tertiary">
+                              {lead.ownerName ?? 'Unassigned'}
+                            </span>
+                            {lead.nextActionAt && (
+                              <span
+                                className={cn(
+                                  'shrink-0 text-caption tabular-nums',
+                                  late ? 'font-semibold text-feedback-error' : 'text-text-brand',
+                                )}
+                              >
+                                {followUpWhen(lead.nextActionAt, nowMs)}
+                              </span>
+                            )}
+                          </span>
+                        </Link>
+                      );
+                    })
+                  )}
+                </div>
+              </section>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ---- The table ----------------------------------------------------------- */
 
 function LeadTable({
   rows,
   nowMs,
   from,
-  canWhatsApp,
 }: {
   rows: readonly CrmLeadRow[];
   nowMs: number;
   from: string;
-  /** Threaded down to the row's WhatsApp icon — see `Row`. */
-  canWhatsApp: boolean;
 }) {
   /* ⚠️ REAL SELECTION, NO BULK ACTIONS YET. The boxes tick, "select all" works,
      and the count is honest. What does not exist is anything to DO with a
@@ -1094,7 +1268,6 @@ function LeadTable({
               lead={lead}
               nowMs={nowMs}
               from={from}
-              canWhatsApp={canWhatsApp}
               ticked={ticked.has(lead.id)}
               onTick={onTick}
             />
@@ -1109,16 +1282,12 @@ function Row({
   lead,
   nowMs,
   from,
-  canWhatsApp,
   ticked,
   onTick,
 }: {
   lead: CrmLeadRow;
   nowMs: number;
   from: string;
-  /** Whether this lead's project can send WhatsApp itself — decides whether the
-   *  green mark opens OUR conversation or hands the number to the device. */
-  canWhatsApp: boolean;
   ticked: boolean;
   onTick: (id: string, on: boolean) => void;
 }) {
@@ -1128,8 +1297,13 @@ function Row({
   return (
     <tr
       className={cn(
-        'border-b border-border-subtle last:border-b-0 hover:bg-bg-subtle/60',
-        ticked && 'bg-bg-subtle/70',
+        /* ⚠️ THE WHOLE ROW LIGHTS UP, in the accent hue rather than grey —
+           owner, 2026-09-14: *"the hover effect is a light blue whole row."* On
+           a table this wide the eye loses its line between the name and the
+           actions; a wash that crosses every cell is what keeps them together. */
+        'border-b border-border-subtle transition-colors last:border-b-0',
+        'hover:bg-[color-mix(in_oklab,var(--accent-primary)_7%,transparent)]',
+        ticked && 'bg-[color-mix(in_oklab,var(--accent-primary)_10%,transparent)]',
       )}
     >
       <td className="px-3 py-2.5 align-top">
@@ -1212,12 +1386,21 @@ function Row({
       <td className={TD}>
         {lead.lastMessageAt ? (
           <span className="flex min-w-0 items-start gap-2">
+            {/* ⚠️ A TINTED BADGE, NOT A BARE GLYPH. Owner, 2026-09-14: *"the
+                icons are very small, even very difficult to read or focus on…
+                not visible at first glance."* At 14px with no ground behind it,
+                a channel mark is decoration; at 32px on its own tint it is the
+                first thing the eye lands on in the cell, which is the job — this
+                column is scanned, not read. */}
             <span
               aria-hidden="true"
-              className="mt-0.5 shrink-0"
-              style={{ color: lead.lastMessageDirection === 'inbound' ? WA_GREEN : 'var(--text-tertiary)' }}
+              className="grid size-8 shrink-0 place-items-center rounded-lg"
+              style={{
+                backgroundColor: `color-mix(in oklab, ${WA_GREEN} 14%, transparent)`,
+                color: WA_GREEN,
+              }}
             >
-              <WhatsAppMark className="size-3.5" />
+              <WhatsAppMark className="size-4" />
             </span>
             <span className="min-w-0">
               <span className="block truncate text-body-sm text-text-primary">
@@ -1242,15 +1425,29 @@ function Row({
         ) : lead.lastActivityKind ? (
           /* No message, but something was logged — a call, a note. Still the
              most recent thing that happened to this lead. */
-          <>
-            <span className="block text-body-sm text-text-primary">
+          <span className="flex min-w-0 items-start gap-2">
+            {/* The same badge shape in the accent hue, so the column has one
+                rhythm whether the last thing was a message or a logged step. */}
+            <span
+              aria-hidden="true"
+              className="grid size-8 shrink-0 place-items-center rounded-lg"
+              style={{
+                backgroundColor: 'color-mix(in oklab, var(--accent-primary) 12%, transparent)',
+                color: 'var(--accent-primary)',
+              }}
+            >
+              <Mail className="size-4" />
+            </span>
+            <span className="min-w-0">
+            <span className="block truncate text-body-sm text-text-primary">
               {activityLabel(lead.lastActivityKind)}
             </span>
             <span className="mt-0.5 block text-caption text-text-secondary">
               {relativeAge(lead.lastActivityAt, nowMs)}
               {lead.noteCount > 0 && ` · ${lead.noteCount} note${lead.noteCount === 1 ? '' : 's'}`}
             </span>
-          </>
+            </span>
+          </span>
         ) : (
           <Nothing>Nothing yet</Nothing>
         )}
@@ -1259,26 +1456,51 @@ function Row({
       {/* ── What is owed ───────────────────────────────────────────────── */}
       <td className={TD}>
         {lead.nextAction ? (
-          <>
-            <span className="block truncate text-body-sm text-text-primary">{lead.nextAction}</span>
-            {lead.nextActionAt && (
-              <span
-                className={cn(
-                  'mt-0.5 block text-caption tabular-nums',
-                  Date.parse(lead.nextActionAt) < nowMs
-                    ? 'font-semibold text-feedback-error'
-                    : 'text-text-secondary',
-                )}
-              >
-                {Date.parse(lead.nextActionAt) < nowMs ? 'Overdue · ' : 'Due · '}
-                {new Date(lead.nextActionAt).toLocaleDateString('en-GB', {
-                  day: 'numeric',
-                  month: 'short',
-                  timeZone: 'Asia/Karachi',
-                })}
+          <span className="flex min-w-0 items-start gap-2">
+            {/* ⚠️ THE ICON CARRIES THE URGENCY, so the state is readable before
+                the words are. Red calendar for overdue, plain for planned — the
+                same two states the text says, said twice on purpose because this
+                column is scanned down, not read across. */}
+            <span
+              aria-hidden="true"
+              className="grid size-8 shrink-0 place-items-center rounded-lg"
+              style={
+                lead.nextActionAt && Date.parse(lead.nextActionAt) < nowMs
+                  ? {
+                      backgroundColor: 'color-mix(in oklab, var(--feedback-error) 12%, transparent)',
+                      color: 'var(--feedback-error)',
+                    }
+                  : {
+                      backgroundColor: 'color-mix(in oklab, var(--accent-primary) 12%, transparent)',
+                      color: 'var(--accent-primary)',
+                    }
+              }
+            >
+              <CalendarDays className="size-4" />
+            </span>
+            <span className="min-w-0">
+              <span className="block truncate text-body-sm text-text-primary">
+                {lead.nextAction}
               </span>
-            )}
-          </>
+              {lead.nextActionAt && (
+                <span
+                  className={cn(
+                    'mt-0.5 block text-caption tabular-nums',
+                    Date.parse(lead.nextActionAt) < nowMs
+                      ? 'font-semibold text-feedback-error'
+                      : 'text-text-brand',
+                  )}
+                >
+                  {/* ⚠️ THE TIME, NOT ONLY THE DATE — owner, 2026-09-14: *"I want
+                      the exact time, 10 am, mentioned."* And rightly: "today" on
+                      its own tells a salesperson nothing about whether to ring
+                      now or after lunch. Today and tomorrow are named rather
+                      than dated, because that is how somebody says it out loud. */}
+                  {followUpWhen(lead.nextActionAt, nowMs)}
+                </span>
+              )}
+            </span>
+          </span>
         ) : (
           /* ⚠️ AN INVITATION, NOT A SHRUG. "Not set" stated a fact and left the
               reader to work out where to change it; this is the one row state
@@ -1380,7 +1602,7 @@ function Row({
               href={`tel:${lead.phoneE164}`}
               label={`Call ${lead.fullName ?? 'lead'} on ${phone}`}
             >
-              <Phone className="size-3.5" aria-hidden="true" />
+              <Phone className="size-4" aria-hidden="true" />
             </ReachLink>
           ) : (
             <ReachExplain
@@ -1391,7 +1613,7 @@ function Row({
                   : 'This lead did not give a phone number, so there is nothing to dial.'
               }
             >
-              <Phone className="size-3.5" aria-hidden="true" />
+              <Phone className="size-4" aria-hidden="true" />
             </ReachExplain>
           )}
 
@@ -1399,13 +1621,13 @@ function Row({
               `wa.me` opens the SALESPERSON'S OWN WhatsApp — the message leaves
               from a personal handset and nothing is recorded. Once a project has
               a number of its own that link undoes the feature beside it. */}
-          {canWhatsApp && lead.phoneE164 ? (
+          {lead.canWhatsApp && lead.phoneE164 ? (
             <ReachLink
               href={`/leads/${lead.id}?chat=1` as Route}
               label={`Open the WhatsApp chat with ${lead.fullName ?? 'lead'}`}
             >
               <span style={{ color: WA_GREEN }}>
-                <WhatsAppMark className="size-3.5" />
+                <WhatsAppMark className="size-4" />
               </span>
             </ReachLink>
           ) : wa ? (
@@ -1415,7 +1637,7 @@ function Row({
               label={`WhatsApp ${lead.fullName ?? 'lead'} from your own phone`}
             >
               <span style={{ color: WA_GREEN }}>
-                <WhatsAppMark className="size-3.5" />
+                <WhatsAppMark className="size-4" />
               </span>
             </ReachLink>
           ) : (
@@ -1428,7 +1650,7 @@ function Row({
               }
             >
               <span style={{ color: WA_GREEN }}>
-                <WhatsAppMark className="size-3.5" />
+                <WhatsAppMark className="size-4" />
               </span>
             </ReachExplain>
           )}
@@ -1438,14 +1660,14 @@ function Row({
               href={`mailto:${lead.email}`}
               label={`Email ${lead.fullName ?? 'lead'} at ${lead.email}`}
             >
-              <Mail className="size-3.5" aria-hidden="true" />
+              <Mail className="size-4" aria-hidden="true" />
             </ReachLink>
           ) : (
             <ReachExplain
               label={`Email ${lead.fullName ?? 'this lead'}`}
               reason="This lead did not give an email address."
             >
-              <Mail className="size-3.5" aria-hidden="true" />
+              <Mail className="size-4" aria-hidden="true" />
             </ReachExplain>
           )}
 
@@ -1456,7 +1678,7 @@ function Row({
               starts lying about work. */}
           <Link
             href={`/leads/${lead.id}${from ? `?from=${encodeURIComponent(from)}` : ''}` as Route}
-            className="ml-0.5 inline-flex min-h-7 shrink-0 items-center rounded-lg bg-accent-primary px-2.5 text-caption font-medium text-white transition-opacity hover:opacity-90"
+            className="ml-0.5 inline-flex min-h-9 shrink-0 items-center rounded-lg bg-accent-primary px-3 text-body-sm font-medium text-white transition-opacity hover:opacity-90"
           >
             Follow-up
           </Link>
@@ -1465,7 +1687,7 @@ function Row({
             href={`/leads/${lead.id}${from ? `?from=${encodeURIComponent(from)}` : ''}` as Route}
             aria-label={`More for ${lead.fullName ?? 'this lead'}`}
             title="Open the record — stage, owner, notes"
-            className="grid size-7 shrink-0 place-items-center rounded-lg text-text-secondary transition-colors hover:bg-bg-subtle hover:text-text-primary"
+            className="grid size-9 shrink-0 place-items-center rounded-lg text-text-secondary transition-colors hover:bg-bg-subtle hover:text-text-primary"
           >
             <MoreVertical className="size-4" aria-hidden="true" />
           </Link>
@@ -1507,11 +1729,49 @@ function ReachExplain({
       /* Dimmed, not disabled: a `disabled` button takes no click, gives no
          keyboard focus and so can never explain itself — which is the whole
          job here. */
-      className="grid size-7 place-items-center rounded-lg border border-border-subtle text-text-disabled opacity-60 transition-colors hover:border-border-default hover:bg-bg-subtle hover:opacity-100"
+      className="grid size-9 place-items-center rounded-lg border border-border-subtle text-text-disabled opacity-60 transition-colors hover:border-border-default hover:bg-bg-subtle hover:opacity-100"
     >
       {children}
     </button>
   );
+}
+
+/**
+ * When a follow-up is due, said the way somebody would say it.
+ *
+ * ⚠️ TODAY AND TOMORROW ARE NAMED, NOT DATED. "Today 3:00 PM" is actionable;
+ * "14 Sept 3:00 PM" makes the reader work out what day it is. Anything further
+ * out gets its date, because then the day is the point.
+ *
+ * ⚠️ AND EVERY PART IS RENDERED IN ASIA/KARACHI, never the reader's own zone.
+ * For five hours each evening those are different days, and a follow-up that
+ * moves to "tomorrow" because somebody's laptop is on UTC is a missed call.
+ */
+function followUpWhen(iso: string, nowMs: number): string {
+  const KARACHI = 'Asia/Karachi' as const;
+  const dayOf = (ms: number) =>
+    new Date(ms).toLocaleDateString('en-CA', { timeZone: KARACHI });
+
+  const at = Date.parse(iso);
+  const time = new Date(at).toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: KARACHI,
+  });
+
+  const today = dayOf(nowMs);
+  const due = dayOf(at);
+  const tomorrow = dayOf(nowMs + 86_400_000);
+
+  if (due === today) return `Today ${time}`;
+  if (due === tomorrow) return `Tomorrow ${time}`;
+
+  const date = new Date(at).toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    timeZone: KARACHI,
+  });
+  return at < nowMs ? `Overdue · ${date} ${time}` : `${date} ${time}`;
 }
 
 function ReachLink({
@@ -1531,7 +1791,7 @@ function ReachLink({
       aria-label={label}
       title={label}
       {...(external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
-      className="grid size-7 place-items-center rounded-lg border border-border-subtle text-text-secondary transition-colors hover:border-border-default hover:bg-bg-subtle hover:text-text-primary"
+      className="grid size-9 place-items-center rounded-lg border border-border-subtle text-text-secondary transition-colors hover:border-border-default hover:bg-bg-subtle hover:text-text-primary"
     >
       {children}
     </a>

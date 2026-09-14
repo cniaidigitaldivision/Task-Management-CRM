@@ -100,6 +100,12 @@ export interface CrmLeadRow {
   readonly lastMessageAt: string | null;
   /** 'inbound' when THEY wrote last — which is what "waiting for reply" means. */
   readonly lastMessageDirection: 'inbound' | 'outbound' | null;
+  /* ⚠️ PER ROW, NOT PER PAGE — since "All projects" the desk can show leads from
+     several projects at once, and only some of those have a WhatsApp number.
+     One flag for the whole page would have pointed half the rows at `wa.me`
+     (the salesperson's own handset, unrecorded) or hidden the chat on rows that
+     can use it. Read through the definer; see migration 140. */
+  readonly canWhatsApp: boolean;
 }
 
 /**
@@ -252,7 +258,10 @@ export async function listCrmProjects(actorId: string): Promise<CrmProjectOption
  */
 export async function listCrmLeads(
   actorId: string,
-  projectId: string,
+  /** ⚠️ NULL MEANS EVERY PROJECT THE CALLER MAY SEE — not "no filter applied".
+   *  RLS is what scopes it, exactly as it scopes a single project, so a
+   *  salesperson asking for "all" still gets only their own leads. */
+  projectId: string | null,
   filters: CrmLeadFilters = {},
   limit = 25,
   offset = 0,
@@ -261,7 +270,12 @@ export async function listCrmLeads(
 
   const { rows, counts, owners } = await withUser(actorId, async (tx) => {
     /* Every condition EXCEPT stage. See the header. */
-    const conditions = [tx`l.project_id = ${projectId}::uuid`];
+    /* ⚠️ A CONDITION THAT MATCHES EVERYTHING, not an absent one. RLS still
+       narrows the result, so "all projects" means "all the ones you may read" —
+       for a salesperson that is still only their own leads. */
+    const conditions = [
+      tx`(${projectId}::uuid is null or l.project_id = ${projectId}::uuid)`,
+    ];
 
     if (filters.ownerId) conditions.push(tx`l.owner_id = ${filters.ownerId}::uuid`);
     if (filters.temperature) conditions.push(tx`l.temperature::text = ${filters.temperature}`);
@@ -342,6 +356,7 @@ export async function listCrmLeads(
                 projectName in CrmLeadRow. Migration 130 exists because of
                 exactly this. */
              app.crm_project_name(l.project_id) as project_name,
+             app.crm_project_can_whatsapp(l.project_id) as can_whatsapp,
              msg.body as last_message_body,
              msg.occurred_at as last_message_at,
              msg.direction::text as last_message_direction,
@@ -433,6 +448,7 @@ export async function listCrmLeads(
       lastActivityAt: r.last_at ? new Date(r.last_at as string).toISOString() : null,
       noteCount: Number(r.note_count ?? 0),
       projectName: (r.project_name as string | null) ?? null,
+      canWhatsApp: r.can_whatsapp === true,
       lastMessageBody: (r.last_message_body as string | null) ?? null,
       lastMessageAt: r.last_message_at
         ? new Date(r.last_message_at as string).toISOString()
@@ -958,7 +974,11 @@ export interface CrmDueCounts {
  * ⚠️ AND "TODAY" IS KARACHI, matching migration 123 and the date filter. A UTC
  * comparison calls a Friday task overdue from 5am Friday.
  */
-export async function crmDueCounts(actorId: string, projectId: string): Promise<CrmDueCounts> {
+export async function crmDueCounts(
+  actorId: string,
+  /** Null for every project the caller may see — see `listCrmLeads`. */
+  projectId: string | null,
+): Promise<CrmDueCounts> {
   const rows = await withUser(actorId, (tx) => tx`
     select
       count(*) filter (
@@ -980,7 +1000,7 @@ export async function crmDueCounts(actorId: string, projectId: string): Promise<
                 order by m.occurred_at desc, m.id desc limit 1) = 'inbound'
       ) as waiting_for_reply
       from public.crm_leads l
-     where l.project_id = ${projectId}::uuid
+     where (${projectId}::uuid is null or l.project_id = ${projectId}::uuid)
        and l.stage not in ('won', 'lost')
   `);
 
@@ -1020,7 +1040,7 @@ export async function unassignedCount(actorId: string, projectId: string): Promi
  */
 export async function crmOwnerOptions(
   actorId: string,
-  projectId: string,
+  projectId: string | null,
 ): Promise<Array<{ id: string; name: string; leads: number }>> {
   /* ⚠️ THE SAME TRAP AS THE LIST, and it bit here too: this joined `users`, so
      under the sales manager's session every option came back with a null name.
@@ -1029,7 +1049,7 @@ export async function crmOwnerOptions(
     const counts = await tx`
       select l.owner_id, count(*) as leads
         from public.crm_leads l
-       where l.project_id = ${projectId}::uuid
+       where (${projectId}::uuid is null or l.project_id = ${projectId}::uuid)
          and l.owner_id is not null
        group by l.owner_id
     `;

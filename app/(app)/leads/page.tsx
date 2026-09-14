@@ -8,7 +8,6 @@ import {
   crmDueCounts,
   crmProjectRoster,
   listCrmLeads,
-  crmProjectCanWhatsApp,
   listCrmProjects,
   unassignedCount,
 } from '@/lib/db/queries/crm-leads';
@@ -18,7 +17,11 @@ import { nowMs } from '@/lib/now';
 export const metadata: Metadata = { title: 'Campaign & Lead Desk' };
 
 /** Rows per page. Server-paged — see the note on `listCrmLeads`. */
-const PER_PAGE = 25;
+/* ⚠️ TEN, ON THE OWNER'S INSTRUCTION (2026-09-14): *"I want to see 10 leads per
+   page."* It was 25, which on a laptop put the pagination and the connection
+   status below the fold — so the one control that tells you there IS more was
+   the one nobody saw. */
+const PER_PAGE = 10;
 
 /* ============================================================================
  * CAMPAIGN & LEAD DESK — the list
@@ -70,11 +73,19 @@ export default async function LeadsPage({
   /* Default to the first project that actually holds leads — the list is ordered
      with those first, so this lands on something worth reading rather than on an
      alphabetical "not connected". */
-  const selected =
-    projects.find((p) => p.id === params.project) ??
-    projects.find((p) => p.connection === 'live') ??
-    projects[0] ??
-    null;
+  /* ⚠️ `?project=all` IS A MODE, NOT A MISSING PARAMETER. Owner, 2026-09-14:
+     *"In the dropdown there is no option for All Projects."* With it, the whole
+     page — rows, counts, stage strip, paging — runs unscoped, and RLS does the
+     narrowing it always did: a salesperson still sees only their own leads,
+     across whichever projects those happen to sit on. */
+  const allProjects = params.project === 'all';
+
+  const selected = allProjects
+    ? null
+    : (projects.find((p) => p.id === params.project) ??
+      projects.find((p) => p.connection === 'live') ??
+      projects[0] ??
+      null);
 
   /* ⚠️ VALIDATED, NOT PASSED THROUGH. `stage` reaches SQL as an enum comparison;
      an unknown value there is a 500 rather than an empty list, and the URL is
@@ -94,34 +105,44 @@ export default async function LeadsPage({
        reaches SQL as a branch rather than a value, so an unknown one simply
        falls through to "no filter" — but a typo silently showing everything is
        still worth refusing where it is cheap. */
-    due: ['overdue', 'today', 'no-plan'].includes(params.due ?? '') ? (params.due ?? null) : null,
+    due: ['overdue', 'today', 'no-plan', 'waiting'].includes(params.due ?? '')
+      ? (params.due ?? null)
+      : null,
+    /* ⚠️ Whitelisted, like every other parameter here. A `view` read straight
+       off the URL is a value this component then branches on, and "anything the
+       visitor typed" is not a value to branch on. */
+    view: params.view === 'board' ? 'board' : null,
   };
 
   /* Nothing to fetch for a project with no leads — the desk shows its state
      instead, and three empty queries would be three wasted round trips. */
-  const data =
-    selected && selected.connection === 'live'
-      ? await Promise.all([
-          listCrmLeads(user.id, selected.id, filters, PER_PAGE, (page - 1) * PER_PAGE),
-          crmOwnerOptions(user.id, selected.id),
-          crmFormOptions(user.id, selected.id),
-          unassignedCount(user.id, selected.id),
-          /* ⚠️ EMPTY FOR A SALESPERSON, by migration 120's guard rather than by
-             a check here — which is also how the page knows whether to draw the
-             share-out control at all. */
-          /* ⚠️ Per PROJECT since migration 124 — Chitral's team is Sales,
-             the ERP project's is AI & Digital. */
-          crmProjectRoster(user.id, selected.id),
-          crmDueCounts(user.id, selected.id),
-          /* ⚠️ Decides whether the row's green mark opens OUR conversation or
-             hands the number to the device. In the same wave rather than a
-             seventh round trip — it is one boolean off `projects`. */
-          crmProjectCanWhatsApp(user.id, selected.id),
-        ])
-      : null;
+  /* ⚠️ `null` HERE MEANS "EVERY PROJECT", and the readers are written for it.
+     A single project still passes its id, so nothing about the ordinary path
+     changed. */
+  const scope = allProjects ? null : (selected?.id ?? null);
+  const shouldFetch = allProjects || (selected !== null && selected.connection === 'live');
+
+  const data = shouldFetch
+    ? await Promise.all([
+        listCrmLeads(user.id, scope, filters, PER_PAGE, (page - 1) * PER_PAGE),
+        crmOwnerOptions(user.id, scope),
+        /* ⚠️ Forms are meaningless across projects — a Chitral form in a list
+           that also holds ERP forms filters to something the reader did not mean.
+           Empty in "all" mode, and the menu drops the section. */
+        allProjects ? Promise.resolve([]) : crmFormOptions(user.id, selected!.id),
+        allProjects ? Promise.resolve(0) : unassignedCount(user.id, selected!.id),
+        /* ⚠️ EMPTY FOR A SALESPERSON, by migration 120's guard rather than by
+           a check here — which is also how the page knows whether to draw the
+           share-out control at all.
+           ⚠️ Per PROJECT since migration 124 — Chitral's team is Sales, the ERP
+           project's is AI & Digital. Sharing out needs one project, so "all"
+           mode offers no roster and therefore no share-out. */
+        allProjects ? Promise.resolve([]) : crmProjectRoster(user.id, selected!.id),
+        crmDueCounts(user.id, scope),
+      ])
+    : null;
 
   const roster = data?.[4] ?? [];
-  const canWhatsApp = data?.[6] ?? false;
 
   return (
     <LeadDesk
@@ -135,11 +156,11 @@ export default async function LeadsPage({
       page={page}
       perPage={PER_PAGE}
       filters={filters}
+      allProjects={allProjects}
       unassigned={data?.[3] ?? 0}
       due={data?.[5] ?? { overdue: 0, dueToday: 0, noPlan: 0, waitingForReply: 0 }}
       salesTeam={roster}
       canShareOut={roster.length > 0}
-      canWhatsApp={canWhatsApp}
       /* ⚠️ The SERVER's clock, so "3d ago" is the same for everyone. Reading it
          in the browser would let a reader's own wrong system time age a lead
          that arrived this morning, and React would report the mismatch as a

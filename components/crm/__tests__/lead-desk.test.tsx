@@ -60,6 +60,7 @@ const ROWS: CrmLeadRow[] = [
     lastMessageBody: null,
     lastMessageAt: null,
     lastMessageDirection: null,
+    canWhatsApp: false,
   },
   /* The unparseable-number case — one of the three. */
   {
@@ -85,6 +86,7 @@ const ROWS: CrmLeadRow[] = [
     lastMessageBody: null,
     lastMessageAt: null,
     lastMessageDirection: null,
+    canWhatsApp: false,
   },
   /* A fully worked lead — the shape Steps 6-7 will produce. */
   {
@@ -112,6 +114,7 @@ const ROWS: CrmLeadRow[] = [
     lastMessageBody: 'Please send the plan for the corner plot',
     lastMessageAt: '2026-09-10T05:40:00.000Z',
     lastMessageDirection: 'inbound',
+    canWhatsApp: true,
   },
 ];
 
@@ -135,6 +138,7 @@ const base = {
     from: null,
     to: null,
     due: null,
+    view: null,
   },
   /* Step 7. The manager's view by default — `canShareOut` false is the
      salesperson's, and has its own cases below. */
@@ -154,6 +158,9 @@ const base = {
       medianResponseMinutes: null },
   ],
   canShareOut: true,
+  /* One project at a time is the ordinary case; "All projects" has its own
+     cases below. */
+  allProjects: false,
   /* Step 8. Most projects have no WhatsApp number of their own — Chitral's is a
      different business with a different number — so "cannot send" is the
      default here, and the cases that can send say so explicitly. */
@@ -543,24 +550,31 @@ describe('an empty filter result', () => {
  * must NOT be an external link.
  * ========================================================================= */
 describe('the WhatsApp icon on a row', () => {
-  it('opens our own chat when the project has a number', () => {
-    const html = renderToStaticMarkup(
-      <LeadDesk {...base} selected={PROJECTS[0]} canWhatsApp />,
-    );
+  /* ⚠️ THE CAPABILITY IS PER ROW SINCE "ALL PROJECTS" (2026-09-14). It used to
+     be one flag for the whole page, which was fine while the desk only ever
+     showed one project. Now it can show several at once and only some of them
+     have a number — one flag would have pointed half the rows at `wa.me`, which
+     is the salesperson's own handset and records nothing. These cases therefore
+     drive it off the ROW, which is also what the query returns. */
+  const html = renderToStaticMarkup(<LeadDesk {...base} selected={PROJECTS[0]} />);
 
-    expect(html).toContain(`/leads/${ROWS[0].id}?chat=1`);
-    /* ⚠️ The whole point: not one `wa.me` link left on the desk. */
-    expect(html).not.toContain('wa.me');
+  it('opens our own chat for a lead whose project can send', () => {
+    /* ROWS[2] — a demo lead on a project with a number. */
+    expect(html).toContain(`/leads/${ROWS[2].id}?chat=1`);
   });
 
-  it('falls back to wa.me only where we cannot send at all', () => {
-    /* Chitral is a client's pipeline with no number of its own yet. Removing the
-       link there would leave a salesperson with no way to reach anybody. */
-    const html = renderToStaticMarkup(
-      <LeadDesk {...base} selected={PROJECTS[0]} canWhatsApp={false} />,
-    );
-
+  it('falls back to wa.me for a lead whose project cannot', () => {
+    /* ROWS[0] — Chitral, a client's pipeline with no number of its own. Removing
+       the link there would leave a salesperson with no way to reach anybody. */
     expect(html).toContain('https://wa.me/923439040510');
-    expect(html).not.toContain('?chat=1');
+  });
+
+  it('⚠️ never offers our chat and wa.me for the SAME lead', () => {
+    /* The two are alternatives, and a row showing both would let somebody send
+       the unrecorded one by accident. Both appear on this page, on different
+       rows; what must not happen is one row carrying the pair. */
+    const rowHtml = html.split('<tr').find((r) => r.includes(ROWS[2].id)) ?? '';
+    expect(rowHtml).toContain('?chat=1');
+    expect(rowHtml).not.toContain('wa.me');
   });
 });
