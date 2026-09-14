@@ -219,6 +219,12 @@ export const NAV_SECTIONS: readonly NavSection[] = [
       { label: 'Security', href: '/security', icon: ShieldCheck, roles: ADMIN_UP },
     ],
   },
+  {
+    label: 'Social',
+    items: [
+      { label: 'Composer', href: '/composer', icon: Sparkles, roles: ALL },
+    ],
+  },
 ];
 
 export function sectionsForRole(role: Role): NavSection[] {

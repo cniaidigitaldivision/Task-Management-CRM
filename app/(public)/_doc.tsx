@@ -9,7 +9,7 @@ import * as React from 'react';
  * ========================================================================= */
 
 /** The date the three documents were last substantively changed. */
-export const LAST_UPDATED = '3 September 2026';
+export const LAST_UPDATED = '12 September 2026';
 
 /** Where a person writes about any of this. */
 export const CONTACT_EMAIL = 'admin@aidigitaldivision.com';
@@ -42,7 +42,7 @@ export function Section({
 }: {
   /* Numbered because these are documents people cite at each other — "section 4
      of your privacy policy" has to land somewhere specific. */
-  n: number;
+  n: number | string;
   title: string;
   children: React.ReactNode;
 }) {
