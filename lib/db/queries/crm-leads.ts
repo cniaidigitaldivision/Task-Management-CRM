@@ -1318,3 +1318,40 @@ export async function crmProjectCanWhatsApp(actorId: string, projectId: string):
   `);
   return (rows as Array<Record<string, unknown>>)[0]?.ready === true;
 }
+
+/* ============================================================================
+ * ONE MESSAGE'S ATTACHMENT — Step 8
+ * ----------------------------------------------------------------------------
+ * ⚠️ RLS IS THE WHOLE PERMISSION CHECK, AND THAT IS DELIBERATE. 138's select
+ * policy on `crm_lead_messages` delegates to the lead, so somebody who may not
+ * read the lead gets no row and the route answers 404 — the same 404 a message
+ * that does not exist gets. There is no second check written by hand here to
+ * drift out of step with the policy, and no way to probe which ids exist.
+ * ========================================================================= */
+export interface CrmMessageMedia {
+  readonly mediaId: string;
+  readonly mime: string | null;
+  readonly filename: string | null;
+  readonly projectId: string;
+}
+
+export async function crmMessageMedia(
+  actorId: string,
+  messageId: string,
+): Promise<CrmMessageMedia | null> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select m.media_id, m.media_mime, m.media_filename, l.project_id
+      from public.crm_lead_messages m
+      join public.crm_leads l on l.id = m.lead_id
+     where m.id = ${messageId}::uuid
+       and m.media_id is not null
+  `);
+  const row = (rows as Array<Record<string, unknown>>)[0];
+  if (!row) return null;
+  return {
+    mediaId: String(row.media_id),
+    mime: (row.media_mime as string | null) ?? null,
+    filename: (row.media_filename as string | null) ?? null,
+    projectId: String(row.project_id),
+  };
+}

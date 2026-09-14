@@ -58,6 +58,7 @@ async function recordOutbound(
     wamid: string | null;
     kind: string;
     body: string | null;
+    mediaId?: string | null;
     mime?: string | null;
     filename?: string | null;
     error?: string | null;
@@ -65,12 +66,12 @@ async function recordOutbound(
 ): Promise<void> {
   await withUser(actorId, (tx) => tx`
     insert into public.crm_lead_messages
-      (lead_id, wa_message_id, direction, kind, body, media_mime, media_filename,
+      (lead_id, wa_message_id, direction, kind, body, media_id, media_mime, media_filename,
        status, status_at, error_detail, sent_by_id, occurred_at)
     values (
       ${leadId}::uuid, ${input.wamid}, 'outbound',
       ${input.kind}::public.crm_message_kind, ${input.body},
-      ${input.mime ?? null}, ${input.filename ?? null},
+      ${input.mediaId ?? null}, ${input.mime ?? null}, ${input.filename ?? null},
       ${input.error ? 'failed' : 'sent'}::public.crm_message_status, now(),
       ${input.error ?? null}, ${actorId}::uuid, now()
     )
@@ -165,6 +166,7 @@ export async function sendWhatsAppFileAction(
     wamid: result.wamid ?? null,
     kind,
     body: caption,
+    mediaId: result.mediaId ?? null,
     mime,
     filename: file.name,
     error: result.ok ? null : (result.error ?? 'refused'),

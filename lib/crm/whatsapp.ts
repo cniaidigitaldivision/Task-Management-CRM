@@ -97,6 +97,10 @@ export async function whatsAppConfigFor(
 export interface SendResult {
   readonly ok: boolean;
   readonly wamid?: string;
+  /** ⚠️ KEPT FOR MEDIA, so the thread can show the picture again later. Without
+   *  it an image we sent is a filename in the record forever — and "what did he
+   *  actually send the client" is one of the questions this log exists for. */
+  readonly mediaId?: string;
   readonly error?: string;
 }
 
@@ -212,11 +216,14 @@ export async function sendMedia(
   /* Only a document carries a filename; WhatsApp shows it under the icon. */
   if (type === 'document') media.filename = file.filename;
 
-  return post(config, {
+  const sent = await post(config, {
     to: toE164.replace(/^\+/, ''),
     type,
     [type]: media,
   });
+  /* The upload id travels back with the result — it is what the media route
+     re-fetches from, and it is not recoverable from the wamid. */
+  return sent.ok ? { ...sent, mediaId: uploaded.id } : sent;
 }
 
 /**

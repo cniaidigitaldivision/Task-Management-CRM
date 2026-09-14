@@ -308,6 +308,69 @@ export function WhatsAppChat({
   );
 }
 
+/* ============================================================================
+ * THE ATTACHMENT ITSELF
+ * ----------------------------------------------------------------------------
+ * ⚠️ THE BYTES COME FROM OUR OWN ROUTE, NOT FROM META. A WhatsApp media URL
+ * needs the system-user bearer token, so it is not something a browser can
+ * fetch — putting one in an `src` gives a 401 that looks exactly like a broken
+ * image. `/api/whatsapp/media/<message id>` holds the token server-side and is
+ * scoped by the same RLS that decides whether this thread is readable at all.
+ *
+ * ⚠️ AND A MESSAGE WITH NO `media_id` IS NORMAL, NOT BROKEN — every outbound
+ * file sent before the id was kept (2026-09-14) is in that state. It shows as
+ * the chip it always was rather than as a link that 404s.
+ * ========================================================================= */
+function Attachment({ message, mine }: { message: CrmMessage; mine: boolean }) {
+  const label = message.mediaFilename ?? message.kind;
+  const isImage = message.mediaMime?.startsWith('image/') ?? message.kind === 'image';
+
+  if (!message.mediaId) {
+    return (
+      <span className="mb-1 flex items-center gap-1.5 text-caption opacity-80">
+        {isImage ? <ImageIcon className="size-3.5" /> : <FileText className="size-3.5" />}
+        {label}
+      </span>
+    );
+  }
+
+  const href = `/api/whatsapp/media/${message.id}`;
+
+  if (isImage) {
+    return (
+      /* Opens full size in a new tab — the panel is 24rem wide and a floor plan
+         is unreadable at that size, which is most of what a property buyer
+         sends. */
+      <a href={href} target="_blank" rel="noopener noreferrer" className="mb-1 block">
+        {/* eslint-disable-next-line @next/next/no-img-element -- not a static
+            asset: it is fetched per message through an authorised route, and
+            next/image would try to optimise a URL it cannot reach. */}
+        <img
+          src={href}
+          alt={message.mediaFilename ?? 'Photo sent on WhatsApp'}
+          loading="lazy"
+          className="max-h-64 w-full rounded-lg object-cover"
+        />
+      </a>
+    );
+  }
+
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={cn(
+        'mb-1 flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-caption underline underline-offset-2',
+        mine ? 'bg-black/10' : 'bg-bg-subtle',
+      )}
+    >
+      <FileText className="size-3.5 shrink-0" />
+      <span className="truncate">{label}</span>
+    </a>
+  );
+}
+
 function Bubble({ message }: { message: CrmMessage }) {
   const mine = message.direction === 'outbound';
   const failed = message.status === 'failed';
@@ -322,16 +385,7 @@ function Bubble({ message }: { message: CrmMessage }) {
         /* ⚠️ Dark ink on the green — white measures ~2.1:1 on #25D366. */
         style={mine ? { backgroundColor: WA_GREEN, color: WA_BUBBLE_INK } : undefined}
       >
-        {message.kind !== 'text' && (
-          <span className="mb-1 flex items-center gap-1.5 text-caption opacity-80">
-            {message.mediaMime?.startsWith('image/') ? (
-              <ImageIcon className="size-3.5" />
-            ) : (
-              <FileText className="size-3.5" />
-            )}
-            {message.mediaFilename ?? message.kind}
-          </span>
-        )}
+        {message.kind !== 'text' && <Attachment message={message} mine={mine} />}
 
         {message.body && (
           /* ⚠️ `whitespace-pre-wrap` — WhatsApp messages carry real line breaks

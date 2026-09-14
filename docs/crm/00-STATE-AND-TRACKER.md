@@ -6,10 +6,112 @@
 |---|---|
 | **Branch** | ⚠️ **`main`.** The CRM was merged and deployed 2026-09-12; `crm` still exists but is behind. |
 | **Route** | `/leads` · `/clients` · `/lead-reports` · nav: Growth → Campaign & Lead Desk |
-| **Phase** | ⏸️ **PAUSED 2026-09-12, at Steps 1–10 of 12 — LIVE IN PRODUCTION.** The desk works, the importer runs itself, and a demo testbed exists for proving the rest. Paused by the owner to restructure the company's teams first. |
-| **Scope** | Chitral Royal Homes (real, 625 leads) + a removable demo project for testing. |
-| **Last updated** | 2026-09-12 |
-| **Last migration applied anywhere** | **139.** CRM next: 140. |
+| **Phase** | 🔒 **PREVIEW, 2026-09-14 — Steps 1–11 live, 12 blocked.** Everything works. The CRM is now visible ONLY to the three sales testers plus admin/super_admin (migration 143), at the owner's request, until it is ready to show. |
+| **Scope** | Chitral Royal Homes (real, 629 leads) + a removable demo project (20 leads, WhatsApp wired). |
+| **Last updated** | **2026-09-14** |
+| **Last migration applied anywhere** | **143.** CRM next: 144. |
+
+---
+
+## 🔒 2026-09-14 — WHO CAN SEE IT, AND THE LAST OF STEP 8
+
+### The CRM is a preview now — migration 143
+
+Owner: *"tell me whether this CRM… is visible to Kashif Ayaz… any of the members
+in AI Digital… Please hide it from them… I just want to work on it with just
+these testers."*
+
+It was visible to all nine of AI & Digital, and **Kashif Ayaz could also read the
+lead reports** — the document that compares salespeople by name. Not a bug:
+`crm_acting_department()` grants the desk to any department owning a lead-routed
+project, and AI & Digital owns one because its own enquiries land there.
+
+⚠️ **The routing model was NOT changed.** Taking the lead projects off AI &
+Digital would undo the owner's own rule (*"AI & Digital leads → Kashif"*), which
+is right and comes back the day this is shown. A preview list is asked in front
+of it instead. Four predicates ask it — two gate the pages, two gate the rows.
+Pages alone would leave a lead readable to anybody holding yesterday's URL; rows
+alone would leave the nav advertising an empty desk.
+
+| | Desk | Reports | Leads visible |
+|---|---|---|---|
+| AI & Digital — all nine incl. Kashif Ayaz | — | — | **0** |
+| Development — Junaid, Lararib | — | — | 0 |
+| Sale Tester · Sale 2 tester | ✅ | — | 11 · 9 (their own) |
+| sale manager tester | ✅ | ✅ | 650 |
+| Umm-e-Habiba (admin) · Ammar (super_admin) | ✅ | ✅ | 650 |
+
+**Admins are not on the list and keep access** — every predicate short-circuits
+on `acting_at_least('admin')` before the preview is consulted, which keeps the
+owner's standing rule that admin/super_admin see everything. 143's header names
+the line to change to remove the CEO too.
+
+⚠️ **To end the preview:** `delete from public.crm_preview_members;`. An empty
+table means no restriction, so there is nothing else to undo — and nothing to
+tidy away by accident.
+
+### Four bugs in Step 8, each one worse than the last
+
+| # | What | Fix |
+|---|---|---|
+| 1 | The desk and record WhatsApp icons opened `wa.me` — **the salesperson's own phone**. Nothing recorded: no thread, no response time, no "who replied". One click undid the feature beside it. | commit `7d3c15d` — both now open our docked chat; `wa.me` survives only where a project has no number |
+| 2 | `crmProjectCanWhatsApp` read `projects` under the caller's session → **0 rows for the whole sales team** → "cannot send" → back to `wa.me`. Worked perfectly from an Admin session. | **migration 140** |
+| 3 | ⚠️ **`whatsAppConfigFor` read the number through `withAppRole`.** `cni_app` has no BYPASSRLS, so RLS applied with no `app.user_id`: **0 rows for everyone, always.** Nothing had ever been sendable, and the refusal blamed the project's configuration. | **migration 141** |
+| 4 | A reply landed on a **sibling lead sharing the number** (4 share `+923121531511`), so it was in the database and invisible on the screen that had sent to it. | **migration 142** |
+
+⚠️ **Bug 3 is the general lesson.** `withAppRole` sets the role and no session —
+it **narrows harder than `withUser`**, running every policy for a user that does
+not exist. It is correct only where a policy admits an anonymous session on
+purpose (the webhook's INSERT does, which is exactly why storing an inbound
+message worked all along while reading a project's own number never did). Every
+other `withAppRole` call in the codebase was swept 2026-09-14 and all of them go
+through an `app.*` definer. **A bare `from public.<table>` inside a
+`withAppRole` callback is the bug.**
+
+⚠️ **And 142's first version was wrong in a way its own self-check passed.**
+"The sibling with the most recent message wins" is self-sustaining: an inbound
+*is* a message, so one misfiled reply pins every reply after it to the same wrong
+lead. The anchor is the last thing **we** said. The corrected check fails on the
+version written first.
+
+### And the half of Step 8 that was never finished
+
+`fetchMedia` had been written and **was called by nothing**. A lead sending a
+photo produced a grey chip with a filename and no way to open it — while the
+owner's ask was explicitly *"He can message. He can send an image. He can send
+files."*
+
+- `GET /api/whatsapp/media/[id]` — RLS-scoped by 138's policy, so an unauthorised
+  reader gets the same 404 as a message that does not exist, and the route cannot
+  be used to find out which ids are real. Fetches from Meta with the system
+  token, streams the bytes, `private` cache only.
+- Images render inline in the bubble and open full size; other files become a
+  named link.
+- ⚠️ **Outbound media now keeps its upload id.** It was being thrown away, so a
+  file *we* sent was a filename in the record forever — and "what did he actually
+  send the client" is one of the questions this log exists to answer. Messages
+  sent before 2026-09-14 have no id and still show as a plain chip.
+- ⚠️ **Meta keeps media ~30 days.** Past that the route answers 410 with a
+  sentence about the age of the file, not a broken image icon.
+- ⚠️ **Not copied into our own bucket on arrival** — that would mean a two-call
+  download inside Meta's webhook retry window, and Meta retries a slow webhook,
+  which is how the same photo arrives five times.
+
+### Also landed 2026-09-13/14
+
+- The docked WhatsApp panel **polls its own thread** every 5s while open, and
+  only while the tab is in front, with a read on the way back. Previously a reply
+  that arrived after render stayed invisible until a reload. One small RLS-scoped
+  query, not `router.refresh()`, which re-ran the record, the roster and the
+  cached AI reading to show one bubble.
+- The panel's badge stopped counting every inbound message ever — a finished
+  conversation wore a permanent count. It now shows inbound since the last thing
+  we said.
+- The refusals name the fault they actually found: "no number on the project" and
+  "no `META_SYSTEM_USER_TOKEN` in this environment" are different faults with
+  different owners and no longer share a sentence.
+- `subscribed_apps` — the test WABA was delivering to Meta's own *"WA DevX
+  Webhook Events 1P App"*, not Taskly. Fixed by POST; both are subscribed now.
 
 ---
 
@@ -39,8 +141,8 @@ everything committed is deployed, tested and working.
 
 | Blocked | Waiting on | Workaround |
 |---|---|---|
-| **WhatsApp sending** | ⚠️ **Business verification — applied for, ~12 days as of 2026-09-12.** Meta refuses to add a test recipient until the business is verified. | The `wa.me` link works today. Receiving is already proven. |
-| **Step 12 · campaign vs staff** | Weeks of real use. Nothing is closed. | None, and honestly so. |
+| ~~**WhatsApp sending**~~ | ✅ **CLEARED 2026-09-13.** Verification landed; sending, receiving, media and status callbacks all proved on Meta's test number. | — |
+| **Step 12 · campaign vs staff** | Weeks of real use. **Still nothing closed** — 650 leads, no outcomes to divide. | None, and honestly so. |
 | **Step 7c · specialisation matching** | ⏳ The **sales manager**, once there is one. Owner will ask what each person handles and bring back the real answer. ⚠️ The field must not be invented meanwhile. | ✅ **Nothing waits on it.** The four-signal router in `10-LEAD-ASSIGNMENT.md` uses none of it. |
 
 ### ✅ What is left, in order — updated 2026-09-13
@@ -113,7 +215,16 @@ something outside the code, and none of them can be honestly built first.
 | **Step 7c · matching by specialisation** | What each salesperson handles — there is no field for it, and inventing one before the owner says what goes in it is guessing | Partly. Step 7's load balancing already works and may be all that is wanted. |
 | **ERP + Taskly campaigns filing correctly** | Two projects that do not exist yet | ⚠️ **This one is the owner's to do and takes minutes.** See below. |
 
-### ⚠️ The one thing that is not blocked and is not done
+### ⚠️ STALE — both items below were closed. Kept for the reasoning only.
+
+⚠️ **The ERP/Taskly item was closed 2026-09-13 and was never a real task** — the
+AI & Digital page already maps to the AI & Digital Division project, and
+migration 127 files a lead by its FORM, so the campaigns stay tellable apart on
+one project. The owner: *"The DBN itself is enough."*
+
+⚠️ **The silent-import item was closed 2026-09-13 by migration 134**
+(`app.crm_notify_import_health`), which checks SILENCE first — the September
+outage wrote zero error rows, so an error-row check would have missed it.
 
 **Two of the three live AI & Digital campaigns have nowhere to file to.** The
 projects are `Internal CRM`, `Social Media Automation Tool` and
