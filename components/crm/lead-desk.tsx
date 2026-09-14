@@ -7,7 +7,13 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import {
   AlarmClock,
   CalendarDays,
+  CalendarPlus,
   ChevronDown,
+  Columns3,
+  Mail,
+  MoreVertical,
+  Plus,
+  Table2,
   FileQuestion,
   Users,
   Phone,
@@ -171,7 +177,30 @@ export function LeadDesk({
       <PageHeader
         eyebrow={DIVISION_NAME}
         title="Campaign & Lead Desk"
-        description="Where the people a campaign brings in are worked, from first enquiry to won or lost."
+        /* The supplied design's wording, and it is better: it names the three
+           things this screen is for rather than describing the lifecycle. */
+        description="Manage enquiries, conversations and the next follow-up."
+        /* ⚠️ BOTH ARE REAL, AND NEITHER IS NEW MACHINERY. "Add lead" is the test
+            form on the demo project and a link to the record elsewhere; "New
+            follow-up" opens the desk already filtered to what has no plan, which
+            is exactly the queue somebody pressing it wants. A button that opened
+            an empty dialog to invent a lead from nothing would be the one thing
+            on this page with no data behind it. */
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            {selected?.name.endsWith('[demo]') ? (
+              <TestLeadButton projectId={selected.id} />
+            ) : null}
+            <button
+              type="button"
+              onClick={() => setParam('due', 'no-plan')}
+              className="inline-flex min-h-[2.4rem] items-center gap-1.5 rounded-xl bg-accent-primary px-3 text-body-sm font-medium text-white transition-opacity hover:opacity-90"
+            >
+              <Plus className="size-4" aria-hidden="true" />
+              New follow-up
+            </button>
+          </div>
+        }
       />
 
       {/* ── Project, search, filters — ⚠️ no card around them, as the Studio ── */}
@@ -187,6 +216,16 @@ export function LeadDesk({
             <SearchBox value={filters.search ?? ''} onSearch={(q) => setParam('q', q)} />
 
             <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+              {/* ⚠️⚠️ TEMPORARY — DELETE WITH ITS IMPORT, `components/crm/
+                  test-lead-modal.tsx` AND `app/actions/crm-test-lead.ts` WHEN
+                  THE TESTING IS DONE. Owner, 2026-09-12: "I will remove this
+                  once I make sure that the system is working smartly."
+
+                  Moved up here 2026-09-14: it used to sit alone on a line of its
+                  own between the chips and the table, which in the owner's own
+                  screenshot is the widest piece of empty space on the page. Only
+                  on the demo project, and the SERVER re-checks that on every
+                  call — a hidden button is not a permission. */}
               <FilterMenu
                 filters={filters}
                 owners={owners}
@@ -223,13 +262,35 @@ export function LeadDesk({
             onPick={(v) => setParam('due', v)}
           />
 
-          <ViewTabs
-            total={total}
-            due={due}
-            waiting={due.waitingForReply}
-            active={filters.due}
-            onPick={(v) => setParam('due', v)}
-          />
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <ViewTabs
+              total={total}
+              due={due}
+              waiting={due.waitingForReply}
+              active={filters.due}
+              onPick={(v) => setParam('due', v)}
+            />
+
+            {/* ⚠️ DRAWN, NOT BUILT — owner, 2026-09-14: *"If the system doesn't
+                have that thing but the UI is showing them, you have to show
+                them."* Table is the live view and reads as selected; Board is
+                present, in position, and says what it is waiting for rather than
+                doing nothing when pressed. A control that silently ignores a
+                click is the one thing worse than a control that explains. */}
+            <div className="flex items-center gap-1 rounded-lg border border-border-subtle bg-bg-surface p-0.5">
+              <span className="inline-flex items-center gap-1.5 rounded-md bg-accent-primary px-2.5 py-1 text-caption font-medium text-white">
+                <Table2 className="size-3.5" aria-hidden="true" />
+                Table
+              </span>
+              <span
+                title="The board view is not built yet."
+                className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-md px-2.5 py-1 text-caption font-medium text-text-disabled"
+              >
+                <Columns3 className="size-3.5" aria-hidden="true" />
+                Board
+              </span>
+            </div>
+          </div>
 
           <StageStrip
             counts={stageCounts}
@@ -244,8 +305,6 @@ export function LeadDesk({
 
               Only on the demo project, and the SERVER re-checks that on every
               call — a hidden button is not a permission. */}
-          {selected?.name.endsWith('[demo]') && <TestLeadButton projectId={selected.id} />}
-
           {/* ⚠️ ONLY FOR SOMEBODY WHO MAY HAND LEADS OUT. A salesperson seeing
               "312 leads have nobody working them" would be told about work they
               cannot take — which reads as a queue they are being blamed for. */}
@@ -295,16 +354,48 @@ export function LeadDesk({
                 "Email connected" beside it; there is no email integration, so
                 claiming one would be a green dot that means nothing. WhatsApp is
                 real and per-project (139), which is why it can say so. */}
-            <p className="flex items-center gap-1.5 text-caption text-text-secondary">
-              <span
-                aria-hidden="true"
-                className="size-1.5 rounded-full"
-                style={{ backgroundColor: canWhatsApp ? WA_GREEN : 'var(--text-disabled)' }}
-              />
-              {canWhatsApp
-                ? `WhatsApp connected · ${selected.name}`
-                : `${selected.name} has no WhatsApp number`}
-            </p>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-caption text-text-secondary">
+              {/* ⚠️ EMAIL IS GREY AND SAYS SO. There is no email integration —
+                  the controls above are `mailto:` links, which is the reader's
+                  own client, not ours. A green dot here would be the one claim
+                  on this page that nothing backs. */}
+              <span className="flex items-center gap-1.5" title="No email integration — the email buttons open your own mail client.">
+                <Mail className="size-3.5 text-text-disabled" aria-hidden="true" />
+                <span
+                  aria-hidden="true"
+                  className="size-1.5 rounded-full"
+                  style={{ backgroundColor: 'var(--text-disabled)' }}
+                />
+                Email not connected
+              </span>
+
+              <span className="flex items-center gap-1.5">
+                <span style={{ color: canWhatsApp ? WA_GREEN : 'var(--text-disabled)' }}>
+                  <WhatsAppMark className="size-3.5" />
+                </span>
+                <span
+                  aria-hidden="true"
+                  className="size-1.5 rounded-full"
+                  style={{ backgroundColor: canWhatsApp ? WA_GREEN : 'var(--text-disabled)' }}
+                />
+                {canWhatsApp ? 'WhatsApp connected' : 'WhatsApp not connected'}
+              </span>
+
+              {/* ⚠️ THE TIMEZONE IS NAMED, and that is not decoration: every date
+                  on this page is rendered in Asia/Karachi rather than the
+                  reader's own, and for five hours each evening those are
+                  different days. */}
+              <span className="tabular-nums text-text-tertiary">
+                {new Date(nowMs).toLocaleDateString('en-GB', {
+                  weekday: 'short',
+                  day: 'numeric',
+                  month: 'short',
+                  year: 'numeric',
+                  timeZone: 'Asia/Karachi',
+                })}{' '}
+                · Asia/Karachi
+              </span>
+            </div>
           </div>
         </>
       )}
@@ -820,29 +911,13 @@ function StageStrip({
   active: string | null;
   onPick: (stage: string | null) => void;
 }) {
-  const all = STAGE_ORDER.reduce((sum, stage) => sum + (counts[stage] ?? 0), 0);
-
+  /* ⚠️ NO "ALL LEADS" CHIP ANY MORE. It used to lead this row; the design the
+     owner supplied carries that figure twice already — in the Total leads card
+     and in the "All leads (20)" tab — and a third copy is the one somebody
+     notices disagreeing after a filter. The row is now exactly the nine stages
+     and nothing else. */
   return (
-    <div className="flex flex-wrap gap-1.5">
-      <button
-        type="button"
-        onClick={() => onPick(null)}
-        aria-pressed={active === null}
-        className={cn(
-          'flex min-w-[6.5rem] flex-col items-start gap-0.5 rounded-xl border px-3 py-2 text-left transition-colors',
-          active === null
-            ? 'border-border-strong bg-bg-subtle'
-            : 'border-border-subtle bg-bg-surface hover:border-border-default',
-        )}
-      >
-        <span className="flex items-center gap-1.5">
-          {/* No stage dot: this chip is not a stage, and giving it one would
-              put a tenth colour in a funnel that has exactly nine. */}
-          <span className="text-[0.62rem] font-medium text-text-secondary">All leads</span>
-        </span>
-        <span className="text-body font-semibold tabular-nums text-text-primary">{all}</span>
-      </button>
-
+    <div className="flex flex-wrap items-center gap-1.5">
       {STAGE_ORDER.map((stage) => {
         const n = counts[stage] ?? 0;
         const on = active === stage;
@@ -852,28 +927,30 @@ function StageStrip({
             type="button"
             onClick={() => onPick(stage)}
             aria-pressed={on}
+            /* ⚠️ A PILL, ONE LINE: dot, name, count. The stacked card this
+                replaced was 6.5rem wide nine times over, which wrapped to three
+                rows on a laptop and pushed the leads themselves below the fold —
+                on the one screen somebody opens between two calls. */
             className={cn(
-              'flex min-w-[6.5rem] flex-col items-start gap-0.5 rounded-xl border px-3 py-2 text-left transition-colors',
-              on ? 'border-border-strong bg-bg-subtle' : 'border-border-subtle bg-bg-surface hover:border-border-default',
+              'flex items-center gap-1.5 rounded-full border py-1 pl-2.5 pr-2 text-caption transition-colors',
+              on
+                ? 'border-border-strong bg-bg-subtle'
+                : 'border-border-subtle bg-bg-surface hover:border-border-default',
             )}
           >
-            <span className="flex items-center gap-1.5">
-              <span
-                aria-hidden="true"
-                className="size-1.5 rounded-full"
-                style={{ backgroundColor: `var(--${stageToken(stage)})` }}
-              />
-              <span className="text-[0.62rem] font-medium text-text-secondary">
-                {stageLabel(stage)}
-              </span>
-            </span>
-            {/* The empty stages read quieter through the COUNT's ink, which stays
-                above the contrast floor, rather than through opacity on the whole
-                chip, which did not. */}
+            <span
+              aria-hidden="true"
+              className="size-1.5 shrink-0 rounded-full"
+              style={{ backgroundColor: `var(--${stageToken(stage)})` }}
+            />
+            <span className="font-medium text-text-secondary">{stageLabel(stage)}</span>
+            {/* ⚠️ The empty stages read quieter through the COUNT's ink, which
+                stays above the contrast floor — never through opacity on the
+                whole pill, which did not. */}
             <span
               className={cn(
-                'text-body font-semibold tabular-nums',
-                n === 0 ? 'text-text-secondary' : 'text-text-primary',
+                'min-w-4 rounded-full px-1 text-center font-semibold tabular-nums',
+                n === 0 ? 'text-text-tertiary' : 'bg-bg-subtle text-text-primary',
               )}
             >
               {n}
@@ -899,6 +976,24 @@ function LeadTable({
   /** Threaded down to the row's WhatsApp icon — see `Row`. */
   canWhatsApp: boolean;
 }) {
+  /* ⚠️ REAL SELECTION, NO BULK ACTIONS YET. The boxes tick, "select all" works,
+     and the count is honest. What does not exist is anything to DO with a
+     selection — that arrives with the bulk bar, and drawing the bar now would be
+     a row of buttons that refuse. Page-scoped on purpose: a selection that
+     silently spans pages is how somebody reassigns 600 leads meaning 12. */
+  const [ticked, setTicked] = React.useState<ReadonlySet<string>>(new Set());
+  const shown = React.useMemo(() => rows.map((r) => r.id), [rows]);
+  const allTicked = shown.length > 0 && shown.every((id) => ticked.has(id));
+
+  const onTickAll = (on: boolean) => setTicked(on ? new Set(shown) : new Set());
+  const onTick = (id: string, on: boolean) =>
+    setTicked((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+
   if (rows.length === 0) {
     return (
       <Empty
@@ -916,10 +1011,26 @@ function LeadTable({
       <table className="w-full min-w-[62rem] border-collapse text-left">
         <thead>
           <tr className="border-b border-border-default bg-bg-subtle">
+            {/* ⚠️ SELECTION WORKS; THERE IS NOTHING TO DO WITH IT YET. Owner,
+                2026-09-14: *"If the system doesn't have that thing but the UI is
+                showing them, you have to show them. I will make them work
+                definitely."* So the boxes tick and untick for real — what is
+                missing is the bulk action bar they will one day raise, not the
+                control. */}
+            <th scope="col" className="w-9 px-3 py-2.5">
+              <input
+                type="checkbox"
+                aria-label="Select every lead on this page"
+                checked={allTicked}
+                onChange={(e) => onTickAll(e.target.checked)}
+                className="size-3.5 rounded border-border-default align-middle"
+              />
+            </th>
             <Th>Lead / project</Th>
             <Th>Stage</Th>
             <Th>Recent conversation</Th>
             <Th>Next follow-up</Th>
+            <Th>Sequence</Th>
             <Th>Owner</Th>
             <Th>Came from</Th>
             <Th>Actions</Th>
@@ -927,7 +1038,15 @@ function LeadTable({
         </thead>
         <tbody>
           {rows.map((lead) => (
-            <Row key={lead.id} lead={lead} nowMs={nowMs} from={from} canWhatsApp={canWhatsApp} />
+            <Row
+              key={lead.id}
+              lead={lead}
+              nowMs={nowMs}
+              from={from}
+              canWhatsApp={canWhatsApp}
+              ticked={ticked.has(lead.id)}
+              onTick={onTick}
+            />
           ))}
         </tbody>
       </table>
@@ -940,6 +1059,8 @@ function Row({
   nowMs,
   from,
   canWhatsApp,
+  ticked,
+  onTick,
 }: {
   lead: CrmLeadRow;
   nowMs: number;
@@ -947,12 +1068,29 @@ function Row({
   /** Whether this lead's project can send WhatsApp itself — decides whether the
    *  green mark opens OUR conversation or hands the number to the device. */
   canWhatsApp: boolean;
+  ticked: boolean;
+  onTick: (id: string, on: boolean) => void;
 }) {
   const phone = displayPhone(lead.phoneE164, lead.phone);
   const wa = whatsAppDigits(lead.phoneE164 ?? lead.phone);
 
   return (
-    <tr className="border-b border-border-subtle last:border-b-0 hover:bg-bg-subtle/60">
+    <tr
+      className={cn(
+        'border-b border-border-subtle last:border-b-0 hover:bg-bg-subtle/60',
+        ticked && 'bg-bg-subtle/70',
+      )}
+    >
+      <td className="px-3 py-2.5 align-top">
+        <input
+          type="checkbox"
+          checked={ticked}
+          onChange={(e) => onTick(lead.id, e.target.checked)}
+          aria-label={`Select ${lead.fullName ?? 'this lead'}`}
+          className="size-3.5 rounded border-border-default"
+        />
+      </td>
+
       {/* ── The person ─────────────────────────────────────────────────── */}
       <td className={TD}>
         {/* ⚠️ THE NAME IS THE LINK, NOT THE WHOLE ROW. A clickable `<tr>` needs
@@ -1091,8 +1229,34 @@ function Row({
             )}
           </>
         ) : (
-          <Nothing>Not set</Nothing>
+          /* ⚠️ AN INVITATION, NOT A SHRUG. "Not set" stated a fact and left the
+              reader to work out where to change it; this is the one row state
+              that always has an obvious next move. */
+          <Link
+            href={`/leads/${lead.id}${from ? `?from=${encodeURIComponent(from)}` : ''}` as Route}
+            className="inline-flex items-center gap-1 text-caption font-medium text-text-brand underline-offset-2 hover:underline"
+          >
+            <CalendarPlus className="size-3.5" aria-hidden="true" />
+            Add follow-up
+          </Link>
         )}
+      </td>
+
+      {/* ── ⚠️ SEQUENCE — DRAWN, NOT BUILT ───────────────────────────────
+          Owner, 2026-09-14: *"If the system doesn't have that thing but the UI is
+          showing them, you have to show them. I will make them work
+          definitely."* So the column exists, in its final shape and position.
+
+          ⚠️ AND IT SAYS "Not started" FOR EVERY LEAD, BECAUSE THAT IS TRUE.
+          There is no sequences table, no scheduler and no step counter, so the
+          only honest value is the one every lead genuinely has. Printing
+          "Active · 2/3" against a real person to match a mock-up would be a
+          figure a salesperson could act on and nothing behind it. When sequences
+          ship, this cell reads them and the pill stops being a constant. */}
+      <td className={TD}>
+        <span className="inline-flex items-center rounded-md border border-border-subtle bg-bg-surface px-1.5 py-0.5 text-caption text-text-secondary">
+          Not started
+        </span>
       </td>
 
 
@@ -1202,8 +1366,60 @@ function Row({
 
                Secondary ink for the same reason as `Nothing`: this is the cell's
                value, not a placeholder. */
-            <Nothing>No usable number</Nothing>
+            /* ⚠️ AN EM DASH, NOT A SENTENCE. "No usable number" was three words
+               wide in a column of icon buttons, and it dragged the eye to the one
+               row that can do the least. The explanation still exists — it is the
+               control's title, and the Lead column shows what they actually
+               typed. */
+            <span className="text-caption text-text-tertiary" title="This number could not be read as a mobile, so there is no dialling link.">
+              —
+            </span>
           )}
+
+          {/* ⚠️ EMAIL IS REAL FOR THE 16 WHO GAVE ONE, and a plain `mailto:` for
+              exactly the same reason `tel:` is: it hands the address to whatever
+              the reader already uses and records nothing, honestly. For the rest
+              the control is present and DISABLED rather than missing, so the row
+              of actions does not jump about from one lead to the next. */}
+          {lead.email ? (
+            <ReachLink href={`mailto:${lead.email}`} label={`Email ${lead.fullName ?? 'lead'} at ${lead.email}`}>
+              <Mail className="size-3.5" aria-hidden="true" />
+            </ReachLink>
+          ) : (
+            <span
+              aria-hidden="true"
+              title="This lead did not give an email address."
+              className="grid size-7 place-items-center rounded-lg border border-border-subtle text-text-disabled"
+            >
+              <Mail className="size-3.5" />
+            </span>
+          )}
+
+          {/* ⚠️ THE ONE SOLID BUTTON ON THE ROW, and it is the thing a desk
+              exists for: settling what happens next. It opens the record on its
+              follow-up controls rather than acting here — a date needs a note
+              beside it, and a one-click "done" with no note is how a timeline
+              starts lying about work. */}
+          <Link
+            href={`/leads/${lead.id}${from ? `?from=${encodeURIComponent(from)}` : ''}` as Route}
+            className="ml-0.5 inline-flex min-h-7 shrink-0 items-center rounded-lg bg-accent-primary px-2.5 text-caption font-medium text-white transition-opacity hover:opacity-90"
+          >
+            Follow-up
+          </Link>
+
+          {/* ⚠️ DRAWN, NOT BUILT — same instruction as the Sequence column. It
+              opens the record, which is where every per-lead action actually
+              lives today (stage, owner, notes, withdraw). A menu that listed
+              those and then navigated to the same place would be two clicks
+              pretending to be a shortcut. */}
+          <Link
+            href={`/leads/${lead.id}${from ? `?from=${encodeURIComponent(from)}` : ''}` as Route}
+            aria-label={`More for ${lead.fullName ?? 'this lead'}`}
+            title="Open the record — stage, owner, notes"
+            className="grid size-7 shrink-0 place-items-center rounded-lg text-text-secondary transition-colors hover:bg-bg-subtle hover:text-text-primary"
+          >
+            <MoreVertical className="size-4" aria-hidden="true" />
+          </Link>
         </span>
       </td>
     </tr>

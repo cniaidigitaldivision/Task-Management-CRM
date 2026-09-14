@@ -41,6 +41,7 @@ const ROWS: CrmLeadRow[] = [
     fullName: 'Mukhtar Ahmad',
     phone: '03439040510',
     phoneE164: '+923439040510',
+    email: null,
     city: 'CHITHRAL',
     stage: 'new',
     temperature: null,
@@ -66,6 +67,7 @@ const ROWS: CrmLeadRow[] = [
     fullName: '<test lead: dummy data>',
     phone: 'call me on the landline',
     phoneE164: null,
+    email: null,
     city: null,
     stage: 'lost',
     temperature: 'cold',
@@ -90,6 +92,7 @@ const ROWS: CrmLeadRow[] = [
     fullName: 'Tariq Qasim',
     phone: '0346 9019309',
     phoneE164: '+923469019309',
+    email: 'tariq.qasim@example.com',
     city: 'Chitral',
     stage: 'negotiation',
     temperature: 'hot',
@@ -217,13 +220,24 @@ describe('the live project', () => {
   it('names the owner, and says Unassigned rather than blank', () => {
     expect(html).toContain('Abdul Moiz');
     expect(html).toContain('Unassigned');
-    expect(html).toContain('Not set');
+    /* ⚠️ "Not set" became "Add follow-up" on 2026-09-14. It stated a fact and
+       left the reader to work out where to change it; this is the one row state
+       that always has an obvious next move, and the supplied design makes it a
+       link. The property that matters is unchanged: a lead with nothing planned
+       says so, rather than rendering an empty cell. */
+    expect(html).toContain('Add follow-up');
   });
 
   it('builds a tel: and wa.me link only from a parsed number', () => {
     expect(html).toContain('tel:+923439040510');
     expect(html).toContain('https://wa.me/923439040510');
-    expect(html).toContain('No usable number');
+    /* ⚠️ THE REFUSAL IS STILL THERE, IT JUST STOPPED SHOUTING. The three-word
+       sentence became an em dash with the explanation on its title — it sat in a
+       column of icon buttons and dragged the eye to the one row that can do the
+       least. What must not regress is that a lead with an unparseable number
+       gets NO dialling link built from a guess, which would ring a stranger. */
+    expect(html).toContain('This number could not be read as a mobile');
+    expect(html).not.toContain('tel:call me on the landline');
     /* ⚠️ Never a link built from the unparseable value. */
     expect(html).not.toContain('call me on the landline"');
   });

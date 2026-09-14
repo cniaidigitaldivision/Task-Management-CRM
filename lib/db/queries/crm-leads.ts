@@ -72,6 +72,8 @@ export interface CrmLeadRow {
   readonly fullName: string | null;
   readonly phone: string | null;
   readonly phoneE164: string | null;
+  /** 16 of the 632 gave one. The desk's email control is live for those. */
+  readonly email: string | null;
   readonly city: string | null;
   readonly stage: string;
   readonly temperature: string | null;
@@ -325,7 +327,7 @@ export async function listCrmLeads(
     const stage = filters.stage ?? null;
 
     const page = await tx`
-      select l.id, l.full_name, l.phone, l.phone_e164, l.city,
+      select l.id, l.full_name, l.phone, l.phone_e164, l.email, l.city,
              l.stage::text, l.temperature::text,
              l.next_action, l.next_action_at, l.submitted_at,
              l.owner_id,
@@ -413,6 +415,7 @@ export async function listCrmLeads(
       fullName: (r.full_name as string | null) ?? null,
       phone: (r.phone as string | null) ?? null,
       phoneE164: (r.phone_e164 as string | null) ?? null,
+      email: (r.email as string | null) ?? null,
       city: (r.city as string | null) ?? null,
       stage: String(r.stage),
       temperature: (r.temperature as string | null) ?? null,
