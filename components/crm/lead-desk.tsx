@@ -25,6 +25,7 @@ import {
 
 import { ShareOutControl } from '@/components/crm/lead-actions';
 import { SalesTeamPanel } from '@/components/crm/sales-team';
+import { useToast } from '@/components/ui/toast';
 import { WA_GREEN, WhatsAppMark } from '@/components/crm/whatsapp-mark';
 /* ⚠️⚠️ TEMPORARY — delete with the block that uses it. See below. */
 import { TestLeadButton } from '@/components/crm/test-lead-modal';
@@ -214,6 +215,24 @@ export function LeadDesk({
         {selected?.connection === 'live' && (
           <>
             <SearchBox value={filters.search ?? ''} onSearch={(q) => setParam('q', q)} />
+
+            {/* ⚠️ OWNER IS OUT HERE, NOT ONLY INSIDE `Filters`. It is still in
+                the menu too, and that is on purpose rather than a duplicate: the
+                menu is where somebody assembles a query, and this is the one
+                dimension a manager flips through all day — "show me Sara's, now
+                show me Omar's". A filter you change twenty times a session does
+                not belong two clicks deep.
+
+                ⚠️ EMPTY FOR A SALESPERSON, and it disappears rather than
+                offering them a list of one. Migration 120's guard returns them
+                an empty roster; this reads that rather than re-deciding it. */}
+            {owners.length > 0 && (
+              <OwnerSelect
+                owners={owners}
+                selectedId={filters.ownerId ?? ''}
+                onSelect={(id) => setParam('owner', id || null)}
+              />
+            )}
 
             <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
               {/* ⚠️⚠️ TEMPORARY — DELETE WITH ITS IMPORT, `components/crm/
@@ -411,6 +430,38 @@ export function LeadDesk({
  * known to the system and simply not connected yet, which is a different fact
  * from being absent.
  */
+function OwnerSelect({
+  owners,
+  selectedId,
+  onSelect,
+}: {
+  owners: readonly Option[];
+  selectedId: string;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <div className="relative">
+      <select
+        aria-label="Owner"
+        value={selectedId}
+        onChange={(e) => onSelect(e.target.value)}
+        className="min-h-[2.6rem] min-w-[11rem] cursor-pointer appearance-none rounded-xl border border-border-subtle bg-bg-surface px-3 pr-9 text-body-sm font-medium text-text-primary transition-colors hover:border-border-default focus:border-accent-primary focus:outline-none"
+      >
+        <option value="">All owners</option>
+        {owners.map((o) => (
+          <option key={o.id} value={o.id}>
+            {o.name} ({o.leads})
+          </option>
+        ))}
+      </select>
+      <ChevronDown
+        aria-hidden="true"
+        className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-text-tertiary"
+      />
+    </div>
+  );
+}
+
 function ProjectSelect({
   projects,
   selectedId,
@@ -1302,97 +1353,100 @@ function Row({
         )}
       </td>
 
-      {/* ── ⚠️ LINKS, NOT ACTIONS ──────────────────────────────────────────
-          `tel:` and `wa.me` hand the number to the device and record nothing.
-          Logging the attempt is Step 6, and a button that looked like it logged
-          a call while logging nothing would make the activity timeline lie about
-          work that was actually done. These are marked as what they are. */}
+      {/* ── ⚠️ THE SAME FOUR CONTROLS ON EVERY ROW ────────────────────────
+          Owner, 2026-09-14: *"Where whose number is present, it's showing a
+          whatsapp over there. Where whose number is not present, he's not
+          showing. I want a sync UI: when you click on that button, if that
+          specific row doesn't have that record, it will show that error or a
+          message."*
+
+          Right, and it was a real fault rather than a cosmetic one. A control
+          that appears on some rows and not others makes the eye re-find the
+          Follow-up button on every line, and — worse — it silently taught the
+          reader that a missing icon means "nothing to do here" when what it
+          really meant was "this one needs a number".
+
+          So all four are always drawn, always in the same order and the same
+          places. Where the data is missing the control stays and SAYS SO on
+          click. ⚠️ It is a `button`, not a dead `span`: something a reader will
+          click has to be reachable by keyboard and has to answer.
+
+          `tel:` and `wa.me` still hand the number to the device and record
+          nothing — logging the attempt is Step 6 — and that has not changed. */}
       <td className={TD}>
         <span className="flex items-center gap-1">
           {lead.phoneE164 ? (
-            <>
-              {/* ⚠️ THE NUMBER IS IN THE LABEL, and the label is the accessible
-                  name AND the hover title. It left the Lead column when the
-                  project took its place, and a number nobody can read is a
-                  number somebody has to open the record for. */}
-              <ReachLink
-                href={`tel:${lead.phoneE164}`}
-                label={`Call ${lead.fullName ?? 'lead'} on ${phone}`}
-              >
-                <Phone className="size-3.5" aria-hidden="true" />
-              </ReachLink>
-              {/* ⚠️ THE CHAT FIRST, AND `wa.me` ONLY AS A FALLBACK — owner,
-                  2026-09-13: *"it brings me to that link of whatsapp on the
-                  web. It's not opening the chat in the right bottom."*
-
-                  It was doing worse than that. `wa.me` opens the SALESPERSON'S
-                  OWN WhatsApp, so the message goes out from their personal
-                  number and nothing is recorded — no thread, no response time,
-                  no "who replied". Once a project has a number of its own, that
-                  link actively undoes the feature it sits next to.
-
-                  So when the project can send, this opens the lead with its
-                  conversation already up (`?chat=1`). When it cannot — Chitral
-                  has no number yet — `wa.me` is still the only way to reach
-                  somebody, and it stays. */}
-              {canWhatsApp ? (
-                <ReachLink
-                  href={`/leads/${lead.id}?chat=1` as Route}
-                  label={`Open the WhatsApp chat with ${lead.fullName ?? 'lead'}`}
-                >
-                  <span style={{ color: WA_GREEN }}>
-                    <WhatsAppMark className="size-3.5" />
-                  </span>
-                </ReachLink>
-              ) : (
-                wa && (
-                  <ReachLink
-                    href={`https://wa.me/${wa}`}
-                    external
-                    label={`WhatsApp ${lead.fullName ?? 'lead'} from your own phone`}
-                  >
-                    <span style={{ color: WA_GREEN }}>
-                      <WhatsAppMark className="size-3.5" />
-                    </span>
-                  </ReachLink>
-                )
-              )}
-            </>
+            <ReachLink
+              href={`tel:${lead.phoneE164}`}
+              label={`Call ${lead.fullName ?? 'lead'} on ${phone}`}
+            >
+              <Phone className="size-3.5" aria-hidden="true" />
+            </ReachLink>
           ) : (
-            /* ⚠️ Three of the 615 have a number that could not be parsed with
-               confidence. The raw value is still shown in the Lead column — what
-               is refused is a tel: link built from a guess, which would ring a
-               stranger.
-
-               Secondary ink for the same reason as `Nothing`: this is the cell's
-               value, not a placeholder. */
-            /* ⚠️ AN EM DASH, NOT A SENTENCE. "No usable number" was three words
-               wide in a column of icon buttons, and it dragged the eye to the one
-               row that can do the least. The explanation still exists — it is the
-               control's title, and the Lead column shows what they actually
-               typed. */
-            <span className="text-caption text-text-tertiary" title="This number could not be read as a mobile, so there is no dialling link.">
-              —
-            </span>
+            <ReachExplain
+              label={`Call ${lead.fullName ?? 'this lead'}`}
+              reason={
+                lead.phone
+                  ? `“${lead.phone}” could not be read as a mobile number, so there is no dialling link. Open the record to correct it.`
+                  : 'This lead did not give a phone number, so there is nothing to dial.'
+              }
+            >
+              <Phone className="size-3.5" aria-hidden="true" />
+            </ReachExplain>
           )}
 
-          {/* ⚠️ EMAIL IS REAL FOR THE 16 WHO GAVE ONE, and a plain `mailto:` for
-              exactly the same reason `tel:` is: it hands the address to whatever
-              the reader already uses and records nothing, honestly. For the rest
-              the control is present and DISABLED rather than missing, so the row
-              of actions does not jump about from one lead to the next. */}
+          {/* ⚠️ OUR CHAT FIRST, `wa.me` ONLY WHERE THE PROJECT CANNOT SEND.
+              `wa.me` opens the SALESPERSON'S OWN WhatsApp — the message leaves
+              from a personal handset and nothing is recorded. Once a project has
+              a number of its own that link undoes the feature beside it. */}
+          {canWhatsApp && lead.phoneE164 ? (
+            <ReachLink
+              href={`/leads/${lead.id}?chat=1` as Route}
+              label={`Open the WhatsApp chat with ${lead.fullName ?? 'lead'}`}
+            >
+              <span style={{ color: WA_GREEN }}>
+                <WhatsAppMark className="size-3.5" />
+              </span>
+            </ReachLink>
+          ) : wa ? (
+            <ReachLink
+              href={`https://wa.me/${wa}`}
+              external
+              label={`WhatsApp ${lead.fullName ?? 'lead'} from your own phone`}
+            >
+              <span style={{ color: WA_GREEN }}>
+                <WhatsAppMark className="size-3.5" />
+              </span>
+            </ReachLink>
+          ) : (
+            <ReachExplain
+              label={`WhatsApp ${lead.fullName ?? 'this lead'}`}
+              reason={
+                lead.phone
+                  ? `“${lead.phone}” could not be read as a WhatsApp number. Open the record to correct it.`
+                  : 'This lead has no WhatsApp number on record, so there is nothing to open.'
+              }
+            >
+              <span style={{ color: WA_GREEN }}>
+                <WhatsAppMark className="size-3.5" />
+              </span>
+            </ReachExplain>
+          )}
+
           {lead.email ? (
-            <ReachLink href={`mailto:${lead.email}`} label={`Email ${lead.fullName ?? 'lead'} at ${lead.email}`}>
+            <ReachLink
+              href={`mailto:${lead.email}`}
+              label={`Email ${lead.fullName ?? 'lead'} at ${lead.email}`}
+            >
               <Mail className="size-3.5" aria-hidden="true" />
             </ReachLink>
           ) : (
-            <span
-              aria-hidden="true"
-              title="This lead did not give an email address."
-              className="grid size-7 place-items-center rounded-lg border border-border-subtle text-text-disabled"
+            <ReachExplain
+              label={`Email ${lead.fullName ?? 'this lead'}`}
+              reason="This lead did not give an email address."
             >
-              <Mail className="size-3.5" />
-            </span>
+              <Mail className="size-3.5" aria-hidden="true" />
+            </ReachExplain>
           )}
 
           {/* ⚠️ THE ONE SOLID BUTTON ON THE ROW, and it is the thing a desk
@@ -1407,11 +1461,6 @@ function Row({
             Follow-up
           </Link>
 
-          {/* ⚠️ DRAWN, NOT BUILT — same instruction as the Sequence column. It
-              opens the record, which is where every per-lead action actually
-              lives today (stage, owner, notes, withdraw). A menu that listed
-              those and then navigated to the same place would be two clicks
-              pretending to be a shortcut. */}
           <Link
             href={`/leads/${lead.id}${from ? `?from=${encodeURIComponent(from)}` : ''}` as Route}
             aria-label={`More for ${lead.fullName ?? 'this lead'}`}
@@ -1423,6 +1472,45 @@ function Row({
         </span>
       </td>
     </tr>
+  );
+}
+
+/**
+ * A reach control whose data is missing.
+ *
+ * ⚠️ IT LOOKS EXACTLY LIKE `ReachLink` AND IT ANSWERS. The alternative — drawing
+ * nothing — is what the owner caught on 2026-09-14: the actions column changed
+ * width from row to row, and a reader learned that a missing icon meant
+ * "nothing to do here" when it meant "this one needs a number".
+ *
+ * ⚠️ AND THE MESSAGE NAMES THE ROW'S OWN PROBLEM, not a generic one. "This lead
+ * did not give a phone number" and "0300-ABC could not be read as a mobile" send
+ * somebody to two different places, and only the second is worth opening the
+ * record for.
+ */
+function ReachExplain({
+  label,
+  reason,
+  children,
+}: {
+  label: string;
+  reason: string;
+  children: React.ReactNode;
+}) {
+  const toast = useToast();
+  return (
+    <button
+      type="button"
+      onClick={() => toast({ tone: 'warn', text: reason })}
+      aria-label={`${label} — not available`}
+      title={reason}
+      /* Dimmed, not disabled: a `disabled` button takes no click, gives no
+         keyboard focus and so can never explain itself — which is the whole
+         job here. */
+      className="grid size-7 place-items-center rounded-lg border border-border-subtle text-text-disabled opacity-60 transition-colors hover:border-border-default hover:bg-bg-subtle hover:opacity-100"
+    >
+      {children}
+    </button>
   );
 }
 

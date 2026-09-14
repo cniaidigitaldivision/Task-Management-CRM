@@ -231,12 +231,17 @@ describe('the live project', () => {
   it('builds a tel: and wa.me link only from a parsed number', () => {
     expect(html).toContain('tel:+923439040510');
     expect(html).toContain('https://wa.me/923439040510');
-    /* ⚠️ THE REFUSAL IS STILL THERE, IT JUST STOPPED SHOUTING. The three-word
-       sentence became an em dash with the explanation on its title — it sat in a
-       column of icon buttons and dragged the eye to the one row that can do the
-       least. What must not regress is that a lead with an unparseable number
-       gets NO dialling link built from a guess, which would ring a stranger. */
-    expect(html).toContain('This number could not be read as a mobile');
+    /* ⚠️ THE CONTROLS NO LONGER DISAPPEAR — owner, 2026-09-14: *"Where whose
+       number is not present, he's not showing… I want a sync UI."* Every row now
+       draws the same four controls, and the ones with no data behind them say
+       why when pressed. So the assertion moved from "the refusal is printed in
+       the cell" to the two things that actually matter:
+
+         1 · the reason names THIS row's problem — an unreadable value, not a
+             missing one, which sends somebody to two different places;
+         2 · and no dialling link is built from a guess, which would ring a
+             stranger. That is the property this case was written for. */
+    expect(html).toContain('could not be read as a mobile number');
     expect(html).not.toContain('tel:call me on the landline');
     /* ⚠️ Never a link built from the unparseable value. */
     expect(html).not.toContain('call me on the landline"');
