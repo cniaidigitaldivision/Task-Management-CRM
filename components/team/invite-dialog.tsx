@@ -9,6 +9,7 @@ import {
   deleteDepartmentAction,
   listColleaguesAction,
   listDepartmentsAction,
+  listSalesMarketsAction,
 } from '@/app/actions/departments';
 import { invitePersonAction, type TeamActionResult } from '@/app/actions/team';
 import { Button } from '@/components/ui/button';
@@ -68,6 +69,11 @@ export function InviteDialog({
   >([]);
   const [colleagues, setColleagues] = React.useState<
     Array<{ id: string; name: string; role: string; department: string | null }>
+  >([]);
+  /* Migration 146. Empty until loaded, and empty is also the failure state —
+     the block below then does not render at all. */
+  const [markets, setMarkets] = React.useState<
+    Array<{ id: string; key: string; name: string }>
   >([]);
   /* ⚠️ DERIVED DURING RENDER, NOT RESTORED IN AN EFFECT. `picked` is null until
      somebody actually chooses; until then the value falls back to whatever the
@@ -136,6 +142,7 @@ export function InviteDialog({
     }
     /* ⚠️ Reloaded and SELECTED, so the reason somebody opened this dialog —
        filing the person they are inviting — completes in one step. */
+    setMarkets(await listSalesMarketsAction());
     setDepartments(await listDepartmentsAction());
     if (result.id) setPicked(result.id);
     setNewDeptName('');
@@ -457,6 +464,47 @@ export function InviteDialog({
             and agreed the field must not be invented meanwhile. So this imposes
             no list. It becomes structured when real answers show a real
             pattern, not before. */}
+        {/* ══ WHICH BUSINESS — migration 146 ═══════════════════════════════
+            Owner, 2026-09-14: *"It's a sale, sales of which type? …a real estate
+            type sale team having a real estate type or a sale team having some
+            other type, like frozen food types."*
+
+            ⚠️ THIS IS NOT THE Q19 FIELD BELOW, and the distinction is the whole
+            reason both exist. Q19 — what a person handles inside their market —
+            is still unanswered and still must not be invented. This is the
+            coarser question, and its four answers were read off the division's
+            own 14 lead projects rather than made up.
+
+            ⚠️ CHECKBOXES, NOT A DROPDOWN. 14 lead projects, 3 salespeople: one
+            market each is arithmetically impossible, so a single-choice control
+            would have been wrong on the day it shipped. */}
+        {showSpecialisation && markets.length > 0 && (
+          <Field
+            label="Which business do they sell?"
+            htmlFor="salesMarketIds"
+            hint="Tick every one that applies. Most of the team is real estate."
+          >
+            <div className="flex flex-wrap gap-x-4 gap-y-2 pt-1">
+              {markets.map((m, i) => (
+                <label key={m.id} className="flex items-center gap-2 text-body-sm text-text-primary">
+                  <input
+                    type="checkbox"
+                    /* Only the first carries the id the label points at — a
+                       repeated id is invalid and sends the focus ring to the
+                       wrong box. */
+                    id={i === 0 ? 'salesMarketIds' : undefined}
+                    name="salesMarketIds"
+                    value={m.id}
+                    defaultChecked={keep('salesMarketIds').split(',').includes(m.id)}
+                    className="size-4 rounded border-border-default"
+                  />
+                  {m.name}
+                </label>
+              ))}
+            </div>
+          </Field>
+        )}
+
         {showSpecialisation && (
           <Field
             label={`What does this person handle in ${chosen?.name}?`}

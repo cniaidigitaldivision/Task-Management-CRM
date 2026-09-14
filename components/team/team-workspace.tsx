@@ -27,7 +27,7 @@ import type { ResetTrailView } from '@/lib/view/reset-trail';
 
 import { PersonActions, type DepartmentOption } from './person-actions';
 import type { PersonWorkload } from '@/lib/db/queries/workload';
-import type { AvailabilityRow, PersonRow, SkillRow, UserSkillRow } from '@/lib/db/queries/types';
+import type { AvailabilityRow, PersonRow, SalesMarket, SkillRow, UserSkillRow } from '@/lib/db/queries/types';
 import {
   AVAILABILITY_TYPES,
   ROLE_LABEL,
@@ -67,6 +67,7 @@ export function TeamWorkspace({
   canProvision,
   assignableRoles,
   departments,
+  salesMarkets,
   pendingUserIds,
   resetTrails,
 }: {
@@ -83,6 +84,8 @@ export function TeamWorkspace({
   /** Where people can be moved to. Empty for a viewer who may not move anybody —
    *  the PAGE decides that, so there is one place to look. Migration 117. */
   departments: readonly DepartmentOption[];
+  /** Migration 146. The four businesses a salesperson can be filed under. */
+  salesMarkets: readonly SalesMarket[];
   /** Invited, not yet activated. They get a re-send option and no capacity edit. */
   pendingUserIds: readonly string[];
   /** The latest forced password reset per person, keyed by user id. Empty for a
@@ -245,6 +248,22 @@ export function TeamWorkspace({
                       ) : (
                         <span>No department</span>
                       )}
+                      {/* ⚠️ WHICH BUSINESS, BESIDE THE DEPARTMENT AND NOT INSTEAD
+                          OF IT — migration 146. "Sales" alone was too coarse:
+                          the 14 lead projects behind it are real estate, food
+                          and services, and the owner needs to see at a glance
+                          who sells which. Absent for everybody outside a
+                          lead-working department, which is most of the company,
+                          and absent renders nothing rather than an empty
+                          bracket. */}
+                      {person.salesMarkets.map((m) => (
+                        <span
+                          key={m.id}
+                          className="rounded-full border border-border-subtle px-1.5 py-px text-micro text-text-secondary"
+                        >
+                          {m.name}
+                        </span>
+                      ))}
                       {person.roleTitle && (
                         <>
                           <span aria-hidden="true" className="text-text-disabled">
@@ -394,6 +413,7 @@ export function TeamWorkspace({
              re-deriving keeps one answer to "may this person edit everything". */
           canManageAll={canManage}
           departments={departments}
+          salesMarkets={salesMarkets}
           people={people}
           onClose={() => setEditing(null)}
         />
@@ -462,6 +482,7 @@ function CapacityDialog({
   person,
   canManageAll,
   departments,
+  salesMarkets,
   people,
   onClose,
 }: {
@@ -473,6 +494,7 @@ function CapacityDialog({
    *  a dialog that loads its own would flash an empty dropdown on open and make
    *  two more round trips every time somebody edits anybody. */
   departments: readonly DepartmentOption[];
+  salesMarkets: readonly SalesMarket[];
   people: readonly PersonRow[];
   onClose: () => void;
 }) {
@@ -676,6 +698,52 @@ function CapacityDialog({
                 {/* ⚠️ FREE TEXT. Q19 — the taxonomy is not known yet and must not
                     be invented; the owner will bring back what the sales manager
                     actually says. */}
+                {/* ══ WHICH BUSINESS — migration 146 ═══════════════════════
+                    Owner, 2026-09-14: *"It's a sale, sales of which type?"*
+
+                    ⚠️ A DIFFERENT QUESTION FROM THE FIELD BELOW, and both are
+                    kept. This is the MARKET — four answers read off the
+                    division's own 14 lead projects. The one below is Q19, still
+                    unanswered, still free text, still not to be invented.
+
+                    ⚠️ AND THE HIDDEN MARKER IS LOAD-BEARING. A checkbox group
+                    with nothing ticked posts NO key at all, which the action
+                    cannot tell apart from a form that never offered the field.
+                    Without this, unticking the last market would silently do
+                    nothing — the classic multi-select bug. */}
+                {salesMarkets.length > 0 && (
+                  <>
+                    <input type="hidden" name="salesMarketsOffered" value="1" />
+                    <Field
+                      label="Which business do they sell?"
+                      htmlFor="salesMarketIds"
+                      hint="Tick every one that applies. Untick them all to clear it."
+                    >
+                      <div className="flex flex-wrap gap-x-4 gap-y-2 pt-1">
+                        {salesMarkets.map((m, i) => (
+                          <label
+                            key={m.id}
+                            className="flex items-center gap-2 text-body-sm text-text-primary"
+                          >
+                            <input
+                              type="checkbox"
+                              /* Only the first carries the id the label points
+                                 at — a repeated id is invalid HTML and sends the
+                                 focus ring to the wrong box. */
+                              id={i === 0 ? 'salesMarketIds' : undefined}
+                              name="salesMarketIds"
+                              value={m.id}
+                              defaultChecked={person.salesMarkets.some((x) => x.id === m.id)}
+                              className="size-4 rounded border-border-default"
+                            />
+                            {m.name}
+                          </label>
+                        ))}
+                      </div>
+                    </Field>
+                  </>
+                )}
+
                 <Field
                   label="What they handle"
                   htmlFor="specialisation"

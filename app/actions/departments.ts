@@ -233,3 +233,34 @@ export async function deleteDepartmentAction(id: string): Promise<DepartmentResu
     return { ok: false, error: 'That department could not be removed.' };
   }
 }
+
+/**
+ * The markets a salesperson can be filed under — migration 146.
+ *
+ * ⚠️ HERE RATHER THAN IN A NEW FILE because it is read by exactly the two forms
+ * that already read `listDepartmentsAction`, and the two questions sit next to
+ * each other on both: which department, and — if that department works leads —
+ * which business.
+ *
+ * ⚠️ FAILS CLOSED TO AN EMPTY LIST, like the departments above. The forms then
+ * omit the block entirely rather than drawing an empty set of checkboxes, which
+ * reads as "this person sells nothing".
+ */
+export async function listSalesMarketsAction(): Promise<
+  Array<{ id: string; key: string; name: string }>
+> {
+  const user = await requireUser();
+  try {
+    const rows = await withUser(user.id, (tx) => tx`
+      select id, key, name from public.sales_markets
+       where is_active order by sort_order, name
+    `);
+    return (rows as Array<Record<string, unknown>>).map((r) => ({
+      id: String(r.id),
+      key: String(r.key),
+      name: String(r.name),
+    }));
+  } catch {
+    return [];
+  }
+}

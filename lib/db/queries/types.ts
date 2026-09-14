@@ -184,6 +184,13 @@ export interface ChecklistRow {
   readonly sortOrder: number;
 }
 
+/** One of the businesses the division sells into. Rows, not an enum — see 146. */
+export interface SalesMarket {
+  readonly id: string;
+  readonly key: string;
+  readonly name: string;
+}
+
 export interface PersonRow {
   readonly id: string;
   readonly fullName: string;
@@ -218,6 +225,12 @@ export interface PersonRow {
      decide whether somebody is on shift when a lead arrives, so they are not
      decoration — an empty pair silently counts as AVAILABLE (133). */
   readonly specialisation: string | null;
+  /* ── Migration 146 ─────────────────────────────────────────────────────────
+     ⚠️ WHICH BUSINESS THEY SELL, not what they handle inside it. MANY, because
+     14 lead projects share 3 salespeople and one each is arithmetically
+     impossible. Empty for everybody outside a lead-working department, which is
+     most of the company, and empty is the ordinary state rather than a gap. */
+  readonly salesMarkets: readonly SalesMarket[];
   readonly workStartsAt: string | null;
   readonly workEndsAt: string | null;
   readonly joinedOn: string | null;

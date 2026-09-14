@@ -16,6 +16,7 @@ import {
   setUserSkill,
   updateCapacity,
   updateOwnProfile,
+  setSalesMarkets,
 } from '@/lib/db/queries/people';
 import {
   AVAILABILITY_TYPES,
@@ -206,6 +207,25 @@ export async function updateCapacityAction(
          must not leave a committed name change behind it. */
       ...(salary !== undefined ? { monthlySalary: salary } : {}),
     });
+
+    /* ── ⚠️ A SEPARATE TABLE, SO A SEPARATE WRITE — migration 146 ───────────
+       `form.has()` is the whole guard, and it has to be: a checkbox group with
+       NOTHING ticked posts no key at all, which is indistinguishable from a form
+       that never offered the field. So the dialog also posts a hidden
+       `salesMarketsOffered` marker; only then does an empty set mean "unticked
+       them all" rather than "did not ask". Without that, unticking the last
+       market would silently do nothing — the classic multi-select bug.
+
+       ⚠️ ADMIN ONLY, like the department and the rank beside it. Which business
+       somebody sells is the same class of fact, and it will decide lead routing
+       the moment Step 7c lands. */
+    if (isAdmin && form.has('salesMarketsOffered')) {
+      await setSalesMarkets(
+        user.id,
+        userId,
+        form.getAll('salesMarketIds').map(String).filter(Boolean),
+      );
+    }
 
     await withUser(user.id, async (tx) => {
       await audit(tx, user, {

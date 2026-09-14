@@ -27,6 +27,7 @@ import {
 import { audit } from '@/lib/db/queries/audit';
 import { record } from '@/lib/db/queries/feed';
 import * as P from '@/lib/db/queries/provisioning';
+import { setSalesMarkets } from '@/lib/db/queries/people';
 import { describeSender, sendEmail } from '@/lib/email/send';
 import { invitationEmail, passwordResetEmail } from '@/lib/email/templates';
 import {
@@ -160,6 +161,11 @@ export async function invitePersonAction(
   ] as const;
   const sent: Record<string, string> = {};
   for (const f of FIELDS) sent[f] = str(form, f);
+  /* ⚠️ A CHECKBOX GROUP IS NOT ONE FIELD, so `str()` would keep only the first
+     tick and silently drop the rest on a rejected invite. Kept as a comma-joined
+     list under one key; the dialog splits it back. Owner's standing rule: *"I
+     don't need to enter it again and again."* */
+  sent.salesMarketIds = form.getAll('salesMarketIds').map(String).filter(Boolean).join(',');
   /* ⚠️ Shadows the module-level `fail` inside this action ONLY. Every other
      action in this file keeps the plain one — they have no form to preserve. */
   const fail = (error: string): TeamActionResult => ({ ok: false, error, sent });
@@ -218,6 +224,9 @@ export async function invitePersonAction(
   const reportsToId = str(form, 'reportsToId') || null;
   const devicePersonNo = str(form, 'devicePersonNo') || null;
   const address = str(form, 'address') || null;
+  /* Migration 146. Many per person — see `setSalesMarkets` for why the whole set
+     travels rather than a diff. */
+  const salesMarketIds = form.getAll('salesMarketIds').map(String).filter(Boolean);
   const attendanceMode = str(form, 'attendanceMode') === 'terminal_only' ? 'terminal_only' : 'either';
 
   const workStartsAt = str(form, 'workStartsAt') || null;
@@ -288,6 +297,18 @@ export async function invitePersonAction(
       await setSalary(user.id, { userId, monthlySalary });
     } catch {
       /* Swallowed on purpose — see above. The account is created either way. */
+    }
+  }
+
+  /* ⚠️ SAME STANCE AS THE SALARY ABOVE, AND FOR THE SAME REASON. The invitation
+     is the point of this action; a market that failed to save is a chip somebody
+     ticks again on the Team page, not a reason to leave a colleague without an
+     account. Migration 146. */
+  if (salesMarketIds.length > 0) {
+    try {
+      await setSalesMarkets(user.id, userId, salesMarketIds);
+    } catch {
+      /* Swallowed on purpose — the account is created either way. */
     }
   }
 

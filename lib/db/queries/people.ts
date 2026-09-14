@@ -5,7 +5,7 @@ import { dateOnly } from '../row-values';
 import type { AvailabilityType, Role, Theme } from '@/lib/domain/constants';
 
 import { withUser } from '../client';
-import type { AvailabilityRow, PersonRow, SkillRow, UserSkillRow } from './types';
+import type { AvailabilityRow, PersonRow, SalesMarket, SkillRow, UserSkillRow } from './types';
 
 /* ============================================================================
  * PEOPLE QUERIES — LAYER 1
@@ -43,6 +43,16 @@ function toPerson(row: Record<string, unknown>): PersonRow {
     devicePersonNo: (row.device_person_no as string | null) ?? null,
     attendanceMode: (row.attendance_mode as 'either' | 'terminal_only') ?? 'either',
     specialisation: (row.specialisation as string | null) ?? null,
+    /* ⚠️ AGGREGATED IN SQL, NOT FETCHED PER PERSON. The Team page lists everyone;
+       one query per row would be 16 round trips to Singapore to draw a few
+       chips. Null when the query did not ask — see the join in `listPeople`. */
+    salesMarkets: Array.isArray(row.sales_markets)
+      ? (row.sales_markets as Array<Record<string, unknown>>).map((m) => ({
+          id: String(m.id),
+          key: String(m.key),
+          name: String(m.name),
+        }))
+      : [],
     /* `time` comes back as 'HH:MM:SS'; the <input type="time"> wants 'HH:MM'. */
     workStartsAt: row.work_starts_at ? String(row.work_starts_at).slice(0, 5) : null,
     workEndsAt: row.work_ends_at ? String(row.work_ends_at).slice(0, 5) : null,
@@ -80,10 +90,23 @@ export async function listPeople(
        field. Same lesson as lib/view/project-finance.ts.
        (No backticks: this sits inside a JS template literal.) */
     select u.*, c.monthly_salary,
-           d.key as department_key, d.name as department_name
+           d.key as department_key, d.name as department_name,
+           coalesce(mk.markets, '[]'::jsonb) as sales_markets
       from public.users u
       left join public.employee_compensation c on c.user_id = u.id
       left join public.departments d on d.id = u.department_id
+      /* ⚠️ ORDERED BY sort_order INSIDE THE AGGREGATE (no backticks: this sits
+         inside a JS template literal). Without it Postgres is
+         free to return the chips in a different order per row, and a list where
+         "Real estate" is first for one person and third for the next reads as
+         data that moves. */
+      left join lateral (
+        select jsonb_agg(jsonb_build_object('id', sm.id, 'key', sm.key, 'name', sm.name)
+                         order by sm.sort_order, sm.name) as markets
+          from public.user_sales_markets usm
+          join public.sales_markets sm on sm.id = usm.market_id
+         where usm.user_id = u.id and sm.is_active
+      ) mk on true
      where ${options.includeInactive ? tx`true` : tx`u.is_active`}
      order by
        case u.role when 'super_admin' then 0 when 'admin' then 1
@@ -96,10 +119,21 @@ export async function listPeople(
 export async function getPerson(actorId: string, userId: string): Promise<PersonRow | null> {
   const rows = await withUser(actorId, (tx) => tx`
     select u.*, c.monthly_salary,
-           d.key as department_key, d.name as department_name
+           d.key as department_key, d.name as department_name,
+           coalesce(mk.markets, '[]'::jsonb) as sales_markets
       from public.users u
       left join public.employee_compensation c on c.user_id = u.id
       left join public.departments d on d.id = u.department_id
+      /* Same aggregate as listPeople — the edit dialog reads this one, and a
+         person whose chips differ between the list and their own page is a bug
+         that looks like a caching problem. */
+      left join lateral (
+        select jsonb_agg(jsonb_build_object('id', sm.id, 'key', sm.key, 'name', sm.name)
+                         order by sm.sort_order, sm.name) as markets
+          from public.user_sales_markets usm
+          join public.sales_markets sm on sm.id = usm.market_id
+         where usm.user_id = u.id and sm.is_active
+      ) mk on true
      where u.id = ${userId}
   `);
   return rows[0] ? toPerson(rows[0]) : null;
@@ -243,6 +277,8 @@ export interface ProfileEdit {
   departmentId?: string | null;
   departmentRole?: 'manager' | 'member';
   specialisation?: string | null;
+  /** ⚠️ The WHOLE set, or absent. See `setSalesMarkets`. */
+  salesMarketIds?: readonly string[];
   workStartsAt?: string | null;
   workEndsAt?: string | null;
   joinedOn?: string | null;
@@ -517,4 +553,55 @@ export async function projectRolesByPerson(actorId: string): Promise<Map<string,
     out.set(`${row.project_id as string}:${row.user_id as string}`, row.role as string);
   }
   return out;
+}
+
+
+/* ============================================================================
+ * WHICH MARKETS ONE PERSON SELLS INTO — migration 146
+ * ----------------------------------------------------------------------------
+ * ⚠️ REPLACE, NOT MERGE, AND THE WHOLE SET EVERY TIME. A checkbox group sends
+ * only what is TICKED, so "remove Food" and "never mentioned Food" arrive as the
+ * same request. Merging would make unticking impossible — the classic
+ * multi-select bug, where a box can be checked and never cleared.
+ *
+ * ⚠️ AND `undefined` IS NOT `[]`. An absent field means "this form did not ask",
+ * and must leave the markets alone; an empty array means "somebody unticked them
+ * all". The caller distinguishes them; this function is only ever handed a real
+ * set.
+ *
+ * ⚠️ ONE TRANSACTION. Delete-then-insert across two round trips leaves a window
+ * where the person sells nothing, and the Team page renders in that window.
+ * ========================================================================= */
+export async function setSalesMarkets(
+  actorId: string,
+  userId: string,
+  marketIds: readonly string[],
+): Promise<void> {
+  await withUser(actorId, async (tx) => {
+    await tx`delete from public.user_sales_markets where user_id = ${userId}::uuid`;
+    if (marketIds.length === 0) return;
+    await tx`
+      insert into public.user_sales_markets (user_id, market_id)
+      select ${userId}::uuid, m.id
+        from public.sales_markets m
+       /* ⚠️ Joined against the real table rather than trusting the ids posted.
+          A form can send anything; only an id naming a live market survives, and
+          a stale one from an old tab is dropped instead of erroring. */
+       where m.id = any(${marketIds as string[]}::uuid[]) and m.is_active
+      on conflict do nothing
+    `;
+  });
+}
+
+/** The markets a form can offer. Readable by anybody signed in (146). */
+export async function listSalesMarkets(actorId: string): Promise<SalesMarket[]> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select id, key, name from public.sales_markets
+     where is_active order by sort_order, name
+  `);
+  return (rows as Array<Record<string, unknown>>).map((r) => ({
+    id: String(r.id),
+    key: String(r.key),
+    name: String(r.name),
+  }));
 }

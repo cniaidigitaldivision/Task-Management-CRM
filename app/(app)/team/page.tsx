@@ -14,6 +14,7 @@ import {
   listPeople,
   listSkills,
   listUserSkills,
+  listSalesMarkets,
 } from '@/lib/db/queries/people';
 import { getForcedResetTrails, type ResetTrail } from '@/lib/db/queries/auth';
 import { toResetTrailView } from '@/lib/view/reset-trail';
@@ -79,6 +80,7 @@ export default async function TeamPage() {
     assignableRoles,
     trails,
     departments,
+    salesMarkets,
     unmatchedScans,
     enrolments,
   ] = await Promise.all([
@@ -104,6 +106,12 @@ export default async function TeamPage() {
        Sales is what opens the CRM to them. An empty list here is what removes
        the menu item for everyone else. */
     canProvision ? listDepartments(user.id) : Promise.resolve([]),
+    /* Migration 146. ⚠️ IN THE SAME WAVE, and not rank-gated. The dialogs take
+       their lists as props rather than fetching their own — see `CapacityDialog`
+       — so a separate round trip here would become two more every time somebody
+       opens an edit form. The list is four words naming what the company sells;
+       146's policy lets anybody signed in read it. */
+    listSalesMarkets(user.id),
     /* The terminal mapping. Admin+ only, and not even queried otherwise — RLS
        would return empty (079), but a round trip for data the page will not draw
        is a round trip for nothing. */
@@ -254,6 +262,7 @@ export default async function TeamPage() {
           canProvision={canProvision}
           assignableRoles={assignableRoles}
           departments={departments}
+          salesMarkets={salesMarkets}
           pendingUserIds={pendingUserIds}
           resetTrails={resetTrails}
         />
