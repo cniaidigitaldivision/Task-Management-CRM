@@ -999,6 +999,12 @@ export const NOTIFICATION_KINDS = [
      silence their task reminders and lose their lead reminders with them. */
   'lead_due',
   'lead_neglected',
+  /* Step 8, 2026-09-14. ⚠️ ITS OWN KIND FOR THE THIRD TIME, and here the reason
+     is a clock: WhatsApp refuses free-form text more than 24 hours after the
+     customer's last message. Somebody who silenced their task chatter and lost
+     their customers' replies with it would not find out until the window had
+     already closed and the only way back was an approved template. */
+  'lead_replied',
 ] as const;
 
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];

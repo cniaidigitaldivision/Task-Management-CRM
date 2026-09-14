@@ -1,0 +1,29 @@
+-- ============================================================================
+-- 144 · A CUSTOMER WRITING BACK IS WORTH TELLING SOMEBODY — Step 8
+-- ----------------------------------------------------------------------------
+-- The bell carries `lead_assigned`, `lead_due` and `lead_neglected`. None of
+-- them fires when a lead actually REPLIES, which is the one event in this whole
+-- product that is time-critical: WhatsApp's free-form window closes 24 hours
+-- after the customer's last message, and after that Meta refuses anything but an
+-- approved template. A reply nobody noticed for a day is a conversation that has
+-- to be restarted from a template, or not at all.
+--
+-- ⚠️ AND IT IS THE REASON THE NEXT FEW WEEKS CAN WORK AT ALL. Owner, 2026-09-14:
+-- *"let the tester actually work as a lead for a few weeks. Once I confirm that
+-- the system is completely and perfectly working, then I will deploy it to the
+-- real salesperson."* Until now the docked panel polled only while somebody had
+-- it open, so a reply arriving while they were on another screen was silent. The
+-- response-time figures the whole desk is measured on would have been measuring
+-- how often somebody happened to be looking.
+--
+-- ⚠️ NOT `task_comment` OR ANY EXISTING KIND. Same reasoning as 119: somebody
+-- silencing task chatter must not lose their customers' replies with it.
+--
+-- ⚠️ WHY THIS FILE CONTAINS ONE LINE
+-- `ALTER TYPE … ADD VALUE` may run inside a transaction on PostgreSQL 12+, but
+-- the new label CANNOT BE USED until that transaction commits. `migrate.mjs`
+-- wraps every file in one, so everything that references it is in 145. Same
+-- split as 110/111, 115/116 and 119/120.
+-- ============================================================================
+
+alter type public.notification_kind add value if not exists 'lead_replied';

@@ -71,6 +71,22 @@ export const PREF_DEFINITIONS: readonly PrefDefinition[] = [
        else will tell you. */
   },
   {
+    kind: 'lead_replied',
+    label: 'A lead writes back',
+    help: 'Somebody you are working replies on WhatsApp.',
+    group: 'your work',
+    /* ⚠️ LOCKED IN-APP, like `lead_assigned`, and for a sharper reason than
+       either of the others: WhatsApp's free-form window closes 24 hours after
+       the customer's last message. Somebody who turned this off would not simply
+       reply late — they would lose the ability to reply at all without an
+       approved template, and the first sign would be a customer who was ignored
+       for a day. Email stays optional; the clock is short enough that the bell
+       is the channel that matters. */
+    locked: 'inApp',
+    lockedReason:
+      'Cannot be turned off in-app. WhatsApp only allows a free reply for 24 hours after they write — missing one costs the conversation.',
+  },
+  {
     kind: 'lead_neglected',
     label: 'Leads that have gone quiet',
     help: 'For the sales manager: whose leads have had no call, message or note for several days.',
