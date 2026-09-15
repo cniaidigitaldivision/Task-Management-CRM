@@ -96,7 +96,7 @@ with `follow_up` becoming an activity state (any stage can be awaiting one) and
 
 ---
 
-### Phase C · Properties
+### Phase C · Properties — ✅ DONE 2026-09-16
 *Depends on: B. Unlocks `5 Marla Plot · Block A`. Lifecycle Phase 5.*
 
 `crm_properties` per project, seeded from `13-PROPERTY-AND-QUOTATION-TESTPACK.md`
@@ -116,7 +116,7 @@ property fields must not appear on a project that has no catalogue.
 
 ---
 
-### Phase D · Quotations
+### Phase D · Quotations — ✅ DONE 2026-09-16
 *Depends on: C. Unlocks `PKR 4,500,000 · Valid till 30 Sep 2026`. Lifecycle Phase 5.*
 
 `crm_quotations` with **number and version as separate columns**, the payment
@@ -137,6 +137,39 @@ button.
 > → the total becomes 8,000,000, the schedule regenerates, a **version 2** row
 > appears, and the activity log records who approved it. ⚠️ Try to send it while
 > pending — it must refuse.
+
+---
+
+**C built:** the catalogue in the drawer's Related tab — every unit with its
+payment plan, and attaching one to a lead.
+
+⚠️ **A salesperson reads it and cannot change it** (150's policy). There is no
+price field in the picker at all; a price is the company's, not the seller's.
+⚠️ **Sold units are listed and marked, not hidden** — somebody asked "what about
+B-201?" has to be able to say *that one is gone*, or the catalogue disagrees
+with the board on the wall.
+⚠️ **And 166 had to grant `property_id` and `budget`** — 150 added both columns
+and never added them to 116's UPDATE grant, so they had been unwritable by the
+application ever since. `app.crm_create_lead` got away with it by being SECURITY
+DEFINER, exactly as the outcome columns did (162).
+
+**D built:** raising one from the drawer, the net recomputed as it is typed, a
+manager's approval queue on the desk, approve / approve-less / reject.
+
+⚠️ **A discount needs somebody else; list price does not.** The owner's rule is
+about the discount, not the document — a manager in the way of every full-price
+quotation is how people end up sending prices from WhatsApp.
+⚠️ **The approved figure may differ from the asked-for one**, and the net is
+recomputed from what was AUTHORISED so the document never prints a price nobody
+agreed to.
+⚠️ **Self-approval is refused at TWO layers** — RLS (42501) stops a salesperson
+setting `approved` at all, and the CHECK (23514) would stop it even if the policy
+let it through. `scripts/check-quotations.mjs` asserts the row's final state
+rather than an error code, because a test coupled to one layer fails the day the
+other does the work.
+
+**Still missing in D:** no PDF (`pdf_path` exists and is unused), and no v2
+versioning (`supersedes_id` likewise).
 
 ---
 

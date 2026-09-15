@@ -144,6 +144,9 @@ export interface CrmLeadRecord {
   readonly id: string;
   readonly projectId: string;
   readonly projectName: string;
+  /** The unit they are asking about, if one has been attached. */
+  readonly propertyId: string | null;
+  readonly propertyLabel: string | null;
   readonly fullName: string | null;
   readonly phone: string | null;
   readonly phoneE164: string | null;
@@ -643,7 +646,20 @@ export async function getCrmLead(
              l.submitted_at, l.imported_at, l.first_contacted_at, l.closed_at,
              l.owner_id,
              f.name as form_name, c.name as campaign_name,
-             l.source::text, l.external_id
+             l.source::text, l.external_id,
+             l.property_id,
+             /* ⚠️ THE SAME LABEL THE LIST BUILDS. A second expression here would
+                render "5 Marla · A-101" on the desk and something else in the
+                drawer for the same unit, and the reader would reasonably wonder
+                which one is the plot. */
+             (select concat_ws(' · ',
+                nullif(concat_ws(' ',
+                  case when p.size_marla is not null
+                       then trim(trailing '.' from to_char(p.size_marla, 'FM999999.99')) || ' Marla' end,
+                  initcap(substring(p.kind from '[^ ]+$'))), ''),
+                nullif(concat_ws(', ', p.plot_number,
+                  case when p.block is not null then 'Block ' || p.block end), ''))
+                from public.crm_properties p where p.id = l.property_id) as property_label
         from public.crm_leads l
         left join public.crm_lead_forms f on f.id = l.form_id
         left join public.crm_campaigns  c on c.id = l.campaign_id
@@ -702,6 +718,8 @@ export async function getCrmLead(
         id: String(row.id),
         projectId: String(row.project_id),
         projectName: String(row.project_name),
+        propertyId: (row.property_id as string | null) ?? null,
+        propertyLabel: (row.property_label as string | null) ?? null,
         fullName: (row.full_name as string | null) ?? null,
         phone: (row.phone as string | null) ?? null,
         phoneE164: (row.phone_e164 as string | null) ?? null,
@@ -2473,4 +2491,131 @@ export async function crmAwaitingApproval(actorId: string): Promise<CrmApprovalR
     validUntil: r.valid_until ? new Date(r.valid_until as string).toISOString() : null,
     createdAt: new Date(r.created_at as string).toISOString(),
   }));
+}
+
+/* ============================================================================
+ * THE CATALOGUE — Phase C
+ * ----------------------------------------------------------------------------
+ * ⚠️ A SALESPERSON READS IT AND CANNOT CHANGE IT. Migration 150's policies are
+ * explicit: select for anyone in the project's department, write only for
+ * somebody who manages it. A price is the company's, not the seller's — so
+ * there is no update path in this file at all, and adding one would be a
+ * decision to make deliberately rather than by accident.
+ * ========================================================================= */
+
+export interface CrmUnitStage {
+  readonly label: string;
+  readonly amount: number;
+  readonly percentage: number | null;
+  readonly instalments: number | null;
+}
+
+export interface CrmUnit {
+  readonly id: string;
+  readonly code: string;
+  readonly label: string;
+  readonly status: string;
+  readonly basePrice: number | null;
+  readonly sizeMarla: number | null;
+  readonly areaSqft: number | null;
+  readonly facing: string | null;
+  readonly isCorner: boolean;
+  readonly isParkFacing: boolean;
+  readonly possessionMonths: number | null;
+  readonly developmentStatus: string | null;
+  /** How many leads are currently looking at this unit. */
+  readonly interested: number;
+  readonly stages: readonly CrmUnitStage[];
+}
+
+/**
+ * Every unit on a project, with its payment plan.
+ *
+ * ⚠️ SOLD AND HELD UNITS ARE INCLUDED, deliberately. A salesperson asked "what
+ * about B-201?" needs to be able to say *that one is gone* — hiding it makes
+ * the catalogue disagree with the board on the wall, and the reader assumes the
+ * system is out of date rather than that the plot is sold.
+ *
+ * ⚠️ AND THE PAYMENT STAGES COME BACK WITH IT, in one query rather than one per
+ * unit. Twenty stages over ten units is ten extra round trips if fetched
+ * separately, for a screen somebody opens to compare two plots.
+ */
+export async function crmProjectUnits(
+  actorId: string,
+  projectId: string,
+): Promise<CrmUnit[]> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select
+      p.id, p.code, p.status::text as status, p.base_price, p.size_marla, p.area_sqft,
+      p.facing, p.is_corner, p.is_park_facing, p.possession_months, p.development_status,
+      concat_ws(' · ',
+        nullif(concat_ws(' ',
+          case when p.size_marla is not null
+               then trim(trailing '.' from to_char(p.size_marla, 'FM999999.99')) || ' Marla' end,
+          initcap(substring(p.kind from '[^ ]+$'))), ''),
+        nullif(concat_ws(', ', p.plot_number,
+          case when p.block is not null then 'Block ' || p.block end), '')
+      ) as label,
+      (select count(*)::int from public.crm_leads l
+        where l.property_id = p.id and l.stage not in ('won','lost')) as interested,
+      coalesce((
+        select jsonb_agg(jsonb_build_object(
+                 'label', s.label, 'amount', s.amount,
+                 'percentage', s.percentage, 'instalments', s.instalments)
+               order by s.sort_order)
+          from public.crm_payment_stages s where s.property_id = p.id
+      ), '[]'::jsonb) as stages
+      from public.crm_properties p
+     where p.project_id = ${projectId}::uuid
+     order by p.block nulls last, p.plot_number nulls last
+  `);
+
+  return (rows as Array<Record<string, unknown>>).map((r) => ({
+    id: String(r.id),
+    code: String(r.code),
+    label: String(r.label ?? r.code),
+    status: String(r.status ?? 'available'),
+    basePrice: r.base_price === null ? null : Number(r.base_price),
+    sizeMarla: r.size_marla === null ? null : Number(r.size_marla),
+    areaSqft: r.area_sqft === null ? null : Number(r.area_sqft),
+    facing: (r.facing as string | null) ?? null,
+    isCorner: r.is_corner === true,
+    isParkFacing: r.is_park_facing === true,
+    possessionMonths: r.possession_months === null ? null : Number(r.possession_months),
+    developmentStatus: (r.development_status as string | null) ?? null,
+    interested: Number(r.interested ?? 0),
+    stages: (r.stages as CrmUnitStage[]) ?? [],
+  }));
+}
+
+/**
+ * Attach a unit to a lead, or take one off.
+ *
+ * ⚠️ THE UNIT MUST BELONG TO THE LEAD'S OWN PROJECT — the same rule
+ * `app.crm_create_lead` enforces as CRM07, restated here because this is a
+ * second way into the same column. Without it a Chitral plot could be attached
+ * to an Executive Housing lead, and every quotation, payment plan and price
+ * afterwards would describe a property the client was never shown.
+ *
+ * ⚠️ AND `property_id` IS NOT IN 116's UPDATE GRANT, so this needs the column
+ * granted before it can run. Migration 166 does that and says why.
+ */
+export async function crmAttachUnit(
+  actorId: string,
+  leadId: string,
+  propertyId: string | null,
+): Promise<boolean> {
+  const rows = await withUser(actorId, (tx) => tx`
+    update public.crm_leads l
+       set property_id = ${propertyId}::uuid
+     where l.id = ${leadId}::uuid
+       and (
+         ${propertyId}::uuid is null
+         or exists (
+           select 1 from public.crm_properties p
+            where p.id = ${propertyId}::uuid and p.project_id = l.project_id
+         )
+       )
+     returning l.id`);
+  return (rows as unknown[]).length > 0;
 }

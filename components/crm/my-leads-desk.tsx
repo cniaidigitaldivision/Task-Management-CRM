@@ -32,10 +32,14 @@ import { cn } from '@/lib/utils';
 import { leadsPageAction } from '@/app/actions/crm-leads';
 import { AddLead, type AddLeadProject, type AddLeadProperty } from './add-lead';
 import { LeadDrawer } from './lead-drawer';
+import { ApprovalQueue } from './approval-queue';
 import { RaiseQuotation } from './raise-quotation';
+import { UnitPicker } from './unit-picker';
 import { TodaysPlan } from './todays-plan';
 import { RecordOutcome } from './record-outcome';
 import type {
+  CrmApprovalRow,
+  CrmUnit,
   CrmDiaryEntry,
   CrmLeadFull,
   CrmLeadRelated,
@@ -79,6 +83,8 @@ export function MyLeadsDesk({
   addProjects,
   addProperties,
   diary,
+  approvals,
+  units,
   selectedProjectId,
   rows,
   total,
@@ -103,6 +109,10 @@ export function MyLeadsDesk({
   addProperties: readonly AddLeadProperty[];
   /** This person's upcoming appointments — Phase E. */
   diary: readonly CrmDiaryEntry[];
+  /** Quotations waiting on THIS person's decision — never their own. */
+  approvals: readonly CrmApprovalRow[];
+  /** The catalogue for the project in view — read-only to a salesperson. */
+  units: readonly CrmUnit[];
   selectedProjectId: string | null;
   rows: readonly CrmLeadRow[];
   total: number;
@@ -467,6 +477,8 @@ export function MyLeadsDesk({
      that unit's price. No navigation, no wait. */
   const [quoteFor, setQuoteFor] = React.useState<string | null>(null);
   const closeQuote = React.useCallback(() => setQuoteFor(null), []);
+  const [unitFor, setUnitFor] = React.useState<string | null>(null);
+  const closeUnit = React.useCallback(() => setUnitFor(null), []);
 
   const closeAdd = React.useCallback(() => {
     setAddWish(false);
@@ -601,7 +613,25 @@ export function MyLeadsDesk({
       {/* ⚠️ THE OUTCOME FORM WINS OVER THE DRAWER when both are open — they are
           two panels on one screen, and stacking them leaves the drawer visible
           and unreachable behind a dialog. */}
-      {quoteFor && (() => {
+      {unitFor && (() => {
+        const row = shownRows.find((r) => r.id === unitFor);
+        if (!row) return null;
+        return (
+          <UnitPicker
+            key={unitFor}
+            leadId={unitFor}
+            leadName={row.fullName ?? 'this lead'}
+            units={units}
+            /* ⚠️ Matched by LABEL because the row carries the rendered label
+               rather than the id — the list query builds it in SQL for the
+               table. A null match simply means nothing is attached. */
+            attachedId={units.find((u) => u.label === row.propertyLabel)?.id ?? null}
+            onClose={closeUnit}
+          />
+        );
+      })()}
+
+      {!unitFor && quoteFor && (() => {
         const row = shownRows.find((r) => r.id === quoteFor);
         if (!row) return null;
         return (
@@ -619,7 +649,7 @@ export function MyLeadsDesk({
         );
       })()}
 
-      {!quoteFor && outcomeFor && (
+      {!unitFor && !quoteFor && outcomeFor && (
         <RecordOutcome
           key={outcomeFor.id}
           leadId={outcomeFor.id}
@@ -631,7 +661,7 @@ export function MyLeadsDesk({
       )}
 
       {/* ⚠️ THE REAL DRAWER WINS THE MOMENT ITS DATA MATCHES THIS LEAD. */}
-      {!quoteFor && !outcomeFor && openLead && record && related && record.lead.id === openLead && (
+      {!unitFor && !quoteFor && !outcomeFor && openLead && record && related && record.lead.id === openLead && (
         <LeadDrawer
           key={record.lead.id}
           lead={record.lead}
@@ -645,9 +675,10 @@ export function MyLeadsDesk({
           onTab={setTab}
           onClose={closeLead}
           onRaiseQuotation={() => setQuoteFor(openLead)}
+          onChooseUnit={() => setUnitFor(openLead)}
         />
       )}
-      {!quoteFor && !outcomeFor && shellRow && (
+      {!unitFor && !quoteFor && !outcomeFor && shellRow && (
         <LeadDrawerShell
           row={shellRow}
           tab={openTab}
@@ -711,6 +742,11 @@ export function MyLeadsDesk({
           band of dead space on the screen a salesperson opens between two
           calls, and it teaches the eye to skip exactly the strip that matters
           on the day something IS booked. */}
+      {/* ⚠️ ABOVE TODAY'S PLAN. A discount waiting on a decision is somebody
+          ELSE blocked — a salesperson standing in front of a client who cannot
+          be given a price until this is answered. Own work comes after that. */}
+      <ApprovalQueue rows={approvals} />
+
       <TodaysPlan diary={diary} nowMs={nowMs} onOpenLead={(id) => onOpen(id, 'followups')} />
 
       {/* ── The four figures ────────────────────────────────────────────── */}

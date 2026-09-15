@@ -7,9 +7,11 @@ import {
   crmLeadRelated,
   crmLeadThread,
   crmMyCounts,
+  crmAwaitingApproval,
   crmMyDiary,
   crmOwnerOptions,
   crmProjectProperties,
+  crmProjectUnits,
   getCrmLead,
   listCrmLeads,
   listCrmProjects,
@@ -121,7 +123,8 @@ export default async function MyLeadsPage({
      result is discarded below. It costs two empty queries on a mistyped URL and
      saves a wave on every real click. */
   const [
-    projects, data, counts, owners, record, thread, related, addProjects, diary, addProperties,
+    projects, data, counts, owners, record, thread, related, addProjects, diary, approvals,
+    addProperties, units,
   ] = await Promise.all([
     listCrmProjects(user.id),
     listCrmLeads(user.id, projectId, filters, PER_PAGE, (page - 1) * PER_PAGE),
@@ -141,7 +144,15 @@ export default async function MyLeadsPage({
     /* ⚠️ IN THE SAME WAVE. The diary owes nothing to the list and the list owes
        nothing to it — Rule Zero, law 4. */
     crmMyDiary(user.id),
+    /* ⚠️ Empty for a salesperson by the query's own rule — it excludes anything
+       the reader prepared, so nobody is offered a decision they cannot make. */
+    crmAwaitingApproval(user.id),
     projectId ? crmProjectProperties(user.id, projectId) : Promise.resolve([]),
+    /* ⚠️ The catalogue for the project in view, in the same wave. Fetching it
+       per project on demand would be a round trip the moment somebody opens the
+       picker; fetching EVERY project's would be a query per project on a page
+       that mostly never opens it. */
+    projectId ? crmProjectUnits(user.id, projectId) : Promise.resolve([]),
   ]);
 
 
@@ -173,6 +184,8 @@ export default async function MyLeadsPage({
       addProjects={addProjects}
       addProperties={addProperties}
       diary={diary}
+      approvals={approvals}
+      units={units}
       selectedProjectId={projectId}
       rows={data.rows}
       total={data.total}

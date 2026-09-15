@@ -72,6 +72,7 @@ export function LeadDrawer({
   onTab,
   onClose,
   onRaiseQuotation,
+  onChooseUnit,
 }: {
   lead: CrmLeadRecord;
   notes: readonly CrmLeadNote[];
@@ -87,6 +88,8 @@ export function LeadDrawer({
   onClose: () => void;
   /** Opens the quotation form over this drawer. */
   onRaiseQuotation: () => void;
+  /** Opens the catalogue, to say which unit they are asking about. */
+  onChooseUnit: () => void;
 }) {
   const search = useSearchParams();
   const panel = React.useRef<HTMLDivElement>(null);
@@ -235,7 +238,12 @@ export function LeadDrawer({
           {activeTab === 'conversations' && <Conversation messages={messages} nowMs={nowMs} />}
           {activeTab === 'followups' && <FollowUps related={related} nowMs={nowMs} />}
           {activeTab === 'related' && (
-            <Related related={related} onRaiseQuotation={onRaiseQuotation} />
+            <Related
+              related={related}
+              lead={lead}
+              onRaiseQuotation={onRaiseQuotation}
+              onChooseUnit={onChooseUnit}
+            />
           )}
           {activeTab === 'activity' && <Activity activity={activity} nowMs={nowMs} />}
         </div>
@@ -544,13 +552,43 @@ function FollowUps({ related, nowMs }: { related: CrmLeadRelated; nowMs: number 
 
 function Related({
   related,
+  lead,
   onRaiseQuotation,
+  onChooseUnit,
 }: {
   related: CrmLeadRelated;
+  lead: CrmLeadRecord;
   onRaiseQuotation: () => void;
+  onChooseUnit: () => void;
 }) {
   return (
     <div className="space-y-5">
+      {/* ⚠️ THE UNIT LEADS THIS TAB, because it is what everything below it is
+          about — a quotation prices a unit, and a site visit goes to one. A lead
+          with no unit attached is the commonest reason a quotation has to be
+          typed from memory. */}
+      <section>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <h3 className="text-micro font-semibold uppercase tracking-wide text-text-tertiary">
+            Unit
+          </h3>
+          <button
+            type="button"
+            onClick={onChooseUnit}
+            className="rounded-lg border border-border-subtle px-2.5 py-1 text-caption font-medium text-text-primary transition-colors hover:border-border-default"
+          >
+            {lead.propertyLabel ? 'Change' : 'Choose one'}
+          </button>
+        </div>
+        {lead.propertyLabel ? (
+          <p className="rounded-lg border border-border-subtle px-3 py-2 text-body-sm text-text-primary">
+            {lead.propertyLabel}
+          </p>
+        ) : (
+          <Empty>No unit attached. Choose one and a quotation will price itself.</Empty>
+        )}
+      </section>
+
       <section>
         <div className="mb-2 flex items-center justify-between gap-2">
           <h3 className="text-micro font-semibold uppercase tracking-wide text-text-tertiary">

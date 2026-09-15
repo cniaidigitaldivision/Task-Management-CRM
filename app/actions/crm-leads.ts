@@ -10,6 +10,7 @@ import {
   assignLead,
   crmBookAppointment,
   crmCloseAppointment,
+  crmAttachUnit,
   crmCreateLead,
   crmDecideQuotation,
   crmDiaryAround,
@@ -1103,6 +1104,39 @@ export async function sendQuotationAction(
     return {
       ok: false,
       error: 'Only an approved quotation can be sent. This one is still waiting for a decision.',
+    };
+  }
+
+  refresh(leadId);
+  revalidatePath('/my-leads');
+  return { ok: true };
+}
+
+/**
+ * Point a lead at the unit they are asking about.
+ *
+ * ⚠️ NO PRICE PASSES THROUGH HERE. The salesperson chooses WHICH unit; what it
+ * costs is the catalogue's, and `crm_properties` is read-only to them (150). A
+ * price argument on this action would be a way around that rule dressed as a
+ * convenience.
+ */
+export async function attachUnitAction(
+  leadId: string,
+  propertyId: string | null,
+): Promise<LeadWriteResult> {
+  const user = await requireUser();
+
+  const done = await crmAttachUnit(user.id, leadId, propertyId);
+
+  /* ⚠️ FALSE MEANS ONE OF TWO THINGS and they deserve different sentences: the
+     lead is not theirs, or the unit belongs to a different project. The second
+     is the one somebody would otherwise chase as a bug. */
+  if (!done) {
+    return {
+      ok: false,
+      error: propertyId
+        ? 'That unit belongs to a different project, or that lead is not yours to change.'
+        : NOT_YOURS,
     };
   }
 
