@@ -151,12 +151,25 @@ export async function createTestLeadAction(input: {
          ${phone || '(demo — no number)'},
          ${phoneE164},
          ${input.city.trim() || null},
-         ${JSON.stringify({
+         /* ⚠️ tx.json(...), NEVER JSON.stringify(...)::jsonb. Postgres accepts
+            both and they store DIFFERENT THINGS: stringify sends a JSON STRING,
+            so the column holds a jsonb whose TYPE is string, not an object.
+            (No backticks in this comment: the whole statement is one template
+            literal and a stray one ends the string.)
+
+            Nothing complains at any layer. It reads back as a string, and the
+            drawer does Object.entries(answers) — which on a string yields one
+            entry PER CHARACTER. The owner saw it as "character by character...
+            totally out of order" on the Overview tab.
+
+            tx.json is postgres.js's own wrapper and is what every other jsonb
+            write in this codebase already uses. */
+         ${tx.json({
            which_product_are_you_interested_in: input.product || 'Not stated',
            what_are_you_trying_to_solve: input.note || 'Not stated',
            city: input.city.trim() || 'Not stated',
            submitted_via: 'Test form (demo)',
-         })}::jsonb,
+         })},
          'new',
          now(),
          ${user.id}::uuid)

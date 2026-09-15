@@ -225,6 +225,41 @@ export function LeadDrawer({
 
 /* ---- Overview ------------------------------------------------------------- */
 
+/**
+ * The form answers, as pairs — and never anything else.
+ *
+ * ⚠️ `Object.entries` ON A STRING RETURNS ONE ENTRY PER CHARACTER, and that is
+ * exactly how this reached the owner: *"character by character… totally out of
+ * order."* Two leads had `answers` stored as a jsonb STRING rather than an
+ * object (a `JSON.stringify(…)::jsonb` write), and the Overview tab rendered
+ * every character of the JSON as its own row.
+ *
+ * The data is repaired and the writer is fixed (migration 163), so this guard
+ * should never fire. It exists because the failure was SILENT at every layer —
+ * the column is jsonb, the cast was legal, the type said `Record<string,
+ * unknown>` — and the first thing that noticed was a person reading the screen.
+ * A renderer that cannot be handed a string is one fewer way for that to happen
+ * again.
+ */
+function formAnswers(answers: unknown): Array<[string, string | null]> {
+  if (!answers || typeof answers !== 'object' || Array.isArray(answers)) return [];
+  return Object.entries(answers as Record<string, unknown>).map(([k, v]) => [
+    k,
+    /* ⚠️ A nested object or array becomes readable text rather than
+       "[object Object]" — Meta forms are flat today, and a checkbox question
+       that arrives as an array tomorrow should still show its answers. */
+    v === null || v === undefined
+      ? null
+      : typeof v === 'string'
+        ? v
+        : Array.isArray(v)
+          ? v.join(', ')
+          : typeof v === 'object'
+            ? JSON.stringify(v)
+            : String(v),
+  ]);
+}
+
 function Overview({
   lead,
   notes,
@@ -254,12 +289,12 @@ function Overview({
       {/* ⚠️ THE RAW ANSWERS, because the form asked them and nobody else will.
           What a lead typed into "Which plot size?" is the single most useful
           thing on this panel before the first call. */}
-      {Object.keys(lead.answers).length > 0 && (
+      {formAnswers(lead.answers).length > 0 && (
         <section>
           <h3 className="mb-2 text-micro font-semibold uppercase tracking-wide text-text-tertiary">
             What they told the form
           </h3>
-          <Facts rows={Object.entries(lead.answers)} />
+          <Facts rows={formAnswers(lead.answers)} />
         </section>
       )}
 

@@ -198,6 +198,8 @@ export function MyLeadsDesk({
      local copy is dropped rather than shown against the wrong question. Without
      that, filtering to Overdue would keep showing the page of rows fetched
      before it. */
+  const pageCount = Math.max(1, Math.ceil(total / perPage));
+
   const signature = JSON.stringify([
     selectedProjectId,
     filters.stage,
@@ -205,16 +207,32 @@ export function MyLeadsDesk({
     filters.due,
     total,
   ]);
+  /* ── ⚠️ EVERY PAGE VISITED IS KEPT, NOT JUST THE CURRENT ONE ─────────────
+     Owner, on the test run: *"When I swap from one page to another it is
+     rendering again, taking time to load. When I even switch back to page 1
+     again, it is taking time to load."*
+
+     Both halves were true and they had different causes. Forward was a real
+     fetch — page 2 is not on the client and cannot be. BACK was inexcusable:
+     page 1's rows had already been fetched, twice over (the server rendered
+     them, then we had them in hand), and the old shape held exactly ONE page,
+     so returning threw them away and asked again.
+
+     A map keyed by page number means a page is fetched at most once per filter
+     set. Going back is now a paint. */
   const [local, setLocal] = React.useState<{
     sig: string;
     page: number;
-    rows: readonly CrmLeadRow[];
+    pages: Readonly<Record<number, readonly CrmLeadRow[]>>;
   } | null>(null);
 
   if (local && local.sig !== signature) setLocal(null);
 
-  const shownRows = local?.rows ?? rows;
+  /* The server's own rows are page `page` — seed the cache with them rather than
+     re-fetching what this render already carries. */
+  const cache: Record<number, readonly CrmLeadRow[]> = { [page]: rows, ...(local?.pages ?? {}) };
   const shownPage = local?.page ?? page;
+  const shownRows = cache[shownPage] ?? rows;
 
   const goToPage = React.useCallback(
     (n: number) => {
@@ -227,6 +245,17 @@ export function MyLeadsDesk({
          the table faded until the URL finished catching up — long after the new
          rows had already been swapped in and were sitting there greyed out. Same
          fault as the drawer's close, one step smaller. */
+      /* ⚠️ ALREADY IN HAND — SHOW IT AND ASK FOR NOTHING. This is the whole of
+         "instant on the way back". */
+      const held = cache[n];
+      if (held) {
+        setLocal({ sig: signature, page: n, pages: { ...(local?.pages ?? {}), [n]: held } });
+        startSync(() => {
+          router.replace(`/my-leads?${next.toString()}` as Route);
+        });
+        return;
+      }
+
       setPaging(true);
       void leadsPageAction(
         selectedProjectId,
@@ -244,7 +273,13 @@ export function MyLeadsDesk({
           /* ⚠️ NULL MEANS THE ACTION FAILED, AND THE TABLE KEEPS WHAT IT HAS.
              The URL still moves, so the ordinary navigation renders the right
              page a moment later — slower, and always correct. */
-          if (got) setLocal({ sig: signature, page: n, rows: got.rows });
+          if (got) {
+            setLocal((prev) => ({
+              sig: signature,
+              page: n,
+              pages: { ...(prev?.sig === signature ? prev.pages : {}), [n]: got.rows },
+            }));
+          }
         })
         .finally(() => setPaging(false));
 
@@ -254,8 +289,61 @@ export function MyLeadsDesk({
         router.replace(`/my-leads?${next.toString()}` as Route);
       });
     },
-    [router, search, selectedProjectId, filters.stage, filters.search, filters.due, perPage, signature],
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+    [router, search, selectedProjectId, filters.stage, filters.search, filters.due, perPage,
+     signature, rows, page, local],
   );
+
+  /* ── ⚠️ THE NEXT PAGE IS FETCHED BEFORE IT IS ASKED FOR ─────────────────
+     Caching makes going BACK instant. This is what makes going FORWARD instant:
+     while somebody reads page 1, page 2 is already on its way.
+
+     ⚠️ ONE PAGE AHEAD, NOT ALL OF THEM. Prefetching the whole list would be the
+     obvious next step and the wrong one — it turns a 10-row read into a 650-row
+     one for a person who will look at eight. One page is the only one they can
+     reach in a single click.
+
+     ⚠️ AND IT NEVER RUNS WHILE A REAL FETCH IS IN FLIGHT. The pool is three
+     connections in production; a speculative read competing with the one
+     somebody is waiting for would make the visible thing slower to make an
+     invisible thing faster. */
+  React.useEffect(() => {
+    const ahead = shownPage + 1;
+    if (paging || pending) return;
+    if (ahead > pageCount) return;
+    if (cache[ahead]) return;
+
+    let live = true;
+    const timer = setTimeout(() => {
+      void leadsPageAction(
+        selectedProjectId,
+        {
+          stage: filters.stage,
+          temperature: null,
+          formId: null,
+          search: filters.search,
+          due: filters.due,
+        },
+        ahead,
+        perPage,
+      ).then((got) => {
+        if (!live || !got) return;
+        setLocal((prev) => ({
+          sig: signature,
+          page: prev?.sig === signature ? (prev?.page ?? shownPage) : shownPage,
+          pages: { ...(prev?.sig === signature ? prev.pages : {}), [ahead]: got.rows },
+        }));
+      });
+      /* A beat after the page settles, so it never competes with the render
+         somebody is actually looking at. */
+    }, 400);
+
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [shownPage, signature, pageCount, paging, pending]);
 
   /* ── ⚠️ THE PROPOSED STAGE IS THE DESK'S STATE, NOT A URL PARAMETER ──────
      It used to ride in `?stage=`, which is the list's own filter — see
@@ -380,7 +468,6 @@ export function MyLeadsDesk({
   /* "Showing 9–16 of 21" has to follow the page actually on screen, not the one
      the URL is still catching up to. */
   const shownFrom = total === 0 ? 0 : (shownPage - 1) * perPage + 1;
-  const pageCount = Math.max(1, Math.ceil(total / perPage));
 
   return (
     <>
