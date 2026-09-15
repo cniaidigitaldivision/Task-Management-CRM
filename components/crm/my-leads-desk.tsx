@@ -198,14 +198,31 @@ export function MyLeadsDesk({
      local copy is dropped rather than shown against the wrong question. Without
      that, filtering to Overdue would keep showing the page of rows fetched
      before it. */
-  const pageCount = Math.max(1, Math.ceil(total / perPage));
+  /* ── ⚠️ THE TAB IS OPTIMISTIC, LIKE THE PAGE ────────────────────────────
+     Owner: *"All leads, Needs attention, Waiting for reply, Upcoming, Closed —
+     these tabs are also taking a lot of time to switch… only 2 leads are
+     displayed but it is taking a lot of time."*
 
+     Two leads genuinely have to be asked for, but nothing ELSE on the page does.
+     A tab used to go through the full navigation, so switching to a tab holding
+     two rows re-ran the project list, the counts, the owner options, the Add
+     Lead data and the drawer's queries — none of which a tab can change.
+
+     The chip highlights in the click's own frame, the rows and the new total
+     arrive from one query, and the URL catches up behind. */
+  const urlDue = search.get('due');
+  const [dueWish, setDueWish] = React.useState<string | null | undefined>(undefined);
+  if (dueWish !== undefined && (dueWish ?? null) === (urlDue ?? null)) setDueWish(undefined);
+  const activeDue = dueWish === undefined ? (urlDue ?? null) : dueWish;
+
+  /* ⚠️ `activeDue`, NOT `filters.due` — the cache has to be keyed to the tab
+     ACTUALLY ON SCREEN. Keyed to the server's value it would survive a tab
+     change and show the previous tab's rows under the new tab's name. */
   const signature = JSON.stringify([
     selectedProjectId,
     filters.stage,
     filters.search,
-    filters.due,
-    total,
+    activeDue,
   ]);
   /* ── ⚠️ EVERY PAGE VISITED IS KEPT, NOT JUST THE CURRENT ONE ─────────────
      Owner, on the test run: *"When I swap from one page to another it is
@@ -223,6 +240,8 @@ export function MyLeadsDesk({
   const [local, setLocal] = React.useState<{
     sig: string;
     page: number;
+    /** ⚠️ The tab's own total, so the pager does not quote the previous tab's. */
+    total: number;
     pages: Readonly<Record<number, readonly CrmLeadRow[]>>;
   } | null>(null);
 
@@ -237,9 +256,65 @@ export function MyLeadsDesk({
      A cache that outranks fresh data is not a cache, it is a bug with a fast
      read. Other pages keep their cached copies; only the one the server just
      rendered is replaced. */
-  const cache: Record<number, readonly CrmLeadRow[]> = { ...(local?.pages ?? {}), [page]: rows };
+  const cache: Record<number, readonly CrmLeadRow[]> =
+    local && local.sig === signature
+      ? { ...local.pages, ...(activeDue === (filters.due ?? null) ? { [page]: rows } : {}) }
+      : { [page]: rows };
+
+  /* ⚠️ THE SERVER'S TOTAL ONLY WHILE THE SERVER'S TAB IS THE ONE SHOWING. Mid
+     tab-change the two disagree, and quoting the old one makes the pager claim
+     "1–8 of 12" under a tab holding two. */
+  const shownTotal =
+    local && local.sig === signature && activeDue !== (filters.due ?? null) ? local.total : total;
+
+  const pageCount = Math.max(1, Math.ceil(shownTotal / perPage));
   const shownPage = local?.page ?? page;
   const shownRows = cache[shownPage] ?? rows;
+
+  /* Switching tab asks for ONE thing — the rows and the count for that tab.
+     Everything else on the page is unaffected by it and is left alone. */
+  const setDue = React.useCallback(
+    (key: string | null) => {
+      setDueWish(key);
+      setPaging(true);
+
+      const nextSig = JSON.stringify([
+        selectedProjectId,
+        filters.stage,
+        filters.search,
+        key,
+      ]);
+
+      void leadsPageAction(
+        selectedProjectId,
+        {
+          stage: filters.stage,
+          temperature: null,
+          formId: null,
+          search: filters.search,
+          due: key,
+        },
+        1,
+        perPage,
+      )
+        .then((got) => {
+          if (got) setLocal({ sig: nextSig, page: 1, total: got.total, pages: { 1: got.rows } });
+        })
+        .finally(() => setPaging(false));
+
+      const next = new URLSearchParams(search.toString());
+      if (key) next.set('due', key);
+      else next.delete('due');
+      /* ⚠️ A tab change always returns to page 1 — the same reason a filter does.
+         Landing on page 9 of a tab holding two rows shows an empty table, which
+         reads as "no leads" rather than as "wrong page". */
+      next.delete('page');
+      startSync(() => {
+        router.push(`/my-leads?${next.toString()}` as Route);
+      });
+    },
+    [router, search, selectedProjectId, filters.stage, filters.search, perPage],
+  );
 
   const goToPage = React.useCallback(
     (n: number) => {
@@ -256,7 +331,12 @@ export function MyLeadsDesk({
          "instant on the way back". */
       const held = cache[n];
       if (held) {
-        setLocal({ sig: signature, page: n, pages: { ...(local?.pages ?? {}), [n]: held } });
+        setLocal({
+          sig: signature,
+          page: n,
+          total: shownTotal,
+          pages: { ...(local?.pages ?? {}), [n]: held },
+        });
         startSync(() => {
           router.replace(`/my-leads?${next.toString()}` as Route);
         });
@@ -271,7 +351,9 @@ export function MyLeadsDesk({
           temperature: null,
           formId: null,
           search: filters.search,
-          due: filters.due,
+          /* ⚠️ `activeDue`, not the server's — after a tab change the two differ
+             for a moment, and paging on the old one fetches the wrong rows. */
+          due: activeDue,
         },
         n,
         perPage,
@@ -284,6 +366,7 @@ export function MyLeadsDesk({
             setLocal((prev) => ({
               sig: signature,
               page: n,
+              total: got.total,
               pages: { ...(prev?.sig === signature ? prev.pages : {}), [n]: got.rows },
             }));
           }
@@ -297,8 +380,8 @@ export function MyLeadsDesk({
       });
     },
     /* eslint-disable-next-line react-hooks/exhaustive-deps */
-    [router, search, selectedProjectId, filters.stage, filters.search, filters.due, perPage,
-     signature, rows, page, local],
+    [router, search, selectedProjectId, filters.stage, filters.search, activeDue, perPage,
+     signature, rows, page, local, shownTotal],
   );
 
   /* ── ⚠️ THE NEXT PAGE IS FETCHED BEFORE IT IS ASKED FOR ─────────────────
@@ -329,7 +412,7 @@ export function MyLeadsDesk({
           temperature: null,
           formId: null,
           search: filters.search,
-          due: filters.due,
+          due: activeDue,
         },
         ahead,
         perPage,
@@ -338,6 +421,7 @@ export function MyLeadsDesk({
         setLocal((prev) => ({
           sig: signature,
           page: prev?.sig === signature ? (prev?.page ?? shownPage) : shownPage,
+          total: prev?.sig === signature ? prev.total : got.total,
           pages: { ...(prev?.sig === signature ? prev.pages : {}), [ahead]: got.rows },
         }));
       });
@@ -480,7 +564,7 @@ export function MyLeadsDesk({
   const assigned = counts.assigned ?? total;
   /* "Showing 9–16 of 21" has to follow the page actually on screen, not the one
      the URL is still catching up to. */
-  const shownFrom = total === 0 ? 0 : (shownPage - 1) * perPage + 1;
+  const shownFrom = shownTotal === 0 ? 0 : (shownPage - 1) * perPage + 1;
 
   return (
     <>
@@ -573,7 +657,7 @@ export function MyLeadsDesk({
           </button>
           <button
             type="button"
-            onClick={() => setParam('due', 'no-plan')}
+            onClick={() => setDue('no-plan')}
             className="inline-flex min-h-[2.4rem] items-center gap-1.5 rounded-xl border border-border-subtle bg-bg-surface px-3 text-body-sm font-medium text-text-primary transition-colors hover:border-border-default"
           >
             <CalendarPlus className="size-4" aria-hidden="true" />
@@ -590,7 +674,7 @@ export function MyLeadsDesk({
           icon={Users}
           token="accent-primary"
           on={filters.due === null}
-          onPick={() => setParam('due', null)}
+          onPick={() => setDue(null)}
         />
         <Figure
           label="Needs attention"
@@ -598,7 +682,7 @@ export function MyLeadsDesk({
           icon={AlertTriangle}
           token="gold-700"
           on={filters.due === 'overdue'}
-          onPick={() => setParam('due', filters.due === 'overdue' ? null : 'overdue')}
+          onPick={() => setDue(activeDue === 'overdue' ? null : 'overdue')}
         />
         <Figure
           label="Due today"
@@ -606,7 +690,7 @@ export function MyLeadsDesk({
           icon={CalendarDays}
           token="accent-primary"
           on={filters.due === 'today'}
-          onPick={() => setParam('due', filters.due === 'today' ? null : 'today')}
+          onPick={() => setDue(activeDue === 'today' ? null : 'today')}
         />
         <Figure
           label="Unread replies"
@@ -614,7 +698,7 @@ export function MyLeadsDesk({
           icon={Mail}
           token="feedback-success"
           on={filters.due === 'waiting'}
-          onPick={() => setParam('due', filters.due === 'waiting' ? null : 'waiting')}
+          onPick={() => setDue(activeDue === 'waiting' ? null : 'waiting')}
         />
       </div>
 
@@ -629,12 +713,12 @@ export function MyLeadsDesk({
             { key: 'closed', label: 'Closed', n: null },
           ] as const
         ).map((t) => {
-          const on = (filters.due ?? null) === t.key;
+          const on = activeDue === t.key;
           return (
             <button
               key={t.label}
               type="button"
-              onClick={() => setParam('due', t.key)}
+              onClick={() => setDue(t.key)}
               aria-pressed={on}
               className={cn(
                 'rounded-lg px-3 py-1.5 text-body-sm font-medium transition-colors',
@@ -698,7 +782,7 @@ export function MyLeadsDesk({
 
         <button
           type="button"
-          onClick={() => setParam('due', 'no-plan')}
+          onClick={() => setDue('no-plan')}
           className="inline-flex min-h-[2.6rem] items-center gap-1.5 rounded-xl border border-border-subtle bg-bg-surface px-3 text-body-sm font-medium text-text-primary transition-colors hover:border-border-default"
         >
           <SlidersHorizontal className="size-4" aria-hidden="true" />
@@ -729,7 +813,7 @@ export function MyLeadsDesk({
 
       {/* ── The table ───────────────────────────────────────────────────── */}
       {rows.length === 0 ? (
-        <Empty filters={filters} />
+        <Empty filters={{ ...filters, due: activeDue }} />
       ) : (
         <div className="overflow-x-auto rounded-xl border border-border-default bg-bg-surface">
           <table
@@ -789,7 +873,7 @@ export function MyLeadsDesk({
           onPage={goToPage}
           from={shownFrom}
           to={shownFrom === 0 ? 0 : shownFrom + shownRows.length - 1}
-          total={total}
+          total={shownTotal}
           label="leads"
         />
         <p className="text-caption text-text-secondary">
