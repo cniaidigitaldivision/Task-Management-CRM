@@ -114,6 +114,13 @@ export interface CrmLeadRow {
   readonly sequenceStep: number | null;
   readonly sequenceTotal: number | null;
   readonly sequenceNote: string | null;
+  /* ── Migration 148 ────────────────────────────────────────────────────────
+     ⚠️ THE CHANNEL AND THE DETAIL ARE TWO FIELDS. `source` is a closed enum;
+     `sourceDetail` is the open half — "Lead ad", "Search ad", "Contact form" —
+     because enumerating every channel × type pair is how an enum reaches thirty
+     values nobody can read. Rendered by `lib/domain/lead-source.ts`. */
+  readonly source: string | null;
+  readonly sourceDetail: string | null;
 }
 
 /**
@@ -190,6 +197,12 @@ export interface CrmLeadFilters {
   readonly to?: string | null;
   /** Step 8: `overdue` · `today` · `no-plan`. */
   readonly due?: string | null;
+  /* ⚠️ MINE MEANS OWNED BY ME, AND IT IS NOT THE SAME AS WHAT RLS ALREADY DOES.
+     `crm_leads_select` lets a MANAGER read every lead on their department's
+     projects, so without this the manager's own "My leads" would show the whole
+     team's. For a salesperson it narrows nothing they could otherwise see — it
+     is the manager it exists for. */
+  readonly mine?: boolean;
 }
 
 /**
@@ -334,6 +347,15 @@ export async function listCrmLeads(
             = (now() at time zone 'Asia/Karachi')::date`);
     } else if (filters.due === 'no-plan') {
       conditions.push(tx`l.next_action_at is null and l.owner_id is not null`);
+    } else if (filters.due === 'upcoming') {
+      /* Planned, and not yet due. The opposite of `overdue`, and deliberately
+         NOT "everything with a date" — a lead due this morning belongs under
+         Needs attention, not under Upcoming. */
+      conditions.push(tx`l.next_action_at is not null
+        and (l.next_action_at at time zone 'Asia/Karachi')::date
+            > (now() at time zone 'Asia/Karachi')::date`);
+    } else if (filters.due === 'closed') {
+      conditions.push(tx`l.stage in ('won', 'lost')`);
     } else if (filters.due === 'waiting') {
       /* ⚠️ THE SAME EXPRESSION AS THE COUNT ABOVE, deliberately — a tab whose
          number and whose rows are computed two different ways is a tab that
@@ -341,6 +363,21 @@ export async function listCrmLeads(
       conditions.push(tx`(select m.direction from public.crm_lead_messages m
                            where m.lead_id = l.id
                            order by m.occurred_at desc, m.id desc limit 1) = 'inbound'`);
+    }
+
+    if (filters.mine) {
+      conditions.push(tx`l.owner_id = app.current_user_id()`);
+    }
+
+    /* ⚠️ ONLY ON "MY LEADS", AND ONLY WHEN NOTHING ELSE ASKED FOR THEM.
+       A salesperson's list of 20 with 8 long since lost does not describe 20
+       leads of work, so the personal view hides closed ones by default. But this
+       must NOT reach the manager's desk (`mine` false), where the stage strip
+       offers Won and Lost as chips and hiding them would make those counts
+       unclickable — and it must not fight an explicit request: pressing the Won
+       chip, or the Closed tab, asks for exactly the rows this would remove. */
+    if (filters.mine && filters.due !== 'closed' && !filters.stage) {
+      conditions.push(tx`l.stage not in ('won', 'lost')`);
     }
 
     let where = conditions[0];
@@ -366,6 +403,7 @@ export async function listCrmLeads(
              app.crm_project_name(l.project_id) as project_name,
              app.crm_project_can_whatsapp(l.project_id) as can_whatsapp,
              l.sequence_state::text, l.sequence_step, l.sequence_total, l.sequence_note,
+             l.source::text, l.source_detail,
              msg.body as last_message_body,
              msg.occurred_at as last_message_at,
              msg.direction::text as last_message_direction,
@@ -462,6 +500,8 @@ export async function listCrmLeads(
       sequenceStep: r.sequence_step === null || r.sequence_step === undefined ? null : Number(r.sequence_step),
       sequenceTotal: r.sequence_total === null || r.sequence_total === undefined ? null : Number(r.sequence_total),
       sequenceNote: (r.sequence_note as string | null) ?? null,
+      source: (r.source as string | null) ?? null,
+      sourceDetail: (r.source_detail as string | null) ?? null,
       lastMessageBody: (r.last_message_body as string | null) ?? null,
       lastMessageAt: r.last_message_at
         ? new Date(r.last_message_at as string).toISOString()
@@ -974,6 +1014,8 @@ export interface CrmDueCounts {
      this morning, and it is the message that is running out of time. Meta's free
      window shuts 24 hours after they wrote. */
   readonly waitingForReply: number;
+  /** Only set by `crmMyCounts` — the manager's desk has no "assigned to me". */
+  readonly assigned?: number;
 }
 
 /**
@@ -1449,5 +1491,59 @@ export async function crmMessageMedia(
     mime: (row.media_mime as string | null) ?? null,
     filename: (row.media_filename as string | null) ?? null,
     projectId: String(row.project_id),
+  };
+}
+
+/* ============================================================================
+ * WHAT IS MINE — the figures on `/my-leads`
+ * ----------------------------------------------------------------------------
+ * ⚠️ THE SAME ARITHMETIC AS `crmDueCounts`, WITH ONE EXTRA CLAUSE, and it is
+ * deliberately the same SQL rather than a tidier rewrite. Two screens counting
+ * "overdue" slightly differently is how somebody comes to distrust both — and
+ * the person most likely to notice the discrepancy is the one being measured by
+ * it. If the definition changes it must change in both, and they are next to
+ * each other so that is hard to forget.
+ *
+ * ⚠️ `owner_id = app.current_user_id()`, NOT `actorId` INTERPOLATED. The session
+ * already knows who is asking; passing the id in as a parameter would let a
+ * caller ask for somebody else's figures and get them, because RLS permits a
+ * MANAGER to read the whole department.
+ * ========================================================================= */
+export async function crmMyCounts(
+  actorId: string,
+  projectId: string | null,
+): Promise<CrmDueCounts> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select
+      count(*) filter (
+        where l.next_action_at is not null
+          and (l.next_action_at at time zone 'Asia/Karachi')::date
+              < (now() at time zone 'Asia/Karachi')::date
+      ) as overdue,
+      count(*) filter (
+        where l.next_action_at is not null
+          and (l.next_action_at at time zone 'Asia/Karachi')::date
+              = (now() at time zone 'Asia/Karachi')::date
+      ) as due_today,
+      count(*) filter (where l.next_action_at is null) as no_plan,
+      count(*) filter (
+        where (select m.direction from public.crm_lead_messages m
+                where m.lead_id = l.id
+                order by m.occurred_at desc, m.id desc limit 1) = 'inbound'
+      ) as waiting_for_reply,
+      count(*) as assigned
+      from public.crm_leads l
+     where l.owner_id = app.current_user_id()
+       and (${projectId}::uuid is null or l.project_id = ${projectId}::uuid)
+       and l.stage not in ('won', 'lost')
+  `);
+
+  const r = (rows as Array<Record<string, unknown>>)[0];
+  return {
+    overdue: Number(r?.overdue ?? 0),
+    dueToday: Number(r?.due_today ?? 0),
+    noPlan: Number(r?.no_plan ?? 0),
+    waitingForReply: Number(r?.waiting_for_reply ?? 0),
+    assigned: Number(r?.assigned ?? 0),
   };
 }

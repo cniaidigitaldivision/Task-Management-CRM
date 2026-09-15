@@ -65,6 +65,8 @@ const ROWS: CrmLeadRow[] = [
     sequenceStep: null,
     sequenceTotal: null,
     sequenceNote: null,
+    source: 'meta_lead_ad',
+    sourceDetail: null,
   },
   /* The unparseable-number case — one of the three. */
   {
@@ -95,6 +97,8 @@ const ROWS: CrmLeadRow[] = [
     sequenceStep: null,
     sequenceTotal: null,
     sequenceNote: null,
+    source: 'meta_lead_ad',
+    sourceDetail: null,
   },
   /* A fully worked lead — the shape Steps 6-7 will produce. */
   {
@@ -127,6 +131,8 @@ const ROWS: CrmLeadRow[] = [
     sequenceStep: 2,
     sequenceTotal: 3,
     sequenceNote: null,
+    source: 'meta_lead_ad',
+    sourceDetail: null,
   },
 ];
 
