@@ -412,6 +412,12 @@ export function MyLeadsDesk({
   const openLead = wish === undefined ? urlLead : wish;
   const [openTab, setOpenTab] = React.useState<string>(initialTab);
 
+  /* ⚠️ ONE OWNER FOR "WHICH TAB IS OPEN". The shell and the real drawer both
+     render from this; neither keeps a copy. Two copies could disagree at the
+     moment one replaced the other, which is what the owner saw as the panel
+     switching tabs by itself while it loaded. */
+  const setTab = React.useCallback((t: string) => setOpenTab(t), []);
+
   const onOpen = React.useCallback(
     (leadId: string, tab: string) => {
       setWish(leadId);
@@ -518,11 +524,18 @@ export function MyLeadsDesk({
           tab={openTab as never}
           viewerName={fullName}
           nowMs={nowMs}
+          onTab={setTab}
           onClose={closeLead}
         />
       )}
       {!outcomeFor && shellRow && (
-        <LeadDrawerShell row={shellRow} tab={openTab} nowMs={nowMs} onClose={closeLead} />
+        <LeadDrawerShell
+          row={shellRow}
+          tab={openTab}
+          nowMs={nowMs}
+          onTab={setTab}
+          onClose={closeLead}
+        />
       )}
 
       {addOpen && (

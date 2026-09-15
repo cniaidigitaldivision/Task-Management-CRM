@@ -107,6 +107,17 @@ Rules for the transient state:
   The second is a lie somebody will act on.
 - ⚠️ **Compare ids, do not track a boolean.** `record.lead.id === openLead` is
   what stops the previous lead's record being rendered under this one's name.
+- ⚠️ **The transient state and the real one must SHARE their controls' state,
+  not each keep a copy.** A loading shell and the component that replaces it both
+  holding `useState(tab)` is two owners of one fact — and `useState(prop)` reads
+  its prop **once, on mount**, so the copies drift and the panel appears to switch
+  tabs by itself at the moment of the swap. Lift it to the parent that renders
+  both.
+- ⚠️ **AND THE SHELL'S CONTROLS MUST WORK.** Inert tabs on a loading panel look
+  like a frozen interface: somebody who wants the conversation is made to wait
+  for notes they never asked to see. **Which tab is open is the reader's choice,
+  not the data's** — record it instantly and show whatever is in hand for that
+  tab, which from a list row is more than nothing for every one of them.
 
 ### 3.3 · One wave
 

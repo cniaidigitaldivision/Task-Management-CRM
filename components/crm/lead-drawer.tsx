@@ -64,6 +64,7 @@ export function LeadDrawer({
   tab,
   viewerName,
   nowMs,
+  onTab,
   onClose,
 }: {
   lead: CrmLeadRecord;
@@ -74,6 +75,8 @@ export function LeadDrawer({
   tab: Tab;
   viewerName: string;
   nowMs: number;
+  /** Switching tabs is the desk's decision to record, so the shell agrees. */
+  onTab: (tab: string) => void;
   /** Hides the panel at once; the URL catches up in the parent. */
   onClose: () => void;
 }) {
@@ -96,17 +99,25 @@ export function LeadDrawer({
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  /* ⚠️ THE TAB IS CLIENT STATE, SEEDED FROM THE SERVER — not read from the URL
-     on every render. Clicking a tab used to `router.replace` and wait for a full
-     page render before the tab even highlighted, which is a round trip to
-     Singapore to change which of five already-loaded panels is visible.
+  /* ── ⚠️ THE TAB IS THE DESK'S, NOT THIS COMPONENT'S ─────────────────────
+     This used to seed its own `useState(tab)`. Two components each holding a
+     copy of "which tab is open" — this one and the loading shell that precedes
+     it — and the copies could disagree at the moment one replaced the other.
+     The owner saw the result and described it exactly: *"when the drawer opens
+     it directly opens the conversation tab… once the notes are loading it
+     auto-switches."*
 
-     The URL still follows, so a tab survives a refresh and a shared link; it
-     just no longer decides how fast the button reacts. */
-  const [activeTab, setActiveTab] = React.useState<Tab>(tab);
+     ⚠️ SEEDED STATE DOES NOT RE-SEED. `useState(tab)` reads the prop once, on
+     mount, and ignores every later value — so a drawer that mounted while the
+     desk said "conversations" stayed there even after the desk moved on, and a
+     reopened drawer could come back on whatever tab it was left on.
+
+     One owner, one value. The desk holds it, the shell and this render the same
+     thing, and the swap between them is invisible. */
+  const activeTab = tab;
 
   const go = (t: Tab) => {
-    setActiveTab(t);
+    onTab(t);
     const next = new URLSearchParams(search.toString());
     next.set('tab', t);
     soft(`/my-leads?${next.toString()}`);

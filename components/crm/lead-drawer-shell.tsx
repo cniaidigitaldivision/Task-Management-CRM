@@ -39,11 +39,14 @@ export function LeadDrawerShell({
   row,
   tab,
   nowMs,
+  onTab,
   onClose,
 }: {
   row: CrmLeadRow;
   /** Which tab was asked for, so the bar matches what arrives. */
   tab: string;
+  /** Switching is instant — it never waits on the record. */
+  onTab: (tab: string) => void;
   nowMs: number;
   onClose: () => void;
 }) {
@@ -120,23 +123,41 @@ export function LeadDrawerShell({
         {/* ⚠️ THE TAB BAR IS HERE TOO, AND FROM THE SAME `TABS` DEFINITION.
             Leaving it out would mean a whole strip of interface appearing the
             instant the real drawer arrived, shoving the facts below it down —
-            the exact jump this shell exists to avoid. It is inert for the moment
-            it is on screen, which is honest: there is nothing yet to switch to.
+            the exact jump this shell exists to avoid.
+
+            ⚠️ AND THE TABS ARE REAL BUTTONS. They were spans, with a comment
+            saying that was honest because "there is nothing yet to switch to".
+            That reasoning was wrong, and the owner found why: *"while the notes
+            are loading it's still waiting and not responding… don't I have to
+            wait to view the notes while I have to switch the tab and see the
+            other things?"*
+
+            Quite. WHICH TAB IS OPEN IS THE READER'S CHOICE, NOT THE DATA'S. A
+            bar that refuses to move until a fetch lands makes somebody wait for
+            notes they did not ask to see in order to reach the conversation they
+            did. The choice is recorded the instant it is made, and whatever is
+            in hand for that tab is shown — which, from the row, is more than
+            nothing for every one of them.
 
             ⚠️ AND NO COUNTS ON IT. The real bar shows "Conversations (4)" once it
             knows; a zero invented here would be read as "no messages" and is the
             kind of small lie somebody makes a decision on. */}
         <div className="flex gap-1 overflow-x-auto border-b border-border-subtle px-3 py-2">
           {TABS.map((t) => (
-            <span
+            <button
               key={t.key}
+              type="button"
+              onClick={() => onTab(t.key)}
+              aria-pressed={t.key === tab}
               className={cn(
-                'shrink-0 rounded-lg px-3 py-1.5 text-caption font-medium',
-                t.key === tab ? 'bg-accent-primary text-white' : 'text-text-secondary',
+                'shrink-0 rounded-lg px-3 py-1.5 text-caption font-medium transition-colors',
+                t.key === tab
+                  ? 'bg-accent-primary text-white'
+                  : 'text-text-secondary hover:bg-bg-subtle hover:text-text-primary',
               )}
             >
               {t.label}
-            </span>
+            </button>
           ))}
         </div>
 
@@ -153,57 +174,136 @@ export function LeadDrawerShell({
             pretending to be absent — ⚠️ "No notes yet" would be a LIE at this
             moment, and a lie somebody would act on. */}
         <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-4" aria-busy="true">
+          {/* ⚠️ EVERY TAB SHOWS WHAT THE ROW ALREADY KNOWS, not a spinner. The
+              row carries the last message, the next action, the quotation and
+              when something last happened — so a reader who switches tabs before
+              the record lands still gets the headline of the thing they asked
+              for, with only the depth still coming. */}
+          {tab === 'overview' && (
+            <>
           <dl className="grid grid-cols-[minmax(0,7rem)_1fr] gap-x-4 gap-y-2">
-            {(
-              [
-                ['Project', row.projectName],
-                ['City', row.city],
-                ['Phone', phone === '—' ? null : phone],
-                ['Email', row.email],
-                [
-                  'Source',
-                  row.source
-                    ? `${sourceLabel(row.source)}${
-                        sourceDetail(row.source, row.sourceDetail)
-                          ? ` · ${sourceDetail(row.source, row.sourceDetail)}`
-                          : ''
-                      }`
-                    : null,
-                ],
-                ['Came from', row.campaignName ?? row.formName],
-                ['Enquired', relativeAge(row.submittedAt, nowMs)],
-                ['Next action', row.nextAction],
-                ['Unit', row.propertyLabel],
-              ] as ReadonlyArray<readonly [string, string | null]>
-            )
-              .filter(([, value]) => Boolean(value))
-              .map(([label, value]) => (
-                <React.Fragment key={label}>
-                  <dt className="text-caption text-text-tertiary">{label}</dt>
-                  <dd className="min-w-0 break-words text-body-sm text-text-primary">{value}</dd>
-                </React.Fragment>
-              ))}
-          </dl>
+                {(
+                  [
+                    ['Project', row.projectName],
+                    ['City', row.city],
+                    ['Phone', phone === '—' ? null : phone],
+                    ['Email', row.email],
+                    [
+                      'Source',
+                      row.source
+                        ? `${sourceLabel(row.source)}${
+                            sourceDetail(row.source, row.sourceDetail)
+                              ? ` · ${sourceDetail(row.source, row.sourceDetail)}`
+                              : ''
+                          }`
+                        : null,
+                    ],
+                    ['Came from', row.campaignName ?? row.formName],
+                    ['Enquired', relativeAge(row.submittedAt, nowMs)],
+                    ['Next action', row.nextAction],
+                    ['Unit', row.propertyLabel],
+                  ] as ReadonlyArray<readonly [string, string | null]>
+                )
+                  .filter(([, value]) => Boolean(value))
+                  .map(([label, value]) => (
+                    <React.Fragment key={label}>
+                      <dt className="text-caption text-text-tertiary">{label}</dt>
+                      <dd className="min-w-0 break-words text-body-sm text-text-primary">{value}</dd>
+                    </React.Fragment>
+                  ))}
+              </dl>
 
-          {row.lastMessageBody && (
+              {row.lastMessageBody && (
+                <section>
+                  <h3 className="mb-2 text-micro font-semibold uppercase tracking-wide text-text-tertiary">
+                    Last message
+                  </h3>
+                  <p className="rounded-lg border border-border-subtle px-3 py-2 text-body-sm text-text-primary">
+                    {row.lastMessageBody}
+                  </p>
+                </section>
+              )}
+
+              <section>
+                <h3 className="mb-2 text-micro font-semibold uppercase tracking-wide text-text-tertiary">
+                  Notes ({row.noteCount})
+                </h3>
+                <p className="text-caption text-text-tertiary">
+                  {row.noteCount === 0 ? 'Checking…' : 'Loading…'}
+                </p>
+              </section>
+
+            </>
+          )}
+
+          {tab === 'conversations' && (
             <section>
-              <h3 className="mb-2 text-micro font-semibold uppercase tracking-wide text-text-tertiary">
-                Last message
-              </h3>
-              <p className="rounded-lg border border-border-subtle px-3 py-2 text-body-sm text-text-primary">
-                {row.lastMessageBody}
-              </p>
+              {row.lastMessageBody ? (
+                <>
+                  <h3 className="mb-2 text-micro font-semibold uppercase tracking-wide text-text-tertiary">
+                    Last message · {relativeAge(row.lastMessageAt ?? row.submittedAt, nowMs)}
+                  </h3>
+                  <p className="rounded-lg border border-border-subtle px-3 py-2 text-body-sm text-text-primary">
+                    {row.lastMessageBody}
+                  </p>
+                  <p className="mt-2 text-caption text-text-tertiary">Loading the rest of the thread…</p>
+                </>
+              ) : (
+                <p className="text-caption text-text-tertiary">Loading the conversation…</p>
+              )}
             </section>
           )}
 
-          <section>
-            <h3 className="mb-2 text-micro font-semibold uppercase tracking-wide text-text-tertiary">
-              Notes ({row.noteCount})
-            </h3>
-            <p className="text-caption text-text-tertiary">
-              {row.noteCount === 0 ? 'Checking…' : 'Loading…'}
-            </p>
-          </section>
+          {tab === 'followups' && (
+            <section>
+              {row.nextAction ? (
+                <>
+                  <h3 className="mb-2 text-micro font-semibold uppercase tracking-wide text-text-tertiary">
+                    Next action
+                  </h3>
+                  <p className="text-body-sm text-text-primary">{row.nextAction}</p>
+                  {row.nextActionAt && (
+                    <p className="mt-0.5 text-caption text-text-secondary">
+                      {relativeAge(row.nextActionAt, nowMs)}
+                    </p>
+                  )}
+                  <p className="mt-2 text-caption text-text-tertiary">Loading the rest…</p>
+                </>
+              ) : (
+                <p className="text-caption text-text-tertiary">Loading follow-ups…</p>
+              )}
+            </section>
+          )}
+
+          {tab === 'related' && (
+            <section>
+              {row.quotationNumber ? (
+                <>
+                  <h3 className="mb-2 text-micro font-semibold uppercase tracking-wide text-text-tertiary">
+                    Quotation
+                  </h3>
+                  <p className="text-body-sm text-text-primary">
+                    {row.quotationNumber}
+                    {row.quotationAmount !== null && (
+                      <span className="tabular-nums text-text-secondary">
+                        {' '}· PKR {row.quotationAmount.toLocaleString('en-PK')}
+                      </span>
+                    )}
+                  </p>
+                  {row.propertyLabel && (
+                    <p className="mt-0.5 text-caption text-text-secondary">{row.propertyLabel}</p>
+                  )}
+                  <p className="mt-2 text-caption text-text-tertiary">Loading the rest…</p>
+                </>
+              ) : (
+                <p className="text-caption text-text-tertiary">Loading related items…</p>
+              )}
+            </section>
+          )}
+
+          {tab === 'activity' && (
+            <p className="text-caption text-text-tertiary">Loading the activity log…</p>
+          )}
 
           <span className="sr-only">Loading the rest of the record</span>
         </div>
