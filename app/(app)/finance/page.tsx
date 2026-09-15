@@ -10,7 +10,7 @@ import {
   listExpenses,
   listProjectsForPicker,
   listRevenue,
-  payrollMonth,
+  payrollMonths,
   postedMonths,
 } from '@/lib/db/queries/finance';
 import {
@@ -70,14 +70,13 @@ export default async function FinancePage({
 }: {
   searchParams: Promise<{ range?: string; from?: string; to?: string }>;
 }) {
-  const user = await requireUser();
+  /* ⚠️ ONE WAVE — Rule Zero, law 4 (docs/20-UI-RESPONSIVENESS.md). */
+  const [user, params] = await Promise.all([requireUser(), searchParams]);
   const actor = { role: user.role, id: user.id };
 
   const canView = can(actor, 'finance.view');
   const canManage = can(actor, 'finance.manage');
   const canFile = can(actor, 'finance.record_expense');
-
-  const params = await searchParams;
 
   /* Karachi, not the server's timezone — every other date in this product is
      Karachi and a ledger that disagreed by a day would file month-end rows into
@@ -170,7 +169,9 @@ export default async function FinancePage({
     listProjectsForPicker(user.id),
     listPeople(user.id),
     reviewsDue(user.id),
-    Promise.all(months.map((m) => payrollMonth(user.id, m))),
+    /* ⚠️ ONE QUERY FOR THE WHOLE YEAR, not twelve transactions competing for a
+       three-connection pool. See `payrollMonths` in lib/db/queries/finance.ts. */
+    payrollMonths(user.id, months),
     /* ── ⚠️ EVERY INVOICE, NOT JUST THE RANGE'S ─────────────────────────────
        Deliberately outside `range`. An invoice raised in June and still unpaid
        has to be visible in September — the tab exists to chase money, and
@@ -196,7 +197,7 @@ export default async function FinancePage({
     tools,
     categoryOptions: categories,
     postedMonths: posted,
-    payrollFor: Object.fromEntries(months.map((m, i) => [m, payrollByMonth[i]])),
+    payrollFor: payrollByMonth,
     payrollMonths: months,
     reviewsDue: reviews,
     from: range.from,

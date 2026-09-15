@@ -96,10 +96,9 @@ export default async function DocumentsPage({
 }: {
   searchParams: Promise<{ drive?: string }>;
 }) {
-  const params = await searchParams;
+  /* ⚠️ ONE WAVE — Rule Zero, law 4 (docs/20-UI-RESPONSIVENESS.md). */
+  const [params, user] = await Promise.all([searchParams, requireUser()]);
   const outcome = params.drive ? (DRIVE_OUTCOME[params.drive] ?? null) : null;
-
-  const user = await requireUser();
   const actor = { role: user.role, id: user.id };
 
   const canConfigure = can(actor, 'drive.configure');

@@ -41,8 +41,8 @@ export default async function TasksPage({
     to?: string;
   }>;
 }) {
-  const user = await requireUser();
-  const params = await searchParams;
+  /* ⚠️ ONE WAVE — Rule Zero, law 4 (docs/20-UI-RESPONSIVENESS.md). */
+  const [user, params] = await Promise.all([requireUser(), searchParams]);
 
   /* ── ⚠️ THE BOARD OPENS ON TODAY, NOT ON EVERYTHING ───────────────────────
      Owner, 2026-09-02: *"by default it should show only today's tasks not the

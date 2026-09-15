@@ -724,6 +724,78 @@ export async function payrollMonth(actorId: string, month: MonthKey): Promise<Pa
 }
 
 /**
+ * The same thing for several months, in ONE query and ONE transaction.
+ *
+ * ⚠️ TWELVE `payrollMonth` CALLS WAS TWELVE TRANSACTIONS. The finance page asked
+ * for a year of payroll as `Promise.all(months.map(m => payrollMonth(...)))`,
+ * and every one of those is its own BEGIN, `set_config`, query and COMMIT — so
+ * the "parallel" read was twelve round trips fighting over a pool capped at
+ * THREE connections in production (`lib/db/client.ts`). Four waves, for a query
+ * whose only difference between calls was one date.
+ *
+ * ⚠️ `unnest` CROSS JOIN, NOT `period_month = any(...)`. The months have to stay
+ * attached to their rows: a plain `any()` would collapse twelve months of salary
+ * into one undifferentiated list and there would be no way to tell which posting
+ * belonged to which month. Cross-joining the months against the roster returns
+ * exactly what the twelve calls returned, concatenated and labelled.
+ *
+ * Rule Zero, law 4 — docs/20-UI-RESPONSIVENESS.md.
+ */
+export async function payrollMonths(
+  actorId: string,
+  months: readonly MonthKey[],
+): Promise<Record<string, PayrollLineRow[]>> {
+  if (months.length === 0) return {};
+
+  const periods = months.map((m) => monthStart(m));
+
+  const rows = await withUser(actorId, (tx) => tx`
+    select m.period,
+           c.user_id, c.monthly_salary, c.currency, c.employment_type,
+           u.full_name, u.role_title, u.avatar_url, u.office_team,
+           e.id as expense_id, e.amount_pkr as posted_amount, e.paid_on
+      from unnest(${periods}::date[]) as m(period)
+      cross join public.employee_compensation c
+      join public.users u on u.id = c.user_id
+      left join public.expenses e
+        on e.user_id = c.user_id
+       and e.source = 'payroll_run'
+       and e.period_month = m.period
+     where c.employment_type <> 'owner'
+       and u.is_active
+     order by m.period, c.monthly_salary desc, u.full_name
+  `);
+
+  /* ⚠️ EVERY REQUESTED MONTH GETS A KEY, even one with no rows. The caller
+     indexes by month and an absent key would read as `undefined` where it
+     expects a list — a crash rather than an empty table. */
+  const out: Record<string, PayrollLineRow[]> = {};
+  for (const m of months) out[m] = [];
+
+  for (const row of rows as Array<Record<string, unknown>>) {
+    const key = isoDate(row.period).slice(0, 7) as MonthKey;
+    (out[key] ??= []).push({
+      userId: row.user_id as string,
+      fullName: row.full_name as string,
+      roleTitle: (row.role_title as string | null) ?? null,
+      avatarUrl: (row.avatar_url as string | null) ?? null,
+      officeTeam: (row.office_team as string) ?? 'blue_area',
+      employmentType: (row.employment_type as string) ?? 'full_time',
+      monthlySalary: Number(row.monthly_salary ?? 0),
+      currency: (row.currency as string) ?? 'PKR',
+      expenseId: (row.expense_id as string | null) ?? null,
+      postedAmount:
+        row.posted_amount === null || row.posted_amount === undefined
+          ? null
+          : Number(row.posted_amount),
+      paidOn: row.paid_on ? isoDate(row.paid_on) : null,
+    });
+  }
+
+  return out;
+}
+
+/**
  * Settle every unpaid salary row for a month at once.
  *
  * Owner: *"One click to pay all or I can select anyone to make them unpaid."*

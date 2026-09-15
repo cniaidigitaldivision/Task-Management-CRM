@@ -38,12 +38,19 @@ export default async function LeadReportsPage({
 }: {
   searchParams: Promise<Record<string, string | undefined>>;
 }) {
-  const { user } = await requireCrmAccess();
-  const params = await searchParams;
+  /* ⚠️ ONE WAVE — Rule Zero, law 4 (docs/20-UI-RESPONSIVENESS.md). */
+  const [{ user }, params] = await Promise.all([requireCrmAccess(), searchParams]);
   const now = nowMs();
   const period = defaultPeriod(now);
 
-  const projects = await listCrmProjects(user.id);
+  /* ⚠️ THE OPEN REPORT LEAVES WITH THE PROJECT LIST. Its id comes from the URL,
+     so it never needed the list first. Read only from storage, and an id that is
+     not theirs comes back null through RLS — the page then shows the list rather
+     than an error, the same reasoning as the lead record's 404. */
+  const [projects, open] = await Promise.all([
+    listCrmProjects(user.id),
+    params.report ? getStoredReport(user.id, params.report) : Promise.resolve(null),
+  ]);
   const selected =
     projects.find((p) => p.id === params.project) ??
     projects.find((p) => p.connection === 'live') ??
@@ -73,11 +80,6 @@ export default async function LeadReportsPage({
        refuses them regardless. */
     crmProjectRoster(user.id, selected.id),
   ]);
-
-  /* ⚠️ Read only when asked for, and only ever from storage. An id that is not
-     theirs comes back null through RLS, and the page shows the list rather than
-     an error — the same reasoning as the lead record's 404. */
-  const open = params.report ? await getStoredReport(user.id, params.report) : null;
 
   return (
     <LeadReports

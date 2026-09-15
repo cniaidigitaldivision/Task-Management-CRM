@@ -187,13 +187,27 @@ name both navigates and opens one.
 
 Recorded honestly rather than left to be rediscovered as a complaint.
 
-- **Only `/my-leads` has been brought to this standard.** Every other screen
-  still needs the audit in §5 — `/leads`, `/tasks`, `/projects`, `/finance`,
-  `/dashboard` and the rest.
-- **`/finance` issues ~27 queries per load**, including twelve separate
-  `withUser` calls from `Promise.all(months.map(...))` — each its own
-  BEGIN/set_config/COMMIT. Left alone because the owner said finance felt fine;
-  it fails §3.3 and should be batched when touched.
+**Done 2026-09-15 — law 4 swept across every page.** Waterfalls collapsed on
+`/my-leads`, `/leads`, `/leads/[id]`, `/projects/[id]`, `/projects/[id]/report`,
+`/lead-reports`, `/lead-overview`, `/workflow`, `/finance`, `/finance/clients/[id]`,
+`/tasks`, `/attendance`, `/documents`, `/notifications` and `/profile`. The two
+largest: `/projects/[id]` went from four waves to two (nothing in eleven reads
+touched the project row), and `/leads/[id]` from seven to three.
+
+**Done — `/finance` payroll.** `Promise.all(months.map(m => payrollMonth(...)))`
+was twelve transactions competing over a three-connection pool. `payrollMonths`
+is one query using `unnest` cross-joined against the roster. ⚠️ Verified equal to
+the twelve-call result **row for row and field for field** before shipping, because
+it is payroll: 12 months, identical, and 2.7x faster (1557 ms → 570 ms).
+
+**Still outstanding:**
+
+- **Only `/my-leads` has had the full §5 audit** — laws 1-3, the click-level
+  behaviour. Every other screen has had law 4 (one wave) applied but nobody has
+  clicked through it against the checklist. Their panels do at least use local
+  state rather than `router.push`, checked 2026-09-15.
+- **The `/my-leads` drawer still waits on notes and form answers.** Everything
+  else draws from the row. Notes are small and could ride the list query.
 - **No route in the CRM has a `loading.tsx`**, so dynamic routes get no partial
   prefetch at all (`node_modules/next/dist/docs/01-app/01-getting-started/04-linking-and-navigating.md`).
   ⚠️ A route-level one would blank the list when a drawer opens, so the answer is

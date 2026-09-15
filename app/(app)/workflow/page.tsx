@@ -33,23 +33,26 @@ export default async function WorkflowPage({
 }: {
   searchParams: Promise<{ chain?: string }>;
 }) {
-  const user = await requireUser();
-  const { chain: selectedId } = await searchParams;
+  /* ⚠️ ONE WAVE — Rule Zero, law 4 (docs/20-UI-RESPONSIVENESS.md). */
+  const [user, { chain: selectedId }] = await Promise.all([requireUser(), searchParams]);
 
   /* Read for everybody, write for Admin and above — the owner's split, and the
      one migration 026's policies already encode. This only decides what to
      OFFER; the actions re-check and RLS refuses regardless. */
   const canEdit = user.role === 'super_admin' || user.role === 'admin';
 
-  const [chains, skills] = await Promise.all([
+  /* The selected chain comes down with the page rather than being fetched on
+     the client, so the canvas has its nodes on first paint instead of flashing
+     empty and filling in.
+
+     ⚠️ AND IT LEAVES WITH THE LISTS, not after them. `selectedId` comes from the
+     URL and is known before any query runs, so waiting for the chain list first
+     was a round trip spent on a dependency that does not exist. */
+  const [chains, skills, open] = await Promise.all([
     listChains(user.id),
     listSkills(user.id),
+    selectedId ? getChain(user.id, selectedId) : Promise.resolve(null),
   ]);
-
-  /* The selected chain comes down with the page rather than being fetched on
-     the client. Opening a chain is a navigation, so the canvas already has its
-     nodes on first paint instead of flashing empty and filling in. */
-  const open = selectedId ? await getChain(user.id, selectedId) : null;
 
   return (
     <div className="mx-auto max-w-[var(--content-max)] space-y-6">

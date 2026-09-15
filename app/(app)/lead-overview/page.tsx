@@ -35,8 +35,8 @@ export default async function LeadOverviewPage({
 }: {
   searchParams: Promise<Record<string, string | undefined>>;
 }) {
-  const { user } = await requireCrmReports();
-  const params = await searchParams;
+  /* ⚠️ ONE WAVE — Rule Zero, law 4 (docs/20-UI-RESPONSIVENESS.md). */
+  const [{ user }, params] = await Promise.all([requireCrmReports(), searchParams]);
 
   const projects = await listCrmProjects(user.id);
 

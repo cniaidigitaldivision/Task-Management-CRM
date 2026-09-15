@@ -41,11 +41,22 @@ export default async function LeadPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<Record<string, string | undefined>>;
 }) {
-  const { user } = await requireCrmAccess();
-  const { id } = await params;
-  const query = await searchParams;
+  /* ⚠️ ONE WAVE — Rule Zero, law 4 (docs/20-UI-RESPONSIVENESS.md). */
+  const [{ user }, { id }, query] = await Promise.all([
+    requireCrmAccess(),
+    params,
+    searchParams,
+  ]);
 
-  const record = await getCrmLead(user.id, id);
+  /* ⚠️ THE THREAD LEAVES WITH THE RECORD. It needs only the lead id, which came
+     from the URL — so waiting for the record first was a whole round trip spent
+     on a dependency that does not exist. Both run under `withUser`, so a lead
+     that is not theirs returns nothing from both and the thread is discarded
+     with the 404 below. */
+  const [record, thread] = await Promise.all([
+    getCrmLead(user.id, id),
+    crmLeadThread(user.id, id),
+  ]);
   if (!record) notFound();
 
   /* ⚠️ EMPTY FOR SOMEBODY WHO DOES NOT MANAGE THIS PROJECT, by migration 124's
@@ -56,37 +67,37 @@ export default async function LeadPage({
 
      ⚠️ SCOPED TO THIS LEAD'S PROJECT. A Chitral lead offers the Sales team; an
      ERP lead offers AI & Digital. Before migration 124 there was one team. */
-  const roster = await crmProjectRoster(user.id, record.lead.projectId);
-
-  /* ⚠️ A READ, NOT A GENERATION. Producing a reading costs money and happens
-     only when somebody presses the button (`app/actions/crm-lead-ai.ts`). This
-     just fetches whatever is already cached — null when nobody has asked, which
-     is the state 627 of these leads will stay in. The fingerprint is recomputed
-     here so the panel can say whether the cached reading still matches the
-     lead, rather than showing advice about a stage it has left. */
-  const insight = await crmLeadInsight(
-    user.id,
-    id,
-    fingerprint({
-      answers: record.lead.answers,
-      stage: record.lead.stage,
-      noteCount: record.notes.length,
-      city: record.lead.city,
-    }),
-  );
-
-  /* ⚠️ The thread is READ here and the composer's availability with it, in one
-     wave — three sequential awaits to Singapore is most of this page's budget
-     and none of them depends on another. */
-  /* ⚠️ Read on the SERVER, at render time. It says whether this deployment could
-     send for any project at all — a different question from whether this project
-     has a number, and the one that was being mistaken for it. */
-  const tokenPresent = whatsAppTokenPresent();
-
-  const [thread, canWhatsApp] = await Promise.all([
-    crmLeadThread(user.id, id),
+  /* ⚠️ THESE THREE GENUINELY DO DEPEND ON THE RECORD — the roster and the
+     WhatsApp check need its project, and the insight needs a fingerprint built
+     from its own fields. So they are one wave AFTER it, rather than three. */
+  const [roster, insight, canWhatsApp] = await Promise.all([
+    crmProjectRoster(user.id, record.lead.projectId),
+    crmLeadInsight(
+      user.id,
+      id,
+      fingerprint({
+        answers: record.lead.answers,
+        stage: record.lead.stage,
+        noteCount: record.notes.length,
+        city: record.lead.city,
+      }),
+    ),
     crmProjectCanWhatsApp(user.id, record.lead.projectId),
   ]);
+
+  /* ⚠️ `crmLeadInsight` above is A READ, NOT A GENERATION. Producing a reading
+     costs money and happens only when somebody presses the button
+     (`app/actions/crm-lead-ai.ts`). That call fetches whatever is already
+     cached — null when nobody has asked, which is the state 627 of these leads
+     will stay in. The fingerprint is recomputed so the panel can say whether the
+     cached reading still matches the lead, rather than showing advice about a
+     stage it has left.
+
+     ⚠️ And this one is not a query at all — read on the SERVER, at render time.
+     It says whether this deployment could send for any project, a different
+     question from whether this project has a number, and the one that was being
+     mistaken for it. */
+  const tokenPresent = whatsAppTokenPresent();
 
   return (
     <>

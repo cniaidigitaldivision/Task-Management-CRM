@@ -40,8 +40,8 @@ export const metadata: Metadata = { title: 'Your profile' };
  * ========================================================================= */
 
 export default async function ProfilePage() {
-  const prefs = await getMyPrefsAction();
-  const user = await requireUser();
+  /* ⚠️ ONE WAVE — Rule Zero, law 4 (docs/20-UI-RESPONSIVENESS.md). */
+  const [prefs, user] = await Promise.all([getMyPrefsAction(), requireUser()]);
   const now = nowMs();
 
   const [{ people }, skills, myTools] = await Promise.all([

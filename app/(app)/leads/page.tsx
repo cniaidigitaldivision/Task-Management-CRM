@@ -65,8 +65,8 @@ export default async function LeadsPage({
   /* ⚠️ Repeated from the layout on purpose: a page is reachable without its
      layout in some render paths, and a floor that exists in only one of the two
      is not a floor. Same pattern as the Studio. */
-  const { user } = await requireCrmAccess();
-  const params = await searchParams;
+  /* ⚠️ ONE WAVE — Rule Zero, law 4 (docs/20-UI-RESPONSIVENESS.md). */
+  const [{ user }, params] = await Promise.all([requireCrmAccess(), searchParams]);
 
   const projects = await listCrmProjects(user.id);
 

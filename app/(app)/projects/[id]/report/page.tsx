@@ -46,19 +46,19 @@ export default async function ProjectReportPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ kind?: string; from?: string; to?: string }>;
 }) {
-  const { id } = await params;
-  const { kind: rawKind, from: rawFrom, to: rawTo } = await searchParams;
-  const user = await requireUser();
+  /* ⚠️ ONE WAVE — Rule Zero, law 4 (docs/20-UI-RESPONSIVENESS.md). None of these
+     three needs an answer from the other two, so awaiting them in a row was
+     three trips for data that could have left together. */
+  const [{ id }, { kind: rawKind, from: rawFrom, to: rawTo }, user] = await Promise.all([
+    params,
+    searchParams,
+    requireUser(),
+  ]);
   const actor = { role: user.role, id: user.id };
 
   /* Default to this month rather than 404ing a bare /report — somebody who types the
      URL should get the most useful report, not an error. */
   const kind = rawKind && isReportKind(rawKind) ? rawKind : 'month';
-
-  const project = await getProject(user.id, id);
-  /* ⚠️ 404 for both "no such project" and "not yours" — `getProject` runs under RLS, and
-     distinguishing them would confirm that a project they may not see exists. */
-  if (!project) notFound();
 
   const now = new Date(nowMs());
   const pad = (n: number) => String(n).padStart(2, '0');
@@ -72,7 +72,21 @@ export default async function ProjectReportPage({
     rawTo && MONTH_START.test(rawTo) ? rawTo : undefined,
   );
 
-  const data = await projectReportData(user.id, id, period.start, period.end);
+  /* ⚠️ AND THESE TWO TOGETHER. The report reads nothing from `project` — it needs
+     the id and the period, both known already — so waiting for one before asking
+     for the other was a whole round trip spent on nothing.
+
+     ⚠️ ASKING FOR THE DATA BEFORE THE PROJECT IS CONFIRMED IS SAFE: both run
+     under `withUser`, so RLS answers for this person either way and a report for
+     a project they cannot see comes back empty and is discarded below. */
+  const [project, data] = await Promise.all([
+    getProject(user.id, id),
+    projectReportData(user.id, id, period.start, period.end),
+  ]);
+
+  /* ⚠️ 404 for both "no such project" and "not yours" — `getProject` runs under RLS, and
+     distinguishing them would confirm that a project they may not see exists. */
+  if (!project) notFound();
 
   const report = buildProjectReport(
     period,

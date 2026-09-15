@@ -81,35 +81,13 @@ export default async function ProjectPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ month?: string }>;
 }) {
-  const { id } = await params;
-  const { month: requestedMonth } = await searchParams;
-  const user = await requireUser();
+  /* ⚠️ ONE WAVE — Rule Zero, law 4 (docs/20-UI-RESPONSIVENESS.md). */
+  const [{ id }, { month: requestedMonth }, user] = await Promise.all([
+    params,
+    searchParams,
+    requireUser(),
+  ]);
   const actor = { role: user.role, id: user.id };
-
-  const project = await getProject(user.id, id);
-
-  /* ⚠️ 404 for both "no such project" and "not yours". `getProject` runs under
-     RLS, so an invisible project already comes back null — and distinguishing
-     the two would tell somebody that a project they may not see exists. */
-  if (!project) notFound();
-
-  const [members, tasks, credentials, documents, people, activity, remarkCount] =
-    await Promise.all([
-      listProjectMembers(user.id, id),
-      listTasks(user.id, { projectId: id, includeClosed: true }),
-      listCredentials(user.id),
-      listDocuments(user.id),
-      can(actor, 'project.edit') ? listPeople(user.id, {}) : Promise.resolve([]),
-      /* Seven reads, still one round of latency — see the header. */
-      listProjectActivity(user.id, id, 8),
-      /* ⚠️ THE COUNT, NOT THE THREAD. One integer for the button's badge; the
-         remarks themselves are fetched when the dialog opens. Every prop of a
-         server component is serialised into the HTML, and a project's whole
-         conversation in the page source is kilobytes nobody has asked to read
-         yet — payload size is where this application's slowness has actually
-         been, twice. */
-      countProjectRemarks(user.id, id),
-    ]);
 
   const canSeeFinance = can(actor, 'project.view_finance');
 
@@ -149,6 +127,53 @@ export default async function ProjectPage({
   const boardFrom = isoDaysFrom(today, -DAILY_LOOKBACK_DAYS);
   const boardTo = isoDaysFrom(today, 7);
 
+
+  /* ⚠️ ONE WAVE FOR ALL ELEVEN READS — Rule Zero, law 4. This was four waves:
+     the project, then seven reads, then the board's three, then the cadence.
+     Only the last of those genuinely needed an answer from an earlier one.
+
+     ⚠️ NOTHING HERE READS `project`. Every argument below is the id from the
+     URL, the acting user, or a date derived from the clock and the URL — all
+     known before a single query runs. Waiting for the project row first was
+     three round trips spent on a dependency that does not exist.
+
+     ⚠️ AND ASKING BEFORE THE 404 IS SAFE: all of them run under `withUser`, so a
+     project this person cannot see returns nothing from every one and the whole
+     lot is discarded below. */
+  const [
+    project,
+    [members, tasks, credentials, documents, people, activity, remarkCount],
+    [placements, driveFolders, calendarTasks],
+  ] = await Promise.all([
+    getProject(user.id, id),
+    Promise.all([
+      listProjectMembers(user.id, id),
+      listTasks(user.id, { projectId: id, includeClosed: true }),
+      listCredentials(user.id),
+      listDocuments(user.id),
+      can(actor, 'project.edit') ? listPeople(user.id, {}) : Promise.resolve([]),
+      /* Seven reads, still one round of latency — see the header. */
+      listProjectActivity(user.id, id, 8),
+      /* ⚠️ THE COUNT, NOT THE THREAD. One integer for the button's badge; the
+         remarks themselves are fetched when the dialog opens. Every prop of a
+         server component is serialised into the HTML, and a project's whole
+         conversation in the page source is kilobytes nobody has asked to read
+         yet — payload size is where this application's slowness has actually
+         been, twice. */
+      countProjectRemarks(user.id, id),
+    ]),
+    Promise.all([
+      listPlacementsForProject(user.id, id, boardFrom, boardTo),
+      listFolders(user.id),
+      tasksInRange(user.id, { from: monthStart, to: monthEnd(monthStart), projectId: id }),
+    ]),
+  ]);
+
+  /* ⚠️ 404 for both "no such project" and "not yours". `getProject` runs under
+     RLS, so an invisible project already comes back null — and distinguishing
+     the two would tell somebody that a project they may not see exists. */
+  if (!project) notFound();
+
   /* ── ⚠️ THE PROJECT'S OWN TASKS, FOR ITS CALENDAR TAB ─────────────────────
      Owner, 2026-08-23: *"on any project detail page, the calendar is not
      working. It's not showing anything related to that project."*
@@ -161,11 +186,6 @@ export default async function ProjectPage({
 
      Scoped to the visible month; the view fetches its own neighbours as you
      page, carrying the same project id. */
-  const [placements, driveFolders, calendarTasks] = await Promise.all([
-    listPlacementsForProject(user.id, id, boardFrom, boardTo),
-    listFolders(user.id),
-    tasksInRange(user.id, { from: monthStart, to: monthEnd(monthStart), projectId: id }),
-  ]);
 
   /* The owner's picture. Read from the people list already fetched above rather than
      as a seventh query — and `?? null` because that list is EMPTY for a reader without

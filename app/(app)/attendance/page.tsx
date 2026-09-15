@@ -61,7 +61,15 @@ export default async function AttendancePage({
 }: {
   searchParams: Promise<{ range?: string; from?: string; to?: string }>;
 }) {
-  const user = await requireUser();
+  /* ⚠️ ONE WAVE — Rule Zero, law 4 (docs/20-UI-RESPONSIVENESS.md). The clock and
+     the URL owe nothing to the session, so all three leave together. Everything
+     below genuinely does depend on them: the range needs the day, and every
+     query needs the range. */
+  const [user, params, now] = await Promise.all([
+    requireUser(),
+    searchParams,
+    attendanceNow(),
+  ]);
   const actor = { role: user.role, id: user.id };
 
   const canViewAll = can(actor, 'attendance.view_all');
@@ -71,12 +79,6 @@ export default async function AttendancePage({
      not decide whose attendance a face opens. Migration 079 narrows the tables to
      match, so this only decides whether the panel is drawn. */
   const canManageTerminals = can(actor, 'attendance.manage_devices');
-
-  const params = await searchParams;
-
-  /* The clock first: the range depends on what day it is, and everything else
-     depends on the range. */
-  const now = await attendanceNow();
 
   const range =
     params.range === 'custom'

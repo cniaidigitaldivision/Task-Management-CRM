@@ -36,8 +36,8 @@ export default async function NotificationsPage({
 }: {
   searchParams: Promise<{ page?: string }>;
 }) {
-  const user = await requireUser();
-  const params = await searchParams;
+  /* ⚠️ ONE WAVE — Rule Zero, law 4 (docs/20-UI-RESPONSIVENESS.md). */
+  const [user, params] = await Promise.all([requireUser(), searchParams]);
 
   /* ⚠️ Clamped rather than trusted. `?page=-4` would send a negative offset to
      Postgres, which refuses it with a 500 — an error page for a URL somebody

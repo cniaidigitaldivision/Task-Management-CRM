@@ -41,17 +41,21 @@ export default async function ClientStatementPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const { id } = await params;
-  const user = await requireUser();
+  /* ⚠️ ONE WAVE — Rule Zero, law 4 (docs/20-UI-RESPONSIVENESS.md). */
+  const [{ id }, user] = await Promise.all([params, requireUser()]);
 
-  const project = await projectHeader(user.id, id);
-  if (!project) notFound();
-
+  /* ⚠️ THE STATEMENT LEAVES WITH THE HEADER. Neither invoices nor payments reads
+     anything from `project` — both need the id, which came from the URL — so
+     waiting for the header first was a whole round trip spent on nothing. All
+     three run under `withUser`, so a project this person cannot see returns
+     nothing from every one of them and the rows are discarded with the 404. */
   const key = { projectId: id, clientName: null };
-  const [invoices, payments] = await Promise.all([
+  const [project, invoices, payments] = await Promise.all([
+    projectHeader(user.id, id),
     clientInvoices(user.id, key),
     clientPayments(user.id, key),
   ]);
+  if (!project) notFound();
 
   return (
     <div className="mx-auto max-w-[var(--content-max)]">
