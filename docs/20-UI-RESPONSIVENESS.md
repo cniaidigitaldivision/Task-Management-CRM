@@ -200,12 +200,25 @@ is one query using `unnest` cross-joined against the roster. ⚠️ Verified equ
 the twelve-call result **row for row and field for field** before shipping, because
 it is payroll: 12 months, identical, and 2.7x faster (1557 ms → 570 ms).
 
+**Done 2026-09-15 — laws 1-3 on the next screens.**
+
+- `/leads` — ⚠️ **table/board was a full server render for identical rows.**
+  `view` never reaches SQL; both arrangements are drawn from the same rows,
+  already on the page. Now instant, with the URL still recording it so a shared
+  link lands on the same view. Filters also gained pending feedback.
+- `/tasks` — **already compliant.** View, grouping, every filter and the task
+  panel are local state seeded from the URL. Nothing to change.
+- `/attendance`, `/workflow` — the reads are genuine (a different date range, a
+  chain's nodes), so the trip stays; both now acknowledge the click.
+
 **Still outstanding:**
 
-- **Only `/my-leads` has had the full §5 audit** — laws 1-3, the click-level
-  behaviour. Every other screen has had law 4 (one wave) applied but nobody has
-  clicked through it against the checklist. Their panels do at least use local
-  state rather than `router.push`, checked 2026-09-15.
+- **Nobody has clicked through any of these against §5 signed in.** Laws 1-4 have
+  been applied by reading the code and measuring the queries; the click-level
+  check is still owed on every screen but `/my-leads`.
+- `/studio`, `/lead-overview`, `/calendar`, `/documents`, `/projects` — their
+  navigations look genuine (each fetches different data) but none has been
+  checked for pending feedback.
 - **The `/my-leads` drawer still waits on notes and form answers.** Everything
   else draws from the row. Notes are small and could ride the list query.
 - **No route in the CRM has a `loading.tsx`**, so dynamic routes get no partial

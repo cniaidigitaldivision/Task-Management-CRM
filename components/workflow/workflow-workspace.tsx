@@ -67,6 +67,12 @@ export function WorkflowWorkspace({
   canEdit: boolean;
 }) {
   const router = useRouter();
+  /* ⚠️ THE TRIP IS REAL, THE SILENCE IS NOT — §3.4 of
+     docs/20-UI-RESPONSIVENESS.md. These chain's nodes genuinely come from the database,
+     so the wait cannot be removed; what it must not do is look like nothing
+     happened, which is what makes somebody click a second time. */
+  const [pending, startTransition] = React.useTransition();
+
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -132,11 +138,18 @@ export function WorkflowWorkspace({
           }
         />
       ) : (
+        /* ⚠️ DIMMED WHILE THE CHAIN IS FETCHED. Its nodes really do have to come
+           from the database, so the list stays readable and simply stops taking
+           clicks rather than blanking. §3.4. */
+        <div
+          className={pending ? 'pointer-events-none opacity-50 transition-opacity' : 'transition-opacity'}
+          aria-busy={pending}
+        >
         <ChainList
           chains={chains}
           busy={busy}
           canEdit={canEdit}
-          onOpen={(id) => router.push(`/workflow?chain=${id}`)}
+          onOpen={(id) => startTransition(() => router.push(`/workflow?chain=${id}`))}
           onCreate={(name, projectType) =>
             run(async () => {
               const result = await createChainAction({ name, projectType });
@@ -146,6 +159,7 @@ export function WorkflowWorkspace({
           }
           onDelete={(id) => run(() => deleteChainAction(id))}
         />
+        </div>
       )}
     </div>
   );

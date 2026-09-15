@@ -138,6 +138,12 @@ export function AttendanceWorkspace({
   canEdit,
 }: AttendanceWorkspaceProps) {
   const router = useRouter();
+  /* ⚠️ THE TRIP IS REAL, THE SILENCE IS NOT — §3.4 of
+     docs/20-UI-RESPONSIVENESS.md. These rows genuinely come from the database,
+     so the wait cannot be removed; what it must not do is look like nothing
+     happened, which is what makes somebody click a second time. */
+  const [pending, startTransition] = React.useTransition();
+
   const [filters, setFilters] = React.useState<RowFilters>(NO_FILTERS);
   /* ⚠️ Opens on the grouping that suits the period — Weekly for the month this
      page opens on, by the owner's instruction. See `defaultGranularity`. */
@@ -414,10 +420,15 @@ export function AttendanceWorkspace({
                     page is showing something it is not. */}
                 <Select
                   label="Show a period"
+                  disabled={pending}
                   value={range.key}
                   onChange={(event) => {
                     const key = event.target.value;
-                    if (key !== range.key) router.replace(`/attendance?range=${key}` as never);
+                    if (key !== range.key) {
+                      startTransition(() => {
+                        router.replace(`/attendance?range=${key}` as never);
+                      });
+                    }
                   }}
                   options={
                     QUICK_RANGES.some((quick) => quick.value === range.key)

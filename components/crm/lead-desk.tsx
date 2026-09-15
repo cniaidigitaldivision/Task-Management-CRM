@@ -159,16 +159,50 @@ export function LeadDesk({
      results while sitting on page 9 shows an empty table, which reads as a bug
      rather than as a narrow filter. The same reasoning as usePagination's
      reset, which cannot help here because the paging is done in SQL. */
+  /* ⚠️ THE ROUND TRIP IS REAL, THE SILENCE IS NOT — Rule Zero, §3.4 of
+     docs/20-UI-RESPONSIVENESS.md. A filter genuinely has to ask the database for
+     different rows; what it must not do is sit there looking like nothing
+     happened, which is what makes somebody click it a second time. */
+  const [pending, startTransition] = React.useTransition();
+
   const setParam = React.useCallback(
     (key: string, value: string | null) => {
       const next = new URLSearchParams(search.toString());
       if (value === null || value === '') next.delete(key);
       else next.set(key, value);
       if (key !== 'page') next.delete('page');
-      router.push(`/leads?${next.toString()}`);
+      startTransition(() => {
+        router.push(`/leads?${next.toString()}`);
+      });
     },
     [router, search],
   );
+
+  /* ── ⚠️ TABLE OR BOARD IS NOT A QUERY ────────────────────────────────────
+     `view` never reaches SQL — checked, it is read once in the page to build
+     `filters` and no reader looks at it. Both arrangements are drawn from the
+     SAME rows, which are already here. So the old toggle spent a full server
+     render fetching identical data to rearrange it, and the button did not
+     even highlight until Singapore answered.
+
+     The comment this replaces was right about WHY the URL should hold it — a
+     salesperson sending "look at this" wants the other person to land on the
+     same view, and it must survive a filter change. That is law 2: the URL
+     RECORDS the view, it does not decide when the view changes. */
+  const urlView = search.get('view') === 'board' ? 'board' : 'table';
+  const [viewWish, setViewWish] = React.useState<'table' | 'board' | undefined>(undefined);
+  if (viewWish !== undefined && viewWish === urlView) setViewWish(undefined);
+  const view = viewWish ?? urlView;
+
+  const setView = (next: 'table' | 'board') => {
+    setViewWish(next);
+    startTransition(() => {
+      const q = new URLSearchParams(search.toString());
+      if (next === 'board') q.set('view', 'board');
+      else q.delete('view');
+      router.replace(`/leads?${q.toString()}`);
+    });
+  };
 
   const activeFilters = [
     filters.ownerId,
@@ -317,13 +351,13 @@ export function LeadDesk({
                   { key: 'board', label: 'Board', icon: Columns3 },
                 ] as const
               ).map((v) => {
-                const on = (filters.view ?? 'table') === v.key;
+                const on = view === v.key;
                 const Icon = v.icon;
                 return (
                   <button
                     key={v.key}
                     type="button"
-                    onClick={() => setParam('view', v.key === 'table' ? null : v.key)}
+                    onClick={() => setView(v.key)}
                     aria-pressed={on}
                     className={cn(
                       'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-caption font-medium transition-colors',
@@ -373,15 +407,24 @@ export function LeadDesk({
               narrowed by migration 118's policy, not a second component — which
               is what stops the two drifting apart, and the reason
               08-TWELVE-STEPS asked for one component and two scopes. */}
-          {(filters.view ?? 'table') === 'board' ? (
-            <LeadBoard rows={rows} nowMs={nowMs} from={search.toString()} />
-          ) : (
-            <LeadTable
-              rows={rows}
-              nowMs={nowMs}
-              from={search.toString()}
-            />
-          )}
+          {/* ⚠️ DIMMED WHILE THE NEXT ROWS ARE IN FLIGHT, never blanked. What is
+              on screen is still the truthful answer to the previous question;
+              swapping it for grey bars trades something readable for something
+              that is not. §3.4 of docs/20-UI-RESPONSIVENESS.md. */}
+          <div
+            className={cn('transition-opacity', pending && 'pointer-events-none opacity-50')}
+            aria-busy={pending}
+          >
+            {view === 'board' ? (
+              <LeadBoard rows={rows} nowMs={nowMs} from={search.toString()} />
+            ) : (
+              <LeadTable
+                rows={rows}
+                nowMs={nowMs}
+                from={search.toString()}
+              />
+            )}
+          </div>
 
           {rows.length === 0 && !canShareOut && total === 0 && (
             <p className="text-caption leading-relaxed text-text-secondary">
