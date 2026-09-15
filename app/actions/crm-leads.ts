@@ -455,13 +455,21 @@ export async function recordOutcomeAction(
                 won deal back on somebody's "due today" every morning. */
              next_action = ${closing ? null : input.nextAction.trim()},
              next_action_type = ${closing ? null : input.nextActionType}::public.crm_next_action_kind,
-             next_action_at = ${closing ? null : input.nextActionAt}::timestamptz,
-             closed_at = ${closing ? null : null}
+             next_action_at = ${closing ? null : input.nextActionAt}::timestamptz
        where id = ${leadId}::uuid`;
 
-    if (closing) {
-      await tx`update public.crm_leads set closed_at = now() where id = ${leadId}::uuid`;
-    }
+    /* ── ⚠️ `closed_at` IS THE TRIGGER'S, NOT OURS ─────────────────────────
+       `crm_leads_close_stamp` (116) stamps it when a stage becomes won or lost
+       and clears it when a lead reopens — deliberately, so that the
+       response-time figures cannot be doctored by whatever wrote the row. It is
+       one of the columns 116 pointedly did NOT grant.
+
+       This used to write it twice and get it wrong both times:
+       `closed_at = ${'${closing ? null : null}'}` is null on BOTH branches, and a
+       second statement then set `now()`. The first was also what made the whole
+       action fail with "permission denied" — a column nobody was allowed to
+       write, in a statement that did not need to write it. Removed rather than
+       granted; the trigger already did the job correctly. */
 
     /* ⚠️ THE TIMELINE CARRIES THE WHOLE EVENT, not just the new stage. "Stage
        changed to Lost" answers what; `from`, `outcome` and the note answer why,
