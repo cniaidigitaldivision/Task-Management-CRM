@@ -253,14 +253,21 @@ export function MyLeadsDesk({
   const pageCount = Math.max(1, Math.ceil(total / perPage));
 
   return (
-    <div
-      className="mx-auto max-w-[var(--content-max)] space-y-4"
-      style={pending ? { cursor: 'progress' } : undefined}
-    >
-      {/* ⚠️ THE CLICK IS ACKNOWLEDGED BEFORE THE ROWS ARRIVE. A filter or a page
-          number cannot avoid the round trip — the rows really do come from the
-          database — but it can stop looking like nothing happened, which is what
-          makes somebody click it a second time. */}
+    <>
+      {/* ── ⚠️ THE OVERLAYS LIVE OUTSIDE THE CONTENT COLUMN ──────────────────
+          They were briefly children of the `space-y-4` container below, and that
+          is a real layout bug even though every one of them is `position:
+          fixed`. Tailwind's `space-y-*` is `> * + *` — a SIBLING selector, which
+          does not care whether the element it matched is in the flow. An opening
+          panel became child one, the header became child two, and the header
+          inherited a 1rem margin it never had before. The whole page shifted 16px
+          and grew a scrollbar the moment a drawer opened.
+
+          Owner spotted it immediately: *"why did you add a scrollbar to it? I
+          have seen that it's adding a scrollbar to it when it's open."*
+
+          A fixed overlay is not part of the column it covers, so it does not
+          belong among its children. */}
       {/* ⚠️ THE REAL DRAWER WINS THE MOMENT ITS DATA MATCHES THIS LEAD. */}
       {openLead && record && related && record.lead.id === openLead && (
         <LeadDrawer
@@ -276,7 +283,9 @@ export function MyLeadsDesk({
           onClose={closeLead}
         />
       )}
-      {shellRow && <LeadDrawerShell row={shellRow} onClose={closeLead} />}
+      {shellRow && (
+        <LeadDrawerShell row={shellRow} tab={openTab} nowMs={nowMs} onClose={closeLead} />
+      )}
 
       {addOpen && (
         <AddLead
@@ -286,6 +295,11 @@ export function MyLeadsDesk({
           onClose={closeAdd}
         />
       )}
+
+    <div
+      className="mx-auto max-w-[var(--content-max)] space-y-4"
+      style={pending ? { cursor: 'progress' } : undefined}
+    >
       {/* ── Header ──────────────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
         <div className="min-w-0">
@@ -532,6 +546,7 @@ export function MyLeadsDesk({
         </p>
       </div>
     </div>
+    </>
   );
 }
 
@@ -670,8 +685,24 @@ function Row({
 
   return (
     <tr
+      /* ── ⚠️ THE WHOLE ROW OPENS IT ────────────────────────────────────────
+         Owner, 2026-09-15: *"wherever I click on a hovered-over row, it should
+         open a drawer."* The row already highlights under the cursor, which
+         promises the whole strip is the target; three small islands inside it
+         were not that.
+
+         ⚠️ THE GUARD IS THE WHOLE TRICK. A row full of controls that also
+         handles its own clicks will swallow them: ticking the checkbox would
+         open the drawer, choosing a stage would open the drawer, and the name
+         would navigate AND open one. `closest` asks whether the click already
+         landed on something that has its own job, and steps aside if it did. */
+      onClick={(e) => {
+        const el = e.target as HTMLElement;
+        if (el.closest('a, button, input, select, textarea, label, [role="button"]')) return;
+        onOpen(lead.id, 'overview');
+      }}
       className={cn(
-        'border-b border-border-subtle transition-colors last:border-b-0',
+        'cursor-pointer border-b border-border-subtle transition-colors last:border-b-0',
         /* ⚠️ 12%, NOT 7% — owner, 2026-09-15: *"this hover state is very light,
            right? Make it a little more prominent."* At 7% on a white ground the
            wash was under a 2% luminance shift, which is below what the eye

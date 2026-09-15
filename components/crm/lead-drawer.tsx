@@ -47,7 +47,7 @@ import { useSoftNavigate } from './use-panel';
 
 type Tab = 'overview' | 'conversations' | 'followups' | 'related' | 'activity';
 
-const TABS: ReadonlyArray<{ key: Tab; label: string }> = [
+export const TABS: ReadonlyArray<{ key: Tab; label: string }> = [
   { key: 'overview', label: 'Overview' },
   { key: 'conversations', label: 'Conversations' },
   { key: 'followups', label: 'Follow-ups' },

@@ -6,6 +6,10 @@ import { X } from 'lucide-react';
 import type { CrmLeadRow } from '@/lib/db/queries/crm-leads';
 import { displayPhone } from '@/lib/domain/phone';
 import { stageLabel, stageToken } from '@/lib/domain/crm-stages';
+import { sourceDetail, sourceLabel } from '@/lib/domain/lead-source';
+import { relativeAge } from '@/lib/view/relative-age';
+import { cn } from '@/lib/utils';
+import { TABS } from './lead-drawer';
 
 /* ============================================================================
  * THE DRAWER, BEFORE THE SERVER HAS ANSWERED
@@ -33,9 +37,14 @@ import { stageLabel, stageToken } from '@/lib/domain/crm-stages';
 
 export function LeadDrawerShell({
   row,
+  tab,
+  nowMs,
   onClose,
 }: {
   row: CrmLeadRow;
+  /** Which tab was asked for, so the bar matches what arrives. */
+  tab: string;
+  nowMs: number;
   onClose: () => void;
 }) {
   const panel = React.useRef<HTMLDivElement>(null);
@@ -108,19 +117,95 @@ export function LeadDrawerShell({
           </div>
         </div>
 
-        {/* ⚠️ THE PART THAT GENUINELY HAS TO WAIT, and it says so rather than
-            pretending to be content. Bars sized like the rows that will replace
-            them, so the panel does not reflow when they arrive. */}
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4" aria-busy="true">
-          <p className="text-caption text-text-tertiary">Loading the full record…</p>
-          {[0, 1, 2, 3].map((i) => (
-            <div key={i} className="space-y-2">
-              <div className="h-3 w-24 rounded bg-bg-subtle" />
-              <div className="h-3 w-full rounded bg-bg-subtle" />
-              <div className="h-3 w-4/5 rounded bg-bg-subtle" />
-            </div>
+        {/* ⚠️ THE TAB BAR IS HERE TOO, AND FROM THE SAME `TABS` DEFINITION.
+            Leaving it out would mean a whole strip of interface appearing the
+            instant the real drawer arrived, shoving the facts below it down —
+            the exact jump this shell exists to avoid. It is inert for the moment
+            it is on screen, which is honest: there is nothing yet to switch to.
+
+            ⚠️ AND NO COUNTS ON IT. The real bar shows "Conversations (4)" once it
+            knows; a zero invented here would be read as "no messages" and is the
+            kind of small lie somebody makes a decision on. */}
+        <div className="flex gap-1 overflow-x-auto border-b border-border-subtle px-3 py-2">
+          {TABS.map((t) => (
+            <span
+              key={t.key}
+              className={cn(
+                'shrink-0 rounded-lg px-3 py-1.5 text-caption font-medium',
+                t.key === tab ? 'bg-accent-primary text-white' : 'text-text-secondary',
+              )}
+            >
+              {t.label}
+            </span>
           ))}
-          <span className="sr-only">Loading the full record for {row.fullName ?? 'this lead'}</span>
+        </div>
+
+        {/* ⚠️ THE OVERVIEW IS DRAWN IN FULL, FROM THE ROW. Owner, 2026-09-15:
+            *"the drawer is open but not showing any information instantly, while
+            the same information is still displaying in the rows."* They were
+            right — every line below was already on this page. Project, city,
+            phone, email, source, what it came from, when they enquired and the
+            next action are all carried by the row that was clicked, so asking
+            Singapore for them again before drawing anything was pure waste.
+
+            Only two things here genuinely need the server: what the person typed
+            into the form, and the notes. Those say they are coming rather than
+            pretending to be absent — ⚠️ "No notes yet" would be a LIE at this
+            moment, and a lie somebody would act on. */}
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-4" aria-busy="true">
+          <dl className="grid grid-cols-[minmax(0,7rem)_1fr] gap-x-4 gap-y-2">
+            {(
+              [
+                ['Project', row.projectName],
+                ['City', row.city],
+                ['Phone', phone === '—' ? null : phone],
+                ['Email', row.email],
+                [
+                  'Source',
+                  row.source
+                    ? `${sourceLabel(row.source)}${
+                        sourceDetail(row.source, row.sourceDetail)
+                          ? ` · ${sourceDetail(row.source, row.sourceDetail)}`
+                          : ''
+                      }`
+                    : null,
+                ],
+                ['Came from', row.campaignName ?? row.formName],
+                ['Enquired', relativeAge(row.submittedAt, nowMs)],
+                ['Next action', row.nextAction],
+                ['Unit', row.propertyLabel],
+              ] as ReadonlyArray<readonly [string, string | null]>
+            )
+              .filter(([, value]) => Boolean(value))
+              .map(([label, value]) => (
+                <React.Fragment key={label}>
+                  <dt className="text-caption text-text-tertiary">{label}</dt>
+                  <dd className="min-w-0 break-words text-body-sm text-text-primary">{value}</dd>
+                </React.Fragment>
+              ))}
+          </dl>
+
+          {row.lastMessageBody && (
+            <section>
+              <h3 className="mb-2 text-micro font-semibold uppercase tracking-wide text-text-tertiary">
+                Last message
+              </h3>
+              <p className="rounded-lg border border-border-subtle px-3 py-2 text-body-sm text-text-primary">
+                {row.lastMessageBody}
+              </p>
+            </section>
+          )}
+
+          <section>
+            <h3 className="mb-2 text-micro font-semibold uppercase tracking-wide text-text-tertiary">
+              Notes ({row.noteCount})
+            </h3>
+            <p className="text-caption text-text-tertiary">
+              {row.noteCount === 0 ? 'Checking…' : 'Loading…'}
+            </p>
+          </section>
+
+          <span className="sr-only">Loading the rest of the record</span>
         </div>
       </div>
     </div>
