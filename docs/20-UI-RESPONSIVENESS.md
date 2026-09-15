@@ -174,6 +174,67 @@ Split them by meaning, not by convenience:
 
 ---
 
+## 3.5 · ⚠️ THE ACCESS RULE ITSELF, WHICH IS WHERE THE TIME ACTUALLY WENT
+
+Every law above is about round trips. This one is about the database, and it is
+the only thing here that gets **worse as the business grows**.
+
+Measured 2026-09-15, execution time only, over **659 leads**:
+
+| | before | after |
+|---|---|---|
+| salesperson · list of 8 with its laterals | 143.6 ms | **9.5 ms** |
+| salesperson · count for the tab chips | 93.9 ms | **1.8 ms** |
+| manager · count over everything visible | **1214.7 ms** | **2.2 ms** |
+
+1.2 seconds to count 659 rows is not a data problem. It was the RLS policy being
+re-answered for **every row**, and at 200,000 leads the same shape is roughly six
+minutes.
+
+**Two causes, and neither is obvious:**
+
+⚠️ **A `STABLE` function that takes a row's column as an argument is called per
+row.** `app.crm_manages_project(project_id)` cannot be hoisted out of the scan,
+and each call ran its own `exists (select 1 from projects …)`. Rewrite the rule
+so the helper is **argument-free** — compute the set of project ids once and test
+membership per row (migration 164).
+
+⚠️ **`STABLE` does not mean "evaluated once".** It is a promise about consistency
+within a statement, not an instruction to cache — Postgres constant-folds
+IMMUTABLE, not STABLE, and a `SECURITY DEFINER` function can never be inlined. So
+even argument-free helpers were still called 659 times.
+
+**The fix is a scalar subquery.** `(select app.fn())` is planned as an
+**InitPlan** — computed once before the scan and referenced as a constant:
+
+```sql
+using (
+  (select app.crm_sees_every_lead())
+  or (
+    project_id = any (coalesce((select app.crm_dept_project_ids()), '{}'::uuid[]))
+    and ((select app.crm_manages_own_department()) or owner_id = (select app.current_user_id()))
+  )
+)
+```
+
+⚠️ **`coalesce(...)` there is load-bearing.** Written as `= any ((select fn()))`
+Postgres reads the parentheses as the *subquery* form of ANY and refuses with
+`operator does not exist: uuid = uuid[]`.
+
+⚠️ **And never "fix" this by marking a helper IMMUTABLE.** They read `app.user_id`
+from the session; Postgres would then be free to cache one person's answer and
+hand it to another. That is the single change in this file that could leak a
+lead.
+
+**How to check a policy:** `explain (analyze, costs off)` and read the `Filter:`
+line. A function name in it means per row. `(InitPlan N).col1` means once.
+
+⚠️ **And verify visibility EXHAUSTIVELY after any such change** — every active
+user, old predicate against new policy, before it commits. Migrations 164 and 165
+both do; the risk is identical and "it was fine last time" is not evidence.
+
+---
+
 ## 4 · Layout traps that are read as slowness
 
 ⚠️ **A fixed overlay must not live inside a `space-y-*` or `divide-*` container.**
