@@ -1613,3 +1613,173 @@ export async function crmMyCounts(
     assigned: Number(r?.assigned ?? 0),
   };
 }
+
+/* ============================================================================
+ * THE DRAWER'S RELATED ITEMS — quotations, appointments, follow-ups
+ * ----------------------------------------------------------------------------
+ * ⚠️ ONE ROUND TRIP, NOT FOUR. The drawer opens over a list somebody is already
+ * reading; four sequential awaits to Singapore is most of a second of a blank
+ * panel. Each of these is small and none depends on another.
+ *
+ * ⚠️ AND EVERY ONE IS RLS-SCOPED THE SAME WAY — each child table's policy
+ * delegates to `crm_leads`, so a lead the caller may not read returns four empty
+ * lists rather than a refusal. That is the same answer "no such lead" gives, and
+ * it is deliberate: a drawer that errors differently for "not yours" than for
+ * "does not exist" is a way to probe which ids are real.
+ * ========================================================================= */
+export interface CrmQuotationRow {
+  readonly id: string;
+  readonly number: string;
+  readonly version: number;
+  readonly status: string;
+  readonly netAmount: number;
+  readonly requestedDiscount: number;
+  readonly approvedDiscount: number;
+  readonly validUntil: string | null;
+  readonly propertyLabel: string | null;
+  readonly preparedByName: string | null;
+  readonly approvedByName: string | null;
+  readonly createdAt: string;
+}
+
+export interface CrmAppointmentRow {
+  readonly id: string;
+  readonly kind: string;
+  readonly status: string;
+  readonly scheduledAt: string;
+  readonly durationMinutes: number;
+  readonly location: string | null;
+  readonly outcome: string | null;
+  readonly ownerName: string | null;
+}
+
+export interface CrmFollowUpRow {
+  readonly id: string;
+  readonly title: string;
+  readonly purpose: string;
+  readonly channel: string;
+  readonly status: string;
+  readonly dueAt: string;
+  readonly doneAt: string | null;
+  readonly outcomeNote: string | null;
+}
+
+export interface CrmLeadRelated {
+  readonly quotations: readonly CrmQuotationRow[];
+  readonly appointments: readonly CrmAppointmentRow[];
+  readonly followUps: readonly CrmFollowUpRow[];
+  /** The live sequence run, if any — state, step, and why it paused. */
+  readonly sequence: {
+    readonly name: string;
+    readonly state: string;
+    readonly step: number;
+    readonly total: number;
+    readonly pauseReason: string | null;
+  } | null;
+}
+
+export async function crmLeadRelated(
+  actorId: string,
+  leadId: string,
+): Promise<CrmLeadRelated> {
+  const { quotations, appointments, followUps, sequence, owners } = await withUser(
+    actorId,
+    async (tx) => {
+      const [quotations, appointments, followUps, sequence, owners] = await Promise.all([
+        tx`
+          select q.id, q.number, q.version, q.status::text, q.net_amount,
+                 q.requested_discount, q.approved_discount, q.valid_until,
+                 q.prepared_by_id, q.approved_by_id, q.created_at,
+                 concat_ws(', ', p.plot_number,
+                   case when p.block is not null then 'Block ' || p.block end) as property_label
+            from public.crm_quotations q
+            left join public.crm_properties p on p.id = q.property_id
+           where q.lead_id = ${leadId}::uuid
+           order by q.number, q.version desc
+        `,
+        tx`
+          select a.id, a.kind::text, a.status::text, a.scheduled_at,
+                 a.duration_minutes, a.location, a.outcome, a.owner_id
+            from public.crm_appointments a
+           where a.lead_id = ${leadId}::uuid
+           order by a.scheduled_at desc
+        `,
+        tx`
+          select f.id, f.title, f.purpose::text, f.channel::text, f.status::text,
+                 f.due_at, f.done_at, f.outcome_note
+            from public.crm_follow_ups f
+           where f.lead_id = ${leadId}::uuid
+           order by f.due_at desc
+        `,
+        tx`
+          select s.name, ls.state::text, ls.current_step, ls.total_steps, ls.pause_reason
+            from public.crm_lead_sequences ls
+            join public.crm_sequences s on s.id = ls.sequence_id
+           where ls.lead_id = ${leadId}::uuid
+             and ls.state in ('scheduled', 'active', 'paused')
+           limit 1
+        `,
+        /* ⚠️ NAMES THROUGH 121'S READER, NEVER A JOIN TO `users`. The sales
+           manager is a `member`, so a join returns one row — their own — and
+           every colleague renders as "Former member". That was the 2026-09-08
+           bug and it has been re-found on four screens since. */
+        tx`select * from app.crm_lead_owners()`,
+      ]);
+      return { quotations, appointments, followUps, sequence, owners };
+    },
+  );
+
+  const names = new Map<string, string>();
+  for (const o of owners as Array<Record<string, unknown>>) {
+    names.set(String(o.id), String(o.full_name ?? 'Unnamed'));
+  }
+  const nameOf = (id: unknown) => (id ? (names.get(String(id)) ?? null) : null);
+
+  return {
+    quotations: (quotations as Array<Record<string, unknown>>).map((q) => ({
+      id: String(q.id),
+      number: String(q.number),
+      version: Number(q.version),
+      status: String(q.status),
+      netAmount: Number(q.net_amount),
+      requestedDiscount: Number(q.requested_discount ?? 0),
+      approvedDiscount: Number(q.approved_discount ?? 0),
+      validUntil: q.valid_until ? new Date(q.valid_until as string).toISOString() : null,
+      propertyLabel: (q.property_label as string | null) || null,
+      preparedByName: nameOf(q.prepared_by_id),
+      approvedByName: nameOf(q.approved_by_id),
+      createdAt: new Date(q.created_at as string).toISOString(),
+    })),
+    appointments: (appointments as Array<Record<string, unknown>>).map((a) => ({
+      id: String(a.id),
+      kind: String(a.kind),
+      status: String(a.status),
+      scheduledAt: new Date(a.scheduled_at as string).toISOString(),
+      durationMinutes: Number(a.duration_minutes ?? 60),
+      location: (a.location as string | null) ?? null,
+      outcome: (a.outcome as string | null) ?? null,
+      ownerName: nameOf(a.owner_id),
+    })),
+    followUps: (followUps as Array<Record<string, unknown>>).map((f) => ({
+      id: String(f.id),
+      title: String(f.title),
+      purpose: String(f.purpose),
+      channel: String(f.channel),
+      status: String(f.status),
+      dueAt: new Date(f.due_at as string).toISOString(),
+      doneAt: f.done_at ? new Date(f.done_at as string).toISOString() : null,
+      outcomeNote: (f.outcome_note as string | null) ?? null,
+    })),
+    sequence: (() => {
+      const s = (sequence as Array<Record<string, unknown>>)[0];
+      if (!s) return null;
+      return {
+        name: String(s.name),
+        state: String(s.state),
+        step: Number(s.current_step ?? 0),
+        total: Number(s.total_steps ?? 0),
+        pauseReason: (s.pause_reason as string | null) ?? null,
+      };
+    })(),
+  };
+}

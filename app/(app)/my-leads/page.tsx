@@ -1,10 +1,14 @@
 import type { Metadata } from 'next';
 
+import { LeadDrawer } from '@/components/crm/lead-drawer';
 import { MyLeadsDesk } from '@/components/crm/my-leads-desk';
 import { requireCrmAccess } from '@/lib/auth/current-user';
 import {
+  crmLeadRelated,
+  crmLeadThread,
   crmMyCounts,
   crmOwnerOptions,
+  getCrmLead,
   listCrmLeads,
   listCrmProjects,
 } from '@/lib/db/queries/crm-leads';
@@ -86,7 +90,41 @@ export default async function MyLeadsPage({
     crmOwnerOptions(user.id, projectId),
   ]);
 
+  /* ── The drawer ────────────────────────────────────────────────────────
+     ⚠️ FETCHED ON THE SERVER, BESIDE THE LIST, NOT INSIDE THE PANEL. A client
+     fetch on open would blank the drawer for a round trip to Singapore every
+     time somebody clicked a row — and the list is already being rendered, so
+     this costs one wave rather than a wave per click.
+
+     ⚠️ AND `getCrmLead` RETURNS NULL FOR "NOT YOURS" AND FOR "NO SUCH LEAD",
+     deliberately and identically. A drawer that behaved differently for the two
+     would let somebody probe which ids exist. Null simply renders no drawer. */
+  const wanted = params.lead ?? null;
+  const tab = (['overview', 'conversations', 'followups', 'related', 'activity'] as const).includes(
+    (params.tab ?? '') as never,
+  )
+    ? ((params.tab ?? 'overview') as 'overview')
+    : 'overview';
+
+  const record = wanted ? await getCrmLead(user.id, wanted) : null;
+  const [thread, related] = record
+    ? await Promise.all([crmLeadThread(user.id, wanted!), crmLeadRelated(user.id, wanted!)])
+    : [[], null];
+
   return (
+    <>
+      {record && related && (
+        <LeadDrawer
+          lead={record.lead}
+          notes={record.notes}
+          activity={record.activity}
+          messages={thread}
+          related={related}
+          tab={tab}
+          viewerName={user.fullName}
+          nowMs={nowMs()}
+        />
+      )}
     <MyLeadsDesk
       projects={projects}
       selectedProjectId={projectId}
@@ -102,5 +140,6 @@ export default async function MyLeadsPage({
       fullName={user.fullName}
       nowMs={nowMs()}
     />
+    </>
   );
 }

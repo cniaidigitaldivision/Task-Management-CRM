@@ -335,6 +335,7 @@ export function MyLeadsDesk({
                   fullName={fullName}
                   ticked={ticked.has(lead.id)}
                   onTick={onTick}
+                  search={search}
                 />
               ))}
             </tbody>
@@ -448,12 +449,14 @@ function Row({
   fullName,
   ticked,
   onTick,
+  search,
 }: {
   lead: CrmLeadRow;
   nowMs: number;
   fullName: string;
   ticked: boolean;
   onTick: (id: string, on: boolean) => void;
+  search: URLSearchParams;
 }) {
   const toast = useToast();
   const phone = displayPhone(lead.phoneE164, lead.phone);
@@ -472,6 +475,20 @@ function Row({
     .map((w) => w[0]?.toUpperCase() ?? '')
     .join('');
 
+  /* ⚠️ THE DRAWER, NOT A PAGE. Owner: *"I don't want to go somewhere else to
+     view any details."* Every cell that opens something opens it HERE, on the
+     tab that matches what was clicked — the conversation opens Conversations,
+     the next action opens Follow-ups. The name is the one exception and goes to
+     the full record, because sometimes you do want the whole thing.
+
+     ⚠️ Built from the CURRENT search string, so the list's filters, tab and page
+     all survive the trip and are still there when the drawer closes. */
+  const drawer = (tab: string) => {
+    const next = new URLSearchParams(search.toString());
+    next.set('lead', lead.id);
+    next.set('tab', tab);
+    return `/my-leads?${next.toString()}` as Route;
+  };
   const href = `/leads/${lead.id}` as Route;
 
   return (
@@ -550,7 +567,7 @@ function Row({
       {/* ── What was last said ──────────────────────────────────────────── */}
       <td className={TD}>
         {lead.lastMessageAt ? (
-          <span className="flex min-w-0 items-start gap-2">
+          <Link href={drawer('conversations')} className="flex min-w-0 items-start gap-2 text-left">
             <span
               aria-hidden="true"
               className="mt-0.5 shrink-0"
@@ -579,7 +596,7 @@ function Row({
                 )}
               </span>
             </span>
-          </span>
+          </Link>
         ) : (
           <span className="text-caption text-text-tertiary">Nothing yet</span>
         )}
@@ -631,7 +648,7 @@ function Row({
       {/* ── What is owed ────────────────────────────────────────────────── */}
       <td className={TD}>
         {lead.nextAction ? (
-          <span className="flex min-w-0 items-start gap-2">
+          <Link href={drawer('followups')} className="flex min-w-0 items-start gap-2 text-left">
             {/* The icon says which state this is before the words do — owner,
                 2026-09-15: overdue red, WhatsApp green, a reminder blue.
 
@@ -686,10 +703,10 @@ function Row({
                 </span>
               )}
             </span>
-          </span>
+          </Link>
         ) : (
           <Link
-            href={href}
+            href={drawer('followups')}
             className="inline-flex items-center gap-1 text-caption font-medium text-text-brand underline-offset-2 hover:underline"
           >
             <CalendarPlus className="size-3.5" aria-hidden="true" />
@@ -786,16 +803,16 @@ function Row({
           )}
 
           <Link
-            href={href}
-            title={`Call ${lead.fullName ?? 'this lead'} on ${phone}`}
+            href={drawer('followups')}
+            title={`Plan the next action for ${lead.fullName ?? 'this lead'} · ${phone}`}
             className="ml-0.5 inline-flex min-h-9 shrink-0 items-center rounded-lg bg-accent-primary px-3 text-body-sm font-medium text-white transition-opacity hover:opacity-90"
           >
             Follow-up
           </Link>
 
           <Link
-            href={href}
-            aria-label={`More for ${lead.fullName ?? 'this lead'}`}
+            href={drawer('overview')}
+            aria-label={`Open ${lead.fullName ?? 'this lead'}`}
             title={`Open ${lead.fullName ?? 'this lead'} — ${fullName}'s lead`}
             className="grid size-9 shrink-0 place-items-center rounded-lg text-text-secondary transition-colors hover:bg-bg-subtle hover:text-text-primary"
           >
