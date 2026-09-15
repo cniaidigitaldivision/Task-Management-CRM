@@ -53,6 +53,7 @@ Read in this order if you are new to the project:
 | 17 | [`17-TASK-TIMERS-AND-TIME-LIMITS.md`](17-TASK-TIMERS-AND-TIME-LIMITS.md) | ★ Task time limits, automatic timers, over-limit rules, extension approvals. |
 | 18 | [`18-DESIGN-SYSTEM-AND-BRANDING.md`](18-DESIGN-SYSTEM-AND-BRANDING.md) | ★ Logo, brand palette, light/dark themes. **Every colour in the system.** |
 | 19 | [`19-MASTER-SPECIFICATION-REGISTRY.md`](19-MASTER-SPECIFICATION-REGISTRY.md) | ⭐ **The canonical index.** Every requirement, rule, enum and setting — and which doc owns it. Read this to resolve any disagreement. |
+| 20 | [`20-UI-RESPONSIVENESS.md`](20-UI-RESPONSIVENESS.md) | 🚨 **Rule Zero — binding on every page.** Every click changes the screen in its own frame. Opening and closing never touch the network. Read before building any screen. |
 | 20 | [`20-IMPLEMENTATION-CONTRACTS.md`](20-IMPLEMENTATION-CONTRACTS.md) | ⭐ **Build safety.** Module boundaries, dependency order, frozen interfaces, integration seams. |
 | — | [`META-INTEGRATION-PLAN.md`](META-INTEGRATION-PLAN.md) | 📊 **Planning only, not built.** Linking projects to Facebook Pages and Instagram to read reach, views, engagement and follower growth — and judge whether the posting is working. TikTok deferred. |
 | — | [`SESSION-STATE.md`](SESSION-STATE.md) | 🔄 **Resume point.** Read this first if a session was interrupted. |
