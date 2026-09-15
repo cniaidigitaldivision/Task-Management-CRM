@@ -169,14 +169,37 @@ arguing about their own number.
 ---
 
 ### Phase G · Follow-up sequences
-*Depends on: D, and on approved WhatsApp templates. Unlocks `Sequence paused` and
-the green banner. Lifecycle Phase 6.*
+*Depends on: D. Unlocks `Sequence paused` and the green banner. Lifecycle Phase 6.*
 
 `crm_sequence_steps` and a scheduler on top of migration 147's state.
 
-⚠️ **The external dependency is the long pole: nothing can send past WhatsApp's
-24-hour window without Meta-approved templates, and that approval is not ours to
-schedule.** It should be started now, whatever phase we are on.
+⚠️ **CORRECTION, 2026-09-15. This phase was recorded as blocked on Meta
+approving templates. That was wrong, and the owner caught it:** *"I can't test
+all these templates on a tester receptor. Why can't I do that? Please give me an
+exact answer."*
+
+The exact answer, checked against Meta's documentation and against the live
+account on 2026-09-15:
+
+| Claim that was made | What is actually true |
+|---|---|
+| Approval is not ours to schedule | **We create templates ourselves** — WhatsApp Manager or the Message Templates API, up to 100/hour per account |
+| We are waiting on Meta | Review is **automatic, up to 24 hours**, usually minutes |
+| A test number cannot send templates | Test accounts are **made for this** — relaxed limits, no payment method needed |
+| Nothing is approved yet | **Five templates were already APPROVED on the live account**, including `hello_world` |
+
+⚠️ **The real blocker was ours and it was one missing function.**
+`lib/crm/whatsapp.ts` could send free text and media and had **no way to send a
+template at all**. `sendTemplate` and `listTemplates` were added on 2026-09-15.
+
+⚠️ **AND A SEQUENCE CANNOT BE TESTED ON FREE TEXT ALONE.** Step one usually
+lands inside the 24-hour window, where `sendText` works. Step two is three days
+later, where the API **refuses** it. An engine built and tested on text only
+would pass every test and fail silently on the second step in the field.
+
+⚠️ **The templates on the account are Meta's samples** (`jaspers_market_*`).
+Real ones — a visit reminder, a quotation follow-up — still have to be written
+and submitted. That is an afternoon and a wait of minutes, not a dependency.
 
 ⚠️ **Stop-conditions checked before every send**: client replied · quotation
 expired · lead closed · opted out · already booked.

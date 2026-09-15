@@ -159,6 +159,153 @@ export async function sendText(
   });
 }
 
+/* ============================================================================
+ * TEMPLATES — the only thing that reaches somebody after 24 hours
+ * ----------------------------------------------------------------------------
+ * ⚠️ THIS WAS THE ACTUAL BLOCKER, AND IT WAS OURS. Phase G was recorded as
+ * "blocked on Meta approving templates". That was wrong, and the owner caught
+ * it: *"I can't test all these templates on a tester receptor. Why can't I do
+ * that? Please give me an exact answer."*
+ *
+ * The exact answer, from Meta's own documentation:
+ *   · templates are created BY US — WhatsApp Manager or the Message Templates
+ *     API, up to 100 per hour on one account. Nobody has to be asked.
+ *   · review is AUTOMATIC and takes up to 24 hours, usually minutes.
+ *   · a test business account and number are created automatically, with
+ *     relaxed limits and NO payment method needed to send templates.
+ *   · `hello_world` is pre-approved and sendable today.
+ *
+ * So nothing external was blocking anything. What was missing was this file:
+ * the module could send free text and media and had no way to send a template
+ * at all.
+ *
+ * ── ⚠️ AND A SEQUENCE CANNOT BE BUILT ON FREE TEXT ─────────────────────────
+ * Step one of a chase usually lands inside the 24-hour window and free text
+ * works. Step two is three days later, and by then `sendText` is REFUSED by the
+ * API — not discouraged, refused. A sequence engine that only knew how to send
+ * text would work in testing and fail silently in the field on the second step,
+ * which is the worst possible place to discover it.
+ * ========================================================================= */
+
+/**
+ * One template's variables, in the order the template declares them.
+ *
+ * ⚠️ POSITIONAL, AND THAT IS META'S DESIGN, NOT A SHORTCUT. A template body is
+ * written as `Hello {{1}}, your visit to {{2}} is confirmed`, and the API takes
+ * an ordered list. Getting the order wrong sends a real person a real message
+ * with the plot number where their name should be — so the caller passes a named
+ * record and the ordering happens once, here, against the template's own
+ * declared parameter list.
+ */
+export interface TemplateSend {
+  /** The name as registered with Meta, e.g. `visit_reminder`. */
+  readonly name: string;
+  /** Meta's language code, e.g. `en` or `en_US`. Must match the registration. */
+  readonly language: string;
+  /** Body variables, in `{{1}}`, `{{2}}` … order. */
+  readonly body?: readonly string[];
+  /** Variables for a URL button, if the template declares one. */
+  readonly buttonUrl?: readonly string[];
+}
+
+/**
+ * Send an approved template.
+ *
+ * ⚠️ THE ONLY MESSAGE TYPE THAT WORKS OUTSIDE THE 24-HOUR WINDOW, which is what
+ * every follow-up step past the first one is.
+ *
+ * ⚠️ AND META'S REFUSAL IS PASSED THROUGH IN ITS OWN WORDS. The two that will
+ * actually happen are worth recognising when they appear in a log:
+ *   · "Template name does not exist in the translation" — the name or the
+ *     LANGUAGE is wrong, and the language is the one people get wrong.
+ *   · "... is not approved" — it was created but has not passed review yet.
+ * Rewording either costs the reader the only sentence that says what to do.
+ */
+export async function sendTemplate(
+  config: WhatsAppConfig,
+  toE164: string,
+  template: TemplateSend,
+): Promise<SendResult> {
+  const components: Array<Record<string, unknown>> = [];
+
+  if (template.body && template.body.length > 0) {
+    components.push({
+      type: 'body',
+      parameters: template.body.map((text) => ({ type: 'text', text })),
+    });
+  }
+
+  if (template.buttonUrl && template.buttonUrl.length > 0) {
+    components.push({
+      type: 'button',
+      sub_type: 'url',
+      index: '0',
+      parameters: template.buttonUrl.map((text) => ({ type: 'text', text })),
+    });
+  }
+
+  return post(config, {
+    /* ⚠️ No leading plus, same as `sendText`. With one, Meta accepts the call
+       and delivers to nobody — the worst of both. */
+    to: toE164.replace(/^\+/, ''),
+    type: 'template',
+    template: {
+      name: template.name,
+      language: { code: template.language },
+      ...(components.length > 0 ? { components } : {}),
+    },
+  });
+}
+
+/**
+ * What Meta currently holds for this account, with each template's status.
+ *
+ * ⚠️ READ FROM META, NEVER FROM OUR OWN LIST. A template can be approved,
+ * rejected, paused for poor quality, or disabled after complaints — all of which
+ * happen on Meta's side with no call to us. A local table of "our templates"
+ * would go stale the first time one was paused, and the first anybody would know
+ * is a sequence silently failing.
+ *
+ * Returns `null` when the call itself failed, which is different from an account
+ * that genuinely has no templates — the caller must not draw "none approved"
+ * over a network error.
+ */
+export async function listTemplates(
+  wabaId: string,
+  apiVersion: string,
+): Promise<ReadonlyArray<{
+  name: string;
+  language: string;
+  status: string;
+  category: string;
+}> | null> {
+  const token = process.env.META_SYSTEM_USER_TOKEN?.trim();
+  if (!token) return null;
+
+  try {
+    const response = await fetch(
+      `${API}/${apiVersion}/${wabaId}/message_templates?limit=200&fields=name,language,status,category`,
+      { headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(20_000) },
+    );
+    if (!response.ok) return null;
+
+    const json = (await response.json()) as {
+      data?: Array<{ name?: string; language?: string; status?: string; category?: string }>;
+    };
+    if (!json.data) return null;
+
+    return json.data.map((t) => ({
+      name: String(t.name ?? ''),
+      language: String(t.language ?? ''),
+      /* APPROVED · PENDING · REJECTED · PAUSED · DISABLED — Meta's own words. */
+      status: String(t.status ?? 'UNKNOWN'),
+      category: String(t.category ?? ''),
+    }));
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Upload a file to Meta, then send it by id.
  *
