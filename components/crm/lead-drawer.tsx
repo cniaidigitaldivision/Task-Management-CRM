@@ -71,6 +71,7 @@ export function LeadDrawer({
   nowMs,
   onTab,
   onClose,
+  onRaiseQuotation,
 }: {
   lead: CrmLeadRecord;
   notes: readonly CrmLeadNote[];
@@ -84,6 +85,8 @@ export function LeadDrawer({
   onTab: (tab: string) => void;
   /** Hides the panel at once; the URL catches up in the parent. */
   onClose: () => void;
+  /** Opens the quotation form over this drawer. */
+  onRaiseQuotation: () => void;
 }) {
   const search = useSearchParams();
   const panel = React.useRef<HTMLDivElement>(null);
@@ -231,7 +234,9 @@ export function LeadDrawer({
           )}
           {activeTab === 'conversations' && <Conversation messages={messages} nowMs={nowMs} />}
           {activeTab === 'followups' && <FollowUps related={related} nowMs={nowMs} />}
-          {activeTab === 'related' && <Related related={related} />}
+          {activeTab === 'related' && (
+            <Related related={related} onRaiseQuotation={onRaiseQuotation} />
+          )}
           {activeTab === 'activity' && <Activity activity={activity} nowMs={nowMs} />}
         </div>
       </div>
@@ -537,13 +542,33 @@ function FollowUps({ related, nowMs }: { related: CrmLeadRelated; nowMs: number 
 
 /* ---- Related items -------------------------------------------------------- */
 
-function Related({ related }: { related: CrmLeadRelated }) {
+function Related({
+  related,
+  onRaiseQuotation,
+}: {
+  related: CrmLeadRelated;
+  onRaiseQuotation: () => void;
+}) {
   return (
     <div className="space-y-5">
       <section>
-        <h3 className="mb-2 text-micro font-semibold uppercase tracking-wide text-text-tertiary">
-          Quotations ({related.quotations.length})
-        </h3>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <h3 className="text-micro font-semibold uppercase tracking-wide text-text-tertiary">
+            Quotations ({related.quotations.length})
+          </h3>
+          {/* ⚠️ THE ACTION SITS WITH THE THING IT ACTS ON. A "raise a quotation"
+              button in the drawer header would be one more control competing
+              with close and the tabs; here it is found by somebody who has just
+              looked at what has already been quoted, which is when they want
+              it. */}
+          <button
+            type="button"
+            onClick={onRaiseQuotation}
+            className="rounded-lg border border-border-subtle px-2.5 py-1 text-caption font-medium text-text-primary transition-colors hover:border-border-default"
+          >
+            Raise one
+          </button>
+        </div>
         {related.quotations.length === 0 ? (
           <Empty>No quotation has been raised for this lead.</Empty>
         ) : (

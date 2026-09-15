@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { withUser } from '../client';
+import { needsApproval, netAmount, nextQuotationNumber } from '@/lib/domain/crm-quotations';
 
 /* ============================================================================
  * THE LEAD LIST — LAYER 1
@@ -2238,4 +2239,238 @@ export async function crmCloseAppointment(
      where id = ${appointmentId}::uuid
      returning id`);
   return (rows as unknown[]).length > 0;
+}
+
+/* ============================================================================
+ * QUOTATIONS — Phase D
+ * ----------------------------------------------------------------------------
+ * ⚠️ NO DEFINER. `crm_quotations`'s policies (151) are row-local — you may write
+ * one on a lead you can read — so these run as the caller and RLS answers
+ * exactly as it should. The approval rules are CHECK constraints in the table,
+ * not something this layer can talk its way past.
+ * ========================================================================= */
+
+export interface RaiseQuotation {
+  readonly leadId: string;
+  readonly basePrice: number;
+  readonly premiumCharges: number;
+  readonly requestedDiscount: number;
+  readonly validUntil: string | null;
+  readonly terms: string | null;
+  /** True when it goes straight out — only ever for a quotation at list price. */
+  readonly sendNow: boolean;
+}
+
+/**
+ * Raise one.
+ *
+ * ⚠️ THE PROJECT AND THE PROPERTY COME FROM THE LEAD, not from the caller —
+ * the same rule as booking an appointment. Both are columns here and both could
+ * have been arguments, and then a quotation could be filed under a project the
+ * lead does not belong to, or priced against a plot nobody discussed.
+ *
+ * ⚠️ AND THE NUMBER IS TAKEN INSIDE THE TRANSACTION, from the highest already
+ * used. Two salespeople raising a quotation in the same second would otherwise
+ * both read the same maximum and both write it — and two documents sharing a
+ * number is the one thing a client notices. `(lower(number), version)` is unique
+ * in 151, so the second writer loses loudly rather than quietly.
+ */
+export async function crmRaiseQuotation(
+  actorId: string,
+  input: RaiseQuotation,
+): Promise<{ id: string; number: string } | null> {
+  return withUser(actorId, async (tx) => {
+    const used = await tx`
+      select number from public.crm_quotations order by created_at desc limit 200`;
+    const number = nextQuotationNumber(
+      (used as Array<Record<string, unknown>>).map((r) => String(r.number)),
+    );
+
+    const approved = false;
+    const net = netAmount({
+      basePrice: input.basePrice,
+      premiumCharges: input.premiumCharges,
+      requestedDiscount: input.requestedDiscount,
+      approvedDiscount: 0,
+      approved,
+    });
+
+    /* ⚠️ A DISCOUNT GOES FOR APPROVAL; LIST PRICE MAY GO STRAIGHT OUT. The
+       owner's rule is about the discount, not about the document — see
+       `needsApproval`. */
+    const status = needsApproval(input.requestedDiscount)
+      ? 'pending_approval'
+      : input.sendNow
+        ? 'sent'
+        : 'draft';
+
+    const rows = await tx`
+      insert into public.crm_quotations
+        (lead_id, project_id, property_id, number, version,
+         base_price, premium_charges, requested_discount, approved_discount, net_amount,
+         valid_until, status, terms, prepared_by_id, sent_at, is_test_data)
+      select l.id, l.project_id, l.property_id, ${number}, 1,
+             ${input.basePrice}::bigint, ${input.premiumCharges}::bigint,
+             ${input.requestedDiscount}::bigint, 0, ${net}::bigint,
+             ${input.validUntil}::date,
+             ${status}::public.crm_quotation_status,
+             ${input.terms}::text,
+             ${actorId}::uuid,
+             /* ⚠️ DECIDED IN SQL. The string now() sent as a parameter is not
+                a timestamp Postgres can parse — the same trap that would have
+                made every appointment completion fail with a cast error. */
+             case when ${status}::text = 'sent' then now() end,
+             l.is_test_data
+        from public.crm_leads l
+       where l.id = ${input.leadId}::uuid
+      returning id, number`;
+
+    /* Zero rows means RLS refused the lead — no exception to catch. */
+    const row = (rows as Array<Record<string, unknown>>)[0];
+    if (!row) return null;
+
+    await tx`
+      insert into public.crm_lead_activity (lead_id, actor_id, kind, occurred_at, detail)
+      values (
+        ${input.leadId}::uuid, ${actorId}::uuid, 'note_added', now(),
+        ${tx.json({
+          quotation: String(row.number),
+          status,
+          net,
+          discount: input.requestedDiscount,
+        })}
+      )`;
+
+    return { id: String(row.id), number: String(row.number) };
+  });
+}
+
+/**
+ * Approve or refuse a discount somebody asked for.
+ *
+ * ⚠️ THE APPROVER IS THE SESSION, NEVER AN ARGUMENT, and `crm_quotations_no_self_approval`
+ * (151) refuses a row where the approver is the preparer. Passing it in would
+ * make "who authorised this?" a claim the caller gets to make.
+ *
+ * ⚠️ AND THE APPROVED FIGURE CAN DIFFER FROM THE ASKED-FOR ONE. A manager who
+ * can only say yes or no to 500,000 says no; one who can approve 200,000 keeps
+ * the deal. The net is recomputed from what was actually approved, so the
+ * document says the authorised price rather than the requested one.
+ */
+export async function crmDecideQuotation(
+  actorId: string,
+  quotationId: string,
+  decision: 'approved' | 'rejected',
+  approvedDiscount: number,
+  note: string | null,
+): Promise<boolean> {
+  return withUser(actorId, async (tx) => {
+    const found = await tx`
+      select base_price, premium_charges, requested_discount, prepared_by_id, status::text
+        from public.crm_quotations where id = ${quotationId}::uuid`;
+    const q = (found as Array<Record<string, unknown>>)[0];
+    if (!q) return false;
+
+    if (decision === 'rejected') {
+      const done = await tx`
+        update public.crm_quotations
+           set status = 'rejected', approval_note = ${note}::text, updated_at = now()
+         where id = ${quotationId}::uuid
+         returning id`;
+      return (done as unknown[]).length > 0;
+    }
+
+    const net = netAmount({
+      basePrice: Number(q.base_price),
+      premiumCharges: Number(q.premium_charges),
+      requestedDiscount: Number(q.requested_discount),
+      approvedDiscount,
+      approved: true,
+    });
+
+    const done = await tx`
+      update public.crm_quotations
+         set status = 'approved',
+             approved_discount = ${approvedDiscount}::bigint,
+             net_amount = ${net}::bigint,
+             approved_by_id = ${actorId}::uuid,
+             approved_at = now(),
+             approval_note = ${note}::text,
+             updated_at = now()
+       where id = ${quotationId}::uuid
+       returning id`;
+    return (done as unknown[]).length > 0;
+  });
+}
+
+/**
+ * Mark it sent.
+ *
+ * ⚠️ ONLY FROM `approved` OR `draft`. Sending something still waiting for a
+ * manager is the exact thing the approval step exists to prevent, and the guard
+ * is in the WHERE clause rather than in a check above it — so a second caller,
+ * or a retry, cannot slip past it between the read and the write.
+ */
+export async function crmMarkQuotationSent(
+  actorId: string,
+  quotationId: string,
+): Promise<boolean> {
+  const rows = await withUser(actorId, (tx) => tx`
+    update public.crm_quotations
+       set status = 'sent', sent_at = now(), updated_at = now()
+     where id = ${quotationId}::uuid
+       and status in ('approved', 'draft')
+     returning id`);
+  return (rows as unknown[]).length > 0;
+}
+
+export interface CrmApprovalRow {
+  readonly id: string;
+  readonly number: string;
+  readonly leadId: string;
+  readonly leadName: string | null;
+  readonly preparedBy: string | null;
+  readonly basePrice: number;
+  readonly premiumCharges: number;
+  readonly requestedDiscount: number;
+  readonly netAmount: number;
+  readonly validUntil: string | null;
+  readonly createdAt: string;
+}
+
+/**
+ * Quotations waiting on a decision from this person.
+ *
+ * ⚠️ IT EXCLUDES THEIR OWN, and not only because the constraint would refuse
+ * them. A manager who also carries leads would otherwise see their own request
+ * sitting in their approval queue every morning — an action they can never take,
+ * offered repeatedly, which is how somebody learns to ignore a queue.
+ */
+export async function crmAwaitingApproval(actorId: string): Promise<CrmApprovalRow[]> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select q.id, q.number, q.lead_id, q.base_price, q.premium_charges,
+           q.requested_discount, q.net_amount, q.valid_until, q.created_at,
+           l.full_name as lead_name,
+           (select o.full_name from app.crm_lead_owners() o where o.id = q.prepared_by_id)
+             as prepared_by
+      from public.crm_quotations q
+      join public.crm_leads l on l.id = q.lead_id
+     where q.status = 'pending_approval'
+       and q.prepared_by_id is distinct from app.current_user_id()
+     order by q.created_at
+     limit 50
+  `);
+  return (rows as Array<Record<string, unknown>>).map((r) => ({
+    id: String(r.id),
+    number: String(r.number),
+    leadId: String(r.lead_id),
+    leadName: (r.lead_name as string | null) ?? null,
+    preparedBy: (r.prepared_by as string | null) ?? null,
+    basePrice: Number(r.base_price ?? 0),
+    premiumCharges: Number(r.premium_charges ?? 0),
+    requestedDiscount: Number(r.requested_discount ?? 0),
+    netAmount: Number(r.net_amount ?? 0),
+    validUntil: r.valid_until ? new Date(r.valid_until as string).toISOString() : null,
+    createdAt: new Date(r.created_at as string).toISOString(),
+  }));
 }

@@ -32,6 +32,7 @@ import { cn } from '@/lib/utils';
 import { leadsPageAction } from '@/app/actions/crm-leads';
 import { AddLead, type AddLeadProject, type AddLeadProperty } from './add-lead';
 import { LeadDrawer } from './lead-drawer';
+import { RaiseQuotation } from './raise-quotation';
 import { TodaysPlan } from './todays-plan';
 import { RecordOutcome } from './record-outcome';
 import type {
@@ -461,6 +462,12 @@ export function MyLeadsDesk({
      parameter. The lead keeps the stage it had; the desk keeps the view it had. */
   const closeOutcome = React.useCallback(() => setOutcomeFor(null), []);
 
+  /* ── ⚠️ RAISING A QUOTATION IS CLIENT STATE, like every other panel ──────
+     Everything it needs is on the row that was clicked: the lead, the unit and
+     that unit's price. No navigation, no wait. */
+  const [quoteFor, setQuoteFor] = React.useState<string | null>(null);
+  const closeQuote = React.useCallback(() => setQuoteFor(null), []);
+
   const closeAdd = React.useCallback(() => {
     setAddWish(false);
     startSync(() => {
@@ -594,7 +601,25 @@ export function MyLeadsDesk({
       {/* ⚠️ THE OUTCOME FORM WINS OVER THE DRAWER when both are open — they are
           two panels on one screen, and stacking them leaves the drawer visible
           and unreachable behind a dialog. */}
-      {outcomeFor && (
+      {quoteFor && (() => {
+        const row = shownRows.find((r) => r.id === quoteFor);
+        if (!row) return null;
+        return (
+          <RaiseQuotation
+            key={quoteFor}
+            leadId={quoteFor}
+            leadName={row.fullName ?? 'this lead'}
+            propertyLabel={row.propertyLabel}
+            /* ⚠️ The unit's own price, so nobody retypes it from memory — and
+               when the lead has no unit, nothing is suggested rather than a
+               figure that came from somewhere else. */
+            suggestedPrice={row.quotationAmount ?? null}
+            onClose={closeQuote}
+          />
+        );
+      })()}
+
+      {!quoteFor && outcomeFor && (
         <RecordOutcome
           key={outcomeFor.id}
           leadId={outcomeFor.id}
@@ -606,7 +631,7 @@ export function MyLeadsDesk({
       )}
 
       {/* ⚠️ THE REAL DRAWER WINS THE MOMENT ITS DATA MATCHES THIS LEAD. */}
-      {!outcomeFor && openLead && record && related && record.lead.id === openLead && (
+      {!quoteFor && !outcomeFor && openLead && record && related && record.lead.id === openLead && (
         <LeadDrawer
           key={record.lead.id}
           lead={record.lead}
@@ -619,9 +644,10 @@ export function MyLeadsDesk({
           nowMs={nowMs}
           onTab={setTab}
           onClose={closeLead}
+          onRaiseQuotation={() => setQuoteFor(openLead)}
         />
       )}
-      {!outcomeFor && shellRow && (
+      {!quoteFor && !outcomeFor && shellRow && (
         <LeadDrawerShell
           row={shellRow}
           tab={openTab}

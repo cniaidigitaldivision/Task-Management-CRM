@@ -11,7 +11,10 @@ import {
   crmBookAppointment,
   crmCloseAppointment,
   crmCreateLead,
+  crmDecideQuotation,
   crmDiaryAround,
+  crmMarkQuotationSent,
+  crmRaiseQuotation,
   crmLeadDuplicates,
   crmNextOwner,
   deleteLeadNote,
@@ -30,6 +33,7 @@ import { isLostReason, isStage, TEMPERATURES } from '@/lib/domain/crm-stages';
 import { OUTCOMES, outcomeProblems } from '@/lib/domain/crm-outcomes';
 import { newLeadProblems } from '@/lib/domain/crm-new-lead';
 import { appointmentProblems, clashesWith } from '@/lib/domain/crm-appointments';
+import { needsApproval, quotationProblems, toRupees } from '@/lib/domain/crm-quotations';
 import { toE164 } from '@/lib/domain/phone';
 
 /* ============================================================================
@@ -954,4 +958,155 @@ export async function leadsPageAction(
        is slower and always works. */
     return null;
   }
+}
+
+/* ============================================================================
+ * QUOTATIONS — Phase D
+ * ----------------------------------------------------------------------------
+ * ⚠️ THE APPROVAL RULES ARE THE DATABASE'S, NOT THIS FILE'S. 151 refuses an
+ * approved row with no approver, refuses an approver who is the preparer, and
+ * refuses a discount larger than the price. What is here is the same rules said
+ * in words, so somebody is told what is wrong instead of meeting a constraint
+ * violation — and a client that skips this layer still cannot get past them.
+ * ========================================================================= */
+
+export interface QuotationResult {
+  readonly ok: boolean;
+  readonly error?: string;
+  readonly number?: string;
+  /** What actually happened to it, so the screen can say so. */
+  readonly status?: string;
+}
+
+export async function raiseQuotationAction(input: {
+  leadId: string;
+  basePrice: string;
+  premiumCharges: string;
+  requestedDiscount: string;
+  validUntil: string | null;
+  terms: string;
+  sendNow: boolean;
+}): Promise<QuotationResult> {
+  const user = await requireUser();
+
+  /* ⚠️ KARACHI'S TODAY, NOT THE SERVER'S. For five hours each evening a UTC
+     date is still yesterday here, and a validity date typed as today would be
+     refused as already past. */
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' });
+
+  const problems = quotationProblems(
+    {
+      basePrice: input.basePrice,
+      premiumCharges: input.premiumCharges,
+      requestedDiscount: input.requestedDiscount,
+      validUntil: input.validUntil,
+      terms: input.terms,
+    },
+    today,
+  );
+  if (problems.length > 0) return { ok: false, error: problems[0] };
+
+  const basePrice = toRupees(input.basePrice) ?? 0;
+  const premiumCharges = input.premiumCharges.trim() ? (toRupees(input.premiumCharges) ?? 0) : 0;
+  const requestedDiscount = input.requestedDiscount.trim()
+    ? (toRupees(input.requestedDiscount) ?? 0)
+    : 0;
+
+  const raised = await crmRaiseQuotation(user.id, {
+    leadId: input.leadId,
+    basePrice,
+    premiumCharges,
+    requestedDiscount,
+    validUntil: input.validUntil,
+    terms: input.terms.trim() || null,
+    /* ⚠️ A DISCOUNT IS NEVER SENT STRAIGHT OUT, whatever the form asked for.
+       The query decides this too; saying it twice costs nothing and means a
+       caller that skips the form cannot send an unapproved discount. */
+    sendNow: input.sendNow && !needsApproval(requestedDiscount),
+  });
+
+  if (!raised) return { ok: false, error: NOT_YOURS };
+
+  refresh(input.leadId);
+  revalidatePath('/my-leads');
+
+  const status = needsApproval(requestedDiscount)
+    ? 'pending_approval'
+    : input.sendNow
+      ? 'sent'
+      : 'draft';
+  return { ok: true, number: raised.number, status };
+}
+
+export async function decideQuotationAction(
+  quotationId: string,
+  leadId: string,
+  decision: string,
+  approvedDiscount: string,
+  note: string,
+): Promise<LeadWriteResult> {
+  const user = await requireUser();
+
+  if (decision !== 'approved' && decision !== 'rejected') {
+    return { ok: false, error: 'That is not a decision.' };
+  }
+
+  /* ⚠️ A REFUSAL NEEDS A REASON. "Rejected" with nothing written is a message
+     the salesperson cannot act on — they will either ask anyway or quietly stop
+     asking, and both are worse than a sentence. */
+  if (decision === 'rejected' && !note.trim()) {
+    return { ok: false, error: 'Say why. A rejection with no reason is one nobody can act on.' };
+  }
+
+  const approved = decision === 'approved' ? (toRupees(approvedDiscount) ?? 0) : 0;
+
+  try {
+    const done = await crmDecideQuotation(
+      user.id,
+      quotationId,
+      decision,
+      approved,
+      note.trim() || null,
+    );
+    if (!done) return { ok: false, error: 'That quotation could not be updated.' };
+  } catch (err) {
+    /* ⚠️ 23514 IS THE TABLE REFUSING, and the two that will actually happen are
+       worth naming rather than printing as a constraint. Both are rules somebody
+       could reasonably not know. */
+    const code = (err as { code?: string })?.code;
+    if (code === '23514') {
+      return {
+        ok: false,
+        error:
+          'Refused: a quotation cannot be approved by the person who prepared it, and a discount cannot exceed the price.',
+      };
+    }
+    throw err;
+  }
+
+  refresh(leadId);
+  revalidatePath('/my-leads');
+  return { ok: true };
+}
+
+export async function sendQuotationAction(
+  quotationId: string,
+  leadId: string,
+): Promise<LeadWriteResult> {
+  const user = await requireUser();
+  const done = await crmMarkQuotationSent(user.id, quotationId);
+
+  /* ⚠️ FALSE MEANS THE STATUS WAS WRONG, not that the row was missing — the
+     update's own WHERE refuses anything not approved or draft. Naming the actual
+     reason saves somebody looking for a bug that is a rule. */
+  if (!done) {
+    return {
+      ok: false,
+      error: 'Only an approved quotation can be sent. This one is still waiting for a decision.',
+    };
+  }
+
+  refresh(leadId);
+  revalidatePath('/my-leads');
+  return { ok: true };
 }
