@@ -194,6 +194,39 @@ export function LeadDesk({
   if (viewWish !== undefined && viewWish === urlView) setViewWish(undefined);
   const view = viewWish ?? urlView;
 
+  /* ── ⚠️ THE CATEGORY NARROWS THE CARDS IN THIS FRAME ─────────────────────
+     Owner, 2026-09-15, on the board: *"I want to show all the card categories
+     above and when I click one, only those categories will be visible."*
+
+     Two things have to be true at once, and only one of them is free:
+
+       · the CARDS must narrow instantly — they are already on the page
+       · the COUNTS and the PAGING must stay truthful, and those are the
+         server's, because a page holds ten leads and a stage may hold forty
+
+     So the chip applies twice: once here, against the rows already in hand, and
+     once through the URL so the next page of that stage is the right one. Law 2
+     again — the URL records the choice, it does not decide when it takes
+     effect. */
+  const urlStage = search.get('stage');
+  const [stageWish, setStageWish] = React.useState<string | null | undefined>(undefined);
+  if (stageWish !== undefined && stageWish === urlStage) setStageWish(undefined);
+  const activeStage = stageWish === undefined ? urlStage : stageWish;
+
+  const pickStage = (stage: string | null) => {
+    /* Pressing the active one again clears it — the chips are a filter, not a
+       radio group you can get stuck inside. */
+    const next = activeStage === stage ? null : stage;
+    setStageWish(next);
+    startTransition(() => {
+      const q = new URLSearchParams(search.toString());
+      if (next) q.set('stage', next);
+      else q.delete('stage');
+      q.delete('page');
+      router.push(`/leads?${q.toString()}`);
+    });
+  };
+
   const setView = (next: 'table' | 'board') => {
     setViewWish(next);
     startTransition(() => {
@@ -376,8 +409,9 @@ export function LeadDesk({
 
           <StageStrip
             counts={stageCounts}
-            active={filters.stage}
-            onPick={(stage) => setParam('stage', filters.stage === stage ? null : stage)}
+            active={activeStage}
+            onPick={pickStage}
+            total={total}
           />
 
           {/* ⚠️⚠️ TEMPORARY — DELETE THIS BLOCK, ITS IMPORT, `components/crm/
@@ -416,7 +450,12 @@ export function LeadDesk({
             aria-busy={pending}
           >
             {view === 'board' ? (
-              <LeadBoard rows={rows} nowMs={nowMs} from={search.toString()} />
+              <LeadBoard
+                rows={rows}
+                nowMs={nowMs}
+                from={search.toString()}
+                activeStage={activeStage}
+              />
             ) : (
               <LeadTable
                 rows={rows}
@@ -1043,18 +1082,47 @@ function StageStrip({
   counts,
   active,
   onPick,
+  total,
 }: {
   counts: Record<string, number>;
   active: string | null;
   onPick: (stage: string | null) => void;
+  total: number;
 }) {
-  /* ⚠️ NO "ALL LEADS" CHIP ANY MORE. It used to lead this row; the design the
-     owner supplied carries that figure twice already — in the Total leads card
-     and in the "All leads (20)" tab — and a third copy is the one somebody
-     notices disagreeing after a filter. The row is now exactly the nine stages
-     and nothing else. */
   return (
     <div className="flex flex-wrap items-center gap-1.5">
+      {/* ⚠️ THE WAY BACK OUT. The row used to be the nine stages and nothing
+          else, because a third copy of the total was a figure somebody would
+          catch disagreeing after a filter. That reasoning still holds for a
+          DECORATIVE total — but once these chips are how the board is filtered,
+          a person who picks Contacted needs somewhere to press to see everything
+          again, and hunting for the same chip to press twice is not it.
+
+          ⚠️ It shows `total`, which is the count for the FILTERS CURRENTLY ON —
+          the same number the pager says — so it cannot disagree with anything on
+          screen. It is not a claim about the whole project. */}
+      <button
+        type="button"
+        onClick={() => onPick(null)}
+        aria-pressed={active === null}
+        className={cn(
+          'flex items-center gap-1.5 rounded-full border py-1 pl-2.5 pr-2 text-caption transition-colors',
+          active === null
+            ? 'border-border-strong bg-bg-subtle'
+            : 'border-border-subtle bg-bg-surface hover:border-border-default',
+        )}
+      >
+        <span className="font-medium text-text-secondary">All</span>
+        <span
+          className={cn(
+            'min-w-4 rounded-full px-1 text-center font-semibold tabular-nums',
+            total === 0 ? 'text-text-tertiary' : 'bg-bg-subtle text-text-primary',
+          )}
+        >
+          {total}
+        </span>
+      </button>
+
       {STAGE_ORDER.map((stage) => {
         const n = counts[stage] ?? 0;
         const on = active === stage;
@@ -1100,28 +1168,60 @@ function StageStrip({
 }
 
 /* ============================================================================
- * THE BOARD — the same leads, stood up in their stages
+ * THE BOARD — cards, narrowed by the category strip above them
  * ----------------------------------------------------------------------------
- * ⚠️ IT SHOWS THE PAGE, NOT THE PROJECT, and says so. Ten leads at a time is the
- * table's unit, and a board that silently held a different set would make the
- * two views disagree about how many leads exist — which is the bug somebody
- * reports as "the board is missing leads". The honest fix is the sentence under
- * the heading, not a second query with its own paging rules.
+ * Owner, 2026-09-15: *"in the board view, you categorize each card. I don't want
+ * that. I want to show all the card categories above and when I click one, only
+ * those categories will be visible. In one row at least three cards should be
+ * displayed."*
  *
- * ⚠️ AND IT IS NOT DRAG-AND-DROP. Moving a card between columns is a stage
- * change, and a stage change here would be an unlogged one — `crm_lead_activity`
- * would miss it and the timeline would start lying about who moved what. The
- * card opens the record, where the change is recorded with its note.
+ * ── ⚠️ WHAT THIS REPLACED, AND WHY THE COLUMNS WERE WRONG HERE ─────────────
+ * It was a nine-column kanban. Nine columns do not fit a laptop, so it carried
+ * its own horizontal scrollbar; each column was 15rem, so each card had room for
+ * a name and little else; and with ten leads spread across nine stages most
+ * columns said "Empty" while the few cards that existed were too narrow to read.
+ * A board that needs sideways scrolling to reach a stage is not one somebody
+ * reads between two calls.
+ *
+ * The categories moved ABOVE, as a filter — which is what `StageStrip` already
+ * was. So there is one control rather than two ways to say the same thing.
+ *
+ * ── ⚠️ AT LEAST THREE ACROSS, AND THE CARDS GREW TO MATCH ──────────────────
+ * A third of the content column instead of 15rem, so a card now carries its
+ * stage, the city, the last message, the owner and when the next action is due
+ * without truncating any of them to a single word.
+ *
+ * ── ⚠️ IT SHOWS THE PAGE, NOT THE PROJECT, and still says so ───────────────
+ * Ten leads at a time is the table's unit, and a board that silently held a
+ * different set would make the two views disagree about how many leads exist —
+ * the bug somebody reports as "the board is missing leads". The chips above
+ * count the whole project; this sentence counts what is on screen, and says
+ * which is which.
+ *
+ * ── ⚠️ AND IT IS STILL NOT DRAG-AND-DROP ───────────────────────────────────
+ * Moving a card between stages would be an unlogged stage change —
+ * `crm_lead_activity` would miss it and the timeline would start lying about who
+ * moved what. The card opens the record, where the change is recorded with its
+ * note.
  * ========================================================================= */
 function LeadBoard({
   rows,
   nowMs,
   from,
+  activeStage,
 }: {
   rows: readonly CrmLeadRow[];
   nowMs: number;
   from: string;
+  /**
+   * ⚠️ Applied HERE as well as on the server, so the cards narrow in the click's
+   * own frame rather than after a round trip. Once the server answers, the rows
+   * are already only this stage and the filter is a no-op.
+   */
+  activeStage: string | null;
 }) {
+  const cards = activeStage ? rows.filter((r) => r.stage === activeStage) : rows;
+
   if (rows.length === 0) {
     return (
       <Empty
@@ -1131,110 +1231,125 @@ function LeadBoard({
     );
   }
 
-  /* ⚠️ EVERY STAGE GETS A COLUMN, including the empty ones. A board whose
-     columns appear and disappear as leads move is a board nobody can learn the
-     shape of. */
-  const byStage = new Map<string, CrmLeadRow[]>(STAGE_ORDER.map((st) => [st, []]));
-  for (const lead of rows) {
-    const bucket = byStage.get(lead.stage);
-    if (bucket) bucket.push(lead);
-  }
-
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       <p className="text-caption text-text-secondary">
-        The {rows.length} lead{rows.length === 1 ? '' : 's'} on this page, by stage. Use the pages
-        below to see the rest.
+        {activeStage ? (
+          <>
+            {cards.length} {stageLabel(activeStage).toLowerCase()} lead
+            {cards.length === 1 ? '' : 's'} on this page. The count on the chip above is the whole
+            project — use the pages below to see the rest.
+          </>
+        ) : (
+          <>
+            The {cards.length} lead{cards.length === 1 ? '' : 's'} on this page. Pick a category
+            above to narrow them.
+          </>
+        )}
       </p>
 
-      {/* The scroll lives here, never on the page — nine columns will not fit a
-          laptop and taking the sidebar sideways with them is worse. */}
-      <div className="overflow-x-auto pb-2">
-        <div className="flex min-w-max gap-3">
-          {STAGE_ORDER.map((stage) => {
-            const cards = byStage.get(stage) ?? [];
+      {/* ⚠️ THE STAGE THIS PAGE HOLDS NONE OF. A chip counts the whole project,
+          so pressing one whose leads all sit on another page lands here — and an
+          empty grid with no explanation reads as a broken filter. */}
+      {cards.length === 0 ? (
+        <Empty
+          title={`No ${stageLabel(activeStage ?? '').toLowerCase()} leads on this page`}
+          detail="They are on another page of these results. Use the pages below, or pick All to see everything."
+        />
+      ) : (
+        /* ⚠️ THREE ACROSS ON A LAPTOP, two on a tablet, one on a phone. The owner
+            asked for at least three in a row; below that width three would each
+            be too narrow to read, which is the problem the columns already had. */
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {cards.map((lead) => {
+            const late = lead.nextActionAt !== null && Date.parse(lead.nextActionAt) < nowMs;
             return (
-              <section key={stage} className="w-[15rem] shrink-0">
-                <header className="mb-2 flex items-center gap-1.5 px-1">
+              <Link
+                key={lead.id}
+                href={
+                  `/leads/${lead.id}${from ? `?from=${encodeURIComponent(from)}` : ''}` as Route
+                }
+                className="flex flex-col gap-2 rounded-xl border border-border-subtle bg-bg-surface p-3 transition-colors hover:border-border-default hover:bg-[color-mix(in_oklab,var(--accent-primary)_6%,transparent)]"
+              >
+                {/* ⚠️ THE STAGE IS ON THE CARD NOW. The columns used to say it;
+                    with the cards mixed together, one that does not name its own
+                    stage is one you cannot place. */}
+                <span className="flex items-center justify-between gap-2">
                   <span
-                    aria-hidden="true"
-                    className="size-2 rounded-full"
-                    style={{ backgroundColor: `var(--${stageToken(stage)})` }}
-                  />
-                  <h3 className="text-caption font-semibold text-text-primary">
-                    {stageLabel(stage)}
-                  </h3>
-                  <span className="ml-auto text-caption tabular-nums text-text-tertiary">
-                    {cards.length}
+                    className="flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-caption font-medium"
+                    style={{
+                      borderColor: `var(--${stageToken(lead.stage)})`,
+                      color: `var(--${stageToken(lead.stage)})`,
+                      backgroundColor: `color-mix(in oklab, var(--${stageToken(lead.stage)}) 10%, transparent)`,
+                    }}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className="size-1.5 rounded-full"
+                      style={{ backgroundColor: `var(--${stageToken(lead.stage)})` }}
+                    />
+                    {stageLabel(lead.stage)}
                   </span>
-                </header>
-
-                <div className="space-y-2 rounded-xl bg-bg-subtle/60 p-2">
-                  {cards.length === 0 ? (
-                    <p className="px-1 py-3 text-center text-caption text-text-tertiary">Empty</p>
-                  ) : (
-                    cards.map((lead) => {
-                      const late =
-                        lead.nextActionAt !== null && Date.parse(lead.nextActionAt) < nowMs;
-                      return (
-                        <Link
-                          key={lead.id}
-                          href={
-                            `/leads/${lead.id}${from ? `?from=${encodeURIComponent(from)}` : ''}` as Route
-                          }
-                          className="block rounded-lg border border-border-subtle bg-bg-surface p-2.5 transition-colors hover:border-border-default hover:bg-[color-mix(in_oklab,var(--accent-primary)_6%,transparent)]"
-                        >
-                          <span className="block truncate text-body-sm font-semibold text-text-primary">
-                            {lead.fullName ?? 'Name not given'}
-                          </span>
-                          {lead.city && (
-                            <span className="mt-0.5 block truncate text-caption text-text-secondary">
-                              {lead.city}
-                            </span>
-                          )}
-
-                          {lead.lastMessageBody && (
-                            <span className="mt-1.5 flex items-center gap-1.5">
-                              <span aria-hidden="true" style={{ color: WA_GREEN }}>
-                                <WhatsAppMark className="size-3.5" />
-                              </span>
-                              <span className="truncate text-caption text-text-secondary">
-                                {lead.lastMessageBody}
-                              </span>
-                            </span>
-                          )}
-
-                          <span className="mt-1.5 flex items-center justify-between gap-2">
-                            <span className="truncate text-caption text-text-tertiary">
-                              {lead.ownerName ?? 'Unassigned'}
-                            </span>
-                            {lead.nextActionAt && (
-                              <span
-                                className={cn(
-                                  'shrink-0 text-caption tabular-nums',
-                                  late ? 'font-semibold text-feedback-error' : 'text-text-brand',
-                                )}
-                              >
-                                {followUpWhen(lead.nextActionAt, nowMs)}
-                              </span>
-                            )}
-                          </span>
-                        </Link>
-                      );
-                    })
+                  {lead.nextActionAt && (
+                    <span
+                      className={cn(
+                        'shrink-0 text-caption tabular-nums',
+                        late ? 'font-semibold text-feedback-error' : 'text-text-brand',
+                      )}
+                    >
+                      {relativeAge(lead.nextActionAt, nowMs)}
+                    </span>
                   )}
-                </div>
-              </section>
+                </span>
+
+                <span className="min-w-0">
+                  <span className="block truncate text-body-sm font-semibold text-text-primary">
+                    {lead.fullName ?? 'Name not given'}
+                  </span>
+                  <span className="mt-0.5 block truncate text-caption text-text-secondary">
+                    {[lead.projectName, lead.city].filter(Boolean).join(' · ') || '—'}
+                  </span>
+                </span>
+
+                {lead.lastMessageBody && (
+                  <span className="flex min-w-0 items-start gap-1.5">
+                    <span
+                      aria-hidden="true"
+                      className="mt-0.5 shrink-0"
+                      style={{ color: WA_GREEN }}
+                    >
+                      <WhatsAppMark className="size-3.5" />
+                    </span>
+                    <span className="line-clamp-2 text-caption text-text-secondary">
+                      {lead.lastMessageBody}
+                    </span>
+                  </span>
+                )}
+
+                {lead.nextAction && (
+                  <span className="truncate text-caption text-text-secondary">
+                    {lead.nextAction}
+                  </span>
+                )}
+
+                <span className="mt-auto flex items-center justify-between gap-2 border-t border-border-subtle pt-2">
+                  <span className="truncate text-caption text-text-tertiary">
+                    {lead.ownerName ?? 'Unassigned'}
+                  </span>
+                  {lead.noteCount > 0 && (
+                    <span className="shrink-0 text-caption tabular-nums text-text-tertiary">
+                      {lead.noteCount} note{lead.noteCount === 1 ? '' : 's'}
+                    </span>
+                  )}
+                </span>
+              </Link>
             );
           })}
         </div>
-      </div>
+      )}
     </div>
   );
 }
-
-/* ---- The table ----------------------------------------------------------- */
-
 function LeadTable({
   rows,
   nowMs,
