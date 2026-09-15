@@ -561,7 +561,7 @@ function Row({
           that form. The control is here because the design puts it here; the
           write is the next phase. */}
       <td className={TD}>
-        <StageChooser lead={lead} />
+        <StageChooser lead={lead} search={search} />
       </td>
 
       {/* ── What was last said ──────────────────────────────────────────── */}
@@ -843,18 +843,28 @@ function Row({
  * question the log exists to answer. So it opens the lead on that form, and the
  * control is real rather than decorative.
  * ========================================================================= */
-function StageChooser({ lead }: { lead: CrmLeadRow }) {
+function StageChooser({ lead, search }: { lead: CrmLeadRow; search: URLSearchParams }) {
   const router = useRouter();
   const token = stageToken(lead.stage);
+
+  /* ⚠️ IT OPENS THE OUTCOME FORM, IT DOES NOT WRITE. Picking a stage here and
+     saving it silently would leave a timeline saying WHAT changed and never WHY
+     — and "why" is the question the log exists to answer. The chosen stage is
+     carried through so the form opens on it. */
+  const open = (stage: string) => {
+    const next = new URLSearchParams(search.toString());
+    next.set('lead', lead.id);
+    next.set('action', 'outcome');
+    if (stage !== lead.stage) next.set('stage', stage);
+    router.push(`/my-leads?${next.toString()}` as Route);
+  };
 
   return (
     <div className="relative w-[9.5rem]">
       <select
         aria-label={`Stage for ${lead.fullName ?? 'this lead'} — currently ${stageLabel(lead.stage)}`}
         value={lead.stage}
-        onChange={(e) =>
-          router.push(`/leads/${lead.id}?stage=${encodeURIComponent(e.target.value)}` as Route)
-        }
+        onChange={(e) => open(e.target.value)}
         className="w-full cursor-pointer appearance-none truncate rounded-md border py-1 pl-2.5 pr-7 text-caption font-medium transition-opacity hover:opacity-85 focus:outline-none focus:ring-2"
         style={{
           backgroundColor: `color-mix(in oklab, var(--${token}) 14%, transparent)`,

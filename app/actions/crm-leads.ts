@@ -18,6 +18,7 @@ import {
   unassignedLeadIds,
 } from '@/lib/db/queries/crm-leads';
 import { isLostReason, isStage, TEMPERATURES } from '@/lib/domain/crm-stages';
+import { OUTCOMES, outcomeProblems } from '@/lib/domain/crm-outcomes';
 
 /* ============================================================================
  * WORKING A LEAD — Step 6 of docs/crm/08-TWELVE-STEPS.md
@@ -359,5 +360,146 @@ export async function deleteNoteAction(leadId: string, noteId: string): Promise<
   if (!ok) return { ok: false, error: 'That note could not be removed. It may not be yours.' };
 
   refresh(leadId);
+  return { ok: true };
+}
+
+/* ==========================================================================
+ * RECORD OUTCOME — what happened, and what happens next
+ * --------------------------------------------------------------------------
+ * The owner's Phase 1 form. ⚠️ ONE ACTION, ONE TRANSACTION, because these five
+ * facts are one event: the stage moved BECAUSE of an outcome, and the next
+ * action was set BECAUSE of both. Four separate writes would leave a timeline
+ * that reads as four unrelated changes a second apart, and a failure halfway
+ * would leave a lead moved with nothing explaining why.
+ *
+ * ⚠️ AND RLS IS WHAT DECIDES WHETHER IT MAY HAPPEN. The whole update runs under
+ * `withUser`, so a lead the caller does not own updates zero rows and the action
+ * reports it — the same refusal a salesperson gets for anybody else's lead, from
+ * the same policy that hides it on the desk.
+ * ========================================================================== */
+export async function recordOutcomeAction(
+  leadId: string,
+  input: {
+    outcome: string;
+    stage: string;
+    nextAction: string;
+    nextActionType: string | null;
+    nextActionAt: string | null;
+    lostReason: string | null;
+    note: string;
+    contactConfirmed: boolean;
+    pauseSequence: boolean;
+  },
+): Promise<LeadWriteResult> {
+  const user = await requireUser();
+
+  if (!(OUTCOMES as readonly string[]).includes(input.outcome)) {
+    return { ok: false, error: 'That is not an outcome.' };
+  }
+  if (!isStage(input.stage)) return { ok: false, error: 'That is not a stage.' };
+  if (input.lostReason !== null && !isLostReason(input.lostReason)) {
+    return { ok: false, error: 'That is not a loss reason.' };
+  }
+  if (
+    input.nextActionType !== null &&
+    !['call', 'whatsapp', 'email', 'meeting', 'site_visit', 'task'].includes(input.nextActionType)
+  ) {
+    return { ok: false, error: 'That is not a kind of next action.' };
+  }
+
+  /* ⚠️ THE SAME RULES THE FORM SHOWS, RE-RUN ON THE SERVER. The form's copy is
+     a courtesy so somebody is not told "no" after pressing send; this one is the
+     rule. A client that skips the form entirely gets the same answer. */
+  const problems = outcomeProblems({
+    outcome: input.outcome,
+    stage: input.stage,
+    nextActionAt: input.nextActionAt,
+    nextAction: input.nextAction,
+    lostReason: input.lostReason,
+    contactConfirmed: input.contactConfirmed,
+  });
+  if (problems.length > 0) return { ok: false, error: problems[0] };
+
+  const closing = input.stage === 'won' || input.stage === 'lost';
+  const reason = input.stage === 'lost' ? input.lostReason : null;
+
+  const moved = await withUser(user.id, async (tx) => {
+    const before = await tx`
+      select stage::text as stage, next_action, next_action_at
+        from public.crm_leads where id = ${leadId}::uuid`;
+    const prev = (before as Array<Record<string, unknown>>)[0];
+    if (!prev) return false;
+
+    await tx`
+      update public.crm_leads
+         set stage = ${input.stage}::public.crm_stage,
+             lost_reason = ${reason}::public.crm_lost_reason,
+             last_outcome = ${input.outcome}::public.crm_outcome,
+             last_outcome_at = now(),
+             last_outcome_by_id = ${user.id}::uuid,
+             /* ⚠️ A CLOSED LEAD KEEPS NO NEXT ACTION. Leaving one there puts a
+                won deal back on somebody's "due today" every morning. */
+             next_action = ${closing ? null : input.nextAction.trim()},
+             next_action_type = ${closing ? null : input.nextActionType}::public.crm_next_action_kind,
+             next_action_at = ${closing ? null : input.nextActionAt}::timestamptz,
+             closed_at = ${closing ? null : null}
+       where id = ${leadId}::uuid`;
+
+    if (closing) {
+      await tx`update public.crm_leads set closed_at = now() where id = ${leadId}::uuid`;
+    }
+
+    /* ⚠️ THE TIMELINE CARRIES THE WHOLE EVENT, not just the new stage. "Stage
+       changed to Lost" answers what; `from`, `outcome` and the note answer why,
+       and why is the question somebody asks six months later. */
+    await tx`
+      insert into public.crm_lead_activity (lead_id, kind, actor_id, occurred_at, detail)
+      values (
+        ${leadId}::uuid, 'stage_changed', ${user.id}::uuid, now(),
+        ${tx.json({
+          from: String(prev.stage),
+          to: input.stage,
+          outcome: input.outcome,
+          note: input.note.trim() || null,
+          next_action: closing ? null : input.nextAction.trim(),
+          next_action_at: closing ? null : input.nextActionAt,
+        })}
+      )`;
+
+    if (input.note.trim()) {
+      await tx`
+        insert into public.crm_lead_notes (lead_id, author_id, body)
+        values (${leadId}::uuid, ${user.id}::uuid, ${input.note.trim()})`;
+    }
+
+    /* ⚠️ A REPLY OR A CLOSE STOPS THE CHASE. Owner's rule, and the one that
+       matters most: an automated sequence talking over a client who has just
+       replied is the fastest way to look like a robot. `stopped` for a closed
+       lead, `paused` while somebody decides. */
+    if (input.pauseSequence || closing || input.outcome === 'client_replied') {
+      await tx`
+        update public.crm_lead_sequences
+           set state = ${closing ? 'stopped' : 'paused'}::public.crm_sequence_state,
+               paused_at = ${closing ? null : 'now()'}::timestamptz,
+               pause_reason = ${
+                 closing
+                   ? null
+                   : input.outcome === 'client_replied'
+                     ? 'Client replied'
+                     : 'Paused when the outcome was recorded'
+               },
+               stopped_at = ${closing ? 'now()' : null}::timestamptz,
+               updated_at = now()
+         where lead_id = ${leadId}::uuid
+           and state in ('scheduled', 'active', 'paused')`;
+    }
+
+    return true;
+  });
+
+  if (!moved) return { ok: false, error: NOT_YOURS };
+
+  refresh(leadId);
+  revalidatePath('/my-leads');
   return { ok: true };
 }

@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 
 import { LeadDrawer } from '@/components/crm/lead-drawer';
+import { RecordOutcome } from '@/components/crm/record-outcome';
 import { MyLeadsDesk } from '@/components/crm/my-leads-desk';
 import { requireCrmAccess } from '@/lib/auth/current-user';
 import {
@@ -111,9 +112,24 @@ export default async function MyLeadsPage({
     ? await Promise.all([crmLeadThread(user.id, wanted!), crmLeadRelated(user.id, wanted!)])
     : [[], null];
 
+  /* ⚠️ THE FORM WINS OVER THE DRAWER when both are asked for. They are two
+     panels on one screen and stacking them would leave the drawer visible and
+     unreachable behind a dialog. */
+  const wantsOutcome = params.action === 'outcome' && record !== null;
+
   return (
     <>
-      {record && related && (
+      {wantsOutcome && record && (
+        <RecordOutcome
+          leadId={record.lead.id}
+          leadName={record.lead.fullName ?? 'this lead'}
+          /* The stage the row's dropdown was set to, if it carried one. */
+          currentStage={
+            params.stage && isStage(params.stage) ? params.stage : record.lead.stage
+          }
+        />
+      )}
+      {!wantsOutcome && record && related && (
         <LeadDrawer
           lead={record.lead}
           notes={record.notes}
