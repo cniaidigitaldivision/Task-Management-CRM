@@ -3,7 +3,7 @@
 import * as React from 'react';
 import type { Route } from 'next';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { ExternalLink, X } from 'lucide-react';
 
 import { WA_GREEN, WhatsAppMark } from '@/components/crm/whatsapp-mark';
@@ -19,6 +19,7 @@ import { sourceDetail, sourceLabel } from '@/lib/domain/lead-source';
 import { displayPhone } from '@/lib/domain/phone';
 import { relativeAge } from '@/lib/view/relative-age';
 import { cn } from '@/lib/utils';
+import { useSoftNavigate } from './use-panel';
 
 /* ============================================================================
  * THE LEAD DRAWER — the record, over the list
@@ -63,6 +64,7 @@ export function LeadDrawer({
   tab,
   viewerName,
   nowMs,
+  onClose,
 }: {
   lead: CrmLeadRecord;
   notes: readonly CrmLeadNote[];
@@ -72,41 +74,48 @@ export function LeadDrawer({
   tab: Tab;
   viewerName: string;
   nowMs: number;
+  /** Hides the panel at once; the URL catches up in the parent. */
+  onClose: () => void;
 }) {
-  const router = useRouter();
   const search = useSearchParams();
   const panel = React.useRef<HTMLDivElement>(null);
+  const soft = useSoftNavigate();
 
-  const close = React.useCallback(() => {
-    /* ⚠️ Rebuild the list's URL rather than `back()` — a reader who arrived on a
-       shared drawer link has no list behind them, and `back()` would take them
-       off the page entirely. Dropping the two parameters lands them on the list
-       with every filter they had. */
-    const next = new URLSearchParams(search.toString());
-    next.delete('lead');
-    next.delete('tab');
-    const q = next.toString();
-    router.push((q ? `/my-leads?${q}` : '/my-leads') as Route);
-  }, [router, search]);
+  /* ⚠️ THE PARENT OWNS WHETHER THIS IS ON SCREEN — it is a client component with
+     the row already in hand, so the panel goes at the click rather than after a
+     server render. Closing also rebuilds the list's URL rather than calling
+     `back()`: a reader who arrived on a shared drawer link has no list behind
+     them, and `back()` would take them off the page entirely. */
+  const close = onClose;
 
-  const go = (t: Tab) => {
-    const next = new URLSearchParams(search.toString());
-    next.set('tab', t);
-    /* ⚠️ `replace`, not `push`. Five tabs would otherwise put five entries in the
-       history and "back" would walk through them one at a time instead of
-       returning to the list. */
-    router.replace(`/my-leads?${next.toString()}` as Route);
-  };
-
-  /* Escape closes; focus starts inside. */
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') close();
+      if (e.key === 'Escape') onClose();
     };
-    document.addEventListener('keydown', onKey);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  /* ⚠️ THE TAB IS CLIENT STATE, SEEDED FROM THE SERVER — not read from the URL
+     on every render. Clicking a tab used to `router.replace` and wait for a full
+     page render before the tab even highlighted, which is a round trip to
+     Singapore to change which of five already-loaded panels is visible.
+
+     The URL still follows, so a tab survives a refresh and a shared link; it
+     just no longer decides how fast the button reacts. */
+  const [activeTab, setActiveTab] = React.useState<Tab>(tab);
+
+  const go = (t: Tab) => {
+    setActiveTab(t);
+    const next = new URLSearchParams(search.toString());
+    next.set('tab', t);
+    soft(`/my-leads?${next.toString()}`);
+  };
+
+  /* Focus starts inside. Escape is handled by `usePanel`, on the instant path. */
+  React.useEffect(() => {
     panel.current?.focus();
-    return () => document.removeEventListener('keydown', onKey);
-  }, [close]);
+  }, []);
 
   const phone = displayPhone(lead.phoneE164, lead.phone);
 
@@ -184,10 +193,10 @@ export function LeadDrawer({
               key={t.key}
               type="button"
               onClick={() => go(t.key)}
-              aria-pressed={tab === t.key}
+              aria-pressed={activeTab === t.key}
               className={cn(
                 'shrink-0 rounded-lg px-3 py-1.5 text-caption font-medium transition-colors',
-                tab === t.key
+                activeTab === t.key
                   ? 'bg-accent-primary text-white'
                   : 'text-text-secondary hover:bg-bg-subtle hover:text-text-primary',
               )}
@@ -201,13 +210,13 @@ export function LeadDrawer({
 
         {/* ── Body ─────────────────────────────────────────────────────── */}
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-          {tab === 'overview' && (
+          {activeTab === 'overview' && (
             <Overview lead={lead} notes={notes} phone={phone} nowMs={nowMs} />
           )}
-          {tab === 'conversations' && <Conversation messages={messages} nowMs={nowMs} />}
-          {tab === 'followups' && <FollowUps related={related} nowMs={nowMs} />}
-          {tab === 'related' && <Related related={related} />}
-          {tab === 'activity' && <Activity activity={activity} nowMs={nowMs} />}
+          {activeTab === 'conversations' && <Conversation messages={messages} nowMs={nowMs} />}
+          {activeTab === 'followups' && <FollowUps related={related} nowMs={nowMs} />}
+          {activeTab === 'related' && <Related related={related} />}
+          {activeTab === 'activity' && <Activity activity={activity} nowMs={nowMs} />}
         </div>
       </div>
     </div>

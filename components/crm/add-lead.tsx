@@ -63,6 +63,7 @@ export function AddLead({
   projects,
   properties,
   defaultProjectId,
+  onClose,
 }: {
   projects: readonly AddLeadProject[];
   /**
@@ -77,6 +78,8 @@ export function AddLead({
    */
   properties: readonly AddLeadProperty[];
   defaultProjectId: string | null;
+  /** Hides the dialog at once. The URL catches up in the parent. */
+  onClose: () => void;
 }) {
   const router = useRouter();
   const search = useSearchParams();
@@ -120,14 +123,21 @@ export function AddLead({
   React.useEffect(() => {
     const p = phone.trim();
     const e = email.trim();
-    if (!projectId || (p.length < 7 && !e.includes('@'))) {
-      setDupes([]);
-      return;
-    }
+    const worthAsking = Boolean(projectId) && (p.length >= 7 || e.includes('@'));
 
     let live = true;
-    setChecking(true);
+    /* ⚠️ EVERY setState HAPPENS IN THE TIMER, NOT IN THE EFFECT BODY. Clearing
+       synchronously here fired a second render on every keystroke — and on a
+       field somebody types a phone number into, that is a cascade React lints
+       against for good reason. */
     const timer = setTimeout(() => {
+      if (!live) return;
+      if (!worthAsking) {
+        setDupes([]);
+        setChecking(false);
+        return;
+      }
+      setChecking(true);
       void checkDuplicatesAction(projectId, p, e)
         .then((r) => {
           if (!live) return;
@@ -142,7 +152,6 @@ export function AddLead({
     return () => {
       live = false;
       clearTimeout(timer);
-      setChecking(false);
     };
   }, [projectId, phone, email]);
 
@@ -183,12 +192,28 @@ export function AddLead({
   const mustAcknowledge = verdict.verdict === 'confirm' && !acknowledged;
   const canSave = !busy && problems.length === 0 && !blocked && !mustAcknowledge;
 
-  const close = () => {
-    const next = new URLSearchParams(search.toString());
-    next.delete('action');
-    const qs = next.toString();
-    router.push((qs ? `/my-leads?${qs}` : '/my-leads') as Route);
-  };
+  /* Why the button is off, in the order somebody meets it. The hard refusal
+     first — it is the one no amount of filling in will clear. */
+  const blockedBy = blocked
+    ? verdict.message
+    : mustAcknowledge
+      ? 'Read the note above and confirm this is a new enquiry.'
+      : (problems[0] ?? null);
+
+  /* ⚠️ THE PARENT OWNS WHETHER THIS IS ON SCREEN, and it is a client component,
+     so the cross takes effect in the click's own frame. This used to re-render
+     the entire page — every query on it — to take a dialog off the screen. */
+  const close = onClose;
+
+  /* Escape closes, on the same instant path. A dialog that can only be
+     dismissed by hitting a small target is one people fight with. */
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
   async function save() {
     setBusy(true);
@@ -217,6 +242,7 @@ export function AddLead({
         : `${fullName.trim()} added. Nobody was available, so it is waiting to be shared out.`,
     });
 
+    onClose();
     const next = new URLSearchParams(search.toString());
     next.delete('action');
     if (result.id) next.set('lead', result.id);
@@ -584,7 +610,24 @@ export function AddLead({
           )}
         </div>
 
-        <div className="flex items-center justify-end gap-2 border-t border-border-subtle px-5 py-3">
+        {/* ⚠️ THE REASON TRAVELS WITH THE BUTTON. The problems list sits at the
+            bottom of a scrolling panel, three sections below the fold — so on
+            an unfilled form somebody saw a greyed-out "Add lead" and no
+            explanation anywhere on screen. A disabled control with its reason
+            out of sight is the exact refusal-without-a-reason this form was
+            written to avoid. Found by looking at it, not by reading it. */}
+        <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1.5 border-t border-border-subtle px-5 py-3">
+          {blockedBy && (
+            <p
+              className={cn(
+                'mr-auto flex min-w-0 items-start gap-1.5 text-caption leading-snug',
+                blocked ? 'text-feedback-error' : 'text-text-secondary',
+              )}
+            >
+              <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+              <span className="min-w-0">{blockedBy}</span>
+            </p>
+          )}
           <button
             type="button"
             onClick={close}

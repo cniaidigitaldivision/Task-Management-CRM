@@ -28,6 +28,10 @@ import { sourceDetail, sourceLabel, sourceToken } from '@/lib/domain/lead-source
 import { displayPhone, whatsAppDigits } from '@/lib/domain/phone';
 import { relativeAge } from '@/lib/view/relative-age';
 import { cn } from '@/lib/utils';
+import { AddLead, type AddLeadProject, type AddLeadProperty } from './add-lead';
+import { LeadDrawer } from './lead-drawer';
+import type { CrmLeadFull, CrmLeadRelated, CrmMessage } from '@/lib/db/queries/crm-leads';
+import { LeadDrawerShell } from './lead-drawer-shell';
 
 /* ============================================================================
  * MY LEADS — the sales consultant's own list
@@ -58,6 +62,12 @@ interface Option {
 
 export function MyLeadsDesk({
   projects,
+  record,
+  messages,
+  related,
+  initialTab,
+  addProjects,
+  addProperties,
   selectedProjectId,
   rows,
   total,
@@ -71,6 +81,15 @@ export function MyLeadsDesk({
   nowMs,
 }: {
   projects: readonly CrmProjectOption[];
+  /** The lead the URL asked for, once the server has it. Null while none is open. */
+  record: CrmLeadFull | null;
+  messages: readonly CrmMessage[];
+  related: CrmLeadRelated | null;
+  initialTab: string;
+  /** ⚠️ The projects this person may ADD to — a different question from the
+      picker above the list, and the one the write actually asks (migration 159). */
+  addProjects: readonly AddLeadProject[];
+  addProperties: readonly AddLeadProperty[];
   selectedProjectId: string | null;
   rows: readonly CrmLeadRow[];
   total: number;
@@ -87,6 +106,18 @@ export function MyLeadsDesk({
   const router = useRouter();
   const search = useSearchParams();
 
+  /* ── ⚠️ EVERY CONTROL ON THIS PAGE IS A SERVER NAVIGATION ─────────────────
+     A filter, a tab, a page number: each one re-runs the whole render in
+     Singapore before anything on screen moves. There is no way around the
+     round trip — the rows genuinely come from the database — but there IS a way
+     around the SILENCE, and the silence is what reads as "nothing happened, let
+     me click it again".
+
+     `useTransition` gives the answer the interface was missing: `pending` is
+     true from the click until the new rows arrive, so the table can dim and say
+     it is working instead of sitting there looking broken. */
+  const [pending, startTransition] = React.useTransition();
+
   /* One helper for every control, so changing a filter keeps the others — and
      so any parameter this component does not model still survives the trip. */
   const setParam = React.useCallback(
@@ -98,10 +129,109 @@ export function MyLeadsDesk({
          while still on page 9 shows an empty list, which reads as "no leads"
          rather than as "wrong page". */
       if (key !== 'page') next.delete('page');
-      router.push(`/my-leads?${next.toString()}` as Route);
+      startTransition(() => {
+        router.push(`/my-leads?${next.toString()}` as Route);
+      });
     },
     [router, search],
   );
+
+  /* ── ⚠️ THE ADD-LEAD MODAL IS CLIENT STATE, NOT A URL ROUND TRIP ──────────
+     Owner, 2026-09-15: *"if I add the add lead modal popup, that's also taking
+     time."* It was: the button pushed `?action=add` and the dialog did not
+     appear until the server had re-rendered the entire page — the list, the
+     counts, every query — none of which the dialog uses.
+
+     It is a form. Everything it needs is already on this page. So it opens in
+     the click's own frame, and the URL follows behind for the refresh and the
+     shared link. */
+  /* Same shape as the drawer's `wish`, and for the same back-button reason. */
+  const urlAdd = search.get('action') === 'add';
+  const [addWish, setAddWish] = React.useState<boolean | undefined>(undefined);
+  if (addWish !== undefined && addWish === urlAdd) setAddWish(undefined);
+  const addOpen = addWish === undefined ? urlAdd : addWish;
+
+  const closeAdd = React.useCallback(() => {
+    setAddWish(false);
+    startTransition(() => {
+      const next = new URLSearchParams(search.toString());
+      next.delete('action');
+      const qs = next.toString();
+      router.replace((qs ? `/my-leads?${qs}` : '/my-leads') as Route);
+    });
+  }, [router, search]);
+
+  /* ── ⚠️ THE DRAWER OPENS FROM THE ROW, NOT FROM SINGAPORE ────────────────
+     Owner, 2026-09-15: *"if I click on a row, the drawer should open instantly
+     instead of it rendering."*
+
+     `openLead` is the id the person just clicked. The panel appears in that same
+     frame, drawn from the row — which already holds the name, project, stage,
+     phone, email and city. The URL follows in a transition, the server sends the
+     notes, thread, activity and related records, and `record` below takes over
+     the moment they land.
+
+     ⚠️ THE SHELL IS SHOWN ONLY WHILE THE SERVER'S ANSWER IS FOR A DIFFERENT
+     LEAD. Comparing ids rather than tracking a boolean means a stale record from
+     the previous lead can never be mistaken for this one's — which would put
+     somebody else's details under this person's name. */
+  /* ⚠️ THE URL REMAINS THE SOURCE OF TRUTH; THE WISH ONLY RUNS AHEAD OF IT.
+     A plain piece of state here would have been a bug with the back button:
+     state does not rewind, so going Back would drop `?lead=` from the URL while
+     the component still believed a drawer was open — leaving a loading shell on
+     screen with nothing ever coming to replace it.
+
+     So `wish` is what the person just asked for, and it applies only until the
+     URL agrees. `undefined` means "follow the URL", which is what Back, Forward
+     and a pasted link all need. */
+  const urlLead = search.get('lead');
+  const [wish, setWish] = React.useState<string | null | undefined>(undefined);
+
+  /* Adjusting state during render rather than in an effect — React's own pattern
+     for deriving from props. It re-renders before committing, so nothing flashes
+     and no cascade is queued. */
+  if (wish !== undefined && wish === urlLead) setWish(undefined);
+
+  const openLead = wish === undefined ? urlLead : wish;
+  const [openTab, setOpenTab] = React.useState<string>(initialTab);
+
+  const onOpen = React.useCallback(
+    (leadId: string, tab: string) => {
+      setWish(leadId);
+      setOpenTab(tab);
+      startTransition(() => {
+        const next = new URLSearchParams(search.toString());
+        next.set('lead', leadId);
+        next.set('tab', tab);
+        router.replace(`/my-leads?${next.toString()}` as Route);
+      });
+    },
+    [router, search],
+  );
+
+  const closeLead = React.useCallback(() => {
+    setWish(null);
+    startTransition(() => {
+      const next = new URLSearchParams(search.toString());
+      next.delete('lead');
+      next.delete('tab');
+      const qs = next.toString();
+      router.replace((qs ? `/my-leads?${qs}` : '/my-leads') as Route);
+    });
+  }, [router, search]);
+
+  const shellRow = openLead && record?.lead.id !== openLead
+    ? rows.find((r) => r.id === openLead)
+    : undefined;
+
+  const openAdd = () => {
+    setAddWish(true);
+    startTransition(() => {
+      const next = new URLSearchParams(search.toString());
+      next.set('action', 'add');
+      router.replace(`/my-leads?${next.toString()}` as Route);
+    });
+  };
 
   /* ⚠️ PAGE-SCOPED SELECTION, and deliberately. A selection that silently spans
      pages is how somebody bulk-changes 600 leads meaning 10. Nothing acts on it
@@ -123,7 +253,39 @@ export function MyLeadsDesk({
   const pageCount = Math.max(1, Math.ceil(total / perPage));
 
   return (
-    <div className="mx-auto max-w-[var(--content-max)] space-y-4">
+    <div
+      className="mx-auto max-w-[var(--content-max)] space-y-4"
+      style={pending ? { cursor: 'progress' } : undefined}
+    >
+      {/* ⚠️ THE CLICK IS ACKNOWLEDGED BEFORE THE ROWS ARRIVE. A filter or a page
+          number cannot avoid the round trip — the rows really do come from the
+          database — but it can stop looking like nothing happened, which is what
+          makes somebody click it a second time. */}
+      {/* ⚠️ THE REAL DRAWER WINS THE MOMENT ITS DATA MATCHES THIS LEAD. */}
+      {openLead && record && related && record.lead.id === openLead && (
+        <LeadDrawer
+          key={record.lead.id}
+          lead={record.lead}
+          notes={record.notes}
+          activity={record.activity}
+          messages={messages}
+          related={related}
+          tab={openTab as never}
+          viewerName={fullName}
+          nowMs={nowMs}
+          onClose={closeLead}
+        />
+      )}
+      {shellRow && <LeadDrawerShell row={shellRow} onClose={closeLead} />}
+
+      {addOpen && (
+        <AddLead
+          projects={addProjects}
+          properties={addProperties}
+          defaultProjectId={selectedProjectId}
+          onClose={closeAdd}
+        />
+      )}
       {/* ── Header ──────────────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
         <div className="min-w-0">
@@ -138,7 +300,7 @@ export function MyLeadsDesk({
               assigns it, and the form says so where the dropdown would be. */}
           <button
             type="button"
-            onClick={() => setParam('action', 'add')}
+            onClick={openAdd}
             className="inline-flex min-h-[2.4rem] items-center gap-1.5 rounded-xl bg-accent-primary px-3 text-body-sm font-medium text-white transition-opacity hover:opacity-90"
           >
             <Plus className="size-4" aria-hidden="true" />
@@ -305,7 +467,18 @@ export function MyLeadsDesk({
         <Empty filters={filters} />
       ) : (
         <div className="overflow-x-auto rounded-xl border border-border-default bg-bg-surface">
-          <table className="w-full border-collapse text-left">
+          <table
+            className={cn(
+              'w-full border-collapse text-left transition-opacity',
+              /* ⚠️ DIMMED, NOT REPLACED BY A SKELETON. The rows on screen are
+                 still the truthful answer to the previous question, and swapping
+                 them for grey bars throws away something readable in exchange for
+                 something that is not. Dimming says "these are going" without
+                 blanking the page somebody is reading. */
+              pending && 'pointer-events-none opacity-50',
+            )}
+            aria-busy={pending}
+          >
             <thead>
               <tr className="border-b border-border-default bg-bg-subtle">
                 <th scope="col" className="w-10 px-3 py-2.5">
@@ -335,6 +508,7 @@ export function MyLeadsDesk({
                   fullName={fullName}
                   ticked={ticked.has(lead.id)}
                   onTick={onTick}
+              onOpen={onOpen}
                   search={search}
                 />
               ))}
@@ -449,6 +623,7 @@ function Row({
   fullName,
   ticked,
   onTick,
+  onOpen,
   search,
 }: {
   lead: CrmLeadRow;
@@ -456,6 +631,8 @@ function Row({
   fullName: string;
   ticked: boolean;
   onTick: (id: string, on: boolean) => void;
+  /** Opens the drawer in this click's own frame. See `lead-drawer-shell.tsx`. */
+  onOpen: (leadId: string, tab: string) => void;
   search: URLSearchParams;
 }) {
   const toast = useToast();
@@ -483,12 +660,12 @@ function Row({
 
      ⚠️ Built from the CURRENT search string, so the list's filters, tab and page
      all survive the trip and are still there when the drawer closes. */
-  const drawer = (tab: string) => {
-    const next = new URLSearchParams(search.toString());
-    next.set('lead', lead.id);
-    next.set('tab', tab);
-    return `/my-leads?${next.toString()}` as Route;
-  };
+  /* ⚠️ A BUTTON, NOT A LINK, AND THAT IS THE WHOLE POINT. A `<Link>` here meant
+     a full server navigation before the panel appeared — a round trip to
+     Singapore to show details that are already on this page. `onOpen` draws the
+     drawer from THIS ROW, now, and lets the URL and the remaining detail catch
+     up behind it. */
+  const open = (tab: string) => () => onOpen(lead.id, tab);
   const href = `/leads/${lead.id}` as Route;
 
   return (
@@ -567,7 +744,7 @@ function Row({
       {/* ── What was last said ──────────────────────────────────────────── */}
       <td className={TD}>
         {lead.lastMessageAt ? (
-          <Link href={drawer('conversations')} className="flex min-w-0 items-start gap-2 text-left">
+          <button type="button" onClick={open('conversations')} className="flex min-w-0 items-start gap-2 text-left">
             <span
               aria-hidden="true"
               className="mt-0.5 shrink-0"
@@ -596,7 +773,7 @@ function Row({
                 )}
               </span>
             </span>
-          </Link>
+          </button>
         ) : (
           <span className="text-caption text-text-tertiary">Nothing yet</span>
         )}
@@ -648,7 +825,7 @@ function Row({
       {/* ── What is owed ────────────────────────────────────────────────── */}
       <td className={TD}>
         {lead.nextAction ? (
-          <Link href={drawer('followups')} className="flex min-w-0 items-start gap-2 text-left">
+          <button type="button" onClick={open('followups')} className="flex min-w-0 items-start gap-2 text-left">
             {/* The icon says which state this is before the words do — owner,
                 2026-09-15: overdue red, WhatsApp green, a reminder blue.
 
@@ -703,15 +880,16 @@ function Row({
                 </span>
               )}
             </span>
-          </Link>
+          </button>
         ) : (
-          <Link
-            href={drawer('followups')}
+          <button
+            type="button"
+            onClick={open('followups')}
             className="inline-flex items-center gap-1 text-caption font-medium text-text-brand underline-offset-2 hover:underline"
           >
             <CalendarPlus className="size-3.5" aria-hidden="true" />
             Add follow-up
-          </Link>
+          </button>
         )}
       </td>
 
@@ -802,22 +980,24 @@ function Row({
             </Explain>
           )}
 
-          <Link
-            href={drawer('followups')}
+          <button
+            type="button"
+            onClick={open('followups')}
             title={`Plan the next action for ${lead.fullName ?? 'this lead'} · ${phone}`}
             className="ml-0.5 inline-flex min-h-9 shrink-0 items-center rounded-lg bg-accent-primary px-3 text-body-sm font-medium text-white transition-opacity hover:opacity-90"
           >
             Follow-up
-          </Link>
+          </button>
 
-          <Link
-            href={drawer('overview')}
+          <button
+            type="button"
+            onClick={open('overview')}
             aria-label={`Open ${lead.fullName ?? 'this lead'}`}
             title={`Open ${lead.fullName ?? 'this lead'} — ${fullName}'s lead`}
             className="grid size-9 shrink-0 place-items-center rounded-lg text-text-secondary transition-colors hover:bg-bg-subtle hover:text-text-primary"
           >
             <MoreVertical className="size-4" aria-hidden="true" />
-          </Link>
+          </button>
         </span>
       </td>
     </tr>

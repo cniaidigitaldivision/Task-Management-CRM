@@ -606,15 +606,18 @@ export async function listCrmLeads(
  * `withUser`, so the reads share a session and cannot see different states of
  * the row halfway through.
  */
-export async function getCrmLead(
-  actorId: string,
-  leadId: string,
-): Promise<{
+/** One lead's full record — what the drawer needs beyond the list row. */
+export interface CrmLeadFull {
   lead: CrmLeadRecord;
   notes: CrmLeadNote[];
   activity: CrmLeadEvent[];
   alsoEnquired: CrmLeadSibling[];
-} | null> {
+}
+
+export async function getCrmLead(
+  actorId: string,
+  leadId: string,
+): Promise<CrmLeadFull | null> {
   /* ⚠️ A malformed uuid reaches Postgres as a cast error — a 500 on a URL
      somebody mistyped, rather than the "no such lead" this returns. The route
      is the one input a person edits by hand. */

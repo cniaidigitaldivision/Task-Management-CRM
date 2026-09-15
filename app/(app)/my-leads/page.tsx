@@ -1,7 +1,5 @@
 import type { Metadata } from 'next';
 
-import { AddLead } from '@/components/crm/add-lead';
-import { LeadDrawer } from '@/components/crm/lead-drawer';
 import { RecordOutcome } from '@/components/crm/record-outcome';
 import { MyLeadsDesk } from '@/components/crm/my-leads-desk';
 import { requireCrmAccess } from '@/lib/auth/current-user';
@@ -84,21 +82,10 @@ export default async function MyLeadsPage({
 
   const projectId = params.project && params.project !== 'all' ? params.project : null;
 
-  const [projects, data, counts, owners] = await Promise.all([
-    listCrmProjects(user.id),
-    listCrmLeads(user.id, projectId, filters, PER_PAGE, (page - 1) * PER_PAGE),
-    /* ⚠️ The cards count MY leads, not the project's. `crmMyCounts` is the same
-       arithmetic as `crmDueCounts` with the owner clause — one definition of
-       "overdue", so the card and the tab can never disagree. */
-    crmMyCounts(user.id, projectId),
-    crmOwnerOptions(user.id, projectId),
-  ]);
-
   /* ── The drawer ────────────────────────────────────────────────────────
      ⚠️ FETCHED ON THE SERVER, BESIDE THE LIST, NOT INSIDE THE PANEL. A client
      fetch on open would blank the drawer for a round trip to Singapore every
-     time somebody clicked a row — and the list is already being rendered, so
-     this costs one wave rather than a wave per click.
+     time somebody clicked a row.
 
      ⚠️ AND `getCrmLead` RETURNS NULL FOR "NOT YOURS" AND FOR "NO SUCH LEAD",
      deliberately and identically. A drawer that behaved differently for the two
@@ -110,10 +97,45 @@ export default async function MyLeadsPage({
     ? ((params.tab ?? 'overview') as 'overview')
     : 'overview';
 
-  const record = wanted ? await getCrmLead(user.id, wanted) : null;
-  const [thread, related] = record
-    ? await Promise.all([crmLeadThread(user.id, wanted!), crmLeadRelated(user.id, wanted!)])
-    : [[], null];
+  /* ── ⚠️ ONE WAVE, NOT THREE ────────────────────────────────────────────
+     This page used to await the list, THEN the lead, THEN its thread and
+     related rows — three round trips to Singapore in series, each waiting on an
+     answer the next one did not actually need.
+
+     Nothing here depends on anything else. `wanted` comes from the URL and is
+     known before a single query runs, so the drawer's reads can leave at the
+     same moment as the list's. Measured from Karachi, where one round trip to
+     the pooler is 101 ms: three waves cost ~3.5 s of pure waiting and one wave
+     costs a third of that. On Vercel the two are co-located (`regions:
+     ["sin1"]`, pooler `ap-southeast-1`) so the absolute numbers collapse — but a
+     serial waterfall is wasted time in both places, and it is the part of the
+     wait that no amount of co-location removes.
+
+     ⚠️ THE DRAWER'S READS ARE SAFE TO ISSUE BEFORE WE KNOW THE LEAD IS VISIBLE.
+     Both run under `withUser`, so RLS answers them for this person exactly as it
+     would have afterwards: a lead that is not theirs returns nothing, and the
+     result is discarded below. It costs two empty queries on a mistyped URL and
+     saves a wave on every real click. */
+  const [projects, data, counts, owners, record, thread, related, addProjects, addProperties] =
+    await Promise.all([
+    listCrmProjects(user.id),
+    listCrmLeads(user.id, projectId, filters, PER_PAGE, (page - 1) * PER_PAGE),
+    /* ⚠️ The cards count MY leads, not the project's. `crmMyCounts` is the same
+       arithmetic as `crmDueCounts` with the owner clause — one definition of
+       "overdue", so the card and the tab can never disagree. */
+    crmMyCounts(user.id, projectId),
+    crmOwnerOptions(user.id, projectId),
+    wanted ? getCrmLead(user.id, wanted) : Promise.resolve(null),
+    wanted ? crmLeadThread(user.id, wanted) : Promise.resolve([]),
+    wanted ? crmLeadRelated(user.id, wanted) : Promise.resolve(null),
+    /* ⚠️ LOADED EVERY TIME, NOT ONLY WHEN THE DIALOG IS ASKED FOR. The Add Lead
+       dialog is now opened by client state so that it appears in the click's own
+       frame — which only works if what it needs is already here. Both reads join
+       the single wave above, so they cost no extra wait. */
+    crmAddLeadProjects(user.id),
+    projectId ? crmProjectProperties(user.id, projectId) : Promise.resolve([]),
+  ]);
+
 
   /* ⚠️ THE FORM WINS OVER THE DRAWER when both are asked for. They are two
      panels on one screen and stacking them would leave the drawer visible and
@@ -131,22 +153,9 @@ export default async function MyLeadsPage({
      does not open the form at all; the units for the project already in view
      cover the ordinary case, and the field simply does not appear otherwise. */
   const wantsAdd = params.action === 'add';
-  const [addProjects, addProperties] = wantsAdd
-    ? await Promise.all([
-        crmAddLeadProjects(user.id),
-        projectId ? crmProjectProperties(user.id, projectId) : Promise.resolve([]),
-      ])
-    : [[], []];
 
   return (
     <>
-      {wantsAdd && (
-        <AddLead
-          projects={addProjects}
-          properties={addProperties}
-          defaultProjectId={projectId}
-        />
-      )}
       {!wantsAdd && wantsOutcome && record && (
         <RecordOutcome
           leadId={record.lead.id}
@@ -157,20 +166,18 @@ export default async function MyLeadsPage({
           }
         />
       )}
-      {!wantsAdd && !wantsOutcome && record && related && (
-        <LeadDrawer
-          lead={record.lead}
-          notes={record.notes}
-          activity={record.activity}
-          messages={thread}
-          related={related}
-          tab={tab}
-          viewerName={user.fullName}
-          nowMs={nowMs()}
-        />
-      )}
     <MyLeadsDesk
       projects={projects}
+      /* ⚠️ HANDED TO THE CLIENT COMPONENT rather than rendered here. The desk
+         already holds the row that was clicked, so it can draw the panel in that
+         frame and swap in this record when it arrives. */
+      record={!wantsAdd && !wantsOutcome ? record : null}
+      messages={thread}
+      related={related}
+      /* Which tab a shared link or a refresh asked for. */
+      initialTab={tab}
+      addProjects={addProjects}
+      addProperties={addProperties}
       selectedProjectId={projectId}
       rows={data.rows}
       total={data.total}

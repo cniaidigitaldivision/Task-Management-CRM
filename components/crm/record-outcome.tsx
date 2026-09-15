@@ -1,8 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import type { Route } from 'next';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { AlertTriangle, X } from 'lucide-react';
 
 import { recordOutcomeAction } from '@/app/actions/crm-leads';
@@ -18,6 +17,7 @@ import {
   suggestStage,
 } from '@/lib/domain/crm-outcomes';
 import { cn } from '@/lib/utils';
+import { usePanel } from './use-panel';
 
 /* ============================================================================
  * RECORD OUTCOME — the form behind the stage dropdown
@@ -51,7 +51,6 @@ export function RecordOutcome({
   leadName: string;
   currentStage: string;
 }) {
-  const router = useRouter();
   const search = useSearchParams();
   const toast = useToast();
 
@@ -86,11 +85,15 @@ export function RecordOutcome({
     contactConfirmed,
   });
 
-  const close = () => {
+  /* ⚠️ INSTANT, AND NOT A SERVER NAVIGATION. See `use-panel.ts` — closing this
+     used to re-render the whole page to hide a dialog that was already on the
+     screen. */
+  const closedUrl = React.useCallback(() => {
     const next = new URLSearchParams(search.toString());
     next.delete('action');
-    router.push(`/my-leads?${next.toString()}` as Route);
-  };
+    return `/my-leads?${next.toString()}`;
+  }, [search]);
+  const { closed, close } = usePanel(closedUrl);
 
   async function save() {
     setBusy(true);
@@ -116,6 +119,8 @@ export function RecordOutcome({
     toast({ tone: 'ok', text: `Recorded — ${leadName} is now ${stageLabel(stage)}.` });
     close();
   }
+
+  if (closed) return null;
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
