@@ -69,6 +69,41 @@ const [a, b, c] = await Promise.all([...]);   // one wave
 need to wait for the list. This page cost 2606 ms as three waves and 1412 ms as
 one — a 46% saving for deleting two `await`s.
 
+## Law 5 · The query must still be fast when the data is not small
+
+The four laws above are about round trips. This one is about the database, and it
+is the only rule here that gets **worse as the business grows** — so it is the one
+that fails quietly, months after it was written.
+
+Measured over **659 leads**: a manager counting them took **1,214 ms**. Not a data
+problem — the access rule was re-answered for every row. At 200,000 leads that is
+roughly **six minutes**. It is now **2.2 ms**.
+
+⚠️ **A `STABLE` function that takes a row's column as an argument is called PER
+ROW.** `app.crm_manages_project(project_id)` cannot be hoisted out of the scan.
+Write the rule argument-free — compute the set once, test membership per row.
+
+⚠️ **`STABLE` does not mean "evaluated once".** It promises consistency within a
+statement; it is not an instruction to cache. Postgres constant-folds `IMMUTABLE`,
+not `STABLE`, and a `SECURITY DEFINER` function can never be inlined.
+
+⚠️ **A scalar subquery is what makes it once.** `(select app.fn())` is planned as
+an **InitPlan**, computed before the scan and reused as a constant.
+
+⚠️ **NEVER "fix" this by marking a policy helper `IMMUTABLE`.** They read
+`app.user_id` from the session, and Postgres would then be free to cache one
+person's answer and hand it to another. It is the one change in this area that
+can leak another salesperson's leads.
+
+**How to check, in one command:** `explain (analyze, costs off)` and read the
+`Filter:` line. A function name in it means per row. `(InitPlan N).col1` means
+once.
+
+⚠️ **And any change to a policy is verified EXHAUSTIVELY before it commits** —
+every active user, old predicate against new, refusing to commit if one row
+moves. Migrations 164 and 165 are the pattern. `docs/20-UI-RESPONSIVENESS.md` §3.5
+has the full reasoning.
+
 ## When the round trip is unavoidable
 
 Sometimes rows really do have to come from the database. The trip is real; the
