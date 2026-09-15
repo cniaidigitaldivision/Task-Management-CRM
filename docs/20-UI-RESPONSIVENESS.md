@@ -143,6 +143,24 @@ startTransition(() => router.push(next));
 the previous question. Swapping them for grey bars trades something readable for
 something that is not.
 
+⚠️ **AND `pending` MUST MEAN EXACTLY ONE THING: "the rows on screen are about to
+be replaced."** One `useTransition` driving every navigation on a page is the
+trap. `/my-leads` had one flag behind seven `startTransition` calls, and the
+table dimmed whenever it was true — so **closing a drawer faded the table for a
+full round trip**, even though not one row was changing. The owner reported it
+as *"the drawer is closed and finished, the table in the background remains in a
+fade… after some time it starts showing in a real position."*
+
+Split them by meaning, not by convenience:
+
+- a **data** transition for anything that changes which rows are shown — it
+  drives the dim
+- a **sync** transition for URL housekeeping after a panel opens or closes —
+  nothing hangs off it
+- and where a fetch and a navigation happen together, **dim for the fetch, not
+  for the navigation** — otherwise the new rows sit on screen greyed out while
+  the URL catches up.
+
 ---
 
 ## 4 · Layout traps that are read as slowness

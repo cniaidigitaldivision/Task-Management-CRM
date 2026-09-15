@@ -121,6 +121,28 @@ export function MyLeadsDesk({
      it is working instead of sitting there looking broken. */
   const [pending, startTransition] = React.useTransition();
 
+  /* ── ⚠️ A SECOND TRANSITION, BECAUSE THEY MEAN DIFFERENT THINGS ──────────
+     Owner, on the published test run: *"when I click its close button, the
+     drawer is closed and finished. The table in the background remains in a fade
+     and is rendering. After some time it starts showing in a real position."*
+
+     Exactly right, and the cause was mine. ONE `pending` flag drove seven
+     different `startTransition` calls, and the table dims whenever it is true.
+     Closing a drawer only syncs the URL — not one row changes — but it went
+     through the same transition, so the table faded for the whole round trip to
+     Singapore and snapped back when the navigation landed.
+
+     ⚠️ `pending` MUST MEAN ONE THING: "the rows on screen are about to be
+     replaced". A filter means that. Opening or closing a panel does not.
+
+     So URL housekeeping gets its own transition with nothing hanging off it.
+     React still batches and interrupts it properly; it simply stops claiming the
+     table is stale when nothing about the table has changed. */
+  const [, startSync] = React.useTransition();
+
+  /* True only while a page of rows is actually being fetched. */
+  const [paging, setPaging] = React.useState(false);
+
   /* One helper for every control, so changing a filter keeps the others — and
      so any parameter this component does not model still survives the trip. */
   const setParam = React.useCallback(
@@ -200,27 +222,35 @@ export function MyLeadsDesk({
       if (n <= 1) next.delete('page');
       else next.set('page', String(n));
 
-      startTransition(() => {
-        void leadsPageAction(
-          selectedProjectId,
-          {
-            stage: filters.stage,
-            temperature: null,
-            formId: null,
-            search: filters.search,
-            due: filters.due,
-          },
-          n,
-          perPage,
-        ).then((got) => {
+      /* ⚠️ THE DIM LASTS ONLY WHILE THE ROWS ARE IN FLIGHT, not for the whole
+         navigation. Wrapped in a transition alongside `router.replace`, it kept
+         the table faded until the URL finished catching up — long after the new
+         rows had already been swapped in and were sitting there greyed out. Same
+         fault as the drawer's close, one step smaller. */
+      setPaging(true);
+      void leadsPageAction(
+        selectedProjectId,
+        {
+          stage: filters.stage,
+          temperature: null,
+          formId: null,
+          search: filters.search,
+          due: filters.due,
+        },
+        n,
+        perPage,
+      )
+        .then((got) => {
           /* ⚠️ NULL MEANS THE ACTION FAILED, AND THE TABLE KEEPS WHAT IT HAS.
              The URL still moves, so the ordinary navigation renders the right
              page a moment later — slower, and always correct. */
           if (got) setLocal({ sig: signature, page: n, rows: got.rows });
-        });
+        })
+        .finally(() => setPaging(false));
 
-        /* ⚠️ `replace`, NOT `push`. Ten pages of a list should not put ten
-            entries in the history for Back to walk through one at a time. */
+      /* ⚠️ `replace`, NOT `push`. Ten pages of a list should not put ten
+          entries in the history for Back to walk through one at a time. */
+      startSync(() => {
         router.replace(`/my-leads?${next.toString()}` as Route);
       });
     },
@@ -245,7 +275,7 @@ export function MyLeadsDesk({
 
   const closeAdd = React.useCallback(() => {
     setAddWish(false);
-    startTransition(() => {
+    startSync(() => {
       const next = new URLSearchParams(search.toString());
       next.delete('action');
       const qs = next.toString();
@@ -291,7 +321,7 @@ export function MyLeadsDesk({
     (leadId: string, tab: string) => {
       setWish(leadId);
       setOpenTab(tab);
-      startTransition(() => {
+      startSync(() => {
         const next = new URLSearchParams(search.toString());
         next.set('lead', leadId);
         next.set('tab', tab);
@@ -303,7 +333,9 @@ export function MyLeadsDesk({
 
   const closeLead = React.useCallback(() => {
     setWish(null);
-    startTransition(() => {
+    /* ⚠️ THE ONE THE OWNER CAUGHT. Closing a drawer changes no row, so it must
+       not put the table into its "rows are coming" state for a round trip. */
+    startSync(() => {
       const next = new URLSearchParams(search.toString());
       next.delete('lead');
       next.delete('tab');
@@ -318,7 +350,7 @@ export function MyLeadsDesk({
 
   const openAdd = () => {
     setAddWish(true);
-    startTransition(() => {
+    startSync(() => {
       const next = new URLSearchParams(search.toString());
       next.set('action', 'add');
       router.replace(`/my-leads?${next.toString()}` as Route);
@@ -410,7 +442,7 @@ export function MyLeadsDesk({
 
     <div
       className="mx-auto max-w-[var(--content-max)] space-y-4"
-      style={pending ? { cursor: 'progress' } : undefined}
+      style={pending || paging ? { cursor: 'progress' } : undefined}
     >
       {/* ── Header ──────────────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
@@ -601,9 +633,9 @@ export function MyLeadsDesk({
                  them for grey bars throws away something readable in exchange for
                  something that is not. Dimming says "these are going" without
                  blanking the page somebody is reading. */
-              pending && 'pointer-events-none opacity-50',
+              (pending || paging) && 'pointer-events-none opacity-50',
             )}
-            aria-busy={pending}
+            aria-busy={pending || paging}
           >
             <thead>
               <tr className="border-b border-border-default bg-bg-subtle">
