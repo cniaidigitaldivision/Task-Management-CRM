@@ -11,6 +11,7 @@ import {
   ChevronDown,
   Mail,
   MoreVertical,
+  PauseCircle,
   Plus,
   Search,
   SlidersHorizontal,
@@ -18,7 +19,6 @@ import {
 } from 'lucide-react';
 
 import { WA_GREEN, WhatsAppMark } from '@/components/crm/whatsapp-mark';
-import { Badge } from '@/components/ui/badge';
 import { Pagination } from '@/components/ui/pagination';
 import { useToast } from '@/components/ui/toast';
 import type { CrmDueCounts, CrmLeadRow, CrmProjectOption } from '@/lib/db/queries/crm-leads';
@@ -102,6 +102,21 @@ export function MyLeadsDesk({
     },
     [router, search],
   );
+
+  /* ⚠️ PAGE-SCOPED SELECTION, and deliberately. A selection that silently spans
+     pages is how somebody bulk-changes 600 leads meaning 10. Nothing acts on it
+     yet — the bulk bar is the next phase — but the control is real, because the
+     owner asked for it and a checkbox that does not tick is worse than none. */
+  const [ticked, setTicked] = React.useState<ReadonlySet<string>>(new Set());
+  const shown = React.useMemo(() => rows.map((r) => r.id), [rows]);
+  const allTicked = shown.length > 0 && shown.every((id) => ticked.has(id));
+  const onTick = (id: string, on: boolean) =>
+    setTicked((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(id);
+      else next.delete(id);
+      return next;
+    });
 
   const assigned = counts.assigned ?? total;
   const from = total === 0 ? 0 : (page - 1) * perPage + 1;
@@ -264,6 +279,27 @@ export function MyLeadsDesk({
         </button>
       </div>
 
+      {/* ⚠️ THE COUNT IS SHOWN, EVEN THOUGH NOTHING ACTS ON IT YET. A checkbox
+          with no feedback anywhere reads as broken; a line saying what is
+          selected is honest about the state and about what is missing. */}
+      {ticked.size > 0 && (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-accent-primary bg-[color-mix(in_oklab,var(--accent-primary)_8%,transparent)] px-4 py-2.5">
+          <span className="text-body-sm font-medium text-text-primary">
+            {ticked.size} selected on this page
+          </span>
+          <span className="text-caption text-text-secondary">
+            Bulk actions arrive with the next phase.
+          </span>
+          <button
+            type="button"
+            onClick={() => setTicked(new Set())}
+            className="ml-auto text-caption font-medium text-text-brand underline-offset-2 hover:underline"
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
       {/* ── The table ───────────────────────────────────────────────────── */}
       {rows.length === 0 ? (
         <Empty filters={filters} />
@@ -272,6 +308,15 @@ export function MyLeadsDesk({
           <table className="w-full border-collapse text-left">
             <thead>
               <tr className="border-b border-border-default bg-bg-subtle">
+                <th scope="col" className="w-10 px-3 py-2.5">
+                  <input
+                    type="checkbox"
+                    aria-label="Select every lead on this page"
+                    checked={allTicked}
+                    onChange={(e) => setTicked(e.target.checked ? new Set(shown) : new Set())}
+                    className="size-4 rounded border-border-default align-middle"
+                  />
+                </th>
                 <Th>Lead / project</Th>
                 <Th>Stage</Th>
                 <Th>Latest conversation</Th>
@@ -283,7 +328,14 @@ export function MyLeadsDesk({
             </thead>
             <tbody>
               {rows.map((lead) => (
-                <Row key={lead.id} lead={lead} nowMs={nowMs} fullName={fullName} />
+                <Row
+                  key={lead.id}
+                  lead={lead}
+                  nowMs={nowMs}
+                  fullName={fullName}
+                  ticked={ticked.has(lead.id)}
+                  onTick={onTick}
+                />
               ))}
             </tbody>
           </table>
@@ -394,10 +446,14 @@ function Row({
   lead,
   nowMs,
   fullName,
+  ticked,
+  onTick,
 }: {
   lead: CrmLeadRow;
   nowMs: number;
   fullName: string;
+  ticked: boolean;
+  onTick: (id: string, on: boolean) => void;
 }) {
   const toast = useToast();
   const phone = displayPhone(lead.phoneE164, lead.phone);
@@ -419,7 +475,26 @@ function Row({
   const href = `/leads/${lead.id}` as Route;
 
   return (
-    <tr className="border-b border-border-subtle transition-colors last:border-b-0 hover:bg-[color-mix(in_oklab,var(--accent-primary)_7%,transparent)]">
+    <tr
+      className={cn(
+        'border-b border-border-subtle transition-colors last:border-b-0',
+        /* ⚠️ 12%, NOT 7% — owner, 2026-09-15: *"this hover state is very light,
+           right? Make it a little more prominent."* At 7% on a white ground the
+           wash was under a 2% luminance shift, which is below what the eye
+           reliably reads as a change while it is moving down a list. */
+        'hover:bg-[color-mix(in_oklab,var(--accent-primary)_12%,transparent)]',
+        ticked && 'bg-[color-mix(in_oklab,var(--accent-primary)_16%,transparent)]',
+      )}
+    >
+      <td className="px-3 py-3 align-top">
+        <input
+          type="checkbox"
+          checked={ticked}
+          onChange={(e) => onTick(lead.id, e.target.checked)}
+          aria-label={`Select ${lead.fullName ?? 'this lead'}`}
+          className="mt-1 size-4 rounded border-border-default"
+        />
+      </td>
       {/* ── The person ──────────────────────────────────────────────────── */}
       <td className={TD}>
         <span className="flex min-w-0 items-start gap-2.5">
@@ -444,18 +519,32 @@ function Row({
               {lead.projectName ?? 'No project'}
               {lead.city && ` · ${lead.city}`}
             </span>
-            {/* ⚠️ THE PROPERTY LINE IS ABSENT UNTIL PHASE C. The design shows
-                "5 Marla Plot · Block A" here; there is no property table yet, and
-                a placeholder would be a fact about somebody's enquiry that nobody
-                recorded. */}
+            {/* ⚠️ THE THIRD LINE, AND ONLY WHEN THERE IS ONE. Migration 150
+                gave this a table; most leads still have no property matched to
+                them, and an empty line under every name would put a blank row of
+                space between the name and the next lead. */}
+            {lead.propertyLabel && (
+              <span className="mt-0.5 block truncate text-caption text-text-tertiary">
+                {lead.propertyLabel}
+              </span>
+            )}
           </span>
         </span>
       </td>
 
+      {/* ⚠️ A REAL SELECT, TINTED BY ITS OWN STAGE — owner: *"in the stage
+          column you can see there is a dropdown… I want the same size of text,
+          sleekness, and everything."* Every one is the same width, so the column
+          reads as a column rather than as ten differently-sized pills.
+
+          ⚠️ AND IT IS STILL A NAVIGATION, NOT A WRITE — for now. Changing a
+          stage has to record an outcome, a note and the next action (the owner's
+          Record Outcome form); a silent dropdown that only moved the stage would
+          leave the timeline saying nothing about WHY. It opens the record on
+          that form. The control is here because the design puts it here; the
+          write is the next phase. */}
       <td className={TD}>
-        <Badge token={stageToken(lead.stage)} size="sm">
-          {stageLabel(lead.stage)}
-        </Badge>
+        <StageChooser lead={lead} />
       </td>
 
       {/* ── What was last said ──────────────────────────────────────────── */}
@@ -494,18 +583,81 @@ function Row({
         ) : (
           <span className="text-caption text-text-tertiary">Nothing yet</span>
         )}
+
+        {/* The live quotation, under what was said — it is the SUBJECT of the
+            conversation, not a separate fact, which is why the design puts it
+            here. Only the CURRENT version is read (151): showing v1's price to a
+            client who has been sent v2 is the exact mistake versioning exists to
+            prevent. */}
+        {lead.quotationNumber && (
+          <span className="mt-1 flex flex-wrap items-center gap-1.5 text-caption">
+            <span
+              className="rounded px-1.5 py-px font-medium"
+              style={
+                lead.quotationStatus === 'pending_approval'
+                  ? {
+                      backgroundColor: 'color-mix(in oklab, var(--gold-700) 14%, transparent)',
+                      color: 'var(--gold-700)',
+                    }
+                  : {
+                      backgroundColor:
+                        'color-mix(in oklab, var(--feedback-success) 14%, transparent)',
+                      color: 'var(--feedback-success)',
+                    }
+              }
+            >
+              {lead.quotationNumber}
+            </span>
+            {lead.quotationAmount !== null && (
+              <span className="tabular-nums text-text-secondary">
+                PKR {lead.quotationAmount.toLocaleString('en-PK')}
+              </span>
+            )}
+            {lead.quotationValidUntil && (
+              <span className="text-text-tertiary">
+                valid till{' '}
+                {new Date(lead.quotationValidUntil).toLocaleDateString('en-GB', {
+                  day: 'numeric',
+                  month: 'short',
+                  year: 'numeric',
+                  timeZone: 'Asia/Karachi',
+                })}
+              </span>
+            )}
+          </span>
+        )}
       </td>
 
       {/* ── What is owed ────────────────────────────────────────────────── */}
       <td className={TD}>
         {lead.nextAction ? (
           <span className="flex min-w-0 items-start gap-2">
+            {/* The icon says which state this is before the words do — owner,
+                2026-09-15: overdue red, WhatsApp green, a reminder blue.
+
+                ⚠️ OVERDUE IS A WARNING TRIANGLE, NOT A RED CALENDAR. At 20px a
+                calendar and a clock are the same grey rectangle, so the SHAPE
+                has to carry the meaning for anybody who cannot separate the
+                hues — colour alone is not a state. A paused sequence gets amber
+                and its own glyph for the same reason. */}
             <span
               aria-hidden="true"
               className="mt-0.5 shrink-0"
-              style={{ color: late ? 'var(--feedback-error)' : 'var(--accent-primary)' }}
+              style={{
+                color: late
+                  ? 'var(--feedback-error)'
+                  : lead.sequenceState === 'paused'
+                    ? 'var(--gold-700)'
+                    : 'var(--accent-primary)',
+              }}
             >
-              <CalendarDays className="size-5" />
+              {late ? (
+                <AlertTriangle className="size-5" />
+              ) : lead.sequenceState === 'paused' ? (
+                <PauseCircle className="size-5" />
+              ) : (
+                <CalendarDays className="size-5" />
+              )}
             </span>
             <span className="min-w-0">
               <span className="block truncate text-body-sm text-text-primary">
@@ -526,6 +678,11 @@ function Row({
                     minute: '2-digit',
                     timeZone: 'Asia/Karachi',
                   })}
+                </span>
+              )}
+              {lead.sequenceState === 'paused' && (
+                <span className="mt-0.5 block text-caption font-medium text-gold-700">
+                  Sequence paused
                 </span>
               )}
             </span>
@@ -607,8 +764,15 @@ function Row({
             </Explain>
           )}
 
+          {/* ⚠️ BLUE, NOT GREY. Each channel wears its own colour the way the
+              WhatsApp mark does — grey was reading as "disabled" on a control
+              that works perfectly well. */}
           {lead.email ? (
-            <Reach href={`mailto:${lead.email}`} label={`Email ${lead.fullName ?? 'lead'} at ${lead.email}`}>
+            <Reach
+              href={`mailto:${lead.email}`}
+              label={`Email ${lead.fullName ?? 'lead'} at ${lead.email}`}
+              tone="mail"
+            >
               <Mail className="size-4" aria-hidden="true" />
             </Reach>
           ) : (
@@ -643,6 +807,65 @@ function Row({
   );
 }
 
+/* ============================================================================
+ * THE STAGE, AS A CONTROL
+ * ----------------------------------------------------------------------------
+ * Owner, 2026-09-15: *"in the stage column you can see there is a dropdown. Make
+ * sure the colors and the sizes are equal… I want the same size of text,
+ * sleekness, and everything."*
+ *
+ * ⚠️ ONE WIDTH FOR EVERY ROW. A pill sized to its own word makes the column a
+ * ragged edge — "New" beside "Proposal pending" beside "Won" — and the eye stops
+ * reading it as a column at all. Fixed width, one type size, tinted by the
+ * stage's own measured token.
+ *
+ * ⚠️ AND IT NAVIGATES RATHER THAN WRITING, FOR NOW. Moving a stage has to record
+ * an outcome, a note and the next action — that is the owner's own Record
+ * Outcome form, and it is the next phase. A select that silently changed the
+ * stage would leave a timeline saying WHAT changed and never WHY, which is the
+ * question the log exists to answer. So it opens the lead on that form, and the
+ * control is real rather than decorative.
+ * ========================================================================= */
+function StageChooser({ lead }: { lead: CrmLeadRow }) {
+  const router = useRouter();
+  const token = stageToken(lead.stage);
+
+  return (
+    <div className="relative w-[9.5rem]">
+      <select
+        aria-label={`Stage for ${lead.fullName ?? 'this lead'} — currently ${stageLabel(lead.stage)}`}
+        value={lead.stage}
+        onChange={(e) =>
+          router.push(`/leads/${lead.id}?stage=${encodeURIComponent(e.target.value)}` as Route)
+        }
+        className="w-full cursor-pointer appearance-none truncate rounded-md border py-1 pl-2.5 pr-7 text-caption font-medium transition-opacity hover:opacity-85 focus:outline-none focus:ring-2"
+        style={{
+          backgroundColor: `color-mix(in oklab, var(--${token}) 14%, transparent)`,
+          borderColor: `color-mix(in oklab, var(--${token}) 30%, transparent)`,
+          color: `var(--${token})`,
+        }}
+      >
+        {/* ⚠️ The CURRENT stage is always offered, even if it has been retired
+            (149). A select whose value is not among its options renders blank in
+            every browser, and the row would silently lose its stage. */}
+        {!STAGE_ORDER.includes(lead.stage as (typeof STAGE_ORDER)[number]) && (
+          <option value={lead.stage}>{stageLabel(lead.stage)}</option>
+        )}
+        {STAGE_ORDER.map((st) => (
+          <option key={st} value={st}>
+            {stageLabel(st)}
+          </option>
+        ))}
+      </select>
+      <ChevronDown
+        aria-hidden="true"
+        className="pointer-events-none absolute right-2 top-1/2 size-3.5 -translate-y-1/2"
+        style={{ color: `var(--${token})` }}
+      />
+    </div>
+  );
+}
+
 /* ---- Small parts ---------------------------------------------------------- */
 
 function Reach({
@@ -655,7 +878,7 @@ function Reach({
   href: string;
   label: string;
   external?: boolean;
-  tone?: 'plain' | 'wa';
+  tone?: 'plain' | 'wa' | 'mail';
   children: React.ReactNode;
 }) {
   return (
@@ -667,7 +890,12 @@ function Reach({
       style={
         tone === 'wa'
           ? { backgroundColor: `color-mix(in oklab, ${WA_GREEN} 14%, transparent)`, color: WA_GREEN }
-          : undefined
+          : tone === 'mail'
+            ? {
+                backgroundColor: 'color-mix(in oklab, var(--accent-primary) 12%, transparent)',
+                color: 'var(--accent-primary)',
+              }
+            : undefined
       }
       className={cn(
         'grid size-9 shrink-0 place-items-center rounded-lg border border-transparent transition-colors',

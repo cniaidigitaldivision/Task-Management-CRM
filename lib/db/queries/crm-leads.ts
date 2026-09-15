@@ -121,6 +121,16 @@ export interface CrmLeadRow {
      values nobody can read. Rendered by `lib/domain/lead-source.ts`. */
   readonly source: string | null;
   readonly sourceDetail: string | null;
+  /* ── Migrations 150 / 151 ─────────────────────────────────────────────────
+     ⚠️ THE PROPERTY LINE THE DESIGN ASKS FOR — "5 Marla Plot · A-101, Block A".
+     Null for a service project, and for any lead nobody has matched to a plot
+     yet, which is most of them. Absent renders nothing rather than a blank. */
+  readonly propertyLabel: string | null;
+  /** The live quotation, if there is one — "QT-1042 · PKR 4,500,000". */
+  readonly quotationNumber: string | null;
+  readonly quotationAmount: number | null;
+  readonly quotationStatus: string | null;
+  readonly quotationValidUntil: string | null;
 }
 
 /**
@@ -404,6 +414,17 @@ export async function listCrmLeads(
              app.crm_project_can_whatsapp(l.project_id) as can_whatsapp,
              l.sequence_state::text, l.sequence_step, l.sequence_total, l.sequence_note,
              l.source::text, l.source_detail,
+             /* ⚠️ ONE LATERAL EACH, not a join — a lead can have several
+                quotations and a plain join would multiply the row. Ordering by
+                version descending takes the CURRENT one, which is the whole
+                point of versioning: v2 supersedes v1 and the desk must show v2.
+                (No backticks anywhere in this file: it is one long JS template
+                literal, and a stray one ends the string. Third time.) */
+             prop.label as property_label,
+             quo.number as quotation_number,
+             quo.net_amount as quotation_amount,
+             quo.status::text as quotation_status,
+             quo.valid_until as quotation_valid_until,
              msg.body as last_message_body,
              msg.occurred_at as last_message_at,
              msg.direction::text as last_message_direction,
@@ -423,6 +444,41 @@ export async function listCrmLeads(
            order by m.occurred_at desc, m.id desc
            limit 1
         ) msg on true
+        left join lateral (
+          select
+            concat_ws(' · ',
+              nullif(concat_ws(' ',
+                /* ⚠️ THE TRAILING DOT HAS TO GO. The FM999999.99 mask renders
+                   5.00 as "5." — it strips the zeros and leaves the point — so
+                   the row read "5. Marla". Whole Marla are the common case. */
+                case when p.size_marla is not null
+                     then trim(trailing '.' from to_char(p.size_marla, 'FM999999.99'))
+                          || ' Marla' end,
+                /* ⚠️ THE LAST WORD OF THE KIND, not the whole phrase. "5 Marla
+                   Residential plot · A-101, Block A" is too long for a row that
+                   also carries a name, a project and a city — and "Residential"
+                   is true of nearly every row, so it distinguishes nothing. */
+                /* NO BACKSLASH CLASS HERE. A regexp_replace with a
+                   whitespace class is correct Postgres and survives neither a
+                   shell nor a JS template literal intact — it silently produced
+                   "Idential Plot" once. A last-word substring needs no escaping
+                   anywhere. (And no backticks in this file at all: it is one
+                   template literal and a stray one ends the string.) */
+                initcap(substring(p.kind from '[^ ]+$'))), ''),
+              nullif(concat_ws(', ', p.plot_number,
+                case when p.block is not null then 'Block ' || p.block end), '')
+            ) as label
+            from public.crm_properties p
+           where p.id = l.property_id
+        ) prop on true
+        left join lateral (
+          select q.number, q.net_amount, q.status, q.valid_until
+            from public.crm_quotations q
+           where q.lead_id = l.id
+             and q.status in ('approved', 'sent', 'pending_approval')
+           order by q.version desc, q.created_at desc
+           limit 1
+        ) quo on true
        where ${where}
          and (${stage}::text is null or l.stage::text = ${stage})
        order by l.next_action_at asc nulls last, l.submitted_at desc
@@ -502,6 +558,16 @@ export async function listCrmLeads(
       sequenceNote: (r.sequence_note as string | null) ?? null,
       source: (r.source as string | null) ?? null,
       sourceDetail: (r.source_detail as string | null) ?? null,
+      propertyLabel: (r.property_label as string | null) ?? null,
+      quotationNumber: (r.quotation_number as string | null) ?? null,
+      quotationAmount:
+        r.quotation_amount === null || r.quotation_amount === undefined
+          ? null
+          : Number(r.quotation_amount),
+      quotationStatus: (r.quotation_status as string | null) ?? null,
+      quotationValidUntil: r.quotation_valid_until
+        ? new Date(r.quotation_valid_until as string).toISOString()
+        : null,
       lastMessageBody: (r.last_message_body as string | null) ?? null,
       lastMessageAt: r.last_message_at
         ? new Date(r.last_message_at as string).toISOString()
