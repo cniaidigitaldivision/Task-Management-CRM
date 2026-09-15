@@ -230,7 +230,14 @@ export function MyLeadsDesk({
 
   /* The server's own rows are page `page` — seed the cache with them rather than
      re-fetching what this render already carries. */
-  const cache: Record<number, readonly CrmLeadRow[]> = { [page]: rows, ...(local?.pages ?? {}) };
+  /* ⚠️ THE SERVER'S ROWS FOR THE CURRENT PAGE WIN — the spread comes FIRST and
+     `[page]: rows` overrides it. Written the other way round, a cached copy of
+     page 1 outranked the fresh one the server had just sent, so recording an
+     outcome revalidated the page and the table went on showing the OLD stage.
+     A cache that outranks fresh data is not a cache, it is a bug with a fast
+     read. Other pages keep their cached copies; only the one the server just
+     rendered is replaced. */
+  const cache: Record<number, readonly CrmLeadRow[]> = { ...(local?.pages ?? {}), [page]: rows };
   const shownPage = local?.page ?? page;
   const shownRows = cache[shownPage] ?? rows;
 
