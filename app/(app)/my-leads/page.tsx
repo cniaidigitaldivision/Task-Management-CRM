@@ -7,6 +7,7 @@ import {
   crmLeadRelated,
   crmLeadThread,
   crmMyCounts,
+  crmMyDiary,
   crmOwnerOptions,
   crmProjectProperties,
   getCrmLead,
@@ -119,8 +120,9 @@ export default async function MyLeadsPage({
      would have afterwards: a lead that is not theirs returns nothing, and the
      result is discarded below. It costs two empty queries on a mistyped URL and
      saves a wave on every real click. */
-  const [projects, data, counts, owners, record, thread, related, addProjects, addProperties] =
-    await Promise.all([
+  const [
+    projects, data, counts, owners, record, thread, related, addProjects, diary, addProperties,
+  ] = await Promise.all([
     listCrmProjects(user.id),
     listCrmLeads(user.id, projectId, filters, PER_PAGE, (page - 1) * PER_PAGE),
     /* ⚠️ The cards count MY leads, not the project's. `crmMyCounts` is the same
@@ -136,6 +138,9 @@ export default async function MyLeadsPage({
        frame — which only works if what it needs is already here. Both reads join
        the single wave above, so they cost no extra wait. */
     crmAddLeadProjects(user.id),
+    /* ⚠️ IN THE SAME WAVE. The diary owes nothing to the list and the list owes
+       nothing to it — Rule Zero, law 4. */
+    crmMyDiary(user.id),
     projectId ? crmProjectProperties(user.id, projectId) : Promise.resolve([]),
   ]);
 
@@ -167,6 +172,7 @@ export default async function MyLeadsPage({
       initialTab={tab}
       addProjects={addProjects}
       addProperties={addProperties}
+      diary={diary}
       selectedProjectId={projectId}
       rows={data.rows}
       total={data.total}

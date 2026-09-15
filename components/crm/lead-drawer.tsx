@@ -15,6 +15,11 @@ import type {
   CrmMessage,
 } from '@/lib/db/queries/crm-leads';
 import { activityLabel, stageLabel, stageToken } from '@/lib/domain/crm-stages';
+import {
+  appointmentKindLabel,
+  appointmentStatusLabel,
+  appointmentStatusToken,
+} from '@/lib/domain/crm-appointments';
 import { sourceDetail, sourceLabel } from '@/lib/domain/lead-source';
 import { displayPhone } from '@/lib/domain/phone';
 import { relativeAge } from '@/lib/view/relative-age';
@@ -422,6 +427,71 @@ function FollowUps({ related, nowMs }: { related: CrmLeadRelated; nowMs: number 
       ) : (
         <Empty>No sequence is running on this lead.</Empty>
       )}
+
+      {/* ── ⚠️ APPOINTMENTS WERE IN THE DATA AND ON NO SCREEN ────────────────
+          `crmLeadRelated` has read them since 152 and nothing rendered them, so
+          a visit booked from the outcome form vanished the moment it was made.
+          They lead this tab rather than trailing it: a follow-up is a reminder
+          to yourself, an appointment is somebody else's afternoon. */}
+      <section>
+        <h3 className="mb-2 text-micro font-semibold uppercase tracking-wide text-text-tertiary">
+          Appointments ({related.appointments.length})
+        </h3>
+        {related.appointments.length === 0 ? (
+          <Empty>Nothing booked. Record a &ldquo;site visit requested&rdquo; outcome to book one.</Empty>
+        ) : (
+          <ul className="space-y-2">
+            {related.appointments.map((a) => {
+              const when = new Date(a.scheduledAt);
+              const past = when.getTime() < nowMs;
+              return (
+                <li key={a.id} className="rounded-lg border border-border-subtle px-3 py-2">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <p className="truncate text-body-sm text-text-primary">
+                      {appointmentKindLabel(a.kind)}
+                      {a.ownerName && (
+                        <span className="text-text-secondary"> · {a.ownerName}</span>
+                      )}
+                    </p>
+                    <span
+                      className={cn(
+                        'shrink-0 text-caption tabular-nums',
+                        past && a.status === 'scheduled'
+                          ? 'font-semibold text-feedback-error'
+                          : 'text-text-secondary',
+                      )}
+                    >
+                      {when.toLocaleString('en-GB', {
+                        day: 'numeric',
+                        month: 'short',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        timeZone: 'Asia/Karachi',
+                      })}
+                    </span>
+                  </div>
+                  <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-caption text-text-tertiary">
+                    <span style={{ color: `var(--${appointmentStatusToken(a.status)})` }}>
+                      {appointmentStatusLabel(a.status)}
+                    </span>
+                    {a.location && <span className="truncate">{a.location}</span>}
+                    <span>{a.durationMinutes} min</span>
+                  </p>
+                  {/* ⚠️ THE OUTCOME, WHEN THERE IS ONE. What happened at a visit
+                      is what moves the lead — it is the point of recording it,
+                      and hiding it here would make the panel a diary rather than
+                      a record. */}
+                  {a.outcome && (
+                    <p className="mt-1 whitespace-pre-wrap text-caption text-text-secondary">
+                      {a.outcome}
+                    </p>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
 
       <section>
         <h3 className="mb-2 text-micro font-semibold uppercase tracking-wide text-text-tertiary">

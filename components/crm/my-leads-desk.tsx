@@ -32,8 +32,14 @@ import { cn } from '@/lib/utils';
 import { leadsPageAction } from '@/app/actions/crm-leads';
 import { AddLead, type AddLeadProject, type AddLeadProperty } from './add-lead';
 import { LeadDrawer } from './lead-drawer';
+import { TodaysPlan } from './todays-plan';
 import { RecordOutcome } from './record-outcome';
-import type { CrmLeadFull, CrmLeadRelated, CrmMessage } from '@/lib/db/queries/crm-leads';
+import type {
+  CrmDiaryEntry,
+  CrmLeadFull,
+  CrmLeadRelated,
+  CrmMessage,
+} from '@/lib/db/queries/crm-leads';
 import { LeadDrawerShell } from './lead-drawer-shell';
 
 /* ============================================================================
@@ -71,6 +77,7 @@ export function MyLeadsDesk({
   initialTab,
   addProjects,
   addProperties,
+  diary,
   selectedProjectId,
   rows,
   total,
@@ -93,6 +100,8 @@ export function MyLeadsDesk({
       picker above the list, and the one the write actually asks (migration 159). */
   addProjects: readonly AddLeadProject[];
   addProperties: readonly AddLeadProperty[];
+  /** This person's upcoming appointments — Phase E. */
+  diary: readonly CrmDiaryEntry[];
   selectedProjectId: string | null;
   rows: readonly CrmLeadRow[];
   total: number;
@@ -665,6 +674,18 @@ export function MyLeadsDesk({
           </button>
         </div>
       </div>
+
+      {/* ── ⚠️ ABOVE THE FIGURES, AND IT RENDERS NOTHING WHEN EMPTY ─────────
+          An appointment is the only thing on this page with a TIME somebody
+          else is relying on — everything below it is work that can move. So it
+          leads, on the days there is one.
+
+          ⚠️ And it disappears entirely when the diary is empty rather than
+          showing "no appointments". A permanent empty panel above the list is a
+          band of dead space on the screen a salesperson opens between two
+          calls, and it teaches the eye to skip exactly the strip that matters
+          on the day something IS booked. */}
+      <TodaysPlan diary={diary} nowMs={nowMs} onOpenLead={(id) => onOpen(id, 'followups')} />
 
       {/* ── The four figures ────────────────────────────────────────────── */}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">

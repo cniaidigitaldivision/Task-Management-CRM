@@ -140,7 +140,7 @@ button.
 
 ---
 
-### Phase E · Appointments
+### Phase E · Appointments — ✅ DONE 2026-09-15
 *Depends on: B. Unlocks the whole **Today's plan** rail. Lifecycle Phase 7.*
 
 Calls, meetings and site visits against a lead: when, where, who, outcome. The
@@ -149,6 +149,35 @@ rail is this table ordered by time, for today, for the signed-in salesperson.
 > **How to check it.** Book a site visit for Ayesha Noor at 3:00 PM. It appears
 > in Today's plan at 3:00 PM with her name and project. Book one for Sahad's lead
 > — it must **not** appear on Sarah's rail.
+
+---
+
+**Built:** booking (from the "site visit requested" outcome), **Today's plan** on
+`/my-leads`, the lead's own appointments in the drawer's Follow-ups tab, and
+recording what happened — completed · no-show · cancelled.
+
+⚠️ **Booking has worked since the outcome form learned to write one; the missing
+half was that nothing SHOWED them.** A visit booked from the outcome form
+vanished the moment it was made — `crmLeadRelated` had been reading appointments
+since 152 and no screen rendered the result.
+
+⚠️ **Today's plan renders nothing when the diary is empty**, rather than showing
+"no appointments". A permanent empty panel above the list is dead space on the
+screen a salesperson opens between two calls, and it teaches the eye to skip
+exactly the strip that matters on the day something IS booked.
+
+⚠️ **And it reads from the START OF THE DAY in Karachi, not from `now()`.** A
+visit at 9am is still today's business at 10am — somebody has to record what
+happened at it. A rail that dropped each entry the moment it began would empty
+itself over the course of the morning, which is when it is most looked at.
+
+**Checked:** the diary lists a past appointment until it is recorded; recording
+succeeds as the owner; one remains scheduled afterwards; and a colleague sees
+none of it.
+
+**Still missing:** rescheduling (the `replaces_id` column is there and unused),
+and a standalone appointments screen for the rail — Today's plan covers the
+salesperson's own day, which is the case that mattered.
 
 ---
 
