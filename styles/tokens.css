@@ -418,6 +418,19 @@
   --money-due: var(--orange-text-l); /* owed but not yet paid */
   --money-wait: var(--blue-text-l); /* invoiced but not yet received */
 
+  /* ---- The channel a message travels on ----
+     ⚠️ A CHANNEL, NOT A STATUS. WhatsApp already wears its own green everywhere
+     it appears (`WA_GREEN`), because a reader recognises the channel before they
+     read the label. Email had been borrowing `--accent-primary`, which is TEAL
+     here — so the mail control read as the same green as WhatsApp beside it, and
+     the two channels were indistinguishable at a glance. Owner, 2026-09-15:
+     *"the email box size is blue but you are using the green."*
+
+     ⚠️ `--blue-text-l`, NOT `--blue-l`. This is INK on a tinted wash, and the
+     raw hue is a fill: #3b82f6 on white is under the contrast floor while the
+     dark theme's own hue clears it. Same split every `-text-l` token exists for. */
+  --channel-email: var(--blue-text-l);
+
   /* ---- Tint strengths for soft badges and accent washes ----
      A component mixes a semantic colour with the surface at these strengths
      via color-mix(), which keeps colour vivid without a hex ever appearing in
@@ -554,6 +567,7 @@
   --money-out: var(--red-d);
   --money-due: var(--orange-d);
   --money-wait: var(--blue-d);
+  --channel-email: var(--blue-d);
 
   /* ---- Tint strengths — a touch stronger on dark, where washes read fainter */
   --tint-soft: 14%;

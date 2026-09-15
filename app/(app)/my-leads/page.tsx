@@ -55,7 +55,11 @@ export default async function MyLeadsPage({
   const params = await searchParams;
 
   const page = Math.max(1, Number(params.page ?? '1') || 1);
-  const PER_PAGE = 10;
+  /* ⚠️ EIGHT, ON THE OWNER'S INSTRUCTION — 2026-09-15: *"only 8 leads should
+     display on one page. That will go on the next page."* Ten filled the screen
+     past the fold on a laptop, so the pager somebody needs in order to see the
+     rest was itself below the fold. */
+  const PER_PAGE = 8;
 
   const filters = {
     /* ⚠️ Validated, never passed through — `stage` reaches SQL as an enum

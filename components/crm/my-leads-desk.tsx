@@ -19,12 +19,13 @@ import {
 } from 'lucide-react';
 
 import { WA_GREEN, WhatsAppMark } from '@/components/crm/whatsapp-mark';
+import { SourceMark } from './source-mark';
 import { Pagination } from '@/components/ui/pagination';
 import { useToast } from '@/components/ui/toast';
 import type { CrmDueCounts, CrmLeadRow, CrmProjectOption } from '@/lib/db/queries/crm-leads';
 import { STAGE_ORDER, stageLabel, stageToken } from '@/lib/domain/crm-stages';
 import { leadPriority, priorityLabel, priorityToken } from '@/lib/domain/lead-priority';
-import { sourceDetail, sourceLabel, sourceToken } from '@/lib/domain/lead-source';
+import { sourceDetail, sourceLabel } from '@/lib/domain/lead-source';
 import { displayPhone, whatsAppDigits } from '@/lib/domain/phone';
 import { relativeAge } from '@/lib/view/relative-age';
 import { cn } from '@/lib/utils';
@@ -771,10 +772,21 @@ function Row({
             >
               {lead.fullName ?? 'Name not given'}
             </Link>
+            {/* ⚠️ ONE FACT PER LINE — owner, 2026-09-15: *"the name Hina Shahzad,
+                then the project name. On the next line it should display
+                Islamabad, Lahore, Karachi, whatever the city is."* Project and
+                city used to share a line separated by a dot; at this column
+                width that truncated the city away on every long project name,
+                so the one fact a salesperson scans for was the one that
+                disappeared. */}
             <span className="mt-0.5 block truncate text-caption text-text-secondary">
               {lead.projectName ?? 'No project'}
-              {lead.city && ` · ${lead.city}`}
             </span>
+            {lead.city && (
+              <span className="mt-0.5 block truncate text-caption text-text-secondary">
+                {lead.city}
+              </span>
+            )}
             {/* ⚠️ THE THIRD LINE, AND ONLY WHEN THERE IS ONE. Migration 150
                 gave this a table; most leads still have no property matched to
                 them, and an empty line under every name would put a blank row of
@@ -805,46 +817,66 @@ function Row({
 
       {/* ── What was last said ──────────────────────────────────────────── */}
       <td className={TD}>
-        {lead.lastMessageAt ? (
-          <button type="button" onClick={open('conversations')} className="flex min-w-0 items-start gap-2 text-left">
-            <span
-              aria-hidden="true"
-              className="mt-0.5 shrink-0"
-              style={{
-                color: lead.lastMessageDirection === 'inbound' ? WA_GREEN : 'var(--text-tertiary)',
-              }}
-            >
-              <WhatsAppMark className="size-5" />
-            </span>
-            <span className="min-w-0">
-              <span className="block truncate text-body-sm text-text-primary">
-                {lead.lastMessageBody?.trim() || 'An attachment'}
-              </span>
-              <span className="mt-0.5 flex flex-wrap items-center gap-1.5 text-caption text-text-secondary">
-                {relativeAge(lead.lastMessageAt, nowMs)}
-                {lead.lastMessageDirection === 'inbound' && (
-                  <span
-                    className="rounded-full px-1.5 py-px text-micro font-medium"
-                    style={{
-                      backgroundColor: `color-mix(in oklab, ${WA_GREEN} 16%, transparent)`,
-                      color: 'var(--text-primary)',
-                    }}
-                  >
-                    New reply
-                  </span>
-                )}
-              </span>
-            </span>
-          </button>
-        ) : (
-          <span className="text-caption text-text-tertiary">Nothing yet</span>
-        )}
+        {/* ── ⚠️ ONE ICON COLUMN, ONE TEXT COLUMN ──────────────────────────
+            Owner, 2026-09-15: *"the last conversation icon should be on the
+            leftmost side with proper padding… these quotation things should also
+            be parallel to or aligned with the proposal request text, not to the
+            logo or the icon."*
 
-        {/* The live quotation, under what was said — it is the SUBJECT of the
-            conversation, not a separate fact, which is why the design puts it
-            here. Only the CURRENT version is read (151): showing v1's price to a
-            client who has been sent v2 is the exact mistake versioning exists to
-            prevent. */}
+            The quotation used to be a SIBLING of the message button, so it began
+            at the cell's left edge — level with the icon, while the message text
+            sat 1.75rem further in. Two left edges in one cell, and the eye had
+            to find the second one.
+
+            Now the icon is one flex child and EVERYTHING that is text is in the
+            other, so the message, the time and the quotation all share a single
+            left edge. ⚠️ The icon column keeps its width even when there is no
+            message — an absent icon would pull that row's text back to the cell
+            edge and break the column the moment one lead had no conversation. */}
+        <span className="flex min-w-0 items-start gap-2">
+          <span
+            aria-hidden="true"
+            className="mt-0.5 flex size-5 shrink-0 items-center justify-center"
+            style={{
+              color: !lead.lastMessageAt
+                ? 'var(--border-default)'
+                : lead.lastMessageDirection === 'inbound'
+                  ? WA_GREEN
+                  : 'var(--text-tertiary)',
+            }}
+          >
+            <WhatsAppMark className="size-5" />
+          </span>
+
+          <span className="min-w-0 flex-1">
+            {lead.lastMessageAt ? (
+              <button
+                type="button"
+                onClick={open('conversations')}
+                className="block w-full min-w-0 text-left"
+              >
+                <span className="block truncate text-body-sm text-text-primary">
+                  {lead.lastMessageBody?.trim() || 'An attachment'}
+                </span>
+                <span className="mt-0.5 flex flex-wrap items-center gap-1.5 text-caption text-text-secondary">
+                  {relativeAge(lead.lastMessageAt, nowMs)}
+                  {lead.lastMessageDirection === 'inbound' && (
+                    <span
+                      className="rounded-full px-1.5 py-px text-micro font-medium"
+                      style={{
+                        backgroundColor: `color-mix(in oklab, ${WA_GREEN} 16%, transparent)`,
+                        color: 'var(--text-primary)',
+                      }}
+                    >
+                      New reply
+                    </span>
+                  )}
+                </span>
+              </button>
+            ) : (
+              <span className="block text-caption text-text-tertiary">Nothing yet</span>
+            )}
+
         {lead.quotationNumber && (
           <span className="mt-1 flex flex-wrap items-center gap-1.5 text-caption">
             <span
@@ -882,6 +914,8 @@ function Row({
             )}
           </span>
         )}
+          </span>
+        </span>
       </td>
 
       {/* ── What is owed ────────────────────────────────────────────────── */}
@@ -972,12 +1006,14 @@ function Row({
 
       {/* ── Where they came from ────────────────────────────────────────── */}
       <td className={TD}>
+        {/* ⚠️ THE REAL LOGO, not a coloured dot. `components/brand/platform-icon`
+            has drawn these tiles since August and this column was rendering a
+            2px circle beside a word — owner: *"Proper icons are given and these
+            icons are also present in my system."* */}
         <span className="flex min-w-0 items-start gap-2">
-          <span
-            aria-hidden="true"
-            className="mt-1 size-2 shrink-0 rounded-full"
-            style={{ backgroundColor: `var(--${sourceToken(lead.source)})` }}
-          />
+          <span className="mt-px shrink-0">
+            <SourceMark source={lead.source} />
+          </span>
           <span className="min-w-0">
             <span className="block truncate text-body-sm text-text-primary">
               {sourceLabel(lead.source)}
@@ -1168,8 +1204,8 @@ function Reach({
           ? { backgroundColor: `color-mix(in oklab, ${WA_GREEN} 14%, transparent)`, color: WA_GREEN }
           : tone === 'mail'
             ? {
-                backgroundColor: 'color-mix(in oklab, var(--accent-primary) 12%, transparent)',
-                color: 'var(--accent-primary)',
+                backgroundColor: 'color-mix(in oklab, var(--channel-email) 12%, transparent)',
+                color: 'var(--channel-email)',
               }
             : undefined
       }
