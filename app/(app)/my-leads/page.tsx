@@ -1,14 +1,17 @@
 import type { Metadata } from 'next';
 
+import { AddLead } from '@/components/crm/add-lead';
 import { LeadDrawer } from '@/components/crm/lead-drawer';
 import { RecordOutcome } from '@/components/crm/record-outcome';
 import { MyLeadsDesk } from '@/components/crm/my-leads-desk';
 import { requireCrmAccess } from '@/lib/auth/current-user';
 import {
+  crmAddLeadProjects,
   crmLeadRelated,
   crmLeadThread,
   crmMyCounts,
   crmOwnerOptions,
+  crmProjectProperties,
   getCrmLead,
   listCrmLeads,
   listCrmProjects,
@@ -117,9 +120,34 @@ export default async function MyLeadsPage({
      unreachable behind a dialog. */
   const wantsOutcome = params.action === 'outcome' && record !== null;
 
+  /* ── Add a lead ────────────────────────────────────────────────────────
+     ⚠️ THE PICKER ASKS THE SAME QUESTION THE WRITE WILL. `crmAddLeadProjects`
+     lists only the projects this person may actually add to — offering one the
+     creator then refuses (CRM02) would be a form that lies about its own
+     choices.
+
+     ⚠️ AND THE CATALOGUE FOLLOWS THE URL, NOT THE FORM'S OWN DROPDOWN. Loading
+     every project's units would be a query per project on a page that mostly
+     does not open the form at all; the units for the project already in view
+     cover the ordinary case, and the field simply does not appear otherwise. */
+  const wantsAdd = params.action === 'add';
+  const [addProjects, addProperties] = wantsAdd
+    ? await Promise.all([
+        crmAddLeadProjects(user.id),
+        projectId ? crmProjectProperties(user.id, projectId) : Promise.resolve([]),
+      ])
+    : [[], []];
+
   return (
     <>
-      {wantsOutcome && record && (
+      {wantsAdd && (
+        <AddLead
+          projects={addProjects}
+          properties={addProperties}
+          defaultProjectId={projectId}
+        />
+      )}
+      {!wantsAdd && wantsOutcome && record && (
         <RecordOutcome
           leadId={record.lead.id}
           leadName={record.lead.fullName ?? 'this lead'}
@@ -129,7 +157,7 @@ export default async function MyLeadsPage({
           }
         />
       )}
-      {!wantsOutcome && record && related && (
+      {!wantsAdd && !wantsOutcome && record && related && (
         <LeadDrawer
           lead={record.lead}
           notes={record.notes}

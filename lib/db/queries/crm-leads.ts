@@ -1783,3 +1783,249 @@ export async function crmLeadRelated(
     })(),
   };
 }
+
+/* ============================================================================
+ * ADDING A LEAD BY HAND
+ * ----------------------------------------------------------------------------
+ * Both of these go through SECURITY DEFINER functions (migration 158), and not
+ * for convenience:
+ *
+ *   · a salesperson CANNOT insert into crm_leads — the policy from 124 requires
+ *     crm_manages_project, so the whole feature is refused by RLS as it stands
+ *   · a salesperson CANNOT insert into crm_lead_assignments either (154), which
+ *     is deliberate: a row written by hand would be a claim about a decision
+ *     nobody made
+ *
+ * ⚠️ AND NEITHER OF THESE PASSES AN OWNER. The database function has no such
+ * argument. The rule "a salesperson must not choose who gets the lead" is
+ * enforced by a signature nobody can forget rather than by a check somebody can
+ * skip on a second call site.
+ * ========================================================================= */
+
+export interface CrmDuplicate {
+  /** 'lead' — an enquiry that exists. 'client' — somebody who already bought. */
+  readonly kind: 'lead' | 'client';
+  readonly id: string;
+  readonly name: string;
+  /** Null for a client: they belong to no single project. */
+  readonly projectName: string | null;
+  readonly sameProject: boolean;
+  readonly stage: string | null;
+  readonly isOpen: boolean;
+  /** Null when the lead is unassigned or its owner has left. */
+  readonly ownerName: string | null;
+  /**
+   * ⚠️ Answers "is this mine?" without handing over an id. "You already have
+   * this person" and "a colleague does" lead to different buttons, and a boolean
+   * discloses strictly less than the owner name already beside it.
+   */
+  readonly isMine: boolean;
+  readonly matchedOn: string;
+  readonly lastSeenAt: string | null;
+}
+
+/**
+ * Do we already know this person?
+ *
+ * ⚠️ THIS SEES ACROSS THE OWNERSHIP BOUNDARY AND IT IS MEANT TO. Sarah cannot
+ * read Sahad's leads, which is the whole point of the row-level rules — but if
+ * she cannot be TOLD one exists, she types it in again, two people ring one
+ * client, and the client decides nobody here talks to each other.
+ *
+ * What comes back is the minimum that stops her: a name, a stage, an owner and a
+ * project. No phone, no email, no notes, no budget, no quotation.
+ */
+export async function crmLeadDuplicates(
+  actorId: string,
+  projectId: string,
+  phoneE164: string | null,
+  email: string | null,
+): Promise<CrmDuplicate[]> {
+  if (!phoneE164 && !email) return [];
+
+  const rows = await withUser(actorId, (tx) => tx`
+    select * from app.crm_lead_duplicates(
+      ${projectId}::uuid, ${phoneE164}::text, ${email}::text)
+  `);
+
+  return (rows as Array<Record<string, unknown>>).map((r) => ({
+    kind: String(r.kind) === 'client' ? ('client' as const) : ('lead' as const),
+    id: String(r.ref_id),
+    name: String(r.full_name ?? 'Unnamed'),
+    projectName: (r.project_name as string | null) ?? null,
+    sameProject: r.same_project === true,
+    stage: (r.stage as string | null) ?? null,
+    isOpen: r.is_open === true,
+    ownerName: (r.owner_name as string | null) ?? null,
+    isMine: r.is_mine === true,
+    matchedOn: String(r.matched_on ?? 'phone'),
+    lastSeenAt: r.last_seen_at ? new Date(r.last_seen_at as string).toISOString() : null,
+  }));
+}
+
+export interface CrmNewLead {
+  readonly projectId: string;
+  readonly fullName: string;
+  /** Exactly as they typed it. Kept because it is what they wrote. */
+  readonly phone: string | null;
+  /** Derived by toE164 in lib/domain/phone. Null when it could not be parsed. */
+  readonly phoneE164: string | null;
+  readonly email: string | null;
+  readonly city: string | null;
+  readonly source: string;
+  readonly sourceDetail: string | null;
+  readonly enquiry: string | null;
+  readonly propertyId: string | null;
+  readonly budget: number | null;
+  /** ⚠️ Three states. Null means nobody asked, which is not the same as no. */
+  readonly whatsappConsent: boolean | null;
+  readonly preferredChannel: string | null;
+  readonly preferredTime: string | null;
+  readonly nextAction: string | null;
+  readonly nextActionAt: string | null;
+  readonly nextActionType: string | null;
+  /** Only ever gets past a CLOSED duplicate, or one already theirs. */
+  readonly allowDuplicate: boolean;
+}
+
+export interface CrmCreatedLead {
+  readonly id: string;
+  readonly ownerId: string | null;
+  readonly ownerName: string | null;
+  readonly why: string | null;
+}
+
+/**
+ * Create the lead and let the rota own it.
+ *
+ * ⚠️ THE RETURN CARRIES WHO GOT IT AND WHY, read back from the assignment row
+ * the function itself wrote. Building that sentence here from a second query
+ * would justify the decision with figures the decision had already changed —
+ * the same trap crmLeadRota's comment describes.
+ */
+export async function crmCreateLead(
+  actorId: string,
+  input: CrmNewLead,
+): Promise<CrmCreatedLead> {
+  return withUser(actorId, async (tx) => {
+    const created = await tx`
+      select app.crm_create_lead(
+        ${input.projectId}::uuid,
+        ${input.fullName}::text,
+        ${input.phone}::text,
+        ${input.phoneE164}::text,
+        ${input.email}::text,
+        ${input.city}::text,
+        ${input.source}::public.crm_lead_source,
+        ${input.sourceDetail}::text,
+        ${input.enquiry}::text,
+        ${input.propertyId}::uuid,
+        ${input.budget}::bigint,
+        ${input.whatsappConsent}::boolean,
+        ${input.preferredChannel}::public.crm_followup_channel,
+        ${input.preferredTime}::text,
+        ${input.nextAction}::text,
+        ${input.nextActionAt}::timestamptz,
+        ${input.nextActionType}::public.crm_next_action_kind,
+        ${input.allowDuplicate}::boolean
+      ) as id`;
+
+    const id = String((created as Array<Record<string, unknown>>)[0]?.id ?? '');
+
+    const why = await tx`
+      select a.reason_text, a.to_user_id, u.full_name as owner_name
+        from public.crm_lead_assignments a
+        left join public.users u on u.id = a.to_user_id
+       where a.lead_id = ${id}::uuid
+       order by a.assigned_at desc
+       limit 1`;
+    const w = (why as Array<Record<string, unknown>>)[0];
+
+    return {
+      id,
+      ownerId: (w?.to_user_id as string | null) ?? null,
+      ownerName: (w?.owner_name as string | null) ?? null,
+      why: (w?.reason_text as string | null) ?? null,
+    };
+  });
+}
+
+export interface CrmAddLeadProject {
+  readonly id: string;
+  readonly name: string;
+}
+
+/**
+ * The projects this person may add a lead to.
+ *
+ * ⚠️ THROUGH A DEFINER (159), NOT A QUERY ON `projects` — the seventh instance
+ * of the bug 125 already documented. `projects_select` needs project MEMBERSHIP,
+ * which the sales team do not have, so RLS empties the result before the
+ * department clause is ever evaluated. Written the obvious way this returned
+ * ZERO projects for both salespeople and the Add Lead form could not be used at
+ * all; it was measured by scripts/check-add-lead.mjs, not reasoned about, because
+ * an Admin session sees a picker that works perfectly.
+ *
+ * ⚠️ NOT "every project" either — the definer asks the same question the write
+ * will. A form that lists a choice and then rejects it on submit is worse than
+ * one that never offered it.
+ */
+export async function crmAddLeadProjects(actorId: string): Promise<CrmAddLeadProject[]> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select * from app.crm_add_lead_projects()
+  `);
+  return (rows as Array<Record<string, unknown>>).map((r) => ({
+    id: String(r.id),
+    name: String(r.name),
+  }));
+}
+
+export interface CrmPropertyOption {
+  readonly id: string;
+  readonly label: string;
+  readonly status: string;
+  readonly price: number | null;
+}
+
+/**
+ * The catalogue for one project, for the Add Lead picker.
+ *
+ * ⚠️ THE SAME LABEL THE ROW SHOWS, built by the same expression as the list
+ * query's `prop` lateral. A picker that says "5 Marla Residential" where the
+ * table says "5 Marla · A-101" makes somebody check whether they chose the right
+ * one, every time.
+ *
+ * ⚠️ SOLD UNITS ARE STILL LISTED, and that is deliberate. A lead may well be
+ * enquiring about the plot next to one that sold; hiding them makes the numbers
+ * in the catalogue stop matching the numbers on the wall. The status is returned
+ * so the option can say so.
+ */
+export async function crmProjectProperties(
+  actorId: string,
+  projectId: string,
+): Promise<CrmPropertyOption[]> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select
+      p.id,
+      p.status::text as status,
+      p.base_price,
+      concat_ws(' · ',
+        nullif(concat_ws(' ',
+          case when p.size_marla is not null
+               then trim(trailing '.' from to_char(p.size_marla, 'FM999999.99'))
+                    || ' Marla' end,
+          initcap(substring(p.kind from '[^ ]+$'))), ''),
+        nullif(concat_ws(', ', p.plot_number,
+          case when p.block is not null then 'Block ' || p.block end), '')
+      ) as label
+      from public.crm_properties p
+     where p.project_id = ${projectId}::uuid
+     order by p.block nulls last, p.plot_number nulls last
+  `);
+  return (rows as Array<Record<string, unknown>>).map((r) => ({
+    id: String(r.id),
+    label: String(r.label ?? 'Unnamed unit'),
+    status: String(r.status ?? 'available'),
+    price: r.base_price === null ? null : Number(r.base_price),
+  }));
+}

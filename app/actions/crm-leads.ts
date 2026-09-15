@@ -8,6 +8,8 @@ import { notify } from '@/lib/db/queries/feed';
 import {
   addLeadNote,
   assignLead,
+  crmCreateLead,
+  crmLeadDuplicates,
   crmNextOwner,
   deleteLeadNote,
   isContactKind,
@@ -16,9 +18,12 @@ import {
   setLeadStage,
   setLeadTemperature,
   unassignedLeadIds,
+  type CrmDuplicate,
 } from '@/lib/db/queries/crm-leads';
 import { isLostReason, isStage, TEMPERATURES } from '@/lib/domain/crm-stages';
 import { OUTCOMES, outcomeProblems } from '@/lib/domain/crm-outcomes';
+import { newLeadProblems } from '@/lib/domain/crm-new-lead';
+import { toE164 } from '@/lib/domain/phone';
 
 /* ============================================================================
  * WORKING A LEAD — Step 6 of docs/crm/08-TWELVE-STEPS.md
@@ -502,4 +507,185 @@ export async function recordOutcomeAction(
   refresh(leadId);
   revalidatePath('/my-leads');
   return { ok: true };
+}
+
+/* ============================================================================
+ * ADDING A LEAD BY HAND
+ * ----------------------------------------------------------------------------
+ * ── ⚠️ THERE IS NO OWNER IN THIS INPUT, AND THAT IS THE RULE ───────────────
+ * The owner's spec: *"The salesperson must not select an owner."* It is enforced
+ * three deep, and each layer is independently sufficient:
+ *
+ *   this type            has no field to put one in
+ *   crmCreateLead        has no argument to pass one through
+ *   app.crm_create_lead  has no parameter to receive one
+ *
+ * A rule that cannot be expressed cannot be forgotten by a second call site.
+ *
+ * ── ⚠️ THE REFUSALS COME BACK AS SENTENCES, NOT SQLSTATEs ─────────────────
+ * Migration 158 raises with its own error codes. They are mapped here by CODE,
+ * never by matching on message text — a message is copy and will be reworded; a
+ * code is an interface. The one exception is CRM05, which keeps the database's
+ * own wording because it names the colleague and this layer does not know who
+ * that is.
+ * ========================================================================= */
+
+export interface CreateLeadResult {
+  readonly ok: boolean;
+  readonly error?: string;
+  readonly id?: string;
+  /** Who the rota gave it to, for the confirmation. */
+  readonly ownerName?: string | null;
+  /** The figures the rota decided on, in a sentence. */
+  readonly why?: string | null;
+}
+
+/** Raised by app.crm_create_lead (migration 158). */
+const CREATE_LEAD_REFUSALS: Record<string, string> = {
+  CRM00: 'You are not signed in.',
+  CRM02: 'You cannot add leads to that project.',
+  CRM03: 'A lead needs a name.',
+  CRM04: 'Add a phone number or an email — otherwise there is no way to contact this person.',
+  CRM06: 'You already have an open lead for this person on this project.',
+};
+
+function refusalFor(err: unknown): string | null {
+  const code = (err as { code?: string })?.code;
+  if (!code) return null;
+  /* ⚠️ CRM05 keeps the database's own message because it NAMES THE COLLEAGUE,
+     and that name is the only part that makes the sentence actionable — "add a
+     note to Sahad's lead" is a next step; "this is a duplicate" is not. */
+  if (code === 'CRM05') return String((err as { message?: string }).message ?? '');
+  return CREATE_LEAD_REFUSALS[code] ?? null;
+}
+
+/**
+ * Do we already know this person? Called as somebody fills the form, and again
+ * before it offers the save button.
+ *
+ * ⚠️ RETURNS AN EMPTY LIST RATHER THAN THROWING. This runs while a form is still
+ * half-filled; a rejected promise would put a red banner on a screen nobody has
+ * finished. The database refuses a real clash on save regardless, so the worst
+ * case of a silent failure here is a warning that arrives late instead of early.
+ */
+export async function checkDuplicatesAction(
+  projectId: string,
+  phone: string,
+  email: string,
+): Promise<{ duplicates: CrmDuplicate[] }> {
+  const user = await requireUser();
+  if (!projectId) return { duplicates: [] };
+
+  const e164 = toE164(phone);
+  const cleanEmail = email.trim().toLowerCase() || null;
+  if (!e164 && !cleanEmail) return { duplicates: [] };
+
+  try {
+    return { duplicates: await crmLeadDuplicates(user.id, projectId, e164, cleanEmail) };
+  } catch {
+    return { duplicates: [] };
+  }
+}
+
+export async function createLeadAction(input: {
+  projectId: string;
+  fullName: string;
+  phone: string;
+  email: string;
+  city: string;
+  source: string;
+  sourceDetail: string;
+  enquiry: string;
+  propertyId: string | null;
+  budget: string;
+  whatsappConsent: boolean | null;
+  preferredChannel: string | null;
+  preferredTime: string;
+  nextAction: string;
+  nextActionAt: string | null;
+  nextActionType: string | null;
+  allowDuplicate: boolean;
+}): Promise<CreateLeadResult> {
+  const user = await requireUser();
+
+  /* ⚠️ THE SAME RULES THE FORM SHOWS, RE-RUN HERE. The form's copy is a courtesy
+     so nobody is told "no" after pressing save; this one is the rule, and a
+     client that skips the form entirely gets the same answer. */
+  const problems = newLeadProblems({
+    projectId: input.projectId,
+    fullName: input.fullName,
+    phone: input.phone,
+    email: input.email,
+    city: input.city,
+    source: input.source,
+    sourceDetail: input.sourceDetail,
+    enquiry: input.enquiry,
+    budget: input.budget,
+    whatsappConsent: input.whatsappConsent,
+    preferredChannel: input.preferredChannel,
+    preferredTime: input.preferredTime,
+    nextAction: input.nextAction,
+    nextActionAt: input.nextActionAt,
+    nextActionType: input.nextActionType,
+  });
+  if (problems.length > 0) return { ok: false, error: problems[0] };
+
+  if (
+    input.nextActionType !== null &&
+    !['call', 'whatsapp', 'email', 'meeting', 'site_visit', 'task'].includes(input.nextActionType)
+  ) {
+    return { ok: false, error: 'That is not a kind of next action.' };
+  }
+
+  /* Whole rupees. "1,20,00,000" and "12000000" are the same number; everything
+     that is not a digit is stripped, and 150 keeps the column a bigint. */
+  const budgetDigits = input.budget.trim().replace(/[^\d]/g, '');
+
+  try {
+    const created = await crmCreateLead(user.id, {
+      projectId: input.projectId,
+      fullName: input.fullName.trim(),
+      /* Exactly as typed — it is what they wrote, and it is evidence. */
+      phone: input.phone.trim() || null,
+      /* Derived. Null when it could not be read with confidence, which is a real
+         answer and not a failure — see lib/domain/phone.ts. */
+      phoneE164: toE164(input.phone),
+      email: input.email.trim().toLowerCase() || null,
+      city: input.city.trim() || null,
+      source: input.source,
+      sourceDetail: input.sourceDetail.trim() || null,
+      enquiry: input.enquiry.trim() || null,
+      propertyId: input.propertyId,
+      budget: budgetDigits ? Number(budgetDigits) : null,
+      whatsappConsent: input.whatsappConsent,
+      preferredChannel: input.preferredChannel,
+      preferredTime: input.preferredTime.trim() || null,
+      nextAction: input.nextAction.trim() || null,
+      nextActionAt: input.nextActionAt,
+      nextActionType: input.nextActionType,
+      allowDuplicate: input.allowDuplicate,
+    });
+
+    revalidatePath('/my-leads');
+    revalidatePath('/leads');
+
+    /* ⚠️ THE NEW OWNER IS TOLD, not left to discover it. A lead that lands
+       silently on somebody's desk is one they find hours later, and the response
+       time this whole system measures is counting the entire time.
+
+       ⚠️ `tellThem` RATHER THAN A SECOND NOTIFIER — it already decides what may
+       appear on a lock screen, and a copy of that decision here would be one
+       more place to forget it. It also returns early when the recipient is the
+       actor, so Sarah typing a walk-in the rota then gives to Sarah is not told
+       about the thing she is already looking at. */
+    if (created.id && created.ownerId) {
+      await tellThem(user.id, created.ownerId, created.id, input.fullName.trim() || 'A lead');
+    }
+
+    return { ok: true, id: created.id, ownerName: created.ownerName, why: created.why };
+  } catch (err) {
+    const refusal = refusalFor(err);
+    if (refusal) return { ok: false, error: refusal };
+    throw err;
+  }
 }

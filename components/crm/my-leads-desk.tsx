@@ -135,15 +135,15 @@ export function MyLeadsDesk({
 
         <div className="flex flex-wrap items-center gap-2">
           {/* ⚠️ "Add lead" does NOT let a salesperson choose an owner — the rota
-              assigns it. The form is Phase 4; until it exists this opens the
-              desk's own path rather than a dialog that cannot finish. */}
-          <Link
-            href={'/leads' as Route}
+              assigns it, and the form says so where the dropdown would be. */}
+          <button
+            type="button"
+            onClick={() => setParam('action', 'add')}
             className="inline-flex min-h-[2.4rem] items-center gap-1.5 rounded-xl bg-accent-primary px-3 text-body-sm font-medium text-white transition-opacity hover:opacity-90"
           >
             <Plus className="size-4" aria-hidden="true" />
             Add lead
-          </Link>
+          </button>
           <button
             type="button"
             onClick={() => setParam('due', 'no-plan')}
