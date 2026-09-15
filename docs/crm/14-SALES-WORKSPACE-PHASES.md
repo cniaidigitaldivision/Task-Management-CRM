@@ -201,6 +201,42 @@ would pass every test and fail silently on the second step in the field.
 Real ones — a visit reminder, a quotation follow-up — still have to be written
 and submitted. That is an afternoon and a wait of minutes, not a dependency.
 
+#### ⚠️⚠️ THE TEST NUMBER DOES NOT ENFORCE THE 24-HOUR WINDOW. MEASURED.
+
+Proven live on 2026-09-15 against `+923121531511` (Mohsin Testing), whose last
+inbound message was **26.3 hours** earlier — the window was closed, and the
+database's record is the whole record:
+
+| Sent at 26.3h after the last inbound | Meta's answer |
+|---|---|
+| `type: text` (free-form) | **ACCEPTED** — `wamid.HBgMOTIzMTIxNTMxNTExFQIAERgSNTMzRTdFQTNBMDE1QjIyODA4AA==` |
+| `type: template` (`hello_world`) | **ACCEPTED** — `wamid.HBgMOTIzMTIxNTMxNTExFQIAERgSNDBCMDNGMkUwRUZFRjQ3MTM3AA==` |
+
+Meta's documentation says the customer service window applies in test scenarios.
+On this test number, at 26.3 hours, it did not. Test numbers ship with *"relaxed
+messaging limits"* and this is evidently one of them.
+
+**What this means for Phase G, and it is the opposite of reassuring:**
+
+⚠️ **A sequence engine tested only on this number will pass every test and then
+fail in the field.** The test environment accepts the exact call that a
+production business number refuses. Nothing in testing will catch it.
+
+So the rule cannot be discovered by trial — it has to be **built in by
+construction**:
+
+> **Any step that fires more than 24 hours after the customer's last inbound
+> message MUST use a template. Decided from `crm_lead_messages`, never from
+> whether the API happened to accept the last attempt.**
+
+The 24-hour arithmetic belongs in the scheduler, as a stop-condition alongside
+the five already listed — not in a `catch` block reacting to a refusal that will
+never arrive during testing.
+
+⚠️ And `sendText` succeeding is therefore **not evidence the window is open.**
+Any code that infers the window state from a successful send is wrong, and would
+be wrong in the direction that reaches real customers.
+
 ⚠️ **Stop-conditions checked before every send**: client replied · quotation
 expired · lead closed · opted out · already booked.
 
