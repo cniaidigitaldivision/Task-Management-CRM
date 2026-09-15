@@ -62,5 +62,23 @@ export default defineConfig({
     include: ['{lib,components}/**/__tests__/**/*.test.{ts,tsx}'],
     exclude: ['**/node_modules/**', '**/.next/**'],
     reporters: 'dot',
+
+    /* ── ⚠️ 15s, AND THE REASON MATTERS MORE THAN THE NUMBER ─────────────────
+       Twice on 2026-09-15 the suite reported failures that passed on the next
+       run and could not be reproduced in seven attempts. Both happened on runs
+       where module loading took 237s and 164s against a normal ~40s — the
+       machine was saturated by a concurrent `next build`.
+
+       ⚠️ RAISING A TIMEOUT USUALLY HIDES A PROBLEM. It does not here, and the
+       distinction is worth stating: every test in this suite is a PURE function
+       — no database, no network, no filesystem. The only way one of them takes
+       five seconds is the machine being starved of CPU, which is a fact about
+       the laptop and not about the code.
+
+       A suite that fails at random teaches people to re-run rather than read,
+       and the next real failure gets dismissed as "that flaky one". A genuinely
+       slow test would still blow fifteen seconds and still be caught. */
+    testTimeout: 15_000,
+    hookTimeout: 15_000,
   },
 });
