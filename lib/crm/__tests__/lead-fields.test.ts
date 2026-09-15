@@ -146,3 +146,43 @@ describe('what it refuses', () => {
     expect(toLeadPayload({ created_time: '2026-09-01T00:00:00+0000' } as never, 'f')).toBeNull();
   });
 });
+
+describe('which app the ad ran on', () => {
+  it('carries the platform through to the payload', () => {
+    const row = toLeadPayload(
+      { id: 'l-1', created_time: '2026-09-15T10:00:00+0000', platform: 'ig', field_data: [] },
+      'form-1',
+    )!;
+    expect(row.platform).toBe('ig');
+  });
+
+  it('⚠️ is null when Meta did not say, never a guess', () => {
+    /* Every lead imported before 2026-09-15 predates the `fields` request, so
+       absent is the common case — and migration 160 turns null into
+       `meta_lead_ad`, which is what those leads already are. Inventing
+       "facebook" here would put fiction into the column a channel's
+       cost-per-lead is computed from. */
+    const row = toLeadPayload(
+      { id: 'l-2', created_time: '2026-09-15T10:00:00+0000', field_data: [] },
+      'form-1',
+    )!;
+    expect(row.platform).toBeNull();
+  });
+});
+
+describe('⚠️ the Graph request still asks for the answers', () => {
+  it('names field_data alongside platform', async () => {
+    /* Naming ANY field replaces Graph's default set rather than adding to it.
+       So a `fields` string that forgets `field_data` imports every future lead
+       with no answers at all — silently, with the lead still appearing. This
+       reads the source rather than the network because the failure is a missing
+       word in a string, and that is exactly what a string can be tested for. */
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync('lib/crm/lead-import.ts', 'utf8');
+    const match = src.match(/fields: '([^']+)'/);
+    expect(match).not.toBeNull();
+    for (const field of ['id', 'created_time', 'platform', 'field_data']) {
+      expect(match![1].split(',')).toContain(field);
+    }
+  });
+});

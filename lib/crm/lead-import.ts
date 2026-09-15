@@ -127,6 +127,16 @@ async function leadsForForm(formId: string, token: string): Promise<MetaLead[]> 
       : await graph(`${formId}/leads`, {
           access_token: token,
           limit: String(PAGE_SIZE),
+          /* ⚠️ ASKED FOR EXPLICITLY, OR IT DOES NOT COME. With no `fields` Graph
+             returns its defaults — id, created_time, field_data — and `platform`
+             is not among them. All 636 leads imported before 2026-09-15 have no
+             platform recorded for exactly this reason, and it cannot be
+             recovered for them.
+
+             ⚠️ THE DEFAULTS MUST BE RESTATED. Naming any field REPLACES the
+             default set rather than adding to it, so omitting `field_data` here
+             would silently import every future lead with no answers at all. */
+          fields: 'id,created_time,platform,field_data',
         });
 
     out.push(...(body.data ?? []));

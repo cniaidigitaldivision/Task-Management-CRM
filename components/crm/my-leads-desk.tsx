@@ -662,7 +662,22 @@ function Picker({
 
 /* ---- One lead ------------------------------------------------------------- */
 
+/* ── ⚠️ TWO CELL ALIGNMENTS, AND THE ROW IS WHY ───────────────────────────
+   Owner, 2026-09-15: *"Hina and Sahad have a lot of things to display so they
+   start from the top of the row. While Property, Priority, Sources and Quick
+   Actions should be in the centre of the row. What do you think about that?"*
+
+   Agreed, and it is the ordinary rule for a table whose rows vary in height.
+   Three columns here are STACKS — the person (name, project, city), the
+   conversation (message, time, quotation) and the next action. Those read top
+   down and must start at the top, or the first line of each stops lining up
+   with the first line of its neighbours.
+
+   The rest are single objects: one dropdown, one dot, one logo, one row of
+   buttons. A single object pinned to the top of a three-line row hangs from the
+   ceiling with a gap under it, and the eye reads the gap as a missing value. */
 const TD = 'px-3 py-3 align-top';
+const TD_MID = 'px-3 py-3 align-middle';
 
 function Row({
   lead,
@@ -811,7 +826,7 @@ function Row({
           leave the timeline saying nothing about WHY. It opens the record on
           that form. The control is here because the design puts it here; the
           write is the next phase. */}
-      <td className={TD}>
+      <td className={TD_MID}>
         <StageChooser lead={lead} onPropose={onPropose} />
       </td>
 
@@ -836,7 +851,9 @@ function Row({
         <span className="flex min-w-0 items-start gap-2">
           <span
             aria-hidden="true"
-            className="mt-0.5 flex size-5 shrink-0 items-center justify-center"
+            /* ⚠️ 24px, matching the source column. These two marks are the
+               only logos in the row and they were the smallest things in it. */
+            className="mt-px flex size-6 shrink-0 items-center justify-center"
             style={{
               color: !lead.lastMessageAt
                 ? 'var(--border-default)'
@@ -845,7 +862,7 @@ function Row({
                   : 'var(--text-tertiary)',
             }}
           >
-            <WhatsAppMark className="size-5" />
+            <WhatsAppMark className="size-6" />
           </span>
 
           <span className="min-w-0 flex-1">
@@ -930,9 +947,13 @@ function Row({
                 has to carry the meaning for anybody who cannot separate the
                 hues — colour alone is not a state. A paused sequence gets amber
                 and its own glyph for the same reason. */}
+            {/* ⚠️ 24px IN A FIXED BOX, matching the conversation column beside
+                it. Same size for the same reason — these state glyphs are read
+                before the words — and a fixed box so the text starts at the same
+                offset whichever glyph is drawn. */}
             <span
               aria-hidden="true"
-              className="mt-0.5 shrink-0"
+              className="mt-px flex size-6 shrink-0 items-center justify-center"
               style={{
                 color: late
                   ? 'var(--feedback-error)'
@@ -942,11 +963,11 @@ function Row({
               }}
             >
               {late ? (
-                <AlertTriangle className="size-5" />
+                <AlertTriangle className="size-6" />
               ) : lead.sequenceState === 'paused' ? (
-                <PauseCircle className="size-5" />
+                <PauseCircle className="size-6" />
               ) : (
-                <CalendarDays className="size-5" />
+                <CalendarDays className="size-6" />
               )}
             </span>
             <span className="min-w-0">
@@ -983,29 +1004,36 @@ function Row({
             onClick={open('followups')}
             className="inline-flex items-center gap-1 text-caption font-medium text-text-brand underline-offset-2 hover:underline"
           >
-            <CalendarPlus className="size-3.5" aria-hidden="true" />
+            <CalendarPlus className="size-4" aria-hidden="true" />
             Add follow-up
           </button>
         )}
       </td>
 
       {/* ── How urgent ──────────────────────────────────────────────────── */}
-      <td className={TD}>
+      <td className={TD_MID}>
         <span
           className="inline-flex items-center gap-1.5 text-caption text-text-secondary"
           title={priority.reason}
         >
+          {/* ⚠️ 10px WITH A HALO, not an 8px speck. This is the only mark in
+              the row that encodes a LEVEL rather than a brand, and beside 24px
+              logos it had stopped registering at all. The ring gives it presence
+              without making it compete with the logos for size. */}
           <span
             aria-hidden="true"
-            className="size-2 shrink-0 rounded-full"
-            style={{ backgroundColor: `var(--${priorityToken(priority.level)})` }}
+            className="size-2.5 shrink-0 rounded-full"
+            style={{
+              backgroundColor: `var(--${priorityToken(priority.level)})`,
+              boxShadow: `0 0 0 3px color-mix(in oklab, var(--${priorityToken(priority.level)}) 22%, transparent)`,
+            }}
           />
-          {priorityLabel(priority.level)}
+          <span className="text-body-sm text-text-primary">{priorityLabel(priority.level)}</span>
         </span>
       </td>
 
       {/* ── Where they came from ────────────────────────────────────────── */}
-      <td className={TD}>
+      <td className={TD_MID}>
         {/* ⚠️ THE REAL LOGO, not a coloured dot. `components/brand/platform-icon`
             has drawn these tiles since August and this column was rendering a
             2px circle beside a word — owner: *"Proper icons are given and these
@@ -1028,7 +1056,7 @@ function Row({
       </td>
 
       {/* ── Reaching them ───────────────────────────────────────────────── */}
-      <td className={TD}>
+      <td className={TD_MID}>
         <span className="flex items-center gap-1">
           {lead.canWhatsApp && lead.phoneE164 ? (
             <Reach href={`/leads/${lead.id}?chat=1` as Route} label={`WhatsApp ${lead.fullName ?? 'lead'}`} tone="wa">
@@ -1052,6 +1080,7 @@ function Row({
                   ? `“${lead.phone}” could not be read as a WhatsApp number. Open the lead to correct it.`
                   : 'This lead has no WhatsApp number on record.'
               }
+              tone="wa"
             >
               <WhatsAppMark className="size-5" />
             </Explain>
@@ -1073,6 +1102,7 @@ function Row({
               toast={toast}
               label={`Email ${lead.fullName ?? 'this lead'}`}
               reason="This lead did not give an email address."
+              tone="mail"
             >
               <Mail className="size-4" aria-hidden="true" />
             </Explain>
@@ -1231,20 +1261,51 @@ function Explain({
   toast,
   label,
   reason,
+  tone = 'plain',
   children,
 }: {
   toast: ReturnType<typeof useToast>;
   label: string;
   reason: string;
+  /** Matches `Reach`, so a control looks the same whether its data is there. */
+  tone?: 'plain' | 'wa' | 'mail';
   children: React.ReactNode;
 }) {
   return (
     <button
       type="button"
       onClick={() => toast({ tone: 'warn', text: reason })}
+      /* ⚠️ THE COLOUR STAYS; ONLY THE ANSWER CHANGES. Owner, 2026-09-15:
+         *"Whether the email is present or not, please use this blue colour. If
+         email is not present then I click on it, it will show me a message…
+         but keep the colour the same."*
+
+         It used to go grey and dashed, which read as DISABLED — and a row of
+         controls where some are grey teaches the eye to skip them, so the one
+         lead actually missing an address became the one nobody clicked to find
+         out. The channel keeps its colour; pressing it says what is missing.
+
+         ⚠️ The border stays dashed and `aria-label` still says "not available",
+         so the difference is not carried by colour alone — somebody who cannot
+         separate teal from blue, and anybody on a screen reader, still gets it. */
+      style={
+        tone === 'wa'
+          ? { backgroundColor: `color-mix(in oklab, ${WA_GREEN} 10%, transparent)`, color: WA_GREEN }
+          : tone === 'mail'
+            ? {
+                backgroundColor: 'color-mix(in oklab, var(--channel-email) 10%, transparent)',
+                color: 'var(--channel-email)',
+              }
+            : undefined
+      }
       aria-label={`${label} — not available`}
       title={reason}
-      className="grid size-9 shrink-0 place-items-center rounded-lg border border-dashed border-border-default text-text-disabled transition-colors hover:bg-bg-subtle hover:text-text-secondary"
+      className={cn(
+        'grid size-9 shrink-0 place-items-center rounded-lg border border-dashed transition-colors',
+        tone === 'plain'
+          ? 'border-border-default text-text-disabled hover:bg-bg-subtle hover:text-text-secondary'
+          : 'border-current/35 hover:brightness-95',
+      )}
     >
       {children}
     </button>

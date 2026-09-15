@@ -38,12 +38,28 @@ const sql = postgres(env.DATABASE_URL, { prepare: false, ssl: 'require', connect
    written by machines, and filing a hand-entered lead under a campaign that
    never ran puts it in that campaign's reporting bucket. */
 const SPREAD = [
+  /* ⚠️ THE DETAIL SAYS WHAT KIND OF THING IT WAS, not where it was. Owner,
+     2026-09-15: *"if leads are coming from Google, it should show that it is a
+     Google ad."* "Google · Search ad" and "Google · Display ad" are two
+     different spends with two different cost-per-leads; "Google · Google" is a
+     line that tells a reader nothing they did not already see in the logo. */
   ['facebook', 'Lead ad'],
   ['instagram', 'Story ad'],
   ['google', 'Search ad'],
   ['website', 'Contact form'],
   ['referral', 'Existing client'],
-  ['linkedin', 'Lead ad'],
+  ['linkedin', 'Lead gen form'],
+  ['facebook', 'Messenger ad'],
+  ['instagram', 'Reels ad'],
+  ['google', 'Display ad'],
+  ['walk_in', 'Office visit'],
+  ['whatsapp', 'Direct message'],
+  ['website', 'Live chat'],
+  ['referral', 'Partner agent'],
+  /* ⚠️ `manual` STAYS IN THE SPREAD. Sarah typing a phone enquiry at her desk
+     is a real channel and the desk has to show it honestly — a demo where every
+     lead arrived from an ad hides the one row that tests the Add Lead path. */
+  ['manual', 'Phone enquiry'],
 ];
 
 try {

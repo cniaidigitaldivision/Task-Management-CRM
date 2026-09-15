@@ -25,6 +25,14 @@ import { toE164 } from '@/lib/domain/phone';
 export interface MetaLead {
   readonly id: string;
   readonly created_time: string;
+  /**
+   * Which app the ad ran on — Meta sends `fb` or `ig`.
+   *
+   * ⚠️ OPTIONAL, AND OFTEN ABSENT. It arrives only when the request names it,
+   * and every lead imported before 2026-09-15 predates that. Migration 160 maps
+   * an absent value to `meta_lead_ad`, which is what those leads already are.
+   */
+  readonly platform?: string;
   readonly field_data?: ReadonlyArray<{
     readonly name: string;
     readonly values?: readonly string[];
@@ -35,6 +43,8 @@ export interface MetaLead {
 export interface LeadPayload {
   readonly external_id: string;
   readonly form_meta_id: string;
+  /** `fb` · `ig` · null. Null lands as `meta_lead_ad` — migration 160. */
+  readonly platform?: string | null;
   readonly full_name: string | null;
   readonly phone: string | null;
   readonly phone_e164: string | null;
@@ -117,6 +127,8 @@ export function toLeadPayload(lead: MetaLead, formMetaId: string): LeadPayload |
   return {
     external_id: lead.id,
     form_meta_id: formMetaId,
+    /* Passed through verbatim; migration 160 decides what it means. */
+    platform: lead.platform ?? null,
     /* Exact `full_name` wins; then first + last composed; then a loose match
        that cannot see the name PARTS. */
     full_name: answers.full_name?.trim() || composed || pick(answers, NAME_KEYS, NAME_PARTS),
