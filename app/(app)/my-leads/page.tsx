@@ -1,6 +1,5 @@
 import type { Metadata } from 'next';
 
-import { RecordOutcome } from '@/components/crm/record-outcome';
 import { MyLeadsDesk } from '@/components/crm/my-leads-desk';
 import { requireCrmAccess } from '@/lib/auth/current-user';
 import {
@@ -137,10 +136,6 @@ export default async function MyLeadsPage({
   ]);
 
 
-  /* ⚠️ THE FORM WINS OVER THE DRAWER when both are asked for. They are two
-     panels on one screen and stacking them would leave the drawer visible and
-     unreachable behind a dialog. */
-  const wantsOutcome = params.action === 'outcome' && record !== null;
 
   /* ── Add a lead ────────────────────────────────────────────────────────
      ⚠️ THE PICKER ASKS THE SAME QUESTION THE WRITE WILL. `crmAddLeadProjects`
@@ -156,22 +151,12 @@ export default async function MyLeadsPage({
 
   return (
     <>
-      {!wantsAdd && wantsOutcome && record && (
-        <RecordOutcome
-          leadId={record.lead.id}
-          leadName={record.lead.fullName ?? 'this lead'}
-          /* The stage the row's dropdown was set to, if it carried one. */
-          currentStage={
-            params.stage && isStage(params.stage) ? params.stage : record.lead.stage
-          }
-        />
-      )}
     <MyLeadsDesk
       projects={projects}
       /* ⚠️ HANDED TO THE CLIENT COMPONENT rather than rendered here. The desk
          already holds the row that was clicked, so it can draw the panel in that
          frame and swap in this record when it arrives. */
-      record={!wantsAdd && !wantsOutcome ? record : null}
+      record={!wantsAdd ? record : null}
       messages={thread}
       related={related}
       /* Which tab a shared link or a refresh asked for. */

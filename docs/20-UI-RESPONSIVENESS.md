@@ -154,6 +154,22 @@ one, the real first child inherits a `1rem` margin it never had, the page shifts
 16 px and grows a scrollbar. The owner spotted this within minutes of the fix
 that introduced it. Overlays render **outside** the column they cover.
 
+⚠️ **One URL parameter must never mean two things.** `/my-leads` used `?stage=`
+as the list's filter *and* as the stage carried into the Record Outcome form. So
+choosing "Qualified" for one contacted lead filtered the whole table to
+Qualified, the lead being edited vanished from behind the form, and cancelling
+left the filter stuck on a stage nobody had asked to filter by. The owner found
+it in a minute.
+
+The fix is not a better parameter name. **A transient choice — what a form is
+pre-filled with, what a dialog is about — is component state, not a URL
+parameter.** It has no business surviving a refresh, and every parameter you add
+is one more thing that can collide with a filter.
+
+⚠️ **And cancelling must leave nothing behind.** Not a filter, not a drawer, not
+a parameter. Test it: open the thing, press cancel, and compare the screen and
+the address bar to before you opened it. They should be identical.
+
 ⚠️ **A hover state is a promise.** If the whole row highlights, the whole row is
 the target. Guard the controls inside it rather than shrinking the target:
 

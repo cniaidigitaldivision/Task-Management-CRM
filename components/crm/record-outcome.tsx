@@ -1,7 +1,6 @@
 'use client';
 
 import * as React from 'react';
-import { useSearchParams } from 'next/navigation';
 import { AlertTriangle, X } from 'lucide-react';
 
 import { recordOutcomeAction } from '@/app/actions/crm-leads';
@@ -17,7 +16,6 @@ import {
   suggestStage,
 } from '@/lib/domain/crm-outcomes';
 import { cn } from '@/lib/utils';
-import { usePanel } from './use-panel';
 
 /* ============================================================================
  * RECORD OUTCOME — the form behind the stage dropdown
@@ -46,19 +44,40 @@ export function RecordOutcome({
   leadId,
   leadName,
   currentStage,
+  proposedStage,
+  onClose,
 }: {
   leadId: string;
   leadName: string;
+  /** Where the lead is NOW. The form opens from here and never rewrites it. */
   currentStage: string;
+  /**
+   * The stage the row's dropdown was set to, if any.
+   *
+   * ⚠️ A SEPARATE ARGUMENT FROM `currentStage`, and separate from the list's
+   * `?stage=` filter, which is what it used to travel in. One parameter meaning
+   * both "narrow the table to this stage" and "open the form on this stage"
+   * meant choosing a stage for one lead filtered the whole table to it, hid the
+   * lead being edited, and left the filter on after a cancel.
+   */
+  proposedStage?: string;
+  /** Hides the dialog at once; the desk owns whether it is on screen. */
+  onClose: () => void;
 }) {
-  const search = useSearchParams();
   const toast = useToast();
 
   const [outcome, setOutcome] = React.useState<string>('client_replied');
-  const [stage, setStage] = React.useState<string>(() => suggestStage('client_replied', currentStage));
+
+  /* ⚠️ A STAGE PROPOSED FROM THE ROW COUNTS AS A CHOICE ALREADY MADE. Somebody
+     who picked "Qualified" in the dropdown has said what they want; letting the
+     outcome buttons then overrule it would silently undo the thing that opened
+     this form. So it starts touched. */
+  const [stage, setStage] = React.useState<string>(
+    () => proposedStage ?? suggestStage('client_replied', currentStage),
+  );
   /* ⚠️ Once somebody picks a stage by hand, the outcome stops overruling it —
       otherwise changing the outcome silently undoes their choice. */
-  const [stageTouched, setStageTouched] = React.useState(false);
+  const [stageTouched, setStageTouched] = React.useState(proposedStage !== undefined);
   const [nextAction, setNextAction] = React.useState('');
   const [nextActionType, setNextActionType] = React.useState('call');
   const [nextActionAt, setNextActionAt] = React.useState('');
@@ -85,15 +104,19 @@ export function RecordOutcome({
     contactConfirmed,
   });
 
-  /* ⚠️ INSTANT, AND NOT A SERVER NAVIGATION. See `use-panel.ts` — closing this
-     used to re-render the whole page to hide a dialog that was already on the
-     screen. */
-  const closedUrl = React.useCallback(() => {
-    const next = new URLSearchParams(search.toString());
-    next.delete('action');
-    return `/my-leads?${next.toString()}`;
-  }, [search]);
-  const { closed, close } = usePanel(closedUrl);
+  /* ⚠️ INSTANT, AND IT LEAVES NOTHING BEHIND. Closing this used to re-render
+     the whole page to hide a dialog already on screen — and worse, it left the
+     list filtered to whatever stage had been proposed. The desk owns visibility
+     now, so cancelling is a state flip and the URL is never touched. */
+  const close = onClose;
+
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
   async function save() {
     setBusy(true);
@@ -119,8 +142,6 @@ export function RecordOutcome({
     toast({ tone: 'ok', text: `Recorded — ${leadName} is now ${stageLabel(stage)}.` });
     close();
   }
-
-  if (closed) return null;
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">

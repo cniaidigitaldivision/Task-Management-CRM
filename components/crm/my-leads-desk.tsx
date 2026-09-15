@@ -30,6 +30,7 @@ import { relativeAge } from '@/lib/view/relative-age';
 import { cn } from '@/lib/utils';
 import { AddLead, type AddLeadProject, type AddLeadProperty } from './add-lead';
 import { LeadDrawer } from './lead-drawer';
+import { RecordOutcome } from './record-outcome';
 import type { CrmLeadFull, CrmLeadRelated, CrmMessage } from '@/lib/db/queries/crm-leads';
 import { LeadDrawerShell } from './lead-drawer-shell';
 
@@ -151,6 +152,22 @@ export function MyLeadsDesk({
   if (addWish !== undefined && addWish === urlAdd) setAddWish(undefined);
   const addOpen = addWish === undefined ? urlAdd : addWish;
 
+  /* ── ⚠️ THE PROPOSED STAGE IS THE DESK'S STATE, NOT A URL PARAMETER ──────
+     It used to ride in `?stage=`, which is the list's own filter — see
+     `StageChooser`. Holding it here means it cannot collide with anything, it
+     cannot survive a cancel, and the form opens in the click's own frame because
+     everything it needs (the lead's id, name and current stage) is on the row
+     that was clicked. */
+  const [outcomeFor, setOutcomeFor] = React.useState<{ id: string; stage: string } | null>(null);
+
+  const proposeStage = React.useCallback((leadId: string, stage: string) => {
+    setOutcomeFor({ id: leadId, stage });
+  }, []);
+
+  /* ⚠️ CANCELLING LEAVES NOTHING BEHIND — not a filter, not a drawer, not a
+     parameter. The lead keeps the stage it had; the desk keeps the view it had. */
+  const closeOutcome = React.useCallback(() => setOutcomeFor(null), []);
+
   const closeAdd = React.useCallback(() => {
     setAddWish(false);
     startTransition(() => {
@@ -268,8 +285,22 @@ export function MyLeadsDesk({
 
           A fixed overlay is not part of the column it covers, so it does not
           belong among its children. */}
+      {/* ⚠️ THE OUTCOME FORM WINS OVER THE DRAWER when both are open — they are
+          two panels on one screen, and stacking them leaves the drawer visible
+          and unreachable behind a dialog. */}
+      {outcomeFor && (
+        <RecordOutcome
+          key={outcomeFor.id}
+          leadId={outcomeFor.id}
+          leadName={rows.find((r) => r.id === outcomeFor.id)?.fullName ?? 'this lead'}
+          currentStage={rows.find((r) => r.id === outcomeFor.id)?.stage ?? 'new'}
+          proposedStage={outcomeFor.stage}
+          onClose={closeOutcome}
+        />
+      )}
+
       {/* ⚠️ THE REAL DRAWER WINS THE MOMENT ITS DATA MATCHES THIS LEAD. */}
-      {openLead && record && related && record.lead.id === openLead && (
+      {!outcomeFor && openLead && record && related && record.lead.id === openLead && (
         <LeadDrawer
           key={record.lead.id}
           lead={record.lead}
@@ -283,7 +314,7 @@ export function MyLeadsDesk({
           onClose={closeLead}
         />
       )}
-      {shellRow && (
+      {!outcomeFor && shellRow && (
         <LeadDrawerShell row={shellRow} tab={openTab} nowMs={nowMs} onClose={closeLead} />
       )}
 
@@ -522,8 +553,8 @@ export function MyLeadsDesk({
                   fullName={fullName}
                   ticked={ticked.has(lead.id)}
                   onTick={onTick}
-              onOpen={onOpen}
-                  search={search}
+                  onOpen={onOpen}
+                  onPropose={proposeStage}
                 />
               ))}
             </tbody>
@@ -639,7 +670,7 @@ function Row({
   ticked,
   onTick,
   onOpen,
-  search,
+  onPropose,
 }: {
   lead: CrmLeadRow;
   nowMs: number;
@@ -648,7 +679,7 @@ function Row({
   onTick: (id: string, on: boolean) => void;
   /** Opens the drawer in this click's own frame. See `lead-drawer-shell.tsx`. */
   onOpen: (leadId: string, tab: string) => void;
-  search: URLSearchParams;
+  onPropose: (leadId: string, stage: string) => void;
 }) {
   const toast = useToast();
   const phone = displayPhone(lead.phoneE164, lead.phone);
@@ -769,7 +800,7 @@ function Row({
           that form. The control is here because the design puts it here; the
           write is the next phase. */}
       <td className={TD}>
-        <StageChooser lead={lead} search={search} />
+        <StageChooser lead={lead} onPropose={onPropose} />
       </td>
 
       {/* ── What was last said ──────────────────────────────────────────── */}
@@ -1054,21 +1085,28 @@ function Row({
  * question the log exists to answer. So it opens the lead on that form, and the
  * control is real rather than decorative.
  * ========================================================================= */
-function StageChooser({ lead, search }: { lead: CrmLeadRow; search: URLSearchParams }) {
-  const router = useRouter();
+function StageChooser({
+  lead,
+  onPropose,
+}: {
+  lead: CrmLeadRow;
+  onPropose: (leadId: string, stage: string) => void;
+}) {
   const token = stageToken(lead.stage);
 
   /* ⚠️ IT OPENS THE OUTCOME FORM, IT DOES NOT WRITE. Picking a stage here and
      saving it silently would leave a timeline saying WHAT changed and never WHY
-     — and "why" is the question the log exists to answer. The chosen stage is
-     carried through so the form opens on it. */
-  const open = (stage: string) => {
-    const next = new URLSearchParams(search.toString());
-    next.set('lead', lead.id);
-    next.set('action', 'outcome');
-    if (stage !== lead.stage) next.set('stage', stage);
-    router.push(`/my-leads?${next.toString()}` as Route);
-  };
+     — and "why" is the question the log exists to answer.
+
+     ⚠️ AND IT NO LONGER TOUCHES THE URL ITSELF. It used to carry the chosen
+     stage in `?stage=`, which is the LIST'S OWN FILTER — so choosing "Qualified"
+     for one contacted lead filtered the whole table to Qualified, the lead being
+     edited disappeared from behind the form, and cancelling left the filter
+     stuck on a stage nobody had asked to filter by. Owner found it in a minute.
+
+     One parameter cannot mean two things. The proposal now goes to the desk,
+     which holds it as its own state. */
+  const open = (stage: string) => onPropose(lead.id, stage);
 
   return (
     <div className="relative w-[9.5rem]">
