@@ -29,6 +29,7 @@ import { sourceDetail, sourceLabel } from '@/lib/domain/lead-source';
 import { displayPhone, whatsAppDigits } from '@/lib/domain/phone';
 import { relativeAge } from '@/lib/view/relative-age';
 import { cn } from '@/lib/utils';
+import { leadsPageAction } from '@/app/actions/crm-leads';
 import { AddLead, type AddLeadProject, type AddLeadProperty } from './add-lead';
 import { LeadDrawer } from './lead-drawer';
 import { RecordOutcome } from './record-outcome';
@@ -153,6 +154,79 @@ export function MyLeadsDesk({
   if (addWish !== undefined && addWish === urlAdd) setAddWish(undefined);
   const addOpen = addWish === undefined ? urlAdd : addWish;
 
+  /* ── ⚠️ TURNING A PAGE FETCHES THE ROWS, NOT THE PAGE ────────────────────
+     Owner, 2026-09-15: *"Why is the pagination taking time to render? Why is it
+     not on the client side?"*
+
+     Measured before answering. A page number lives in the URL, so changing it
+     re-rendered the whole route — nine queries, of which eight cannot be altered
+     by a page change at all:
+
+         the whole page re-rendering    1477 ms
+         only the rows that change       486 ms   (67% of it was waste)
+
+     Page 2's rows genuinely are not on the client and have to be asked for.
+     Everything else was already here. So the pager calls an action that returns
+     ROWS ONLY, drops them into state, and lets the URL catch up behind — so a
+     reload and the back button still land on the right page.
+
+     ⚠️ THE SERVER'S ROWS WIN AGAIN THE MOMENT A FILTER CHANGES. `signature`
+     below is what this local copy was fetched under; when the props arrive with
+     a different one — a new filter, a new project, a recorded outcome — the
+     local copy is dropped rather than shown against the wrong question. Without
+     that, filtering to Overdue would keep showing the page of rows fetched
+     before it. */
+  const signature = JSON.stringify([
+    selectedProjectId,
+    filters.stage,
+    filters.search,
+    filters.due,
+    total,
+  ]);
+  const [local, setLocal] = React.useState<{
+    sig: string;
+    page: number;
+    rows: readonly CrmLeadRow[];
+  } | null>(null);
+
+  if (local && local.sig !== signature) setLocal(null);
+
+  const shownRows = local?.rows ?? rows;
+  const shownPage = local?.page ?? page;
+
+  const goToPage = React.useCallback(
+    (n: number) => {
+      const next = new URLSearchParams(search.toString());
+      if (n <= 1) next.delete('page');
+      else next.set('page', String(n));
+
+      startTransition(() => {
+        void leadsPageAction(
+          selectedProjectId,
+          {
+            stage: filters.stage,
+            temperature: null,
+            formId: null,
+            search: filters.search,
+            due: filters.due,
+          },
+          n,
+          perPage,
+        ).then((got) => {
+          /* ⚠️ NULL MEANS THE ACTION FAILED, AND THE TABLE KEEPS WHAT IT HAS.
+             The URL still moves, so the ordinary navigation renders the right
+             page a moment later — slower, and always correct. */
+          if (got) setLocal({ sig: signature, page: n, rows: got.rows });
+        });
+
+        /* ⚠️ `replace`, NOT `push`. Ten pages of a list should not put ten
+            entries in the history for Back to walk through one at a time. */
+        router.replace(`/my-leads?${next.toString()}` as Route);
+      });
+    },
+    [router, search, selectedProjectId, filters.stage, filters.search, filters.due, perPage, signature],
+  );
+
   /* ── ⚠️ THE PROPOSED STAGE IS THE DESK'S STATE, NOT A URL PARAMETER ──────
      It used to ride in `?stage=`, which is the list's own filter — see
      `StageChooser`. Holding it here means it cannot collide with anything, it
@@ -239,7 +313,7 @@ export function MyLeadsDesk({
   }, [router, search]);
 
   const shellRow = openLead && record?.lead.id !== openLead
-    ? rows.find((r) => r.id === openLead)
+    ? shownRows.find((r) => r.id === openLead)
     : undefined;
 
   const openAdd = () => {
@@ -256,7 +330,11 @@ export function MyLeadsDesk({
      yet — the bulk bar is the next phase — but the control is real, because the
      owner asked for it and a checkbox that does not tick is worse than none. */
   const [ticked, setTicked] = React.useState<ReadonlySet<string>>(new Set());
-  const shown = React.useMemo(() => rows.map((r) => r.id), [rows]);
+  /* ⚠️ THE IDS ON SCREEN, not the server's last set. After a client-side page
+     turn these differ, and "select every lead on this page" reading the stale
+     list would tick rows the person cannot see — which is how somebody
+     bulk-changes the wrong eight leads. */
+  const shown = React.useMemo(() => shownRows.map((r) => r.id), [shownRows]);
   const allTicked = shown.length > 0 && shown.every((id) => ticked.has(id));
   const onTick = (id: string, on: boolean) =>
     setTicked((prev) => {
@@ -267,7 +345,9 @@ export function MyLeadsDesk({
     });
 
   const assigned = counts.assigned ?? total;
-  const from = total === 0 ? 0 : (page - 1) * perPage + 1;
+  /* "Showing 9–16 of 21" has to follow the page actually on screen, not the one
+     the URL is still catching up to. */
+  const shownFrom = total === 0 ? 0 : (shownPage - 1) * perPage + 1;
   const pageCount = Math.max(1, Math.ceil(total / perPage));
 
   return (
@@ -293,8 +373,8 @@ export function MyLeadsDesk({
         <RecordOutcome
           key={outcomeFor.id}
           leadId={outcomeFor.id}
-          leadName={rows.find((r) => r.id === outcomeFor.id)?.fullName ?? 'this lead'}
-          currentStage={rows.find((r) => r.id === outcomeFor.id)?.stage ?? 'new'}
+          leadName={shownRows.find((r) => r.id === outcomeFor.id)?.fullName ?? 'this lead'}
+          currentStage={shownRows.find((r) => r.id === outcomeFor.id)?.stage ?? 'new'}
           proposedStage={outcomeFor.stage}
           onClose={closeOutcome}
         />
@@ -546,7 +626,7 @@ export function MyLeadsDesk({
               </tr>
             </thead>
             <tbody>
-              {rows.map((lead) => (
+              {shownRows.map((lead) => (
                 <Row
                   key={lead.id}
                   lead={lead}
@@ -565,11 +645,11 @@ export function MyLeadsDesk({
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Pagination
-          page={page}
+          page={shownPage}
           pageCount={pageCount}
-          onPage={(n) => setParam('page', String(n))}
-          from={from}
-          to={from === 0 ? 0 : from + rows.length - 1}
+          onPage={goToPage}
+          from={shownFrom}
+          to={shownFrom === 0 ? 0 : shownFrom + shownRows.length - 1}
           total={total}
           label="leads"
         />
@@ -947,10 +1027,21 @@ function Row({
                 has to carry the meaning for anybody who cannot separate the
                 hues — colour alone is not a state. A paused sequence gets amber
                 and its own glyph for the same reason. */}
-            {/* ⚠️ 24px IN A FIXED BOX, matching the conversation column beside
-                it. Same size for the same reason — these state glyphs are read
-                before the words — and a fixed box so the text starts at the same
-                offset whichever glyph is drawn. */}
+            {/* ── ⚠️ 20px GLYPH IN A 24px BOX, AND THE MISMATCH IS THE POINT ──
+                Owner, 2026-09-15: *"these sizes of exclamation marks and the
+                calendar-like ball icon are a little bigger so it's looking
+                awkward now."* Right, and the reason is worth keeping:
+
+                A brand tile is a FILLED shape — ink to its own edges, reading at
+                roughly its nominal size. A lucide glyph is an OUTLINE on a
+                transparent square, and its strokes push to the very corners, so
+                at the same nominal size it occupies visibly more room and shouts.
+                Setting both to 24 made the line glyphs the loudest thing in a row
+                whose logos were supposed to lead.
+
+                So: filled marks (source, WhatsApp) stay 24. Line glyphs sit at 20
+                INSIDE a 24px box — the box keeps every row's text starting at the
+                same offset, which is what the column alignment depends on. */}
             <span
               aria-hidden="true"
               className="mt-px flex size-6 shrink-0 items-center justify-center"
@@ -963,11 +1054,11 @@ function Row({
               }}
             >
               {late ? (
-                <AlertTriangle className="size-6" />
+                <AlertTriangle className="size-5" />
               ) : lead.sequenceState === 'paused' ? (
-                <PauseCircle className="size-6" />
+                <PauseCircle className="size-5" />
               ) : (
-                <CalendarDays className="size-6" />
+                <CalendarDays className="size-5" />
               )}
             </span>
             <span className="min-w-0">

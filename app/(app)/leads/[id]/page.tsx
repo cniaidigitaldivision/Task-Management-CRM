@@ -1,13 +1,10 @@
 import type { Metadata, Route } from 'next';
 import { notFound } from 'next/navigation';
 
-import { WhatsAppChat } from '@/components/crm/whatsapp-chat';
 import { LeadRecord } from '@/components/crm/lead-record';
 import { requireCrmAccess } from '@/lib/auth/current-user';
-import { whatsAppTokenPresent } from '@/lib/crm/whatsapp';
 import {
   crmLeadInsight,
-  crmLeadThread,
   crmProjectCanWhatsApp,
   crmProjectRoster,
   getCrmLead,
@@ -48,15 +45,15 @@ export default async function LeadPage({
     searchParams,
   ]);
 
-  /* ⚠️ THE THREAD LEAVES WITH THE RECORD. It needs only the lead id, which came
-     from the URL — so waiting for the record first was a whole round trip spent
-     on a dependency that does not exist. Both run under `withUser`, so a lead
-     that is not theirs returns nothing from both and the thread is discarded
-     with the 404 below. */
-  const [record, thread] = await Promise.all([
-    getCrmLead(user.id, id),
-    crmLeadThread(user.id, id),
-  ]);
+  /* ⚠️ THE THREAD IS NO LONGER READ HERE, because nothing on this page renders
+     it since the floating chat was unmounted — and a query whose result is
+     discarded is a round trip to Singapore for nobody. Rule Zero, law 3.
+
+     ⚠️ WHEN THE CHAT COMES BACK, `crmLeadThread(user.id, id)` belongs in THIS
+     Promise.all beside `getCrmLead` — it needs only the id, which is already in
+     hand, so it must not become a second wave. `whatsAppTokenPresent()` goes
+     back with it. The drawer on /my-leads already reads the thread this way. */
+  const record = await getCrmLead(user.id, id);
   if (!record) notFound();
 
   /* ⚠️ EMPTY FOR SOMEBODY WHO DOES NOT MANAGE THIS PROJECT, by migration 124's
@@ -97,7 +94,6 @@ export default async function LeadPage({
      It says whether this deployment could send for any project, a different
      question from whether this project has a number, and the one that was being
      mistaken for it. */
-  const tokenPresent = whatsAppTokenPresent();
 
   return (
     <>
@@ -137,31 +133,27 @@ export default async function LeadPage({
          back to the salesperson's own handset. */
       canWhatsApp={canWhatsApp}
     />
-      <WhatsAppChat
-        leadId={record.lead.id}
-        leadName={record.lead.fullName ?? record.lead.phone ?? 'this lead'}
-        messages={thread}
-        canSend={canWhatsApp && tokenPresent && Boolean(record.lead.phoneE164)}
-        /* ⚠️ ARRIVING FROM THE DESK. The row's WhatsApp icon links here with
-           `?chat=1`, so one click from the list lands on an OPEN conversation
-           rather than on a page with a button still to find. Owner, 2026-09-13:
-           *"It's not opening the chat in the right bottom."* */
-        defaultOpen={query.chat === '1'}
-        /* ⚠️ THREE DIFFERENT FAULTS, THREE DIFFERENT SENTENCES, and the order
-           runs from the most specific outward. Owner, 2026-09-13, on a project
-           that was correctly set up: *"He is saying that there is no number
-           assigned to this project."* It was assigned — the screen was naming a
-           cause it had not checked. A missing deployment variable must not read
-           as a project somebody needs to go and fix. */
-        reason={
-          !record.lead.phoneE164
-            ? 'This lead has no usable number, so nothing can be sent.'
-            : !tokenPresent
-              ? 'This server has no WhatsApp connection configured — META_SYSTEM_USER_TOKEN is missing from the environment. '
-                + 'That is a deployment setting, not anything to fix on this project.'
-              : `${record.lead.projectName} has no WhatsApp number set up yet. An Admin adds it against the project.`
-        }
-      />
+      {/* ── ⚠️ THE FLOATING CHAT IS PARKED, NOT DELETED ─────────────────────
+          Owner, 2026-09-15: *"Please don't show the call in that way. I will
+          tell you next how I want to chat with them. Don't have it pop up from
+          the right bottom."*
+
+          This superseded an earlier instruction of theirs — *"the proper chat
+          will pop up and it should stick to the right bottom, like a proper
+          chatbot"* — which is why the component and its whole send path still
+          exist, and why this comment is here rather than a deletion. Somebody
+          reading `whatsapp-chat.tsx` later will find a working component nobody
+          mounts, and the only thing that explains that is a note saying it is
+          waiting on a design rather than rotting.
+
+          ⚠️ NOTHING ABOUT SENDING WAS REMOVED. The composer, the 24-hour window
+          handling and the recorded thread are untouched; only the bubble that
+          decided WHERE it appeared is unmounted. When the owner says how they
+          want it, it mounts there.
+
+          The conversation itself is still reachable — the drawer's
+          Conversations tab shows the same thread, in the page, which is where
+          the owner asked for lead detail to live. */}
     </>
   );
 }

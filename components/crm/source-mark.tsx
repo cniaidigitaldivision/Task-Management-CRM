@@ -63,6 +63,11 @@ export function SourceMark({ source, size = 24 }: { source: string | null; size?
 
   if (slug) return <PlatformIcon slug={slug} size={size} />;
 
+  /* ⚠️ 20px, NOT 24 — a line glyph beside a filled tile. An outline pushes its
+     strokes to the corners of its square and reads larger than a tile of the
+     same nominal size, so matching the numbers would make the walk-ins and
+     referrals louder than the brands they sit between. The optical size is what
+     has to match, not the figure in the class name. */
   const Plain = (source && PLAIN[source]) || Globe;
-  return <Plain className="size-6 text-text-secondary" aria-hidden="true" />;
+  return <Plain className="size-5 text-text-secondary" aria-hidden="true" />;
 }

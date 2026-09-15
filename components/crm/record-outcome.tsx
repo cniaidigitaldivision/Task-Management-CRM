@@ -85,6 +85,7 @@ export function RecordOutcome({
   const [note, setNote] = React.useState('');
   const [contactConfirmed, setContactConfirmed] = React.useState(false);
   const [pauseSequence, setPauseSequence] = React.useState(true);
+  const [visitLocation, setVisitLocation] = React.useState('');
   const [busy, setBusy] = React.useState(false);
 
   const pickOutcome = (next: string) => {
@@ -130,6 +131,7 @@ export function RecordOutcome({
       note,
       contactConfirmed,
       pauseSequence,
+      visitLocation,
     });
     setBusy(false);
 
@@ -139,7 +141,12 @@ export function RecordOutcome({
       toast({ tone: 'error', text: result.error ?? 'That did not save.' });
       return;
     }
-    toast({ tone: 'ok', text: `Recorded — ${leadName} is now ${stageLabel(stage)}.` });
+    toast({
+      tone: 'ok',
+      text: result.booked
+        ? `Recorded, and the visit is in your diary — ${leadName} is now ${stageLabel(stage)}.`
+        : `Recorded — ${leadName} is now ${stageLabel(stage)}.`,
+    });
     close();
   }
 
@@ -273,6 +280,30 @@ export function RecordOutcome({
               <span className="text-caption leading-relaxed text-text-primary">
                 I checked the number against what they typed. ⚠️ A mistyped digit looks exactly
                 like a wrong number, and closing the lead hides a real person.
+              </span>
+            </label>
+          )}
+
+          {/* ⚠️ ONLY FOR THE ONE OUTCOME THAT PUTS SOMEBODY IN A CAR. Recording
+              "site visit requested" now books a real appointment in the owner's
+              diary (Phase E) — so this is the one moment the form has any
+              business asking where. Every other outcome would be answering a
+              question nobody asked. */}
+          {outcome === 'site_visit_requested' && (
+            <label className="block">
+              <span className="mb-1 block text-micro font-semibold uppercase tracking-wide text-text-tertiary">
+                Where are they visiting?
+              </span>
+              <input
+                type="text"
+                value={visitLocation}
+                onChange={(e) => setVisitLocation(e.target.value)}
+                placeholder="Plot A-101, Block A — or the site office"
+                className="min-h-[2.4rem] w-full rounded-xl border border-border-subtle bg-bg-surface px-3 text-body-sm text-text-primary"
+              />
+              <span className="mt-1 block text-caption leading-relaxed text-text-secondary">
+                The time you set below goes in your diary as a one-hour visit. You can change the
+                length and the place afterwards.
               </span>
             </label>
           )}

@@ -8,21 +8,28 @@ import { notify } from '@/lib/db/queries/feed';
 import {
   addLeadNote,
   assignLead,
+  crmBookAppointment,
+  crmCloseAppointment,
   crmCreateLead,
+  crmDiaryAround,
   crmLeadDuplicates,
   crmNextOwner,
   deleteLeadNote,
   isContactKind,
+  listCrmLeads,
   logLeadContact,
   setLeadNextAction,
   setLeadStage,
   setLeadTemperature,
   unassignedLeadIds,
+  type CrmDiaryEntry,
   type CrmDuplicate,
+  type CrmLeadRow,
 } from '@/lib/db/queries/crm-leads';
 import { isLostReason, isStage, TEMPERATURES } from '@/lib/domain/crm-stages';
 import { OUTCOMES, outcomeProblems } from '@/lib/domain/crm-outcomes';
 import { newLeadProblems } from '@/lib/domain/crm-new-lead';
+import { appointmentProblems, clashesWith } from '@/lib/domain/crm-appointments';
 import { toE164 } from '@/lib/domain/phone';
 
 /* ============================================================================
@@ -394,8 +401,10 @@ export async function recordOutcomeAction(
     note: string;
     contactConfirmed: boolean;
     pauseSequence: boolean;
+    /** Only read when the outcome is `site_visit_requested`. */
+    visitLocation?: string;
   },
-): Promise<LeadWriteResult> {
+): Promise<LeadWriteResult & { booked?: string }> {
   const user = await requireUser();
 
   if (!(OUTCOMES as readonly string[]).includes(input.outcome)) {
@@ -504,9 +513,37 @@ export async function recordOutcomeAction(
 
   if (!moved) return { ok: false, error: NOT_YOURS };
 
+  /* ── ⚠️ "SITE VISIT REQUESTED" PUTS THE VISIT IN THE DIARY ────────────────
+     Recording that outcome and leaving nothing behind but a reminder was the
+     gap Phase E exists to close. A next action says *I should ring them
+     Tuesday*; a client who asked to see a plot is coming on Tuesday, and
+     somebody has to be there.
+
+     ⚠️ BOOKED AFTER THE OUTCOME, IN ITS OWN TRANSACTION, AND THE ORDER IS
+     DELIBERATE. If the booking fails the outcome is still recorded and the next
+     action still stands — a salesperson loses a diary entry, not the note of
+     what the client said. The other order would risk the reverse, which is
+     worse: a visit in the diary that no timeline explains. */
+  let booked: string | undefined;
+  if (input.outcome === 'site_visit_requested' && input.nextActionAt && !closing) {
+    const appt = await crmBookAppointment(user.id, {
+      leadId,
+      kind: 'site_visit',
+      scheduledAt: input.nextActionAt,
+      durationMinutes: 60,
+      /* ⚠️ The form asks for it only on this outcome; empty is allowed here
+         because the visit itself is the fact worth keeping, and a place can be
+         added before the day. `appointmentProblems` insists on one for a
+         booking made through the booking form, where there is room to ask. */
+      location: input.visitLocation?.trim() || null,
+      note: input.note.trim() || null,
+    });
+    booked = appt?.id;
+  }
+
   refresh(leadId);
   revalidatePath('/my-leads');
-  return { ok: true };
+  return { ok: true, booked };
 }
 
 /* ============================================================================
@@ -687,5 +724,226 @@ export async function createLeadAction(input: {
     const refusal = refusalFor(err);
     if (refusal) return { ok: false, error: refusal };
     throw err;
+  }
+}
+
+/* ============================================================================
+ * APPOINTMENTS — Phase E
+ * ----------------------------------------------------------------------------
+ * ⚠️ AN APPOINTMENT IS NOT A NEXT ACTION. `next_action_at` is a note to self:
+ * *ring them Tuesday*. This is a promise to somebody else: *they are coming to
+ * the site at 4pm and someone has to be there.* Only one of those has a second
+ * person's afternoon in it, which is why it has a duration, a place, an owner
+ * and an outcome — and why booking one is its own action rather than a field.
+ * ========================================================================= */
+
+export interface BookResult {
+  readonly ok: boolean;
+  readonly error?: string;
+  readonly id?: string;
+  /** Said out loud, never a refusal — see `clashesWith`. */
+  readonly clash?: string;
+}
+
+/**
+ * What else is in the diary near a proposed time, so the form can say so before
+ * anybody commits to it.
+ *
+ * ⚠️ AN EMPTY LIST ON FAILURE, NEVER A THROW. This runs while somebody is still
+ * choosing a time; a rejected promise would put an error banner on a half-filled
+ * form. The worst case of a silent failure is a clash warned about late rather
+ * than early — and the booking itself is unaffected either way.
+ */
+export async function diaryAroundAction(whenIso: string): Promise<{ entries: CrmDiaryEntry[] }> {
+  const user = await requireUser();
+  if (!whenIso || Number.isNaN(Date.parse(whenIso))) return { entries: [] };
+  try {
+    return { entries: await crmDiaryAround(user.id, whenIso) };
+  } catch {
+    return { entries: [] };
+  }
+}
+
+export async function bookAppointmentAction(input: {
+  leadId: string;
+  kind: string;
+  scheduledAt: string | null;
+  durationMinutes: number;
+  location: string;
+  note: string;
+}): Promise<BookResult> {
+  const user = await requireUser();
+
+  /* ⚠️ THE SAME RULES THE FORM SHOWS, RE-RUN HERE. The form's copy spares
+     somebody a refusal after filling a panel in; this one is the rule, and a
+     client that skips the form gets the same answer. */
+  const problems = appointmentProblems(
+    {
+      kind: input.kind,
+      scheduledAt: input.scheduledAt,
+      durationMinutes: input.durationMinutes,
+      location: input.location,
+      note: input.note,
+    },
+    Date.now(),
+  );
+  if (problems.length > 0) return { ok: false, error: problems[0] };
+
+  const booked = await crmBookAppointment(user.id, {
+    leadId: input.leadId,
+    kind: input.kind,
+    scheduledAt: input.scheduledAt!,
+    durationMinutes: input.durationMinutes,
+    location: input.location.trim() || null,
+    note: input.note.trim() || null,
+  });
+
+  /* ⚠️ NULL MEANS RLS REFUSED THE LEAD — the insert selected no row rather than
+     raising, so there is nothing to catch and nothing to report as a fault. */
+  if (!booked) return { ok: false, error: NOT_YOURS };
+
+  refresh(input.leadId);
+  revalidatePath('/my-leads');
+
+  /* ⚠️ THE CLASH IS CHECKED AFTER THE BOOKING, ON PURPOSE. Checking first and
+     refusing would make the system wrong more often than the person: a colleague
+     covers one, a visit runs next door to the last, the salesperson intends to
+     move the other. So it books, then says what else is in that hour — the
+     person decides, with the booking already safe. */
+  let clash: string | undefined;
+  try {
+    const around = await crmDiaryAround(user.id, input.scheduledAt!);
+    const others = around
+      .filter((a) => a.id !== booked.id)
+      .map((a) => ({
+        startMs: Date.parse(a.scheduledAt),
+        minutes: a.durationMinutes,
+        status: a.status,
+      }));
+    if (
+      clashesWith(
+        { startMs: Date.parse(input.scheduledAt!), minutes: input.durationMinutes },
+        others,
+      )
+    ) {
+      clash = 'You already have something booked in that hour. Both are saved — move one if you need to.';
+    }
+  } catch {
+    /* A clash we failed to look for is not a reason to hide a successful
+       booking. */
+  }
+
+  return { ok: true, id: booked.id, clash };
+}
+
+export async function closeAppointmentAction(
+  appointmentId: string,
+  leadId: string,
+  status: string,
+  outcome: string,
+): Promise<LeadWriteResult> {
+  const user = await requireUser();
+
+  if (!['completed', 'no_show', 'cancelled'].includes(status)) {
+    return { ok: false, error: 'That is not something an appointment can become.' };
+  }
+
+  /* ⚠️ A COMPLETED APPOINTMENT NEEDS AN OUTCOME, and migration 152 says so with
+     a CHECK. Refusing here first turns a constraint violation into a sentence
+     somebody can act on. "It happened" with nothing recorded is the same as not
+     recording it — and what happened at the visit is what moves the lead. */
+  if (status === 'completed' && !outcome.trim()) {
+    return { ok: false, error: 'Say what happened at the visit. That is the part worth keeping.' };
+  }
+
+  const done = await crmCloseAppointment(
+    user.id,
+    appointmentId,
+    status as 'completed' | 'no_show' | 'cancelled',
+    outcome.trim() || null,
+  );
+  if (!done) return { ok: false, error: NOT_YOURS };
+
+  refresh(leadId);
+  revalidatePath('/my-leads');
+  return { ok: true };
+}
+
+/* ============================================================================
+ * TURNING A PAGE
+ * ----------------------------------------------------------------------------
+ * Owner, 2026-09-15: *"Why is the pagination taking time to render? Why is
+ * everything taking time to render? Why is it not on the client side?"*
+ *
+ * ⚠️ MEASURED BEFORE ANSWERING. One click on "next page" re-ran NINE queries —
+ * the project list, the counts, the owner options, the Add Lead data, the
+ * property catalogue and the drawer's three — because a page number lives in the
+ * URL and changing the URL re-renders the whole route.
+ *
+ *     the whole page re-rendering (9 queries)   1477 ms
+ *     only the rows that actually change        486 ms
+ *     ─────────────────────────────────────────────────
+ *     67% of it was fetching things a page change cannot alter.
+ *
+ * The rows themselves genuinely have to come from the database — page 2 is not
+ * on the client and cannot be. What was avoidable is everything else.
+ *
+ * ⚠️ SO THIS RETURNS ROWS AND NOTHING ELSE, and the desk swaps them into state.
+ * No navigation, no re-render of the page around them; the URL catches up behind
+ * so a reload and the back button still land on the right page. Rule Zero, law 3
+ * — never re-fetch what is already on the page.
+ * ========================================================================= */
+
+export async function leadsPageAction(
+  projectId: string | null,
+  filters: {
+    stage: string | null;
+    temperature: string | null;
+    formId: string | null;
+    search: string | null;
+    due: string | null;
+  },
+  page: number,
+  perPage: number,
+): Promise<{ rows: CrmLeadRow[]; total: number } | null> {
+  const user = await requireUser();
+
+  /* ⚠️ VALIDATED, NOT TRUSTED — the same whitelisting the page does. These
+     arrive from a client and `stage` reaches SQL as an enum comparison, where an
+     unknown value is a 500 rather than an empty list. */
+  const safePage = Math.max(1, Math.floor(page) || 1);
+  const safePer = Math.min(50, Math.max(1, Math.floor(perPage) || 8));
+
+  try {
+    const data = await listCrmLeads(
+      user.id,
+      projectId,
+      {
+        stage: filters.stage && isStage(filters.stage) ? filters.stage : null,
+        ownerId: null,
+        temperature: filters.temperature ?? null,
+        formId: filters.formId ?? null,
+        search: filters.search ?? null,
+        from: null,
+        to: null,
+        due: ['overdue', 'today', 'no-plan', 'waiting', 'upcoming', 'closed'].includes(
+          filters.due ?? '',
+        )
+          ? (filters.due ?? null)
+          : null,
+        /* ⚠️ HARD TRUE, exactly as the page has it. This action is reachable
+           from a client, so the one rule that makes this "my leads" cannot be
+           something the caller supplies. */
+        mine: true,
+      },
+      safePer,
+      (safePage - 1) * safePer,
+    );
+    return { rows: data.rows as CrmLeadRow[], total: data.total };
+  } catch {
+    /* ⚠️ NULL, AND THE DESK KEEPS THE ROWS IT HAS. A failed page turn must not
+       blank a table somebody is reading — it falls back to the navigation, which
+       is slower and always works. */
+    return null;
   }
 }

@@ -2032,3 +2032,210 @@ export async function crmProjectProperties(
     price: r.base_price === null ? null : Number(r.base_price),
   }));
 }
+
+/* ============================================================================
+ * APPOINTMENTS — Phase E
+ * ----------------------------------------------------------------------------
+ * ⚠️ NO DEFINER HERE, AND THAT IS CORRECT. `crm_appointments_write` (152) is a
+ * row-local check — *you may write an appointment on a lead you can read* — and
+ * needs no project membership, unlike `projects_select`. So these run as the
+ * caller and RLS answers exactly as it should: a salesperson books on their own
+ * leads and nobody else's, with no second copy of the visibility rule to keep in
+ * step. Compare `crmAddLeadProjects`, which genuinely needed one.
+ * ========================================================================= */
+
+export interface CrmDiaryEntry {
+  readonly id: string;
+  readonly leadId: string;
+  readonly leadName: string | null;
+  readonly kind: string;
+  readonly status: string;
+  readonly scheduledAt: string;
+  readonly durationMinutes: number;
+  readonly location: string | null;
+  readonly propertyLabel: string | null;
+  readonly outcome: string | null;
+}
+
+/**
+ * What else is already in this person's diary around a given moment.
+ *
+ * ⚠️ READ BEFORE BOOKING, so the form can say "you already have something then"
+ * while somebody can still change it. A window either side rather than the exact
+ * slot, because a clash is about SPANS overlapping — see `clashesWith`.
+ */
+export async function crmDiaryAround(
+  actorId: string,
+  aroundIso: string,
+  hours = 12,
+): Promise<CrmDiaryEntry[]> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select a.id, a.lead_id, a.kind::text, a.status::text, a.scheduled_at,
+           a.duration_minutes, a.location, a.outcome,
+           l.full_name as lead_name
+      from public.crm_appointments a
+      join public.crm_leads l on l.id = a.lead_id
+     where a.owner_id = app.current_user_id()
+       and a.scheduled_at between ${aroundIso}::timestamptz - make_interval(hours => ${hours})
+                              and ${aroundIso}::timestamptz + make_interval(hours => ${hours})
+     order by a.scheduled_at
+  `);
+  return (rows as Array<Record<string, unknown>>).map(toDiaryEntry);
+}
+
+/**
+ * This person's upcoming appointments — the "Today's plan" rail.
+ *
+ * ⚠️ FROM THE START OF TODAY IN KARACHI, not from `now()`. A visit at 9am is
+ * still today's business at 10am, and a rail that dropped it the moment it began
+ * would empty itself over the course of the morning — which is exactly when
+ * somebody is looking at it.
+ */
+export async function crmMyDiary(actorId: string, days = 7): Promise<CrmDiaryEntry[]> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select a.id, a.lead_id, a.kind::text, a.status::text, a.scheduled_at,
+           a.duration_minutes, a.location, a.outcome,
+           l.full_name as lead_name,
+           (select concat_ws(' · ',
+              nullif(concat_ws(' ',
+                case when p.size_marla is not null
+                     then trim(trailing '.' from to_char(p.size_marla, 'FM999999.99')) || ' Marla' end,
+                initcap(substring(p.kind from '[^ ]+$'))), ''),
+              nullif(concat_ws(', ', p.plot_number,
+                case when p.block is not null then 'Block ' || p.block end), ''))
+            from public.crm_properties p where p.id = a.property_id) as property_label
+      from public.crm_appointments a
+      join public.crm_leads l on l.id = a.lead_id
+     where a.owner_id = app.current_user_id()
+       and a.status not in ('cancelled', 'rescheduled')
+       and a.scheduled_at >= date_trunc('day', now() at time zone 'Asia/Karachi') at time zone 'Asia/Karachi'
+       and a.scheduled_at < (date_trunc('day', now() at time zone 'Asia/Karachi') + make_interval(days => ${days})) at time zone 'Asia/Karachi'
+     order by a.scheduled_at
+     limit 100
+  `);
+  return (rows as Array<Record<string, unknown>>).map(toDiaryEntry);
+}
+
+function toDiaryEntry(r: Record<string, unknown>): CrmDiaryEntry {
+  return {
+    id: String(r.id),
+    leadId: String(r.lead_id),
+    leadName: (r.lead_name as string | null) ?? null,
+    kind: String(r.kind),
+    status: String(r.status),
+    scheduledAt: new Date(r.scheduled_at as string).toISOString(),
+    durationMinutes: Number(r.duration_minutes ?? 60),
+    location: (r.location as string | null) ?? null,
+    propertyLabel: (r.property_label as string | null) ?? null,
+    outcome: (r.outcome as string | null) ?? null,
+  };
+}
+
+export interface BookAppointment {
+  readonly leadId: string;
+  readonly kind: string;
+  readonly scheduledAt: string;
+  readonly durationMinutes: number;
+  readonly location: string | null;
+  readonly note: string | null;
+}
+
+/**
+ * Put it in the diary.
+ *
+ * ⚠️ THE PROJECT AND THE OWNER COME FROM THE LEAD, NOT FROM THE CALLER. Both are
+ * columns on `crm_appointments` and both could have been arguments — and then a
+ * client could book a visit on their own lead into somebody else's diary, or
+ * file it under a project the lead does not belong to. Reading them from the
+ * lead row, inside the same transaction, is what makes those two states
+ * unreachable rather than merely unlikely.
+ *
+ * ⚠️ AND THE PROPERTY COMES FROM THE LEAD TOO. A site visit is to the unit the
+ * lead is asking about; letting the caller name a different one would produce a
+ * visit to a plot nobody discussed.
+ */
+export async function crmBookAppointment(
+  actorId: string,
+  input: BookAppointment,
+): Promise<{ id: string } | null> {
+  return withUser(actorId, async (tx) => {
+    const rows = await tx`
+      insert into public.crm_appointments
+        (lead_id, project_id, property_id, kind, scheduled_at, duration_minutes,
+         location, notes, owner_id, created_by_id, is_test_data)
+      select l.id, l.project_id, l.property_id,
+             ${input.kind}::public.crm_appointment_kind,
+             ${input.scheduledAt}::timestamptz,
+             ${input.durationMinutes}::int,
+             ${input.location}::text,
+             ${input.note}::text,
+             /* ⚠️ The LEAD'S owner, so it lands in the diary of whoever has to
+                turn up. A manager booking on somebody's behalf books it for
+                them, which is the only reading that makes a rail useful. */
+             l.owner_id,
+             ${actorId}::uuid,
+             l.is_test_data
+        from public.crm_leads l
+       where l.id = ${input.leadId}::uuid
+      returning id`;
+
+    /* ⚠️ ZERO ROWS MEANS RLS REFUSED THE LEAD, not that something broke. The
+       insert...select simply selects nothing when the lead is not visible, so
+       there is no exception to catch — the same shape `setLeadStage` documents,
+       and the reason this returns null rather than throwing. */
+    const id = (rows as Array<Record<string, unknown>>)[0]?.id;
+    if (!id) return null;
+
+    await tx`
+      insert into public.crm_lead_activity (lead_id, actor_id, kind, occurred_at, detail)
+      values (
+        ${input.leadId}::uuid, ${actorId}::uuid, 'next_action_set', now(),
+        ${tx.json({
+          appointment: String(id),
+          kind: input.kind,
+          at: input.scheduledAt,
+          location: input.location,
+        })}
+      )`;
+
+    return { id: String(id) };
+  });
+}
+
+/**
+ * Record what happened at one.
+ *
+ * ⚠️ `outcome_at` IS SET HERE AND NOT BY THE CALLER — migration 152 refuses a
+ * completed appointment without one, and a caller that forgot it would get a
+ * check violation rather than a helpful refusal. The database's rule and this
+ * function's behaviour are the same rule, stated once each.
+ */
+export async function crmCloseAppointment(
+  actorId: string,
+  appointmentId: string,
+  status: 'completed' | 'no_show' | 'cancelled',
+  outcome: string | null,
+): Promise<boolean> {
+  const rows = await withUser(actorId, (tx) => tx`
+    update public.crm_appointments
+       set status = ${status}::public.crm_appointment_status,
+           outcome = ${outcome}::text,
+           /* ⚠️ DECIDED IN SQL, NOT INTERPOLATED. A ternary that yields the
+              string now() would send it as a literal, and Postgres cannot parse
+              that as a timestamp — so every completion would have failed with a
+              cast error. (The bare word now, without brackets, WOULD have parsed
+              and meant something subtly different, which is worse.)
+
+              ⚠️ AND NO BACKTICKS IN THIS COMMENT. This file is one template
+              literal; a stray backtick ends the string and the error surfaces
+              hundreds of lines away as a missing comma. It has happened five
+              times here, including inside the comment warning about it.
+
+              Cancelled carries no time because 152 only demands one for
+              completed and no_show. */
+           outcome_at = case when ${status}::text = 'cancelled' then null else now() end,
+           updated_at = now()
+     where id = ${appointmentId}::uuid
+     returning id`);
+  return (rows as unknown[]).length > 0;
+}
