@@ -17,6 +17,7 @@ export const TODO_KINDS = [
   'record_visit',
   'approve_quotation',
   'send_quotation',
+  'follow_up',
 ] as const;
 
 export type TodoKind = (typeof TODO_KINDS)[number];
@@ -30,6 +31,10 @@ const LABEL: Record<TodoKind, string> = {
   record_visit: 'Write up what happened',
   approve_quotation: 'Approve or refuse a discount',
   send_quotation: 'Send the approved quotation',
+  /* ⚠️ "Send the chase" rather than "Follow up" — the engine has already decided
+     WHAT to say and WHEN; what is left for a person is pressing send on a step
+     the machine is not allowed to send itself. */
+  follow_up: 'Send the next chase',
 };
 
 /* Design tokens, not colours. ⚠️ `first_contact` is the only one that ever wears
@@ -42,6 +47,7 @@ const TOKEN: Record<TodoKind, string> = {
   record_visit: 'gold-700',
   approve_quotation: 'gold-700',
   send_quotation: 'feedback-success',
+  follow_up: 'accent-primary',
 };
 
 export function todoLabel(kind: string): string {

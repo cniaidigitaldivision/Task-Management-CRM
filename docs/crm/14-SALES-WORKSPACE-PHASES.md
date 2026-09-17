@@ -258,7 +258,7 @@ arguing about their own number.
 
 ---
 
-### Phase G · Follow-up sequences
+### Phase G · Follow-up sequences — ⚙️ ENGINE BUILT 2026-09-17, NOTHING CAN SEND YET
 *Depends on: D. Unlocks `Sequence paused` and the green banner. Lifecycle Phase 6.*
 
 `crm_sequence_steps` and a scheduler on top of migration 147's state.

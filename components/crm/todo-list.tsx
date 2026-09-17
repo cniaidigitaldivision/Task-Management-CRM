@@ -37,6 +37,7 @@ const ICON: Record<string, typeof CalendarClock> = {
   record_visit: ClipboardCheck,
   approve_quotation: FileCheck2,
   send_quotation: Send,
+  follow_up: Send,
 };
 
 /* ⚠️ WHERE EACH KIND IS ACTUALLY DONE. A to-do that opened the wrong screen

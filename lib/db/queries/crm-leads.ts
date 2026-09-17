@@ -2814,7 +2814,8 @@ export type CrmTodoKind =
   | 'appointment'
   | 'record_visit'
   | 'approve_quotation'
-  | 'send_quotation';
+  | 'send_quotation'
+  | 'follow_up';
 
 export interface CrmTodo {
   /** Stable across refreshes: the kind plus the row it was derived from. */
@@ -2908,6 +2909,23 @@ export async function crmMyTodos(actorId: string, aheadDays = 7): Promise<CrmTod
      where q.status = 'approved'
        and q.sent_at is null
        and q.prepared_by_id = me.id
+
+    union all
+    /* 7 · A sequence step the engine decided a HUMAN should handle — 170.
+       ⚠️ auto_send IS DELIBERATELY ABSENT. Those go out by machine; putting
+       them here would ask somebody to do work that is already being done, and a
+       list with items nobody needs to action is a list people stop clearing.
+       What lands here is a step on a channel the engine cannot send (a call), or
+       free text outside the 24-hour window, which a real business number would
+       refuse. */
+    select 'follow_up', f.id::text, f.lead_id, l.full_name, l.project_id,
+           coalesce(nullif(f.title, ''), initcap(replace(f.purpose::text, '_', ' '))),
+           f.due_at
+      from public.crm_follow_ups f
+      join public.crm_leads l on l.id = f.lead_id, me
+     where f.assigned_to_id = me.id
+       and f.status = 'due'
+       and f.mode in ('remind_me', 'review_first')
   `);
 
   /* ⚠️ THE PROJECT NAME COMES FROM THE DEFINER, resolved after the union rather

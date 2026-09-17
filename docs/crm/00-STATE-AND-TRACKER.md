@@ -9,7 +9,67 @@
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
 | **Last updated** | **2026-09-16** |
-| **Last migration applied anywhere** | **169** (verified against the live database, not remembered). CRM next: **170.** |
+| **Last migration applied anywhere** | **170** (verified against the live database, not remembered). CRM next: **171.** |
+
+---
+
+## 🔁 2026-09-17 — PHASE G · THE SEQUENCE ENGINE · migration 170
+
+153 built four tables and **nothing had ever advanced them.** This is the
+machinery that moves them.
+
+### ⚠️ The architecture decision: the scheduler QUEUES, it never SENDS
+
+Postgres cannot call Meta's API and should not try. `pg_cron` decides what is due
+and writes a `crm_follow_ups` row; a route outside picks those up and sends. That
+split is what makes every rule below testable without a network, and what stops a
+failed HTTP call rolling back a sequence's state.
+
+⚠️ **AND `mode` ALREADY SAID WHO ACTS** — 153 gave follow-ups `remind_me`,
+`review_first`, `auto_send`. Only the last goes by machine; the other two land on
+**`/todos`**, which is exactly where a salesperson already looks. The two pieces
+fitted without either being changed for the other.
+
+### What it enforces
+
+| Rule | How |
+|---|---|
+| **Stop-conditions before EVERY send** | `app.crm_sequence_stop_reason()` — closed · opted out · switched off · **client replied** · quotation dead · visit already booked |
+| **A reply PAUSES; everything else STOPS** | Paused can be resumed by somebody who has read the reply. A closed lead does not become live again by waiting |
+| **The 24-hour window** | `app.crm_window_is_open()` — arithmetic over `crm_lead_messages` |
+| **Quiet hours** | Pushed to morning, never skipped — a dropped step leaves a hole in the sequence |
+| **One chase per lead per day** | ⚠️ Counts only sequence steps. The owner was right: a visit reminder and the quotation itself are **transactional** and are never capped |
+
+⚠️⚠️ **THE WINDOW RULE IS THE ONE THAT WOULD HAVE SHIPPED BROKEN.** Proved live
+2026-09-15: Meta's test number accepted free text **26.3 hours** after the last
+inbound, window shut. A production number refuses it. So an engine that inferred
+the window from whether the API said yes would pass every test and fail silently
+in the field — in the direction that reaches real customers. It is decided from
+our own records **before anything is queued**, and a free-text step outside the
+window is handed to a human rather than attempted at 3am.
+
+**Proved:** 7 self-checks, each building its own fixture: a due step queues, a
+template may send outside the window, free text may not, the daily cap holds, a
+reply pauses within minutes, and a closed lead stops it for good.
+
+### ⚠️ What Phase G still does NOT have
+
+**The engine runs and nothing can reach a client yet.** Three pieces missing:
+
+1. **The sender.** No route picks up `auto_send` rows and calls Meta.
+   `sendTemplate` and `sendText` exist in `lib/crm/whatsapp.ts` (2026-09-15);
+   nothing calls them on a schedule.
+2. **Real templates.** The five on the account are Meta's samples
+   (`jaspers_market_*`). A visit reminder and a quotation follow-up have to be
+   written and submitted — ⚠️ **and now in THREE languages**, one submission
+   each. The owner's afternoon, not a dependency.
+3. **A screen to build a sequence or start one on a lead.** Today both are
+   `insert` statements.
+
+⚠️ **AND QUIET HOURS ARE IN THE OFFICE'S ZONE, NOT THE CLIENT'S.** Karachi/
+Islamabad for everybody. **41 leads sit in the Gulf at PKT-1 to PKT-2** and would
+get a 9am message at 7am. Known, unhandled, and cheap to fix once a lead carries
+an offset — recorded here rather than discovered later.
 
 ---
 
