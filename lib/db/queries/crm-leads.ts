@@ -2961,3 +2961,110 @@ export async function crmMyTodos(actorId: string, aheadDays = 7): Promise<CrmTod
     dueAt: r.due_at ? new Date(r.due_at as string).toISOString() : null,
   }));
 }
+
+/* ============================================================================
+ * EMAIL — migration 175
+ * ----------------------------------------------------------------------------
+ * ⚠️ NO DEFINER. `crm_lead_messages`'s policies (138) are row-local — you may
+ * write a message on a lead you can read — so these run as the caller and RLS
+ * answers exactly as it should.
+ * ========================================================================= */
+
+export interface QuotationForEmail {
+  readonly leadId: string;
+  readonly leadName: string | null;
+  readonly leadEmail: string | null;
+  readonly number: string;
+  readonly version: number;
+  readonly netAmount: number;
+  readonly validUntil: string | null;
+  readonly itemLabel: string | null;
+  readonly itemDetail: string | null;
+  readonly projectName: string | null;
+}
+
+/**
+ * Everything the quotation email needs, in one read.
+ *
+ * ⚠️ IT RETURNS NULL FOR "NOT YOURS" AND FOR "NO SUCH QUOTATION", identically.
+ * A caller that behaved differently for the two would let somebody probe which
+ * quotation ids exist — the same stance `getCrmLead` takes.
+ */
+export async function crmQuotationForEmail(
+  actorId: string,
+  quotationId: string,
+): Promise<QuotationForEmail | null> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select q.number, q.version, q.net_amount, q.valid_until,
+           l.id as lead_id, l.full_name as lead_name, l.email as lead_email,
+           app.crm_project_name(l.project_id) as project_name,
+           p.code as item_code, p.kind as item_kind, p.scope_note,
+           p.plot_number, p.block, p.size_marla
+      from public.crm_quotations q
+      join public.crm_leads l on l.id = q.lead_id
+      left join public.crm_properties p on p.id = q.property_id
+     where q.id = ${quotationId}::uuid
+     limit 1
+  `);
+  const r = (rows as Array<Record<string, unknown>>)[0];
+  if (!r) return null;
+
+  const marla = r.size_marla === null || r.size_marla === undefined
+    ? null
+    : String(Number(r.size_marla)).replace(/\.0+$/, '');
+
+  return {
+    leadId: String(r.lead_id),
+    leadName: (r.lead_name as string | null) ?? null,
+    leadEmail: (r.lead_email as string | null) ?? null,
+    number: String(r.number),
+    version: Number(r.version ?? 1),
+    netAmount: Number(r.net_amount ?? 0),
+    validUntil: r.valid_until ? new Date(r.valid_until as string).toISOString() : null,
+    /* ⚠️ THE SAME SHAPE THE DESK AND THE DRAWER PRINT. A third expression for the
+       same unit would render "5 Marla A-101" in the email and something else on
+       screen, and the client would reasonably ask which plot they were sent. */
+    itemLabel: r.item_code
+      ? [marla ? `${marla} Marla` : null, r.item_kind].filter(Boolean).join(' ') || String(r.item_kind ?? '')
+      : null,
+    /* A service's scope, or a plot's address. ⚠️ Bracketed deliberately —
+       `??` and `||` cannot be mixed, and the precedence somebody assumes here is
+       usually not the one they get. */
+    itemDetail:
+      (r.scope_note as string | null) ??
+      ([r.plot_number, r.block ? `Block ${r.block}` : null].filter(Boolean).join(', ') || null),
+    projectName: (r.project_name as string | null) ?? null,
+  };
+}
+
+/**
+ * Put a sent email into the lead's own thread.
+ *
+ * ⚠️ RECORDED ONLY AFTER IT ACTUALLY WENT. A row written before the send would
+ * show a quotation as delivered that the provider refused, and the salesperson
+ * would stop chasing a client who never received a price.
+ */
+export async function crmRecordSentEmail(
+  actorId: string,
+  input: {
+    leadId: string;
+    subject: string;
+    body: string;
+    messageId: string | null;
+  },
+): Promise<boolean> {
+  const rows = await withUser(actorId, (tx) => tx`
+    insert into public.crm_lead_messages
+      (lead_id, channel, direction, kind, subject, body, email_message_id,
+       status, sent_by_id, occurred_at)
+    select l.id, 'email', 'outbound', 'text',
+           ${input.subject}::text, ${input.body}::text, ${input.messageId}::text,
+           'sent', ${actorId}::uuid, now()
+      from public.crm_leads l
+     where l.id = ${input.leadId}::uuid
+    returning id
+  `);
+  /* ⚠️ ZERO ROWS IS RLS REFUSING THE LEAD, not a fault — the insert...select
+     simply selects nothing, so there is no exception to catch. */
+  return (rows as unknown[]).length === 1;
+}

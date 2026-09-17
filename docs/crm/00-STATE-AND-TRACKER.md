@@ -9,7 +9,72 @@
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
 | **Last updated** | **2026-09-16** |
-| **Last migration applied anywhere** | **174** (verified against the live database, not remembered). CRM next: **175.** |
+| **Last migration applied anywhere** | **175** (verified against the live database, not remembered). CRM next: **176.** |
+
+---
+
+## ✉️ 2026-09-17 — "CONVERSATION" NOW MEANS BOTH CHANNELS · migration 175
+
+> Owner: *"You didn't implement the email services… the proposal and the
+> quotation, each time sent by WhatsApp and also auto-sent by email."*
+
+Right, and it had never been wired. ⚠️ **The mailer itself was already there and
+capable** — Resend, a verified `EMAIL_FROM`, `lib/email/send.ts`, and PDF
+attachments already used by invoices. What did not exist was any lead email at
+all. The plumbing was built; the pipe to the CRM was not.
+
+⚠️ **ONE THREAD, NOT TWO TABLES.** `crm_lead_messages` gains `channel`,
+`subject` and `email_message_id`. A `crm_lead_emails` table would mean every
+conversation screen merges two sources and sorts them by hand, and the day they
+disagree is the day somebody reads a reply before the message it answers.
+
+⚠️ **A WHATSAPP MESSAGE MAY NOT CARRY A SUBJECT — enforced by a CHECK.**
+`15-MY-LEADS-PHASE.md` refused to invent one: *"Subjects are an email concept…
+showing a fabricated one would be inventing content."* Now that emails are real,
+the column is real for them alone.
+
+⚠️ **AND THE GRANT WAS THE 166 TRAP AGAIN.** `cni_app` holds a COLUMN-LEVEL
+insert grant on this table, so all three new columns were unwritable by the
+application until named. Every email the CRM sends goes through that insert.
+
+### ⚠️ Two bugs, and only one of them was findable by a test
+
+**1 · `sendEmail` RETURNS its failure, it does not throw.** Written first as a
+try/catch, which would have reported **every failed send as a success** — a
+missing API key, a rejected address and a provider error all come back as
+`{ sent: false, reason }` and none of them raise. The thread would then have
+carried *"sent"* against an email nobody received: a salesperson believing the
+client has the price, and no longer chasing.
+
+**2 · ⚠️ THE EMAIL WAS BRANDED AS THE WRONG COMPANY, and only the screenshot
+caught it.** Built on Taskly's shared shell, a quotation **from Chitral Royal
+Homes** arrived headed *"Taskly · AI & Digital Division"* with a footer reading
+*"if you were not expecting this you may safely ignore this email"* — our
+internal tool's branding, and a password-reset footer, on a document carrying a
+price to somebody else's customer.
+
+**Every other email this system sends is FROM Taskly TO a colleague. This one is
+from a CLIENT'S BUSINESS to their customer**, which is a different letter
+entirely. It now has the CRM's own shell, carries the business name, and borrows
+only `esc` and `para` — which also means one less thing to unpick when the module
+is lifted. Pinned by tests that assert Taskly's name never appears.
+
+⚠️ **AND IT IS STILL NOT THE LETTERHEAD.** `crm_project_settings.letterhead_path`
+exists (171) and is **NULL for all 18 projects**. Until one is uploaded the email
+prints the business NAME in plain type — honest, and visibly not a letterhead,
+rather than a generated one pretending to be the client's.
+
+### Still to do on email
+
+- **The proposal**, as opposed to the quotation. Same machinery, different words.
+- **Auto-send alongside WhatsApp** — the action exists and is called by hand;
+  nothing yet sends both from one press.
+- **Inbound email.** Nothing receives a reply, so a client who answers by mail
+  answers into a void. ⚠️ Worth knowing before the first one is sent.
+- **The PDF** — `pdf_path` unused, `pdf-lib` already a dependency.
+- ⚠️ **640 of 641 real leads have no email address at all**, because Meta's form
+  never asked for one. The action refuses with a sentence naming the fix rather
+  than an error.
 
 ---
 

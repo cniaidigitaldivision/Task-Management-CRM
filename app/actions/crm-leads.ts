@@ -23,6 +23,8 @@ import {
   listCrmLeads,
   logLeadContact,
   setLeadNextAction,
+  crmQuotationForEmail,
+  crmRecordSentEmail,
   saveQualification,
   setLeadStage,
   setLeadTemperature,
@@ -41,6 +43,8 @@ import { newLeadProblems } from '@/lib/domain/crm-new-lead';
 import { appointmentProblems, clashesWith } from '@/lib/domain/crm-appointments';
 import { needsApproval, quotationProblems, toRupees } from '@/lib/domain/crm-quotations';
 import { toE164 } from '@/lib/domain/phone';
+import { quotationEmail, sendLeadEmail } from '@/lib/crm/email';
+import { DIVISION_NAME } from '@/lib/domain/constants';
 
 /* ============================================================================
  * WORKING A LEAD — Step 6 of docs/crm/08-TWELVE-STEPS.md
@@ -1256,4 +1260,83 @@ export async function attachUnitAction(
   refresh(leadId);
   revalidatePath('/my-leads');
   return { ok: true };
+}
+
+/* ============================================================================
+ * EMAILING A QUOTATION — migration 175
+ * ----------------------------------------------------------------------------
+ * Owner, 2026-09-17: *"the proposal and the quotation, each time sent by
+ * WhatsApp and also auto-sent by email."*
+ *
+ * ⚠️ EMAIL IS THE CHANNEL THAT ALWAYS WORKS, and that is why it matters more
+ * than it looks. WhatsApp refuses free text outside its 24-hour window; email
+ * never does. For the 44 leads in the Gulf, everybody who does not reply on
+ * WhatsApp, and every client who reads mail at a desk, this is the only reliable
+ * way a price reaches them.
+ * ========================================================================= */
+
+export async function emailQuotationAction(
+  quotationId: string,
+  note: string,
+): Promise<LeadWriteResult> {
+  const user = await requireUser();
+
+  const q = await crmQuotationForEmail(user.id, quotationId);
+  /* ⚠️ The same sentence for "gone" and "not yours" — see the route's own note. */
+  if (!q) return { ok: false, error: NOT_YOURS };
+
+  /* ⚠️ REFUSED BEFORE ANYTHING IS SENT, and it names the fix. A lead with no
+     email address is an ordinary state — 640 of 641 arrived from a Meta form
+     that did not ask for one — so this is not an error, it is a missing field
+     somebody can go and fill in. */
+  const to = (q.leadEmail ?? '').trim();
+  if (!to) {
+    return {
+      ok: false,
+      error: `${q.leadName ?? 'This lead'} has no email address on record. Add one and it can go by email as well.`,
+    };
+  }
+
+  const email = quotationEmail({
+    greetingName: q.leadName ?? 'Sir/Madam',
+    quotationNumber: q.number,
+    version: q.version,
+    /* ⚠️ FORMATTED HERE, ONCE. A template that formatted money would decide the
+       currency and the grouping in a file nobody reads, and then the email and
+       the screen would disagree about the same price. */
+    amountLabel: `PKR ${q.netAmount.toLocaleString('en-PK')}`,
+    validUntilLabel: q.validUntil
+      ? new Date(q.validUntil).toLocaleDateString('en-GB', {
+          day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Karachi',
+        })
+      : null,
+    itemLabel: q.itemLabel,
+    itemDetail: q.itemDetail,
+    salespersonName: user.fullName,
+    businessName: q.projectName ?? DIVISION_NAME,
+    note: note.trim() || null,
+  });
+
+  const sent = await sendLeadEmail({ to, email });
+  if (!sent.ok) return { ok: false, error: sent.error ?? 'The email could not be sent.' };
+
+  /* ⚠️ RECORDED ONLY ONCE IT HAS ACTUALLY GONE. A row written first would show a
+     quotation as delivered that the provider refused, and the salesperson would
+     stop chasing a client who never got a price.
+
+     ⚠️ AND A FAILURE TO RECORD IS NOT A FAILURE TO SEND. The email is already
+     with the client; saying otherwise would have somebody send it twice. */
+  const recorded = await crmRecordSentEmail(user.id, {
+    leadId: q.leadId,
+    subject: email.subject,
+    body: email.text,
+    messageId: sent.messageId ?? null,
+  });
+
+  refresh(q.leadId);
+  revalidatePath('/my-leads');
+
+  return recorded
+    ? { ok: true }
+    : { ok: true, error: 'Sent, but it could not be added to the conversation.' };
 }

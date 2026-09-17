@@ -238,7 +238,12 @@ const headline = (text: string): string =>
      <tr><td bgcolor="${GOLD}" style="background:${GOLD};width:42px;height:2px;line-height:2px;font-size:0;">&nbsp;</td></tr>
    </table>`;
 
-const para = (html: string): string =>
+/* ⚠️ `para` AND `esc` ARE EXPORTED FOR THE CRM, and only those two. Its quotation
+   email is a letter from a CLIENT'S business to their customer, so it has its own
+   shell in `lib/crm/email.ts` — reusing this one branded a Chitral quotation as
+   Taskly. A paragraph and an escaper carry no branding, so they are safe to
+   share; the shell was not. */
+export const para = (html: string): string =>
   `<p style="margin:0 0 14px 0;font:400 15px/1.62 ${SANS};color:${BODY};">${html}</p>`;
 
 /** The gold-tinted "Role Assigned" strip. */
@@ -821,7 +826,7 @@ export function lateArrivalsEmail(input: {
  * follows it into the markup. Neither is a likely attack and both are a badly
  * rendered invoice, which is enough.
  */
-const esc = (value: string): string =>
+export const esc = (value: string): string =>
   value
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
