@@ -22,6 +22,7 @@ import {
 } from '@/lib/domain/crm-appointments';
 import { sourceDetail, sourceLabel } from '@/lib/domain/lead-source';
 import { displayPhone } from '@/lib/domain/phone';
+import { QualifyPanel } from '@/components/crm/qualify-panel';
 import { relativeAge } from '@/lib/view/relative-age';
 import { cn } from '@/lib/utils';
 import { useSoftNavigate } from './use-panel';
@@ -318,6 +319,12 @@ function Overview({
       {/* ⚠️ THE RAW ANSWERS, because the form asked them and nobody else will.
           What a lead typed into "Which plot size?" is the single most useful
           thing on this panel before the first call. */}
+      {/* ⚠️ ABOVE THE FORM ANSWERS AND THE NOTES, because it is the only thing
+          on this tab somebody has to DO. What Meta captured is context; the four
+          questions are the work, and 167's gate will not let the lead move until
+          they are answered. */}
+      <QualifyPanel lead={lead} />
+
       {formAnswers(lead.answers).length > 0 && (
         <section>
           <h3 className="mb-2 text-micro font-semibold uppercase tracking-wide text-text-tertiary">

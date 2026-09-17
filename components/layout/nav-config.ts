@@ -207,6 +207,35 @@ export const NAV_SECTIONS: readonly NavSection[] = [
         requires: 'crm',
       },
       {
+        /* ⚠️ A RAIL ENTRY ONLY BECAUSE ITS SCREEN DOES SOMETHING — the standing
+           rule in `14-SALES-WORKSPACE-PHASES.md`, and the reason the other five
+           rail entries the owner listed are still absent. A nav that leads to
+           "coming soon" teaches people to stop clicking the nav.
+
+           ⚠️ `requires: 'crm'`, like My leads: this is the salesperson's own
+           diary, narrowed to their own rows by 152's policies and by the query's
+           own owner clause. It discloses nothing a manager could not read off
+           the desk, and it is not the manager's screen. */
+        label: 'Appointments',
+        href: '/appointments',
+        icon: CalendarClock,
+        roles: ADMIN_UP,
+        requires: 'crm',
+      },
+      {
+        /* ⚠️ THE SALES TEAM'S OWN LIST, and deliberately NOT merged into the
+           existing task board. Owner: *"I want a separate thing for the sales
+           team with the name to-dos where sales-related to-dos will just be
+           displayed."* Taskly's tasks are assigned work with an author; these are
+           derived from lead state and have no author at all — one screen showing
+           both would need a column explaining which kind each row was. */
+        label: 'My to-dos',
+        href: '/todos',
+        icon: ListChecks,
+        roles: ADMIN_UP,
+        requires: 'crm',
+      },
+      {
         /* ⚠️ ITS OWN ITEM, BESIDE THE DESK. The owner's reference names them
            together — "Clients & Leads" — and they are genuinely two screens: the
            desk is scoped to one project and sorted by what is owed; this lists

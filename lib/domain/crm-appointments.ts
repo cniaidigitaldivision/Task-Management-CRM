@@ -78,6 +78,79 @@ export function isClosedAppointment(status: string): boolean {
   return status === 'completed' || status === 'no_show' || status === 'cancelled';
 }
 
+/* ============================================================================
+ * THE THREE QUESTIONS THE APPOINTMENTS SCREEN ANSWERS
+ * ----------------------------------------------------------------------------
+ * ⚠️ HERE RATHER THAN IN THE COMPONENT, and that is not tidiness. Which bucket a
+ * row lands in is the whole meaning of that screen, and a rule living inside a
+ * `useMemo` can only be tested by rendering the component and then CLICKING the
+ * tab it puts the answer behind — which `renderToStaticMarkup` cannot do. The
+ * first version of this lived in the component and its test could assert nothing
+ * about two of the three buckets.
+ *
+ * ⚠️ AND THE ORDERS DIFFER ON PURPOSE. `owed` runs oldest-first, because the
+ * visit from last Tuesday that nobody wrote up is more urgent than yesterday's.
+ * Everything else runs soonest-first, where the nearest thing is what matters.
+ * ========================================================================= */
+
+export interface Bucketable {
+  readonly status: string;
+  readonly scheduledAt: string;
+}
+
+export interface AppointmentBuckets<T extends Bucketable> {
+  /** Already happened, still open — somebody owes a write-up. */
+  readonly owed: readonly T[];
+  /** Still ahead, still open. */
+  readonly upcoming: readonly T[];
+  /** Over: completed, no-show, cancelled or superseded by a reschedule. */
+  readonly done: readonly T[];
+}
+
+export function bucketAppointments<T extends Bucketable>(
+  rows: readonly T[],
+  nowMs: number,
+): AppointmentBuckets<T> {
+  const owed: T[] = [];
+  const upcoming: T[] = [];
+  const done: T[] = [];
+
+  for (const a of rows) {
+    /* ⚠️ `rescheduled` COUNTS AS DONE even though it is not in
+       `isClosedAppointment` — that helper answers "did this reach an outcome",
+       which a reschedule did not. For this screen the row has been replaced and
+       showing it as still owed would ask somebody to write up a visit that was
+       moved. Two different questions, deliberately not one function. */
+    if (isClosedAppointment(a.status) || a.status === 'rescheduled') done.push(a);
+    else if (Date.parse(a.scheduledAt) < nowMs) owed.push(a);
+    else upcoming.push(a);
+  }
+
+  const by = (dir: 1 | -1) => (a: T, b: T) =>
+    dir * (Date.parse(a.scheduledAt) - Date.parse(b.scheduledAt));
+
+  owed.sort(by(1));
+  upcoming.sort(by(1));
+  done.sort(by(-1));
+
+  return { owed, upcoming, done };
+}
+
+/**
+ * Which tab the screen should open on.
+ *
+ * ⚠️ WHATEVER IS ACTIONABLE, and computed once on mount rather than on every
+ * render — a tab that reshuffles itself under somebody who has just recorded the
+ * last owed visit is the drawer bug (91153e4) again.
+ *
+ * ⚠️ AND AN EMPTY *Upcoming* BEATS AN EMPTY *Needs recording*. Both are empty,
+ * but one is empty because there is nothing to do and the other because the
+ * diary is — and only the second has a useful sentence to show somebody.
+ */
+export function openingTab(buckets: AppointmentBuckets<Bucketable>): 'owed' | 'upcoming' {
+  return buckets.owed.length > 0 ? 'owed' : 'upcoming';
+}
+
 /** The DB constraint's range, restated so the form can refuse before the write. */
 export const MIN_MINUTES = 5;
 export const MAX_MINUTES = 600;

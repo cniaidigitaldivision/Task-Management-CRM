@@ -170,6 +170,20 @@ export interface CrmLeadRecord {
   readonly source: string;
   /** Meta's own lead id. Shown so a row can be traced back to the account. */
   readonly externalId: string | null;
+  /* ── Qualification · migration 167 ────────────────────────────────────────
+     ⚠️ NULL AND "unknown" ARE DIFFERENT AND BOTH ARE REAL. NULL means nobody
+     asked; `unknown` / `not_disclosed` mean asked and not answered, which is
+     information. The gate in front of `qualified` refuses the first and accepts
+     the second. */
+  readonly budgetBand: string | null;
+  readonly authority: string | null;
+  readonly purpose: string | null;
+  readonly timeline: string | null;
+  readonly paymentMode: string | null;
+  readonly locationPreference: string | null;
+  readonly qualificationNote: string | null;
+  readonly budget: number | null;
+  readonly qualifiedAt: string | null;
 }
 
 export interface CrmLeadNote {
@@ -648,6 +662,12 @@ export async function getCrmLead(
              f.name as form_name, c.name as campaign_name,
              l.source::text, l.external_id,
              l.property_id,
+             /* Qualification · 167. In the same select, so opening the drawer
+                costs no extra wait — Rule Zero, law 4. */
+             l.budget_band::text, l.authority::text, l.purpose::text,
+             l.timeline::text, l.payment_mode::text,
+             l.location_preference, l.qualification_note, l.budget,
+             l.qualified_at,
              /* ⚠️ THE SAME LABEL THE LIST BUILDS. A second expression here would
                 render "5 Marla · A-101" on the desk and something else in the
                 drawer for the same unit, and the reader would reasonably wonder
@@ -746,6 +766,21 @@ export async function getCrmLead(
         campaignName: (row.campaign_name as string | null) ?? null,
         source: String(row.source),
         externalId: (row.external_id as string | null) ?? null,
+        /* ⚠️ `?? null` ON EVERY ONE, never `|| null`. An empty string in
+           `qualification_note` is a note somebody cleared, and `||` would turn
+           it back into "never written" — the same distinction the enums make
+           between NULL and `unknown`. */
+        budgetBand: (row.budget_band as string | null) ?? null,
+        authority: (row.authority as string | null) ?? null,
+        purpose: (row.purpose as string | null) ?? null,
+        timeline: (row.timeline as string | null) ?? null,
+        paymentMode: (row.payment_mode as string | null) ?? null,
+        locationPreference: (row.location_preference as string | null) ?? null,
+        qualificationNote: (row.qualification_note as string | null) ?? null,
+        budget: row.budget === null || row.budget === undefined ? null : Number(row.budget),
+        qualifiedAt: row.qualified_at
+          ? new Date(row.qualified_at as string).toISOString()
+          : null,
       },
       notes: (noteRows as Array<Record<string, unknown>>).map((n) => ({
         id: String(n.id),
@@ -833,6 +868,57 @@ export async function setLeadStage(
      where id = ${leadId}::uuid
      returning id
   `);
+  return (rows as unknown[]).length === 1;
+}
+
+export interface QualificationInput {
+  readonly budgetBand: string | null;
+  readonly authority: string | null;
+  readonly purpose: string | null;
+  readonly timeline: string | null;
+  readonly paymentMode: string | null;
+  readonly locationPreference: string | null;
+  readonly qualificationNote: string | null;
+  /** The precise figure, when they gave one. The band is what the gate reads. */
+  readonly budget: number | null;
+  /** Committed by the salesperson, never by `suggestTemperature`. */
+  readonly temperature: string | null;
+}
+
+/**
+ * Record what the qualifying call established — migration 167.
+ *
+ * ⚠️ IT DOES NOT TOUCH `stage`. Recording the answers and moving the lead are
+ * two decisions: a salesperson who learns the client is just browsing has
+ * qualified them perfectly well and should not be marched into `qualified` for
+ * their trouble. The caller moves the stage afterwards, through `setLeadStage`,
+ * where 167's trigger is waiting.
+ *
+ * ⚠️ AND IT NEVER WRITES `qualified_at`. The trigger stamps that, and the column
+ * is deliberately outside the application's grant — a response-time figure the
+ * measured party can edit is not a measurement. See 116 and `first_contacted_at`.
+ */
+export async function saveQualification(
+  actorId: string,
+  leadId: string,
+  input: QualificationInput,
+): Promise<boolean> {
+  const rows = await withUser(actorId, (tx) => tx`
+    update public.crm_leads
+       set budget_band         = ${input.budgetBand}::public.crm_budget_band,
+           authority           = ${input.authority}::public.crm_authority,
+           purpose             = ${input.purpose}::public.crm_purpose,
+           timeline            = ${input.timeline}::public.crm_timeline,
+           payment_mode        = ${input.paymentMode}::public.crm_payment_mode,
+           location_preference = ${input.locationPreference}::text,
+           qualification_note  = ${input.qualificationNote}::text,
+           budget              = ${input.budget}::numeric,
+           temperature         = ${input.temperature}::public.crm_temperature
+     where id = ${leadId}::uuid
+     returning id
+  `);
+  /* ⚠️ ZERO ROWS IS RLS REFUSING THE LEAD, not a fault — the same shape
+     `setLeadStage` documents, and the reason this returns a boolean. */
   return (rows as unknown[]).length === 1;
 }
 
@@ -2135,6 +2221,80 @@ export async function crmMyDiary(actorId: string, days = 7): Promise<CrmDiaryEnt
   return (rows as Array<Record<string, unknown>>).map(toDiaryEntry);
 }
 
+/**
+ * The whole diary, for the standalone Appointments screen.
+ *
+ * ⚠️ WIDER THAN `crmMyDiary` IN THREE WAYS, and each one is the difference
+ * between a rail and a screen:
+ *
+ *   · it reaches BACKWARDS, because the questions this page answers are "what
+ *     did I promise last week" and "which visit have I still not written up";
+ *   · it keeps `cancelled` and `rescheduled`, which the rail hides — a rail is
+ *     a list of what to do next, and a diary is a record of what was arranged;
+ *   · it carries the project, so somebody working three schemes can tell two
+ *     "Block A" visits apart.
+ *
+ * ⚠️ ONE QUERY, FILTERED ON THE CLIENT AFTERWARDS. Rule Zero law 3: the tabs on
+ * this screen are Upcoming / Needs recording / Done, and all three are subsets
+ * of the same rows. Asking the server again to hide some of what it just sent
+ * would be a round trip to Singapore to apply a `filter()`.
+ *
+ * ⚠️ AND IT IS WINDOWED RATHER THAN UNBOUNDED — law 5. A salesperson two years
+ * in has hundreds of these and none of the old ones are being looked at. The
+ * screen says which window it is showing rather than implying it is everything.
+ */
+export const APPOINTMENTS_BACK_DAYS = 60;
+export const APPOINTMENTS_LIMIT = 300;
+
+export interface CrmDiaryRow extends CrmDiaryEntry {
+  readonly projectName: string | null;
+  readonly outcomeAt: string | null;
+}
+
+export async function crmMyAppointments(
+  actorId: string,
+  backDays = APPOINTMENTS_BACK_DAYS,
+): Promise<CrmDiaryRow[]> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select a.id, a.lead_id, a.kind::text, a.status::text, a.scheduled_at,
+           a.duration_minutes, a.location, a.outcome, a.outcome_at,
+           l.full_name as lead_name,
+           /* ⚠️ THE DEFINER, NOT A JOIN TO public.projects. A bare join here runs
+              under the caller's session, projects_select asks for membership,
+              and a salesperson is a member of nothing — so every row would come
+              back with a null project name and the screen would look merely
+              sparse rather than broken. Invisible from an Admin session, which
+              passes the predicate. This is migrations 105 / 121 / 125 / 129 /
+              130 / 140, and it was written wrong here first.
+
+              ⚠️ AND NO BACKTICKS IN THIS COMMENT — the warning 40 lines below in
+              crmCloseAppointment, ignored here on the first attempt. This file is
+              one template literal and a stray backtick ends the string; tsc then
+              reports three missing commas on a line that has none. */
+           app.crm_project_name(a.project_id) as project_name,
+           (select concat_ws(' · ',
+              nullif(concat_ws(' ',
+                case when p.size_marla is not null
+                     then trim(trailing '.' from to_char(p.size_marla, 'FM999999.99')) || ' Marla' end,
+                initcap(substring(p.kind from '[^ ]+$'))), ''),
+              nullif(concat_ws(', ', p.plot_number,
+                case when p.block is not null then 'Block ' || p.block end), ''))
+            from public.crm_properties p where p.id = a.property_id) as property_label
+      from public.crm_appointments a
+      join public.crm_leads l on l.id = a.lead_id
+     where a.owner_id = app.current_user_id()
+       and a.scheduled_at >= (date_trunc('day', now() at time zone 'Asia/Karachi')
+                              - make_interval(days => ${backDays})) at time zone 'Asia/Karachi'
+     order by a.scheduled_at desc
+     limit ${APPOINTMENTS_LIMIT}
+  `);
+  return (rows as Array<Record<string, unknown>>).map((r) => ({
+    ...toDiaryEntry(r),
+    projectName: (r.project_name as string | null) ?? null,
+    outcomeAt: r.outcome_at ? new Date(r.outcome_at as string).toISOString() : null,
+  }));
+}
+
 function toDiaryEntry(r: Record<string, unknown>): CrmDiaryEntry {
   return {
     id: String(r.id),
@@ -2618,4 +2778,161 @@ export async function crmAttachUnit(
        )
      returning l.id`);
   return (rows as unknown[]).length > 0;
+}
+
+/* ============================================================================
+ * TO-DOS — what a salesperson owes somebody today
+ * ----------------------------------------------------------------------------
+ * Owner, 2026-09-16: *"I want to create tasks for a salesperson according to
+ * that day's data… all tasks, whether it's sending a quotation, sending a
+ * proposal, responding back to some client, should be displayed as the next
+ * action on the to-do's page… For the sales team you have to clear your to-dos,
+ * then you can leave."*
+ *
+ * ── ⚠️ DERIVED, NEVER STORED. THIS IS THE WHOLE DESIGN DECISION ────────────
+ * There is no `crm_todos` table and there must not be one. A stored to-do can be
+ * ticked off separately from the thing it refers to, and the day somebody marks
+ * "ring Faisal back" done without ringing Faisal, the list and the truth have
+ * split — permanently, because nothing reconciles them. Every row below is a
+ * QUESTION ASKED OF REAL STATE: a lead with no `first_contacted_at`, an
+ * appointment with no outcome, a quotation still `pending_approval`. Doing the
+ * work is what clears the item, because the item *is* the work.
+ *
+ * ── ⚠️ ONE QUERY, NOT SIX. Rule Zero, law 4 ────────────────────────────────
+ * Six sources that owe each other nothing would be six round trips to Singapore
+ * for one screen. A `union all` is one.
+ *
+ * ── ⚠️ AND IT IS BOUNDED. Law 5 ────────────────────────────────────────────
+ * Everything overdue, everything uncontacted, and a week ahead. An unbounded
+ * "everything you will ever owe" grows with the business and is the same list
+ * with more scrolling.
+ * ========================================================================= */
+
+export type CrmTodoKind =
+  | 'first_contact'
+  | 'next_action'
+  | 'appointment'
+  | 'record_visit'
+  | 'approve_quotation'
+  | 'send_quotation';
+
+export interface CrmTodo {
+  /** Stable across refreshes: the kind plus the row it was derived from. */
+  readonly id: string;
+  readonly kind: CrmTodoKind;
+  readonly leadId: string;
+  readonly leadName: string | null;
+  readonly projectName: string | null;
+  /** What to do, already written as an instruction. */
+  readonly detail: string | null;
+  readonly dueAt: string | null;
+}
+
+export async function crmMyTodos(actorId: string, aheadDays = 7): Promise<CrmTodo[]> {
+  const rows = await withUser(actorId, (tx) => tx`
+    with me as (select app.current_user_id() as id),
+         horizon as (
+           select (date_trunc('day', now() at time zone 'Asia/Karachi')
+                   + make_interval(days => ${aheadDays})) at time zone 'Asia/Karachi' as until
+         )
+    /* 1 · ⚠️ THE ONE THAT MATTERS MOST, and the one that did not exist before
+       migration 169. A stranger asked to be contacted and nobody has. */
+    select 'first_contact' as kind, l.id::text as source_id, l.id as lead_id,
+           l.full_name as lead_name, l.project_id,
+           null::text as detail,
+           l.first_response_due_at as due_at
+      from public.crm_leads l, me
+     where l.owner_id = me.id
+       and l.first_contacted_at is null
+       and l.stage not in ('won', 'lost')
+
+    union all
+    /* 2 · The planned chase. ⚠️ Only once contact HAS been made, or it would sit
+       beside its own first-contact row saying almost the same thing. */
+    select 'next_action', l.id::text, l.id, l.full_name, l.project_id,
+           l.next_action, l.next_action_at
+      from public.crm_leads l, me, horizon
+     where l.owner_id = me.id
+       and l.first_contacted_at is not null
+       and l.next_action_at is not null
+       and l.stage not in ('won', 'lost')
+       and l.next_action_at < horizon.until
+
+    union all
+    /* 3 · Somewhere to be. */
+    select 'appointment', a.id::text, a.lead_id, l.full_name, a.project_id,
+           initcap(replace(a.kind::text, '_', ' '))
+             || coalesce(' · ' || nullif(a.location, ''), ''),
+           a.scheduled_at
+      from public.crm_appointments a
+      join public.crm_leads l on l.id = a.lead_id, me, horizon
+     where a.owner_id = me.id
+       and a.status in ('scheduled', 'confirmed')
+       and a.scheduled_at >= now()
+       and a.scheduled_at < horizon.until
+
+    union all
+    /* 4 · ⚠️ A VISIT THAT HAPPENED AND WAS NEVER WRITTEN UP. The commonest way a
+       lead goes quiet, and until the Appointments screen there was no screen anywhere
+       that could list them. */
+    select 'record_visit', a.id::text, a.lead_id, l.full_name, a.project_id,
+           initcap(replace(a.kind::text, '_', ' ')), a.scheduled_at
+      from public.crm_appointments a
+      join public.crm_leads l on l.id = a.lead_id, me
+     where a.owner_id = me.id
+       and a.status in ('scheduled', 'confirmed')
+       and a.scheduled_at < now()
+
+    union all
+    /* 5 · The manager's decision. ⚠️ "is distinct from" the preparer, so nobody
+       is ever offered their own discount to approve — the same rule 151 enforces
+       at two layers, restated here so the list never shows an impossible item.
+       ⚠️ AND NO BACKTICKS IN THIS COMMENT: the file is one template literal and a
+       stray one ends the string, surfacing as three missing commas on a line
+       that has none. Written wrong here on the first attempt, again. */
+    select 'approve_quotation', q.id::text, q.lead_id, l.full_name, q.project_id,
+           q.number || ' · ' || to_char(q.requested_discount, 'FM999,999,999') || ' off',
+           q.created_at
+      from public.crm_quotations q
+      join public.crm_leads l on l.id = q.lead_id, me
+     where q.status = 'pending_approval'
+       and q.prepared_by_id is distinct from me.id
+
+    union all
+    /* 6 · Approved and still sitting here. ⚠️ A quotation a manager has said yes
+       to and nobody has sent is the most expensive row on this page. */
+    select 'send_quotation', q.id::text, q.lead_id, l.full_name, q.project_id,
+           q.number || ' · approved', q.approved_at
+      from public.crm_quotations q
+      join public.crm_leads l on l.id = q.lead_id, me
+     where q.status = 'approved'
+       and q.sent_at is null
+       and q.prepared_by_id = me.id
+  `);
+
+  /* ⚠️ THE PROJECT NAME COMES FROM THE DEFINER, resolved after the union rather
+     than joined inside it. `projects_select` asks for membership and a
+     salesperson is a member of nothing — a join would have blanked the project
+     on every row, and the screen would have looked merely plain. Eighth time. */
+  const ids = [...new Set((rows as Array<Record<string, unknown>>).map((r) => String(r.project_id)))];
+  const names = new Map<string, string>();
+  if (ids.length > 0) {
+    const named = await withUser(actorId, (tx) => tx`
+      select p as id, app.crm_project_name(p) as name
+        from unnest(${ids}::uuid[]) as p
+    `);
+    for (const n of named as Array<Record<string, unknown>>) {
+      if (n.name) names.set(String(n.id), String(n.name));
+    }
+  }
+
+  return (rows as Array<Record<string, unknown>>).map((r) => ({
+    id: `${String(r.kind)}:${String(r.source_id)}`,
+    kind: String(r.kind) as CrmTodoKind,
+    leadId: String(r.lead_id),
+    leadName: (r.lead_name as string | null) ?? null,
+    projectName: names.get(String(r.project_id)) ?? null,
+    detail: (r.detail as string | null) ?? null,
+    dueAt: r.due_at ? new Date(r.due_at as string).toISOString() : null,
+  }));
 }

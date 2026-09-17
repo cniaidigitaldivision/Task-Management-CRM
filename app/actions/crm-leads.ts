@@ -23,6 +23,7 @@ import {
   listCrmLeads,
   logLeadContact,
   setLeadNextAction,
+  saveQualification,
   setLeadStage,
   setLeadTemperature,
   unassignedLeadIds,
@@ -31,6 +32,10 @@ import {
   type CrmLeadRow,
 } from '@/lib/db/queries/crm-leads';
 import { isLostReason, isStage, TEMPERATURES } from '@/lib/domain/crm-stages';
+import {
+  AUTHORITIES, BUDGET_BANDS, PAYMENT_MODES, PURPOSES, TIMELINES,
+  qualificationGaps,
+} from '@/lib/domain/crm-qualification';
 import { OUTCOMES, outcomeProblems } from '@/lib/domain/crm-outcomes';
 import { newLeadProblems } from '@/lib/domain/crm-new-lead';
 import { appointmentProblems, clashesWith } from '@/lib/domain/crm-appointments';
@@ -115,11 +120,119 @@ export async function setStageAction(
      refactor away from not being reversed. */
   const reason = stage === 'lost' ? lostReason : null;
 
-  const ok = await setLeadStage(user.id, leadId, stage, reason);
+  /* ⚠️ 167'S GATE COMES BACK AS A SENTENCE, NOT A 500. The trigger refuses a
+     lead reaching `qualified` (or anything past it) with no qualifying answers,
+     and it puts WHICH answers are missing in the error's DETAIL. Letting that
+     surface as an unhandled exception would give the salesperson a red box that
+     names no fix — and this codebase has a standing lesson about catch blocks
+     that guess at a cause instead of reading the one the database gave. */
+  let ok: boolean;
+  try {
+    ok = await setLeadStage(user.id, leadId, stage, reason);
+  } catch (err) {
+    if ((err as { code?: string })?.code === 'CRM08') {
+      const missing = String((err as { detail?: string }).detail ?? '').trim();
+      return {
+        ok: false,
+        error: missing
+          ? `Qualify this lead first — still to find out: ${missing}.`
+          : 'Qualify this lead first.',
+      };
+    }
+    throw err;
+  }
   if (!ok) return { ok: false, error: NOT_YOURS };
 
   refresh(leadId);
   return { ok: true };
+}
+
+/* ============================================================================
+ * QUALIFICATION — migration 167
+ * ----------------------------------------------------------------------------
+ * ⚠️ THIS DOES NOT MOVE THE STAGE, AND THAT IS THE DESIGN. Recording what the
+ * call established and deciding where the lead now sits are two separate acts: a
+ * salesperson who learns the client is just browsing has qualified them
+ * perfectly well, and marching them into `qualified` for it would make the stage
+ * mean "somebody asked four questions" rather than "this is a real buyer".
+ *
+ * ⚠️ AND THE TEMPERATURE ARRIVES FROM THE FORM, NEVER FROM `suggestTemperature`.
+ * The suggestion is shown beside the field; a human commits it. Owner, 2026-09-16:
+ * *"On the basis of this response I will set their temperature."*
+ * ========================================================================= */
+
+export async function saveQualificationAction(input: {
+  leadId: string;
+  budgetBand: string | null;
+  authority: string | null;
+  purpose: string | null;
+  timeline: string | null;
+  paymentMode: string | null;
+  locationPreference: string;
+  qualificationNote: string;
+  budget: string;
+  temperature: string | null;
+}): Promise<LeadWriteResult> {
+  const user = await requireUser();
+
+  /* ⚠️ VALIDATED, NEVER PASSED THROUGH. Each of these reaches SQL as an enum
+     cast, where an unknown value is a 500 rather than a sentence. */
+  const oneOf = (value: string | null, allowed: readonly string[]) =>
+    value === null || value === '' ? null : allowed.includes(value) ? value : undefined;
+
+  const budgetBand = oneOf(input.budgetBand, BUDGET_BANDS);
+  const authority = oneOf(input.authority, AUTHORITIES);
+  const purpose = oneOf(input.purpose, PURPOSES);
+  const timeline = oneOf(input.timeline, TIMELINES);
+  const paymentMode = oneOf(input.paymentMode, PAYMENT_MODES);
+
+  if ([budgetBand, authority, purpose, timeline, paymentMode].includes(undefined)) {
+    return { ok: false, error: 'One of those answers is not a value this form offers.' };
+  }
+
+  const temperature =
+    input.temperature === null || input.temperature === ''
+      ? null
+      : (TEMPERATURES as readonly string[]).includes(input.temperature)
+        ? input.temperature
+        : undefined;
+  if (temperature === undefined) return { ok: false, error: 'That is not a temperature.' };
+
+  /* ⚠️ A BUDGET THAT IS NOT A NUMBER IS DROPPED, NOT REFUSED. The band is what
+     the gate reads and what the reports use; the precise figure is a convenience
+     somebody may type "80 lakh" into, and refusing the whole form for it would
+     lose the four answers that matter. */
+  const rawBudget = Number(input.budget.replace(/[^0-9.]/g, ''));
+  const budget = Number.isFinite(rawBudget) && rawBudget > 0 ? rawBudget : null;
+
+  const ok = await saveQualification(user.id, input.leadId, {
+    budgetBand: budgetBand ?? null,
+    authority: authority ?? null,
+    purpose: purpose ?? null,
+    timeline: timeline ?? null,
+    paymentMode: paymentMode ?? null,
+    locationPreference: input.locationPreference.trim() || null,
+    qualificationNote: input.qualificationNote.trim() || null,
+    budget,
+    temperature,
+  });
+  if (!ok) return { ok: false, error: NOT_YOURS };
+
+  refresh(input.leadId);
+  revalidatePath('/my-leads');
+
+  /* ⚠️ REPORTS WHAT IS STILL MISSING RATHER THAN CLAIMING SUCCESS. Saving three
+     of four answers is progress worth keeping — but telling somebody "saved"
+     when the gate is still shut is how they discover it at the dropdown. */
+  const gaps = qualificationGaps({
+    budgetBand: budgetBand ?? null,
+    authority: authority ?? null,
+    purpose: purpose ?? null,
+    timeline: timeline ?? null,
+  });
+  return gaps.length > 0
+    ? { ok: true, error: `Saved. Still to find out: ${gaps.join(', ').toLowerCase()}` }
+    : { ok: true };
 }
 
 export async function setTemperatureAction(

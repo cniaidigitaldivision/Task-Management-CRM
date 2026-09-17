@@ -1,0 +1,22 @@
+-- ============================================================================
+-- 168 · A NOTIFICATION KIND FOR A MISSED FIRST RESPONSE
+-- ----------------------------------------------------------------------------
+-- ⚠️ ALONE IN ITS OWN MIGRATION, and that is not tidiness. A label added to an
+-- existing enum cannot be USED in the transaction that adds it — PostgreSQL
+-- makes it visible only after the commit. 157 exists for exactly this reason,
+-- and 169's self-check inserts a notification of this kind under a real user's
+-- session, which would fail if the two were one file.
+--
+-- ── ⚠️ ITS OWN KIND, NOT `lead_due` ────────────────────────────────────────
+-- They are different failures with different urgency. `lead_due` is "you have
+-- work scheduled for today" — an ordinary morning. This is "a stranger asked to
+-- be contacted and nobody has", which decays in minutes: the widely-cited
+-- lead-response research puts the odds of reaching somebody in free-fall after
+-- the first hour.
+--
+-- A separate kind also means `app.wants_in_app` can be told to keep this one
+-- while muting the daily digest. One kind for both would make that impossible,
+-- and the one people mute would be the one that mattered.
+-- ============================================================================
+
+alter type public.notification_kind add value if not exists 'lead_sla_breach';

@@ -5,11 +5,435 @@
 | | |
 |---|---|
 | **Branch** | ⚠️ **`main`.** The CRM was merged and deployed 2026-09-12; `crm` still exists but is behind. |
-| **Route** | `/leads` · `/clients` · `/lead-reports` · nav: Growth → Campaign & Lead Desk |
-| **Phase** | 🔒 **PREVIEW, 2026-09-14 — Steps 1–11 live, 12 blocked.** Everything works. The CRM is now visible ONLY to the three sales testers plus admin/super_admin (migration 143), at the owner's request, until it is ready to show. |
-| **Scope** | Chitral Royal Homes (real, 629 leads) + a removable demo project (20 leads, WhatsApp wired). |
-| **Last updated** | **2026-09-14** |
-| **Last migration applied anywhere** | **143.** CRM next: 144. |
+| **Route** | `/leads` · `/my-leads` · `/clients` · `/lead-reports` · `/lead-overview` · nav: Growth → Campaign & Lead Desk |
+| **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
+| **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
+| **Last updated** | **2026-09-16** |
+| **Last migration applied anywhere** | **169** (verified against the live database, not remembered). CRM next: **170.** |
+
+---
+
+## 💷 2026-09-17 — THE THREE-QUOTATION LADDER · corrected
+
+⚠️ **I RECORDED THIS WRONG THE FIRST TIME AND THE OWNER CORRECTED ME.** I read
+*"the final quotation will be close to their budget"* as pricing the last step to
+whatever the client claimed they could afford, and wrote a long warning about it.
+That is not the design. Kept visible rather than quietly rewritten, because a
+decisions log that silently changes its mind is worth less than one that shows
+where it was corrected.
+
+### What the owner actually described
+
+**Three prices per product, set by the company in advance.** The client's budget
+chooses which one you OPEN at. It never decides where you end.
+
+Owner's own worked example, for the division's own CRM product:
+
+| Tier | Price | When it is the opener |
+|---|---|---|
+| **1 · list** | 2 lakh | The default. Anyone who has not pushed back |
+| **2 · middle** | 1.5 lakh | *"If he says my budget is 80,000, you will give the first quotation as 1.5 lakh and say that it is negotiable"* |
+| **3 · floor** | 1 lakh | ⚠️ **The last quotation. Never below it.** |
+
+> *"After verifying, discussing, or showing the features… explain the feature we
+> are providing, that's why our price is that. After that you can finally give
+> the last quotation."*
+
+### Why this is sound, and it answers the question I had asked
+
+⚠️ **THE FLOOR ALREADY EXISTS IN THE OWNER'S MODEL — it is tier 3.** My previous
+entry asked whether the floor should be a percentage of list or set per unit.
+**Answered: set per unit, three explicit figures, decided before any client is
+quoted.** That is the stronger of the two options and it needs no percentage rule
+at all.
+
+⚠️ **AND A STEP DOWN IS EARNED WITH VALUE, NOT GIVEN.** The owner's sequence is
+*explain what we provide, THEN move* — which is the right instinct and the thing
+most discount ladders miss. A concession handed over for nothing says the first
+number was never real.
+
+### The one residual risk, stated once
+
+Using the stated budget to pick the opening tier still rewards understating it:
+saying *"my budget is 80,000"* skips tier 1 and starts you 25% lower. ⚠️ **Far
+smaller than what I wrongly described** — the floor caps the damage at one tier,
+not at whatever the client claims — but worth knowing when tier 2 starts being
+the usual opener rather than the exception. **Worth watching, not worth
+redesigning.**
+
+### ⚠️ Where it does NOT fit today, and this is a real gap
+
+| | |
+|---|---|
+| `crm_properties.base_price` | **One number, not three.** The ladder needs a list, a middle and a floor per unit |
+| **The CRM product itself has no catalogue row** | ⚠️ The owner's own example is *our CRM at 2 lakh* — an AI & Digital SERVICE. `crm_properties` is plot-shaped: `plot_number`, `block`, `size_marla`, `is_corner`. **There is nowhere to put a service's three prices at all.** This is the per-project switch Phase C flagged, arriving as a concrete blocker |
+| `supersedes_id` | Exists, still unwritten — a v2 has no link to what it replaced |
+| **"Why this price"** | No column. `approval_note` is the approver's, not the preparer's |
+
+⚠️ **NEEDS A DECISION: does a service get a `crm_properties` row with the plot
+fields left null, or its own catalogue table?** Recommend **the same table** — a
+second catalogue means every quotation, appointment and lead join has to ask
+which kind it is, and `crm_leads.property_id` points at one table only. Plot
+fields are already nullable.
+
+---
+
+## ⏱️ 2026-09-16 — THE FIRST-RESPONSE CLOCK AND THE TO-DO LIST · 168, 169
+
+The owner's own step two — *"a task is created for Sarah: you have to respond to
+this new lead"* — was the only step in their whole flow with nothing behind it.
+Built, with the list that surfaces it.
+
+### Migration 168 · a notification kind, alone
+
+⚠️ **ITS OWN FILE BECAUSE IT HAS TO BE.** A label added to an existing enum
+cannot be USED in the transaction that adds it, and 169's self-check inserts a
+notification of this kind. Migration 157 exists for the same reason.
+
+⚠️ **AND IT IS ITS OWN KIND, NOT `lead_due`.** "You have work scheduled today" is
+an ordinary morning; "a stranger asked to be contacted and nobody has" decays by
+the hour. One kind for both would mean the one people mute is the one that
+mattered.
+
+### Migration 169 · `crm_project_settings`, the clock, the alert
+
+**`crm_project_settings`** — ⚠️ **a `crm_*` table, NOT columns on `projects`.**
+`16-EXTRACTING-THE-CRM.md` says a new host must supply `projects` with an `id`
+and `lead_department_id`; every policy column bolted onto that table widens what
+the next home has to provide. A CRM table with an FK **to** projects is the
+direction the contract already allows, and it travels with the module.
+
+| Setting | Default | Read by |
+|---|---|---|
+| `first_response_minutes` | 60 | ✅ the clock |
+| `sla_night_from` / `sla_night_to` | 22 / 8 | ✅ the clock |
+| `visit_before_quotation` | **false** — the owner was right, see the geography section | ⬜ nothing yet |
+| `visit_reminder_minutes` | 120 — the owner's own choice | ⬜ nothing yet |
+
+⚠️ **The last two are stored and unread**, recorded honestly here rather than
+added in a later migration — both are decisions already taken, and the same state
+as `crm_quotations.pdf_path` and `crm_appointments.replaces_id`.
+
+**The clock.** ⚠️ **Starts at ASSIGNMENT, not at submission** — a lead imported
+three days after Meta captured it cannot have been answered on day one, and an
+alert that is always red is an alert nobody reads. ⚠️ **A handover does not
+restart it**: the client has been waiting since the first assignment, and that is
+our problem rather than theirs. ⚠️ **The night window pushes the deadline to the
+morning but never delays assignment** — the owner's rule stands that a lead goes
+out at 2am and is picked up on mobile.
+
+**The alert.** Every 15 minutes, not hourly: a 60-minute target checked once an
+hour can fire 59 minutes late, by which point the research this rests on says the
+lead is gone. ⚠️ **Once per lead ever, keyed on the lead** — without that it
+would say the same thing 96 times a day and the bell would be switched off.
+⚠️ **It names the person and the delay, never a count** — *"Faisal Rehman has
+been waiting 2 hours"* is somebody to ring; *"3 breached"* is a statistic.
+
+**Proved:** 7 self-checks under a real salesperson's session, including that an
+answered lead stops being a breach and that a salesperson can READ the target
+being applied to them — a deadline you cannot see is a trap, not a target.
+
+### ✅ `/todos` — the sales team's own list
+
+> Owner: *"I want a separate thing for the sales team with the name to-dos where
+> sales-related to-dos will just be displayed… For the sales team you have to
+> clear your to-dos, then you can leave today."*
+
+⚠️ **DERIVED, AND THERE IS NO `crm_todos` TABLE. THIS IS THE DESIGN DECISION.**
+A stored to-do can be ticked off separately from the thing it refers to, and the
+first time somebody clears *"ring Faisal"* without ringing Faisal the list stops
+being true — permanently, because nothing reconciles them. **There is no tick box
+on the page at all.** Every row is a question asked of real state and clears when
+the work is done.
+
+Six sources, **one `union all`** — six queries would be six round trips for one
+screen (law 4). Bounded to everything overdue plus seven days ahead (law 5).
+
+| Source | Row |
+|---|---|
+| Lead never contacted | Make first contact |
+| `next_action_at` due | Do what you planned |
+| Appointment ahead | Be there |
+| Appointment past, no outcome | Write up what happened |
+| Quotation `pending_approval`, not yours | Approve or refuse a discount |
+| Quotation approved, unsent | Send the approved quotation |
+
+⚠️ **A ROW WITH NO DATE IS OVERDUE, NOT "LATER".** A lead nobody planned a moment
+for is unplanned work, which is exactly what this page exists to surface —
+**640 of 641 leads are in that state.** Filing them under "coming up" would hide
+the entire problem.
+
+⚠️ **AND THE LABELS ARE INSTRUCTIONS, NOT NOUNS.** "Quotation" is a topic; "Send
+the approved quotation" is something somebody can finish.
+
+**Measured on the live data:** manager 1 to-do (a discount to approve), Sahad 9,
+Sarah 8 — **and every single one of theirs is a first contact.** No lead appears
+on two lists. `node scripts/check-todos.mjs`, run as each real person.
+
+⚠️ **A bug the screenshot caught and tests would not have.** An undated first
+contact sat under the red *Overdue* heading styled as calmly as next Tuesday's
+call — the row and the group it was in disagreed about urgency, which is how
+somebody learns to ignore the heading. Fixed and pinned by a test.
+
+⚠️ **THE `join public.projects` TRAP, FOR THE NINTH TIME — caught again.** The
+project name is resolved through `app.crm_project_name()` after the union, not
+joined inside it.
+
+⚠️ **AND BACKTICKS INSIDE A SQL TEMPLATE LITERAL, TWICE IN ONE DAY.** The file is
+one template literal; a backtick in a SQL comment ends the string and `tsc`
+reports three missing commas on a line that has none. The warning was already in
+the file, forty lines away, both times.
+
+---
+
+## 🗺️ 2026-09-16 — WHERE EVERYONE ACTUALLY IS, AND A CORRECTION I OWE THE OWNER
+
+The owner mentioned in passing that **the office is in Islamabad** and that they
+work from **Karachi**. That one detail overturns advice I had given confidently
+two hours earlier, so it is recorded here rather than quietly amended.
+
+### ⚠️ I ARGUED VISIT-BEFORE-QUOTATION. THE OWNER SAID QUOTE FIRST. THE OWNER WAS RIGHT.
+
+My reasoning was the standard one for real estate: *nobody buys land they have
+not stood on, and the visit is what makes the price feel reasonable.* That holds
+when the plot is a Sunday drive away. **Chitral is not.** Measured against the
+641 real leads, by where they said they live:
+
+| Segment | Leads | Share | What a site visit actually costs them |
+|---|---|---|---|
+| **Chitral itself** | 115 | **17.8%** | trivial — they can come tomorrow |
+| **KP corridor** (Peshawar, Mardan, Swat, Dir…) | 193 | **29.9%** | a long day each way over the Lowari |
+| **Islamabad / Pindi** | 154 | **23.8%** | ~10 hours each way — a two-day trip |
+| **Rest of Pakistan** | 140 | 21.7% | further still |
+| **⚠️ Gulf / overseas** | 44 | 6.8% | **will not visit before buying, ever** |
+
+⚠️ **ONLY ABOUT 18% OF THIS MARKET CAN VISIT EASILY.** Asking the other 82% to
+make a two-day journey before they know the price is not a sales technique, it is
+a way of losing them. **Quote-first is correct for Chitral, and the general rule I
+quoted was the wrong rule for this project.**
+
+### What follows from it, and it is more than the ordering
+
+1. ⚠️ **The site visit is a CLOSING event, not a discovery event.** It comes after
+   the quotation, for buyers who are already serious. That is the opposite of how
+   most CRM funnels are drawn, and it is why `visit_scheduled` sits after
+   `quotation_sent` in the owner's own flow.
+2. ⚠️ **Visits will be BATCHED, not booked one at a time.** With the team in
+   Islamabad and the biggest market in Peshawar, a trip carries several clients.
+   **The appointments model needs "who is waiting for a visit" so a trip can be
+   filled** — a screen that only books one visit at a time does not fit how this
+   business can physically operate. Not built, and worth designing before Phase F.
+3. ⚠️ **Video has to do the job the visit does.** Drone footage, a live call from
+   the plot. For 82% of leads that is what creates desire, and it is the single
+   biggest content gap. It is also cheap.
+4. ⚠️ **Visits are probably SEASONAL.** Chitral's access is hard in winter and
+   flights are weather-cancelled. A booking flow that offers any date year-round
+   will promise trips that cannot happen. **To confirm with the owner.**
+5. **Peshawar is the biggest single city — 144 leads — and the office is not in
+   it.** Islamabad is 109. Worth knowing when the sales team is staffed.
+
+### ⚠️ Two things this changes in the engine
+
+**Quiet hours must use the CLIENT'S timezone, not the office's.** 41 leads sit in
+the Gulf at PKT-1 to PKT-2; a 9am automated message lands at 7am in Riyadh. The
+rule is about not irritating a client, so it is measured where the client is.
+
+**`Asia/Karachi` IS THE CORRECT ZONE FOR THE ISLAMABAD OFFICE — do not "fix" it.**
+It is the IANA identifier for the whole of Pakistan, and Islamabad and Karachi
+are the same clock. Somebody in the office will eventually read it as a bug.
+⚠️ **So the SLA clock is unaffected by any of the above**, which is the one piece
+of good news in this section.
+
+---
+
+## 🧭 2026-09-16 (later) — THE FLOW SETTLED, AND QUALIFICATION BECAME REAL
+
+The owner walked their whole understanding of the lifecycle through and asked for
+it to be checked by somebody thinking as a sales manager. Three questions were
+answered, three things pushed back on, and one of them built.
+
+### The three answers
+
+| Question | Answer |
+|---|---|
+| **When is a lead `qualified`?** | **Right after `contacted`, before any quotation or visit.** It is a GATE, not a waypoint — its job is to decide whether to spend money on somebody, and a site visit is the most expensive thing a salesperson does. ⚠️ The owner's model had it after the visit; the code's order was already right. The lost reasons prove it: `budget_too_low`, `wrong_location`, `not_serious` are all qualification failures and all cheap only when found early. |
+| **Where does the appointment come from?** | **It is a record, not a stage** — which is why it seemed to appear from nowhere. It occurs at up to three points in one deal: a `call` at qualification, the `site_visit` backing `visit_scheduled`, and a `meeting` to sign and take the booking. `visit_scheduled` is the funnel; the appointment is the diary behind it. |
+| **Where does booking sit?** | **Between `negotiation` and `won`.** ⚠️ And `won` = **booking amount received, unit reserved** — the owner accepted this. The plot comes off the market, commission is earned, and the CRM's job ENDS there. Owner: *"I am creating a lead management system for CRM"* — instalments, collections and transfer are ERP work, not this. `crm_properties.status` goes `reserved` at won, `sold` at transfer. |
+
+### The three pushbacks, and where each landed
+
+| | Outcome |
+|---|---|
+| **Quotation before visit, or visit before quotation** | ⚠️ **SETTLED LATER THE SAME DAY, AND THE OWNER WAS RIGHT — see the geography section above.** I argued visit-first on the general real-estate rule; only ~18% of this market can reach Chitral easily, so quote-first is correct here. Still worth a per-project setting for the day a scheme sits beside a city. |
+| **"No reply after one follow-up → lost"** | ⚠️ **Refused, and it is the expensive one.** Roughly 80% of sales need five-plus follow-ups. Worse, auto-lost fills the nine lost reasons with fiction and **makes Step 12 — campaign vs staff, the question this CRM exists for — permanently unanswerable.** Exhausted sequences go to nurture (`revisit_later`), never lost. |
+| **One touch per lead per day** | ⚠️ **The owner was right and I was too blunt.** The distinction is **chase vs transactional**: cap the chases, never cap a visit reminder or the quotation itself. |
+
+⚠️ **AND QUIET HOURS ≠ WORKING HOURS — I had conflated them.** Assigning a lead
+at 2am is fine; the team answers from mobile and that is the job (133/156 already
+only ORDER by working hours, never filter). Sending an automated WhatsApp to a
+stranger at 2am is not. Soft night window on automated sends only, adjustable.
+
+**Visit reminder: 1–2 hours before, the owner's choice.** ⚠️ Flagged once as
+their sales manager: too late to refill the slot if they cancel. A T-24h confirm
+should join it later.
+
+### ✅ Built — migration 167 · qualification, and the gate
+
+`0 of 641` real leads carried a budget. `qualified` was a badge somebody clicked.
+
+**Four axes gated** — budget band · authority · purpose · timeline — plus payment
+mode, location preference, and the objection in their own words. A trigger
+refuses entry to `qualified` **or anything past it** without all four.
+
+⚠️ **THE ENUMS ALL CARRY "unknown" / "not disclosed" ON PURPOSE.** The gate
+refuses never having ASKED, not a client who would not answer. Four recorded
+unknowns produce a `cold` suggestion, which is the correct answer.
+
+⚠️ **A TRIGGER, NOT A CHECK.** A CHECK re-evaluates every row on every write and
+would have frozen every demo lead already past `contacted` with no BANT.
+
+⚠️ **AND IT GATES THE WHOLE RANGE, NOT JUST ONE STAGE** — a gate you can walk
+around by picking the next option in the dropdown is decoration.
+
+⚠️ **The temperature is SUGGESTED, never set** — owner: *"I will set their
+temperature."* Two caps beyond the weighting: **`just exploring` and `not the
+decider` can never be hot**, because hot means closeable *now*. Capped to warm,
+never forced cold — both are good leads for later.
+
+⚠️ **A BUG WORTH RECORDING: the explanation contradicted its own verdict.**
+Ranking reasons by weight hid the signal that decided the answer — a lead capped
+to warm for having no decision-maker was explained by three reasons that all
+argue for hot. Caveats now lead and are never dropped. Locked by a test.
+
+⚠️ **`qualified_at` / `qualified_by_id` are stamped by the trigger and left OUT
+of the grant** — the same reason 116 keeps `first_contacted_at` out. A
+response-time figure the measured party can edit is not a measurement.
+
+**Proved:** 7 self-checks in the migration + `node scripts/check-qualification.mjs`,
+every one under a real salesperson's session. A peer cannot rewrite a colleague's
+qualification; **the manager can, by design**, and that is asserted rather than
+assumed.
+
+⚠️ **A working path was broken and then restored inside the same session.** 167's
+gate made the stage dropdown's "Qualified" fail with no UI to satisfy it. The
+`QualifyPanel` in the drawer's Overview tab is that UI, and `setStageAction` now
+turns CRM08 into a sentence naming the missing answers rather than a 500.
+
+### 📁 `docs/crm-ai/` — the automation plan, quarantined
+
+> Owner: *"documented in a separate folder that will not impact this current
+> folder or these current parts."*
+
+Six files, nothing implemented, nothing in `docs/crm/` touched. Three tiers with
+an evidence gate on each, the grounding rules behind *"the AI will not answer
+outside that document"*, the handover protocol, the performance-reading design,
+and ten guardrails each with the damage it prevents.
+
+⚠️ **Two questions in there need the owner and are not mine to assume:** may the
+agent negotiate (I recommend no — it silently defeats the two-person discount
+rule), and may a model read WhatsApp *conversations* (Q18 covered names and
+numbers only, and Chitral's threads are a client's data).
+
+---
+
+## 🔁 2026-09-16 — A LOST SESSION, AND WHAT THIS FILE HAD STOPPED SAYING
+
+The owner's PC restarted and the session was gone. They came back to this file to
+find out where to start — **which is the entire reason it exists — and it was two
+days out of date.** It said the last migration was 143 with 144–166 applied, it
+still carried the 2026-09-12 PAUSED banner that had already been lifted, and its
+"How to resume cold" pointed at `10-LEAD-ASSIGNMENT.md` as the next build, three
+days after that was built. The work of the 15th and 16th had gone into
+`14-SALES-WORKSPACE-PHASES.md` and `15-MY-LEADS-PHASE.md` instead.
+
+> Owner: *"The tracker is very important and you should keep maintaining it and
+> keep updating it without my consultation sir."*
+
+⚠️ **STANDING ORDER, NO LONGER A REQUEST.** Updating this file is part of
+finishing a piece of work, like `tsc` and the test suite — never something to ask
+permission for. And ⚠️ **the failure mode is not a missing entry, it is a stale
+one left in place**: a PAUSED banner nobody deleted outranked three days of newer
+text further down. Delete or mark what a session contradicts.
+
+### The two days this file missed — migrations 144–166
+
+All applied and verified against the live database on 2026-09-16.
+
+| Phase | Landed | What |
+|---|---|---|
+| **B · the stage list** | 148, 149 | Settled once, as the tension in `12-LIFECYCLE-SPEC.md` demanded. **Ten active stages**; `follow_up` and `scheduled` retired and proved empty first. ⚠️ Both remain in the enum because PostgreSQL has no `DROP VALUE` — `RETIRED_STAGES` in `lib/domain/crm-stages.ts` is what keeps them out of every picker and count. |
+| **C · properties** | 150, 166 | The catalogue in the drawer's Related tab; attaching a unit to a lead. Read-only to a salesperson — no price field in the picker at all. |
+| **D · quotations** | 151 | Raise from the drawer, net recomputed as typed, the manager's approval queue, approve / approve-less / reject. ⚠️ **Still missing: the PDF and v2 versioning** — `pdf_path` and `supersedes_id` both exist and are unused. |
+| **E · appointments** | 152 | Booking from the "site visit requested" outcome, **Today's plan** on `/my-leads`, recording completed · no-show · cancelled. ⚠️ **Still missing: rescheduling** (`replaces_id` unused) **and the standalone screen** — being built 2026-09-16. |
+| — | 153–165 | Follow-ups and sequences tables, assignments with a frozen reason, outcomes, capture + eligibility, `app.crm_create_lead`, the Add Lead picker, Meta platform, demo rows flagged `is_test_data`, and **164/165 — Rule Zero's fifth law**, the access rule answered once per statement rather than once per row (552× on the manager count). |
+
+### 📐 The page layout, settled by the owner today
+
+`14-SALES-WORKSPACE-PHASES.md` Phase A specified a `/sales` route with an
+eleven-entry rail. **No `/sales` route was ever created** — the desk, the drawer,
+Today's plan, the approval queue, the unit picker and Raise Quotation all landed
+on `/my-leads`. Docs and code had disagreed about what Phase A was.
+
+> Owner: *"The sales or my leads page is the same page. You can consider it as
+> the same… but the sales desk for Sara will be a different page."*
+
+| Rail entry | Route | State |
+|---|---|---|
+| **My leads** | **`/my-leads`** | ✅ built. ⚠️ **This is also "/sales". There is no second route and none is to be created** — a `/sales/leads` alias would be two URLs for one screen and two places for a bug to hide. |
+| **My sales desk** | — | ⬜ **A separate page**, still to build: the greeting, the four cards, Today's plan, the manager's approval queue, and the goal card when Phase F lands. |
+
+### ✅ Built 2026-09-16 — the Appointments screen · `/appointments`
+
+> Owner: *"It is done but I want to implement and also build its screen today so
+> I can run it at least. Definitely I will improve its UI or screen later."*
+
+**No migration — 152 already had the table and its policies.** The screen is one
+query (`crmMyAppointments`), one client component, one nav entry.
+
+| | |
+|---|---|
+| Route | `/appointments` — its own top level, not `/my-leads/appointments`, which would inherit that page's nine queries to draw a list owing them nothing |
+| Tabs | **Needs recording · Upcoming · Done**, all client state — subsets of rows already on the page, so a tab press is a `filter()` and not a round trip |
+| Window | 60 days back, 300 rows, and the screen **says so** rather than implying it holds everything |
+| Proof | `node scripts/check-appointments-screen.mjs` — 12 assertions under **real salespeople's sessions**, never an admin's, cleaning up after itself |
+
+⚠️ **THE `join public.projects` BUG WAS WRITTEN HERE AGAIN, AND CAUGHT BEFORE IT
+SHIPPED.** The query first read the project name with a bare join. Under a
+salesperson's session `projects_select` asks for membership, a salesperson is a
+member of nothing, and every row would have rendered with **no project** — a
+screen that looks merely sparse, and looks perfect from an admin login. It is
+`app.crm_project_name()` now, and the check asserts the NAME rather than the row
+count, because a count passes either way. That is migrations 105 / 121 / 125 /
+129 / 130 / 140 and `crmAddLeadProjects`, for the **eighth** time.
+
+⚠️ **AND CANCELLING A BOOKED VISIT DID NOT EXIST ANYWHERE IN THE PRODUCT.**
+`crmCloseAppointment` has accepted `cancelled` since 152 and **no screen ever
+sent it** — Today's plan only shows its buttons once an appointment is in the
+past, so a client ringing to call off tomorrow's visit left the salesperson with
+a diary they could not correct. `/appointments` is now the only place it can be
+done, and it asks *why* first: a stray click there cancels a real client's visit,
+which is the one thing on the screen that pressing something else cannot undo.
+
+⚠️ **`--text-tertiary` IS NOT AA-SAFE AS INK IN THE LIGHT THEME.** Measured
+through a canvas at 1440px: **3.94:1** on a surface, against 4.5 required — while
+passing comfortably in dark, which is what makes it survive review. Four uses on
+this screen were raised to `--text-secondary` (6.42 light / 8.07 dark). The
+remaining `text-tertiary` here is all `aria-hidden` icons and separators.
+
+⚠️ **AND `PageHeader`'s EYEBROW FAILS THE SAME WAY, ON EVERY PAGE IN THE
+PRODUCT** — `text-micro` + `text-tertiary` = **3.41:1** in light. Left alone
+deliberately: it is a shared component and a product-wide visual-weight decision,
+not something to change inside one screen's build. **Worth raising with the
+owner.** See `chart-tokens-fail-as-text`.
+
+**Still missing:** rescheduling (`replaces_id` remains unused — cancel and
+rebook is the workaround), and booking from this screen, which is deliberate —
+`crmBookAppointment` reads the project, owner and unit **from the lead** so a
+caller cannot name a different one, and a second write path would give that up.
+
+⚠️ **Nothing was seeded.** `crm_appointments` is still **0 rows**, so the screen
+opens on its own empty state, which names the control that fills it. Booking one
+from Record Outcome → *site visit requested* is the owner's own test.
 
 ---
 
@@ -167,7 +591,17 @@ files."*
 
 ---
 
-## ⏸️ PAUSED — read this before starting anything
+## ✅ LIFTED — the 2026-09-12 pause. Kept for the reasoning only.
+
+⚠️ **THIS PAUSE IS OVER.** Work resumed 2026-09-14 with the lifecycle spec and has
+run continuously since; phases A–E of `14-SALES-WORKSPACE-PHASES.md` landed on the
+15th and 16th. **This banner sat here unmarked for four days and was the single
+thing that made this file mislead a cold resume on 2026-09-16** — it is the
+worked example of why a stale entry is worse than a missing one.
+
+The reasoning below is still sound and still unfinished: the department
+restructuring did not happen, and Q19 (specialisation) is still waiting on it.
+Nothing in the build waits on that.
 
 **Paused 2026-09-12 by the owner**, to restructure the company's teams before
 any more CRM work.
@@ -243,7 +677,11 @@ What follows is everything still to do, with what each one actually involves.
 
 ---
 
-## ⏸️ PAUSED — read this before starting anything
+## ✅ LIFTED — the 2026-09-10 pause. Kept for the reasoning only.
+
+⚠️ **ALSO OVER.** WhatsApp verification cleared 2026-09-13 and sending, receiving
+and media are all proved live. Everything in the table below has since been built
+or re-answered; read it as history, not as a list of what is blocked.
 
 **Paused 2026-09-10 by the owner**, to move onto the public homepage on `main`.
 
@@ -930,7 +1368,12 @@ see not just what was decided but when and why.
 | 2026-09-12 | **Meta Cloud API direct, not a BSP** | Twilio and 360dialog were considered. The committed webhook verifies `X-Hub-Signature-256`; a BSP uses its own scheme and its own send API, so going through one is a rewrite plus a permanent per-message markup. |
 | 2026-09-12 | ⚠️ **Coexistence is NOT available for our own number** | Meta's own documentation: *"You must already be a Solution Partner or Tech Provider"* and *"this feature applies to business customers only — not your own organization."* ⚠️ **And it would undermine the goal anyway:** replies sent from a shared handset arrive as echoes with no way to tell WHICH salesperson sent them, which destroys per-person response time — the measurement this CRM exists for. |
 | 2026-09-12 | **Meta's free test number first** | Proves the whole flow without deleting the business number from WhatsApp — the one irreversible step. ⚠️ Blocked: Meta refuses to add a test recipient until business verification clears (~12 days from 2026-09-12). |
-| 2026-09-12 | ⚠️ **PAUSED for team restructuring** | Owner: *"Right now just one team, the AI and Digital team, is implemented. No finance team, no sales team, no HR team… Then I will come back to this CRM and maybe it will be easier for me to tell you which things I will assign to which."* **The right order** — every open question here is a question about people. Next work on a `team-restructuring` branch, merged to `main` before the CRM resumes. |
+| 2026-09-12 | ⚠️ **PAUSED for team restructuring** | Owner: *"Right now just one team, the AI and Digital team, is implemented. No finance team, no sales team, no HR team… Then I will come back to this CRM and maybe it will be easier for me to tell you which things I will assign to which."* **The right order** — every open question here is a question about people. Next work on a `team-restructuring` branch, merged to `main` before the CRM resumes. ⚠️ **Lifted 2026-09-14**; the restructuring itself has still not happened and Q19 still waits on it. |
+| 2026-09-14 | **The stage list** | **Ten stages**, settled once as `12-LIFECYCLE-SPEC.md` demanded: new · contacted · qualified · proposal_pending · quotation_sent · visit_scheduled · visited · negotiation · won · lost. `follow_up` and `scheduled` retired — migrations 148/149, which proved no row wore either before committing. ⚠️ **"New reply" was refused as a stage**: a lead that replies during negotiation must still be in negotiation, or the funnel forgets where they were. |
+| 2026-09-16 | ⚠️ **"My leads" and "/sales" are ONE page** | Owner: *"The sales or my leads page is the same page. You can consider it as the same."* `/my-leads` is it. **No `/sales` route is to be created** — the Phase A spec that called for one is superseded. Two URLs for one screen is two places for a bug to hide. |
+| 2026-09-16 | **"My sales desk" is a separate page** | Owner: *"…but the sales desk for Sara will be a different page."* Still to build: greeting, the four cards, Today's plan, the manager's approval queue, the Phase F goal card. Distinct from My leads, which is the list. |
+| 2026-09-16 | ⚠️ **The tracker is maintained without asking** | Owner: *"The tracker is very important and you should keep maintaining it and keep updating it without my consultation sir."* Standing order. Updating this file is part of finishing work, like `tsc`. ⚠️ **And stale entries get deleted or marked** — a four-day-old PAUSED banner is what made this file mislead a cold resume. |
+| 2026-09-16 | **Appointments screen — working before finished** | Owner: *"I want to implement and also build its screen today so I can run it at least. Definitely I will improve its UI or screen later."* Explicitly a usable screen now, a polished one later. ⚠️ Rule Zero still applies to it — "improve the UI later" is about layout and density, never about a click that waits. |
 
 ---
 
@@ -950,18 +1393,23 @@ The exact calls to re-run are at the foot of `01-VERIFIED-FACTS.md`.
 
 ## How to resume cold
 
-1. **Read this file top to bottom**, especially the 2026-09-12 section. Five
-   access bugs were found in one afternoon by logging in as somebody who was not
-   an Admin, and nothing else in this documentation would have predicted them.
-2. **Check whether the team restructuring has landed.** The CRM is paused for
-   it, and it is the input several open questions are waiting on. Its branch
-   merges to `main` before this work resumes.
-3. **Check whether Meta business verification has cleared** (~12 days from
-   2026-09-12). Only WhatsApp sending depends on it; nothing else does.
-4. **`10-LEAD-ASSIGNMENT.md` is the next build**, and it needs nothing from
-   anybody — four signals, no AI, no new credentials, no closed leads.
-5. `08-TWELVE-STEPS.md` holds the overall order. `04-PHASES.md` is superseded
-   and kept only for the reasoning behind it.
+⚠️ **Rewritten 2026-09-16.** The previous version of this list sent a cold reader
+to a build that had been finished three days earlier.
+
+1. **Read the dated sections of this file from the top.** They are newest-first.
+   Anything marked ⏸️ or ⛔ further down has been checked against the top before
+   you trust it — that is the failure this file has already had once.
+2. **`14-SALES-WORKSPACE-PHASES.md` is the build order.** A–E are done, **F ·
+   Goals is next** and has all its dependencies met. `08-TWELVE-STEPS.md` covers
+   the earlier capture→converse half and is finished bar Step 12.
+3. **`12-LIFECYCLE-SPEC.md` is the system's shape** — read it before building
+   anything structural. `16-EXTRACTING-THE-CRM.md` holds the four rules that keep
+   the module liftable; check any new import against them.
+4. **Verify, do not remember.** The migration number in the header, the row
+   counts and the applied state all get read from the live database — this file
+   was wrong about all three on 2026-09-16.
+5. **Then open it as Sarah**, as the sales manager, and as somebody in AI &
+   Digital who should see nothing. See the habit below.
 
 ### ⚠️ The one habit this project has had to learn five times
 

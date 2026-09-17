@@ -30,6 +30,17 @@ const LEAD: CrmLeadRecord = {
   projectName: 'Chitral Royal Homes',
   propertyId: null,
   propertyLabel: null,
+  /* Qualification · 167. Null throughout: this fixture is a real imported Meta
+     lead, and nobody has spoken to it — which is the state 641 of them are in. */
+  budgetBand: null,
+  authority: null,
+  purpose: null,
+  timeline: null,
+  paymentMode: null,
+  locationPreference: null,
+  qualificationNote: null,
+  budget: null,
+  qualifiedAt: null,
   fullName: 'Mukhtar Ahmad',
   phone: '03439040510',
   phoneE164: '+923439040510',

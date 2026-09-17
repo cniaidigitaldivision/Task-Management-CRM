@@ -66,6 +66,15 @@ const ADMIN_NAV = [
   /* Step 5, 2026-09-13. The salesperson's own day — the only item in Growth
      that belongs to the person rather than to whoever manages them. */
   '/my-leads',
+  /* Phase E's rail screen, 2026-09-16. ⚠️ `/appointments`, NOT
+     `/my-leads/appointments` — a nested route inherits that page's layout and
+     its nine queries to draw a list that owes them nothing. Same reasoning that
+     put `/clients` beside `/leads`. No nested pair, so the prefix rule holds. */
+  '/appointments',
+  /* The sales team's own owed-work list, 2026-09-16. ⚠️ `/todos`, NOT
+     `/my-leads/todos` — a nested route inherits that page's nine queries to draw
+     a list that owes them nothing. */
+  '/todos',
   '/lead-overview',
   /* Step 10. ⚠️ `/lead-reports`, NOT `/reports/leads` — that page's layout
      requires `team_coordinator` and above, and the sales manager is `member`.

@@ -55,6 +55,9 @@ Read in this order if you are new to the project:
 | 19 | [`19-MASTER-SPECIFICATION-REGISTRY.md`](19-MASTER-SPECIFICATION-REGISTRY.md) | ⭐ **The canonical index.** Every requirement, rule, enum and setting — and which doc owns it. Read this to resolve any disagreement. |
 | 20 | [`20-UI-RESPONSIVENESS.md`](20-UI-RESPONSIVENESS.md) | 🚨 **Rule Zero — binding on every page.** Every click changes the screen in its own frame. Opening and closing never touch the network. Read before building any screen. |
 | 20 | [`20-IMPLEMENTATION-CONTRACTS.md`](20-IMPLEMENTATION-CONTRACTS.md) | ⭐ **Build safety.** Module boundaries, dependency order, frozen interfaces, integration seams. |
+| 📁 | [**`crm/`**](crm/README.md) | ⭐ **THE CAMPAIGN & LEAD DESK — 18 files, and where the live work is.** Its `00-STATE-AND-TRACKER.md` is the file to read first after any interruption. Everything about leads, qualification, quotations, properties, appointments and the sales workspace lives in that folder, not in the numbered docs above. |
+| 📁 | [**`crm-ai/`**](crm-ai/README.md) | 🤖 **PLANNED, NOTHING BUILT.** The automation and AI-agent layer that goes ON TOP of the CRM once humans are using it. Deliberately a separate folder so an automation plan is never mistaken for a commitment — owner's instruction, 2026-09-16. |
+| 📁 | [`meta-integration/`](meta-integration/README.md) | The newer, foldered version of the Meta plan below. |
 | — | [`META-INTEGRATION-PLAN.md`](META-INTEGRATION-PLAN.md) | 📊 **Planning only, not built.** Linking projects to Facebook Pages and Instagram to read reach, views, engagement and follower growth — and judge whether the posting is working. TikTok deferred. |
 | — | [`SESSION-STATE.md`](SESSION-STATE.md) | 🔄 **Resume point.** Read this first if a session was interrupted. |
 | — | [`PROGRESS-TRACKER.md`](PROGRESS-TRACKER.md) | **The full checklist.** Every phase, every task, permanent record. |

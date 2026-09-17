@@ -39,10 +39,25 @@ section is absent — not faked, not zeroed.
 ### Phase A · The workspace, and everything that already works
 *Depends on: nothing. This is the one to start.*
 
-**Routes.** `/sales` becomes Sarah's home, with the rail the owner asked for:
-My sales desk · My leads · My follow-ups · Conversations · Appointments ·
-My quotations · **Attendance** (the owner spotted it missing) · My tasks ·
-Calendar · My performance · Help.
+**Routes.** ⚠️ **SUPERSEDED 2026-09-16 — there is no `/sales` route and none is
+to be created.** The owner settled it: *"The sales or my leads page is the same
+page. You can consider it as the same… but the sales desk for Sara will be a
+different page."*
+
+| Rail entry | Route | State |
+|---|---|---|
+| **My leads** | **`/my-leads`** | ✅ built — the list, the drawer, stage edits, outcomes, Add Lead. **This IS "/sales".** |
+| **My sales desk** | — | ⬜ a *separate* page: greeting, the four cards, Today's plan, the approval queue, the Phase F goal card |
+| **Appointments** | `/appointments` | ✅ built 2026-09-16 — the whole diary, with *Needs recording* leading |
+| My follow-ups · Conversations · My quotations · My performance | — | ⬜ Phase H |
+| **Attendance** · My tasks · Calendar · Help | existing routes | ✅ already in the product |
+
+⚠️ **One screen, one URL.** An alias like `/sales/leads` pointing at the same
+list is two places for a bug to hide and two things to keep in step.
+
+The rail the owner asked for, in order: My sales desk · My leads · My follow-ups ·
+Conversations · Appointments · My quotations · **Attendance** (the owner spotted
+it missing) · My tasks · Calendar · My performance · Help.
 
 ⚠️ **A rail entry only appears when its screen does something.** Six of those are
 later phases; until then they are not in the rail. A nav that leads to "coming
@@ -64,7 +79,8 @@ soon" teaches people to stop clicking the nav.
 **Deliberately absent in A:** the property line, the quotation line, Today's
 plan, My goal.
 
-> **How to check it.** Sign in as **Sarah** → `/sales`. You should see your own
+> **How to check it.** Sign in as **Sarah** → **`/my-leads`** (⚠️ not `/sales`,
+> which does not exist — see the route table above). You should see your own
 > leads only — not Sahad's, not all 653. The four figures must match the tabs:
 > press **Overdue** and the list should show exactly that many rows. Sign in as
 > **Sahad** and the same page should show a different set.
@@ -208,9 +224,21 @@ itself over the course of the morning, which is when it is most looked at.
 succeeds as the owner; one remains scheduled afterwards; and a colleague sees
 none of it.
 
-**Still missing:** rescheduling (the `replaces_id` column is there and unused),
-and a standalone appointments screen for the rail — Today's plan covers the
-salesperson's own day, which is the case that mattered.
+**Still missing:** rescheduling — the `replaces_id` column is there and unused,
+and cancel-then-rebook is the workaround.
+
+⚠️ **THE STANDALONE SCREEN LANDED 2026-09-16** and it was not the duplicate it
+looked like. Today's plan is a *rail*: seven days forward, cancellations hidden,
+absent entirely when empty. `/appointments` is a *record*, and it answers the one
+question nothing else could — **which visit have I still not written up?** An
+appointment nobody recorded is the commonest way a lead goes quiet, and there was
+no screen anywhere that could list them.
+
+⚠️ **It also closed a hole nobody had noticed: a booked visit could not be
+cancelled.** `crmCloseAppointment` has accepted `cancelled` since 152 and no
+screen ever sent it, because Today's plan only offers its buttons on a visit that
+has already happened. A client ringing to call off tomorrow left the diary
+uncorrectable.
 
 ---
 
@@ -314,6 +342,33 @@ expired · lead closed · opted out · already booked.
 My leads · My follow-ups · Conversations · Appointments · My quotations ·
 My performance. Each is a filtered view of something already built — none of them
 is new machinery, which is why they come last rather than first.
+
+**Appointments — ✅ DONE 2026-09-16, `/appointments`.** No migration; 152 already
+had the table and its policies. Three tabs, all client state: **Needs recording**
+(past and still open) · **Upcoming** · **Done**. 60 days back, 300 rows, and the
+screen says so rather than implying it holds everything.
+
+⚠️ **It is not Today's plan twice.** That is a rail — seven days forward,
+cancellations hidden, absent when empty. This is a record, and *"which visit have
+I still not written up?"* is a question nothing else in the product could answer.
+
+⚠️ **The `join public.projects` bug was written here again and caught before it
+shipped** — see the tracker's 2026-09-16 entry. Eighth occurrence.
+
+⚠️ **`--text-tertiary` measured 3.94:1 in light** and is not AA-safe as ink;
+four uses were raised. `PageHeader`'s eyebrow fails the same way at 3.41:1 **on
+every page in the product** and was left alone deliberately — a shared component
+is not something to change inside one screen's build. Worth raising.
+
+> **How to check it.** As **Sarah**, open a lead → Record Outcome → *site visit
+> requested*, with a time in the last hour. `/appointments` opens on **Needs
+> recording** with it there. Press **It happened**, type what was said → it moves
+> to **Done** with the note under it. Book one for next week → it is under
+> **Upcoming** with **Call it off** and no write-up buttons, and calling it off
+> asks why first. Sign in as **Sahad** — none of it appears.
+>
+> From a terminal, under each real person's session rather than an admin's:
+> `node scripts/check-appointments-screen.mjs`
 
 ---
 
