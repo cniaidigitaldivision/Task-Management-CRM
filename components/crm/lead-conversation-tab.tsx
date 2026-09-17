@@ -1,15 +1,27 @@
 'use client';
 
 import * as React from 'react';
-import { Check, ChevronDown, FileText, Info, Mail, Paperclip, Send, X } from 'lucide-react';
+import {
+  Check,
+  ChevronDown,
+  FileText,
+  Info,
+  Mail,
+  NotebookPen,
+  Paperclip,
+  Plus,
+  Send,
+  X,
+} from 'lucide-react';
 
 import {
   readWhatsAppThreadAction,
   sendWhatsAppTextAction,
 } from '@/app/actions/crm-whatsapp';
+import { addNoteAction } from '@/app/actions/crm-leads';
 import { MAIL_BLUE, WA_GREEN, WhatsAppMark } from '@/components/crm/whatsapp-mark';
 import { useToast } from '@/components/ui/toast';
-import type { CrmMessage, CrmSender } from '@/lib/db/queries/crm-leads';
+import type { CrmLeadNote, CrmMessage, CrmSender } from '@/lib/db/queries/crm-leads';
 import { displayPhone } from '@/lib/domain/phone';
 import { cn } from '@/lib/utils';
 
@@ -33,11 +45,26 @@ import { cn } from '@/lib/utils';
  * Chitral has none today: 641 real leads, nothing able to message them.
  * ========================================================================= */
 
-type Filter = 'all' | 'whatsapp' | 'email';
+type Filter = 'all' | 'whatsapp' | 'email' | 'summary';
+
+/* ⚠️ KARACHI, and "Today" rather than a date for the day somebody is reading
+   on. A thread that called this morning "17 Sept" would be correct and read as
+   history. */
+function dayLabel(iso: string): string {
+  const key = (d: Date) => d.toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' });
+  const at = new Date(iso);
+  const now = new Date();
+  if (key(at) === key(now)) return 'Today';
+  if (key(at) === key(new Date(now.getTime() - 86_400_000))) return 'Yesterday';
+  return at.toLocaleDateString('en-GB', {
+    day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Karachi',
+  });
+}
 
 export function LeadConversationTab({
   leadId,
   messages,
+  notes,
   sender,
   sequencePaused,
   leadName,
@@ -45,6 +72,8 @@ export function LeadConversationTab({
 }: {
   leadId: string;
   messages: readonly CrmMessage[];
+  /** The written record — what the Summary view is made of. */
+  notes: readonly CrmLeadNote[];
   sender: CrmSender | null;
   /** Why the chase stopped, when it has — migration 170 pauses on a reply. */
   sequencePaused: string | null;
@@ -75,6 +104,36 @@ export function LeadConversationTab({
     whatsapp: thread.filter((m) => m.channel === 'whatsapp').length,
     email: thread.filter((m) => m.channel === 'email').length,
   };
+
+  /* ⚠️ THE CHAT LAYOUT BELONGS TO THE WHATSAPP VIEW ALONE. Owner, 2026-09-17:
+     *"this view that you have actually implemented should be in WhatsApp… all
+     the things you displayed previously should be left-aligned."* And they are
+     right about why: **All** is a TIMELINE across channels — read top to bottom
+     like a history — while **WhatsApp** is a CONVERSATION, where side is the
+     fastest way to see who spoke. Sides in a mixed timeline would make an email
+     and a WhatsApp reply look like two halves of one exchange. */
+  const chat = filter === 'whatsapp';
+
+  /* ⚠️ THE CHAT OPENS AT THE BOTTOM. Owner, 2026-09-17: *"when I switch to
+     WhatsApp its scrollbar is stuck at the top — it should be at the bottom so
+     I can see the latest message."* A conversation is joined at the end: the
+     newest message is the one being answered, and a thread that opens on a
+     greeting from three weeks ago makes somebody scroll before they can work.
+
+     ⚠️ ONLY IN THE CHAT VIEW, AND ONLY WHEN NEWEST IS LAST. **All** is a
+     history read downwards and jumping it to the foot would hide where it
+     starts; and somebody who has asked for newest-first has deliberately put
+     the latest message at the TOP, so the foot is the oldest thing there.
+
+     ⚠️ AND IT IS A LAYOUT EFFECT. `useEffect` runs after the browser has
+     painted, so the thread would be drawn at the top for one frame and then
+     jump — visible, and exactly the flicker Rule Zero exists to prevent. */
+  const scroller = React.useRef<HTMLDivElement>(null);
+  React.useLayoutEffect(() => {
+    if (!chat || !oldestFirst) return;
+    const el = scroller.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [chat, oldestFirst, thread.length]);
 
   const shown = React.useMemo(() => {
     const kept = filter === 'all' ? thread : thread.filter((m) => m.channel === filter);
@@ -145,20 +204,42 @@ export function LeadConversationTab({
           {counts.email > 0 && <span className="tabular-nums opacity-70">{counts.email}</span>}
         </Chip>
 
+        {/* ⚠️ THE WRITTEN RECORD, NOT A GENERATED ONE. Owner, 2026-09-17:
+            *"there should be a summary tab inside the conversation where the
+            major points should be mentioned… I have told him this, summarised
+            this, and we are in agreement on this."* That is the SALESPERSON'S
+            own account — what `06-CONVERSATION-MEMORY.md` calls the memory,
+            and it insists the memory is written WHEN IT HAPPENS. A summary
+            reconstructed from forty messages a week later is a reading of
+            events, and only one of those survives a client disagreeing about
+            what was agreed. No AI here, and none until the ladder in
+            `docs/crm-ai/` is built and its consent question is answered. */}
+        <Chip active={filter === 'summary'} onClick={() => setFilter('summary')}>
+          <NotebookPen className="size-5" aria-hidden="true" />
+          Summary
+          {notes.length > 0 && (
+            <span className="tabular-nums opacity-70">{notes.length}</span>
+          )}
+        </Chip>
+
         {/* ⚠️ THE LABEL SAYS WHAT THE ORDER ACTUALLY IS. The reference reads
             "Newest first" above a thread running oldest to newest; a conversation
             is read downwards, so the default is oldest-first and the control is
             honest about it. */}
         {/* ⚠️ IT LOOKS LIKE THE CHOICE IT IS. A bare label reads as a status
             line; the chevron is what says it can be changed. */}
-        <button
-          type="button"
-          onClick={() => setOldestFirst((v) => !v)}
-          className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-border-default px-3 py-1.5 text-caption font-medium text-text-secondary transition-colors hover:text-text-primary"
+        {/* ⚠️ NOT ON THE SUMMARY, which is newest-first and has no thread to
+            order. A control that changes nothing is one somebody presses twice. */}
+        {filter !== 'summary' && (
+          <button
+            type="button"
+            onClick={() => setOldestFirst((v) => !v)}
+            className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-border-default px-3 py-1.5 text-caption font-medium text-text-secondary transition-colors hover:text-text-primary"
         >
-          Sort: {oldestFirst ? 'Oldest first' : 'Newest first'}
-          <ChevronDown className="size-3.5" aria-hidden="true" />
-        </button>
+            Sort: {oldestFirst ? 'Oldest first' : 'Newest first'}
+            <ChevronDown className="size-3.5" aria-hidden="true" />
+          </button>
+        )}
       </div>
 
       {/* ── The chase stopped because they answered ─────────────────── */}
@@ -210,24 +291,57 @@ export function LeadConversationTab({
         </div>
       )}
 
-      {/* ── The thread ──────────────────────────────────────────────── */}
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {shown.length === 0 ? (
+      {/* ── The thread ─────────────────────────────── */}
+      {/* ⚠️ THE CHAT IS ANCHORED TO ITS FOOT, not just scrolled there. A
+          three-message thread has nothing to scroll, and left at the top it
+          sits under a hand-span of empty drawer with the composer far below
+          it. `mt-auto` puts the newest message just above the reply box
+          whether the thread is three messages or three hundred, so the eye
+          lands in the same place either way — which is the actual point of
+          the owner's *"I can see the latest message"*, and what WhatsApp
+          itself does. It costs nothing when the thread overflows: `auto`
+          margins only spend space that is spare. */}
+      <div
+        ref={scroller}
+        className={cn('min-h-0 flex-1 overflow-y-auto', chat && 'flex flex-col')}
+      >
+        {filter === 'summary' ? (
+          <Summary leadId={leadId} notes={notes} />
+        ) : shown.length === 0 ? (
           <p className="rounded-xl border border-dashed border-border-default px-4 py-8 text-center text-body-sm text-text-secondary">
             {thread.length === 0
               ? 'Nothing has been sent or received yet.'
               : `No ${filter} messages on this lead.`}
           </p>
         ) : (
-          <ol className="space-y-4">
-            {shown.map((m) => (
-              <Entry key={m.id} message={m} leadName={leadName} />
-            ))}
+          <ol className={cn('space-y-4', chat && 'mt-auto')}>
+            {shown.map((m, i) => {
+              /* ⚠️ THE DAY AS A SEPARATOR, because the stamp now carries only a
+                 time. Without this, dropping the date would genuinely lose it —
+                 WhatsApp does the same thing for the same reason. */
+              const day = dayLabel(m.occurredAt);
+              const prev = i > 0 ? dayLabel(shown[i - 1].occurredAt) : null;
+              return (
+                <React.Fragment key={m.id}>
+                  {day !== prev && (
+                    <li className="flex justify-center py-1">
+                      <span className="rounded-full bg-bg-subtle px-2.5 py-0.5 text-micro font-medium text-text-secondary">
+                        {day}
+                      </span>
+                    </li>
+                  )}
+                  <Entry message={m} leadName={leadName} chat={chat} />
+                </React.Fragment>
+              );
+            })}
           </ol>
         )}
       </div>
 
       {/* ── Composer ────────────────────────────────────────────────── */}
+      {/* ⚠️ ABSENT ON THE SUMMARY. That view has its own box, and two writing
+          boxes on one screen is how a note gets sent to the client. */}
+      {filter !== 'summary' && (
       <div className="mt-3 shrink-0 border-t border-border-subtle pt-3">
         <div className="flex flex-wrap items-center gap-2">
           <div className="inline-flex rounded-lg border border-border-default">
@@ -336,29 +450,45 @@ export function LeadConversationTab({
           </button>
         </div>
       </div>
+      )}
     </div>
   );
 }
 
 /* ---- One entry ----------------------------------------------------------- */
 
-function Entry({ message, leadName }: { message: CrmMessage; leadName: string }) {
+function Entry({
+  message,
+  leadName,
+  chat,
+}: {
+  message: CrmMessage;
+  leadName: string;
+  /** True only in the WhatsApp view — see the note where it is set. */
+  chat: boolean;
+}) {
+  /* `mine` still decides the bubble's tint and the ticks everywhere; only the
+     SIDE is conditional. */
   const mine = message.direction === 'outbound';
+  const onRight = chat && mine;
   const isEmail = message.channel === 'email';
-  const when = new Date(message.occurredAt).toLocaleString('en-GB', {
-    day: 'numeric', month: 'short', year: 'numeric',
-    hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Karachi',
+
+  /* ⚠️ TIME ONLY IN THE STAMP, and the date on its own line above when it is not
+     today. WhatsApp shows "4:22 PM" under the bubble and the day as a separator —
+     printing "17 Sept 2026, 16:22" inside a bubble is most of a line of chrome
+     against a six-word message. */
+  const at = new Date(message.occurredAt);
+  const time = at.toLocaleTimeString('en-US', {
+    hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Karachi',
   });
 
   return (
-    /* ⚠⚠ OURS ON THE RIGHT, THEIRS ON THE LEFT. The reference draws every
-       row left-aligned and the owner caught what that costs: *"all the
-       messages are appearing in one alignment."* Side is the fastest signal
-       in any thread — it is read before the name, before the colour and before
-       the time, and every messaging app the client already uses works this
-       way. Keeping the mock's single column would have meant reading a name on
-       every line to know who spoke. */
-    <li className={cn('flex gap-3', mine && 'flex-row-reverse')}>
+    /* ⚠️⚠️ OURS ON THE RIGHT, THEIRS ON THE LEFT. The reference draws every row
+       left-aligned and the owner caught what that costs: *"all the messages are
+       appearing in one alignment."* Side is the fastest signal in any thread — it
+       is read before the name, before the colour and before the time, and every
+       messaging app the client already uses works this way. */
+    <li className={cn('flex gap-3', onRight && 'flex-row-reverse')}>
       {/* The channel, as a mark rather than a word repeated on every line. */}
       <span
         className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-full"
@@ -372,41 +502,26 @@ function Entry({ message, leadName }: { message: CrmMessage; leadName: string })
         {isEmail ? <Mail className="size-5" aria-hidden="true" /> : <WhatsAppMark className="size-5" />}
       </span>
 
-      <div className={cn('min-w-0 flex-1', mine && 'flex flex-col items-end')}>
-        <div
+      <div className={cn('min-w-0 flex-1', onRight && 'flex flex-col items-end')}>
+        {/* ⚠️ THE NAME ONLY. The stamp used to sit up here on the same row, which
+            is not what any messaging app does and is what the owner asked to be
+            moved: *"the dates and times are mentioned below the message in very
+            small text… the real message should be clearly visible."* A timestamp
+            competing with the sender for the top line wins, because it is longer. */}
+        <p
           className={cn(
-            'flex w-full flex-wrap items-baseline gap-x-3 gap-y-0.5',
-            mine ? 'flex-row-reverse' : 'justify-between',
+            'text-body-sm font-semibold text-text-primary',
+            onRight && 'text-right',
           )}
         >
-          <p className="text-body-sm font-semibold text-text-primary">
-            {mine ? `You · ${message.sentByName ?? 'Sarah'}` : leadName}{' '}
-            <span className="font-normal text-text-secondary">
-              {isEmail ? (mine ? 'sent an email' : 'replied by email') : '(WhatsApp)'}
-            </span>
-          </p>
-          <span className="flex shrink-0 items-center gap-1 text-caption text-text-secondary">
-            {when}
-            {/* ⚠️ THE TICKS ARE OURS ONLY. An inbound message has no delivery
-                state we own, and drawing one would be inventing a receipt. */}
-            {mine && message.status === 'read' && (
-              <span className="text-text-brand" title="Read">
-                <Check className="-mr-2 inline size-3.5" strokeWidth={3} />
-                <Check className="inline size-3.5" strokeWidth={3} />
-              </span>
-            )}
-            {mine && message.status === 'delivered' && (
-              <span title="Delivered">
-                <Check className="-mr-2 inline size-3.5" strokeWidth={3} />
-                <Check className="inline size-3.5" strokeWidth={3} />
-              </span>
-            )}
-            {mine && message.status === 'sent' && <Check className="inline size-3.5" strokeWidth={3} />}
+          {mine ? `You · ${message.sentByName ?? 'you'}` : leadName}{' '}
+          <span className="font-normal text-text-secondary">
+            {isEmail ? (mine ? 'sent an email' : 'replied by email') : '(WhatsApp)'}
           </span>
-        </div>
+        </p>
 
         {isEmail ? (
-          <div className="mt-1.5">
+          <div className={cn('mt-1.5 flex w-full flex-col', onRight && 'items-end text-right')}>
             {message.subject && (
               <p className="text-body-sm font-semibold text-text-primary">{message.subject}</p>
             )}
@@ -415,19 +530,22 @@ function Entry({ message, leadName }: { message: CrmMessage; leadName: string })
                 {message.body}
               </p>
             )}
-            {/* ⚠️ A LINK TO THE RLS-SCOPED ROUTE, not a callback up the tree.
-                `/api/whatsapp/media/[id]` answers 404 for a message the caller
-                cannot read — the same 404 as one that does not exist — so the URL
-                cannot be used to find out which ids are real.
-                ⚠️ And the comment sits HERE rather than inside the `&&`: a JSX
-                comment is only valid in a children position, and one tucked into
-                an expression is a syntax error twenty lines from where tsc points. */}
+            {/* ⚠️ A LINK TO THE RLS-SCOPED ROUTE. `/api/whatsapp/media/[id]`
+                answers 404 for a message the caller cannot read — the same 404 as
+                one that does not exist — so the URL cannot be used to find out
+                which ids are real. */}
             {message.mediaFilename && (
               <a
                 href={`/api/whatsapp/media/${message.id}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="mt-2 flex w-full items-center gap-2.5 rounded-xl border border-border-subtle px-3 py-2.5 text-left transition-colors hover:border-border-default"
+                /* ⚠️ CONSTRAINED, NOT FULL WIDTH. It stretched edge to edge under
+                   a right-aligned email, so the attachment sat on the opposite
+                   side of the drawer from the message it belongs to. */
+                className={cn(
+                  'mt-2 inline-flex max-w-[85%] items-center gap-2.5 rounded-xl border border-border-subtle bg-bg-surface px-3 py-2.5 text-left transition-colors hover:border-border-default',
+                  onRight && 'self-end',
+                )}
               >
                 <FileText className="size-5 shrink-0 text-feedback-error" aria-hidden="true" />
                 <span className="min-w-0 flex-1 truncate text-caption font-medium text-text-primary">
@@ -435,20 +553,21 @@ function Entry({ message, leadName }: { message: CrmMessage; leadName: string })
                 </span>
               </a>
             )}
+            <Stamp time={time} message={message} mine={mine} onRight={onRight} />
           </div>
         ) : (
           /* ⚠️ THE BUBBLE IS TINTED BY WHO SPOKE, not by channel. Green is ours,
              plain is theirs — the convention every client of every messaging app
              already knows, so nobody has to learn this screen. */
           <div
-            className="mt-1.5 inline-block max-w-full rounded-xl px-3 py-2"
+            className="mt-1.5 inline-block max-w-[85%] rounded-xl px-3 py-2"
             style={{
               background: mine
                 ? 'color-mix(in oklab, #25D366 12%, transparent)'
                 : 'var(--bg-subtle)',
             }}
           >
-            <p className="whitespace-pre-wrap break-words text-body-sm leading-relaxed text-text-primary">
+            <p className="whitespace-pre-wrap break-words text-left text-body-sm leading-relaxed text-text-primary">
               {message.body ?? (message.mediaFilename ?? 'Attachment')}
             </p>
             {message.mediaId && (
@@ -461,18 +580,224 @@ function Entry({ message, leadName }: { message: CrmMessage; leadName: string })
                 Open {message.mediaFilename ?? 'attachment'}
               </a>
             )}
+            {/* ⚠️ INSIDE THE BUBBLE, bottom right — where WhatsApp puts it. */}
+            <Stamp time={time} message={message} mine={mine} onRight={onRight} />
           </div>
         )}
 
         {/* ⚠️ A FAILURE IS SHOWN ON THE MESSAGE, not in a toast that has gone.
             "Did it send?" is asked about a message days later. */}
         {message.status === 'failed' && (
-          <p className="mt-1 text-caption text-feedback-error">
+          <p className={cn('mt-1 text-caption text-feedback-error', onRight && 'text-right')}>
             Not delivered{message.errorDetail ? ` — ${message.errorDetail}` : ''}
           </p>
         )}
       </div>
     </li>
+  );
+}
+
+/**
+ * The time, and the ticks when they are ours.
+ *
+ * ⚠️ BELOW THE WORDS AND SMALLER THAN THEM. Owner, 2026-09-17: *"the real message
+ * should be clearly visible."* A stamp on the same line as the message competes
+ * with it; underneath and at 11px it is there when looked for and invisible when
+ * reading.
+ *
+ * ⚠️ AND THE TICKS ARE OURS ONLY. An inbound message has no delivery state we
+ * own, and drawing one would be inventing a receipt.
+ */
+function Stamp({
+  time,
+  message,
+  mine,
+  onRight,
+}: {
+  time: string;
+  message: CrmMessage;
+  mine: boolean;
+  onRight: boolean;
+}) {
+  return (
+    <span
+      className={cn(
+        'mt-1 flex items-center gap-1 text-micro text-text-secondary',
+        /* ⚠️ THE STAMP FOLLOWS ITS OWN MESSAGE'S SIDE. Owner, 2026-09-17: *"the
+           client message is displaying left-aligned so its time should display
+           below it, not on the right side."* Real WhatsApp puts the stamp
+           bottom-right inside every bubble, theirs included — but on a drawer
+           this wide that leaves the client's time floating a long way from their
+           words, which is what the owner is reading. It tracks the side. */
+        onRight ? 'justify-end' : 'justify-start',
+      )}
+    >
+      <span className="tabular-nums">{time}</span>
+      {mine && message.status === 'read' && (
+        <span className="text-text-brand" title="Read">
+          <Check className="-mr-2 inline size-3" strokeWidth={3} />
+          <Check className="inline size-3" strokeWidth={3} />
+        </span>
+      )}
+      {mine && message.status === 'delivered' && (
+        <span title="Delivered">
+          <Check className="-mr-2 inline size-3" strokeWidth={3} />
+          <Check className="inline size-3" strokeWidth={3} />
+        </span>
+      )}
+      {mine && message.status === 'sent' && (
+        <span title="Sent">
+          <Check className="inline size-3" strokeWidth={3} />
+        </span>
+      )}
+    </span>
+  );
+}
+
+/**
+ * What was said, and what was agreed — in the salesperson's own words.
+ *
+ * ⚠️ THE THREAD IS NOT THE MEMORY. This is the distinction
+ * `docs/crm-ai/06-CONVERSATION-MEMORY.md` was written around: forty messages
+ * across three weeks is a RECORD, and nobody reads a record before dialling.
+ * This is the short account — what was quoted and why, what they objected to,
+ * what was agreed — and it is what the next conversation starts from, whether
+ * the next person is Sarah, somebody the lead is handed to, or eventually an
+ * agent. A lead reassigned with a full thread and no summary is a lead whose
+ * new owner opens by asking questions the client has already answered.
+ *
+ * ⚠️ IN ENGLISH, WHATEVER THE CALL WAS IN. The owner's standing rule: *"any
+ * key point you want to note should always be in English."* Calls here happen in
+ * English, Urdu and Roman Urdu, and a record written in all three cannot be
+ * searched or compared — *"budget kam hai"*, *"budget kum he"* and *"budget is
+ * low"* would be three unrelated facts to any query that ever reads this.
+ *
+ * ⚠️ AND IT WRITES THROUGH `addNoteAction`, which is the existing note path:
+ * RLS decides whether this lead is the caller's, and migration 116's trigger
+ * writes the timeline entry. Nothing new was needed in the database for this
+ * view — it is a second way of reading `crm_lead_notes`, which is why the
+ * Overview tab's recent-notes card and this list can never disagree.
+ */
+function Summary({ leadId, notes }: { leadId: string; notes: readonly CrmLeadNote[] }) {
+  const toast = useToast();
+  const [draft, setDraft] = React.useState('');
+  const [saving, setSaving] = React.useState(false);
+  /* ⚠️ WHAT THIS SESSION ADDED, held here so a saved note is on screen in the
+     frame it was written rather than after a server render — Rule Zero, law 1.
+     `refresh()` in the action still brings the canonical row on the next render;
+     until then this is the same text, drawn locally. */
+  const [added, setAdded] = React.useState<readonly string[]>([]);
+  const [wroteFor, setWroteFor] = React.useState(leadId);
+  if (wroteFor !== leadId) {
+    /* The drawer is reused across leads — without this, a note written on one
+       lead would appear at the top of the next lead's summary. */
+    setWroteFor(leadId);
+    setAdded([]);
+    setDraft('');
+  }
+
+  async function add() {
+    const text = draft.trim();
+    if (!text || saving) return;
+    setSaving(true);
+    const result = await addNoteAction(leadId, text);
+    setSaving(false);
+    if (!result.ok) {
+      toast({ tone: 'error', text: result.error ?? 'That did not save.' });
+      return;
+    }
+    setAdded((v) => [text, ...v]);
+    setDraft('');
+    toast({ tone: 'ok', text: 'Added to the summary.' });
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-xl border border-border-subtle bg-bg-surface p-3.5">
+        <label htmlFor={`note-${leadId}`} className="text-caption font-semibold text-text-primary">
+          What was said, and what was agreed
+        </label>
+        <textarea
+          id={`note-${leadId}`}
+          rows={3}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          disabled={saving}
+          /* The action refuses past 4000; saying so here beats an error after
+             somebody has typed a long call up. */
+          maxLength={4000}
+          placeholder="Quoted tier 2 at 1.5 lakh and said it is discussable. He pushed for 1 lakh — said I would check. Agreed to send the proposal on Friday and he brings his partner to the call."
+          className="mt-1.5 w-full resize-y rounded-lg border border-border-default bg-bg-base px-3 py-2 text-body-sm leading-relaxed text-text-primary placeholder:text-text-tertiary focus:border-accent-primary focus:outline-none"
+        />
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">
+          {/* ⚠️ THE RULE IS ON THE FORM, not in a policy nobody opens. */}
+          <p className="min-w-0 flex-1 text-micro leading-relaxed text-text-secondary">
+            In English, whatever the conversation was in — this is what the next
+            person reads before they call.
+          </p>
+          <button
+            type="button"
+            onClick={() => void add()}
+            disabled={saving || !draft.trim()}
+            className={cn(
+              'inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-accent-primary px-3 py-2 text-caption font-semibold text-white transition-opacity',
+              (saving || !draft.trim()) && 'opacity-40',
+            )}
+          >
+            <Plus className="size-4" aria-hidden="true" />
+            {saving ? 'Saving…' : 'Add to summary'}
+          </button>
+        </div>
+      </div>
+
+      {added.length === 0 && notes.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-border-default px-4 py-8 text-center">
+          <NotebookPen className="mx-auto size-6 text-text-secondary" aria-hidden="true" />
+          {/* ⚠️ IT SAYS WHAT THE THING IS FOR. "No notes yet" reads as a feature
+              that has not loaded; this says what the next conversation needs. */}
+          <p className="mx-auto mt-2 max-w-[48ch] text-body-sm leading-relaxed text-text-secondary">
+            Nothing written yet. Whoever picks this lead up next — or takes it over
+            — starts from whatever is here, so it is worth a line after every call.
+          </p>
+        </div>
+      ) : (
+        <ol className="space-y-2">
+          {added.map((body, i) => (
+            <li
+              key={`pending-${i}`}
+              className="rounded-xl border border-gold-200 bg-gold-100/60 px-3.5 py-2.5"
+            >
+              <p className="whitespace-pre-wrap break-words text-body-sm leading-relaxed text-text-primary">
+                {body}
+              </p>
+              <p className="mt-1 text-micro text-text-secondary">Just now · you</p>
+            </li>
+          ))}
+          {notes.map((n) => (
+            <li
+              key={n.id}
+              className="rounded-xl border border-border-subtle bg-bg-surface px-3.5 py-2.5"
+            >
+              <p className="whitespace-pre-wrap break-words text-body-sm leading-relaxed text-text-primary">
+                {n.body}
+              </p>
+              <p className="mt-1 text-micro text-text-secondary">
+                {/* ⚠️ KARACHI. `occurred_at` is stored in UTC and a note written at
+                    1 a.m. reads as the previous day for five hours otherwise. */}
+                {new Date(n.createdAt).toLocaleString('en-GB', {
+                  day: 'numeric',
+                  month: 'short',
+                  hour: 'numeric',
+                  minute: '2-digit',
+                  timeZone: 'Asia/Karachi',
+                })}
+                {n.authorName ? ` · ${n.authorName}` : ''}
+              </p>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
   );
 }
 

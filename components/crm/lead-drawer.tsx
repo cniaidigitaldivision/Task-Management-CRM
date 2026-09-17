@@ -472,6 +472,10 @@ export function LeadDrawer({
             <LeadConversationTab
               leadId={lead.id}
               messages={messages}
+              /* The written record — the Summary view reads from the same
+                 rows the Overview tab's notes card does, so the two can never
+                 disagree about what was said. */
+              notes={notes}
               sender={related.sender}
               /* ⚠️ THE ENGINE'S OWN REASON (170), not a sentence guessed here.
                  Two explanations of the same pause start disagreeing. */

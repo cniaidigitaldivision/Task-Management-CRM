@@ -8,8 +8,98 @@
 | **Route** | `/leads` · `/my-leads` · `/clients` · `/lead-reports` · `/lead-overview` · nav: Growth → Campaign & Lead Desk |
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
-| **Last updated** | **2026-09-16** |
+| **Last updated** | **2026-09-17** |
 | **Last migration applied anywhere** | **179** (verified against the live database, not remembered). CRM next: **180.** |
+
+---
+
+## 📝 2026-09-17 (later) — THE SUMMARY, AND WHICH VIEW IS A CHAT
+
+Three things the owner asked for after living with the tab for an hour. No
+migration: all three are read and write paths that already existed.
+
+### 1 · A fourth view — **Summary**
+
+> *"There should be a summary tab inside the conversation where the major points
+> should be mentioned. For example I have talked this over with him, I have told
+> him that I have heard this, summarised this, and we are in agreement on this."*
+
+It reads and writes `crm_lead_notes` through the **existing** `addNoteAction`, so
+RLS decides whose lead it is and migration 116's trigger writes the timeline
+entry. Nothing new in the database — it is a second way of reading the rows the
+Overview tab's notes card already shows, which is why the two can never disagree
+about what was said.
+
+⚠️ **THE THREAD IS NOT THE MEMORY.** This is the distinction
+`docs/crm-ai/06-CONVERSATION-MEMORY.md` was written around. Forty messages across
+three weeks is a RECORD, and nobody reads a record before dialling. The summary is
+the short account — what was quoted and why, what they objected to, what was
+agreed — and it is what the next conversation starts from. A lead reassigned with
+a full thread and no summary is a lead whose new owner opens by asking questions
+the client has already answered.
+
+⚠️ **IT IS WRITTEN BY THE SALESPERSON, NOT GENERATED.** `docs/crm-ai/` is
+documented and entirely unbuilt, and its Tier C consent question — *may a model
+read a client's WhatsApp conversation* — is still open. Beyond that: a summary
+reconstructed from the thread a week later is a reading of events, and only one of
+those survives a client disagreeing about what was agreed.
+
+⚠️ **AND THE ENGLISH RULE IS PRINTED ON THE FORM**, not left in a policy nobody
+opens. The owner's standing instruction — *"any key point you want to note should
+always be in English"* — matters because calls here happen in English, Urdu and
+Roman Urdu: *"budget kam hai"*, *"budget kum he"* and *"budget is low"* would be
+three unrelated facts to any query that ever reads this column.
+
+The composer is **hidden** on this view and the sort control with it. Two writing
+boxes on one screen is how a private note gets sent to the client; a sort control
+that changes nothing is one somebody presses twice.
+
+### 2 · The chat layout belongs to **WhatsApp** alone
+
+> *"This view that you have actually implemented should be in WhatsApp, but all
+> the things you displayed previously in the starter should be left-aligned."*
+
+Correct, and the reason is worth keeping: **All** is a TIMELINE across channels,
+read top to bottom like a history, while **WhatsApp** is a CONVERSATION, where
+side is the fastest way to see who spoke. Sides in a mixed timeline would make an
+email and a WhatsApp reply look like two halves of one exchange.
+
+One flag, `chat = filter === 'whatsapp'`, threaded through `Entry` and `Stamp` as
+`onRight = chat && mine`. ⚠️ **`mine` still decides the bubble tint and the
+ticks in every view** — only the SIDE is conditional.
+
+### 3 · The chat opens at its foot
+
+> *"When I switch to WhatsApp its scrollbar is stuck at the top — it should be at
+> the bottom so I can see the latest message."*
+
+Two parts, because the complaint has two causes:
+
+- **`useLayoutEffect`, not `useEffect`.** `useEffect` runs after the browser has
+  painted, so the thread would draw at the top for one frame and then jump —
+  visible, and exactly the flicker Rule Zero exists to prevent.
+- **`mt-auto` on the list.** A three-message thread has nothing to scroll and was
+  sitting under a hand-span of empty drawer. An auto margin only spends space
+  that is spare, so the newest message sits just above the reply box whether the
+  thread is three messages or three hundred, and the eye lands in the same place
+  either way. The screenshot is what showed this; the scroll fix alone would have
+  looked done and changed nothing for the short threads that are most of them.
+
+⚠️ **ONLY IN THE CHAT VIEW, AND ONLY WHEN NEWEST IS LAST.** **All** is a history
+read downwards and jumping it to the foot would hide where it starts; and
+somebody who has switched to newest-first has deliberately put the latest message
+at the TOP, so the foot is the oldest thing there.
+
+### How this was checked
+
+The screenshot harness, four states — Summary written up, Summary empty, All, and
+WhatsApp. ⚠️ **The filter is client state with no prop**, so the temporary render
+test pinned it by mocking the one `useState` whose initial value is `'all'`;
+`vi.spyOn(React, 'useState')` fails outright (*"module namespace is not
+configurable in ESM"*) and `vi.mock('react', …)` with `vi.hoisted` is what works.
+The harness was deleted afterwards — it tested nothing.
+
+`tsc` · `eslint` · `vitest` (110 files, 3256 tests) · `next build` all clean.
 
 ---
 
