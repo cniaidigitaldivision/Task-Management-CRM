@@ -9,7 +9,64 @@
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
 | **Last updated** | **2026-09-17** |
-| **Last migration applied anywhere** | **193** (applied 2026-09-17; 187–192 **the scheduler sends by itself**, 193 puts its schedule in **Supabase** beside the other five jobs). CRM next: **194.** |
+| **Last migration applied anywhere** | **195** (applied 2026-09-17; 187–193 the scheduler sends by itself from Supabase, **194–195 bookings and invoices** — with the owner's own rule that a salesperson does not verify money). CRM next: **196.** |
+
+---
+
+## 📂 2026-09-17 (night) — RELATED ITEMS: FIVE TABS, AND TWO NEW TABLES · 194, 195
+
+Owner, with five designs: *"in the Related Items tab… when I click on Quotation,
+its preview should also display… and let me upload any quotation here also"*, and
+then: *"inside the drawer there should only be a summary and a button which, when
+clicked, will make this modal pop up."*
+
+**`components/crm/related-items.tsx`** — one dialog, five tabs, the same shape on
+each: the list on the left, the record itself on the right, its actions at the
+foot. The drawer's tab keeps a summary and opens it.
+
+| Tab | What it shows | What you can do |
+|---|---|---|
+| **Quotations** | the letter as the client reads it — number, client, property, prepared by, valid until, amount, terms | **upload a PDF** (or replace it), open the one attached |
+| **Properties** | area, dimensions, facing, road, price, and the **payment plan** from `crm_payment_stages` | link another unit |
+| **Appointments** | when, how long, where, with whom, notes, and what happened | schedule (via Record outcome) |
+| **Bookings** | the amount due, what Finance has verified, what is outstanding, and the three steps of its progress | take a booking, request verification, **and Finance confirms it** |
+| **Invoices** | issued, due, the line, the amount due and the payment summary | raise one; **Finance records payment** |
+
+### 194 · Bookings and invoices exist now
+
+The owner's mock-ups carry a *"Demo data"* badge on those two panels because no
+such table existed. `crm_bookings` and `crm_invoices` are built to the three rules
+their own design states:
+
+⚠️ **A quotation does not reserve the plot** — a booking is its own row, with its
+own number (`BK-302`), against the quotation everybody agreed.
+⚠️ **A pending booking is not a sale** — `confirmed` requires a verified amount, a
+time and a person, as a CHECK constraint.
+⚠️ **A salesperson does not verify payments** — a TRIGGER, not a hidden button.
+They may take the booking, ask for it to be checked, annotate and cancel it; the
+money columns move only for Finance or an admin, and the refusal is the database's
+own words. **195** put the same guard on `crm_invoices.paid_amount`, which 194 had
+left open — the same money, one table over.
+
+An invoice's status is never typed: it follows what has been paid.
+
+### How it reads
+
+⚠️ **ONE STATEMENT, ON OPEN.** `readLeadRelatedItems` returns all five lists as one
+row of JSON. Five reads inside one `withUser` transaction would run in series on
+one connection — half a second from Karachi for a dialog somebody opened to check
+a price. And it is fetched when the dialog opens, never with the drawer.
+
+⚠️ **THE PDF GOES STRAIGHT TO STORAGE.** The browser uploads on a signed URL and
+the server records where it went: `crm_quotations.pdf_path` (which has existed
+since 151 and nothing had ever written) **and** a `crm_documents` row, because the
+shelf, the email attachments and the sequence steps all read that table.
+
+### Caught while building it
+
+The property panel printed a stage's whole amount against a line reading "18
+monthly instalments" — **2,250,000 a month**, which is the figure somebody would
+have repeated to a client. It now divides and says "125,000 each".
 
 ---
 

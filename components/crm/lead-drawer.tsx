@@ -5,8 +5,10 @@ import type { Route } from 'next';
 import Link from 'next/link';
 import {
   CalendarClock,
+  ChevronRight,
   CirclePlus,
   ExternalLink,
+  FolderOpen,
   Mail,
   MoreVertical,
   PauseCircle,
@@ -21,6 +23,7 @@ import {
   WhatsAppMark,
 } from '@/components/crm/whatsapp-mark';
 import { RecordOutcome } from '@/components/crm/record-outcome';
+import { RelatedItemsDialog } from '@/components/crm/related-items';
 import { initialsOf } from '@/components/ui/avatar';
 import type {
   CrmLeadEvent,
@@ -306,6 +309,11 @@ export function LeadDrawer({
      action is exactly the silent edit the form exists to prevent — and it was
      silent here while the desk's own dropdown asked properly. */
   const [outcomeStage, setOutcomeStage] = React.useState<string | null>(null);
+  /* ⚠️ THE FULL RECORDS ARE A DIALOG, NOT THE TAB. Five tabs of master-and-detail
+     do not fit a 38rem drawer, and the owner's own designs draw them wide. The
+     tab keeps its summary — what is attached, what is quoted, what is booked —
+     and this opens the records themselves. */
+  const [relatedOpen, setRelatedOpen] = React.useState(false);
 
   /* ⚠️ THE LIVE ONE, not the newest row. A superseded v1 still exists (176) and
      printing its figure on the strip would show a price nobody is offering any
@@ -658,12 +666,30 @@ export function LeadDrawer({
             />
           )}
           {!loading && activeTab === 'related' && (
-            <Related
-              related={related}
-              lead={lead}
-              onRaiseQuotation={onRaiseQuotation}
-              onChooseUnit={onChooseUnit}
-            />
+            <>
+              <button
+                type="button"
+                onClick={() => setRelatedOpen(true)}
+                className="mb-3 flex w-full items-center gap-3 rounded-xl border border-border-subtle bg-bg-surface px-3.5 py-3 text-left transition-colors hover:bg-bg-subtle"
+              >
+                <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-accent-primary/10 text-accent-primary">
+                  <FolderOpen className="size-4" aria-hidden="true" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-body-sm font-semibold text-text-primary">Open related items</span>
+                  <span className="block text-caption text-text-secondary">
+                    Quotations, properties, appointments, bookings and invoices — with their previews.
+                  </span>
+                </span>
+                <ChevronRight className="size-4 shrink-0 text-text-secondary" aria-hidden="true" />
+              </button>
+              <Related
+                related={related}
+                lead={lead}
+                onRaiseQuotation={onRaiseQuotation}
+                onChooseUnit={onChooseUnit}
+              />
+            </>
           )}
           {!loading && activeTab === 'activity' && <Activity activity={activity} nowMs={nowMs} />}
         </div>
@@ -749,6 +775,21 @@ export function LeadDrawer({
           from in here the drawer is the context somebody is recording FROM, and
           taking it away to ask about the stage loses the conversation they were
           reading. `RecordOutcome` is z-[60], this is z-50. */}
+      {relatedOpen && (
+        <RelatedItemsDialog
+          lead={lead}
+          onClose={() => setRelatedOpen(false)}
+          onChooseUnit={() => {
+            setRelatedOpen(false);
+            onChooseUnit();
+          }}
+          onRecordOutcome={() => {
+            setRelatedOpen(false);
+            setOutcomeStage(lead.stage);
+          }}
+        />
+      )}
+
       {outcomeStage && (
         <RecordOutcome
           leadId={lead.id}
