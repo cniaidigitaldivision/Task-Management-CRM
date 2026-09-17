@@ -23,8 +23,10 @@ import {
   listCrmLeads,
   logLeadContact,
   setLeadNextAction,
+  crmNextRung,
   crmQuotationForEmail,
   crmRecordSentEmail,
+  crmReviseQuotation,
   saveQualification,
   setLeadStage,
   setLeadTemperature,
@@ -1339,4 +1341,50 @@ export async function emailQuotationAction(
   return recorded
     ? { ok: true }
     : { ok: true, error: 'Sent, but it could not be added to the conversation.' };
+}
+
+/**
+ * Move a client down to the next price the company has already agreed to.
+ *
+ * ⚠️ THE SALESPERSON CHOOSES WHEN, NOT HOW FAR. Owner: *"After verifying,
+ * discussing, or showing the features… explain what we are providing, that's why
+ * our price is that. After that you can finally give the last quotation."* The
+ * rungs are the item's; this action only advances one.
+ */
+export async function reviseQuotationAction(
+  quotationId: string,
+  validUntil: string,
+): Promise<LeadWriteResult & { number?: string; version?: number }> {
+  const user = await requireUser();
+
+  const rung = await crmNextRung(user.id, quotationId);
+  if (!rung) {
+    /* ⚠️ NAMES WHY THERE IS NOWHERE TO GO, because "cannot revise" reads as a
+       fault. Either the floor has been reached — which is a decision, not an
+       error — or the item has no ladder set, which somebody can go and fix. */
+    return {
+      ok: false,
+      error:
+        'There is no lower price set for this item. Either it is already at the floor, or its second and third prices have not been filled in.',
+    };
+  }
+
+  const revised = await crmReviseQuotation(
+    user.id,
+    quotationId,
+    /^\d{4}-\d{2}-\d{2}$/.test(validUntil.trim()) ? validUntil.trim() : null,
+  );
+  if (!revised) return { ok: false, error: NOT_YOURS };
+
+  refresh(revised.id);
+  revalidatePath('/my-leads');
+
+  return {
+    ok: true,
+    number: revised.number,
+    version: revised.version,
+    error: rung.isFloor
+      ? `${revised.number} v${revised.version} raised at PKR ${revised.price.toLocaleString('en-PK')} — this is the floor, there is nothing below it.`
+      : undefined,
+  };
 }

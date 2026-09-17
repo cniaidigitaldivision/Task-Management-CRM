@@ -3068,3 +3068,91 @@ export async function crmRecordSentEmail(
      simply selects nothing, so there is no exception to catch. */
   return (rows as unknown[]).length === 1;
 }
+
+/* ============================================================================
+ * MOVING DOWN THE LADDER — migration 176
+ * ----------------------------------------------------------------------------
+ * Owner's own example: 2 lakh → 1.5 lakh → 1 lakh. The client's budget picks
+ * which rung opens; tier 3 is the floor and nothing goes below it.
+ * ========================================================================= */
+
+export interface NextRung {
+  readonly tier: number;
+  readonly price: number;
+  /** True when this is the last one. There is nowhere further to go. */
+  readonly isFloor: boolean;
+}
+
+/**
+ * What the next quotation for this client may cost.
+ *
+ * ⚠️ NULL MEANS ALREADY AT THE FLOOR, not "no answer". The screen shows the
+ * revise control only when there is a rung, so nobody is offered a concession
+ * the company has not agreed to.
+ */
+export async function crmNextRung(actorId: string, quotationId: string): Promise<NextRung | null> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select tier, price, is_floor from app.crm_next_rung(${quotationId}::uuid)
+  `);
+  const r = (rows as Array<Record<string, unknown>>)[0];
+  return r ? { tier: Number(r.tier), price: Number(r.price), isFloor: r.is_floor === true } : null;
+}
+
+/**
+ * Raise the next version of an existing quotation.
+ *
+ * ⚠️ THE NUMBER IS KEPT AND THE VERSION ADVANCES. QT-1042 v2 is a new row that
+ * points at v1; 176's trigger retires v1 in the same statement, so two live
+ * versions of one number are impossible by construction rather than by care.
+ *
+ * ⚠️ AND THE PRICE COMES FROM THE ITEM'S LADDER, never from the caller. A
+ * salesperson chooses WHEN to move down, not HOW FAR — which is the same
+ * separation 150 makes by keeping `base_price` out of their grant.
+ */
+export async function crmReviseQuotation(
+  actorId: string,
+  quotationId: string,
+  validUntil: string | null,
+): Promise<{ id: string; number: string; version: number; price: number } | null> {
+  return withUser(actorId, async (tx) => {
+    const rung = await tx`
+      select tier, price from app.crm_next_rung(${quotationId}::uuid)`;
+    const next = (rung as Array<Record<string, unknown>>)[0];
+    /* Already at the floor, or the item carries no ladder. Either way there is
+       no next price this company has agreed to. */
+    if (!next) return null;
+
+    const price = Number(next.price);
+
+    const rows = await tx`
+      insert into public.crm_quotations
+        (lead_id, property_id, project_id, number, version, supersedes_id,
+         base_price, premium_charges, requested_discount, approved_discount, net_amount,
+         valid_until, status, terms, prepared_by_id, is_test_data)
+      select q.lead_id, q.property_id, q.project_id, q.number, q.version + 1, q.id,
+             ${price}::bigint, 0, 0, 0, ${price}::bigint,
+             coalesce(${validUntil}::date, q.valid_until),
+             /* ⚠️ A RUNG IS NOT A DISCOUNT. The price is one the company already
+                set on the item, so it needs nobody's approval — the two-person
+                rule exists for a salesperson inventing a number, which this is
+                the opposite of. It goes out as a draft so a human still presses
+                send. */
+             'draft'::public.crm_quotation_status,
+             q.terms, ${actorId}::uuid, q.is_test_data
+        from public.crm_quotations q
+       where q.id = ${quotationId}::uuid
+      returning id, number, version`;
+
+    /* ⚠️ ZERO ROWS IS RLS REFUSING THE QUOTATION — the insert...select selects
+       nothing rather than raising, the same shape `setLeadStage` documents. */
+    const r = (rows as Array<Record<string, unknown>>)[0];
+    if (!r) return null;
+
+    return {
+      id: String(r.id),
+      number: String(r.number),
+      version: Number(r.version),
+      price,
+    };
+  });
+}
