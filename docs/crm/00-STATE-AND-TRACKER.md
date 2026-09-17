@@ -9,7 +9,56 @@
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
 | **Last updated** | **2026-09-17** |
-| **Last migration applied anywhere** | **195** (applied 2026-09-17; 187–193 the scheduler sends by itself from Supabase, **194–195 bookings and invoices** — with the owner's own rule that a salesperson does not verify money). CRM next: **196.** |
+| **Last migration applied anywhere** | **196** (applied 2026-09-17; 187–193 the scheduler sends by itself from Supabase, 194–195 bookings and invoices, **196 the salesperson sends the invoice and uploads the receipt as proof; Finance approves**). CRM next: **197.** |
+
+---
+
+## 🧾 2026-09-17 (night) — THE DRAWER SUMMARY, AND WHO DOES WHAT WITH AN INVOICE · 196
+
+### The Related items tab, to the owner's screenshot
+
+A summary and nothing more: chips with the real count of each thing
+(Quotations · Properties · Appointments · Bookings · Invoices · **Files**), a
+Quotation card (number, value, valid to, raised, the customer-facing sender, the
+PDF, Preview and Send), a Property card, and a visit row with Schedule visit.
+**Each chip and each button opens the dialog on its own tab.**
+
+⚠️ **The counts cost the drawer three scalar subqueries in its existing wave**, not
+the rows: bookings, invoices and files are read only when the dialog opens.
+⚠️ **No property photograph**, because `crm_properties` keeps none — a stock picture
+of somebody else's plot on a record a salesperson quotes from is worse than a tile.
+
+### 196 · the receipt is the proof
+
+Owner, correcting how 194/195 read on screen: *"the salesperson cannot verify the
+payment but invoices can be generated… he will make sure that the invoice is sent.
+Once approved they will approve and upload that invoice, or you can say, payment
+receipt as proof."*
+
+| | Salesperson | Finance |
+|---|---|---|
+| Raise the invoice | ✅ from the quotation's own terms | ✅ |
+| Mark it sent to the client | ✅ | ✅ |
+| Upload the client's payment receipt | ✅ — **proof, not a payment** | ✅ |
+| Record the payment / mark it paid | ❌ refused by 195's trigger | ✅ |
+
+⚠️ **THE INVOICE COMES FROM THE TERMS, NOT FROM MEMORY.** The New invoice form
+offers the payment plan's stages as one tap each — *Booking · 20% · PKR 900,000*,
+*18 monthly instalments (1 of 18) · PKR 125,000* — so the figure on the invoice is
+the figure the client was quoted.
+
+⚠️ **UPLOADING PROOF MARKS NOTHING PAID.** The self-check proves it: a salesperson
+sends the invoice, uploads the receipt, is stamped as the uploader by a trigger,
+and is still refused when they try to set the paid amount; Finance then succeeds.
+The receipt is also a `crm_documents` row (new kinds `receipt`, `invoice`), so
+Finance can open it from the dialog's **View** link or the Files tab.
+
+### Proved in the running app, on the demo lead
+
+Raised **INV-504** from the Booking stage (PKR 900,000) → marked sent → uploaded a
+receipt → the invoice still reads **Unpaid, PKR 0**, the receipt row carries who
+uploaded it, and Files went to 1. Uploaded **QT-1042.pdf** onto the quotation → the
+bucket holds it (200, application/pdf), the drawer's summary shows it, Files 2.
 
 ---
 

@@ -110,6 +110,23 @@ export interface RelatedInvoice {
   readonly bookingNumber: string | null;
   readonly quotationNumber: string | null;
   readonly propertyLabel: string | null;
+  /** When the salesperson sent it to the client (196). */
+  readonly sentAt: string | null;
+  /** The receipt the client sent back — evidence, never a payment. */
+  readonly receiptPath: string | null;
+  readonly receiptUploadedAt: string | null;
+  readonly receiptByName: string | null;
+}
+
+export interface RelatedFile {
+  readonly id: string;
+  readonly title: string;
+  readonly kind: string;
+  readonly mime: string;
+  readonly sizeBytes: number;
+  readonly createdAt: string;
+  /** Null when it belongs to the whole project rather than this lead. */
+  readonly leadId: string | null;
 }
 
 export interface RelatedItems {
@@ -118,12 +135,13 @@ export interface RelatedItems {
   readonly appointments: readonly RelatedAppointment[];
   readonly bookings: readonly RelatedBooking[];
   readonly invoices: readonly RelatedInvoice[];
+  readonly files: readonly RelatedFile[];
   /** What this person may do with money — Finance and admins only (194/195). */
   readonly canVerifyPayments: boolean;
 }
 
 const EMPTY: RelatedItems = {
-  quotations: [], properties: [], appointments: [], bookings: [], invoices: [],
+  quotations: [], properties: [], appointments: [], bookings: [], invoices: [], files: [],
   canVerifyPayments: false,
 };
 
@@ -205,13 +223,28 @@ export async function readLeadRelatedItems(actorId: string, leadId: string): Pro
           'amount', i.amount, 'paidAmount', i.paid_amount, 'issuedAt', i.issued_at,
           'dueAt', i.due_at, 'pdfPath', i.pdf_path,
           'bookingNumber', b.number, 'quotationNumber', q.number,
-          'propertyLabel', pr.code || coalesce(' · ' || pr.block, '')
+          'propertyLabel', pr.code || coalesce(' · ' || pr.block, ''),
+          'sentAt', i.sent_at, 'receiptPath', i.receipt_path,
+          'receiptUploadedAt', i.receipt_uploaded_at,
+          'receiptByName', (select o.full_name from app.crm_lead_owners() o where o.id = i.receipt_uploaded_by_id)
         ) order by i.issued_at desc, i.created_at desc)
           from public.crm_invoices i
           left join public.crm_bookings b on b.id = i.booking_id
           left join public.crm_quotations q on q.id = i.quotation_id
           left join public.crm_properties pr on pr.id = i.property_id
          where i.lead_id = (select id from lead)), '[]'::json) as invoices,
+
+      /* ⚠️ THIS LEAD'S FILES AND THE PROJECT'S SHARED ONES. A brochure belongs to
+         the project and is as attachable as a signed quotation that belongs to
+         one person. */
+      coalesce((
+        select json_agg(json_build_object(
+          'id', d.id, 'title', d.title, 'kind', d.kind, 'mime', d.mime,
+          'sizeBytes', d.size_bytes, 'createdAt', d.created_at, 'leadId', d.lead_id)
+          order by (d.lead_id is null), d.created_at desc)
+          from public.crm_documents d
+         where d.project_id = (select project_id from lead)
+           and (d.lead_id = (select id from lead) or d.lead_id is null)), '[]'::json) as files,
 
       (app.acting_at_least('admin'::public.user_role)
        or app.acting_department_key() = 'finance') as can_verify
@@ -293,6 +326,15 @@ export async function readLeadRelatedItems(actorId: string, leadId: string): Pro
       propertyLabel: (b.propertyLabel as string | null) ?? null,
       createdByName: (b.createdByName as string | null) ?? null,
     })),
+    files: list<Record<string, unknown>>(row.files).map((f) => ({
+      id: String(f.id),
+      title: String(f.title),
+      kind: String(f.kind ?? 'other'),
+      mime: String(f.mime ?? ''),
+      sizeBytes: num(f.sizeBytes),
+      createdAt: new Date(String(f.createdAt)).toISOString(),
+      leadId: (f.leadId as string | null) ?? null,
+    })),
     invoices: list<Record<string, unknown>>(row.invoices).map((i) => ({
       id: String(i.id),
       number: String(i.number),
@@ -306,6 +348,10 @@ export async function readLeadRelatedItems(actorId: string, leadId: string): Pro
       bookingNumber: (i.bookingNumber as string | null) ?? null,
       quotationNumber: (i.quotationNumber as string | null) ?? null,
       propertyLabel: (i.propertyLabel as string | null) ?? null,
+      sentAt: i.sentAt ? new Date(String(i.sentAt)).toISOString() : null,
+      receiptPath: (i.receiptPath as string | null) ?? null,
+      receiptUploadedAt: i.receiptUploadedAt ? new Date(String(i.receiptUploadedAt)).toISOString() : null,
+      receiptByName: (i.receiptByName as string | null) ?? null,
     })),
   };
 }
@@ -413,6 +459,52 @@ export async function recordInvoicePayment(actorId: string, invoiceId: string, p
     if (e.code === '23514') return { ok: false, error: 'A payment cannot be more than the invoice.' };
     throw error;
   }
+}
+
+/**
+ * The salesperson's half of an invoice: it went out, and this came back.
+ *
+ * ⚠️ NEITHER IS A PAYMENT. 195's trigger still owns `paid_amount`; this records
+ * that the client was asked and what they sent as proof, which is precisely what
+ * Finance then looks at. Owner, 2026-09-17: *"he will make sure that the invoice
+ * is sent. Once approved they will approve and upload that invoice, or you can
+ * say, payment receipt as proof."*
+ */
+export async function markInvoiceSent(actorId: string, invoiceId: string): Promise<RelatedWrite> {
+  const rows = (await withUser(actorId, (tx) => tx`
+    update public.crm_invoices
+       set sent_at = coalesce(sent_at, now()), updated_at = now()
+     where id = ${invoiceId}::uuid and status <> 'void'
+    returning id
+  `)) as Array<{ id: string }>;
+  return rows[0] ? { ok: true } : { ok: false, error: 'That invoice could not be updated.' };
+}
+
+export async function attachInvoiceReceipt(
+  actorId: string,
+  input: { invoiceId: string; path: string; title: string; mime: string; sizeBytes: number },
+): Promise<RelatedWrite> {
+  return withUser(actorId, async (tx) => {
+    const rows = (await tx`
+      update public.crm_invoices
+         set receipt_path = ${input.path}, updated_at = now()
+       where id = ${input.invoiceId}::uuid and status <> 'void'
+      returning lead_id, project_id, number
+    `) as Array<{ lead_id: string; project_id: string; number: string }>;
+    if (!rows[0]) return { ok: false as const, error: 'That invoice could not be updated.' };
+
+    /* ⚠️ AND IT IS A DOCUMENT TOO, so Finance can open it from the shelf without
+       going through this dialog. */
+    await tx`
+      insert into public.crm_documents
+        (project_id, lead_id, kind, title, storage_path, mime, size_bytes, uploaded_by_id, is_test_data)
+      select ${rows[0].project_id}::uuid, ${rows[0].lead_id}::uuid, 'receipt',
+             ${input.title}, ${input.path}, ${input.mime}, ${input.sizeBytes}, ${actorId}::uuid, l.is_test_data
+        from public.crm_leads l where l.id = ${rows[0].lead_id}::uuid
+      on conflict (storage_path) do nothing
+    `;
+    return { ok: true as const };
+  });
 }
 
 /**

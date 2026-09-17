@@ -23,16 +23,21 @@ import {
 } from 'lucide-react';
 
 import {
+  attachInvoiceReceiptAction,
   attachQuotationPdfAction,
   confirmBookingAction,
   createBookingAction,
   createInvoiceAction,
+  invoiceReceiptLinkAction,
+  markInvoiceSentAction,
   prepareQuotationPdfAction,
+  prepareReceiptAction,
   quotationPdfLinkAction,
   recordInvoicePaymentAction,
   relatedItemsAction,
   requestBookingVerificationAction,
 } from '@/app/actions/crm-related';
+import { crmDocumentLinkAction } from '@/app/actions/crm-documents';
 import { formatWhen } from '@/components/crm/when';
 import { useToast } from '@/components/ui/toast';
 import type { CrmLeadRecord } from '@/lib/db/queries/crm-leads';
@@ -63,7 +68,7 @@ import { cn } from '@/lib/utils';
  * opened has no business in the drawer's first paint — Rule Zero.
  * ========================================================================= */
 
-type TabKey = 'quotations' | 'properties' | 'appointments' | 'bookings' | 'invoices';
+export type TabKey = 'quotations' | 'properties' | 'appointments' | 'bookings' | 'invoices' | 'files';
 
 const TABS: ReadonlyArray<{ key: TabKey; label: string; icon: React.ComponentType<{ className?: string }> }> = [
   { key: 'quotations', label: 'Quotations', icon: ClipboardList },
@@ -71,6 +76,7 @@ const TABS: ReadonlyArray<{ key: TabKey; label: string; icon: React.ComponentTyp
   { key: 'appointments', label: 'Appointments', icon: CalendarDays },
   { key: 'bookings', label: 'Bookings', icon: CircleCheck },
   { key: 'invoices', label: 'Invoices', icon: FileText },
+  { key: 'files', label: 'Files', icon: Paperclip },
 ];
 
 const money = (n: number | null | undefined) =>
@@ -106,11 +112,14 @@ function tone(status: string): { label: string; color: string } {
 
 export function RelatedItemsDialog({
   lead,
+  initialTab = 'quotations',
   onClose,
   onChooseUnit,
   onRecordOutcome,
 }: {
   lead: CrmLeadRecord;
+  /** Which tab the drawer's summary asked for. */
+  initialTab?: TabKey;
   onClose: () => void;
   /** The drawer already owns the unit picker; this dialog borrows it. */
   onChooseUnit: () => void;
@@ -118,10 +127,10 @@ export function RelatedItemsDialog({
   onRecordOutcome: () => void;
 }) {
   const toast = useToast();
-  const [tab, setTab] = React.useState<TabKey>('quotations');
+  const [tab, setTab] = React.useState<TabKey>(initialTab);
   const [items, setItems] = React.useState<RelatedItems | null>(null);
   const [chosen, setChosen] = React.useState<Record<TabKey, string | null>>({
-    quotations: null, properties: null, appointments: null, bookings: null, invoices: null,
+    quotations: null, properties: null, appointments: null, bookings: null, invoices: null, files: null,
   });
   const [busy, setBusy] = React.useState(false);
 
@@ -277,7 +286,7 @@ export function RelatedItemsDialog({
               act={act}
               busy={busy}
             />
-          ) : (
+          ) : tab === 'invoices' ? (
             <Invoices
               lead={lead}
               items={items}
@@ -285,7 +294,10 @@ export function RelatedItemsDialog({
               onPick={(id) => pick('invoices', id)}
               act={act}
               busy={busy}
+              onReload={load}
             />
+          ) : (
+            <Files items={items} />
           )}
         </div>
 
@@ -1100,6 +1112,7 @@ function Invoices({
   onPick,
   act,
   busy,
+  onReload,
 }: {
   lead: CrmLeadRecord;
   items: RelatedItems;
@@ -1107,6 +1120,7 @@ function Invoices({
   onPick: (id: string) => void;
   act: (fn: () => Promise<{ ok: true } | { ok: false; error: string }>, done: string) => Promise<boolean>;
   busy: boolean;
+  onReload: () => Promise<void>;
 }) {
   const list = items.invoices;
   const chosen: RelatedInvoice | undefined = list.find((i) => i.id === chosenId) ?? list[0];
@@ -1117,6 +1131,28 @@ function Invoices({
   const [paid, setPaid] = React.useState('');
 
   const booking = items.bookings.find((b) => b.status !== 'cancelled') ?? null;
+
+  /* ⚠️ THE INVOICE COMES FROM THE TERMS, NOT FROM MEMORY. Owner, 2026-09-17:
+     *"he is dealing with the quotation in which the prices are mentioned, like
+     50% advance or whatever the terms are, he will make sure that the invoice is
+     sent."* So the plan's own stages are offered as one tap each — the figure on
+     the invoice is the figure the client was quoted, not one retyped. */
+  const live = items.quotations.find((q) => !['superseded', 'rejected', 'expired'].includes(q.status)) ?? null;
+  const unit =
+    items.properties.find((p) => p.id === live?.propertyId) ??
+    items.properties.find((p) => p.linked) ??
+    items.properties[0] ??
+    null;
+  const terms = (unit?.stages ?? [])
+    .filter((st) => st.amount !== null && st.amount > 0)
+    .map((st) => {
+      const each = st.instalments && st.instalments > 1 ? (st.amount as number) / st.instalments : (st.amount as number);
+      return {
+        label: st.instalments && st.instalments > 1 ? `${st.label} (1 of ${st.instalments})` : st.label,
+        amount: Math.round(each),
+        percentage: st.percentage,
+      };
+    });
 
   return (
     <Split
@@ -1139,7 +1175,35 @@ function Invoices({
             <div className="space-y-2 border-b border-border-subtle bg-bg-subtle/40 px-3.5 py-3">
               <p className="text-caption font-semibold text-text-primary">
                 {booking ? `Against ${booking.number}` : 'For this lead'}
+                {live ? ` · from ${live.number}` : ''}
               </p>
+              {terms.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {terms.map((t) => {
+                    const on = description === t.label && Number(amount) === t.amount;
+                    return (
+                      <button
+                        key={t.label}
+                        type="button"
+                        onClick={() => {
+                          setDescription(t.label);
+                          setAmount(String(t.amount));
+                        }}
+                        aria-pressed={on}
+                        className={cn(
+                          'rounded-full border px-2.5 py-1 text-caption transition-colors',
+                          on
+                            ? 'border-[var(--pick-border)] bg-[var(--pick-bg)] text-text-primary'
+                            : 'border-border-default text-text-secondary hover:text-text-primary',
+                        )}
+                      >
+                        {t.label}
+                        {t.percentage ? ` · ${t.percentage}%` : ''} · {money(t.amount)}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
               <input
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
@@ -1200,8 +1264,8 @@ function Invoices({
           )}
           {list.length === 0 && !adding ? (
             <Empty>
-              Nothing invoiced yet. An invoice records what the client owes for a booking or an instalment — Finance
-              marks it paid.
+              Nothing invoiced yet. Raise one from the quotation&rsquo;s own terms, send it, and upload the receipt the
+              client sends back — Finance approves the payment from that proof.
             </Empty>
           ) : (
             list.map((i) => (
@@ -1274,6 +1338,31 @@ function Invoices({
               </div>
             </div>
 
+            {/* ── The salesperson's half ─────────────────────────────── */}
+            <div className="space-y-2 border-t border-border-subtle pt-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="min-w-0 flex-1 text-caption text-text-secondary">
+                  {chosen.sentAt ? `Sent to the client on ${day(chosen.sentAt)}.` : 'Not sent to the client yet.'}
+                </span>
+                {!chosen.sentAt && (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void act(() => markInvoiceSentAction(lead.id, chosen.id), 'Marked as sent.')}
+                    className="rounded-lg border border-border-default px-2.5 py-1.5 text-caption font-semibold text-text-primary hover:bg-bg-subtle disabled:opacity-50"
+                  >
+                    Mark as sent
+                  </button>
+                )}
+              </div>
+
+              {/* ⚠️ THE PROOF, NOT THE PAYMENT. Owner's own words: the
+                  salesperson sends the invoice and uploads what the client sends
+                  back; Finance then approves it. Uploading this marks nothing
+                  paid — 195's trigger still owns that column. */}
+              <Receipt leadId={lead.id} invoice={chosen} busy={busy} onDone={onReload} />
+            </div>
+
             {items.canVerifyPayments ? (
               <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border-subtle pt-3">
                 <input
@@ -1302,12 +1391,182 @@ function Invoices({
             ) : (
               <p className="flex items-start gap-2 rounded-xl bg-bg-subtle px-3 py-2.5 text-caption leading-relaxed text-text-secondary">
                 <ArrowUpRight className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-                Payment verification is handled by Finance. Raise the invoice here and they will mark it paid.
+                You raise it, send it and upload the receipt. Finance looks at the proof and approves the payment.
               </p>
             )}
           </Detail>
         )
       }
     />
+  );
+}
+
+/* ── 6 · Files ───────────────────────────────────────────────────────────── */
+
+/**
+ * Everything on this lead and the shared files of its project.
+ *
+ * ⚠️ ONE SHELF, NOT TWO. A quotation PDF uploaded on the Quotations tab lands
+ * here as well, because `crm_documents` is where the shelf, the email
+ * attachments and the sequence steps all look.
+ */
+function Files({ items }: { items: RelatedItems }) {
+  const toast = useToast();
+  const list = items.files;
+
+  const open = async (id: string) => {
+    const link = await crmDocumentLinkAction(id);
+    if (link.url) window.open(link.url, '_blank', 'noopener');
+    else toast({ tone: 'error', text: link.error ?? 'That could not be opened.' });
+  };
+
+  if (list.length === 0) {
+    return (
+      <p className="px-4 py-16 text-center text-caption leading-relaxed text-text-secondary">
+        No files yet. A quotation PDF uploaded on the Quotations tab appears here, as do the project&rsquo;s shared
+        brochures and price lists.
+      </p>
+    );
+  }
+
+  return (
+    <ul className="grid gap-2 sm:grid-cols-2">
+      {list.map((f) => (
+        <li key={f.id}>
+          <button
+            type="button"
+            onClick={() => void open(f.id)}
+            className="flex w-full items-center gap-3 rounded-xl border border-border-subtle bg-bg-surface px-3 py-2.5 text-left transition-colors hover:bg-bg-subtle"
+          >
+            <span
+              className="grid size-9 shrink-0 place-items-center rounded-lg text-caption font-bold text-white"
+              style={{ background: f.mime.includes('pdf') ? 'var(--feedback-error)' : 'var(--accent-primary)' }}
+              aria-hidden="true"
+            >
+              {f.mime.includes('pdf') ? 'PDF' : f.mime.split('/')[1]?.slice(0, 3).toUpperCase() || 'DOC'}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-body-sm font-medium text-text-primary">{f.title}</span>
+              <span className="block truncate text-caption text-text-secondary">
+                {(f.sizeBytes / 1_048_576).toFixed(1)} MB · {day(f.createdAt)}
+                {f.leadId === null ? ' · shared with the project' : ''}
+              </span>
+            </span>
+            <ExternalLink className="size-4 shrink-0 text-text-secondary" aria-hidden="true" />
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * The receipt on an invoice.
+ *
+ * ⚠️ EVIDENCE, NOT A PAYMENT — the label says so, because the two are one click
+ * apart and only one of them is the salesperson's to make.
+ */
+function Receipt({
+  leadId,
+  invoice,
+  busy,
+  onDone,
+}: {
+  leadId: string;
+  invoice: RelatedInvoice;
+  busy: boolean;
+  onDone: () => Promise<void>;
+}) {
+  const toast = useToast();
+  const input = React.useRef<HTMLInputElement>(null);
+  const [working, setWorking] = React.useState(false);
+
+  const upload = async (file: File) => {
+    if (working || busy) return;
+    setWorking(true);
+    try {
+      const slot = await prepareReceiptAction(leadId, file.name, file.size);
+      if (!slot.ok || !slot.url || !slot.path) {
+        toast({ tone: 'error', text: slot.error ?? 'That file could not be prepared.' });
+        return;
+      }
+      const put = await fetch(slot.url, {
+        method: 'PUT',
+        headers: { 'content-type': file.type || 'application/pdf' },
+        body: file,
+      });
+      if (!put.ok) {
+        toast({ tone: 'error', text: `The upload was refused (${put.status}).` });
+        return;
+      }
+      const saved = await attachInvoiceReceiptAction({
+        leadId,
+        invoiceId: invoice.id,
+        path: slot.path,
+        title: file.name,
+        mime: file.type || 'application/pdf',
+        sizeBytes: file.size,
+      });
+      if (!saved.ok) {
+        toast({ tone: 'error', text: saved.error });
+        return;
+      }
+      await onDone();
+      toast({ tone: 'ok', text: 'Receipt uploaded — Finance can approve it now.' });
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-3 rounded-xl border border-border-subtle px-3 py-2.5">
+      <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-bg-subtle text-text-secondary">
+        <Paperclip className="size-4" aria-hidden="true" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-body-sm font-medium text-text-primary">
+          {invoice.receiptPath ? 'Payment receipt uploaded' : 'No payment receipt yet'}
+        </span>
+        <span className="block text-caption text-text-secondary">
+          {invoice.receiptPath
+            ? `${invoice.receiptByName ? `${invoice.receiptByName} · ` : ''}${day(invoice.receiptUploadedAt)} — proof for Finance, not a payment`
+            : 'Upload what the client sent back. Finance approves the payment from it.'}
+        </span>
+      </span>
+      <input
+        ref={input}
+        type="file"
+        accept="application/pdf,image/*"
+        hidden
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = '';
+          if (file) void upload(file);
+        }}
+      />
+      {invoice.receiptPath && (
+        <button
+          type="button"
+          onClick={async () => {
+            const link = await invoiceReceiptLinkAction(invoice.id);
+            if (link.url) window.open(link.url, '_blank', 'noopener');
+            else toast({ tone: 'error', text: link.error ?? 'That could not be opened.' });
+          }}
+          className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 text-caption font-semibold text-text-brand transition-colors hover:bg-bg-subtle"
+        >
+          View
+          <ExternalLink className="size-3.5" aria-hidden="true" />
+        </button>
+      )}
+      <button
+        type="button"
+        disabled={busy || working}
+        onClick={() => input.current?.click()}
+        className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border-default px-2.5 py-1.5 text-caption font-semibold text-text-primary transition-colors hover:bg-bg-subtle disabled:opacity-50"
+      >
+        <Upload className="size-3.5" aria-hidden="true" />
+        {working ? 'Uploading…' : invoice.receiptPath ? 'Replace' : 'Upload receipt'}
+      </button>
+    </div>
   );
 }

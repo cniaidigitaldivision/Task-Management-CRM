@@ -5,10 +5,12 @@ import type { Route } from 'next';
 import Link from 'next/link';
 import {
   CalendarClock,
-  ChevronRight,
   CirclePlus,
   ExternalLink,
-  FolderOpen,
+  Eye,
+  FileText,
+  Home,
+  Send,
   Mail,
   MoreVertical,
   PauseCircle,
@@ -42,6 +44,8 @@ import {
   temperatureLabel,
   temperatureToken,
 } from '@/lib/domain/crm-stages';
+import { appointmentKindLabel } from '@/lib/domain/crm-appointments';
+import { quotationStatusLabel, quotationStatusToken } from '@/lib/domain/crm-quotations';
 import { displayPhone } from '@/lib/domain/phone';
 import {
   LeadConversationTab,
@@ -199,6 +203,7 @@ export function relatedFromRow(row: CrmLeadRow): CrmLeadRelated {
         : null,
     sequenceOptions: [],
     draft: null,
+    counts: { bookings: 0, invoices: 0, files: 0 },
   };
 }
 
@@ -314,6 +319,8 @@ export function LeadDrawer({
      tab keeps its summary — what is attached, what is quoted, what is booked —
      and this opens the records themselves. */
   const [relatedOpen, setRelatedOpen] = React.useState(false);
+  const [relatedTab, setRelatedTab] =
+    React.useState<'quotations' | 'properties' | 'appointments' | 'bookings' | 'invoices' | 'files'>('quotations');
 
   /* ⚠️ THE LIVE ONE, not the newest row. A superseded v1 still exists (176) and
      printing its figure on the strip would show a price nobody is offering any
@@ -667,27 +674,15 @@ export function LeadDrawer({
           )}
           {!loading && activeTab === 'related' && (
             <>
-              <button
-                type="button"
-                onClick={() => setRelatedOpen(true)}
-                className="mb-3 flex w-full items-center gap-3 rounded-xl border border-border-subtle bg-bg-surface px-3.5 py-3 text-left transition-colors hover:bg-bg-subtle"
-              >
-                <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-accent-primary/10 text-accent-primary">
-                  <FolderOpen className="size-4" aria-hidden="true" />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-body-sm font-semibold text-text-primary">Open related items</span>
-                  <span className="block text-caption text-text-secondary">
-                    Quotations, properties, appointments, bookings and invoices — with their previews.
-                  </span>
-                </span>
-                <ChevronRight className="size-4 shrink-0 text-text-secondary" aria-hidden="true" />
-              </button>
               <Related
                 related={related}
                 lead={lead}
                 onRaiseQuotation={onRaiseQuotation}
                 onChooseUnit={onChooseUnit}
+                onOpen={(t) => {
+                  setRelatedTab(t);
+                  setRelatedOpen(true);
+                }}
               />
             </>
           )}
@@ -778,6 +773,7 @@ export function LeadDrawer({
       {relatedOpen && (
         <RelatedItemsDialog
           lead={lead}
+          initialTab={relatedTab}
           onClose={() => setRelatedOpen(false)}
           onChooseUnit={() => {
             setRelatedOpen(false);
@@ -821,176 +817,259 @@ export function LeadDrawer({
    step with Review reply · Reschedule · Stop, and follow-ups a person can plan,
    complete and cancel. Its visits section went with it. */
 
+/* ---- Related items · the drawer's own summary ------------------------------
+   Owner, 2026-09-17: *"in the Related Items tab there should only be a summary
+   and there should be a button which, when clicked, will make this modal pop
+   up."* So this is a summary and nothing more — the records themselves, their
+   previews and their actions live in `RelatedItemsDialog`.
+
+   ⚠️ AND IT COSTS THE DRAWER NOTHING. Everything here is already in the bundle
+   the drawer loads; the counts are three scalar subqueries. Bookings, invoices
+   and files are read only when somebody opens the dialog. */
+
 function Related({
   related,
   lead,
   onRaiseQuotation,
   onChooseUnit,
+  onOpen,
 }: {
   related: CrmLeadRelated;
   lead: CrmLeadRecord;
   onRaiseQuotation: () => void;
   onChooseUnit: () => void;
+  /** Opens the dialog, on the tab that was asked for. */
+  onOpen: (tab: 'quotations' | 'properties' | 'appointments' | 'bookings' | 'invoices' | 'files') => void;
 }) {
+  const live =
+    related.quotations.find((q) => !['superseded', 'rejected', 'expired'].includes(q.status)) ??
+    related.quotations[0] ??
+    null;
+  const visit = related.appointments.find((a) => ['scheduled', 'confirmed'].includes(a.status)) ?? null;
+
+  const chips: ReadonlyArray<{ key: Parameters<typeof onOpen>[0]; label: string; n: number }> = [
+    { key: 'quotations', label: 'Quotations', n: related.quotations.length },
+    { key: 'properties', label: 'Properties', n: lead.propertyId ? 1 : 0 },
+    { key: 'appointments', label: 'Appointments', n: related.appointments.length },
+    { key: 'bookings', label: 'Bookings', n: related.counts.bookings },
+    { key: 'invoices', label: 'Invoices', n: related.counts.invoices },
+    { key: 'files', label: 'Files', n: related.counts.files },
+  ];
+
   return (
-    <div className="space-y-5">
-      {/* ⚠️ THE UNIT LEADS THIS TAB, because it is what everything below it is
-          about — a quotation prices a unit, and a site visit goes to one. A lead
-          with no unit attached is the commonest reason a quotation has to be
-          typed from memory. */}
-      <section>
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <h3 className="text-micro font-semibold uppercase tracking-wide text-text-tertiary">
-            Unit
-          </h3>
+    <div className="space-y-3">
+      {/* ── What there is, and the way in ──────────────────────────────── */}
+      <div className="flex flex-wrap gap-1.5">
+        {chips.map((c) => (
+          <button
+            key={c.key}
+            type="button"
+            onClick={() => onOpen(c.key)}
+            className={cn(
+              'rounded-lg border px-2.5 py-1.5 text-caption font-medium transition-colors',
+              c.n > 0
+                ? 'border-[var(--pick-border)] bg-[var(--pick-bg)] text-text-primary'
+                : 'border-border-subtle text-text-secondary hover:bg-bg-subtle',
+            )}
+          >
+            {c.label} ({c.n})
+          </button>
+        ))}
+      </div>
+
+      {/* ── The quotation ──────────────────────────────────────────────── */}
+      <section className="rounded-xl border border-border-subtle bg-bg-surface">
+        <header className="flex items-center gap-2.5 border-b border-border-subtle px-3.5 py-2.5">
+          <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-bg-subtle text-text-secondary">
+            <FileText className="size-4" aria-hidden="true" />
+          </span>
+          <h3 className="min-w-0 flex-1 truncate text-body-sm font-semibold text-text-primary">Quotation</h3>
+          {live ? (
+            <span
+              className="shrink-0 rounded-md px-2 py-0.5 text-caption font-medium"
+              style={{
+                color: `var(--${quotationStatusToken(live.status)})`,
+                background: `color-mix(in oklab, var(--${quotationStatusToken(live.status)}) 12%, transparent)`,
+              }}
+            >
+              {quotationStatusLabel(live.status)}
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={onRaiseQuotation}
+              className="shrink-0 rounded-lg border border-border-default px-2.5 py-1 text-caption font-medium text-text-primary transition-colors hover:bg-bg-subtle"
+            >
+              Raise one
+            </button>
+          )}
+        </header>
+
+        {live ? (
+          <div className="space-y-3 px-3.5 py-3">
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 sm:grid-cols-4">
+              <Cell label={`${live.number}${live.version > 1 ? ` v${live.version}` : ''}`} value={lead.projectName} strong />
+              <Cell label="Value" value={`PKR ${live.netAmount.toLocaleString('en-PK')}`} strong />
+              <Cell
+                label="Valid to"
+                value={live.validUntil
+                  ? new Date(live.validUntil).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Karachi' })
+                  : 'Open-ended'}
+                strong
+              />
+              <Cell
+                label="Raised"
+                value={new Date(live.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Karachi' })}
+                strong
+              />
+            </div>
+
+            {/* ⚠️ WHO THE CLIENT SEES IT FROM. The same name the WhatsApp composer
+                prints — a quotation signed by a business the client has never
+                heard of is the one thing worse than none. */}
+            <div className="border-t border-border-subtle pt-2.5">
+              <p className="text-caption text-text-secondary">Sender (customer-facing)</p>
+              <p className="text-body-sm font-medium text-text-primary">
+                {related.sender?.displayName ?? lead.projectName}
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3 rounded-xl border border-border-subtle px-3 py-2.5">
+              <span
+                className="grid size-9 shrink-0 place-items-center rounded-lg text-caption font-bold text-white"
+                style={{ background: live.pdfPath ? 'var(--feedback-error)' : 'var(--border-default)' }}
+                aria-hidden="true"
+              >
+                PDF
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-body-sm font-medium text-text-primary">
+                  {live.pdfPath ? `${live.number}.pdf` : 'No PDF attached yet'}
+                </span>
+                <span className="block text-caption text-text-secondary">
+                  {live.pdfPath ? 'Attached to this quotation' : 'Upload it in Related items'}
+                </span>
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => onOpen('quotations')}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-border-default px-3 py-2 text-body-sm font-medium text-text-primary transition-colors hover:bg-bg-subtle"
+              >
+                <Eye className="size-4" aria-hidden="true" />
+                Preview
+              </button>
+              <button
+                type="button"
+                onClick={() => onOpen('quotations')}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-border-default px-3 py-2 text-body-sm font-medium text-text-primary transition-colors hover:bg-bg-subtle"
+              >
+                <Send className="size-4" aria-hidden="true" />
+                Send
+              </button>
+            </div>
+          </div>
+        ) : (
+          <p className="px-3.5 py-3 text-caption leading-relaxed text-text-secondary">
+            Nothing quoted yet. A quotation names the unit and the price, so the rest of this tab has something to be
+            about.
+          </p>
+        )}
+      </section>
+
+      {/* ── The unit ───────────────────────────────────────────────────── */}
+      <section className="rounded-xl border border-border-subtle bg-bg-surface">
+        <header className="flex items-center gap-2.5 border-b border-border-subtle px-3.5 py-2.5">
+          <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-bg-subtle text-text-secondary">
+            <Home className="size-4" aria-hidden="true" />
+          </span>
+          <h3 className="min-w-0 flex-1 truncate text-body-sm font-semibold text-text-primary">Property</h3>
           <button
             type="button"
             onClick={onChooseUnit}
-            className="rounded-lg border border-border-subtle px-2.5 py-1 text-caption font-medium text-text-primary transition-colors hover:border-border-default"
+            className="shrink-0 rounded-lg border border-border-default px-2.5 py-1 text-caption font-medium text-text-primary transition-colors hover:bg-bg-subtle"
           >
             {lead.propertyLabel ? 'Change' : 'Choose one'}
           </button>
-        </div>
+        </header>
         {lead.propertyLabel ? (
-          <p className="rounded-lg border border-border-subtle px-3 py-2 text-body-sm text-text-primary">
-            {lead.propertyLabel}
+          <div className="flex items-center gap-3 px-3.5 py-3">
+            {/* ⚠️ NO PHOTOGRAPH, BECAUSE THERE IS NONE. `crm_properties` keeps no
+                image; a stock picture of somebody else's plot on a record a
+                salesperson quotes from is worse than a plain tile. */}
+            <span className="grid size-14 shrink-0 place-items-center rounded-lg bg-bg-subtle text-text-tertiary">
+              <Home className="size-6" aria-hidden="true" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-body-sm font-semibold text-text-primary">{lead.propertyLabel}</p>
+              <p className="truncate text-caption text-text-secondary">
+                {lead.projectName}
+                {lead.city ? ` · ${lead.city}` : ''}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => onOpen('properties')}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-border-default px-2.5 py-1.5 text-caption font-medium text-text-primary transition-colors hover:bg-bg-subtle"
+            >
+              View details
+              <ExternalLink className="size-3.5" aria-hidden="true" />
+            </button>
+          </div>
+        ) : (
+          <p className="px-3.5 py-3 text-caption leading-relaxed text-text-secondary">
+            No unit attached. Choosing one is what lets a quotation name a plot and a price rather than a figure typed
+            from memory.
           </p>
-        ) : (
-          <Empty>No unit attached. Choose one and a quotation will price itself.</Empty>
         )}
       </section>
 
-      <section>
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <h3 className="text-micro font-semibold uppercase tracking-wide text-text-tertiary">
-            Quotations ({related.quotations.length})
-          </h3>
-          {/* ⚠️ THE ACTION SITS WITH THE THING IT ACTS ON. A "raise a quotation"
-              button in the drawer header would be one more control competing
-              with close and the tabs; here it is found by somebody who has just
-              looked at what has already been quoted, which is when they want
-              it. */}
-          <button
-            type="button"
-            onClick={onRaiseQuotation}
-            className="rounded-lg border border-border-subtle px-2.5 py-1 text-caption font-medium text-text-primary transition-colors hover:border-border-default"
-          >
-            Raise one
-          </button>
+      {/* ── The visit ──────────────────────────────────────────────────── */}
+      <section className="flex flex-wrap items-center gap-3 rounded-xl border border-border-subtle bg-bg-surface px-3.5 py-3">
+        <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-bg-subtle text-text-secondary">
+          <CalendarClock className="size-4" aria-hidden="true" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-body-sm font-semibold text-text-primary">
+            {visit ? appointmentKindLabel(visit.kind) : 'Site visit not scheduled'}
+          </p>
+          <p className="truncate text-caption text-text-secondary">
+            {visit
+              ? `${new Date(visit.scheduledAt).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Karachi' })}${visit.location ? ` · ${visit.location}` : ''}`
+              : 'Schedule a site visit to move this lead forward.'}
+          </p>
         </div>
-        {related.quotations.length === 0 ? (
-          <Empty>No quotation has been raised for this lead.</Empty>
-        ) : (
-          <ul className="space-y-2">
-            {related.quotations.map((q) => {
-              const pending = q.status === 'pending_approval';
-              return (
-                <li key={q.id} className="rounded-lg border border-border-subtle px-3 py-2.5">
-                  <div className="flex flex-wrap items-baseline justify-between gap-2">
-                    <p className="text-body-sm font-medium text-text-primary">
-                      {q.number}
-                      {/* ⚠️ THE VERSION IS ALWAYS SHOWN. "QT-1042" alone is
-                          ambiguous the moment a v2 exists, and the whole reason
-                          versions are rows is so the pair can be told apart. */}
-                      <span className="ml-1 text-caption font-normal text-text-tertiary">
-                        v{q.version}
-                      </span>
-                    </p>
-                    <span className="tabular-nums text-body-sm text-text-primary">
-                      PKR {q.netAmount.toLocaleString('en-PK')}
-                    </span>
-                  </div>
-
-                  <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-caption">
-                    <span
-                      className="rounded px-1.5 py-px font-medium"
-                      style={
-                        pending
-                          ? {
-                              backgroundColor: 'color-mix(in oklab, var(--gold-700) 14%, transparent)',
-                              color: 'var(--gold-700)',
-                            }
-                          : {
-                              backgroundColor:
-                                'color-mix(in oklab, var(--feedback-success) 14%, transparent)',
-                              color: 'var(--feedback-success)',
-                            }
-                      }
-                    >
-                      {pending ? 'Pending approval' : q.status}
-                    </span>
-                    {q.propertyLabel && <span className="text-text-secondary">{q.propertyLabel}</span>}
-                    {q.validUntil && (
-                      <span className="text-text-tertiary">
-                        valid till{' '}
-                        {new Date(q.validUntil).toLocaleDateString('en-GB', {
-                          day: 'numeric',
-                          month: 'short',
-                          year: 'numeric',
-                          timeZone: 'Asia/Karachi',
-                        })}
-                      </span>
-                    )}
-                  </div>
-
-                  {q.requestedDiscount > 0 && q.approvedDiscount === 0 && (
-                    <p className="mt-1 text-caption text-gold-700">
-                      Discount of PKR {q.requestedDiscount.toLocaleString('en-PK')} requested,
-                      not yet approved.
-                    </p>
-                  )}
-
-                  {/* ⚠️ THE SEND BUTTON IS ABSENT WHILE PENDING, not disabled.
-                      The owner's rule is that a pending quotation cannot leave
-                      the building, and the server refuses it regardless — but a
-                      greyed button invites the click that gets refused. */}
-                  <p className="mt-1.5 text-caption text-text-tertiary">
-                    {pending
-                      ? 'Cannot be sent until a manager approves it.'
-                      : `Prepared by ${q.preparedByName ?? 'someone'}${q.approvedByName ? `, approved by ${q.approvedByName}` : ''}.`}
-                  </p>
-                </li>
-              );
-            })}
-          </ul>
-        )}
+        <button
+          type="button"
+          onClick={() => onOpen('appointments')}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-border-default px-2.5 py-1.5 text-caption font-medium text-text-primary transition-colors hover:bg-bg-subtle"
+        >
+          <CalendarClock className="size-3.5" aria-hidden="true" />
+          {visit ? 'View visit' : 'Schedule visit'}
+        </button>
       </section>
 
-      <section>
-        <h3 className="mb-2 text-micro font-semibold uppercase tracking-wide text-text-tertiary">
-          Appointments ({related.appointments.length})
-        </h3>
-        {related.appointments.length === 0 ? (
-          <Empty>Nothing booked.</Empty>
-        ) : (
-          <ul className="space-y-2">
-            {related.appointments.map((a) => (
-              <li key={a.id} className="rounded-lg border border-border-subtle px-3 py-2">
-                <div className="flex items-baseline justify-between gap-2">
-                  <p className="text-body-sm text-text-primary">
-                    {a.kind.replace('_', ' ')} · {a.status}
-                  </p>
-                  <span className="shrink-0 text-caption tabular-nums text-text-secondary">
-                    {new Date(a.scheduledAt).toLocaleString('en-GB', {
-                      day: 'numeric',
-                      month: 'short',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                      timeZone: 'Asia/Karachi',
-                    })}
-                  </span>
-                </div>
-                {a.outcome && <p className="mt-0.5 text-caption text-text-secondary">{a.outcome}</p>}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      <button
+        type="button"
+        onClick={() => onOpen('quotations')}
+        className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-border-default px-3 py-2.5 text-body-sm font-medium text-text-secondary transition-colors hover:bg-bg-subtle hover:text-text-primary"
+      >
+        <CirclePlus className="size-4" aria-hidden="true" />
+        Open related items
+      </button>
+    </div>
+  );
+}
 
-      {/* ⚠️ BOOKINGS, INVOICES AND FILES ARE NOT HERE. The owner's spec lists
-          them as subtabs; none of the three has a table yet, and an empty tab
-          headed "Invoices" reads as "this lead has no invoices" rather than as
-          "invoices do not exist". */}
+function Cell({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
+  return (
+    <div className="min-w-0">
+      <p className="truncate text-caption text-text-secondary">{label}</p>
+      <p className={cn('truncate text-body-sm', strong ? 'font-semibold text-text-primary' : 'text-text-primary')}>
+        {value}
+      </p>
     </div>
   );
 }

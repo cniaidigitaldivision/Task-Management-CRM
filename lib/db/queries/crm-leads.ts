@@ -1896,6 +1896,8 @@ export async function crmMyCounts(
 export interface CrmQuotationRow {
   readonly id: string;
   readonly number: string;
+  /** Where its PDF lives, once somebody has attached one (194). */
+  readonly pdfPath?: string | null;
   readonly version: number;
   readonly status: string;
   readonly netAmount: number;
@@ -1989,6 +1991,14 @@ export interface CrmLeadRelated {
   } | null;
   /** Sequences this lead could be started on. */
   readonly sequenceOptions: readonly CrmSequenceOption[];
+  /**
+   * How many of the things the Related items dialog holds.
+   *
+   * ⚠️ COUNTS, NOT ROWS. The drawer's tab shows a summary and opens a dialog for
+   * the records themselves; carrying every booking and every invoice into the
+   * drawer's own load would cost the page for a panel nobody has opened.
+   */
+  readonly counts: { readonly bookings: number; readonly invoices: number; readonly files: number };
   /**
    * A plan written for this lead and saved without starting it (185/187).
    *
@@ -2165,6 +2175,7 @@ const NO_RELATED: CrmLeadRelated = {
   sequence: null,
   sequenceOptions: [],
   draft: null,
+  counts: { bookings: 0, invoices: 0, files: 0 },
 };
 
 /** Several leads' related records in SIX queries, however many leads. */
@@ -2177,9 +2188,9 @@ async function readCrmLeadRelatedMany(
   if (ids.length === 0) return out;
   const idList = ids as unknown as string[];
 
-  const [quotations, appointments, followUps, sequences, drafts, options, senders, summaries, names] = await Promise.all([
+  const [quotations, appointments, followUps, sequences, counts, drafts, options, senders, summaries, names] = await Promise.all([
     tx`
-      select q.lead_id, q.id, q.number, q.version, q.status::text, q.net_amount,
+      select q.lead_id, q.id, q.number, q.version, q.status::text, q.net_amount, q.pdf_path,
              q.requested_discount, q.approved_discount, q.valid_until,
              q.prepared_by_id, q.approved_by_id, q.created_at,
              concat_ws(', ', p.plot_number,
@@ -2224,6 +2235,18 @@ async function readCrmLeadRelatedMany(
        order by ls.lead_id,
                 (ls.state in ('scheduled', 'active', 'paused')) desc,
                 ls.started_at desc nulls last
+    `,
+    /* The counts the Related items tab prints on its chips. ⚠️ Counts, not rows:
+       the records themselves are read when the dialog opens. */
+    tx`
+      select l.id as lead_id,
+             (select count(*) from public.crm_bookings b where b.lead_id = l.id)::int as bookings,
+             (select count(*) from public.crm_invoices i where i.lead_id = l.id)::int as invoices,
+             (select count(*) from public.crm_documents d
+               where d.project_id = l.project_id
+                 and (d.lead_id = l.id or d.lead_id is null))::int as files
+        from public.crm_leads l
+       where l.id = any(${idList}::uuid[])
     `,
     /* ⚠️ A DRAFT PLAN — written for this lead and never started. One row per
        lead, newest first, and only when nothing of it is running: a sequence
@@ -2287,11 +2310,13 @@ async function readCrmLeadRelatedMany(
       sequence: CrmLeadRelated['sequence'];
       sequenceOptions: CrmSequenceOption[];
       draft: CrmLeadRelated['draft'];
+      counts: { bookings: number; invoices: number; files: number };
     } | undefined;
     if (!r) {
       r = {
         quotations: [], appointments: [], followUps: [], sender: null, summary: null,
         sequence: null, sequenceOptions: [], draft: null,
+        counts: { bookings: 0, invoices: 0, files: 0 },
       };
       out.set(id, r);
     }
@@ -2303,6 +2328,7 @@ async function readCrmLeadRelatedMany(
     rel(String(q.lead_id)).quotations.push({
       id: String(q.id),
       number: String(q.number),
+      pdfPath: (q.pdf_path as string | null) ?? null,
       version: Number(q.version),
       status: String(q.status),
       netAmount: Number(q.net_amount),
@@ -2369,6 +2395,13 @@ async function readCrmLeadRelatedMany(
         title: (st.title as string | null) ?? null,
         mode: String(st.mode ?? 'auto_send'),
       })),
+    };
+  }
+  for (const c of counts as Array<Record<string, unknown>>) {
+    rel(String(c.lead_id)).counts = {
+      bookings: Number(c.bookings ?? 0),
+      invoices: Number(c.invoices ?? 0),
+      files: Number(c.files ?? 0),
     };
   }
   for (const d of drafts as Array<Record<string, unknown>>) {

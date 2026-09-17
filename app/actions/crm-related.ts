@@ -15,10 +15,12 @@ import { revalidatePath } from 'next/cache';
 
 import { requireCrmAccess } from '@/lib/auth/current-user';
 import {
+  attachInvoiceReceipt,
   attachQuotationPdf,
   confirmBooking,
   createBooking,
   createInvoice,
+  markInvoiceSent,
   readLeadRelatedItems,
   recordInvoicePayment,
   requestBookingVerification,
@@ -205,6 +207,74 @@ export async function quotationPdfLinkAction(quotationId: string): Promise<{ url
   /* The same answer for "no PDF" and "not yours", so this cannot be used to
      find out which quotations exist. */
   if (!path) return { error: 'There is no PDF on that quotation yet.' };
+
+  const link = await signedUrl(path);
+  return link.ok ? { url: link.value } : { error: link.message ?? 'The link could not be made.' };
+}
+
+/* ── The salesperson's half of an invoice ────────────────────────────────── */
+
+/** It went out. ⚠️ Not a payment — Finance still decides what has been received. */
+export async function markInvoiceSentAction(leadId: string, invoiceId: string): Promise<RelatedWrite> {
+  const { user } = await requireCrmAccess();
+  if (!UUID.test(invoiceId)) return { ok: false, error: 'That invoice could not be found.' };
+  return settle(await markInvoiceSent(user.id, invoiceId), leadId);
+}
+
+/** Where the receipt goes. The browser uploads it, as with a quotation PDF. */
+export async function prepareReceiptAction(leadId: string, filename: string, size: number): Promise<UploadSlot> {
+  await requireCrmAccess();
+  if (!UUID.test(leadId)) return { ok: false, error: 'That lead could not be found.' };
+  if (!Number.isFinite(size) || size <= 0) return { ok: false, error: 'That file looks empty.' };
+  if (size > PDF_MAX) return { ok: false, error: 'A receipt must be under 25 MB.' };
+
+  const safe = filename.replace(/[^\w.\- ]+/g, '_').slice(-80) || 'receipt.pdf';
+  const path = `crm-receipts/${leadId}/${crypto.randomUUID()}/${safe}`;
+  const signed = await signedUploadUrl(path);
+  if (!signed.ok) return { ok: false, error: signed.message };
+  return { ok: true, path, url: signed.value };
+}
+
+export async function attachInvoiceReceiptAction(input: {
+  leadId: string;
+  invoiceId: string;
+  path: string;
+  title: string;
+  mime: string;
+  sizeBytes: number;
+}): Promise<RelatedWrite> {
+  const { user } = await requireCrmAccess();
+  if (!UUID.test(input.invoiceId)) return { ok: false, error: 'That invoice could not be found.' };
+  if (!input.path.startsWith(`crm-receipts/${input.leadId}/`)) {
+    return { ok: false, error: 'That file was not uploaded for this lead.' };
+  }
+  return settle(
+    await attachInvoiceReceipt(user.id, {
+      invoiceId: input.invoiceId,
+      path: input.path,
+      title: input.title.trim().slice(0, 140) || 'Payment receipt',
+      mime: input.mime || 'application/pdf',
+      sizeBytes: Math.max(1, Math.round(input.sizeBytes)),
+    }),
+    input.leadId,
+  );
+}
+
+/**
+ * A short-lived link to an invoice's receipt — what Finance opens before it
+ * approves the payment.
+ *
+ * ⚠️ THE PATH IS READ BACK UNDER RLS, never taken from the caller.
+ */
+export async function invoiceReceiptLinkAction(invoiceId: string): Promise<{ url?: string; error?: string }> {
+  const { user } = await requireCrmAccess();
+  if (!UUID.test(invoiceId)) return { error: 'That receipt could not be opened.' };
+
+  const rows = (await withUser(user.id, (tx) => tx`
+    select receipt_path from public.crm_invoices where id = ${invoiceId}::uuid
+  `)) as Array<{ receipt_path: string | null }>;
+  const path = rows[0]?.receipt_path;
+  if (!path) return { error: 'There is no receipt on that invoice yet.' };
 
   const link = await signedUrl(path);
   return link.ok ? { url: link.value } : { error: link.message ?? 'The link could not be made.' };
