@@ -5,6 +5,7 @@ import type { Route } from 'next';
 import Link from 'next/link';
 import {
   CalendarClock,
+  CirclePlus,
   ExternalLink,
   Mail,
   MoreVertical,
@@ -39,17 +40,13 @@ import {
   temperatureLabel,
   temperatureToken,
 } from '@/lib/domain/crm-stages';
-import {
-  appointmentKindLabel,
-  appointmentStatusLabel,
-  appointmentStatusToken,
-} from '@/lib/domain/crm-appointments';
 import { displayPhone } from '@/lib/domain/phone';
 import {
   LeadConversationTab,
   useConversationSummary,
 } from '@/components/crm/lead-conversation-tab';
 import { LeadOverviewTab } from '@/components/crm/lead-overview-tab';
+import { LeadFollowUpsTab, type FollowUpComposer } from '@/components/crm/lead-followups-tab';
 import { relativeAge } from '@/lib/view/relative-age';
 import { cn } from '@/lib/utils';
 
@@ -185,13 +182,20 @@ export function relatedFromRow(row: CrmLeadRow): CrmLeadRelated {
     sequence:
       row.sequenceState && row.sequenceState !== 'not_started'
         ? {
+            id: '',
             name: '',
+            purpose: 'custom',
             state: row.sequenceState,
             step: row.sequenceStep ?? 0,
             total: row.sequenceTotal ?? 0,
             pauseReason: row.sequenceNote,
+            startedAt: row.submittedAt,
+            nextStepAt: null,
+            quotationId: null,
+            steps: [],
           }
         : null,
+    sequenceOptions: [],
   };
 }
 
@@ -293,6 +297,8 @@ export function LeadDrawer({
     onSummary: reportSummary,
   });
   const [menuOpen, setMenuOpen] = React.useState(false);
+  /* The Follow-ups tab's composer — opened from the drawer's foot, drawn in the tab. */
+  const [composer, setComposer] = React.useState<FollowUpComposer>(null);
   const [savingStage, setSavingStage] = React.useState(false);
   const [, startStage] = React.useTransition();
   const toast = useToast();
@@ -639,10 +645,20 @@ export function LeadDrawer({
           {/* ⚠️ "Loading…", NEVER AN EMPTY LIST, for the tabs the row cannot
               draw. "No follow-ups" in the half-second before they arrive is the
               kind of small lie somebody books a duplicate on. */}
-          {loading && (activeTab === 'followups' || activeTab === 'related' || activeTab === 'activity') && (
+          {loading && (activeTab === 'related' || activeTab === 'activity') && (
             <p className="py-6 text-center text-caption text-text-secondary">Loading…</p>
           )}
-          {!loading && activeTab === 'followups' && <FollowUps related={related} nowMs={nowMs} />}
+          {activeTab === 'followups' && (
+            <LeadFollowUpsTab
+              lead={lead}
+              related={related}
+              nowMs={nowMs}
+              loading={loading}
+              composer={composer}
+              onComposer={setComposer}
+              onReviewReply={() => go('conversations')}
+            />
+          )}
           {!loading && activeTab === 'related' && (
             <Related
               related={related}
@@ -670,6 +686,31 @@ export function LeadDrawer({
             tab, that's fine, but not in the Conversation tab."* Under the composer
             it was a second row of buttons below the Send button — two places to
             act, stacked, on the one tab that already has its own. */}
+        {/* ⚠️ THE FOLLOW-UPS TAB HAS ITS OWN FOOT, as the reference draws it: a
+            reminder for yourself, or a follow-up with the client. Both open the
+            composer at the top of the tab rather than a dialog over the drawer. */}
+        {activeTab === 'followups' && !loading && (
+          <div className="grid shrink-0 grid-cols-2 gap-2 border-t border-border-subtle px-5 py-3">
+            <button
+              type="button"
+              onClick={() => setComposer((c) => (c === 'reminder' ? null : 'reminder'))}
+              aria-pressed={composer === 'reminder'}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-border-default px-3 py-2.5 text-body-sm font-medium text-text-primary transition-colors hover:bg-bg-subtle"
+            >
+              <CalendarClock className="size-4" aria-hidden="true" />
+              Add reminder
+            </button>
+            <button
+              type="button"
+              onClick={() => setComposer((c) => (c === 'follow_up' ? null : 'follow_up'))}
+              aria-pressed={composer === 'follow_up'}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-accent-primary px-3 py-2.5 text-body-sm font-semibold text-white transition-opacity hover:opacity-90"
+            >
+              <CirclePlus className="size-4" aria-hidden="true" />
+              New follow-up
+            </button>
+          </div>
+        )}
         {activeTab === 'overview' && (
         <div className="flex shrink-0 flex-wrap gap-2 border-t border-border-subtle px-5 py-3">
           {lead.email && (
@@ -693,7 +734,10 @@ export function LeadDrawer({
           )}
           <button
             type="button"
-            onClick={() => go('followups')}
+            onClick={() => {
+              setComposer('follow_up');
+              go('followups');
+            }}
             className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-accent-primary px-3 py-2.5 text-body-sm font-semibold text-white transition-opacity hover:opacity-90"
           >
             <CalendarClock className="size-4" aria-hidden="true" />
@@ -718,144 +762,11 @@ export function LeadDrawer({
    with a pause banner and a composer that names its own sending number. */
 
 
-/* ---- Follow-ups ----------------------------------------------------------- */
-
-function FollowUps({ related, nowMs }: { related: CrmLeadRelated; nowMs: number }) {
-  return (
-    <div className="space-y-5">
-      {related.sequence ? (
-        <section
-          className="rounded-xl border px-4 py-3"
-          style={
-            related.sequence.state === 'paused'
-              ? {
-                  borderColor: 'color-mix(in oklab, var(--gold-700) 40%, transparent)',
-                  backgroundColor: 'color-mix(in oklab, var(--gold-700) 8%, transparent)',
-                }
-              : undefined
-          }
-        >
-          <p className="text-body-sm font-medium text-text-primary">
-            {related.sequence.name} · step {related.sequence.step} of {related.sequence.total}
-          </p>
-          <p className="mt-0.5 text-caption text-text-secondary">
-            {related.sequence.state === 'paused'
-              ? `Paused — ${related.sequence.pauseReason ?? 'no reason recorded'}. No further messages will send while paused.`
-              : `State: ${related.sequence.state}. ⚠️ Nothing sends yet — the scheduler is not built.`}
-          </p>
-        </section>
-      ) : (
-        <Empty>No sequence is running on this lead.</Empty>
-      )}
-
-      {/* ── ⚠️ APPOINTMENTS WERE IN THE DATA AND ON NO SCREEN ────────────────
-          `crmLeadRelated` has read them since 152 and nothing rendered them, so
-          a visit booked from the outcome form vanished the moment it was made.
-          They lead this tab rather than trailing it: a follow-up is a reminder
-          to yourself, an appointment is somebody else's afternoon. */}
-      <section>
-        <h3 className="mb-2 text-micro font-semibold uppercase tracking-wide text-text-tertiary">
-          Appointments ({related.appointments.length})
-        </h3>
-        {related.appointments.length === 0 ? (
-          <Empty>Nothing booked. Record a &ldquo;site visit requested&rdquo; outcome to book one.</Empty>
-        ) : (
-          <ul className="space-y-2">
-            {related.appointments.map((a) => {
-              const when = new Date(a.scheduledAt);
-              const past = when.getTime() < nowMs;
-              return (
-                <li key={a.id} className="rounded-lg border border-border-subtle px-3 py-2">
-                  <div className="flex items-baseline justify-between gap-2">
-                    <p className="truncate text-body-sm text-text-primary">
-                      {appointmentKindLabel(a.kind)}
-                      {a.ownerName && (
-                        <span className="text-text-secondary"> · {a.ownerName}</span>
-                      )}
-                    </p>
-                    <span
-                      className={cn(
-                        'shrink-0 text-caption tabular-nums',
-                        past && a.status === 'scheduled'
-                          ? 'font-semibold text-feedback-error'
-                          : 'text-text-secondary',
-                      )}
-                    >
-                      {when.toLocaleString('en-GB', {
-                        day: 'numeric',
-                        month: 'short',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                        timeZone: 'Asia/Karachi',
-                      })}
-                    </span>
-                  </div>
-                  <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-caption text-text-tertiary">
-                    <span style={{ color: `var(--${appointmentStatusToken(a.status)})` }}>
-                      {appointmentStatusLabel(a.status)}
-                    </span>
-                    {a.location && <span className="truncate">{a.location}</span>}
-                    <span>{a.durationMinutes} min</span>
-                  </p>
-                  {/* ⚠️ THE OUTCOME, WHEN THERE IS ONE. What happened at a visit
-                      is what moves the lead — it is the point of recording it,
-                      and hiding it here would make the panel a diary rather than
-                      a record. */}
-                  {a.outcome && (
-                    <p className="mt-1 whitespace-pre-wrap text-caption text-text-secondary">
-                      {a.outcome}
-                    </p>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </section>
-
-      <section>
-        <h3 className="mb-2 text-micro font-semibold uppercase tracking-wide text-text-tertiary">
-          Follow-ups ({related.followUps.length})
-        </h3>
-        {related.followUps.length === 0 ? (
-          <Empty>Nothing planned or recorded yet.</Empty>
-        ) : (
-          <ul className="space-y-2">
-            {related.followUps.map((f) => {
-              const late = f.status !== 'done' && Date.parse(f.dueAt) < nowMs;
-              return (
-                <li key={f.id} className="rounded-lg border border-border-subtle px-3 py-2">
-                  <div className="flex items-baseline justify-between gap-2">
-                    <p className="truncate text-body-sm text-text-primary">{f.title}</p>
-                    <span
-                      className={cn(
-                        'shrink-0 text-caption tabular-nums',
-                        late ? 'font-semibold text-feedback-error' : 'text-text-secondary',
-                      )}
-                    >
-                      {late ? 'Overdue · ' : ''}
-                      {new Date(f.dueAt).toLocaleDateString('en-GB', {
-                        day: 'numeric',
-                        month: 'short',
-                        timeZone: 'Asia/Karachi',
-                      })}
-                    </span>
-                  </div>
-                  <p className="mt-0.5 text-caption text-text-tertiary">
-                    {f.channel} · {f.status}
-                    {f.outcomeNote && ` · ${f.outcomeNote}`}
-                  </p>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </section>
-    </div>
-  );
-}
-
-/* ---- Related items -------------------------------------------------------- */
+/* ---- Follow-ups ----------------------------------------------------------
+   ⚠️ MOVED OUT to `lead-followups-tab.tsx` on 2026-09-17, when the owner's
+   reference turned a read-only list into a working tab: the sequence step by
+   step with Review reply · Reschedule · Stop, and follow-ups a person can plan,
+   complete and cancel. Its visits section went with it. */
 
 function Related({
   related,

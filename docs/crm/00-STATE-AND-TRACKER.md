@@ -9,7 +9,67 @@
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
 | **Last updated** | **2026-09-17** |
-| **Last migration applied anywhere** | **181** (applied 2026-09-17; owner names identical for all 16 active users, 966 ms → 0.87 ms). CRM next: **182.** |
+| **Last migration applied anywhere** | **183** (applied 2026-09-17; 182 resume sticks, 183 lead row mirrors its sequence — both self-checks roll their fixtures back). CRM next: **184.** |
+
+---
+
+## 🔁 2026-09-17 (late) — THE FOLLOW-UPS TAB WORKS · 182, 183
+
+Built to the owner's reference: three counts, the sequence step by step with
+**Review reply · Reschedule · Stop**, the manual follow-up history, and **Add
+reminder / New follow-up** at the foot. The old tab was read-only; **no server
+action for a follow-up or a sequence existed at all** — every button is new.
+
+### Two database bugs the buttons would have hit
+
+⚠️ **182 · Reschedule could not have worked.** 170 pauses a sequence when the
+client has written "since it started". After a reply pauses it and a salesperson
+resumes, the same reply is still "since it started" — the engine's next pass
+re-pauses it, silently. `crm_lead_sequences.resumed_at`: only a reply after the
+last resume pauses it again. Self-check proves old reply ignored, new reply
+still pauses, fixtures rolled back (it raises inside a sub-block so nothing it
+wrote survives — 082's lesson).
+
+⚠️ **183 · The desk's "Sequence paused" label was already wrong.** `crm_leads`
+carries a copy of the sequence state and **nothing wrote it** — the demo lead's
+row said `scheduled` while its run was `paused`. And `cni_app` may update only
+`next_action*` on `crm_leads`, so the app could not have fixed it either. A
+trigger on `crm_lead_sequences` now mirrors live-or-latest onto the lead; every
+lead backfilled; commit refused if any row still disagrees.
+
+### What each part reads and does
+
+| | |
+|---|---|
+| **Counts** | `followUpCounts` — Active = open and due today/late; Scheduled = open later + sequence steps still to run; Completed = done. Definitions on hover |
+| **Steps** | `sequenceTimeline` — a queued step's truth is its `crm_follow_ups` row; otherwise the queue (`next_step_at` + each later delay). ⚠️ Only `auto_send` is "Queued"; `review_first`/`remind_me` say **Needs you**. ⚠️ While paused, no invented dates: "When resumed", "5 days after resuming" |
+| **Review reply** | Opens Conversations (shown when the pause reason is a reply; otherwise **Resume now**) |
+| **Reschedule** | Quick times (1 h · tomorrow 10 · 3 days · next Monday) or a Karachi date-time; resumes and stamps `resumed_at`; ⚠️ asks `crm_sequence_stop_reason` before committing and refuses with the engine's own reason |
+| **Pause / Stop** | Stop confirms inline; ⚠️ also cancels what the sequence had already queued — a stopped chase with an auto-send row left is not stopped |
+| **Start** | When nothing is live: active templates for the lead's project (demo templates only for demo leads); a quotation sequence links the live quotation so 170 stops it when that expires; one live per lead is the DB's unique index |
+| **New follow-up / Add reminder** | Channel (WhatsApp · Call · Email, or Task), title with stage-aware suggestions, quick times, note. ⚠️ Becomes the lead's **next action** if there is none, the current one is late, or this is sooner — so the desk row stops lying |
+| **History** | Rows a person set (and leftovers from older runs); filter All / Open / Completed / Cancelled; an open row expands to **Mark as done** (with outcome) or **Cancel** — ⚠️ if it was the next action, the next open follow-up takes its place |
+| **Visits** | Kept from the old tab — booked appointments with outcome, shown only when there are any |
+
+**Instant:** every button changes the screen before the server answers — the new
+row appears on press (the composer is hidden, not unmounted, so a refusal brings
+it back with what was typed), pills and counts flip on complete, sequence state
+flips on pause/stop/reschedule; the overlay is dropped when the re-read lead
+arrives. A refusal now says why ("already completed", "already stopped") — "not
+yours" only when RLS hides it.
+
+### Checked
+- `lib/domain/__tests__/crm-followups.test.ts` — 8 tests.
+- **Every write live on the demo lead as Sahad, restored after:** create / complete
+  / complete-twice refused / cancel; Sarah refused on Sahad's lead; reschedule
+  after a reply sticks (stop reason null); pause and stop mirrored to the lead
+  row; start links the live quotation; a second start refused.
+- **Driven in the running app:** composer opens in-frame, row on press, "Follow-up
+  planned."; Mark as done flips pill and counts in 30 ms; Reschedule and Stop
+  panels open and close without writing.
+- `scripts/seed-conversation-demo.mjs` now also writes the chase's sent step 1,
+  the quotation email, a completed call and a planned WhatsApp.
+- `tsc` · `eslint` · `vitest` 3270 · `next build`.
 
 ---
 

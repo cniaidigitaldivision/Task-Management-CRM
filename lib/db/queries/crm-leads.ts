@@ -1873,6 +1873,30 @@ export interface CrmFollowUpRow {
   readonly dueAt: string;
   readonly doneAt: string | null;
   readonly outcomeNote: string | null;
+  /** remind_me · review_first · auto_send — who acts on it (153). */
+  readonly mode: string;
+  readonly body: string | null;
+  /** Set when a sequence step queued it (170); null for a follow-up a person set. */
+  readonly leadSequenceId: string | null;
+  readonly sequenceStepNo: number | null;
+  readonly doneByName: string | null;
+  readonly createdByName: string | null;
+}
+
+export interface CrmSequenceStep {
+  readonly stepNo: number;
+  readonly channel: string;
+  readonly delayDays: number;
+  readonly purpose: string;
+  readonly body: string | null;
+}
+
+/** A sequence this lead could be put on — active, and for its project. */
+export interface CrmSequenceOption {
+  readonly id: string;
+  readonly name: string;
+  readonly purpose: string;
+  readonly steps: number;
 }
 
 export interface CrmLeadRelated {
@@ -1887,14 +1911,25 @@ export interface CrmLeadRelated {
   readonly sender: CrmSender | null;
   /** The stored AI summary of the conversation — migration 180. Never generated here. */
   readonly summary: CrmConversationSummary | null;
-  /** The live sequence run, if any — state, step, and why it paused. */
+  /**
+   * The lead's sequence run — the live one if there is one, otherwise the most
+   * recent, so a stopped chase still shows what it sent and why it ended.
+   */
   readonly sequence: {
+    readonly id: string;
     readonly name: string;
+    readonly purpose: string;
     readonly state: string;
     readonly step: number;
     readonly total: number;
     readonly pauseReason: string | null;
+    readonly startedAt: string;
+    readonly nextStepAt: string | null;
+    readonly quotationId: string | null;
+    readonly steps: readonly CrmSequenceStep[];
   } | null;
+  /** Sequences this lead could be started on. */
+  readonly sequenceOptions: readonly CrmSequenceOption[];
 }
 
 export type CrmSummaryPointKind = 'we_said' | 'they_said' | 'agreed' | 'open';
@@ -2056,6 +2091,7 @@ const NO_RELATED: CrmLeadRelated = {
   sender: null,
   summary: null,
   sequence: null,
+  sequenceOptions: [],
 };
 
 /** Several leads' related records in SIX queries, however many leads. */
@@ -2068,7 +2104,7 @@ async function readCrmLeadRelatedMany(
   if (ids.length === 0) return out;
   const idList = ids as unknown as string[];
 
-  const [quotations, appointments, followUps, sequences, senders, summaries, names] = await Promise.all([
+  const [quotations, appointments, followUps, sequences, options, senders, summaries, names] = await Promise.all([
     tx`
       select q.lead_id, q.id, q.number, q.version, q.status::text, q.net_amount,
              q.requested_discount, q.approved_discount, q.valid_until,
@@ -2089,19 +2125,44 @@ async function readCrmLeadRelatedMany(
     `,
     tx`
       select f.lead_id, f.id, f.title, f.purpose::text, f.channel::text, f.status::text,
-             f.due_at, f.done_at, f.outcome_note
+             f.due_at, f.done_at, f.outcome_note, f.mode::text, f.body,
+             f.lead_sequence_id, f.sequence_step_no, f.done_by_id, f.created_by_id
         from public.crm_follow_ups f
        where f.lead_id = any(${idList}::uuid[])
        order by f.lead_id, f.due_at desc
     `,
     tx`
       select distinct on (ls.lead_id)
-             ls.lead_id, s.name, ls.state::text, ls.current_step, ls.total_steps, ls.pause_reason
+             ls.lead_id, ls.id, s.name, s.purpose::text as purpose, ls.state::text,
+             ls.current_step, ls.total_steps, ls.pause_reason, ls.started_at,
+             ls.next_step_at, ls.quotation_id,
+             coalesce((
+               select json_agg(json_build_object(
+                        'stepNo', st.step_no, 'channel', st.channel, 'delayDays', st.delay_days,
+                        'purpose', st.purpose, 'body', st.body) order by st.step_no)
+                 from public.crm_sequence_steps st
+                where st.sequence_id = ls.sequence_id), '[]'::json) as steps
         from public.crm_lead_sequences ls
         join public.crm_sequences s on s.id = ls.sequence_id
        where ls.lead_id = any(${idList}::uuid[])
-         and ls.state in ('scheduled', 'active', 'paused')
-       order by ls.lead_id, ls.started_at desc nulls last
+       /* The live run first; otherwise the latest, so a stopped chase still says
+          what it sent and why it ended. At most one is live (unique index). */
+       order by ls.lead_id,
+                (ls.state in ('scheduled', 'active', 'paused')) desc,
+                ls.started_at desc nulls last
+    `,
+    /* Sequences each lead could be put on: active, the lead's project or every
+       project, and demo templates only for demo leads. */
+    tx`
+      select l.id as lead_id, s.id, s.name, s.purpose::text as purpose,
+             (select count(*) from public.crm_sequence_steps st where st.sequence_id = s.id)::int as steps
+        from public.crm_leads l
+        join public.crm_sequences s
+          on s.is_active
+         and (s.project_id is null or s.project_id = l.project_id)
+         and (not s.is_test_data or l.is_test_data)
+       where l.id = any(${idList}::uuid[])
+       order by l.id, s.name
     `,
     /* One sender per PROJECT, read once per project rather than once per lead. */
     tx`
@@ -2128,9 +2189,13 @@ async function readCrmLeadRelatedMany(
       sender: CrmSender | null;
       summary: CrmConversationSummary | null;
       sequence: CrmLeadRelated['sequence'];
+      sequenceOptions: CrmSequenceOption[];
     } | undefined;
     if (!r) {
-      r = { quotations: [], appointments: [], followUps: [], sender: null, summary: null, sequence: null };
+      r = {
+        quotations: [], appointments: [], followUps: [], sender: null, summary: null,
+        sequence: null, sequenceOptions: [],
+      };
       out.set(id, r);
     }
     return r;
@@ -2175,16 +2240,45 @@ async function readCrmLeadRelatedMany(
       dueAt: new Date(f.due_at as string).toISOString(),
       doneAt: f.done_at ? new Date(f.done_at as string).toISOString() : null,
       outcomeNote: (f.outcome_note as string | null) ?? null,
+      mode: String(f.mode ?? 'remind_me'),
+      body: (f.body as string | null) ?? null,
+      leadSequenceId: (f.lead_sequence_id as string | null) ?? null,
+      sequenceStepNo: f.sequence_step_no === null || f.sequence_step_no === undefined
+        ? null
+        : Number(f.sequence_step_no),
+      doneByName: nameOf(f.done_by_id),
+      createdByName: nameOf(f.created_by_id),
     });
   }
   for (const s of sequences as Array<Record<string, unknown>>) {
+    const steps = Array.isArray(s.steps) ? (s.steps as Array<Record<string, unknown>>) : [];
     rel(String(s.lead_id)).sequence = {
+      id: String(s.id),
       name: String(s.name),
+      purpose: String(s.purpose ?? 'custom'),
       state: String(s.state),
       step: Number(s.current_step ?? 0),
       total: Number(s.total_steps ?? 0),
       pauseReason: (s.pause_reason as string | null) ?? null,
+      startedAt: new Date(s.started_at as string).toISOString(),
+      nextStepAt: s.next_step_at ? new Date(s.next_step_at as string).toISOString() : null,
+      quotationId: (s.quotation_id as string | null) ?? null,
+      steps: steps.map((st) => ({
+        stepNo: Number(st.stepNo),
+        channel: String(st.channel),
+        delayDays: Number(st.delayDays ?? 0),
+        purpose: String(st.purpose ?? ''),
+        body: (st.body as string | null) ?? null,
+      })),
     };
+  }
+  for (const o of options as Array<Record<string, unknown>>) {
+    rel(String(o.lead_id)).sequenceOptions.push({
+      id: String(o.id),
+      name: String(o.name),
+      purpose: String(o.purpose),
+      steps: Number(o.steps ?? 0),
+    });
   }
   for (const r of senders as Array<Record<string, unknown>>) {
     rel(String(r.lead_id)).sender = {

@@ -126,13 +126,37 @@ try {
     values (${seq.id}, 1, 'whatsapp', 0, 'quotation', 'Just checking you received the quotation.'),
            (${seq.id}, 2, 'whatsapp', 2, 'quotation', 'Any questions on the payment plan?'),
            (${seq.id}, 3, 'whatsapp', 5, 'quotation', 'The quotation expires shortly.')`;
-  await sql`
+  await sql`delete from public.crm_follow_ups where lead_id = ${lead.id}`;
+  const [run] = await sql`
     insert into public.crm_lead_sequences
       (lead_id, sequence_id, state, current_step, total_steps, started_at, paused_at,
        pause_reason, created_by_id)
     values (${lead.id}, ${seq.id}, 'paused', 1, 3, now() - interval '5 days',
-            now() - interval '2 hours', 'the client replied', ${lead.owner_id})`;
+            now() - interval '2 hours', 'the client replied', ${lead.owner_id})
+    returning id`;
   say('a three-step chase, paused because they replied — the green banner reads from this');
+
+  /* ── The follow-ups tab: what the chase sent, and what a person did ────── */
+  const followUp = (o) => sql`
+    insert into public.crm_follow_ups
+      (lead_id, purpose, channel, mode, status, title, body, due_at, done_at, done_by_id,
+       outcome_note, lead_sequence_id, sequence_step_no, assigned_to_id, created_by_id)
+    values (${lead.id}, ${o.purpose ?? 'custom'}::public.crm_followup_purpose,
+            ${o.channel}::public.crm_followup_channel, ${o.mode ?? 'remind_me'}::public.crm_followup_mode,
+            ${o.status}::public.crm_followup_status, ${o.title}, ${o.body ?? null},
+            now() + make_interval(hours => ${o.dueHours}),
+            ${o.status === 'done' ? sql`now() + make_interval(hours => ${o.dueHours})` : null},
+            ${o.status === 'done' ? lead.owner_id : null}, ${o.outcome ?? null},
+            ${o.sequence ? run.id : null}, ${o.sequence ?? null}, ${lead.owner_id}, ${lead.owner_id})`;
+  await followUp({ channel: 'whatsapp', mode: 'auto_send', status: 'done', purpose: 'quotation',
+    title: 'quotation · step 1', body: 'Just checking you received the quotation.', dueHours: -118, sequence: 1 });
+  await followUp({ channel: 'email', status: 'done', title: `Quotation sent (${number})`,
+    body: 'Sent the quotation with the project details.', dueHours: -122 });
+  await followUp({ channel: 'call', status: 'done', title: 'Call to check the quotation was received',
+    outcome: 'He has it, and wants the payment plan explained.', dueHours: -70 });
+  await followUp({ channel: 'whatsapp', status: 'planned', title: 'Share the payment plan',
+    body: 'Send the instalment schedule for the 5 Marla plot.', dueHours: 20 });
+  say('four follow-ups: the first step of the chase, the quotation email, a completed call and one planned');
 
   /* ── Who the replies come from ───────────────────────────────────────── */
   await sql`
