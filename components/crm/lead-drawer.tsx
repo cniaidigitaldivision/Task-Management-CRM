@@ -4,10 +4,25 @@ import * as React from 'react';
 import type { Route } from 'next';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { CalendarClock, ExternalLink, Mail, PauseCircle, Phone, X } from 'lucide-react';
+import {
+  CalendarClock,
+  ExternalLink,
+  Mail,
+  MoreVertical,
+  PauseCircle,
+  Phone,
+  X,
+} from 'lucide-react';
 
-import { WA_GREEN, WhatsAppMark } from '@/components/crm/whatsapp-mark';
+import {
+  MAIL_BLUE,
+  PAUSED_ORANGE,
+  WA_GREEN,
+  WhatsAppMark,
+} from '@/components/crm/whatsapp-mark';
+import { setStageAction } from '@/app/actions/crm-leads';
 import { initialsOf } from '@/components/ui/avatar';
+import { useToast } from '@/components/ui/toast';
 import type {
   CrmLeadEvent,
   CrmLeadNote,
@@ -17,6 +32,7 @@ import type {
 } from '@/lib/db/queries/crm-leads';
 import {
   activityLabel,
+  STAGE_ORDER,
   stageLabel,
   stageToken,
   temperatureLabel,
@@ -148,6 +164,10 @@ export function LeadDrawer({
   }, []);
 
   const phone = displayPhone(lead.phoneE164, lead.phone);
+  const [menuOpen, setMenuOpen] = React.useState(false);
+  const [savingStage, setSavingStage] = React.useState(false);
+  const [, startStage] = React.useTransition();
+  const toast = useToast();
 
   /* ⚠️ THE LIVE ONE, not the newest row. A superseded v1 still exists (176) and
      printing its figure on the strip would show a price nobody is offering any
@@ -270,18 +290,55 @@ export function LeadDrawer({
                 <a
                   href={`mailto:${lead.email}`}
                   aria-label="Send an email"
-                  className="grid size-9 place-items-center rounded-full border border-border-default text-text-brand transition-colors hover:bg-bg-subtle"
+                  className="grid size-9 place-items-center rounded-full border border-border-default transition-colors hover:bg-bg-subtle"
+                  /* ⚠️ BLUE, not the brand teal. Owner: *"I want an email icon in
+                     blue."* A channel mark in our own colour reads as ours rather
+                     than as the channel. */
+                  style={{ color: MAIL_BLUE }}
                 >
                   <Mail className="size-4" aria-hidden="true" />
                 </a>
               )}
-              <Link
-                href={`/leads/${lead.id}` as Route}
-                aria-label="The full record"
-                className="grid size-9 place-items-center rounded-full border border-border-default text-text-secondary transition-colors hover:text-text-primary"
-              >
-                <ExternalLink className="size-4" aria-hidden="true" />
-              </Link>
+
+              {/* ⚠️ THE THREE DOTS ARE A REAL MENU, not a decoration. The full
+                  record lived on a link icon here and the owner asked for it gone:
+                  four channel buttons and a fifth that opens a page is one thing
+                  too many on a row read left to right. Everything that is not a
+                  channel moves behind the dots. */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setMenuOpen((v) => !v)}
+                  aria-label="More"
+                  aria-expanded={menuOpen}
+                  className="grid size-9 place-items-center rounded-full border border-border-default text-text-secondary transition-colors hover:text-text-primary"
+                >
+                  <MoreVertical className="size-4" aria-hidden="true" />
+                </button>
+                {menuOpen && (
+                  <div className="absolute right-0 z-20 mt-1 w-48 overflow-hidden rounded-xl border border-border-default bg-bg-surface py-1 shadow-lg">
+                    <Link
+                      href={`/leads/${lead.id}` as Route}
+                      className="flex items-center gap-2 px-3 py-2 text-caption text-text-primary hover:bg-bg-subtle"
+                    >
+                      <ExternalLink className="size-3.5" aria-hidden="true" />
+                      Open the full record
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        go('activity');
+                      }}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-caption text-text-primary hover:bg-bg-subtle"
+                    >
+                      <CalendarClock className="size-3.5" aria-hidden="true" />
+                      See everything that happened
+                    </button>
+                  </div>
+                )}
+              </div>
+
               <button
                 type="button"
                 onClick={close}
@@ -297,37 +354,69 @@ export function LeadDrawer({
               ⚠️ EVERY ONE READ FROM A ROW. A lead with no quotation shows a dash
               rather than a figure borrowed from somewhere else — a value on this
               strip is what somebody repeats to a client on the phone. */}
-          <dl className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <div>
+          {/* ⚠️ DIVIDED, because four figures in a row with nothing between them
+              read as one sentence. The rule is on the LEFT of each cell except
+              the first, so it never hangs off the end. */}
+          <dl className="mt-3 grid grid-cols-2 gap-y-3 sm:grid-cols-4">
+            <div className="pr-3">
               <dt className="text-caption text-text-secondary">Stage</dt>
-              <dd
-                className="mt-0.5 inline-block rounded-md px-2 py-0.5 text-caption font-medium"
-                style={{
-                  backgroundColor: `color-mix(in oklab, var(--${stageToken(lead.stage)}) 14%, transparent)`,
-                  color: `var(--${stageToken(lead.stage)})`,
-                }}
-              >
-                {stageLabel(lead.stage)}
+              <dd className="mt-0.5">
+                {/* ⚠️ A REAL SELECT, and it writes. The owner asked for a dropdown
+                    and a coloured pill that cannot be changed is the worse half of
+                    one. `lost` is absent: it needs a reason (111's constraint), so
+                    offering it here would produce a refusal rather than a change —
+                    Record Outcome owns that. */}
+                <select
+                  value={lead.stage}
+                  disabled={savingStage}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setSavingStage(true);
+                    startStage(async () => {
+                      const r = await setStageAction(lead.id, next, null);
+                      setSavingStage(false);
+                      if (!r.ok) toast({ tone: 'error', text: r.error ?? 'That did not save.' });
+                    });
+                  }}
+                  className="w-full rounded-md border-0 px-2 py-1 text-caption font-medium focus:outline-none"
+                  style={{
+                    backgroundColor: `color-mix(in oklab, var(--${stageToken(lead.stage)}) 14%, transparent)`,
+                    color: `var(--${stageToken(lead.stage)})`,
+                  }}
+                >
+                  {STAGE_ORDER.filter((v) => v !== 'lost').map((v) => (
+                    <option key={v} value={v}>
+                      {stageLabel(v)}
+                    </option>
+                  ))}
+                </select>
               </dd>
             </div>
-            <div>
+            <div className="border-border-subtle px-3 sm:border-l">
               <dt className="text-caption text-text-secondary">Quotation</dt>
               <dd className="mt-0.5 text-body-sm font-semibold text-text-primary">
                 {live ? `${live.number}${live.version > 1 ? ` v${live.version}` : ''}` : '—'}
               </dd>
             </div>
-            <div>
+            <div className="border-border-subtle px-3 sm:border-l">
               <dt className="text-caption text-text-secondary">Value</dt>
               <dd className="mt-0.5 text-body-sm font-semibold text-text-primary">
                 {live ? `PKR ${live.netAmount.toLocaleString('en-PK')}` : '—'}
               </dd>
             </div>
-            <div>
+            <div className="border-border-subtle px-3 sm:border-l">
               <dt className="text-caption text-text-secondary">Next follow-up</dt>
               <dd className="mt-0.5 flex items-center gap-1.5 text-body-sm text-text-primary">
                 {related.sequence?.state === 'paused' ? (
                   <>
-                    <PauseCircle className="size-4 shrink-0 text-gold-700" aria-hidden="true" />
+                    {/* ⚠️ ORANGE, AND IT IS NOT A TOKEN. Paused is a warning state
+                        and must stay orange whatever the palette does — the same
+                        reasoning that hard-codes WhatsApp's green. */}
+                    <PauseCircle
+                      className="size-4 shrink-0"
+                      style={{ color: PAUSED_ORANGE }}
+                      aria-hidden="true"
+                    />
                     <span className="truncate">Paused after reply</span>
                   </>
                 ) : lead.nextActionAt ? (

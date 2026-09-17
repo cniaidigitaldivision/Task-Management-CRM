@@ -1,9 +1,9 @@
 'use client';
 
 import * as React from 'react';
-import { Check, FileText, Info, Mail, Paperclip, Send, X } from 'lucide-react';
+import { Check, ChevronDown, FileText, Info, Mail, Paperclip, Send, X } from 'lucide-react';
 
-import { WA_GREEN, WhatsAppMark } from '@/components/crm/whatsapp-mark';
+import { MAIL_BLUE, WA_GREEN, WhatsAppMark } from '@/components/crm/whatsapp-mark';
 import type { CrmMessage, CrmSender } from '@/lib/db/queries/crm-leads';
 import { displayPhone } from '@/lib/domain/phone';
 import { cn } from '@/lib/utils';
@@ -69,15 +69,23 @@ export function LeadConversationTab({
         <Chip active={filter === 'all'} onClick={() => setFilter('all')}>
           All
         </Chip>
+        {/* ⚠️ THE MARKS CARRY THEIR OWN BRAND COLOUR AND ARE BIG ENOUGH TO BE
+            ONE. Owner: *"the WhatsApp icon and the email icon are particularly
+            very small… make sure the email icon is blue."* A 16px teal envelope
+            is a decoration; a 20px blue one is a channel. */}
         <Chip active={filter === 'whatsapp'} onClick={() => setFilter('whatsapp')}>
-          <span style={{ color: filter === 'whatsapp' ? undefined : WA_GREEN }}>
-            <WhatsAppMark className="size-4" />
+          <span style={{ color: filter === 'whatsapp' ? '#ffffff' : WA_GREEN }}>
+            <WhatsAppMark className="size-5" />
           </span>
           WhatsApp
           {counts.whatsapp > 0 && <span className="tabular-nums opacity-70">{counts.whatsapp}</span>}
         </Chip>
         <Chip active={filter === 'email'} onClick={() => setFilter('email')}>
-          <Mail className={cn('size-4', filter !== 'email' && 'text-text-brand')} aria-hidden="true" />
+          <Mail
+            className="size-5"
+            style={{ color: filter === 'email' ? '#ffffff' : MAIL_BLUE }}
+            aria-hidden="true"
+          />
           Email
           {counts.email > 0 && <span className="tabular-nums opacity-70">{counts.email}</span>}
         </Chip>
@@ -86,12 +94,15 @@ export function LeadConversationTab({
             "Newest first" above a thread running oldest to newest; a conversation
             is read downwards, so the default is oldest-first and the control is
             honest about it. */}
+        {/* ⚠️ IT LOOKS LIKE THE CHOICE IT IS. A bare label reads as a status
+            line; the chevron is what says it can be changed. */}
         <button
           type="button"
           onClick={() => setOldestFirst((v) => !v)}
-          className="ml-auto rounded-lg border border-border-default px-2.5 py-1.5 text-caption font-medium text-text-secondary transition-colors hover:text-text-primary"
+          className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-border-default px-3 py-1.5 text-caption font-medium text-text-secondary transition-colors hover:text-text-primary"
         >
           Sort: {oldestFirst ? 'Oldest first' : 'Newest first'}
+          <ChevronDown className="size-3.5" aria-hidden="true" />
         </button>
       </div>
 
@@ -104,7 +115,13 @@ export function LeadConversationTab({
             background: 'color-mix(in oklab, var(--feedback-success) 8%, transparent)',
           }}
         >
-          <span className="mt-0.5 shrink-0" style={{ color: WA_GREEN }}>
+          {/* ⚠️ A FILLED DISC, not a bare glyph. The reference draws the mark
+              reversed out of WhatsApp's own green, which is what makes the
+              banner readable as "they messaged you" before any of it is read. */}
+          <span
+            className="mt-0.5 grid size-9 shrink-0 place-items-center rounded-full text-white"
+            style={{ background: WA_GREEN }}
+          >
             <WhatsAppMark className="size-5" />
           </span>
           <div className="min-w-0 flex-1">
@@ -167,7 +184,7 @@ export function LeadConversationTab({
                 channel === 'whatsapp' ? 'bg-bg-subtle text-text-primary' : 'text-text-secondary',
               )}
             >
-              <span style={{ color: WA_GREEN }}><WhatsAppMark className="size-4" /></span>
+              <span style={{ color: WA_GREEN }}><WhatsAppMark className="size-5" /></span>
               WhatsApp
             </button>
             <button
@@ -178,7 +195,7 @@ export function LeadConversationTab({
                 channel === 'email' ? 'bg-bg-subtle text-text-primary' : 'text-text-secondary',
               )}
             >
-              <Mail className="size-4" aria-hidden="true" />
+              <Mail className="size-5" style={{ color: MAIL_BLUE }} aria-hidden="true" />
               Email
             </button>
           </div>
@@ -237,6 +254,7 @@ export function LeadConversationTab({
           >
             <FileText className="size-4" aria-hidden="true" />
             Saved reply
+            <ChevronDown className="size-3.5" aria-hidden="true" />
           </button>
           <button
             type="button"
@@ -272,12 +290,12 @@ function Entry({ message, leadName }: { message: CrmMessage; leadName: string })
         className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-full"
         style={{
           background: isEmail
-            ? 'color-mix(in oklab, var(--accent-primary) 12%, transparent)'
+            ? 'color-mix(in oklab, #2563EB 12%, transparent)'
             : 'color-mix(in oklab, #25D366 16%, transparent)',
-          color: isEmail ? 'var(--accent-primary)' : WA_GREEN,
+          color: isEmail ? MAIL_BLUE : WA_GREEN,
         }}
       >
-        {isEmail ? <Mail className="size-4" aria-hidden="true" /> : <WhatsAppMark className="size-4" />}
+        {isEmail ? <Mail className="size-5" aria-hidden="true" /> : <WhatsAppMark className="size-5" />}
       </span>
 
       <div className="min-w-0 flex-1">

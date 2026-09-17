@@ -1,0 +1,161 @@
+/* ============================================================================
+ * A CONVERSATION WORTH LOOKING AT
+ * ----------------------------------------------------------------------------
+ * Run: node scripts/seed-conversation-demo.mjs
+ *
+ * Owner, 2026-09-17: *"Add some dummy data, like some email is already sent and
+ * these are replies, so I can exactly see that this UI will follow when our real
+ * data comes."*
+ *
+ * ⚠️ DEMO PROJECT ONLY, AND EVERY ROW FLAGGED. The owner's own standing rule:
+ * *"Chitral Royal Homes or any other project is my client. I can't use their
+ * data for testing purposes."* This writes to `Demo — Product Enquiries [demo]`
+ * and nowhere else, and refuses if it cannot find it.
+ *
+ * ⚠️ AND IT IS IDEMPOTENT. Every message it writes carries a marker; a second run
+ * removes the first run's rows before writing, so this can be re-run after any UI
+ * change without the thread growing a duplicate every time.
+ *
+ * ⚠️ THE NUMBERS IT WRITES ARE UNREACHABLE. `+9230000000NN` is in no allocated
+ * range — a plausible invented Pakistani number belongs to a real stranger who
+ * would receive the first test message.
+ * ========================================================================= */
+import fs from 'node:fs';
+import postgres from 'postgres';
+
+const raw = fs.readFileSync('.env.local', 'utf8');
+const env = {};
+for (const line of raw.split(/\r?\n/)) {
+  const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(?:'([^']*)'|"([^"]*)"|(.*?))\s*$/);
+  if (m) env[m[1]] = m[2] ?? m[3] ?? (m[4] || '').replace(/\s+#.*$/, '').trim();
+}
+const sql = postgres(env.DATABASE_URL, { prepare: false, ssl: 'require', connect_timeout: 20 });
+
+const MARK = 'seed-conversation-demo';
+const say = (line) => console.log(`  ${line}`);
+
+try {
+  const [project] = await sql`
+    select p.id, p.name from public.projects p
+      join public.departments d on d.id = p.lead_department_id
+     where d.key = 'sales' and p.name like '%[demo]' limit 1`;
+  if (!project) throw new Error('no demo sales project — refusing to write anywhere else');
+
+  /* The lead the owner's reference names. Falls back to any demo lead with a
+     quotation, so this still works if the showcase is reseeded. */
+  const [lead] = await sql`
+    select l.id, l.full_name, l.owner_id, u.full_name as owner_name
+      from public.crm_leads l
+      left join public.users u on u.id = l.owner_id
+     where l.project_id = ${project.id} and l.is_test_data
+     order by (l.full_name = 'Faisal Rehman') desc,
+              (select count(*) from public.crm_quotations q where q.lead_id = l.id) desc
+     limit 1`;
+  if (!lead) throw new Error('no demo lead to build a conversation on');
+
+  const [quote] = await sql`
+    select number, net_amount from public.crm_quotations
+     where lead_id = ${lead.id} order by version desc limit 1`;
+  const number = quote?.number ?? 'QT-1042';
+
+  console.log(`\nProject: ${project.name}`);
+  console.log(`Lead:    ${lead.full_name} — owned by ${lead.owner_name ?? 'nobody'}`);
+  console.log(`         ⚠️ sign in as ${lead.owner_name ?? 'that person'} to see this thread\n`);
+
+  /* ── Clear the previous run, by marker and by id ─────────────────────── */
+  const gone = await sql`
+    delete from public.crm_lead_messages
+     where lead_id = ${lead.id} and error_detail = ${MARK} returning id`;
+  if (gone.length > 0) say(`removed ${gone.length} row(s) from the last run`);
+
+  /* ── The thread ──────────────────────────────────────────────────────── */
+  const now = Date.now();
+  const at = (hoursAgo) => new Date(now - hoursAgo * 3600_000).toISOString();
+
+  const thread = [
+    {
+      channel: 'email', direction: 'outbound', status: 'sent',
+      subject: `Your quotation ${number}`,
+      body: `Hi ${(lead.full_name ?? 'there').split(' ')[0]}, Please find attached the quotation `
+        + `${number} for the unit we discussed. It is valid until the end of the month — `
+        + `do let me know if you would like to go through the payment plan.`,
+      media_filename: `${number}_Chitral Royal Homes.pdf`,
+      hours: 122,
+    },
+    {
+      channel: 'whatsapp', direction: 'inbound', status: 'delivered',
+      body: 'Can you explain the payment plan?', hours: 121,
+    },
+    {
+      channel: 'whatsapp', direction: 'outbound', status: 'read',
+      body: 'Of course. I can walk you through it.', hours: 120.5,
+    },
+    {
+      channel: 'whatsapp', direction: 'inbound', status: 'delivered',
+      body: 'Please contact me tomorrow morning.', hours: 2,
+    },
+  ];
+
+  for (const m of thread) {
+    await sql`
+      insert into public.crm_lead_messages
+        (lead_id, channel, direction, kind, subject, body, media_filename,
+         status, sent_by_id, occurred_at, error_detail)
+        -- The marker rides in error_detail, which is null on every real message
+        -- and is what makes a re-run idempotent.
+      values (${lead.id}, ${m.channel}::public.crm_message_channel,
+              ${m.direction}::public.crm_message_direction, 'text',
+              ${m.subject ?? null}, ${m.body}, ${m.media_filename ?? null},
+              ${m.status}::public.crm_message_status,
+              ${m.direction === 'outbound' ? lead.owner_id : null},
+              ${at(m.hours)}::timestamptz,
+              ${MARK})`;
+  }
+  say(`wrote ${thread.length} messages — one email with an attachment, three on WhatsApp`);
+
+  /* ── A paused chase, so the banner has something true to say ─────────── */
+  await sql`delete from public.crm_lead_sequences where lead_id = ${lead.id}`;
+  await sql`delete from public.crm_sequences where name = ${MARK}`;
+  const [seq] = await sql`
+    insert into public.crm_sequences
+      (project_id, name, purpose, stop_on_reply, is_active, is_test_data, created_by_id)
+    values (${project.id}, ${MARK}, 'quotation', true, true, true, ${lead.owner_id})
+    returning id`;
+  await sql`
+    insert into public.crm_sequence_steps (sequence_id, step_no, channel, delay_days, purpose, body)
+    values (${seq.id}, 1, 'whatsapp', 0, 'quotation', 'Just checking you received the quotation.'),
+           (${seq.id}, 2, 'whatsapp', 2, 'quotation', 'Any questions on the payment plan?'),
+           (${seq.id}, 3, 'whatsapp', 5, 'quotation', 'The quotation expires shortly.')`;
+  await sql`
+    insert into public.crm_lead_sequences
+      (lead_id, sequence_id, state, current_step, total_steps, started_at, paused_at,
+       pause_reason, created_by_id)
+    values (${lead.id}, ${seq.id}, 'paused', 1, 3, now() - interval '5 days',
+            now() - interval '2 hours', 'the client replied', ${lead.owner_id})`;
+  say('a three-step chase, paused because they replied — the green banner reads from this');
+
+  /* ── Who the replies come from ───────────────────────────────────────── */
+  await sql`
+    insert into public.crm_project_settings (project_id, whatsapp_display_name, whatsapp_display_number)
+    values (${project.id}, 'CNI AI & Digital', '+923001238726')
+    on conflict (project_id) do update
+      set whatsapp_display_name = excluded.whatsapp_display_name,
+          whatsapp_display_number = excluded.whatsapp_display_number,
+          updated_at = now()`;
+  say('the composer now names CNI AI & Digital · +92 300 123 8726');
+
+  /* ── A next action, so the strip is not all dashes ───────────────────── */
+  await sql`
+    update public.crm_leads
+       set next_action = 'Quotation check-in',
+           next_action_at = (current_date + 1 + time '23:59') at time zone 'Asia/Karachi',
+           next_action_type = 'whatsapp'
+     where id = ${lead.id} and next_action is null`;
+
+  console.log('\n\x1b[32mDone.\x1b[0m Open /my-leads, click that lead, and the Conversations tab.');
+} catch (e) {
+  console.log(`\x1b[31mFAILED \x1b[0m ${e.message}`);
+  process.exitCode = 1;
+} finally {
+  await sql.end();
+}

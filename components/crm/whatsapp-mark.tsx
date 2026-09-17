@@ -23,6 +23,15 @@ export const WA_GREEN = '#25D366';
 /** Safe ink for anything drawn on top of WA_GREEN. */
 export const WA_BUBBLE_INK = '#0b271a';
 
+/* ⚠️ THE OTHER TWO CHANNEL COLOURS, HARD-CODED FOR THE SAME REASON.
+   Owner, 2026-09-17: *"make sure the email icon is blue… I want the exact
+   same colours."* A channel mark is recognised before it is read, and the
+   brand teal on an envelope reads as ours rather than as email. Orange is
+   the paused state on the follow-up strip — a warning tint, not a token,
+   because it must stay orange whatever the palette does. */
+export const MAIL_BLUE = '#2563EB';
+export const PAUSED_ORANGE = '#F59E0B';
+
 export function WhatsAppMark({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" className={className} fill="currentColor" aria-hidden="true">
