@@ -13,6 +13,55 @@
 
 ---
 
+## 💬 2026-09-17 (late) — WHATSAPP LOOKS LIKE WHATSAPP, AND THE TIMELINE TIGHTENS
+
+Two owner screenshots: the reference's **All** tab against ours, and ours on a
+real lead.
+
+### All / Email — the timeline, tightened to the reference
+
+Measured side by side: reference bubble ~34 px tall against our 46, rows ~76 px
+apart against 88, a light-grey stamp against our heavier one, a 36 px icon
+against 32. The layout was right; padding and line height were not. Now `py-2`
+on a 20 px line, rows 1 rem apart, stamp a normal-weight caption, icon 36 px, and
+the bubble fills from two new tokens (`--thread-in` #e9eef3, `--thread-out`
+#dcf5e3) instead of a mix. Always left-aligned — the chat layout left this view.
+
+### WhatsApp — WhatsApp's own grammar
+
+> *"For WhatsApp I want the exact same layout… so it looks exactly like WhatsApp…
+> just the time is displayed with the relevant chat. The date will be displayed
+> above, separately."*
+
+`WhatsAppThread` / `WhatsAppBubble`:
+- **No avatar, no name per message** — a one-to-one chat. Which salesperson sent
+  it is on hover.
+- **Theirs white left, ours green right**, a tail on the first of each run.
+- **Time only, inside the bubble** bottom-right, with ticks: grey ✓ sent, grey ✓✓
+  delivered, blue ✓✓ read, red ! failed (reason underneath), clock when unsent.
+  ⚠️ A spacer reserves the stamp's width at the end of the text, so a short
+  message keeps the time on its line and a long one pushes it below — never over
+  the words.
+- **The date as a pill above each day** — Today, Yesterday, a weekday within the
+  week, then "13 September 2026" — ⚠️ sticky WITHIN its day, so it floats at the
+  top while that day scrolls and the next day's pill pushes it away.
+- **The round arrow** back to the newest message, shown only when scrolled up.
+- **No sort control** — a chat is always oldest at the top; the sort is the
+  timeline's.
+- **The wallpaper** — `public/crm/chat-wallpaper-{light,dark}.svg`, an original
+  doodle tile drawn for this, through `--wa-wallpaper-image`. ⚠️ **The owner
+  offered WhatsApp's own pattern: drop it in as those two files (or point the
+  token at it) — no code change.**
+- **WhatsApp's palette in both themes** — `--wa-*` in tokens.css (#efeae2
+  wallpaper, #d9fdd3 ours, #53bdeb read ticks; the dark set from WhatsApp dark).
+
+Checked: harness screenshots of All (light) and WhatsApp (light and dark) with a
+thread like the owner's; live in the dev app on the demo lead — wallpaper served
+200, date pills Saturday / Monday / Today, opens at the foot. `tsc` · `eslint` ·
+`vitest` 3262 · `next build`.
+
+---
+
 ## ⚡ 2026-09-17 (night) — THE DRAWER STOPS WAITING · 181
 
 > *"When I click on some row it is sending a query to fetch that specific data…

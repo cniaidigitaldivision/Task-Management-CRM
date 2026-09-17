@@ -431,6 +431,31 @@
      dark theme's own hue clears it. Same split every `-text-l` token exists for. */
   --channel-email: var(--blue-text-l);
 
+  /* ---- The WhatsApp chat view — /my-leads drawer, Conversations → WhatsApp ----
+     ⚠️ WHATSAPP'S OWN PALETTE, NOT OURS. Owner, 2026-09-17: *"for WhatsApp I want
+     the exact same layout… so it looks exactly like WhatsApp."* A client's
+     conversation is recognised by these colours before a word of it is read, so
+     they are fixed here rather than derived from the brand — the same reasoning
+     that hard-codes WA_GREEN. The wallpaper is a file so the owner's own pattern
+     can replace it without touching code. */
+  --wa-wallpaper: #efeae2;
+  --wa-wallpaper-image: url('/crm/chat-wallpaper-light.svg');
+  --wa-bubble-in: #ffffff;
+  --wa-bubble-out: #d9fdd3;
+  --wa-ink: #111b21;
+  --wa-meta: #667781;
+  --wa-tick-read: #53bdeb;
+  --wa-date-pill: #ffffff;
+  --wa-date-ink: #54656f;
+  --wa-shadow: rgba(11, 20, 26, 0.13);
+
+  /* ---- The conversation TIMELINE (All / Email) — the owner's reference ----
+     A cool grey for them and a pale green for us, measured off the reference.
+     ⚠️ Not `--bg-subtle`: that is #f1f6f7 on a #ffffff surface, under 3% apart,
+     and the owner could not see the bubble at all. */
+  --thread-in: #e9eef3;
+  --thread-out: #dcf5e3;
+
   /* ---- Tint strengths for soft badges and accent washes ----
      A component mixes a semantic colour with the surface at these strengths
      via color-mix(), which keeps colour vivid without a hex ever appearing in
@@ -568,6 +593,21 @@
   --money-due: var(--orange-d);
   --money-wait: var(--blue-d);
   --channel-email: var(--blue-d);
+
+  /* ---- The WhatsApp chat view, dark — WhatsApp's own dark palette ---- */
+  --wa-wallpaper: #0b141a;
+  --wa-wallpaper-image: url('/crm/chat-wallpaper-dark.svg');
+  --wa-bubble-in: #202c33;
+  --wa-bubble-out: #005c4b;
+  --wa-ink: #e9edef;
+  --wa-meta: rgba(233, 237, 239, 0.6);
+  --wa-tick-read: #53bdeb;
+  --wa-date-pill: #182229;
+  --wa-date-ink: #8696a0;
+  --wa-shadow: rgba(11, 20, 26, 0.5);
+
+  --thread-in: #1b2a31;
+  --thread-out: #173d2c;
 
   /* ---- Tint strengths — a touch stronger on dark, where washes read fainter */
   --tint-soft: 14%;

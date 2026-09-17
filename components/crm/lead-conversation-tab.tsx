@@ -3,8 +3,11 @@
 import * as React from 'react';
 import {
   Check,
+  CheckCheck,
   CheckCircle2,
   ChevronDown,
+  CircleAlert,
+  Clock3,
   CircleHelp,
   FileText,
   Info,
@@ -291,16 +294,31 @@ export function LeadConversationTab({
      jump — visible, and exactly the flicker Rule Zero exists to prevent. */
   const scroller = React.useRef<HTMLDivElement>(null);
   React.useLayoutEffect(() => {
-    if (!chat || !oldestFirst) return;
+    if (!chat) return;
     const el = scroller.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [chat, oldestFirst, thread.length]);
+  }, [chat, thread.length]);
+
+  /* ⚠️ THE ROUND ARROW WHATSAPP SHOWS WHEN YOU HAVE SCROLLED UP. It appears only
+     away from the foot, and takes you back to the newest message. */
+  const [awayFromFoot, setAwayFromFoot] = React.useState(false);
+  const onThreadScroll = () => {
+    const el = scroller.current;
+    if (!el || !chat) return;
+    setAwayFromFoot(el.scrollHeight - el.scrollTop - el.clientHeight > 120);
+  };
+  const toFoot = () => {
+    const el = scroller.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+  };
 
   const shown = React.useMemo(() => {
     const kept = filter === 'all' ? thread : thread.filter((m) => m.channel === filter);
     /* ⚠️ A COPY BEFORE SORTING. `messages` is the server's array and reversing it
        in place would reorder the prop for every other reader of it. */
-    return oldestFirst ? [...kept] : [...kept].reverse();
+    /* ⚠️ A CHAT IS ALWAYS OLDEST AT THE TOP, NEWEST AT THE FOOT — WhatsApp has no
+       sort, and a reversed chat reads as nonsense. The sort is the timeline's. */
+    return oldestFirst || filter === 'whatsapp' ? [...kept] : [...kept].reverse();
   }, [thread, filter, oldestFirst]);
 
   /**
@@ -382,7 +400,7 @@ export function LeadConversationTab({
             line; the chevron is what says it can be changed. */}
         {/* ⚠️ NOT ON THE SUMMARY, which is newest-first and has no thread to
             order. A control that changes nothing is one somebody presses twice. */}
-        {filter !== 'summary' && (
+        {filter !== 'summary' && !chat && (
           <button
             type="button"
             onClick={() => setOldestFirst((v) => !v)}
@@ -456,9 +474,26 @@ export function LeadConversationTab({
           the owner's *"I can see the latest message"*, and what WhatsApp
           itself does. It costs nothing when the thread overflows: `auto`
           margins only spend space that is spare. */}
+      <div className="relative flex min-h-0 flex-1 flex-col">
       <div
         ref={scroller}
-        className={cn('min-h-0 flex-1 overflow-y-auto', chat && 'flex flex-col')}
+        onScroll={onThreadScroll}
+        className={cn(
+          'min-h-0 flex-1 overflow-y-auto',
+          chat && 'flex flex-col rounded-xl border border-border-subtle',
+        )}
+        /* ⚠️ WHATSAPP'S WALLPAPER, from `--wa-wallpaper-image`. A file, so the
+           owner's own pattern replaces it without a code change. It stays put
+           while the messages scroll over it, as it does in the app. */
+        style={
+          chat
+            ? {
+                backgroundColor: 'var(--wa-wallpaper)',
+                backgroundImage: 'var(--wa-wallpaper-image)',
+                backgroundSize: '320px 320px',
+              }
+            : undefined
+        }
       >
         {filter === 'summary' ? (
           <SummaryView
@@ -472,7 +507,12 @@ export function LeadConversationTab({
             loading={loading}
           />
         ) : shown.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-border-default px-4 py-8 text-center text-body-sm text-text-secondary">
+          <p
+            className={cn(
+              'rounded-xl border border-dashed border-border-default px-4 py-8 text-center text-body-sm text-text-secondary',
+              chat && 'm-auto border-none bg-[var(--wa-date-pill)] py-2 text-[var(--wa-date-ink)]',
+            )}
+          >
             {loading
               ? 'Loading the conversation…'
               : thread.length === 0
@@ -480,21 +520,39 @@ export function LeadConversationTab({
               : `No ${filter} messages on this lead.`}
           </p>
         ) : (
-          <ol className={cn('space-y-4', chat && 'mt-auto')}>
-            {shown.map((m, i) => (
-              <Entry
-                key={m.id}
-                message={m}
-                leadName={leadName}
-                chat={chat}
-                /* The spine joins one icon to the next, so the last row has
-                   nothing to join to. */
-                spine={!chat && i < shown.length - 1}
-                /* 1rem — the list's own gap, which the spine has to bridge. */
-              />
-            ))}
-          </ol>
+          chat ? (
+            <WhatsAppThread messages={shown} />
+          ) : (
+            <ol className="space-y-4 pb-1">
+              {shown.map((m, i) => (
+                <Entry
+                  key={m.id}
+                  message={m}
+                  leadName={leadName}
+                  /* The spine joins one icon to the next, so the last row has
+                     nothing to join to. */
+                  spine={i < shown.length - 1}
+                />
+              ))}
+            </ol>
+          )
         )}
+      </div>
+      {chat && awayFromFoot && (
+        <button
+          type="button"
+          onClick={toFoot}
+          aria-label="Jump to the newest message"
+          className="absolute bottom-3 right-3 grid size-9 place-items-center rounded-full"
+          style={{
+            background: 'var(--wa-date-pill)',
+            color: 'var(--wa-date-ink)',
+            boxShadow: '0 1px 3px var(--wa-shadow)',
+          }}
+        >
+          <ChevronDown className="size-5" aria-hidden="true" />
+        </button>
+      )}
       </div>
 
       {/* ── Composer ────────────────────────────────────────────────── */}
@@ -618,114 +676,87 @@ export function LeadConversationTab({
 
 /* ---- One entry ----------------------------------------------------------- */
 
+/**
+ * One message in the TIMELINE — the All and Email views.
+ *
+ * ⚠️ TIGHTENED TO THE REFERENCE. Owner, 2026-09-17: *"you can see how sleek they
+ * are… our drawer is getting out of rhythm."* Measured side by side: the
+ * reference bubble is ~34px tall against our 46, its rows ~76px apart against
+ * our 88, its stamp a light grey against our heavier one, its icon 36px against
+ * our 32. The difference was padding and line height, not layout — so the
+ * bubble is `py-2` on a 20px line, the rows are 1rem apart, and the stamp is a
+ * normal-weight caption.
+ *
+ * ⚠️ ALWAYS LEFT-ALIGNED. The chat layout — sides, tails, wallpaper — is the
+ * WhatsApp view's alone (`WhatsAppThread`), because All is a history read
+ * downwards across two channels, not a conversation on one.
+ */
 function Entry({
   message,
   leadName,
-  chat,
   spine,
 }: {
   message: CrmMessage;
   leadName: string;
-  /** True only in the WhatsApp view — see the note where it is set. */
-  chat: boolean;
   /** Draw the connector down to the next row. */
   spine: boolean;
 }) {
-  /* `mine` still decides the bubble's tint and the ticks everywhere; only the
-     SIDE is conditional. */
   const mine = message.direction === 'outbound';
-  const onRight = chat && mine;
   const isEmail = message.channel === 'email';
-  const stamp = stampLabel(message.occurredAt);
 
   return (
-    <li className={cn('relative flex gap-3', onRight && 'flex-row-reverse')}>
-      {/* ⚠️ THE SPINE. Owner, 2026-09-17: *"you can see that there is a vertical
-          line"* — and the reference runs one down the icon column, joining the
-          email mark to each WhatsApp mark below it. It is what makes the column
-          read as ONE conversation moving through time rather than four unrelated
-          cards, which is the whole claim the tab makes.
-
-          ⚠️ AND IT IS ABSENT IN THE CHAT VIEW, because there the icons alternate
-          sides: a spine would zig-zag across the drawer and join nothing. The
-          reference draws it in **All**, which is the view it belongs to.
-
-          Geometry: the icon is `size-8` with `mt-0.5`, so it ends 34px down.
-          The line starts below it and runs to the foot of the row plus the
-          list's 1rem gap, reaching the next icon exactly. */}
+    <li className="relative flex gap-3.5">
+      {/* ⚠️ THE SPINE, joining this icon to the next. The icon is 36px from the
+          row's top; the line starts 4px below it and stops 4px above the next
+          one, across the list's 1rem gap: 100% − 40px + 16px − 4px. */}
       {spine && (
         <span
           aria-hidden="true"
-          className="absolute left-4 top-[2.375rem] h-[calc(100%_-_2.375rem_+_1rem)] w-px -translate-x-1/2 bg-border-subtle"
+          className="absolute left-[1.125rem] top-10 h-[calc(100%_-_1.75rem)] w-px -translate-x-1/2 bg-border-subtle"
         />
       )}
 
-      {/* The channel, as a mark rather than a word repeated on every line. */}
       <span
-        className="relative mt-0.5 grid size-8 shrink-0 place-items-center rounded-full"
+        className="grid size-9 shrink-0 place-items-center rounded-full"
         style={{
           background: isEmail
-            ? 'color-mix(in oklab, #2563EB 12%, transparent)'
-            : 'color-mix(in oklab, #25D366 16%, transparent)',
+            ? 'color-mix(in oklab, var(--channel-email) 12%, transparent)'
+            : `color-mix(in oklab, ${WA_GREEN} 15%, transparent)`,
           color: isEmail ? MAIL_BLUE : WA_GREEN,
         }}
       >
         {isEmail ? <Mail className="size-5" aria-hidden="true" /> : <WhatsAppMark className="size-5" />}
       </span>
 
-      <div className={cn('min-w-0 flex-1', onRight && 'flex flex-col items-end')}>
-        {/* ⚠️ THE SENDER AND THE STAMP ON ONE ROW, the stamp pushed to the far
-            end. The reference does this and it is right for a MIXED thread: the
-            names are ragged-left so they can be scanned, and the dates are
-            flush-right so they can be scanned separately. Putting the stamp
-            under each bubble instead cost a line per message and read as part of
-            what was said. */}
-        <div
-          className={cn(
-            'flex w-full items-baseline gap-3',
-            onRight ? 'flex-row-reverse' : 'justify-between',
-          )}
-        >
+      <div className="min-w-0 flex-1 pt-0.5">
+        <div className="flex items-baseline justify-between gap-3">
           <p className="min-w-0 truncate text-body-sm font-semibold text-text-primary">
             {mine ? `You · ${message.sentByName ?? 'you'}` : leadName}{' '}
             <span className="font-normal text-text-secondary">
               {isEmail ? (mine ? 'sent an email' : 'replied by email') : '(WhatsApp)'}
             </span>
           </p>
-          <Stamp label={stamp} message={message} mine={mine} />
+          <Stamp label={stampLabel(message.occurredAt)} message={message} mine={mine} />
         </div>
 
         {isEmail ? (
-          <div className={cn('mt-1 flex w-full flex-col', onRight && 'items-end text-right')}>
+          <div className="mt-1 flex w-full flex-col">
             {message.subject && (
-              <p className="text-body-sm font-semibold text-text-primary">{message.subject}</p>
+              <p className="text-body-sm font-semibold leading-5 text-text-primary">{message.subject}</p>
             )}
             {message.body && (
-              /* One line, as the reference has it — the email is a record of what
-                 was sent; the attachment is the thing, and the preview only has
-                 to say which email this was. */
-              <p className="mt-0.5 truncate text-caption leading-relaxed text-text-secondary">
-                {message.body}
-              </p>
+              <p className="truncate text-caption leading-5 text-text-secondary">{message.body}</p>
             )}
-            {/* ⚠️ A LINK TO THE RLS-SCOPED ROUTE. `/api/whatsapp/media/[id]`
-                answers 404 for a message the caller cannot read — the same 404 as
-                one that does not exist — so the URL cannot be used to find out
-                which ids are real. */}
+            {/* ⚠️ A LINK TO THE RLS-SCOPED ROUTE, which answers 404 for a message
+                the caller cannot read — the same as one that does not exist. */}
             {message.mediaFilename && (
               <a
                 href={`/api/whatsapp/media/${message.id}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                /* ⚠️ CONSTRAINED, NOT FULL WIDTH. It stretched edge to edge under
-                   a right-aligned email, so the attachment sat on the opposite
-                   side of the drawer from the message it belongs to. */
-                className={cn(
-                  'mt-1.5 inline-flex max-w-[85%] items-center gap-2.5 rounded-xl border border-border-subtle bg-bg-surface px-3 py-2.5 text-left transition-colors hover:border-border-default',
-                  onRight && 'self-end',
-                )}
+                className="mt-2 inline-flex max-w-[70%] items-center gap-2.5 self-start rounded-lg border border-border-subtle bg-bg-surface px-3 py-2 text-left transition-colors hover:border-border-default"
               >
-                <FileText className="size-5 shrink-0 text-feedback-error" aria-hidden="true" />
+                <FileText className="size-6 shrink-0 text-feedback-error" aria-hidden="true" />
                 <span className="min-w-0 flex-1 truncate text-caption font-medium text-text-primary">
                   {message.mediaFilename}
                 </span>
@@ -733,30 +764,11 @@ function Entry({
             )}
           </div>
         ) : (
-          /* ⚠⚠ THE GREY HAD TO BE MIXED, NOT TOKENISED. Owner, 2026-09-17: *"our
-             grey message is not properly showing."* Exactly right, and the cause
-             is worth writing down: `--bg-subtle` is **#f1f6f7** against a
-             **#ffffff** surface. That is under 3% apart — a bubble that is only
-             a bubble on a good monitor, and no bubble at all on a laptop at an
-             angle, which is where this is actually read.
-
-             So the inbound bubble mixes its own grey off `--text-primary` at 9% —
-             no border, as the reference has none; the fill alone now carries
-             the edge. The tint follows the palette in both themes instead of
-             freezing one hex. */
-          /* ⚠️ A FLOOR ON THE WIDTH, as the reference has: every bubble there is
-             roughly the same ~60% of the column however short the message, so a
-             two-word reply is still a bubble rather than a pill hugging its
-             words, and the stamp column to its right stays a column. */
           <div
-            className="mt-1.5 inline-block min-w-[60%] max-w-[85%] rounded-xl px-3.5 py-2.5"
-            style={{
-              background: mine
-                ? 'color-mix(in oklab, #25D366 16%, var(--bg-surface))'
-                : 'color-mix(in oklab, var(--text-primary) 9%, var(--bg-surface))',
-            }}
+            className="mt-1.5 w-fit min-w-[62%] max-w-[88%] rounded-lg px-3.5 py-2"
+            style={{ background: mine ? 'var(--thread-out)' : 'var(--thread-in)' }}
           >
-            <p className="whitespace-pre-wrap break-words text-left text-body-sm leading-relaxed text-text-primary">
+            <p className="whitespace-pre-wrap break-words text-body-sm leading-5 text-text-primary">
               {message.body ?? (message.mediaFilename ?? 'Attachment')}
             </p>
             {message.mediaId && (
@@ -772,10 +784,9 @@ function Entry({
           </div>
         )}
 
-        {/* ⚠️ A FAILURE IS SHOWN ON THE MESSAGE, not in a toast that has gone.
-            "Did it send?" is asked about a message days later. */}
+        {/* A failure is shown on the message — "did it send?" is asked days later. */}
         {message.status === 'failed' && (
-          <p className={cn('mt-1 text-caption text-feedback-error', onRight && 'text-right')}>
+          <p className="mt-1 text-caption text-feedback-error">
             Not delivered{message.errorDetail ? ` — ${message.errorDetail}` : ''}
           </p>
         )}
@@ -784,16 +795,7 @@ function Entry({
   );
 }
 
-/**
- * When it happened, and the ticks when it was ours.
- *
- * ⚠️ THE TICKS TRAVEL WITH THE STAMP, which is where the reference puts them
- * — `12 Sep 2026, 11:35 AM ✓✓`. Delivery state belongs beside the time it is a
- * statement about, not beside the words.
- *
- * ⚠️ AND THEY ARE OURS ONLY. An inbound message has no delivery state we own,
- * and drawing one would be inventing a receipt.
- */
+/** Date and time, and our ticks — the timeline's stamp, as the reference prints it. */
 function Stamp({
   label,
   message,
@@ -804,26 +806,172 @@ function Stamp({
   mine: boolean;
 }) {
   return (
-    <span className="flex shrink-0 items-center gap-1 whitespace-nowrap text-micro tabular-nums text-text-secondary">
+    <span className="flex shrink-0 items-center gap-1 whitespace-nowrap text-caption text-text-secondary">
       {label}
       {mine && message.status === 'read' && (
-        <span className="text-text-brand" title="Read">
-          <Check className="-mr-2 inline size-3" strokeWidth={3} />
-          <Check className="inline size-3" strokeWidth={3} />
-        </span>
+        <CheckCheck className="size-4" style={{ color: 'var(--wa-tick-read)' }} aria-label="Read" />
       )}
-      {mine && message.status === 'delivered' && (
-        <span title="Delivered">
-          <Check className="-mr-2 inline size-3" strokeWidth={3} />
-          <Check className="inline size-3" strokeWidth={3} />
-        </span>
-      )}
-      {mine && message.status === 'sent' && (
-        <span title="Sent">
-          <Check className="inline size-3" strokeWidth={3} />
-        </span>
-      )}
+      {mine && message.status === 'delivered' && <CheckCheck className="size-4" aria-label="Delivered" />}
+      {mine && message.status === 'sent' && <Check className="size-4" aria-label="Sent" />}
     </span>
+  );
+}
+
+/* ---- WhatsApp ----------------------------------------------------------------
+   Owner, 2026-09-17: *"for WhatsApp I want the exact same layout… so it looks
+   exactly like WhatsApp… just the time is displayed with the relevant chat. The
+   date will be displayed above, separately."*
+
+   So this view is WhatsApp's own grammar, not the timeline's with sides swapped:
+   · no avatar and no name on each message — it is a one-to-one chat
+   · theirs white on the left, ours green on the right, a tail on the first of a run
+   · the TIME ALONE, inside the bubble at the bottom right, with our ticks
+   · the DATE as a pill above each day, which stays at the top while that day
+     scrolls under it
+   · the wallpaper behind, and the round arrow back to the newest message
+   Colours are WhatsApp's, from `--wa-*` in tokens.css, in both themes. */
+
+/** "Today", "Yesterday", a weekday within the week, then the full date — as WhatsApp does. */
+function waDayLabel(iso: string): string {
+  const key = (d: Date) => d.toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' });
+  const at = new Date(iso);
+  const now = new Date();
+  const days = Math.round((Date.parse(key(now)) - Date.parse(key(at))) / 86_400_000);
+  if (days <= 0) return 'Today';
+  if (days === 1) return 'Yesterday';
+  if (days < 7) return at.toLocaleDateString('en-GB', { weekday: 'long', timeZone: 'Asia/Karachi' });
+  const part = (o: Intl.DateTimeFormatOptions, locale = 'en-GB') =>
+    at.toLocaleDateString(locale, { ...o, timeZone: 'Asia/Karachi' });
+  return `${part({ day: 'numeric' })} ${part({ month: 'long' }, 'en-US')} ${part({ year: 'numeric' })}`;
+}
+
+function WhatsAppThread({ messages }: { messages: readonly CrmMessage[] }) {
+  const days = React.useMemo(() => {
+    const out: Array<{ key: string; label: string; items: CrmMessage[] }> = [];
+    for (const m of messages) {
+      const key = new Date(m.occurredAt).toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' });
+      const last = out[out.length - 1];
+      if (last && last.key === key) last.items.push(m);
+      else out.push({ key, label: waDayLabel(m.occurredAt), items: [m] });
+    }
+    return out;
+  }, [messages]);
+
+  return (
+    /* `mt-auto`: a short chat sits at the foot, above the reply box, as in the app. */
+    <div className="mt-auto flex flex-col px-[6%] pb-3 pt-1">
+      {days.map((day) => (
+        <section key={day.key} aria-label={day.label}>
+          {/* ⚠️ STICKY WITHIN ITS OWN DAY, so the next day's pill pushes it away. */}
+          <div className="sticky top-2 z-10 flex justify-center py-2">
+            <span
+              className="rounded-lg px-3 py-1 text-[12.5px] leading-4"
+              style={{
+                background: 'var(--wa-date-pill)',
+                color: 'var(--wa-date-ink)',
+                boxShadow: '0 1px 0.5px var(--wa-shadow)',
+              }}
+            >
+              {day.label}
+            </span>
+          </div>
+          <ol className="flex flex-col">
+            {day.items.map((m, i) => (
+              <WhatsAppBubble
+                key={m.id}
+                message={m}
+                first={i === 0 || day.items[i - 1].direction !== m.direction}
+              />
+            ))}
+          </ol>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+function WhatsAppBubble({ message, first }: { message: CrmMessage; first: boolean }) {
+  const mine = message.direction === 'outbound';
+  const time = new Date(message.occurredAt).toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: 'Asia/Karachi',
+  });
+  const fill = mine ? 'var(--wa-bubble-out)' : 'var(--wa-bubble-in)';
+
+  return (
+    <li className={cn('flex flex-col', mine ? 'items-end' : 'items-start', first ? 'mt-2.5' : 'mt-0.5')}>
+      <div
+        className={cn(
+          'relative max-w-[80%] rounded-lg pb-2 pl-2.5 pr-2 pt-1.5',
+          first && (mine ? 'rounded-tr-none' : 'rounded-tl-none'),
+        )}
+        style={{ background: fill, color: 'var(--wa-ink)', boxShadow: '0 1px 0.5px var(--wa-shadow)' }}
+        /* Several salespeople can answer from one business number; the chat does
+           not print who, but it is there on hover. */
+        title={mine && message.sentByName ? `Sent by ${message.sentByName}` : undefined}
+      >
+        {first && (
+          <svg
+            aria-hidden="true"
+            viewBox="0 1 8 12"
+            width="8"
+            height="12"
+            className={cn('absolute top-0', mine ? '-right-2' : '-left-2')}
+          >
+            <path
+              fill={fill}
+              d={
+                mine
+                  ? 'M5.188 1H0v11.193l6.467-8.625C7.526 2.156 6.958 1 5.188 1z'
+                  : 'M1.533 3.568 8 12.193V1H2.812C1.042 1 .474 2.156 1.533 3.568z'
+              }
+            />
+          </svg>
+        )}
+
+        {message.mediaId && (
+          <a
+            href={`/api/whatsapp/media/${message.id}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mb-1 flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] font-medium underline-offset-2 hover:underline"
+            style={{ background: 'color-mix(in oklab, var(--wa-ink) 6%, transparent)' }}
+          >
+            <FileText className="size-4 shrink-0" aria-hidden="true" />
+            <span className="truncate">{message.mediaFilename ?? 'Attachment'}</span>
+          </a>
+        )}
+
+        <span className="whitespace-pre-wrap break-words text-[14.2px] leading-[19px]">
+          {message.body ?? (message.mediaId ? '' : 'Attachment')}
+        </span>
+        {/* ⚠️ THE SPACER. It reserves the stamp's width at the end of the last
+            line, so short messages keep the time on the same line and long ones
+            push it underneath — never over the words. */}
+        <span aria-hidden="true" className={cn('inline-block h-px', mine ? 'w-[4.6rem]' : 'w-[3.4rem]')} />
+        <span
+          className="absolute bottom-1 right-2 flex items-center gap-[3px] text-[11px] leading-[15px]"
+          style={{ color: 'var(--wa-meta)' }}
+        >
+          <span className="tabular-nums">{time}</span>
+          {mine && message.status === 'read' && (
+            <CheckCheck className="size-4" style={{ color: 'var(--wa-tick-read)' }} aria-label="Read" />
+          )}
+          {mine && message.status === 'delivered' && <CheckCheck className="size-4" aria-label="Delivered" />}
+          {mine && message.status === 'sent' && <Check className="size-4" aria-label="Sent" />}
+          {mine && message.status === null && <Clock3 className="size-3.5" aria-label="Sending" />}
+          {mine && message.status === 'failed' && (
+            <CircleAlert className="size-4 text-feedback-error" aria-label="Not delivered" />
+          )}
+        </span>
+      </div>
+      {message.status === 'failed' && (
+        <p className="mt-0.5 max-w-[80%] text-[11.5px] text-feedback-error">
+          Not delivered{message.errorDetail ? ` — ${message.errorDetail}` : ''}
+        </p>
+      )}
+    </li>
   );
 }
 
