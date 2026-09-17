@@ -189,6 +189,9 @@ export interface CrmLeadRecord {
      drawer must never re-derive it: a second opinion about whether somebody is
      buying a plot or an ERP is a second set of questions. */
   readonly sells: string;
+  /** call · whatsapp · email · meeting · site_visit · task. Drives the channel
+   *  chip on the Next action card. */
+  readonly nextActionType: string | null;
 }
 
 export interface CrmLeadNote {
@@ -674,6 +677,7 @@ export async function getCrmLead(
              l.location_preference, l.qualification_note, l.budget,
              l.qualified_at,
              app.crm_lead_sells(l.id)::text as sells,
+             l.next_action_type::text,
              /* ⚠️ THE SAME LABEL THE LIST BUILDS. A second expression here would
                 render "5 Marla · A-101" on the desk and something else in the
                 drawer for the same unit, and the reader would reasonably wonder
@@ -788,6 +792,7 @@ export async function getCrmLead(
           ? new Date(row.qualified_at as string).toISOString()
           : null,
         sells: String(row.sells ?? 'property'),
+        nextActionType: (row.next_action_type as string | null) ?? null,
       },
       notes: (noteRows as Array<Record<string, unknown>>).map((n) => ({
         id: String(n.id),

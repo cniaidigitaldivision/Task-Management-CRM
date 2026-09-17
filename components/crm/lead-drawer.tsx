@@ -4,7 +4,7 @@ import * as React from 'react';
 import type { Route } from 'next';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { ExternalLink, X } from 'lucide-react';
+import { CalendarClock, ExternalLink, Mail, X } from 'lucide-react';
 
 import { WA_GREEN, WhatsAppMark } from '@/components/crm/whatsapp-mark';
 import type {
@@ -20,9 +20,8 @@ import {
   appointmentStatusLabel,
   appointmentStatusToken,
 } from '@/lib/domain/crm-appointments';
-import { sourceDetail, sourceLabel } from '@/lib/domain/lead-source';
 import { displayPhone } from '@/lib/domain/phone';
-import { QualifyPanel } from '@/components/crm/qualify-panel';
+import { LeadOverviewTab } from '@/components/crm/lead-overview-tab';
 import { relativeAge } from '@/lib/view/relative-age';
 import { cn } from '@/lib/utils';
 import { useSoftNavigate } from './use-panel';
@@ -159,7 +158,10 @@ export function LeadDrawer({
         aria-modal="true"
         aria-label={`${lead.fullName ?? 'Lead'} — details`}
         tabIndex={-1}
-        className="relative flex h-full w-full max-w-[36rem] flex-col border-l border-border-default bg-bg-surface shadow-2xl outline-none"
+        /* ⚠️ WIDER THAN IT WAS — the reference lays Lead details beside Next action,
+             and two columns inside 36rem gives each about 250px, which wraps every
+             label. They stack below `lg:` regardless. */
+          className="relative flex h-full w-full max-w-[46rem] flex-col border-l border-border-default bg-bg-surface shadow-2xl outline-none"
       >
         {/* ── Header ───────────────────────────────────────────────────── */}
         <div className="border-b border-border-subtle px-5 py-4">
@@ -234,7 +236,15 @@ export function LeadDrawer({
         {/* ── Body ─────────────────────────────────────────────────────── */}
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
           {activeTab === 'overview' && (
-            <Overview lead={lead} notes={notes} phone={phone} nowMs={nowMs} />
+            <LeadOverviewTab
+              lead={lead}
+              notes={notes}
+              activity={activity}
+              related={related}
+              phone={phone}
+              viewerName={viewerName}
+              onTab={go}
+            />
           )}
           {activeTab === 'conversations' && <Conversation messages={messages} nowMs={nowMs} />}
           {activeTab === 'followups' && <FollowUps related={related} nowMs={nowMs} />}
@@ -248,114 +258,56 @@ export function LeadDrawer({
           )}
           {activeTab === 'activity' && <Activity activity={activity} nowMs={nowMs} />}
         </div>
+
+        {/* ── The three things a salesperson does from here ──────────────
+            ⚠️ FIXED TO THE FOOT, OUTSIDE THE SCROLLING BODY. The reference puts
+            them there and it is right: on a long Overview the actions would
+            otherwise be below the fold on the one screen somebody opens in order
+            to act.
+
+            ⚠️ AND EACH ONE IS ABSENT RATHER THAN DISABLED WHEN IT CANNOT WORK. A
+            greyed "Send email" on a lead with no address is a button somebody
+            presses twice before reading it — 640 of 641 real leads have no email,
+            so this is the common case, not the edge. */}
+        <div className="flex shrink-0 flex-wrap gap-2 border-t border-border-subtle px-5 py-3">
+          {lead.email && (
+            <a
+              href={`mailto:${lead.email}`}
+              className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-border-default px-3 py-2.5 text-body-sm font-medium text-text-primary transition-colors hover:bg-bg-subtle"
+            >
+              <Mail className="size-4" aria-hidden="true" />
+              Send email
+            </a>
+          )}
+          {lead.phoneE164 && (
+            <button
+              type="button"
+              onClick={() => go('conversations')}
+              className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-border-default px-3 py-2.5 text-body-sm font-medium text-text-primary transition-colors hover:bg-bg-subtle"
+            >
+              <span style={{ color: WA_GREEN }}><WhatsAppMark className="size-4" /></span>
+              WhatsApp
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => go('followups')}
+            className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-accent-primary px-3 py-2.5 text-body-sm font-semibold text-white transition-opacity hover:opacity-90"
+          >
+            <CalendarClock className="size-4" aria-hidden="true" />
+            Add follow-up
+          </button>
+        </div>
       </div>
     </div>
   );
 }
 
-/* ---- Overview ------------------------------------------------------------- */
-
-/**
- * The form answers, as pairs — and never anything else.
- *
- * ⚠️ `Object.entries` ON A STRING RETURNS ONE ENTRY PER CHARACTER, and that is
- * exactly how this reached the owner: *"character by character… totally out of
- * order."* Two leads had `answers` stored as a jsonb STRING rather than an
- * object (a `JSON.stringify(…)::jsonb` write), and the Overview tab rendered
- * every character of the JSON as its own row.
- *
- * The data is repaired and the writer is fixed (migration 163), so this guard
- * should never fire. It exists because the failure was SILENT at every layer —
- * the column is jsonb, the cast was legal, the type said `Record<string,
- * unknown>` — and the first thing that noticed was a person reading the screen.
- * A renderer that cannot be handed a string is one fewer way for that to happen
- * again.
- */
-function formAnswers(answers: unknown): Array<[string, string | null]> {
-  if (!answers || typeof answers !== 'object' || Array.isArray(answers)) return [];
-  return Object.entries(answers as Record<string, unknown>).map(([k, v]) => [
-    k,
-    /* ⚠️ A nested object or array becomes readable text rather than
-       "[object Object]" — Meta forms are flat today, and a checkbox question
-       that arrives as an array tomorrow should still show its answers. */
-    v === null || v === undefined
-      ? null
-      : typeof v === 'string'
-        ? v
-        : Array.isArray(v)
-          ? v.join(', ')
-          : typeof v === 'object'
-            ? JSON.stringify(v)
-            : String(v),
-  ]);
-}
-
-function Overview({
-  lead,
-  notes,
-  phone,
-  nowMs,
-}: {
-  lead: CrmLeadRecord;
-  notes: readonly CrmLeadNote[];
-  phone: string;
-  nowMs: number;
-}) {
-  return (
-    <div className="space-y-5">
-      <Facts
-        rows={[
-          ['Project', lead.projectName],
-          ['City', lead.city],
-          ['Phone', phone],
-          ['Email', lead.email],
-          ['Source', `${sourceLabel(lead.source)}${sourceDetail(lead.source, null) ? ` · ${sourceDetail(lead.source, null)}` : ''}`],
-          ['Came from', lead.campaignName ?? lead.formName],
-          ['Enquired', relativeAge(lead.submittedAt, nowMs)],
-          ['Next action', lead.nextAction],
-        ]}
-      />
-
-      {/* ⚠️ THE RAW ANSWERS, because the form asked them and nobody else will.
-          What a lead typed into "Which plot size?" is the single most useful
-          thing on this panel before the first call. */}
-      {/* ⚠️ ABOVE THE FORM ANSWERS AND THE NOTES, because it is the only thing
-          on this tab somebody has to DO. What Meta captured is context; the four
-          questions are the work, and 167's gate will not let the lead move until
-          they are answered. */}
-      <QualifyPanel lead={lead} />
-
-      {formAnswers(lead.answers).length > 0 && (
-        <section>
-          <h3 className="mb-2 text-micro font-semibold uppercase tracking-wide text-text-tertiary">
-            What they told the form
-          </h3>
-          <Facts rows={formAnswers(lead.answers)} />
-        </section>
-      )}
-
-      <section>
-        <h3 className="mb-2 text-micro font-semibold uppercase tracking-wide text-text-tertiary">
-          Notes ({notes.length})
-        </h3>
-        {notes.length === 0 ? (
-          <Empty>No notes yet.</Empty>
-        ) : (
-          <ul className="space-y-2">
-            {notes.slice(0, 5).map((n) => (
-              <li key={n.id} className="rounded-lg border border-border-subtle px-3 py-2">
-                <p className="whitespace-pre-wrap text-body-sm text-text-primary">{n.body}</p>
-                <p className="mt-1 text-caption text-text-tertiary">
-                  {n.authorName ?? 'Someone'} · {relativeAge(n.createdAt, nowMs)}
-                </p>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-    </div>
-  );
-}
+/* ---- Overview ------------------------------------------------------------
+   ⚠️ MOVED OUT to `lead-overview-tab.tsx` on 2026-09-17, when the owner's
+   reference turned it from a list of facts into a lifecycle strip, two columns
+   and three cards. It was the largest thing in this file and it is the one tab
+   that will keep changing. */
 
 /* ---- Conversation --------------------------------------------------------- */
 
@@ -760,23 +712,6 @@ function Activity({ activity, nowMs }: { activity: readonly CrmLeadEvent[]; nowM
 
 /* ---- Small parts ---------------------------------------------------------- */
 
-function Facts({ rows }: { rows: ReadonlyArray<readonly [string, string | null | undefined]> }) {
-  const shown = rows.filter(([, v]) => v !== null && v !== undefined && String(v).trim() !== '');
-  if (shown.length === 0) return <Empty>Nothing recorded.</Empty>;
-  return (
-    <dl className="grid gap-x-4 gap-y-0 sm:grid-cols-2">
-      {shown.map(([k, v]) => (
-        <div
-          key={k}
-          className="flex items-baseline justify-between gap-3 border-b border-border-subtle py-1.5"
-        >
-          <dt className="shrink-0 text-caption text-text-secondary">{k}</dt>
-          <dd className="min-w-0 truncate text-right text-body-sm text-text-primary">{v}</dd>
-        </div>
-      ))}
-    </dl>
-  );
-}
 
 function Empty({ children }: { children: React.ReactNode }) {
   return <p className="text-caption leading-relaxed text-text-secondary">{children}</p>;

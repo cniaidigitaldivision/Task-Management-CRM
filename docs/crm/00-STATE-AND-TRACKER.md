@@ -13,6 +13,68 @@
 
 ---
 
+## 🎨 2026-09-17 — THE DRAWER'S OVERVIEW, REBUILT TO THE OWNER'S REFERENCE
+
+A lifecycle strip, Lead details and a Qualification card on the left, Next action ·
+Personal note · Recent activity on the right, and three actions fixed to the foot.
+Moved out of `lead-drawer.tsx` into `lead-overview-tab.tsx` — it was the largest
+thing in that file and it is the tab that will keep changing.
+
+### ⚠️ THE STANDING RULE THE OWNER GAVE WITH IT
+
+> *"I'm sharing with you a design idea for the UI. You have to implement it
+> logically according to our data structure, our life cycles, and our flow. You
+> will keep these things in mind. I will just show you UI things."*
+
+**Take the LAYOUT from the screenshot, the CONTENT from the schema.** And ⚠️ **do
+not stop to ask which** — I paused twice, on a 7-vs-10 stage strip and on a masked
+phone number, and the reply was *"you did not implement the UI"*. Decide, build,
+flag the deviation afterwards. Saved as `screenshots-are-ideas-not-specs`.
+
+### The lifecycle, settled by the owner
+
+> *"New · Contacted · Qualified · **Proposal sent** · **Quotation sent** · if it's
+> real estate then definitely: Visit · Negotiation."* … *"One step you have missed
+> is the quotation."*
+
+⚠️ **PROPOSAL AND QUOTATION ARE TWO STEPS.** They were collapsed into one on the
+first attempt and the owner caught it. They are different moments — a proposal
+says what we would do, a quotation says what it costs — and a lead sitting between
+them is in the commonest place a deal goes quiet.
+
+⚠️ **AND VISIT IS REAL ESTATE ONLY.** Nobody visits a site to buy an ERP. The
+strip reads `app.crm_lead_sells` (174): **8 steps for property, 7 for a service.**
+⚠️ `lost` is absent on purpose — an exit, not a step. A funnel that draws losing
+as progress is one that rewards it.
+
+### Deviations from the picture, each deliberate
+
+| | |
+|---|---|
+| **The phone is shown in full**, not masked | Hiding a number from the person whose job is to ring it is friction with no security behind it — RLS decides who sees the lead at all, and the desk behind the drawer prints it in full. Copy button kept |
+| **The drawer widened to 46rem** | Two columns inside 36rem gave each about 250px, which wrapped every label |
+| **Qualification is its own card** | Owner: *"remove the qualification things… add that it is qualified with the exact answers."* Four question-shaped rows among eight fact-shaped ones made the list read as a form. Now one line of chips — **T Within a month · N To build and live in · B 40–60 lakh · A Decides alone** — with ✓ Qualified and an Edit that opens the full form |
+| **`budget` and `budget_band` are both shown, in different places** | They are different columns: what they said they would spend, and which bracket it falls in. Neither is printed twice |
+
+### ⚠️ Three faults only looking at it could have found
+
+1. **`bg-feedback-success` rendered as nothing** — three completed steps with no
+   green circle at all. The token exists; Tailwind only emits a class it has
+   SEEN, and the stylesheet snapshot predated the file. Now filled with inline
+   CSS vars, the way `calendar-view` fills its status dots.
+2. **`lg:grid-cols-2` inside a 736px drawer can never fire** — the two columns
+   the reference draws would simply never have appeared. `sm:` now.
+3. **`sm:col-span-2` on the Qualification card broke the grid** — it forced its
+   own row and pushed the entire right-hand column beneath it, silently turning
+   two columns into one. The left column is one child now.
+
+⚠️ **AND THE SCREENSHOT HARNESS LIES ABOUT NEW CLASSES.** The dev server's
+stylesheet is only as current as its last compile of the file being shot. Hit the
+route first, then re-fetch the CSS, or a brand-new utility reads as a broken
+style. Cost two wrong readings today.
+
+---
+
 ## 📎 2026-09-17 — SOMEWHERE TO PUT THE LETTERHEAD · migration 178
 
 The owner asked twice — *"give me some place where I can see all the documents
