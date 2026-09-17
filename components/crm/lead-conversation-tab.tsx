@@ -6,15 +6,11 @@ import {
   CheckCheck,
   CheckCircle2,
   ChevronDown,
-  CircleAlert,
-  Clock3,
   CircleHelp,
   FileText,
-  Info,
   Mail,
   MessageSquareQuote,
   NotebookPen,
-  Paperclip,
   Plus,
   RefreshCw,
   Send,
@@ -23,11 +19,25 @@ import {
 } from 'lucide-react';
 
 import {
+  deleteMessageForMeAction,
+  pinMessageAction,
+  prepareWhatsAppUploadsAction,
+  reactToMessageAction,
   readWhatsAppThreadAction,
+  sendWhatsAppMediaAction,
   sendWhatsAppTextAction,
+  starMessageAction,
 } from '@/app/actions/crm-whatsapp';
 import { summariseConversationAction } from '@/app/actions/crm-conversation-summary';
 import { addNoteAction } from '@/app/actions/crm-leads';
+import { AttachmentPreview, prepareFile, type PreparedFile } from '@/components/crm/whatsapp/attachments';
+import { WhatsAppComposer } from '@/components/crm/whatsapp/composer';
+import { EMOJI_FONT, preloadEmoji } from '@/components/crm/whatsapp/emoji-picker';
+import { Lightbox, type LocalMedia } from '@/components/crm/whatsapp/media';
+import { AskAIPanel, DeleteConfirm, ForwardPanel, MessageInfo, ReactionSheet } from '@/components/crm/whatsapp/overlays';
+import { useSavedReplies } from '@/components/crm/whatsapp/saved-replies';
+import { mediaShape, mediaUrl, snippet, whatsAppWindow, type ReplyVariables } from '@/components/crm/whatsapp/shared';
+import { PinnedBar, WhatsAppThread, type ThreadHandlers } from '@/components/crm/whatsapp/thread';
 import { MAIL_BLUE, WA_GREEN, WhatsAppMark } from '@/components/crm/whatsapp-mark';
 import { useToast } from '@/components/ui/toast';
 import type {
@@ -202,6 +212,8 @@ export function LeadConversationTab({
   sender,
   sequencePaused,
   leadName,
+  viewerName,
+  projectName,
   onReviewFollowUp,
 }: {
   leadId: string;
@@ -213,159 +225,381 @@ export function LeadConversationTab({
   /**
    * The drawer opened from the clicked row and the record is still on its way.
    * ⚠️ Everything that would otherwise claim an absence — "nothing has been
-   * sent", "no WhatsApp number" — says it is loading instead. Either would be a
-   * lie for the half-second it showed, and somebody would act on it.
+   * sent", "no WhatsApp number" — says it is loading instead.
    */
   loading?: boolean;
   sender: CrmSender | null;
   /** Why the chase stopped, when it has — migration 170 pauses on a reply. */
   sequencePaused: string | null;
   leadName: string;
+  /** Who is reading — for "You deleted this message" and saved replies. */
+  viewerName: string;
+  projectName: string;
   onReviewFollowUp: () => void;
 }) {
   const toast = useToast();
-  const [sending, setSending] = React.useState(false);
-  /* ⚠️ THE THREAD IS LOCAL STATE SEEDED FROM THE SERVER, so a sent message
-     appears in the frame it was sent rather than after a round trip to
-     Singapore and a full page render — Rule Zero.
 
-     ⚠️ AND IT RESEEDS WHENEVER THE SERVER'S ARRAY CHANGES, not only when the
-     lead does. It used to key on the lead id — which was fine while the tab
-     only ever mounted with its data. Now the drawer opens on the row and the
-     messages arrive into a tab that is already mounted for the SAME lead, so
-     an id guard would have kept the empty thread it started with forever. */
+  /* ⚠️ THE THREAD IS LOCAL STATE SEEDED FROM THE SERVER, and it reseeds whenever
+     the server's array changes — the drawer opens on the row and the messages
+     arrive into a tab already mounted for the same lead. */
   const [thread, setThread] = React.useState<readonly CrmMessage[]>(messages);
   const [seen, setSeen] = React.useState(messages);
   if (seen !== messages) {
     setSeen(messages);
     setThread(messages);
   }
+  const threadRef = React.useRef(thread);
+  React.useEffect(() => {
+    threadRef.current = thread;
+  }, [thread]);
 
   const [filter, setFilter] = React.useState<Filter>('all');
   const [oldestFirst, setOldestFirst] = React.useState(true);
   const [dismissed, setDismissed] = React.useState(false);
   const [channel, setChannel] = React.useState<'whatsapp' | 'email'>('whatsapp');
   const [draft, setDraft] = React.useState('');
+  const [emailSending, setEmailSending] = React.useState(false);
+
+  /* ── ⚠️ WHAT THE SCREEN SHOWS BEFORE THE SERVER HAS ANSWERED ───────────────
+     `pending` — messages being uploaded or sent, drawn at once with a clock.
+     `locals`  — the browser's own copy of a file, so a photo appears the instant
+                 it is chosen and does not reload when the real row arrives.
+     `overrides` — a reaction, pin, star or delete, drawn in the frame it was
+                 pressed; undone if the server refuses, and dropped only once a
+                 re-read that started AFTER the server agreed has arrived. */
+  const [pending, setPending] = React.useState<CrmMessage[]>([]);
+  const [locals, setLocals] = React.useState<Record<string, LocalMedia>>({});
+  const [overrides, setOverrides] = React.useState<
+    Record<string, { patch: Partial<CrmMessage>; settledAt: number | null }>
+  >({});
+  const busy = React.useRef(0);
+
+  const [replyTo, setReplyTo] = React.useState<CrmMessage | null>(null);
+  const [overlay, setOverlay] = React.useState<
+    null | { kind: 'info' | 'forward' | 'delete' | 'react' | 'ai'; message: CrmMessage }
+  >(null);
+  const [deleting, setDeleting] = React.useState(false);
+  const [lightbox, setLightbox] = React.useState<null | { kind: 'image' | 'video'; src: string; message: CrmMessage }>(null);
+  const [files, setFiles] = React.useState<PreparedFile[]>([]);
+  const [dragging, setDragging] = React.useState(false);
+  const [flashId, setFlashId] = React.useState<string | null>(null);
+  const [now, setNow] = React.useState(() => Date.now());
+  const [saved, setSaved] = useSavedReplies();
+  const composerInput = React.useRef<HTMLTextAreaElement>(null);
+
+  React.useEffect(() => {
+    const t = window.setInterval(() => setNow(Date.now()), 30_000);
+    const idle = window.setTimeout(() => void preloadEmoji(), 1_500);
+    return () => {
+      window.clearInterval(t);
+      window.clearTimeout(idle);
+    };
+  }, []);
+
+  /* Object URLs belong to this tab; released when it closes. */
+  const localsRef = React.useRef(locals);
+  React.useEffect(() => {
+    localsRef.current = locals;
+  }, [locals]);
+  React.useEffect(() => () => Object.values(localsRef.current).forEach((l) => URL.revokeObjectURL(l.url)), []);
+
+  /* ── ⚠️ A LIVE CHAT: re-read every 5 s while this is on screen ─────────────
+     A client's reply, a delivered tick turning blue, a reaction on their phone —
+     none of them reach an open drawer otherwise. Paused while the tab is hidden,
+     and while a send is in flight (the pending bubble and its real row must never
+     both be drawn). One small RLS-scoped read; never a page refresh. */
+  React.useEffect(() => {
+    if (loading) return;
+    let live = true;
+    const t = window.setInterval(async () => {
+      if (document.visibilityState !== 'visible' || busy.current > 0) return;
+      const startedAt = Date.now();
+      try {
+        const fresh = await readWhatsAppThreadAction(leadId);
+        if (!live || busy.current > 0) return;
+        setThread(fresh);
+        setOverrides((o) => {
+          const keep = Object.entries(o).filter(([, v]) => v.settledAt === null || v.settledAt >= startedAt);
+          return keep.length === Object.keys(o).length ? o : Object.fromEntries(keep);
+        });
+      } catch {
+        /* a missed poll is retried in five seconds */
+      }
+    }, 5_000);
+    return () => {
+      live = false;
+      window.clearInterval(t);
+    };
+  }, [leadId, loading]);
+
+  const liveThread = React.useMemo(
+    () => thread.map((m) => (overrides[m.id] ? { ...m, ...overrides[m.id].patch } : m)),
+    [thread, overrides],
+  );
+  const everything = React.useMemo(() => [...liveThread, ...pending], [liveThread, pending]);
 
   const counts = {
-    whatsapp: thread.filter((m) => m.channel === 'whatsapp').length,
-    email: thread.filter((m) => m.channel === 'email').length,
+    whatsapp: everything.filter((m) => m.channel === 'whatsapp').length,
+    email: everything.filter((m) => m.channel === 'email').length,
   };
 
-  /* ⚠️ THE CHAT LAYOUT BELONGS TO THE WHATSAPP VIEW ALONE. Owner, 2026-09-17:
-     *"this view that you have actually implemented should be in WhatsApp… all
-     the things you displayed previously should be left-aligned."* And they are
-     right about why: **All** is a TIMELINE across channels — read top to bottom
-     like a history — while **WhatsApp** is a CONVERSATION, where side is the
-     fastest way to see who spoke. Sides in a mixed timeline would make an email
-     and a WhatsApp reply look like two halves of one exchange. */
+  /* ⚠️ THE CHAT LAYOUT BELONGS TO THE WHATSAPP VIEW ALONE. **All** is a timeline
+     across channels, read like a history; **WhatsApp** is a conversation. */
   const chat = filter === 'whatsapp';
 
-  /* ⚠⚠ WHY THE OWNER COULD NEVER SEE THIS BANNER. Owner, 2026-09-17: *"I told
-     you to show a notification over here also. I want to see what the
-     notification will look like."* The banner was gated on `sequencePaused`,
-     which is only ever set
-     when a CHASE was running and 170 stopped it. A lead somebody has simply
-     been messaging — which is every lead being worked by hand, including the
-     one the owner was looking at — has no sequence row at all, so the notice
-     and its button were unreachable.
-
-     ⚠️ THE REAL CONDITION IS "THEY SPOKE LAST". That is what *"new reply
-     received"* claims, it is true whether a sequence exists or not, and it is
-     readable straight off the thread already on the page — no query (law 3).
-     The pause is EXTRA INFORMATION on the second line, not the trigger. */
-  const newest = thread.length > 0 ? thread[thread.length - 1] : null;
+  /* ⚠️ "THEY SPOKE LAST" is what "new reply received" claims — read off the
+     thread on the page, whether or not a sequence exists. */
+  const newest = liveThread.length > 0 ? liveThread[liveThread.length - 1] : null;
   const theySpokeLast = newest?.direction === 'inbound';
-  const showBanner = !loading && (theySpokeLast || sequencePaused !== null) && !dismissed;
+  const showBanner = !loading && (theySpokeLast || sequencePaused !== null) && !dismissed && !chat;
 
-  /* ⚠️ THE CHAT OPENS AT THE BOTTOM. Owner, 2026-09-17: *"when I switch to
-     WhatsApp its scrollbar is stuck at the top — it should be at the bottom so
-     I can see the latest message."* A conversation is joined at the end: the
-     newest message is the one being answered, and a thread that opens on a
-     greeting from three weeks ago makes somebody scroll before they can work.
+  const shown = React.useMemo(() => {
+    const kept = filter === 'all' ? everything : everything.filter((m) => m.channel === filter);
+    return oldestFirst || filter === 'whatsapp' ? [...kept] : [...kept].reverse();
+  }, [everything, filter, oldestFirst]);
 
-     ⚠️ ONLY IN THE CHAT VIEW, AND ONLY WHEN NEWEST IS LAST. **All** is a
-     history read downwards and jumping it to the foot would hide where it
-     starts; and somebody who has asked for newest-first has deliberately put
-     the latest message at the TOP, so the foot is the oldest thing there.
+  const pinned = React.useMemo(
+    () =>
+      liveThread
+        .filter((m) => m.pinnedAt && !m.hiddenAt && m.channel === 'whatsapp')
+        .sort((a, b) => Date.parse(b.pinnedAt!) - Date.parse(a.pinnedAt!))
+        .slice(0, 3),
+    [liveThread],
+  );
 
-     ⚠️ AND IT IS A LAYOUT EFFECT. `useEffect` runs after the browser has
-     painted, so the thread would be drawn at the top for one frame and then
-     jump — visible, and exactly the flicker Rule Zero exists to prevent. */
+  const windowInfo = whatsAppWindow(liveThread, now);
+  const vars: ReplyVariables = {
+    myName: viewerName,
+    leadName: leadName === 'This lead' ? null : leadName,
+    company: sender?.displayName || projectName,
+    project: projectName,
+  };
+  const disabledReason = loading
+    ? 'Loading…'
+    : !sender?.configured
+      ? 'This project has no WhatsApp number'
+      : null;
+
+  /* ── Scrolling: opens at the newest, stays there while you are there ────── */
   const scroller = React.useRef<HTMLDivElement>(null);
+  const atFoot = React.useRef(true);
+  const [awayFromFoot, setAwayFromFoot] = React.useState(false);
   React.useLayoutEffect(() => {
     if (!chat) return;
     const el = scroller.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [chat, thread.length]);
-
-  /* ⚠️ THE ROUND ARROW WHATSAPP SHOWS WHEN YOU HAVE SCROLLED UP. It appears only
-     away from the foot, and takes you back to the newest message. */
-  const [awayFromFoot, setAwayFromFoot] = React.useState(false);
+    if (el && atFoot.current) el.scrollTop = el.scrollHeight;
+  }, [chat, everything.length]);
   const onThreadScroll = () => {
     const el = scroller.current;
     if (!el || !chat) return;
-    setAwayFromFoot(el.scrollHeight - el.scrollTop - el.clientHeight > 120);
+    atFoot.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    setAwayFromFoot(!atFoot.current);
   };
   const toFoot = () => {
     const el = scroller.current;
+    atFoot.current = true;
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
   };
+  const jumpTo = (m: CrmMessage) => {
+    const el = scroller.current?.querySelector(`[data-message-id="${m.id}"]`);
+    if (!el) {
+      toast({ tone: 'warn', text: 'That message is older than the conversation loaded here.' });
+      return;
+    }
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    setFlashId(m.id);
+    window.setTimeout(() => setFlashId((f) => (f === m.id ? null : f)), 1_600);
+  };
 
-  const shown = React.useMemo(() => {
-    const kept = filter === 'all' ? thread : thread.filter((m) => m.channel === filter);
-    /* ⚠️ A COPY BEFORE SORTING. `messages` is the server's array and reversing it
-       in place would reorder the prop for every other reader of it. */
-    /* ⚠️ A CHAT IS ALWAYS OLDEST AT THE TOP, NEWEST AT THE FOOT — WhatsApp has no
-       sort, and a reversed chat reads as nonsense. The sort is the timeline's. */
-    return oldestFirst || filter === 'whatsapp' ? [...kept] : [...kept].reverse();
-  }, [thread, filter, oldestFirst]);
+  /* ── Menu actions: drawn now, confirmed after ───────────────────────────── */
+  const act = async (
+    m: CrmMessage,
+    patch: Partial<CrmMessage>,
+    call: () => Promise<{ ok: boolean; error?: string }>,
+    done?: string,
+  ) => {
+    setOverrides((o) => ({ ...o, [m.id]: { patch: { ...o[m.id]?.patch, ...patch }, settledAt: null } }));
+    const undo = () =>
+      setOverrides((o) => {
+        const next = { ...o };
+        delete next[m.id];
+        return next;
+      });
+    try {
+      const r = await call();
+      if (r.ok) {
+        setOverrides((o) => (o[m.id] ? { ...o, [m.id]: { ...o[m.id], settledAt: Date.now() } } : o));
+        if (done) toast({ tone: 'ok', text: done });
+      } else {
+        undo();
+        toast({ tone: 'error', text: r.error ?? 'That did not work.' });
+      }
+    } catch {
+      undo();
+      toast({ tone: 'error', text: 'That did not work — the connection dropped.' });
+    }
+  };
 
-  /**
-   * Send it.
-   *
-   * ⚠️ THIS CALLS THE ACTION THAT WAS ALREADY THERE AND PROVEN LIVE.
-   * `sendWhatsAppTextAction` has worked since 2026-09-13 — it checks the
-   * number, the project's config, sends through Meta and records the row
-   * EITHER WAY, because a refusal is part of the conversation and a failure
-   * that leaves no trace looks like a message nobody wrote. The composer
-   * simply never called it, which is why pressing send did nothing.
-   */
-  async function send() {
-    const text = draft.trim();
-    if (!text || sending) return;
+  const outgoing = (over: Partial<CrmMessage>): CrmMessage => ({
+    id: `pending-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    direction: 'outbound', kind: 'text', body: null, mediaId: null, mediaMime: null, mediaFilename: null,
+    status: null, errorDetail: null, sentByName: viewerName, occurredAt: new Date().toISOString(),
+    channel: 'whatsapp', subject: null, waMessageId: null, replyToWamid: null, ourReaction: null,
+    theirReaction: null, pinnedAt: null, pinnedByName: null, hiddenAt: null, hiddenByName: null,
+    deliveredAt: null, readAt: null, playedAt: null, mediaSize: null, mediaVoice: false,
+    forwarded: false, starred: false,
+    ...over,
+  });
 
-    setSending(true);
-    const result =
-      channel === 'whatsapp'
-        ? await sendWhatsAppTextAction(leadId, text)
-        : { ok: false, error: 'Email replies are not wired yet — send a quotation by email from the Related tab.' };
-
-    /* ⚠️ RE-READ EITHER WAY. The action records a refusal as a row, so the
-       thread is how somebody finds out the 24-hour window shut — refreshing
-       only on success would hide exactly the message that explains it. */
-    const fresh = await readWhatsAppThreadAction(leadId);
-    setThread(fresh);
-    setSending(false);
-
-    if (result.ok) {
-      setDraft('');
-    } else {
-      toast({ tone: 'error', text: result.error ?? 'That did not send.' });
+  async function sendText(text: string) {
+    const reply = replyTo;
+    const bubble = outgoing({ body: text, replyToWamid: reply?.waMessageId ?? null });
+    setPending((p) => [...p, bubble]);
+    setDraft('');
+    setReplyTo(null);
+    atFoot.current = true;
+    busy.current += 1;
+    try {
+      const r = await sendWhatsAppTextAction(leadId, text, reply?.id ?? null);
+      if (r.thread) setThread(r.thread);
+      if (!r.ok) toast({ tone: 'error', text: r.error ?? 'That did not send.' });
+    } catch {
+      setDraft(text);
+      toast({ tone: 'error', text: 'That did not send — the connection dropped.' });
+    } finally {
+      setPending((p) => p.filter((x) => x.id !== bubble.id));
+      busy.current -= 1;
     }
   }
 
+  async function sendFiles(items: readonly PreparedFile[], voice?: { seconds: number; isVoice: boolean }) {
+    if (items.length === 0) return;
+    const reply = replyTo;
+    setReplyTo(null);
+    setFiles([]);
+    const entries = items.map((it, n) => ({
+      it,
+      bubble: outgoing({
+        kind: voice ? 'audio' : it.kind,
+        body: it.caption.trim() || null,
+        mediaMime: it.mime,
+        mediaFilename: it.file.name,
+        mediaSize: it.file.size,
+        mediaVoice: Boolean(voice?.isVoice),
+        replyToWamid: n === 0 ? (reply?.waMessageId ?? null) : null,
+      }),
+    }));
+    setPending((p) => [...p, ...entries.map((e) => e.bubble)]);
+    setLocals((l) => ({
+      ...l,
+      ...Object.fromEntries(entries.map((e) => [e.bubble.id, { url: e.it.previewUrl, progress: 0, seconds: voice?.seconds }])),
+    }));
+    atFoot.current = true;
+    busy.current += 1;
+    try {
+      const prep = await prepareWhatsAppUploadsAction(
+        leadId,
+        items.map((i) => ({ name: i.file.name, size: i.file.size, mime: i.mime })),
+      );
+      if (!prep.ok || !prep.slots) {
+        toast({ tone: 'error', text: prep.error ?? 'The files could not be prepared.' });
+        return;
+      }
+      for (let n = 0; n < entries.length; n++) {
+        const { it, bubble } = entries[n];
+        const slot = prep.slots[n];
+        try {
+          await putFile(slot.url, it.file, it.mime, (progress) =>
+            setLocals((l) => (l[bubble.id] ? { ...l, [bubble.id]: { ...l[bubble.id], progress } } : l)),
+          );
+        } catch (error) {
+          toast({ tone: 'error', text: `${it.file.name}: ${error instanceof Error ? error.message : 'the upload failed'}` });
+          setPending((p) => p.filter((x) => x.id !== bubble.id));
+          continue;
+        }
+        setLocals((l) => ({ ...l, [bubble.id]: { ...l[bubble.id], progress: null } }));
+        const before = new Set(threadRef.current.map((m) => m.id));
+        const r = await sendWhatsAppMediaAction({
+          leadId, path: slot.path, filename: it.file.name, mime: it.mime, size: it.file.size,
+          caption: it.caption.trim() || null,
+          replyToMessageId: n === 0 ? (reply?.id ?? null) : null,
+          voice: Boolean(voice?.isVoice),
+        });
+        if (r.thread) {
+          /* ⚠️ THE LOCAL COPY FOLLOWS THE MESSAGE onto its real row, so the photo
+             does not blink and download again the moment it is confirmed. */
+          const real = r.thread.find((m) => !before.has(m.id) && m.direction === 'outbound' && m.mediaFilename === it.file.name);
+          if (real) setLocals((l) => ({ ...l, [real.id]: { url: it.previewUrl, progress: null, seconds: voice?.seconds } }));
+          threadRef.current = r.thread;
+          setThread(r.thread);
+        }
+        setPending((p) => p.filter((x) => x.id !== bubble.id));
+        if (!r.ok) toast({ tone: 'error', text: r.error ?? `${it.file.name} did not send.` });
+      }
+    } catch {
+      toast({ tone: 'error', text: 'That did not send — the connection dropped.' });
+    } finally {
+      const ids = new Set(entries.map((e) => e.bubble.id));
+      setPending((p) => p.filter((x) => !ids.has(x.id)));
+      busy.current -= 1;
+    }
+  }
+
+  async function pickFiles(list: readonly File[]) {
+    if (!list.length) return;
+    if (disabledReason) {
+      toast({ tone: 'error', text: disabledReason });
+      return;
+    }
+    const prepared = await Promise.all(list.slice(0, 10).map(prepareFile));
+    const ok = prepared.filter((x): x is PreparedFile => !('error' in x));
+    const refused = prepared.filter((x): x is { error: string } => 'error' in x);
+    if (refused.length) toast({ tone: 'error', text: refused[0].error });
+    if (ok.length) {
+      setChannel('whatsapp');
+      setFiles((f) => [...f, ...ok].slice(0, 10));
+    }
+  }
+
+  const handlers: ThreadHandlers = {
+    onReply: (m) => {
+      setReplyTo(m);
+      requestAnimationFrame(() => composerInput.current?.focus());
+    },
+    onReact: (m, emoji) => void act(m, { ourReaction: emoji }, () => reactToMessageAction(m.id, emoji)),
+    onMoreReactions: (m) => setOverlay({ kind: 'react', message: m }),
+    onForward: (m) => setOverlay({ kind: 'forward', message: m }),
+    onPin: (m, on) =>
+      void act(m, { pinnedAt: on ? new Date().toISOString() : null }, () => pinMessageAction(m.id, on), on ? 'Message pinned.' : 'Message unpinned.'),
+    onStar: (m, on) => void act(m, { starred: on }, () => starMessageAction(m.id, on), on ? 'Message starred.' : undefined),
+    onDelete: (m) => setOverlay({ kind: 'delete', message: m }),
+    onInfo: (m) => setOverlay({ kind: 'info', message: m }),
+    onAskAI: (m) => setOverlay({ kind: 'ai', message: m }),
+    onCopy: (m) => {
+      if (!m.body) return;
+      void navigator.clipboard?.writeText(m.body).then(
+        () => toast({ tone: 'ok', text: 'Copied.' }),
+        () => toast({ tone: 'error', text: 'Could not copy — select the text instead.' }),
+      );
+    },
+    onOpenMedia: (kind, src, m) => setLightbox({ kind, src, message: m }),
+    onJumpTo: jumpTo,
+  };
+
+  async function sendEmail() {
+    if (!draft.trim() || emailSending) return;
+    setEmailSending(true);
+    toast({ tone: 'error', text: 'Email replies are not wired yet — send a quotation by email from the Related tab.' });
+    setEmailSending(false);
+  }
+
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="relative flex h-full min-h-0 flex-col">
       {/* ── Channel filter ──────────────────────────────────────────── */}
       <div className="flex flex-wrap items-center gap-2 pb-3">
         <Chip active={filter === 'all'} onClick={() => setFilter('all')}>
           All
         </Chip>
-        {/* ⚠️ THE MARKS CARRY THEIR OWN BRAND COLOUR AND ARE BIG ENOUGH TO BE
-            ONE. Owner: *"the WhatsApp icon and the email icon are particularly
-            very small… make sure the email icon is blue."* A 16px teal envelope
-            is a decoration; a 20px blue one is a channel. */}
         <Chip active={filter === 'whatsapp'} onClick={() => setFilter('whatsapp')}>
           <span style={{ color: filter === 'whatsapp' ? '#ffffff' : WA_GREEN }}>
             <WhatsAppMark className="size-5" />
@@ -374,38 +608,21 @@ export function LeadConversationTab({
           {counts.whatsapp > 0 && <span className="tabular-nums opacity-70">{counts.whatsapp}</span>}
         </Chip>
         <Chip active={filter === 'email'} onClick={() => setFilter('email')}>
-          <Mail
-            className="size-5"
-            style={{ color: filter === 'email' ? '#ffffff' : MAIL_BLUE }}
-            aria-hidden="true"
-          />
+          <Mail className="size-5" style={{ color: filter === 'email' ? '#ffffff' : MAIL_BLUE }} aria-hidden="true" />
           Email
           {counts.email > 0 && <span className="tabular-nums opacity-70">{counts.email}</span>}
         </Chip>
-
-        {/* ⚠️ WRITTEN BY AI, KEPT, AND LABELLED AS SUCH. Owner, 2026-09-17: *"the
-            AI will also summarize my chat. I want there to be a summary of my
-            chat that will be auto-summarized."* See `SummaryView` for when it is
-            rewritten and why it is never mistaken for a person's note. */}
+        {/* ⚠️ WRITTEN BY AI, KEPT, AND LABELLED AS SUCH — see `SummaryView`. */}
         <Chip active={filter === 'summary'} onClick={() => setFilter('summary')}>
           <Sparkles className="size-5" aria-hidden="true" />
           Summary
         </Chip>
-
-        {/* ⚠️ THE LABEL SAYS WHAT THE ORDER ACTUALLY IS. The reference reads
-            "Newest first" above a thread running oldest to newest; a conversation
-            is read downwards, so the default is oldest-first and the control is
-            honest about it. */}
-        {/* ⚠️ IT LOOKS LIKE THE CHOICE IT IS. A bare label reads as a status
-            line; the chevron is what says it can be changed. */}
-        {/* ⚠️ NOT ON THE SUMMARY, which is newest-first and has no thread to
-            order. A control that changes nothing is one somebody presses twice. */}
         {filter !== 'summary' && !chat && (
           <button
             type="button"
             onClick={() => setOldestFirst((v) => !v)}
             className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-border-default px-3 py-1.5 text-caption font-medium text-text-secondary transition-colors hover:text-text-primary"
-        >
+          >
             Sort: {oldestFirst ? 'Oldest first' : 'Newest first'}
             <ChevronDown className="size-3.5" aria-hidden="true" />
           </button>
@@ -421,26 +638,14 @@ export function LeadConversationTab({
             background: 'color-mix(in oklab, var(--feedback-success) 8%, transparent)',
           }}
         >
-          {/* ⚠️ A FILLED DISC, not a bare glyph. The reference draws the mark
-              reversed out of WhatsApp's own green, which is what makes the
-              banner readable as "they messaged you" before any of it is read. */}
-          <span
-            className="mt-0.5 grid size-9 shrink-0 place-items-center rounded-full text-white"
-            style={{ background: WA_GREEN }}
-          >
+          <span className="mt-0.5 grid size-9 shrink-0 place-items-center rounded-full text-white" style={{ background: WA_GREEN }}>
             <WhatsAppMark className="size-5" />
           </span>
           <div className="min-w-0 flex-1">
-            {/* ⚠️ THE HEADLINE ONLY CLAIMS THE PART THAT IS TRUE. "Follow-up
-                paused" on a lead that never had a sequence would be a sentence
-                about machinery that was never running. */}
             <p className="text-body-sm font-semibold text-text-primary">
               New reply received{sequencePaused ? ' — follow-up paused' : ''}
             </p>
             <p className="mt-0.5 text-caption leading-relaxed text-text-secondary">
-              {/* ⚠️ THE REASON THE ENGINE GAVE, not a sentence written here. 170
-                  records why it stopped, and repeating a guess beside it is how
-                  two explanations start disagreeing. */}
               {!sequencePaused || sequencePaused === 'the client replied'
                 ? 'A new message was received from the lead. Review and respond when ready.'
                 : `The chase stopped — ${sequencePaused}.`}
@@ -465,213 +670,293 @@ export function LeadConversationTab({
       )}
 
       {/* ── The thread ─────────────────────────────── */}
-      {/* ⚠️ THE CHAT IS ANCHORED TO ITS FOOT, not just scrolled there. A
-          three-message thread has nothing to scroll, and left at the top it
-          sits under a hand-span of empty drawer with the composer far below
-          it. `mt-auto` puts the newest message just above the reply box
-          whether the thread is three messages or three hundred, so the eye
-          lands in the same place either way — which is the actual point of
-          the owner's *"I can see the latest message"*, and what WhatsApp
-          itself does. It costs nothing when the thread overflows: `auto`
-          margins only spend space that is spare. */}
-      <div className="relative flex min-h-0 flex-1 flex-col">
       <div
-        ref={scroller}
-        onScroll={onThreadScroll}
-        className={cn(
-          'min-h-0 flex-1 overflow-y-auto',
-          chat && 'flex flex-col rounded-xl border border-border-subtle',
-        )}
-        /* ⚠️ WHATSAPP'S WALLPAPER, from `--wa-wallpaper-image`. A file, so the
-           owner's own pattern replaces it without a code change. It stays put
-           while the messages scroll over it, as it does in the app. */
-        style={
-          chat
-            ? {
-                backgroundColor: 'var(--wa-wallpaper)',
-                backgroundImage: 'var(--wa-wallpaper-image)',
-                backgroundSize: '320px 320px',
-              }
-            : undefined
-        }
+        className={cn('relative flex min-h-0 flex-1 flex-col', chat && 'overflow-hidden rounded-xl border border-border-subtle')}
+        onDragOver={(e) => {
+          if (filter === 'summary' || !Array.from(e.dataTransfer.types).includes('Files')) return;
+          e.preventDefault();
+          if (!dragging) setDragging(true);
+        }}
+        onDragLeave={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false);
+        }}
+        onDrop={(e) => {
+          if (!dragging) return;
+          e.preventDefault();
+          setDragging(false);
+          void pickFiles(Array.from(e.dataTransfer.files));
+        }}
       >
-        {filter === 'summary' ? (
-          <SummaryView
-            leadId={leadId}
-            messageCount={thread.length}
-            notes={notes}
-            summary={summary.summary}
-            working={summary.working}
-            failure={summary.failure}
-            onRetry={summary.retry}
-            loading={loading}
+        {chat && (
+          <PinnedBar
+            pinned={pinned}
+            onJump={jumpTo}
+            onUnpin={(m) => void act(m, { pinnedAt: null }, () => pinMessageAction(m.id, false), 'Message unpinned.')}
           />
-        ) : shown.length === 0 ? (
-          <p
-            className={cn(
-              'rounded-xl border border-dashed border-border-default px-4 py-8 text-center text-body-sm text-text-secondary',
-              chat && 'm-auto border-none bg-[var(--wa-date-pill)] py-2 text-[var(--wa-date-ink)]',
-            )}
-          >
-            {loading
-              ? 'Loading the conversation…'
-              : thread.length === 0
-              ? 'Nothing has been sent or received yet.'
-              : `No ${filter} messages on this lead.`}
-          </p>
-        ) : (
-          chat ? (
-            <WhatsAppThread messages={shown} />
+        )}
+        <div
+          ref={scroller}
+          data-chat-scroller
+          onScroll={onThreadScroll}
+          className={cn('min-h-0 flex-1 overflow-y-auto', chat && 'flex flex-col')}
+          /* ⚠️ WHATSAPP'S WALLPAPER, from `--wa-wallpaper-image` — a file, so the
+             owner's own pattern replaces it without a code change. */
+          style={chat ? { backgroundColor: 'var(--wa-wallpaper)', backgroundImage: 'var(--wa-wallpaper-image)', backgroundSize: '320px 320px' } : undefined}
+        >
+          {filter === 'summary' ? (
+            <SummaryView
+              leadId={leadId}
+              messageCount={thread.length}
+              notes={notes}
+              summary={summary.summary}
+              working={summary.working}
+              failure={summary.failure}
+              onRetry={summary.retry}
+              loading={loading}
+            />
+          ) : shown.length === 0 ? (
+            <p
+              className={cn(
+                'rounded-xl border border-dashed border-border-default px-4 py-8 text-center text-body-sm text-text-secondary',
+                chat && 'm-auto border-none bg-[var(--wa-date-pill)] py-2 text-[var(--wa-date-ink)]',
+              )}
+            >
+              {loading ? 'Loading the conversation…' : thread.length === 0 ? 'Nothing has been sent or received yet.' : `No ${filter} messages on this lead.`}
+            </p>
+          ) : chat ? (
+            <WhatsAppThread
+              messages={shown}
+              leadName={leadName}
+              viewerName={viewerName}
+              locals={locals}
+              flashId={flashId}
+              nowMs={now}
+              handlers={handlers}
+            />
           ) : (
             <ol className="space-y-4 pb-1">
               {shown.map((m, i) => (
-                <Entry
-                  key={m.id}
-                  message={m}
-                  leadName={leadName}
-                  /* The spine joins one icon to the next, so the last row has
-                     nothing to join to. */
-                  spine={i < shown.length - 1}
-                />
+                <Entry key={m.id} message={m} leadName={leadName} spine={i < shown.length - 1} />
               ))}
             </ol>
-          )
-        )}
-      </div>
-      {chat && awayFromFoot && (
-        <button
-          type="button"
-          onClick={toFoot}
-          aria-label="Jump to the newest message"
-          className="absolute bottom-3 right-3 grid size-9 place-items-center rounded-full"
-          style={{
-            background: 'var(--wa-date-pill)',
-            color: 'var(--wa-date-ink)',
-            boxShadow: '0 1px 3px var(--wa-shadow)',
-          }}
-        >
-          <ChevronDown className="size-5" aria-hidden="true" />
-        </button>
-      )}
-      </div>
-
-      {/* ── Composer ────────────────────────────────────────────────── */}
-      {/* ⚠️ ABSENT ON THE SUMMARY. That view has its own box, and two writing
-          boxes on one screen is how a note gets sent to the client. */}
-      {filter !== 'summary' && (
-      <div className="mt-3 shrink-0 border-t border-border-subtle pt-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="inline-flex rounded-lg border border-border-default">
-            <button
-              type="button"
-              onClick={() => setChannel('whatsapp')}
-              className={cn(
-                'inline-flex items-center gap-1.5 rounded-l-lg px-2.5 py-1.5 text-caption font-medium',
-                channel === 'whatsapp' ? 'bg-bg-subtle text-text-primary' : 'text-text-secondary',
-              )}
-            >
-              <span style={{ color: WA_GREEN }}><WhatsAppMark className="size-5" /></span>
-              WhatsApp
-            </button>
-            <button
-              type="button"
-              onClick={() => setChannel('email')}
-              className={cn(
-                'inline-flex items-center gap-1.5 rounded-r-lg border-l border-border-default px-2.5 py-1.5 text-caption font-medium',
-                channel === 'email' ? 'bg-bg-subtle text-text-primary' : 'text-text-secondary',
-              )}
-            >
-              <Mail className="size-5" style={{ color: MAIL_BLUE }} aria-hidden="true" />
-              Email
-            </button>
-          </div>
-
-          {/* ⚠️ WHO IT WOULD COME FROM, above the box rather than discovered
-              afterwards. A salesperson working three projects sends from three
-              different businesses, and the client sees the number, not the CRM. */}
-          {channel === 'whatsapp' && (
-            <p className="flex min-w-0 items-center gap-1.5 text-caption text-text-secondary">
-              {loading ? (
-                <span>Checking which number this sends from…</span>
-              ) : sender?.configured ? (
-                <>
-                  <span className="truncate font-medium text-text-primary">
-                    {sender.displayName}
-                  </span>
-                  {sender.displayNumber ? (
-                    <span className="tabular-nums">{displayPhone(sender.displayNumber)}</span>
-                  ) : (
-                    /* Configured to send, but nobody has said what the client
-                       sees. Readiness asks for this; the composer says it too. */
-                    <span className="italic">number not set</span>
-                  )}
-                  <Info className="size-3.5 shrink-0" aria-hidden="true" />
-                </>
-              ) : (
-                /* ⚠️ NOT A DISABLED BOX. This project genuinely cannot send —
-                   Chitral, with 641 real leads, is in exactly this state — so it
-                   says which thing is missing rather than greying out a control
-                   somebody will press twice. */
-                <span className="text-feedback-error">
-                  No WhatsApp number on this project — nothing can be sent from here.
-                </span>
-              )}
-            </p>
           )}
         </div>
 
-        <textarea
-          rows={2}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          /* ⚠️ ENTER SENDS, SHIFT+ENTER BREAKS THE LINE — what every messaging
-             app does. A reply box that needs the mouse is one people stop
-             using mid-conversation. */
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              void send();
-            }
-          }}
-          disabled={sending}
-          placeholder="Write a reply…"
-          className="mt-2 w-full resize-y rounded-lg border border-border-default bg-bg-base px-3 py-2 text-body-sm text-text-primary placeholder:text-text-tertiary focus:border-accent-primary focus:outline-none"
-        />
+        {chat && awayFromFoot && (
+          <button
+            type="button"
+            onClick={toFoot}
+            aria-label="Jump to the newest message"
+            className="absolute bottom-3 right-3 z-20 grid size-9 place-items-center rounded-full"
+            style={{ background: 'var(--wa-date-pill)', color: 'var(--wa-date-ink)', boxShadow: '0 1px 3px var(--wa-shadow)' }}
+          >
+            <ChevronDown className="size-5" aria-hidden="true" />
+          </button>
+        )}
 
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border-default px-2.5 py-1.5 text-caption font-medium text-text-secondary transition-colors hover:text-text-primary"
-          >
-            <Paperclip className="size-4" aria-hidden="true" />
-            Attach
-          </button>
-          <button
-            type="button"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border-default px-2.5 py-1.5 text-caption font-medium text-text-secondary transition-colors hover:text-text-primary"
-          >
-            <FileText className="size-4" aria-hidden="true" />
-            Saved reply
-            <ChevronDown className="size-3.5" aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            onClick={() => void send()}
-            disabled={sending || !draft.trim() || (channel === 'whatsapp' && !sender?.configured)}
-            className={cn(
-              'ml-auto inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-3 py-2 text-caption font-semibold text-white transition-opacity',
-              (sending || !draft.trim() || (channel === 'whatsapp' && !sender?.configured)) &&
-                'opacity-40',
-            )}
-          >
-            <Send className="size-4" aria-hidden="true" />
-            {sending ? 'Sending…' : 'Send reply'}
-          </button>
-        </div>
+        {dragging && (
+          <div className="pointer-events-none absolute inset-0 z-30 grid place-items-center border-2 border-dashed border-[#00a884] bg-bg-surface/85">
+            <p className="text-body-sm font-semibold text-text-primary">Drop to send on WhatsApp</p>
+          </div>
+        )}
+
+        {files.length > 0 && (
+          <AttachmentPreview
+            items={files}
+            onChange={setFiles}
+            onAdd={() => {
+              const input = document.createElement('input');
+              input.type = 'file';
+              input.multiple = true;
+              input.onchange = () => void pickFiles(Array.from(input.files ?? []));
+              input.click();
+            }}
+            onSend={() => void sendFiles(files)}
+            onClose={() => {
+              files.forEach((f) => URL.revokeObjectURL(f.previewUrl));
+              setFiles([]);
+            }}
+          />
+        )}
+
       </div>
+
+      {lightbox && <Lightbox {...lightbox} onClose={() => setLightbox(null)} />}
+
+      {/* ⚠️ THE PANELS COVER THE WHOLE TAB, not just the chat box. On a laptop the
+          chat box can be under 300px tall once the filters and the composer
+          have their share — the Forward list was squeezed to 7px there. */}
+      {overlay?.kind === 'info' && <MessageInfo message={overlay.message} leadName={leadName} nowMs={now} onClose={() => setOverlay(null)} />}
+      {overlay?.kind === 'forward' && <ForwardPanel message={overlay.message} leadId={leadId} onClose={() => setOverlay(null)} />}
+      {overlay?.kind === 'react' && (
+        <ReactionSheet
+          onClose={() => setOverlay(null)}
+          onPick={(emoji) => {
+            const m = overlay.message;
+            setOverlay(null);
+            void act(m, { ourReaction: emoji }, () => reactToMessageAction(m.id, emoji));
+          }}
+        />
+      )}
+      {overlay?.kind === 'ai' && (
+        <AskAIPanel
+          message={overlay.message}
+          onClose={() => setOverlay(null)}
+          onUse={(reply) => {
+            setReplyTo(overlay.message);
+            setDraft(reply);
+            setChannel('whatsapp');
+            setOverlay(null);
+            requestAnimationFrame(() => composerInput.current?.focus());
+          }}
+        />
+      )}
+      {overlay?.kind === 'delete' && (
+        <DeleteConfirm
+          leadName={leadName}
+          busy={deleting}
+          onClose={() => setOverlay(null)}
+          onConfirm={async () => {
+            const m = overlay.message;
+            setDeleting(true);
+            setOverlay(null);
+            if (replyTo?.id === m.id) setReplyTo(null);
+            await act(
+              m,
+              {
+                hiddenAt: new Date().toISOString(), hiddenByName: viewerName, body: null, mediaId: null,
+                mediaMime: null, mediaFilename: null, ourReaction: null, theirReaction: null, pinnedAt: null, starred: false,
+              },
+              () => deleteMessageForMeAction(m.id),
+              'Message deleted.',
+            );
+            setDeleting(false);
+          }}
+        />
+      )}
+
+      {/* ── Composer ────────────────────────────────────────────────── */}
+      {filter !== 'summary' && (
+        <div className="mt-3 shrink-0">
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <div className="inline-flex rounded-lg border border-border-default">
+              <button
+                type="button"
+                onClick={() => setChannel('whatsapp')}
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-l-lg px-2.5 py-1 text-caption font-medium',
+                  channel === 'whatsapp' ? 'bg-bg-subtle text-text-primary' : 'text-text-secondary',
+                )}
+              >
+                <span style={{ color: WA_GREEN }}><WhatsAppMark className="size-4" /></span>
+                WhatsApp
+              </button>
+              <button
+                type="button"
+                onClick={() => setChannel('email')}
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-r-lg border-l border-border-default px-2.5 py-1 text-caption font-medium',
+                  channel === 'email' ? 'bg-bg-subtle text-text-primary' : 'text-text-secondary',
+                )}
+              >
+                <Mail className="size-4" style={{ color: MAIL_BLUE }} aria-hidden="true" />
+                Email
+              </button>
+            </div>
+
+            {/* ⚠️ WHO IT COMES FROM, and whether WhatsApp will deliver it at all. */}
+            {channel === 'whatsapp' && (
+              <p className="flex min-w-0 flex-1 items-center gap-1.5 text-caption text-text-secondary">
+                {loading ? (
+                  <span>Checking which number this sends from…</span>
+                ) : sender?.configured ? (
+                  <>
+                    <span className="truncate font-medium text-text-primary">{sender.displayName}</span>
+                    {sender.displayNumber ? <span className="shrink-0 whitespace-nowrap tabular-nums">{displayPhone(sender.displayNumber)}</span> : <span className="italic">number not set</span>}
+                    <span className="ml-auto shrink-0 whitespace-nowrap">
+                      {windowInfo.open ? (
+                        <span className="text-feedback-success" title="The client wrote within 24 hours, so WhatsApp will deliver normal messages.">
+                          ● Chat open{windowInfo.closesAt ? ` · ${hoursLeft(windowInfo.closesAt, now)}` : ''}
+                        </span>
+                      ) : (
+                        <span className="text-[color:var(--feedback-warning)]" title="WhatsApp only delivers approved templates until the client writes again.">
+                          ● 24-hour window closed
+                        </span>
+                      )}
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-feedback-error">No WhatsApp number on this project — nothing can be sent from here.</span>
+                )}
+              </p>
+            )}
+          </div>
+
+          {channel === 'whatsapp' ? (
+            <WhatsAppComposer
+              disabledReason={disabledReason}
+              replyTo={replyTo}
+              replyName={leadName}
+              onCancelReply={() => setReplyTo(null)}
+              draft={draft}
+              onDraft={setDraft}
+              saved={saved}
+              onSaved={setSaved}
+              vars={vars}
+              onSendText={(t) => void sendText(t)}
+              onPickFiles={(f) => void pickFiles(f)}
+              onSendVoice={(v) =>
+                void sendFiles(
+                  [{
+                    id: 'voice', file: new File([v.blob], v.filename, { type: v.mime }), mime: v.mime,
+                    kind: 'audio', previewUrl: URL.createObjectURL(v.blob), note: null, caption: '',
+                  }],
+                  { seconds: v.seconds, isVoice: v.voice },
+                )
+              }
+              inputRef={composerInput}
+            />
+          ) : (
+            <div className="flex items-end gap-2">
+              <textarea
+                rows={2}
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                placeholder="Write an email reply…"
+                className="min-w-0 flex-1 resize-y rounded-lg border border-border-default bg-bg-base px-3 py-2 text-body-sm text-text-primary placeholder:text-text-tertiary focus:border-accent-primary focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => void sendEmail()}
+                disabled={!draft.trim()}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-3 py-2 text-caption font-semibold text-white disabled:opacity-40"
+              >
+                <Send className="size-4" aria-hidden="true" /> Send
+              </button>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
+}
+
+function hoursLeft(closesAt: number, now: number): string {
+  const mins = Math.max(0, Math.round((closesAt - now) / 60_000));
+  return mins >= 60 ? `closes in ${Math.floor(mins / 60)} h` : `closes in ${mins} min`;
+}
+
+/** Straight into the private bucket, with progress — see `prepareWhatsAppUploadsAction`. */
+function putFile(url: string, file: File, mime: string, onProgress: (ratio: number) => void): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', url);
+    xhr.setRequestHeader('content-type', mime);
+    xhr.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded / e.total);
+    xhr.onload = () => (xhr.status < 300 ? resolve() : reject(new Error(`storage refused the upload (${xhr.status})`)));
+    xhr.onerror = () => reject(new Error('the upload failed — check the connection'));
+    xhr.send(file);
+  });
 }
 
 /* ---- One entry ----------------------------------------------------------- */
@@ -768,18 +1053,32 @@ function Entry({
             className="mt-1.5 w-fit min-w-[62%] max-w-[88%] rounded-lg px-3.5 py-2"
             style={{ background: mine ? 'var(--thread-out)' : 'var(--thread-in)' }}
           >
-            <p className="whitespace-pre-wrap break-words text-body-sm leading-5 text-text-primary">
-              {message.body ?? (message.mediaFilename ?? 'Attachment')}
+            <p
+              className={cn(
+                'whitespace-pre-wrap break-words text-body-sm leading-5',
+                message.hiddenAt ? 'italic text-text-secondary' : 'text-text-primary',
+              )}
+            >
+              {message.hiddenAt
+                ? `${message.hiddenByName ?? 'Someone'} deleted this message`
+                : mediaShape(message) !== 'none'
+                  ? snippet(message)
+                  : (message.body ?? snippet(message))}
             </p>
-            {message.mediaId && (
+            {!message.hiddenAt && mediaShape(message) !== 'none' && !message.id.startsWith('pending-') && (
               <a
-                href={`/api/whatsapp/media/${message.id}`}
+                href={mediaUrl(message.id)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="mt-1 block text-caption font-medium text-text-brand underline underline-offset-2"
               >
                 Open {message.mediaFilename ?? 'attachment'}
               </a>
+            )}
+            {(message.ourReaction || message.theirReaction) && (
+              <p className="mt-1 text-caption" style={{ fontFamily: EMOJI_FONT }}>
+                {[message.theirReaction, message.ourReaction].filter(Boolean).join(' ')}
+              </p>
             )}
           </div>
         )}
@@ -814,164 +1113,6 @@ function Stamp({
       {mine && message.status === 'delivered' && <CheckCheck className="size-4" aria-label="Delivered" />}
       {mine && message.status === 'sent' && <Check className="size-4" aria-label="Sent" />}
     </span>
-  );
-}
-
-/* ---- WhatsApp ----------------------------------------------------------------
-   Owner, 2026-09-17: *"for WhatsApp I want the exact same layout… so it looks
-   exactly like WhatsApp… just the time is displayed with the relevant chat. The
-   date will be displayed above, separately."*
-
-   So this view is WhatsApp's own grammar, not the timeline's with sides swapped:
-   · no avatar and no name on each message — it is a one-to-one chat
-   · theirs white on the left, ours green on the right, a tail on the first of a run
-   · the TIME ALONE, inside the bubble at the bottom right, with our ticks
-   · the DATE as a pill above each day, which stays at the top while that day
-     scrolls under it
-   · the wallpaper behind, and the round arrow back to the newest message
-   Colours are WhatsApp's, from `--wa-*` in tokens.css, in both themes. */
-
-/** "Today", "Yesterday", a weekday within the week, then the full date — as WhatsApp does. */
-function waDayLabel(iso: string): string {
-  const key = (d: Date) => d.toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' });
-  const at = new Date(iso);
-  const now = new Date();
-  const days = Math.round((Date.parse(key(now)) - Date.parse(key(at))) / 86_400_000);
-  if (days <= 0) return 'Today';
-  if (days === 1) return 'Yesterday';
-  if (days < 7) return at.toLocaleDateString('en-GB', { weekday: 'long', timeZone: 'Asia/Karachi' });
-  const part = (o: Intl.DateTimeFormatOptions, locale = 'en-GB') =>
-    at.toLocaleDateString(locale, { ...o, timeZone: 'Asia/Karachi' });
-  return `${part({ day: 'numeric' })} ${part({ month: 'long' }, 'en-US')} ${part({ year: 'numeric' })}`;
-}
-
-function WhatsAppThread({ messages }: { messages: readonly CrmMessage[] }) {
-  const days = React.useMemo(() => {
-    const out: Array<{ key: string; label: string; items: CrmMessage[] }> = [];
-    for (const m of messages) {
-      const key = new Date(m.occurredAt).toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' });
-      const last = out[out.length - 1];
-      if (last && last.key === key) last.items.push(m);
-      else out.push({ key, label: waDayLabel(m.occurredAt), items: [m] });
-    }
-    return out;
-  }, [messages]);
-
-  return (
-    /* `mt-auto`: a short chat sits at the foot, above the reply box, as in the app. */
-    <div className="mt-auto flex flex-col px-[6%] pb-3 pt-1">
-      {days.map((day) => (
-        <section key={day.key} aria-label={day.label}>
-          {/* ⚠️ STICKY WITHIN ITS OWN DAY, so the next day's pill pushes it away. */}
-          <div className="sticky top-2 z-10 flex justify-center py-2">
-            <span
-              className="rounded-lg px-3 py-1 text-[12.5px] leading-4"
-              style={{
-                background: 'var(--wa-date-pill)',
-                color: 'var(--wa-date-ink)',
-                boxShadow: '0 1px 0.5px var(--wa-shadow)',
-              }}
-            >
-              {day.label}
-            </span>
-          </div>
-          <ol className="flex flex-col">
-            {day.items.map((m, i) => (
-              <WhatsAppBubble
-                key={m.id}
-                message={m}
-                first={i === 0 || day.items[i - 1].direction !== m.direction}
-              />
-            ))}
-          </ol>
-        </section>
-      ))}
-    </div>
-  );
-}
-
-function WhatsAppBubble({ message, first }: { message: CrmMessage; first: boolean }) {
-  const mine = message.direction === 'outbound';
-  const time = new Date(message.occurredAt).toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZone: 'Asia/Karachi',
-  });
-  const fill = mine ? 'var(--wa-bubble-out)' : 'var(--wa-bubble-in)';
-
-  return (
-    <li className={cn('flex flex-col', mine ? 'items-end' : 'items-start', first ? 'mt-2.5' : 'mt-0.5')}>
-      <div
-        className={cn(
-          'relative max-w-[80%] rounded-lg pb-2 pl-2.5 pr-2 pt-1.5',
-          first && (mine ? 'rounded-tr-none' : 'rounded-tl-none'),
-        )}
-        style={{ background: fill, color: 'var(--wa-ink)', boxShadow: '0 1px 0.5px var(--wa-shadow)' }}
-        /* Several salespeople can answer from one business number; the chat does
-           not print who, but it is there on hover. */
-        title={mine && message.sentByName ? `Sent by ${message.sentByName}` : undefined}
-      >
-        {first && (
-          <svg
-            aria-hidden="true"
-            viewBox="0 1 8 12"
-            width="8"
-            height="12"
-            className={cn('absolute top-0', mine ? '-right-2' : '-left-2')}
-          >
-            <path
-              fill={fill}
-              d={
-                mine
-                  ? 'M5.188 1H0v11.193l6.467-8.625C7.526 2.156 6.958 1 5.188 1z'
-                  : 'M1.533 3.568 8 12.193V1H2.812C1.042 1 .474 2.156 1.533 3.568z'
-              }
-            />
-          </svg>
-        )}
-
-        {message.mediaId && (
-          <a
-            href={`/api/whatsapp/media/${message.id}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mb-1 flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] font-medium underline-offset-2 hover:underline"
-            style={{ background: 'color-mix(in oklab, var(--wa-ink) 6%, transparent)' }}
-          >
-            <FileText className="size-4 shrink-0" aria-hidden="true" />
-            <span className="truncate">{message.mediaFilename ?? 'Attachment'}</span>
-          </a>
-        )}
-
-        <span className="whitespace-pre-wrap break-words text-[14.2px] leading-[19px]">
-          {message.body ?? (message.mediaId ? '' : 'Attachment')}
-        </span>
-        {/* ⚠️ THE SPACER. It reserves the stamp's width at the end of the last
-            line, so short messages keep the time on the same line and long ones
-            push it underneath — never over the words. */}
-        <span aria-hidden="true" className={cn('inline-block h-px', mine ? 'w-[4.6rem]' : 'w-[3.4rem]')} />
-        <span
-          className="absolute bottom-1 right-2 flex items-center gap-[3px] text-[11px] leading-[15px]"
-          style={{ color: 'var(--wa-meta)' }}
-        >
-          <span className="tabular-nums">{time}</span>
-          {mine && message.status === 'read' && (
-            <CheckCheck className="size-4" style={{ color: 'var(--wa-tick-read)' }} aria-label="Read" />
-          )}
-          {mine && message.status === 'delivered' && <CheckCheck className="size-4" aria-label="Delivered" />}
-          {mine && message.status === 'sent' && <Check className="size-4" aria-label="Sent" />}
-          {mine && message.status === null && <Clock3 className="size-3.5" aria-label="Sending" />}
-          {mine && message.status === 'failed' && (
-            <CircleAlert className="size-4 text-feedback-error" aria-label="Not delivered" />
-          )}
-        </span>
-      </div>
-      {message.status === 'failed' && (
-        <p className="mt-0.5 max-w-[80%] text-[11.5px] text-feedback-error">
-          Not delivered{message.errorDetail ? ` — ${message.errorDetail}` : ''}
-        </p>
-      )}
-    </li>
   );
 }
 

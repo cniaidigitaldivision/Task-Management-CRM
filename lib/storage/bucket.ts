@@ -258,6 +258,61 @@ export async function signedUrl(
 }
 
 /**
+ * A one-time upload address for the BROWSER.
+ *
+ * ⚠️ WHY THE FILE DOES NOT GO THROUGH OUR SERVER: a Vercel function refuses a
+ * request body over 4.5 MB, so a 12 MB video posted to a server action fails in
+ * production however `bodySizeLimit` is set. The browser puts the file straight
+ * into the private bucket at a path the server chose, and the server then reads
+ * it from there. The address is for that one path only.
+ */
+export async function signedUploadUrl(path: string): Promise<StorageResult<string>> {
+  const status = describeStorage();
+  if (!status.configured) return { ok: false, message: status.reason ?? 'Storage is not set up.' };
+  try {
+    const bucket = encodeURIComponent(BUCKET);
+    const response = await fetch(`${PROJECT_URL}/storage/v1/object/upload/sign/${bucket}/${encodePath(path)}`, {
+      method: 'POST',
+      headers: headers({ 'Content-Type': 'application/json' }),
+      body: '{}',
+      signal: AbortSignal.timeout(API_TIMEOUT_MS),
+    });
+    if (!response.ok) {
+      return { ok: false, message: await readError(response, 'An upload address could not be created.') };
+    }
+    const payload = (await response.json()) as { url?: string };
+    if (!payload.url) return { ok: false, message: 'File storage returned no upload address.' };
+    return { ok: true, value: `${PROJECT_URL}/storage/v1${payload.url}` };
+  } catch {
+    return { ok: false, message: 'File storage could not be reached.' };
+  }
+}
+
+/** The object's bytes, read with the server's key. */
+export async function downloadObject(
+  path: string,
+): Promise<StorageResult<{ data: Buffer; contentType: string }>> {
+  const status = describeStorage();
+  if (!status.configured) return { ok: false, message: status.reason ?? 'Storage is not set up.' };
+  try {
+    const response = await fetch(endpoint('object', path), {
+      headers: headers(),
+      signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
+    });
+    if (!response.ok) return { ok: false, message: await readError(response, 'That file could not be read.') };
+    return {
+      ok: true,
+      value: {
+        data: Buffer.from(await response.arrayBuffer()),
+        contentType: response.headers.get('content-type') ?? 'application/octet-stream',
+      },
+    };
+  } catch {
+    return { ok: false, message: 'File storage could not be reached.' };
+  }
+}
+
+/**
  * Remove the object.
  *
  * A 404 counts as success: the caller's intent is "this file should not exist",

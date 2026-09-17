@@ -9,7 +9,95 @@
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
 | **Last updated** | **2026-09-17** |
-| **Last migration applied anywhere** | **183** (applied 2026-09-17; 182 resume sticks, 183 lead row mirrors its sequence — both self-checks roll their fixtures back). CRM next: **184.** |
+| **Last migration applied anywhere** | **184** (applied 2026-09-17; WhatsApp message features — replies, reactions, pins, stars, delete-in-CRM, stored media, saved replies. Self-check passed). CRM next: **185.** |
+
+---
+
+## 💬 2026-09-17 (night) — THE CHAT DOES WHAT WHATSAPP DOES · 184
+
+Owner: attach did nothing; saved replies should be one formal greeting *"saved for
+everyone. According to their name"*; voice, video, images, PDFs; the arrow menu
+on every message (emojis, message info, reply, copy, react, forward, pin, ask
+Meta AI, star, delete) and a **+** for every emoji.
+
+### What was built
+
+| Feature | How it works | Where the truth lives |
+|---|---|---|
+| **Attach** | `+` → Document / Photos & videos / Audio; also paste and drag-drop. Preview with a caption per file, then send. | Browser uploads **straight to Supabase Storage** on a signed URL (a Vercel function refuses bodies over 4.5 MB); the server downloads it and sends to Meta. |
+| **Voice note** | Mic: record, pause, resume, cancel, send; max 15 min. | Chrome records WebM/Opus; `lib/media/webm-to-ogg.ts` **remuxes** (no re-encode) to Ogg/Opus mono — the only thing Meta plays as a voice note. Proven with Chrome's own decoder: 2.94 s and 7.02 s files decode to their true length. |
+| **Photos / video / docs** | Images over 5 MB or in formats Meta refuses are converted to JPEG; video over 16 MB is refused on screen; anything else goes as a document (≤ 25 MB). | `whatsAppMediaType()` whitelist mirrors Meta's limits. |
+| **Message menu** | Chevron on hover → quick reactions + **+** (1,870 emoji, search, categories, recents), Message info (sent/delivered/read/played), Reply, Copy, React, Download, Forward, Pin, Star, Ask AI, Delete. | Portalled to `<body>` and corrected for the 0.9 page zoom (it was being cut off inside the chat's scroll box). |
+| **Reply** | Quoted strip above the composer; the sent bubble quotes and jumps to the original. | `context.message_id` to Meta; `reply_to_wamid` stored; inbound replies read `context.id`. |
+| **React** | Sent to the client's phone first, saved only when Meta accepts. Their reactions arrive by webhook. | `our_reaction*`, `their_reaction*`; `crm_record_inbound_reaction`. Meta refuses reactions to messages older than 30 days (131009) — the error is shown. |
+| **Forward** | Up to 5 leads, each labelled chat open / 24 h window closed. | Bytes re-uploaded per target; `forwarded = true` shows the label. |
+| **Pin / Star** | Pinned bar at the top of the chat; star is per person. | **CRM-side only** — the API has no pin or star. `pinned_*` shared; `crm_message_stars` RLS own rows. |
+| **Delete** | **Delete in CRM**: hidden for the whole team, placeholder says who. | **Cannot unsend** — see below. `hidden_at` cannot be unset (trigger raises CRM11); body/media nulled in the read so it never reaches the browser. |
+| **Ask AI** | On a client's message: English meaning if not English, plus a draft reply in the client's language → into the composer, never sent. | `lib/ai/reply-suggestion.ts` — see `docs/crm-ai/00-STATE-AND-TRACKER.md`. |
+| **Saved replies** | ⚡ button or type `/`. **Team** replies (managers write) and **Mine**. Placeholders fill per sender and per lead. | `crm_saved_replies`; 7 team replies seeded. |
+
+The greeting the owner dictated is seeded as `/greet` and fills per person:
+*"AoA Sir, welcome on behalf of {{company}}. I am {{my_first_name}}. Kindly let me
+know how I can assist you."* → Sarah sends "…I am Sarah…", Sahad sends "…I am
+Sahad…". Placeholders: `my_first_name`, `my_name`, `lead_first_name`, `lead_name`
+(falls back to *Sir/Madam*, never blank), `company`, `project`.
+
+### ⚠️ Delete for everyone is not possible — asked again by the owner
+
+The owner asked why the Business **app** can delete for everyone and the CRM
+cannot. Re-checked against Meta's reference the same night: the Cloud API's only
+message operation is **send** (text, media, reaction, template, interactive, read
+receipt, typing). There is no revoke, recall or delete. `revoke` exists only as an
+**inbound webhook** — the *client* deleting their own message within two days — and
+only for numbers onboarded from the Business app ("coexistence").
+
+The services that do offer "delete for everyone" (Whapi, CodeChat and similar)
+drive a phone through WhatsApp Web by QR code. That is not Meta's API, breaks
+WhatsApp's terms, and puts the business number at risk of a ban. **Not used.**
+
+So the dialog now says it before the button, and the button reads **Delete in
+CRM** (it said "Delete for me", which was wrong: it hides the message for the
+whole team).
+
+### Media storage
+
+Meta's media ids die (webhook media 7 days). Every inbound file is copied to the
+private bucket after the webhook responds (`after()`); `/api/whatsapp/media/[id]`
+redirects to a signed URL when a copy exists, otherwise fetches from Meta and
+stores a copy on the way out. `crm_message_store_media` only fills an empty path.
+
+### Found while testing in the running app
+
+- The thread read the **oldest** 500 messages, so a long chat would stop showing
+  new ones. Now the newest 500 (`row_number() over (… desc)`).
+- The menu was clipped by the chat's scroll box (reaction row, Reply, Copy
+  missing near the bottom) → portal + zoom correction.
+- Forward's lead list squeezed to 7 px in a short drawer → overlays moved to the
+  tab root, sheet full height.
+- The sender number in the composer wrapped onto two lines → `whitespace-nowrap`.
+- **Ask AI invented a payment plan** ("initial deposit followed by monthly
+  instalments") that was nowhere in the chat. Prompt rule added: describe no
+  product, plan or process not written in the conversation; say you will confirm.
+  Retried: it no longer invents.
+
+### Not built, on purpose
+
+- **Read receipts to the client** (blue ticks when a salesperson opens the chat) —
+  a decision for the owner; opening a lead is not the same as reading it.
+- **Templates outside the 24-hour window** from this composer — the window line
+  says when it is closed; templates stay in the sequence engine.
+- **Pin/star on the client's phone** — the API has neither.
+
+### Not yet proven with a real send
+
+Nothing here was sent to a real phone during the build: text, photo, PDF, voice,
+reaction, reply and forward all need one test from the owner on **Mohsin Testing**
+(chat window open). The UI, storage round trip, remux and database writes were
+verified; Meta's acceptance of each type was not.
+
+Checks: `tsc` clean · eslint clean · vitest **3,283** passed, 9 of them new for the
+chat's rules (placeholders, the 24-hour window, media shapes, deleted snippets,
+day labels).
 
 ---
 

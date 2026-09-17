@@ -1,4 +1,8 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
+import { after } from 'next/server';
+
+import { fetchMedia, mediaReader } from '@/lib/crm/whatsapp';
+import { uploadObject } from '@/lib/storage/bucket';
 
 /* ⚠️ `withAppRole`, NOT `withUser` — there is no user here. This route is
    authenticated by Meta's signature, not by a login, so it writes through the
@@ -214,6 +218,23 @@ async function storeMessage(message: Record<string, unknown>): Promise<void> {
      not working" rather than like a missing character. */
   const e164 = from.startsWith('+') ? from : `+${from}`;
 
+  /* ⚠️ A REACTION IS NOT A MESSAGE (184). It lands on the message it reacts to;
+     storing it as a row would put an empty bubble in the thread every time a
+     client tapped a heart. */
+  if (kind === 'reaction') {
+    const reaction = message.reaction as Record<string, unknown> | undefined;
+    const at = message.timestamp ? new Date(Number(message.timestamp) * 1000).toISOString() : new Date().toISOString();
+    await withAppRole((tx) => tx`
+      select app.crm_record_inbound_reaction(
+        ${e164}, ${(reaction?.message_id as string | undefined) ?? null},
+        ${(reaction?.emoji as string | undefined) ?? ''}, ${at}::timestamptz)
+    `);
+    return;
+  }
+
+  /* The message the client swiped to reply to — drawn as a quote above theirs. */
+  const replyTo = ((message.context as Record<string, unknown> | undefined)?.id as string | undefined) ?? null;
+
   let body: string | null = null;
   let media = { id: null as string | null, mime: null as string | null, filename: null as string | null };
 
@@ -234,12 +255,49 @@ async function storeMessage(message: Record<string, unknown>): Promise<void> {
     ? new Date(Number(message.timestamp) * 1000).toISOString()
     : new Date().toISOString();
 
+  const voice = kind === 'audio'
+    && (message.audio as Record<string, unknown> | undefined)?.voice === true;
+
   const stored = await withAppRole((tx) => tx`
     select app.crm_record_inbound_message(
       ${e164}, ${wamid}, ${kind}, ${body},
-      ${media.id}, ${media.mime}, ${media.filename}, ${at}::timestamptz
+      ${media.id}, ${media.mime}, ${media.filename}, ${at}::timestamptz,
+      ${replyTo}, ${voice}
     ) as id
   `);
+
+  /* ⚠️ THE ATTACHMENT IS COPIED AFTER META HAS ITS 200. Webhook media ids expire
+     after 7 days (Meta's reference, 2026) — the photo a client sent on Monday was
+     gone the next Tuesday. Downloading inside the request would hold up the
+     acknowledgement and invite Meta's retries; `after` runs once the answer is
+     sent. If it fails, the media route copies it the first time somebody looks. */
+  const messageId = (stored as Array<Record<string, unknown>>)[0]?.id as string | undefined;
+  if (messageId && media.id) {
+    const mediaId = media.id;
+    const filename = media.filename;
+    after(async () => {
+      try {
+        const reader = mediaReader();
+        const file = reader ? await fetchMedia(reader, mediaId) : null;
+        if (!file) return;
+        const lead = await withAppRole((tx) => tx`
+          select lead_id from public.crm_lead_messages where id = ${messageId}::uuid
+        `);
+        const leadId = (lead as Array<Record<string, unknown>>)[0]?.lead_id as string | undefined;
+        if (!leadId) return;
+        const ext = (file.mime.split('/')[1] ?? 'bin').split(';')[0].replace(/[^a-z0-9]/gi, '');
+        const safe = (filename ?? `${kind}.${ext}`).replace(/[^\w.\-() ]+/g, '_').slice(-80);
+        const path = `crm-whatsapp/${leadId}/${randomUUID()}/${safe}`;
+        const put = await uploadObject({ path, body: new Uint8Array(file.data), contentType: file.mime });
+        if (!put.ok) return;
+        await withAppRole((tx) => tx`
+          select app.crm_message_store_media(${messageId}::uuid, ${path}, ${file.data.length})
+        `);
+      } catch (error) {
+        console.error('[whatsapp-webhook] could not keep an attachment:', error);
+      }
+    });
+  }
 
   /* ⚠️ NULL IS ORDINARY, NOT A FAILURE. Somebody messaging the business
      number who is not a lead — a supplier, a wrong number, a colleague — gets

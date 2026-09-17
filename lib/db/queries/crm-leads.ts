@@ -479,6 +479,7 @@ export async function listCrmLeads(
           select m.body, m.occurred_at, m.direction
             from public.crm_lead_messages m
            where m.lead_id = l.id
+             and m.hidden_at is null
            order by m.occurred_at desc, m.id desc
            limit 1
         ) msg on true
@@ -1634,6 +1635,25 @@ export interface CrmMessage {
   readonly channel: string;
   /** ⚠️ Email only. A WhatsApp message has no subject and a CHECK refuses one. */
   readonly subject: string | null;
+  /** Meta's id — what a reply or a reaction points at. Null when it never sent. */
+  readonly waMessageId: string | null;
+  /** The wamid of the message this one replies to (184). */
+  readonly replyToWamid: string | null;
+  readonly ourReaction: string | null;
+  readonly theirReaction: string | null;
+  readonly pinnedAt: string | null;
+  readonly pinnedByName: string | null;
+  /** "Delete for me" — the body is withheld from the screen (184). */
+  readonly hiddenAt: string | null;
+  readonly hiddenByName: string | null;
+  readonly deliveredAt: string | null;
+  readonly readAt: string | null;
+  readonly playedAt: string | null;
+  readonly mediaSize: number | null;
+  readonly mediaVoice: boolean;
+  readonly forwarded: boolean;
+  /** Starred by the person reading — stars are personal. */
+  readonly starred: boolean;
 }
 
 /**
@@ -1678,37 +1698,64 @@ async function readCrmLeadThreads(
   if (ids.length === 0) return out;
   const [rows, names] = await Promise.all([
     tx`
-      select * from (
-        select m.lead_id, m.id, m.direction::text, m.kind::text, m.body,
-               m.media_id, m.media_mime, m.media_filename,
-               m.status::text, m.error_detail, m.occurred_at,
-               m.channel::text, m.subject, m.sent_by_id,
-               row_number() over (partition by m.lead_id order by m.occurred_at asc) as n
-          from public.crm_lead_messages m
-         where m.lead_id = any(${ids as unknown as string[]}::uuid[])
-      ) t
-      where t.n <= 500
-      order by t.lead_id, t.occurred_at asc
+      select t.*, (st.message_id is not null) as starred
+        from (
+          select m.lead_id, m.id, m.direction::text, m.kind::text, m.body,
+                 m.media_id, m.media_mime, m.media_filename, m.media_size, m.media_voice,
+                 m.status::text, m.error_detail, m.occurred_at,
+                 m.channel::text, m.subject, m.sent_by_id, m.wa_message_id, m.reply_to_wamid,
+                 m.our_reaction, m.their_reaction, m.pinned_at, m.pinned_by_id,
+                 m.hidden_at, m.hidden_by_id, m.delivered_at, m.read_at, m.played_at, m.forwarded,
+                 /* ⚠️ THE NEWEST 500, NOT THE OLDEST. This ranked ascending, so a
+                    conversation past 500 messages silently lost its latest ones —
+                    the exact messages somebody opens a chat to read. */
+                 row_number() over (partition by m.lead_id order by m.occurred_at desc, m.id desc) as n
+            from public.crm_lead_messages m
+           where m.lead_id = any(${ids as unknown as string[]}::uuid[])
+        ) t
+        left join public.crm_message_stars st
+          on st.message_id = t.id and st.user_id = (select app.current_user_id())
+       where t.n <= 500
+       order by t.lead_id, t.occurred_at asc, t.id asc
     `,
     namesP,
   ]);
+  const iso = (v: unknown) => (v ? new Date(v as string).toISOString() : null);
   for (const r of rows as Array<Record<string, unknown>>) {
     const lead = String(r.lead_id);
     const list = out.get(lead) ?? [];
+    const hidden = Boolean(r.hidden_at);
     list.push({
       id: String(r.id),
       direction: r.direction === 'inbound' ? 'inbound' : 'outbound',
       channel: String(r.channel ?? 'whatsapp'),
-      subject: (r.subject as string | null) ?? null,
+      subject: hidden ? null : ((r.subject as string | null) ?? null),
       kind: String(r.kind),
-      body: (r.body as string | null) ?? null,
-      mediaId: (r.media_id as string | null) ?? null,
-      mediaMime: (r.media_mime as string | null) ?? null,
-      mediaFilename: (r.media_filename as string | null) ?? null,
+      /* ⚠️ A DELETED MESSAGE'S CONTENT NEVER LEAVES THE SERVER. The row is kept
+         for the record; the screen gets the fact of the deletion and no words. */
+      body: hidden ? null : ((r.body as string | null) ?? null),
+      mediaId: hidden ? null : ((r.media_id as string | null) ?? null),
+      mediaMime: hidden ? null : ((r.media_mime as string | null) ?? null),
+      mediaFilename: hidden ? null : ((r.media_filename as string | null) ?? null),
+      mediaSize: hidden || r.media_size == null ? null : Number(r.media_size),
+      mediaVoice: r.media_voice === true,
       status: (r.status as string | null) ?? null,
       errorDetail: (r.error_detail as string | null) ?? null,
       sentByName: r.sent_by_id ? (names.get(String(r.sent_by_id)) ?? null) : null,
       occurredAt: new Date(r.occurred_at as string).toISOString(),
+      waMessageId: (r.wa_message_id as string | null) ?? null,
+      replyToWamid: (r.reply_to_wamid as string | null) ?? null,
+      ourReaction: hidden ? null : ((r.our_reaction as string | null) ?? null),
+      theirReaction: hidden ? null : ((r.their_reaction as string | null) ?? null),
+      pinnedAt: hidden ? null : iso(r.pinned_at),
+      pinnedByName: r.pinned_by_id ? (names.get(String(r.pinned_by_id)) ?? null) : null,
+      hiddenAt: iso(r.hidden_at),
+      hiddenByName: r.hidden_by_id ? (names.get(String(r.hidden_by_id)) ?? null) : null,
+      deliveredAt: iso(r.delivered_at),
+      readAt: iso(r.read_at),
+      playedAt: iso(r.played_at),
+      forwarded: r.forwarded === true,
+      starred: !hidden && r.starred === true,
     });
     out.set(lead, list);
   }
@@ -1744,7 +1791,11 @@ export async function crmProjectCanWhatsApp(actorId: string, projectId: string):
  * drift out of step with the policy, and no way to probe which ids exist.
  * ========================================================================= */
 export interface CrmMessageMedia {
-  readonly mediaId: string;
+  readonly messageId: string;
+  readonly leadId: string;
+  readonly mediaId: string | null;
+  /** Our stored copy (184) — served from storage when present. */
+  readonly path: string | null;
   readonly mime: string | null;
   readonly filename: string | null;
   readonly projectId: string;
@@ -1755,16 +1806,20 @@ export async function crmMessageMedia(
   messageId: string,
 ): Promise<CrmMessageMedia | null> {
   const rows = await withUser(actorId, (tx) => tx`
-    select m.media_id, m.media_mime, m.media_filename, l.project_id
+    select m.id, m.lead_id, m.media_id, m.media_path, m.media_mime, m.media_filename, l.project_id
       from public.crm_lead_messages m
       join public.crm_leads l on l.id = m.lead_id
      where m.id = ${messageId}::uuid
-       and m.media_id is not null
+       and (m.media_id is not null or m.media_path is not null)
+       and m.hidden_at is null
   `);
   const row = (rows as Array<Record<string, unknown>>)[0];
   if (!row) return null;
   return {
-    mediaId: String(row.media_id),
+    messageId: String(row.id),
+    leadId: String(row.lead_id),
+    path: (row.media_path as string | null) ?? null,
+    mediaId: (row.media_id as string | null) ?? null,
     mime: (row.media_mime as string | null) ?? null,
     filename: (row.media_filename as string | null) ?? null,
     projectId: String(row.project_id),

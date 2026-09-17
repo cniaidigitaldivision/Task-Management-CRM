@@ -104,6 +104,22 @@ export interface SendResult {
   readonly error?: string;
 }
 
+/**
+ * The token and API version alone — enough to DOWNLOAD media, which is not tied
+ * to a phone number. The webhook has no project in hand when it saves an
+ * attachment, and does not need one.
+ */
+export function mediaReader(): WhatsAppConfig | null {
+  const token = process.env.META_SYSTEM_USER_TOKEN?.trim();
+  if (!token) return null;
+  return { phoneNumberId: '', token, apiVersion: process.env.META_API_VERSION?.trim() || 'v26.0' };
+}
+
+/* ⚠️ A REPLY IS `context.message_id` ON ANY MESSAGE TYPE — text, media, voice.
+   The client's phone then draws the quoted message above ours. */
+const withContext = (body: Record<string, unknown>, replyTo?: string | null) =>
+  replyTo ? { ...body, context: { message_id: replyTo } } : body;
+
 async function post(
   config: WhatsAppConfig,
   body: Record<string, unknown>,
@@ -149,13 +165,33 @@ export async function sendText(
   config: WhatsAppConfig,
   toE164: string,
   body: string,
+  replyTo?: string | null,
 ): Promise<SendResult> {
-  return post(config, {
+  return post(config, withContext({
     /* ⚠️ Meta wants the number WITHOUT the leading plus. Sending it with one is
        accepted and then delivers to nobody, which is the worst of both. */
     to: toE164.replace(/^\+/, ''),
     type: 'text',
     text: { body, preview_url: true },
+  }, replyTo));
+}
+
+/**
+ * React to a message, or remove our reaction with `null`.
+ *
+ * ⚠️ ONLY MESSAGES UNDER 30 DAYS OLD (Meta error 131009 otherwise), and never a
+ * message that has no wamid — one that failed to send never reached the phone.
+ */
+export async function sendReaction(
+  config: WhatsAppConfig,
+  toE164: string,
+  targetWamid: string,
+  emoji: string | null,
+): Promise<SendResult> {
+  return post(config, {
+    to: toE164.replace(/^\+/, ''),
+    type: 'reaction',
+    reaction: { message_id: targetWamid, emoji: emoji ?? '' },
   });
 }
 
@@ -318,6 +354,7 @@ export async function sendMedia(
   toE164: string,
   file: { data: Buffer; mime: string; filename: string },
   caption: string | null,
+  options: { replyTo?: string | null; voice?: boolean; asDocument?: boolean } = {},
 ): Promise<SendResult> {
   const form = new FormData();
   form.append('messaging_product', 'whatsapp');
@@ -350,27 +387,38 @@ export async function sendMedia(
   /* ⚠️ WHICH MESSAGE TYPE IS DECIDED BY THE MIME, not by the sender. An image
      sent as a document arrives as a file to download rather than a picture to
      look at, and a document sent as an image is refused outright. */
-  const type = file.mime.startsWith('image/')
-    ? 'image'
-    : file.mime.startsWith('video/')
-      ? 'video'
-      : file.mime.startsWith('audio/')
-        ? 'audio'
-        : 'document';
+  const type = options.asDocument ? 'document' : whatsAppMediaType(file.mime);
 
   const media: Record<string, unknown> = { id: uploaded.id };
   if (caption && type !== 'audio') media.caption = caption;
   /* Only a document carries a filename; WhatsApp shows it under the icon. */
   if (type === 'document') media.filename = file.filename;
+  /* ⚠️ A VOICE NOTE, with the waveform and the microphone — OGG/OPUS only. */
+  if (type === 'audio' && options.voice) media.voice = true;
 
-  const sent = await post(config, {
+  const sent = await post(config, withContext({
     to: toE164.replace(/^\+/, ''),
     type,
     [type]: media,
-  });
+  }, options.replyTo));
   /* The upload id travels back with the result — it is what the media route
      re-fetches from, and it is not recoverable from the wamid. */
   return sent.ok ? { ...sent, mediaId: uploaded.id } : sent;
+}
+
+/**
+ * Which WhatsApp message type a file travels as.
+ *
+ * ⚠️ BY META'S OWN WHITELIST, NOT BY THE MIME'S FIRST HALF. WhatsApp shows only
+ * jpeg/png as a picture and only mp4/3gpp as a video; a WebP, HEIC or MOV sent as
+ * `image`/`video` is refused. Anything else still arrives — as a document.
+ */
+export function whatsAppMediaType(mime: string): 'image' | 'video' | 'audio' | 'document' {
+  const m = mime.split(';')[0].trim().toLowerCase();
+  if (m === 'image/jpeg' || m === 'image/png') return 'image';
+  if (m === 'video/mp4' || m === 'video/3gpp') return 'video';
+  if (['audio/aac', 'audio/amr', 'audio/mpeg', 'audio/mp4', 'audio/ogg'].includes(m)) return 'audio';
+  return 'document';
 }
 
 /**

@@ -639,6 +639,8 @@ export function LeadDrawer({
                   : null
               }
               leadName={lead.fullName ?? 'This lead'}
+              viewerName={viewerName}
+              projectName={lead.projectName}
               onReviewFollowUp={() => go('followups')}
             />
           )}

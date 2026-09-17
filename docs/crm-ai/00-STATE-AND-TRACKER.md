@@ -6,12 +6,34 @@ is the only file in this folder that changes every session, and it is maintained
 
 | | |
 |---|---|
-| **Status** | 📋 **PLANNED — with ONE piece built at the owner's request:** the conversation summary (migration 180, 2026-09-17). No agent, no auto-sending, nothing that talks to a client. |
+| **Status** | 📋 **PLANNED — with TWO pieces built at the owner's request:** the conversation summary (migration 180) and **Ask AI** on a client's message (2026-09-17). No agent, no auto-sending, nothing that talks to a client. |
 | **Where this sits** | `docs/crm-ai/` — deliberately outside `docs/crm/`, and now listed in `docs/00-INDEX.md` |
 | **Tier reached** | **Tier 0 not started** — that is Phase G of the CRM's own build order |
 | **Blocked on** | The CRM working with humans first. See below |
 | **Opened** | 2026-09-16, at the owner's request, as a folder deliberately separate from `docs/crm/` |
 | **Last updated** | 2026-09-17 |
+
+---
+
+## ✨ 2026-09-17 (night) — ASK AI ON A MESSAGE
+
+The owner listed WhatsApp's *"ask Meta AI"* among the message menu's options. Meta
+AI has no API; the CRM's version answers what a salesperson wants from it on a
+client's message: **what does this mean, and what do I say back.**
+
+- `lib/ai/reply-suggestion.ts`, `gpt-4o`, JSON: `meaning` (English, only when the
+  client did not write English) and `reply` (≤ 400 chars, in the client's own
+  language and script — English, Urdu or Roman Urdu).
+- Brief: project, client name, stage, the last 30 messages, the target message.
+- ⚠️ **A draft, never a send.** "Use this reply" puts it in the composer.
+- ⚠️ **It promises nothing.** No price, discount, date, availability or term not
+  already in the chat. First live run **invented a payment plan** ("initial
+  deposit followed by monthly instalments"); a rule was added forbidding any
+  description of a product, plan or process the conversation does not contain.
+  Re-run: it offered to confirm and come back instead.
+
+This is still inside the guardrails of `05-GUARDRAILS.md`: a person reads,
+edits and presses send. It is not Tier 0 — nothing runs without a click.
 
 ---
 

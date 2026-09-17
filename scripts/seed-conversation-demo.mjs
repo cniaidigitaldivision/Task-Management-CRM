@@ -72,6 +72,25 @@ try {
   const now = Date.now();
   const at = (hoursAgo) => new Date(now - hoursAgo * 3600_000).toISOString();
 
+  /* ── The media the WhatsApp view shows — real files, in the private bucket ──
+     A voice note recorded and converted in Chrome (the same path the app uses),
+     a brochure image and a payment-plan PDF, from scripts/demo-media. */
+  const BUCKET = env.SUPABASE_STORAGE_BUCKET || 'CNI-Task Management Docs';
+  const store = async (name, mime) => {
+    const path = `crm-whatsapp/${lead.id}/seed-demo/${name}`;
+    const body = fs.readFileSync(`scripts/demo-media/${name}`);
+    const res = await fetch(
+      `${env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/${encodeURIComponent(BUCKET)}/${path.split('/').map(encodeURIComponent).join('/')}`,
+      { method: 'POST', headers: { authorization: `Bearer ${env.SUPABASE_STORAGE_KEY}`, apikey: env.SUPABASE_STORAGE_KEY, 'content-type': mime, 'x-upsert': 'true' }, body },
+    );
+    if (!res.ok) throw new Error(`could not store ${name}: ${res.status} ${await res.text()}`);
+    return { path, size: body.length };
+  };
+  const brochure = await store('brochure.png', 'image/png');
+  const plan = await store('payment-plan.pdf', 'application/pdf');
+  const voice = await store('voice.ogg', 'audio/ogg');
+
+  const w = (n) => `wamid.seed-demo-${n}`;
   const thread = [
     {
       channel: 'email', direction: 'outbound', status: 'sent',
@@ -82,36 +101,57 @@ try {
       media_filename: `${number}_Chitral Royal Homes.pdf`,
       hours: 122,
     },
-    {
-      channel: 'whatsapp', direction: 'inbound', status: 'delivered',
-      body: 'Can you explain the payment plan?', hours: 121,
-    },
-    {
-      channel: 'whatsapp', direction: 'outbound', status: 'read',
-      body: 'Of course. I can walk you through it.', hours: 120.5,
-    },
-    {
-      channel: 'whatsapp', direction: 'inbound', status: 'delivered',
-      body: 'Please contact me tomorrow morning.', hours: 2,
-    },
+    { channel: 'whatsapp', direction: 'inbound', status: 'delivered', wamid: w(1),
+      body: 'Can you explain the payment plan?', hours: 121 },
+    { channel: 'whatsapp', direction: 'outbound', status: 'read', wamid: w(2), reply: w(1),
+      body: 'Of course. I can walk you through it.', hours: 120.5 },
+    { channel: 'whatsapp', direction: 'outbound', status: 'read', wamid: w(3), kind: 'image',
+      body: '5 Marla plot — Block A, A-101', media: brochure, mime: 'image/png', filename: 'brochure.png',
+      their_reaction: '👍', hours: 120.4 },
+    { channel: 'whatsapp', direction: 'outbound', status: 'delivered', wamid: w(4), kind: 'document',
+      body: null, media: plan, mime: 'application/pdf', filename: 'Payment plan — 5 Marla.pdf',
+      pinned: true, hours: 120.3 },
+    { channel: 'whatsapp', direction: 'inbound', status: 'delivered', wamid: w(5), kind: 'audio',
+      body: null, media: voice, mime: 'audio/ogg', filename: null, voice: true, our_reaction: '🙏', hours: 26 },
+    { channel: 'whatsapp', direction: 'outbound', status: 'read', wamid: w(6),
+      body: 'The down payment is 20%, and the balance can be paid over 24 months.', hours: 25.5, hidden: true },
+    { channel: 'whatsapp', direction: 'inbound', status: 'delivered', wamid: w(7),
+      body: 'Please contact me tomorrow morning.', hours: 2 },
+    { channel: 'whatsapp', direction: 'outbound', status: 'read', wamid: w(8), reply: w(7),
+      body: 'Sure — I will call you at 10 AM. Please keep the payment plan handy.', hours: 1.9, starred: true },
   ];
 
   for (const m of thread) {
-    await sql`
+    const sentAt = at(m.hours);
+    const [row] = await sql`
       insert into public.crm_lead_messages
-        (lead_id, channel, direction, kind, subject, body, media_filename,
+        (lead_id, channel, direction, kind, subject, body, media_filename, media_mime, media_path, media_size, media_voice,
+         wa_message_id, reply_to_wamid, their_reaction, their_reaction_at, our_reaction, our_reaction_by_id,
+         pinned_at, pinned_by_id, hidden_at, hidden_by_id, delivered_at, read_at,
          status, sent_by_id, occurred_at, error_detail)
         -- The marker rides in error_detail, which is null on every real message
         -- and is what makes a re-run idempotent.
       values (${lead.id}, ${m.channel}::public.crm_message_channel,
-              ${m.direction}::public.crm_message_direction, 'text',
-              ${m.subject ?? null}, ${m.body}, ${m.media_filename ?? null},
+              ${m.direction}::public.crm_message_direction, ${m.kind ?? 'text'}::public.crm_message_kind,
+              ${m.subject ?? null}, ${m.body}, ${m.filename ?? m.media_filename ?? null}, ${m.mime ?? null},
+              ${m.media?.path ?? null}, ${m.media?.size ?? null}, ${m.voice ?? false},
+              ${m.wamid ?? null}, ${m.reply ?? null},
+              ${m.their_reaction ?? null}, ${m.their_reaction ? sentAt : null},
+              ${m.our_reaction ?? null}, ${m.our_reaction ? lead.owner_id : null},
+              ${m.pinned ? sentAt : null}, ${m.pinned ? lead.owner_id : null},
+              ${m.hidden ? at(m.hours - 0.05) : null}, ${m.hidden ? lead.owner_id : null},
+              ${m.direction === 'outbound' && m.status !== 'sent' ? at(m.hours - 0.01) : null},
+              ${m.direction === 'outbound' && m.status === 'read' ? at(m.hours - 0.2) : null},
               ${m.status}::public.crm_message_status,
               ${m.direction === 'outbound' ? lead.owner_id : null},
-              ${at(m.hours)}::timestamptz,
-              ${MARK})`;
+              ${sentAt}::timestamptz,
+              ${MARK})
+      returning id`;
+    if (m.starred) {
+      await sql`insert into public.crm_message_stars (message_id, user_id) values (${row.id}, ${lead.owner_id}) on conflict do nothing`;
+    }
   }
-  say(`wrote ${thread.length} messages — one email with an attachment, three on WhatsApp`);
+  say(`wrote ${thread.length} messages — an email, a photo, a pinned PDF, a voice note, a reply, reactions, a star and a deleted message`);
 
   /* ── A paused chase, so the banner has something true to say ─────────── */
   await sql`delete from public.crm_lead_sequences where lead_id = ${lead.id}`;
@@ -161,12 +201,12 @@ try {
   /* ── Who the replies come from ───────────────────────────────────────── */
   await sql`
     insert into public.crm_project_settings (project_id, whatsapp_display_name, whatsapp_display_number)
-    values (${project.id}, 'CNI AI & Digital', '+923001238726')
+    values (${project.id}, 'CNI AI & Digital Division', '+923001238726')
     on conflict (project_id) do update
       set whatsapp_display_name = excluded.whatsapp_display_name,
           whatsapp_display_number = excluded.whatsapp_display_number,
           updated_at = now()`;
-  say('the composer now names CNI AI & Digital · +92 300 123 8726');
+  say('the composer now names CNI AI & Digital Division · +92 300 123 8726');
 
   /* ── A next action, so the strip is not all dashes ───────────────────── */
   await sql`
