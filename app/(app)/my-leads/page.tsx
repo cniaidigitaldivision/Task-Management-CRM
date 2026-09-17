@@ -89,9 +89,12 @@ export default async function MyLeadsPage({
   const projectId = params.project && params.project !== 'all' ? params.project : null;
 
   /* ── The drawer ────────────────────────────────────────────────────────
-     ⚠️ FETCHED ON THE SERVER, BESIDE THE LIST, NOT INSIDE THE PANEL. A client
-     fetch on open would blank the drawer for a round trip to Singapore every
-     time somebody clicked a row.
+     ⚠️ ONLY FOR A LINK THAT ARRIVES WITH `?lead=` ALREADY IN IT — a refresh, a
+     pasted URL, a new tab. Clicking a row no longer comes through here at all:
+     since 2026-09-17 the desk loads every visible row's drawer in the background
+     (`leadBundlesAction`) and writes the URL with `history.replaceState`, so a
+     click never re-runs this render. Before that, every open, close and tab
+     switch did, and the owner felt each one.
 
      ⚠️ AND `getCrmLead` RETURNS NULL FOR "NOT YOURS" AND FOR "NO SUCH LEAD",
      deliberately and identically. A drawer that behaved differently for the two

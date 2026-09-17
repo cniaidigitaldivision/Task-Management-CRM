@@ -3,7 +3,6 @@
 import * as React from 'react';
 import type { Route } from 'next';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
 import {
   CalendarClock,
   ExternalLink,
@@ -28,6 +27,7 @@ import type {
   CrmLeadNote,
   CrmLeadRecord,
   CrmLeadRelated,
+  CrmConversationSummary,
   CrmLeadRow,
   CrmMessage,
 } from '@/lib/db/queries/crm-leads';
@@ -45,11 +45,13 @@ import {
   appointmentStatusToken,
 } from '@/lib/domain/crm-appointments';
 import { displayPhone } from '@/lib/domain/phone';
-import { LeadConversationTab } from '@/components/crm/lead-conversation-tab';
+import {
+  LeadConversationTab,
+  useConversationSummary,
+} from '@/components/crm/lead-conversation-tab';
 import { LeadOverviewTab } from '@/components/crm/lead-overview-tab';
 import { relativeAge } from '@/lib/view/relative-age';
 import { cn } from '@/lib/utils';
-import { useSoftNavigate } from './use-panel';
 
 /* ============================================================================
  * THE LEAD DRAWER — the record, over the list
@@ -105,6 +107,10 @@ export const TABS: ReadonlyArray<{ key: Tab; label: string }> = [
  * design. Two components promising to look identical will drift the first time
  * somebody changes one. One component cannot.
  * ========================================================================= */
+
+/** One header control: 32px, the drawer's rhythm, whatever it opens. */
+const TILE =
+  'grid size-8 place-items-center rounded-lg border border-border-default text-text-primary transition-colors hover:bg-bg-subtle';
 
 /** The clicked row, as a record — for the frames before the server answers. */
 export function leadFromRow(row: CrmLeadRow): CrmLeadRecord {
@@ -203,6 +209,7 @@ export function LeadDrawer({
   onRaiseQuotation,
   onChooseUnit,
   loading = false,
+  onSummary,
 }: {
   lead: CrmLeadRecord;
   notes: readonly CrmLeadNote[];
@@ -222,10 +229,10 @@ export function LeadDrawer({
   onChooseUnit: () => void;
   /** Drawn from the clicked row; the record is on its way. See `leadFromRow`. */
   loading?: boolean;
+  /** A summary was just written — the desk keeps it with this lead's drawer. */
+  onSummary?: (leadId: string, summary: CrmConversationSummary) => void;
 }) {
-  const search = useSearchParams();
   const panel = React.useRef<HTMLDivElement>(null);
-  const soft = useSoftNavigate();
 
   /* ⚠️ THE PARENT OWNS WHETHER THIS IS ON SCREEN — it is a client component with
      the row already in hand, so the panel goes at the click rather than after a
@@ -259,12 +266,10 @@ export function LeadDrawer({
      thing, and the swap between them is invisible. */
   const activeTab = tab;
 
-  const go = (t: Tab) => {
-    onTab(t);
-    const next = new URLSearchParams(search.toString());
-    next.set('tab', t);
-    soft(`/my-leads?${next.toString()}`);
-  };
+  /* ⚠️ A TAB IS CLIENT STATE. The desk records it in the URL with
+     `history.replaceState`; this used to route through the server and re-render
+     the whole page for every tab clicked inside an open drawer. */
+  const go = (t: Tab) => onTab(t);
 
   /* Focus starts inside. Escape is handled by `usePanel`, on the instant path. */
   React.useEffect(() => {
@@ -272,6 +277,21 @@ export function LeadDrawer({
   }, []);
 
   const phone = displayPhone(lead.phoneE164, lead.phone);
+
+  /* The summary is written from here, not from inside the tab — see the hook. */
+  const reportSummary = React.useCallback(
+    (summary: CrmConversationSummary) => onSummary?.(lead.id, summary),
+    [onSummary, lead.id],
+  );
+  const conversationSummary = useConversationSummary({
+    leadId: lead.id,
+    messages,
+    noteCount: notes.length,
+    stored: related.summary,
+    loading,
+    eager: activeTab === 'conversations',
+    onSummary: reportSummary,
+  });
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [savingStage, setSavingStage] = React.useState(false);
   const [, startStage] = React.useTransition();
@@ -306,16 +326,11 @@ export function LeadDrawer({
         aria-modal="true"
         aria-label={`${lead.fullName ?? 'Lead'} — details`}
         tabIndex={-1}
-        /* ⚠️ 42rem. Owner, 2026-09-17: *"our drawer width is too much, so reduce
-           it so it will look good and exactly the same as in the screenshot."*
-           The reference drawer is about 610px ON SCREEN.
-
-           ⚠️ ON SCREEN IS NOT CSS PIXELS HERE. `body` carries `zoom: 0.9` (the
-           density scale in tokens.css), so 42rem is 672px of layout and 605px
-           of glass. 40rem was tried first and measured 576 — visibly narrower
-           than the reference. The old 46rem was 662px on screen. */
+        /* ⚠️ 38rem — 547px on screen under the 0.9 zoom. Owner, 2026-09-17, twice:
+           46rem (662px) and then 42rem (605px) were both *"too much"*. The Overview's
+           two columns still fit side by side here at about 270px each. */
           aria-busy={loading}
-          className="relative flex h-full w-full max-w-[42rem] flex-col border-l border-border-default bg-bg-surface shadow-2xl outline-none"
+          className="relative flex h-full w-full max-w-[38rem] flex-col border-l border-border-default bg-bg-surface shadow-2xl outline-none"
       >
         {/* ── Header ────────────────────────────────────── */}
         <div className="shrink-0 border-b border-border-subtle px-5 py-4">
@@ -376,28 +391,24 @@ export function LeadDrawer({
               </div>
             </div>
 
-            {/* ⚠️ THE CHANNELS AS SQUARE TILES, AND THE MARKS BIG ENOUGH TO READ.
-                Owner, 2026-09-17: *"The WhatsApp icon is very small. Make it
-                prominent, and still the email icon is missing, so please add it."*
-                The reference draws phone, WhatsApp and email as three equal 40px
-                tiles; ours were 36px circles holding 16px glyphs.
+            {/* ⚠️ FOUR EQUAL TILES IN THE DRAWER'S OWN RHYTHM. Owner, 2026-09-17: *"those
+                icons are out of rhythm with this drawer, so make them all equally a
+                little small."* The previous pass made them 40px with a 24px WhatsApp
+                mark in a green-filled box — louder than the name beside them. Now
+                every tile, the menu and the close button share one 32px square and
+                a 16px glyph; the channel is carried by the glyph's colour alone.
 
-                ⚠️ EMAIL IS ALWAYS THERE NOW, and that reverses a rule this file
-                used to state — "absent when it cannot work". The owner has asked
-                twice, and they are right that the row of tiles is a map of the
-                channels a lead HAS: a missing tile reads as a missing feature,
-                whereas a tile that says "no address yet" is information. So with
-                no address it is shown, quieter, and says why on hover rather than
-                pretending to be clickable. */}
-            <div className="flex shrink-0 items-center gap-2">
+                ⚠️ EMAIL IS ALWAYS PRESENT, at the owner's repeated request — quieter
+                with no address, and it says why on hover. */}
+            <div className="flex shrink-0 items-center gap-1.5">
               {lead.phoneE164 && (
                 <a
                   href={`tel:${lead.phoneE164}`}
                   aria-label="Call"
                   title="Call"
-                  className="grid size-10 place-items-center rounded-xl border border-border-default text-text-primary transition-colors hover:bg-bg-subtle"
+                  className={TILE}
                 >
-                  <Phone className="size-5" aria-hidden="true" />
+                  <Phone className="size-4" aria-hidden="true" />
                 </a>
               )}
               {lead.phoneE164 && (
@@ -406,17 +417,10 @@ export function LeadDrawer({
                   onClick={() => go('conversations')}
                   aria-label="Open the WhatsApp thread"
                   title="WhatsApp"
-                  className="grid size-10 place-items-center rounded-xl border transition-colors hover:brightness-95"
-                  /* ⚠️ TINTED IN ITS OWN GREEN, which is what makes it the tile the
-                     eye finds first — it is the channel nearly every one of these
-                     leads is actually reached on. */
-                  style={{
-                    color: WA_GREEN,
-                    borderColor: `color-mix(in oklab, ${WA_GREEN} 45%, transparent)`,
-                    background: `color-mix(in oklab, ${WA_GREEN} 10%, var(--bg-surface))`,
-                  }}
+                  className={TILE}
+                  style={{ color: WA_GREEN }}
                 >
-                  <WhatsAppMark className="size-6" />
+                  <WhatsAppMark className="size-4" />
                 </button>
               )}
               {lead.email ? (
@@ -424,20 +428,20 @@ export function LeadDrawer({
                   href={`mailto:${lead.email}`}
                   aria-label={`Email ${lead.email}`}
                   title={lead.email}
-                  className="grid size-10 place-items-center rounded-xl border border-border-default transition-colors hover:bg-bg-subtle"
+                  className={TILE}
                   style={{ color: MAIL_BLUE }}
                 >
-                  <Mail className="size-5" aria-hidden="true" />
+                  <Mail className="size-4" aria-hidden="true" />
                 </a>
               ) : (
                 <span
                   role="img"
                   aria-label="No email address on this lead yet"
                   title="No email address on this lead yet"
-                  className="grid size-10 cursor-not-allowed place-items-center rounded-xl border border-dashed border-border-default"
+                  className={cn(TILE, 'cursor-not-allowed border-dashed hover:bg-transparent')}
                   style={{ color: `color-mix(in oklab, ${MAIL_BLUE} 45%, transparent)` }}
                 >
-                  <Mail className="size-5" aria-hidden="true" />
+                  <Mail className="size-4" aria-hidden="true" />
                 </span>
               )}
 
@@ -452,9 +456,9 @@ export function LeadDrawer({
                   onClick={() => setMenuOpen((v) => !v)}
                   aria-label="More"
                   aria-expanded={menuOpen}
-                  className="grid size-10 place-items-center rounded-xl border border-border-default text-text-secondary transition-colors hover:text-text-primary"
+                  className={cn(TILE, 'text-text-secondary hover:text-text-primary')}
                 >
-                  <MoreVertical className="size-5" aria-hidden="true" />
+                  <MoreVertical className="size-4" aria-hidden="true" />
                 </button>
                 {menuOpen && (
                   <div className="absolute right-0 z-20 mt-1 w-48 overflow-hidden rounded-xl border border-border-default bg-bg-surface py-1 shadow-lg">
@@ -484,7 +488,7 @@ export function LeadDrawer({
                 type="button"
                 onClick={close}
                 aria-label="Close"
-                className="grid size-9 place-items-center rounded-full text-text-secondary transition-colors hover:bg-bg-subtle hover:text-text-primary"
+                className="grid size-8 place-items-center rounded-lg text-text-secondary transition-colors hover:bg-bg-subtle hover:text-text-primary"
               >
                 <X className="size-4" />
               </button>
@@ -558,7 +562,7 @@ export function LeadDrawer({
                       style={{ color: PAUSED_ORANGE }}
                       aria-hidden="true"
                     />
-                    <span className="truncate">Paused after reply</span>
+                    <span className="leading-tight">Paused after reply</span>
                   </>
                 ) : lead.nextActionAt ? (
                   <span className="truncate">
@@ -618,7 +622,7 @@ export function LeadDrawer({
                  rows the Overview tab's notes card does, so the two can never
                  disagree about what was said. */
               notes={notes}
-              summary={related.summary}
+              summary={conversationSummary}
               loading={loading}
               sender={related.sender}
               /* ⚠️ THE ENGINE'S OWN REASON (170), not a sentence guessed here.

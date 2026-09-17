@@ -9,7 +9,94 @@
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
 | **Last updated** | **2026-09-17** |
-| **Last migration applied anywhere** | **180** (applied 2026-09-17, self-check green as `cni_app` across all 16 active users). CRM next: **181.** |
+| **Last migration applied anywhere** | **181** (applied 2026-09-17; owner names identical for all 16 active users, 966 ms → 0.87 ms). CRM next: **182.** |
+
+---
+
+## ⚡ 2026-09-17 (night) — THE DRAWER STOPS WAITING · 181
+
+> *"When I click on some row it is sending a query to fetch that specific data…
+> If this table is loaded then all relevant data should be loaded… How can I
+> manage 2,000, 3,000 leads a day with this type of lazy system?"* And: *"the AI
+> summary is loading, loading, loading but nothing is displayed."*
+
+Five separate causes, each measured before it was touched.
+
+### 1 · One function was most of every drawer — migration 181
+
+Every drawer statement, profiled as Sahad: 0.06–3.3 ms each — except
+**`app.crm_lead_owners()` at 966 ms**, called three times per drawer and on every
+list render. It re-asked `crm_manages_project(l.project_id)` per lead: Law 5's
+exact anti-pattern, in the one reader 164/165 never converted. Rewritten in 165's
+InitPlan form → **0.87 ms**; the migration refuses to commit unless every active
+user's answer is identical before and after (all 16 were).
+
+### 2 · Every click re-ran the whole page on the server
+
+Open, close and every tab inside the drawer called `router.replace`, which on this
+dynamic route re-runs every query on the page. Now `history.replaceState`, which
+this Next version syncs with `useSearchParams`. **Verified in the running app:
+tab switch and close each drew in under 30 ms with zero `_rsc` requests.** The
+Add Lead dialog's URL moved the same way.
+
+### 3 · A row's drawer was fetched only after the click — now before
+
+`crmLeadBundles` + `leadBundlesAction`: once the table paints, one background
+request loads record, thread and related rows for **every visible row**. A click
+reads from memory. ⚠️ First version batched the existing per-lead readers inside
+one transaction and measured **49.5 s for 10 leads** — a transaction is one
+connection and runs statements in series. Rewritten set-based (`= any(ids)`,
+lateral joins for the definer readers): **13 statements for the whole page, 2.4 s
+from Karachi for 10 leads, flat in N** (~50–100 ms co-located). The single-lead
+functions are thin wrappers over the same code, so there is one copy of every
+query.
+
+⚠️ **Proved against the old readers**, not assumed: their output was snapshotted
+for 40 drawers across 5 people (Sahad, Sarah, the sales manager tester, two
+admins) and diffed field by field — **0 real differences**; 2 drawers listed
+same-instant activity events in a different tie order, which the definer never
+guaranteed. RLS: a lead Sahad cannot see is absent from his batch (tested).
+
+Freshness: whichever copy was read later wins — the background answer's server
+`at` or the page render's `nowMs` — so a fetch that left before a save cannot
+paint over it; after any server render the open lead is re-read; a held drawer
+older than 60 s refreshes quietly on open; a failed load retries three times with
+backoff and stops. ⚠️ Caught by reading the code, not the linter: the first merge
+returned a new object even when nothing changed, which would have re-requested
+a failing row every 50 ms forever.
+
+### 4 · The summary spinner that never stopped
+
+The request was scheduled in an effect that marked "already asked" BEFORE its
+timer fired and cleared the timer on cleanup. React runs effects twice in
+development: run one marked it, cleanup cancelled the call, run two saw "asked"
+and did nothing. No `finally` either. **Verified in the running app with the
+stored summary deleted: it appears.** It is now owned by the drawer and starts
+after ~1.2 s open on any tab (immediately on Conversations), so reading the
+Overview first means it is normally ready. Measured: model 2.4–4.1 s, reads ~50 ms
+in production. Kept with the lead's drawer afterwards.
+
+### 5 · "It brings me to the document page"
+
+Not an accidental click: **the lead's name linked to `/leads/[id]`**, the separate
+full-record page — the one part of a row that left the page, and the part people
+click first; before hydration it could not be intercepted at all. Its address is
+now this page with the drawer open (`preventDefault` on a plain click; Ctrl/Cmd
+still opens a tab). The row's WhatsApp tile had the same link and the same fix.
+The full record stays in the drawer's ⋮ menu.
+
+### And the two visual points
+
+- **Width 38rem = 547 px on screen** (after 46 → 42 were both "too much").
+- **Header controls: four equal 32 px tiles, 16 px glyphs**, channel shown by the
+  glyph's colour only; close button in the same square.
+
+### Checked
+`tsc` · `eslint` · `vitest` 3262 · `next build`. Live in the dev app as the owner
+(deep link — the owner's admin account has no rows on `/my-leads`): drawer, tab
+switch, close, stored summary, fresh summary. ⚠️ **Not clicked live: a row click
+on the table**, which needs a salesperson session — the batch it reads from was
+tested as Sahad against the real database.
 
 ---
 
@@ -92,7 +179,7 @@ four things only the live runs caught: `docs/crm-ai/00-STATE-AND-TRACKER.md`.
 summary equals sight of the lead; the 12 who cannot see the test lead could not
 rewrite its summary. Fails rather than skips if no fixture exists.
 
-### ⚠️ Found, not fixed — needs its own measurement
+### ✅ Measured the same night — NOT a problem (a page of 25: 36–70 ms server-side for every role, including the manager who sees all 671; the definers run only for the rows on the page. The 2.1 s below was all 671 rows at once, which the page never asks for)
 
 `listCrmLeads` calls `app.crm_project_name()` and `app.crm_project_can_whatsapp()`
 per row in the select list: **~2.1s over 671 leads** as the owner role. Whether

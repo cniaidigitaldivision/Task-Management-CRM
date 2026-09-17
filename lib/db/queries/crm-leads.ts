@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { withUser } from '../client';
+import { withUser, type Tx } from '../client';
 import { needsApproval, netAmount, nextQuotationNumber } from '@/lib/domain/crm-quotations';
 
 /* ============================================================================
@@ -664,8 +664,46 @@ export async function getCrmLead(
     return null;
   }
 
-  return withUser(actorId, async (tx) => {
-    const found = await tx`
+  return withUser(actorId, async (tx) =>
+    (await readCrmLeads(tx, [leadId], readOwnerNames(tx))).get(leadId) ?? null,
+  );
+}
+
+/** The owners' names, once per transaction — 121's reader, made fast by 181. */
+type OwnerNames = Map<string, string>;
+
+async function readOwnerNames(tx: Tx): Promise<OwnerNames> {
+  const rows = await tx`select id, full_name from app.crm_lead_owners()`;
+  const names: OwnerNames = new Map();
+  for (const o of rows as Array<Record<string, unknown>>) {
+    names.set(String(o.id), String(o.full_name ?? 'Unnamed'));
+  }
+  return names;
+}
+
+/**
+ * Several leads' records in FIVE queries, however many leads.
+ *
+ * ⚠️ SET-BASED, AND THAT IS THE WHOLE POINT. The per-lead version ran five
+ * queries per lead; inside one transaction they run one after another on one
+ * connection, so ten leads were fifty round trips. Here every table is read once
+ * with `= any(ids)` and the rows are sorted into leads in memory.
+ *
+ * Notes and activity still go through their definer readers (they exist because
+ * a salesperson cannot join `users`), called once per lead SERVER-SIDE through a
+ * lateral join — one round trip, not one per lead.
+ */
+async function readCrmLeads(
+  tx: Tx,
+  ids: readonly string[],
+  namesP: Promise<OwnerNames>,
+): Promise<Map<string, CrmLeadFull>> {
+  const out = new Map<string, CrmLeadFull>();
+  if (ids.length === 0) return out;
+  const idList = ids as unknown as string[];
+
+  const [found, noteRows, activityRows, siblingRows, names] = await Promise.all([
+    tx`
       select l.id, l.project_id,
              /* A DEFINER READER, NOT A JOIN - migration 130. projects_select
                 needs project MEMBERSHIP and a salesperson is not a member of
@@ -706,57 +744,70 @@ export async function getCrmLead(
         from public.crm_leads l
         left join public.crm_lead_forms f on f.id = l.form_id
         left join public.crm_campaigns  c on c.id = l.campaign_id
-       where l.id = ${leadId}::uuid
-       limit 1
-    `;
+       where l.id = any(${idList}::uuid[])
+    `,
+    tx`
+      select x.lead_id, n.*
+        from unnest(${idList}::uuid[]) with ordinality as x(lead_id, ord)
+        cross join lateral app.crm_lead_notes_with_authors(x.lead_id) with ordinality as n
+       order by x.ord, n.ordinality
+    `,
+    tx`
+      select x.lead_id, a.*
+        from unnest(${idList}::uuid[]) with ordinality as x(lead_id, ord)
+        cross join lateral app.crm_lead_activity_with_actors(x.lead_id) with ordinality as a
+       order by x.ord, a.ordinality
+    `,
+    /* THE SAME PERSON, ENQUIRING TWICE — matched on phone_e164, never the raw
+       phone. RLS applies, exactly as it did per lead: a sales member sees only
+       the sibling leads assigned to them, so the screen never prints a count. */
+    tx`
+      select l.id, l.phone_e164, l.submitted_at, l.stage::text,
+             app.crm_project_name(l.project_id) as project_name,
+             f.name as form_name
+        from public.crm_leads l
+        left join public.crm_lead_forms f on f.id = l.form_id
+       where l.phone_e164 in (
+               select s.phone_e164 from public.crm_leads s
+                where s.id = any(${idList}::uuid[]) and s.phone_e164 is not null)
+       order by l.submitted_at desc
+    `,
+    namesP,
+  ]);
 
-    const row = (found as Array<Record<string, unknown>>)[0];
-    if (!row) return null;
+  const byLead = <T,>(rows: unknown, key: string, map: (r: Record<string, unknown>) => T) => {
+    const m = new Map<string, T[]>();
+    for (const r of rows as Array<Record<string, unknown>>) {
+      const k = String(r[key]);
+      const list = m.get(k) ?? [];
+      list.push(map(r));
+      m.set(k, list);
+    }
+    return m;
+  };
 
-    /* ⚠️ THE OWNER'S NAME THROUGH 121, for the same reason as the list — the
-       sales manager reads one row of `users` and every colleague would render
-       as "Former member". Added to the same wave, so it costs no extra wait. */
-    const [ownerRows, noteRows, activityRows, siblingRows] = await Promise.all([
-      row.owner_id
-        ? tx`select full_name from app.crm_lead_owners() where id = ${row.owner_id as string}::uuid`
-        : Promise.resolve([]),
-      tx`select * from app.crm_lead_notes_with_authors(${leadId}::uuid)`,
-      tx`select * from app.crm_lead_activity_with_actors(${leadId}::uuid)`,
-      /* ── ⚠️ THE SAME PERSON, ENQUIRING TWICE ─────────────────────────────
-         Measured on the live table 2026-09-10: 615 leads carry 597 distinct
-         numbers, so roughly eighteen leads share a number with another. Those
-         are real people who filled the form again, and without this the second
-         salesperson to open one has no way of knowing the first already rang
-         them.
+  const notes = byLead(noteRows, 'lead_id', (n) => ({
+    id: String(n.id),
+    body: String(n.body),
+    createdAt: new Date(n.created_at as string).toISOString(),
+    authorId: (n.author_id as string | null) ?? null,
+    authorName: (n.author_name as string | null) ?? null,
+    authorAvatarUrl: (n.author_avatar_url as string | null) ?? null,
+  }));
+  const activity = byLead(activityRows, 'lead_id', (a) => ({
+    id: String(a.id),
+    kind: String(a.kind),
+    outcome: (a.outcome as string | null) ?? null,
+    occurredAt: new Date(a.occurred_at as string).toISOString(),
+    actorId: (a.actor_id as string | null) ?? null,
+    actorName: (a.actor_name as string | null) ?? null,
+    actorAvatarUrl: (a.actor_avatar_url as string | null) ?? null,
+  }));
+  const siblings = siblingRows as Array<Record<string, unknown>>;
 
-         Matched on `phone_e164`, never on the raw `phone` — the whole reason
-         that column exists is that `0300-1234567` and `+92 300 1234567` are the
-         same person and two different strings (see lib/domain/phone.ts).
-
-         ⚠️ RLS APPLIES HERE, unlike the two readers above, and that is correct
-         but incomplete: a sales member sees only the sibling leads assigned to
-         THEM, so a duplicate held by a colleague stays invisible to them. The
-         screen therefore renders this section only when it has something to
-         show, and never prints a count — "0 other enquiries" would be a
-         sentence this query cannot support. Widening it means a definer reader
-         that discloses the COUNT without the rows. */
-      row.phone_e164
-        ? tx`
-            select l.id, l.submitted_at, l.stage::text,
-                   /* Same definer reader, same reason — migration 130. */
-                   app.crm_project_name(l.project_id) as project_name,
-                   f.name as form_name
-              from public.crm_leads l
-              left join public.crm_lead_forms f on f.id = l.form_id
-             where l.phone_e164 = ${row.phone_e164 as string}
-               and l.id <> ${leadId}::uuid
-             order by l.submitted_at desc
-             limit 20
-          `
-        : Promise.resolve([]),
-    ]);
-
-    return {
+  for (const row of found as Array<Record<string, unknown>>) {
+    const id = String(row.id);
+    out.set(id, {
       lead: {
         id: String(row.id),
         projectId: String(row.project_id),
@@ -783,8 +834,7 @@ export async function getCrmLead(
           : null,
         closedAt: row.closed_at ? new Date(row.closed_at as string).toISOString() : null,
         ownerId: (row.owner_id as string | null) ?? null,
-        ownerName:
-          ((ownerRows as Array<Record<string, unknown>>)[0]?.full_name as string | null) ?? null,
+        ownerName: row.owner_id ? (names.get(String(row.owner_id)) ?? null) : null,
         formName: (row.form_name as string | null) ?? null,
         campaignName: (row.campaign_name as string | null) ?? null,
         source: String(row.source),
@@ -807,32 +857,23 @@ export async function getCrmLead(
         sells: String(row.sells ?? 'property'),
         nextActionType: (row.next_action_type as string | null) ?? null,
       },
-      notes: (noteRows as Array<Record<string, unknown>>).map((n) => ({
-        id: String(n.id),
-        body: String(n.body),
-        createdAt: new Date(n.created_at as string).toISOString(),
-        authorId: (n.author_id as string | null) ?? null,
-        authorName: (n.author_name as string | null) ?? null,
-        authorAvatarUrl: (n.author_avatar_url as string | null) ?? null,
-      })),
-      activity: (activityRows as Array<Record<string, unknown>>).map((a) => ({
-        id: String(a.id),
-        kind: String(a.kind),
-        outcome: (a.outcome as string | null) ?? null,
-        occurredAt: new Date(a.occurred_at as string).toISOString(),
-        actorId: (a.actor_id as string | null) ?? null,
-        actorName: (a.actor_name as string | null) ?? null,
-        actorAvatarUrl: (a.actor_avatar_url as string | null) ?? null,
-      })),
-      alsoEnquired: (siblingRows as Array<Record<string, unknown>>).map((s) => ({
-        id: String(s.id),
-        submittedAt: new Date(s.submitted_at as string).toISOString(),
-        stage: String(s.stage),
-        projectName: String(s.project_name),
-        formName: (s.form_name as string | null) ?? null,
-      })),
-    };
-  });
+      notes: notes.get(id) ?? [],
+      activity: activity.get(id) ?? [],
+      alsoEnquired: row.phone_e164
+        ? siblings
+            .filter((sib) => sib.phone_e164 === row.phone_e164 && String(sib.id) !== id)
+            .slice(0, 20)
+            .map((sib) => ({
+              id: String(sib.id),
+              submittedAt: new Date(sib.submitted_at as string).toISOString(),
+              stage: String(sib.stage),
+              projectName: String(sib.project_name),
+              formName: (sib.form_name as string | null) ?? null,
+            }))
+        : [],
+    });
+  }
+  return out;
 }
 
 /* ============================================================================
@@ -1615,33 +1656,63 @@ export interface CrmMessage {
  * `pg_proc` rather than assumed.
  */
 export async function crmLeadThread(actorId: string, leadId: string): Promise<CrmMessage[]> {
-  const rows = await withUser(actorId, (tx) => tx`
-    select m.id, m.direction::text, m.kind::text, m.body,
-           m.media_id, m.media_mime, m.media_filename,
-           m.status::text, m.error_detail, m.occurred_at,
-           m.channel::text, m.subject,
-           (select o.full_name from app.crm_lead_owners() o where o.id = m.sent_by_id)
-             as sent_by_name
-      from public.crm_lead_messages m
-     where m.lead_id = ${leadId}::uuid
-     order by m.occurred_at asc
-     limit 500
-  `);
-  return (rows as Array<Record<string, unknown>>).map((r) => ({
-    id: String(r.id),
-    direction: r.direction === 'inbound' ? 'inbound' : 'outbound',
-    channel: String(r.channel ?? 'whatsapp'),
-    subject: (r.subject as string | null) ?? null,
-    kind: String(r.kind),
-    body: (r.body as string | null) ?? null,
-    mediaId: (r.media_id as string | null) ?? null,
-    mediaMime: (r.media_mime as string | null) ?? null,
-    mediaFilename: (r.media_filename as string | null) ?? null,
-    status: (r.status as string | null) ?? null,
-    errorDetail: (r.error_detail as string | null) ?? null,
-    sentByName: (r.sent_by_name as string | null) ?? null,
-    occurredAt: new Date(r.occurred_at as string).toISOString(),
-  }));
+  return withUser(actorId, async (tx) =>
+    (await readCrmLeadThreads(tx, [leadId], readOwnerNames(tx))).get(leadId) ?? [],
+  );
+}
+
+/**
+ * Several leads' threads in ONE query. The sender's name comes from the owner
+ * names already read for the transaction, not from 121's reader called once per
+ * message — which, before 181, was a second per message.
+ *
+ * ⚠️ THE FIRST 500 PER LEAD, OLDEST FIRST — the same window the per-lead query
+ * had, now applied per lead rather than across the whole batch.
+ */
+async function readCrmLeadThreads(
+  tx: Tx,
+  ids: readonly string[],
+  namesP: Promise<OwnerNames>,
+): Promise<Map<string, CrmMessage[]>> {
+  const out = new Map<string, CrmMessage[]>();
+  if (ids.length === 0) return out;
+  const [rows, names] = await Promise.all([
+    tx`
+      select * from (
+        select m.lead_id, m.id, m.direction::text, m.kind::text, m.body,
+               m.media_id, m.media_mime, m.media_filename,
+               m.status::text, m.error_detail, m.occurred_at,
+               m.channel::text, m.subject, m.sent_by_id,
+               row_number() over (partition by m.lead_id order by m.occurred_at asc) as n
+          from public.crm_lead_messages m
+         where m.lead_id = any(${ids as unknown as string[]}::uuid[])
+      ) t
+      where t.n <= 500
+      order by t.lead_id, t.occurred_at asc
+    `,
+    namesP,
+  ]);
+  for (const r of rows as Array<Record<string, unknown>>) {
+    const lead = String(r.lead_id);
+    const list = out.get(lead) ?? [];
+    list.push({
+      id: String(r.id),
+      direction: r.direction === 'inbound' ? 'inbound' : 'outbound',
+      channel: String(r.channel ?? 'whatsapp'),
+      subject: (r.subject as string | null) ?? null,
+      kind: String(r.kind),
+      body: (r.body as string | null) ?? null,
+      mediaId: (r.media_id as string | null) ?? null,
+      mediaMime: (r.media_mime as string | null) ?? null,
+      mediaFilename: (r.media_filename as string | null) ?? null,
+      status: (r.status as string | null) ?? null,
+      errorDetail: (r.error_detail as string | null) ?? null,
+      sentByName: r.sent_by_id ? (names.get(String(r.sent_by_id)) ?? null) : null,
+      occurredAt: new Date(r.occurred_at as string).toISOString(),
+    });
+    out.set(lead, list);
+  }
+  return out;
 }
 
 /**
@@ -1865,6 +1936,68 @@ export function readSummaryRow(r: Record<string, unknown>): CrmConversationSumma
   };
 }
 
+/* ============================================================================
+ * EVERY ROW'S DRAWER, BEFORE ANYBODY CLICKS
+ * ----------------------------------------------------------------------------
+ * Owner, 2026-09-17: *"If this table is loaded then all relevant data should be
+ * loaded, and whenever I click on that, it will instantly show all these
+ * things… How can I manage 2,000, 3,000 leads a day with this type of lazy
+ * system?"*
+ *
+ * ⚠️ WHAT WAS WRONG. The drawer's record, thread and related rows were fetched
+ * only AFTER a click, by a server render of the whole page — so every row
+ * opened was a fresh wait, and the second row waited exactly as long as the
+ * first.
+ *
+ * ⚠️ WHAT THIS DOES. The desk calls it once, in the background, for the rows on
+ * screen. Every lead's three readers run inside ONE transaction and leave in one
+ * `Promise.all`, so the queries are pipelined over a single connection rather
+ * than 25 round trips — and they are the SAME readers the page and the full
+ * record use, not a second copy of their SQL to drift out of step.
+ *
+ * ⚠️ BOUNDED BY THE PAGE, NEVER BY THE LIST. Twenty-five rows, not six hundred:
+ * the only drawers a person can open in one click are the ones they can see.
+ * RLS applies to every read, so a lead the caller cannot see comes back null.
+ * ========================================================================= */
+
+export interface CrmLeadBundle {
+  readonly record: CrmLeadFull;
+  readonly messages: CrmMessage[];
+  readonly related: CrmLeadRelated;
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export async function crmLeadBundles(
+  actorId: string,
+  leadIds: readonly string[],
+): Promise<Record<string, CrmLeadBundle>> {
+  const ids = [...new Set(leadIds)].filter((id) => UUID.test(id)).slice(0, 50);
+  if (ids.length === 0) return {};
+
+  /* ⚠️ THIRTEEN QUERIES FOR THE WHOLE PAGE, and the owner names read once and
+     shared by all three readers. Measured before this was set-based: ten leads
+     took 21 seconds from Karachi, one lead 1.7. */
+  const [records, threads, related] = await withUser(actorId, (tx) => {
+    const namesP = readOwnerNames(tx);
+    return Promise.all([
+      readCrmLeads(tx, ids, namesP),
+      readCrmLeadThreads(tx, ids, namesP),
+      readCrmLeadRelatedMany(tx, ids, namesP),
+    ]);
+  });
+
+  const out: Record<string, CrmLeadBundle> = {};
+  for (const id of ids) {
+    const record = records.get(id);
+    /* ⚠️ A lead RLS hid is simply absent — never an empty bundle that would open
+       a drawer on somebody else's lead with nothing in it. */
+    if (!record) continue;
+    out[id] = { record, messages: threads.get(id) ?? [], related: related.get(id) ?? NO_RELATED };
+  }
+  return out;
+}
+
 /**
  * Write the summary, replacing any older one — migration 180.
  *
@@ -1911,75 +2044,101 @@ export async function crmLeadRelated(
   actorId: string,
   leadId: string,
 ): Promise<CrmLeadRelated> {
-  const { quotations, appointments, followUps, sequence, owners, sender, summary } = await withUser(
-    actorId,
-    async (tx) => {
-      const [quotations, appointments, followUps, sequence, owners, sender, summary] = await Promise.all([
-        tx`
-          select q.id, q.number, q.version, q.status::text, q.net_amount,
-                 q.requested_discount, q.approved_discount, q.valid_until,
-                 q.prepared_by_id, q.approved_by_id, q.created_at,
-                 concat_ws(', ', p.plot_number,
-                   case when p.block is not null then 'Block ' || p.block end) as property_label
-            from public.crm_quotations q
-            left join public.crm_properties p on p.id = q.property_id
-           where q.lead_id = ${leadId}::uuid
-           order by q.number, q.version desc
-        `,
-        tx`
-          select a.id, a.kind::text, a.status::text, a.scheduled_at,
-                 a.duration_minutes, a.location, a.outcome, a.owner_id
-            from public.crm_appointments a
-           where a.lead_id = ${leadId}::uuid
-           order by a.scheduled_at desc
-        `,
-        tx`
-          select f.id, f.title, f.purpose::text, f.channel::text, f.status::text,
-                 f.due_at, f.done_at, f.outcome_note
-            from public.crm_follow_ups f
-           where f.lead_id = ${leadId}::uuid
-           order by f.due_at desc
-        `,
-        tx`
-          select s.name, ls.state::text, ls.current_step, ls.total_steps, ls.pause_reason
-            from public.crm_lead_sequences ls
-            join public.crm_sequences s on s.id = ls.sequence_id
-           where ls.lead_id = ${leadId}::uuid
-             and ls.state in ('scheduled', 'active', 'paused')
-           limit 1
-        `,
-        /* ⚠️ NAMES THROUGH 121'S READER, NEVER A JOIN TO `users`. The sales
-           manager is a `member`, so a join returns one row — their own — and
-           every colleague renders as "Former member". That was the 2026-09-08
-           bug and it has been re-found on four screens since. */
-        tx`select * from app.crm_lead_owners()`,
-        tx`
-          select configured, display_name, display_number
-            from app.crm_project_sender(
-              (select l.project_id from public.crm_leads l where l.id = ${leadId}::uuid))
-        `,
-        /* ⚠️ IN THE SAME WAVE, so the Summary view opens on what is already
-           known rather than on a spinner (law 4). A read only — writing one
-           costs money and happens in the action, when the thread has moved. */
-        tx`
-          select overview, points, message_count, last_message_id, note_count,
-                 generated_at, model
-            from public.crm_lead_conversation_summaries
-           where lead_id = ${leadId}::uuid
-        `,
-      ]);
-      return { quotations, appointments, followUps, sequence, owners, sender, summary };
-    },
+  return withUser(actorId, async (tx) =>
+    (await readCrmLeadRelatedMany(tx, [leadId], readOwnerNames(tx))).get(leadId) ?? NO_RELATED,
   );
+}
 
-  const names = new Map<string, string>();
-  for (const o of owners as Array<Record<string, unknown>>) {
-    names.set(String(o.id), String(o.full_name ?? 'Unnamed'));
-  }
+const NO_RELATED: CrmLeadRelated = {
+  quotations: [],
+  appointments: [],
+  followUps: [],
+  sender: null,
+  summary: null,
+  sequence: null,
+};
+
+/** Several leads' related records in SIX queries, however many leads. */
+async function readCrmLeadRelatedMany(
+  tx: Tx,
+  ids: readonly string[],
+  namesP: Promise<OwnerNames>,
+): Promise<Map<string, CrmLeadRelated>> {
+  const out = new Map<string, CrmLeadRelated>();
+  if (ids.length === 0) return out;
+  const idList = ids as unknown as string[];
+
+  const [quotations, appointments, followUps, sequences, senders, summaries, names] = await Promise.all([
+    tx`
+      select q.lead_id, q.id, q.number, q.version, q.status::text, q.net_amount,
+             q.requested_discount, q.approved_discount, q.valid_until,
+             q.prepared_by_id, q.approved_by_id, q.created_at,
+             concat_ws(', ', p.plot_number,
+               case when p.block is not null then 'Block ' || p.block end) as property_label
+        from public.crm_quotations q
+        left join public.crm_properties p on p.id = q.property_id
+       where q.lead_id = any(${idList}::uuid[])
+       order by q.lead_id, q.number, q.version desc
+    `,
+    tx`
+      select a.lead_id, a.id, a.kind::text, a.status::text, a.scheduled_at,
+             a.duration_minutes, a.location, a.outcome, a.owner_id
+        from public.crm_appointments a
+       where a.lead_id = any(${idList}::uuid[])
+       order by a.lead_id, a.scheduled_at desc
+    `,
+    tx`
+      select f.lead_id, f.id, f.title, f.purpose::text, f.channel::text, f.status::text,
+             f.due_at, f.done_at, f.outcome_note
+        from public.crm_follow_ups f
+       where f.lead_id = any(${idList}::uuid[])
+       order by f.lead_id, f.due_at desc
+    `,
+    tx`
+      select distinct on (ls.lead_id)
+             ls.lead_id, s.name, ls.state::text, ls.current_step, ls.total_steps, ls.pause_reason
+        from public.crm_lead_sequences ls
+        join public.crm_sequences s on s.id = ls.sequence_id
+       where ls.lead_id = any(${idList}::uuid[])
+         and ls.state in ('scheduled', 'active', 'paused')
+       order by ls.lead_id, ls.started_at desc nulls last
+    `,
+    /* One sender per PROJECT, read once per project rather than once per lead. */
+    tx`
+      select l.id as lead_id, snd.configured, snd.display_name, snd.display_number
+        from public.crm_leads l
+        cross join lateral app.crm_project_sender(l.project_id) snd
+       where l.id = any(${idList}::uuid[])
+    `,
+    tx`
+      select lead_id, overview, points, message_count, last_message_id, note_count,
+             generated_at, model
+        from public.crm_lead_conversation_summaries
+       where lead_id = any(${idList}::uuid[])
+    `,
+    namesP,
+  ]);
+
   const nameOf = (id: unknown) => (id ? (names.get(String(id)) ?? null) : null);
+  const rel = (id: string) => {
+    let r = out.get(id) as {
+      quotations: CrmQuotationRow[];
+      appointments: CrmAppointmentRow[];
+      followUps: CrmFollowUpRow[];
+      sender: CrmSender | null;
+      summary: CrmConversationSummary | null;
+      sequence: CrmLeadRelated['sequence'];
+    } | undefined;
+    if (!r) {
+      r = { quotations: [], appointments: [], followUps: [], sender: null, summary: null, sequence: null };
+      out.set(id, r);
+    }
+    return r;
+  };
+  for (const id of ids) rel(id);
 
-  return {
-    quotations: (quotations as Array<Record<string, unknown>>).map((q) => ({
+  for (const q of quotations as Array<Record<string, unknown>>) {
+    rel(String(q.lead_id)).quotations.push({
       id: String(q.id),
       number: String(q.number),
       version: Number(q.version),
@@ -1992,8 +2151,10 @@ export async function crmLeadRelated(
       preparedByName: nameOf(q.prepared_by_id),
       approvedByName: nameOf(q.approved_by_id),
       createdAt: new Date(q.created_at as string).toISOString(),
-    })),
-    appointments: (appointments as Array<Record<string, unknown>>).map((a) => ({
+    });
+  }
+  for (const a of appointments as Array<Record<string, unknown>>) {
+    rel(String(a.lead_id)).appointments.push({
       id: String(a.id),
       kind: String(a.kind),
       status: String(a.status),
@@ -2002,8 +2163,10 @@ export async function crmLeadRelated(
       location: (a.location as string | null) ?? null,
       outcome: (a.outcome as string | null) ?? null,
       ownerName: nameOf(a.owner_id),
-    })),
-    followUps: (followUps as Array<Record<string, unknown>>).map((f) => ({
+    });
+  }
+  for (const f of followUps as Array<Record<string, unknown>>) {
+    rel(String(f.lead_id)).followUps.push({
       id: String(f.id),
       title: String(f.title),
       purpose: String(f.purpose),
@@ -2012,33 +2175,28 @@ export async function crmLeadRelated(
       dueAt: new Date(f.due_at as string).toISOString(),
       doneAt: f.done_at ? new Date(f.done_at as string).toISOString() : null,
       outcomeNote: (f.outcome_note as string | null) ?? null,
-    })),
-    sender: (() => {
-      const r = (sender as Array<Record<string, unknown>>)[0];
-      return r
-        ? {
-            configured: r.configured === true,
-            displayName: String(r.display_name ?? ''),
-            displayNumber: (r.display_number as string | null) ?? null,
-          }
-        : null;
-    })(),
-    summary: (() => {
-      const r = (summary as Array<Record<string, unknown>>)[0];
-      return r ? readSummaryRow(r) : null;
-    })(),
-    sequence: (() => {
-      const s = (sequence as Array<Record<string, unknown>>)[0];
-      if (!s) return null;
-      return {
-        name: String(s.name),
-        state: String(s.state),
-        step: Number(s.current_step ?? 0),
-        total: Number(s.total_steps ?? 0),
-        pauseReason: (s.pause_reason as string | null) ?? null,
-      };
-    })(),
-  };
+    });
+  }
+  for (const s of sequences as Array<Record<string, unknown>>) {
+    rel(String(s.lead_id)).sequence = {
+      name: String(s.name),
+      state: String(s.state),
+      step: Number(s.current_step ?? 0),
+      total: Number(s.total_steps ?? 0),
+      pauseReason: (s.pause_reason as string | null) ?? null,
+    };
+  }
+  for (const r of senders as Array<Record<string, unknown>>) {
+    rel(String(r.lead_id)).sender = {
+      configured: r.configured === true,
+      displayName: String(r.display_name ?? ''),
+      displayNumber: (r.display_number as string | null) ?? null,
+    };
+  }
+  for (const r of summaries as Array<Record<string, unknown>>) {
+    rel(String(r.lead_id)).summary = readSummaryRow(r);
+  }
+  return out;
 }
 
 /* ============================================================================

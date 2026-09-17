@@ -90,6 +90,106 @@ function stampLabel(iso: string): string {
   return `${part({ day: 'numeric' })} ${part({ month: 'short' }, 'en-US')} ${part({ year: 'numeric' })}, ${time}`;
 }
 
+export interface ConversationSummaryState {
+  readonly summary: CrmConversationSummary | null;
+  readonly working: boolean;
+  readonly failure: string | null;
+  readonly retry: () => void;
+}
+
+/**
+ * The AI summary for the open drawer — kept current, and started early.
+ *
+ * ⚠️⚠️ WHY IT NEVER ARRIVED BEFORE. Owner, 2026-09-17: *"the AI summary is
+ * rotating or loading but nothing is displayed. I waited a lot."* The request was
+ * scheduled in an effect that recorded "already asked" BEFORE its timer fired,
+ * and cleared the timer on cleanup. React runs every effect twice in development:
+ * run one marked it asked, cleanup cancelled the call, run two saw "already
+ * asked" and did nothing — and the skeleton pulsed forever. With no `finally`,
+ * a server error would have done the same. "Asked" is now recorded only when the
+ * call actually leaves, and the spinner always stops. Verified in the running
+ * app with the stored summary deleted: it appears.
+ *
+ * ⚠️ OWNED BY THE DRAWER, SO IT STARTS BEFORE ANYBODY LOOKS. Measured: the model
+ * takes 2.4–4.1 s and the reads ~50 ms in production. Waiting for the Summary
+ * view to open made that the visible wait. Now:
+ *   · the drawer has been open a little over a second, on any tab → write it;
+ *     quick peeks down a list pay for nothing
+ *   · the Conversations tab opens → write it now
+ * and by the time somebody has read the Overview and pressed Summary, it is
+ * normally there. It is kept with the lead's drawer afterwards (`onSummary`),
+ * so reopening the lead asks for nothing until a new message or note arrives.
+ */
+export function useConversationSummary({
+  leadId,
+  messages,
+  noteCount,
+  stored,
+  loading,
+  eager,
+  onSummary,
+}: {
+  leadId: string;
+  messages: readonly CrmMessage[];
+  noteCount: number;
+  stored: CrmConversationSummary | null;
+  loading: boolean;
+  /** True on the Conversations tab — start without the dwell. */
+  eager: boolean;
+  onSummary?: (summary: CrmConversationSummary) => void;
+}): ConversationSummaryState {
+  const [summary, setSummary] = React.useState(stored);
+  const [seen, setSeen] = React.useState(stored);
+  if (seen !== stored) {
+    setSeen(stored);
+    setSummary(stored);
+  }
+  const [working, setWorking] = React.useState(false);
+  const [failure, setFailure] = React.useState<string | null>(null);
+
+  const newest = messages.length > 0 ? messages[messages.length - 1] : null;
+  /* Current = written after the newest message and with every note. The COUNT
+     is left to the server's own check — the thread on screen is capped. */
+  const current =
+    summary !== null &&
+    summary.lastMessageId === (newest?.id ?? null) &&
+    summary.noteCount === noteCount;
+  const key = `${newest?.id ?? '-'}:${noteCount}`;
+  const askedFor = React.useRef<string | null>(null);
+
+  const write = React.useCallback(
+    async (forKey: string) => {
+      askedFor.current = forKey;
+      setWorking(true);
+      setFailure(null);
+      try {
+        const result = await summariseConversationAction(leadId);
+        if (result.ok && result.summary) {
+          setSummary(result.summary);
+          onSummary?.(result.summary);
+        } else {
+          setFailure(result.error ?? 'The summary could not be written.');
+        }
+      } catch {
+        setFailure('The summary could not be written — the connection dropped.');
+      } finally {
+        setWorking(false);
+      }
+    },
+    [leadId, onSummary],
+  );
+
+  React.useEffect(() => {
+    if (loading || messages.length === 0 || current) return;
+    if (askedFor.current === key) return;
+    const t = setTimeout(() => void write(key), eager ? 0 : 1_200);
+    return () => clearTimeout(t);
+  }, [loading, messages.length, current, key, eager, write]);
+
+  const retry = React.useCallback(() => void write(key), [write, key]);
+  return { summary, working, failure, retry };
+}
+
 export function LeadConversationTab({
   leadId,
   messages,
@@ -105,8 +205,8 @@ export function LeadConversationTab({
   messages: readonly CrmMessage[];
   /** The salesperson's own notes — optional, and shown under the AI summary. */
   notes: readonly CrmLeadNote[];
-  /** The stored AI summary, if one has been written (180). */
-  summary: CrmConversationSummary | null;
+  /** The AI summary and its progress — owned by the drawer, see `useConversationSummary`. */
+  summary: ConversationSummaryState;
   /**
    * The drawer opened from the clicked row and the record is still on its way.
    * ⚠️ Everything that would otherwise claim an absence — "nothing has been
@@ -363,9 +463,12 @@ export function LeadConversationTab({
         {filter === 'summary' ? (
           <SummaryView
             leadId={leadId}
-            thread={thread}
+            messageCount={thread.length}
             notes={notes}
-            stored={summary}
+            summary={summary.summary}
+            working={summary.working}
+            failure={summary.failure}
+            onRetry={summary.retry}
             loading={loading}
           />
         ) : shown.length === 0 ? (
@@ -762,58 +865,24 @@ const HEADINGS: ReadonlyArray<{
  */
 function SummaryView({
   leadId,
-  thread,
+  messageCount,
   notes,
-  stored,
+  summary,
+  working,
+  failure,
+  onRetry,
   loading,
 }: {
   leadId: string;
-  thread: readonly CrmMessage[];
+  messageCount: number;
   notes: readonly CrmLeadNote[];
-  stored: CrmConversationSummary | null;
+  summary: CrmConversationSummary | null;
+  working: boolean;
+  failure: string | null;
+  onRetry: () => void;
   loading: boolean;
 }) {
-  const [summary, setSummary] = React.useState(stored);
-  const [seenStored, setSeenStored] = React.useState(stored);
-  if (seenStored !== stored) {
-    setSeenStored(stored);
-    setSummary(stored);
-  }
-  const [working, setWorking] = React.useState(false);
-  const [failure, setFailure] = React.useState<string | null>(null);
-
-  const newest = thread.length > 0 ? thread[thread.length - 1] : null;
-  const fingerprint = `${thread.length}:${newest?.id ?? '-'}:${notes.length}`;
-  const current =
-    summary !== null &&
-    summary.messageCount === thread.length &&
-    summary.lastMessageId === (newest?.id ?? null) &&
-    summary.noteCount === notes.length;
-  const unread = summary ? Math.max(0, thread.length - summary.messageCount) : thread.length;
-
-  /* ⚠️ ONE REQUEST PER STATE OF THE THREAD. The ref remembers which fingerprint
-     was last asked about, so a re-render, a re-mount in development, or a failure
-     does not turn into a loop of paid calls — a failure waits for Retry. */
-  const askedFor = React.useRef<string | null>(null);
-
-  const write = React.useCallback(async () => {
-    setWorking(true);
-    setFailure(null);
-    const result = await summariseConversationAction(leadId);
-    setWorking(false);
-    if (result.ok && result.summary) setSummary(result.summary);
-    else setFailure(result.error ?? 'The summary could not be written.');
-  }, [leadId]);
-
-  React.useEffect(() => {
-    if (loading || thread.length === 0 || current) return;
-    if (askedFor.current === fingerprint) return;
-    askedFor.current = fingerprint;
-    /* Deferred a tick, so the view paints its current state before the request
-       — and so no state is set synchronously inside the effect. */
-    const t = setTimeout(() => void write(), 0);
-    return () => clearTimeout(t);
-  }, [loading, thread.length, current, fingerprint, write]);
+  const unread = summary ? Math.max(0, messageCount - summary.messageCount) : messageCount;
 
   return (
     <div className="space-y-3">
@@ -836,10 +905,10 @@ function SummaryView({
           <span className="ml-auto text-micro text-text-secondary">
             {loading
               ? 'Loading…'
-              : working
+              : working || (!summary && !failure && messageCount > 0)
                 ? summary
                   ? `Updating — ${unread > 0 ? `${unread} new message${unread === 1 ? '' : 's'}` : 'notes changed'}…`
-                  : `Reading ${thread.length} message${thread.length === 1 ? '' : 's'}…`
+                  : `Reading ${messageCount} message${messageCount === 1 ? '' : 's'}…`
                 : summary
                   ? `From ${summary.messageCount} message${summary.messageCount === 1 ? '' : 's'} · ${stampLabel(summary.generatedAt)}`
                   : null}
@@ -848,7 +917,7 @@ function SummaryView({
 
         {loading ? (
           <SummarySkeleton />
-        ) : thread.length === 0 ? (
+        ) : messageCount === 0 ? (
           <p className="mt-2 text-caption leading-relaxed text-text-secondary">
             Nothing has been said yet. The summary starts with the first message, and keeps
             itself up to date after that.
@@ -895,7 +964,7 @@ function SummaryView({
             <p className="min-w-0 flex-1 text-caption text-feedback-error">{failure}</p>
             <button
               type="button"
-              onClick={() => void write()}
+              onClick={onRetry}
               className="inline-flex items-center gap-1 rounded-md border border-border-default px-2 py-1 text-caption font-medium text-text-primary hover:bg-bg-subtle"
             >
               <RefreshCw className="size-3.5" aria-hidden="true" />

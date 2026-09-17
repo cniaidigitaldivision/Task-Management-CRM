@@ -22,7 +22,13 @@ import { WA_GREEN, WhatsAppMark } from '@/components/crm/whatsapp-mark';
 import { SourceMark } from './source-mark';
 import { Pagination } from '@/components/ui/pagination';
 import { useToast } from '@/components/ui/toast';
-import type { CrmDueCounts, CrmLeadRow, CrmProjectOption } from '@/lib/db/queries/crm-leads';
+import type {
+  CrmConversationSummary,
+  CrmDueCounts,
+  CrmLeadBundle,
+  CrmLeadRow,
+  CrmProjectOption,
+} from '@/lib/db/queries/crm-leads';
 import { STAGE_ORDER, stageLabel, stageToken } from '@/lib/domain/crm-stages';
 import { leadPriority, priorityLabel, priorityToken } from '@/lib/domain/lead-priority';
 import { sourceDetail, sourceLabel } from '@/lib/domain/lead-source';
@@ -30,6 +36,7 @@ import { displayPhone, whatsAppDigits } from '@/lib/domain/phone';
 import { relativeAge } from '@/lib/view/relative-age';
 import { cn } from '@/lib/utils';
 import { leadsPageAction } from '@/app/actions/crm-leads';
+import { leadBundlesAction } from '@/app/actions/crm-lead-bundles';
 import { AddLead, type AddLeadProject, type AddLeadProperty } from './add-lead';
 import { LeadDrawer, leadFromRow, relatedFromRow } from './lead-drawer';
 import { ApprovalQueue } from './approval-queue';
@@ -481,13 +488,11 @@ export function MyLeadsDesk({
 
   const closeAdd = React.useCallback(() => {
     setAddWish(false);
-    startSync(() => {
-      const next = new URLSearchParams(search.toString());
-      next.delete('action');
-      const qs = next.toString();
-      router.replace((qs ? `/my-leads?${qs}` : '/my-leads') as Route);
-    });
-  }, [router, search]);
+    const next = new URLSearchParams(window.location.search);
+    next.delete('action');
+    const qs = next.toString();
+    window.history.replaceState(null, '', qs ? `/my-leads?${qs}` : '/my-leads');
+  }, []);
 
   /* ── ⚠️ THE DRAWER OPENS FROM THE ROW, NOT FROM SINGAPORE ────────────────
      Owner, 2026-09-15: *"if I click on a row, the drawer should open instantly
@@ -523,50 +528,202 @@ export function MyLeadsDesk({
   const openLead = wish === undefined ? urlLead : wish;
   const [openTab, setOpenTab] = React.useState<string>(initialTab);
 
-  /* ⚠️ ONE OWNER FOR "WHICH TAB IS OPEN". The shell and the real drawer both
-     render from this; neither keeps a copy. Two copies could disagree at the
-     moment one replaced the other, which is what the owner saw as the panel
-     switching tabs by itself while it loaded. */
-  const setTab = React.useCallback((t: string) => setOpenTab(t), []);
+
+  /* ⚠️⚠️ THE URL IS WRITTEN WITH `history.replaceState`, NOT THE ROUTER.
+     Owner, 2026-09-17: *"there is also something happening when I load the page,
+     even after it has loaded, and when I click on some row."* There was: every
+     open, every close and every tab inside the drawer called `router.replace`,
+     and on this dynamic route that re-runs the WHOLE server render — the lead
+     list, the counts, the owners, the diary, the approvals, the catalogue, and
+     the drawer's own reads — to put `?lead=` in the address bar. 164 and the
+     comment at the top of `use-panel.ts` both describe this cost; the calls had
+     simply been left inside a transition rather than removed.
+
+     This version of Next syncs `useSearchParams` with the native history API
+     (`node_modules/next/dist/docs/01-app/02-guides/single-page-applications.md`),
+     so refresh, Back and a pasted link all still work — and nothing is asked of
+     the server at all. */
+  const writeUrl = React.useCallback((mutate: (q: URLSearchParams) => void) => {
+    const next = new URLSearchParams(window.location.search);
+    mutate(next);
+    const qs = next.toString();
+    window.history.replaceState(null, '', qs ? `/my-leads?${qs}` : '/my-leads');
+  }, []);
+
+  /* ── ⚠️ EVERY VISIBLE ROW'S DRAWER IS ALREADY IN MEMORY ───────────────────
+     Owner, 2026-09-17: *"If this table is loaded then all relevant data should
+     be loaded, and whenever I click on that, it will instantly show all these
+     things."*
+
+     Once the table is on screen, one background request fetches the record,
+     thread and related rows for every row on it — thirteen queries for the
+     page, however many rows (`crmLeadBundles`). A click reads from here.
+
+     ⚠️ `at` IS THE SERVER'S CLOCK, compared with `nowMs` — the page's own
+     render time. After a save the page re-renders with fresh data for the open
+     lead; whichever of the two was read LATER is the one shown, so a background
+     answer that set off before the save can never paint over it. */
+  const [drawers, setDrawers] = React.useState<
+    Record<string, { readonly bundle: CrmLeadBundle; readonly at: number }>
+  >({});
+  const inFlight = React.useRef(new Set<string>());
+  /* Failed attempts per lead — a dropped request is retried, not left spinning. */
+  const [misses, setMisses] = React.useState<Record<string, number>>({});
+
+  const loadDrawers = React.useCallback((ids: readonly string[]) => {
+    const wanted = ids.filter((id) => !inFlight.current.has(id));
+    if (wanted.length === 0) return;
+    for (const id of wanted) inFlight.current.add(id);
+    const missed = (ids: readonly string[]) =>
+      ids.length > 0 &&
+      setMisses((prev) => {
+        const next = { ...prev };
+        for (const id of ids) next[id] = (prev[id] ?? 0) + 1;
+        return next;
+      });
+    void leadBundlesAction([...wanted])
+      .then(({ at, bundles }) => {
+        missed(wanted.filter((id) => !bundles[id]));
+        const got = Object.keys(bundles);
+        if (got.length > 0) {
+          setMisses((prev) => {
+            if (!got.some((id) => id in prev)) return prev;
+            const next = { ...prev };
+            for (const id of got) delete next[id];
+            return next;
+          });
+        }
+        /* ⚠️ THE SAME OBJECT BACK WHEN NOTHING CHANGED. A fresh object every
+           time would re-run every effect that depends on `drawers` — and the
+           one that loads missing rows would ask again, and again. */
+        setDrawers((prev) => {
+          let changed = false;
+          const next = { ...prev };
+          for (const [id, bundle] of Object.entries(bundles)) {
+            if (!prev[id] || prev[id].at <= at) {
+              next[id] = { bundle, at };
+              changed = true;
+            }
+          }
+          return changed ? next : prev;
+        });
+      })
+      .catch(() => missed(wanted))
+      .finally(() => {
+        for (const id of wanted) inFlight.current.delete(id);
+      });
+  }, []);
 
   const onOpen = React.useCallback(
     (leadId: string, tab: string) => {
       setWish(leadId);
       setOpenTab(tab);
-      startSync(() => {
-        const next = new URLSearchParams(search.toString());
-        next.set('lead', leadId);
-        next.set('tab', tab);
-        router.replace(`/my-leads?${next.toString()}` as Route);
+      writeUrl((q) => {
+        q.set('lead', leadId);
+        q.set('tab', tab);
       });
     },
-    [router, search],
+    [writeUrl],
   );
 
   const closeLead = React.useCallback(() => {
     setWish(null);
-    /* ⚠️ THE ONE THE OWNER CAUGHT. Closing a drawer changes no row, so it must
-       not put the table into its "rows are coming" state for a round trip. */
-    startSync(() => {
-      const next = new URLSearchParams(search.toString());
-      next.delete('lead');
-      next.delete('tab');
-      const qs = next.toString();
-      router.replace((qs ? `/my-leads?${qs}` : '/my-leads') as Route);
+    /* ⚠️ Closing changes no row and asks the server for nothing. */
+    writeUrl((q) => {
+      q.delete('lead');
+      q.delete('tab');
     });
-  }, [router, search]);
+  }, [writeUrl]);
+
+  /* The tab inside the drawer — recorded in the URL, never fetched for. */
+  const onDrawerTab = React.useCallback(
+    (t: string) => {
+      setOpenTab(t);
+      writeUrl((q) => q.set('tab', t));
+    },
+    [writeUrl],
+  );
+
+  /* A summary the drawer just had written is kept with that lead's drawer, so
+     closing and reopening it does not ask the model again. */
+  const onSummary = React.useCallback((leadId: string, summary: CrmConversationSummary) => {
+    setDrawers((prev) =>
+      prev[leadId]
+        ? {
+            ...prev,
+            [leadId]: {
+              ...prev[leadId],
+              bundle: {
+                ...prev[leadId].bundle,
+                related: { ...prev[leadId].bundle.related, summary },
+              },
+            },
+          }
+        : prev,
+    );
+  }, []);
 
   const shellRow = openLead && record?.lead.id !== openLead
     ? shownRows.find((r) => r.id === openLead)
     : undefined;
 
+  /* ⚠️ THE OPEN LEAD, IF THE BACKGROUND LOAD HAS NOT REACHED IT — or reached it
+     more than a minute ago. Clicked before the page's load landed: ask for this
+     one now. Held but old: refresh it quietly, so a reply that arrived since is
+     there without anybody waiting for it. The drawer is already open either way. */
+  React.useEffect(() => {
+    if (!openLead) return;
+    const held = drawers[openLead];
+    if (held && Date.now() - held.at <= 60_000) return;
+    /* ⚠️ THREE TRIES, BACKING OFF — then it stops, rather than asking forever
+       for a lead the server keeps refusing. */
+    const tries = misses[openLead] ?? 0;
+    if (tries >= 3) return;
+    const t = setTimeout(() => loadDrawers([openLead]), tries * 1000);
+    return () => clearTimeout(t);
+  }, [openLead, drawers, misses, loadDrawers]);
+
+  /* ⚠️ THE ROWS ON SCREEN, loaded after the table paints. A timer, so the
+     request never competes with the first frame; cleared on cleanup, so a
+     development double-run schedules it once rather than zero times or twice. */
+  const visibleIds = shownRows.map((r) => r.id).join(',');
+  React.useEffect(() => {
+    const missing = visibleIds
+      .split(',')
+      /* Each row is tried once in the background; the OPEN drawer retries. */
+      .filter((id) => id && !drawers[id] && !misses[id]);
+    if (missing.length === 0) return;
+    const t = setTimeout(() => loadDrawers(missing), 50);
+    return () => clearTimeout(t);
+  }, [visibleIds, drawers, misses, loadDrawers]);
+
+  /* ⚠️ AFTER ANY SERVER RENDER, THE OPEN DRAWER IS RE-READ. A save anywhere in
+     the drawer revalidates the page; this makes sure the drawer's own copy
+     catches up even when the render did not carry the open lead. */
+  const firstRender = React.useRef(true);
+  React.useEffect(() => {
+    if (firstRender.current) {
+      firstRender.current = false;
+      return;
+    }
+    const open = new URLSearchParams(window.location.search).get('lead');
+    if (open) loadDrawers([open]);
+  }, [rows, loadDrawers]);
+
+  /* The drawer's own address, keeping the list's filters, tab and page. */
+  const drawerHref = React.useCallback(
+    (leadId: string, tab: string) => {
+      const next = new URLSearchParams(search.toString());
+      next.set('lead', leadId);
+      next.set('tab', tab);
+      return `/my-leads?${next.toString()}`;
+    },
+    [search],
+  );
+
   const openAdd = () => {
     setAddWish(true);
-    startSync(() => {
-      const next = new URLSearchParams(search.toString());
-      next.set('action', 'add');
-      router.replace(`/my-leads?${next.toString()}` as Route);
-    });
+    writeUrl((q) => q.set('action', 'add'));
   };
 
   /* ⚠️ PAGE-SCOPED SELECTION, and deliberately. A selection that silently spans
@@ -660,31 +817,37 @@ export function MyLeadsDesk({
       )}
 
       {/* ⚠️ ONE DRAWER, FROM THE CLICK TO THE RECORD. It opens in the click's own
-          frame from the row, and the record fills it in place — the same
-          component throughout, keyed by the lead, so arriving data changes what
-          is inside it and never swaps the drawer for a different one. Owner,
-          2026-09-17, on the two-component version this replaces: *"for the time
-          it is rendering, it shows me the old design… that is very disgusting."*
-          See the header above `leadFromRow` in `lead-drawer.tsx`. */}
+          frame, from memory when the background load has reached this row and
+          from the row itself when it has not, and is keyed by the lead so newer
+          data changes what is inside it rather than swapping the drawer.
+
+          ⚠️ WHICHEVER COPY WAS READ LATER WINS: the page's own render (`nowMs`)
+          or the background answer (`at`). */}
       {!unitFor && !quoteFor && !outcomeFor && openLead && (() => {
-        const ready = record && related && record.lead.id === openLead;
-        if (!ready && !shellRow) return null;
+        const fromPage =
+          record && related && record.lead.id === openLead
+            ? { record, messages: [...messages], related }
+            : null;
+        const held = drawers[openLead];
+        const bundle = held && (!fromPage || held.at > nowMs) ? held.bundle : fromPage;
+        if (!bundle && !shellRow) return null;
         return (
           <LeadDrawer
             key={openLead}
-            loading={!ready}
-            lead={ready ? record.lead : leadFromRow(shellRow!)}
-            notes={ready ? record.notes : []}
-            activity={ready ? record.activity : []}
-            messages={ready ? messages : []}
-            related={ready ? related : relatedFromRow(shellRow!)}
+            loading={!bundle}
+            lead={bundle ? bundle.record.lead : leadFromRow(shellRow!)}
+            notes={bundle ? bundle.record.notes : []}
+            activity={bundle ? bundle.record.activity : []}
+            messages={bundle ? bundle.messages : []}
+            related={bundle ? bundle.related : relatedFromRow(shellRow!)}
             tab={openTab as never}
             viewerName={fullName}
             nowMs={nowMs}
-            onTab={setTab}
+            onTab={onDrawerTab}
             onClose={closeLead}
             onRaiseQuotation={() => setQuoteFor(openLead)}
             onChooseUnit={() => setUnitFor(openLead)}
+            onSummary={onSummary}
           />
         );
       })()}
@@ -937,6 +1100,7 @@ export function MyLeadsDesk({
                 <Row
                   key={lead.id}
                   lead={lead}
+                  drawerHref={drawerHref}
                   nowMs={nowMs}
                   fullName={fullName}
                   ticked={ticked.has(lead.id)}
@@ -1103,6 +1267,7 @@ const TD_MID = 'px-3 py-3 align-middle';
 
 function Row({
   lead,
+  drawerHref,
   nowMs,
   fullName,
   ticked,
@@ -1111,6 +1276,7 @@ function Row({
   onPropose,
 }: {
   lead: CrmLeadRow;
+  drawerHref: (leadId: string, tab: string) => string;
   nowMs: number;
   fullName: string;
   ticked: boolean;
@@ -1150,7 +1316,24 @@ function Row({
      drawer from THIS ROW, now, and lets the URL and the remaining detail catch
      up behind it. */
   const open = (tab: string) => () => onOpen(lead.id, tab);
-  const href = `/leads/${lead.id}` as Route;
+  /* ⚠⚠ THE NAME OPENS THE DRAWER, LIKE EVERY OTHER PART OF THE ROW. Owner,
+     2026-09-17: *"when I reload the page and click on a row, it brings me to
+     the document page… maybe I accidentally clicked on something."* They did
+     not: the name was a link to `/leads/[id]`, the separate full-record page —
+     the one part of a row that left the page, and the part people click first.
+     Before the page has finished hydrating, a click on it could not even be
+     intercepted.
+
+     So its address is THIS page with the drawer open. An ordinary click opens
+     the drawer in the same frame; a click before hydration, or a Ctrl/Cmd
+     click into a new tab, lands on the same drawer from the server. The full
+     record stays one click away in the drawer's menu. */
+  const href = drawerHref(lead.id, 'overview') as Route;
+  const openHere = (tab: string) => (e: React.MouseEvent) => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+    e.preventDefault();
+    onOpen(lead.id, tab);
+  };
 
   return (
     <tr
@@ -1205,6 +1388,9 @@ function Row({
           <span className={SHRINKS}>
             <Link
               href={href}
+              prefetch={false}
+              scroll={false}
+              onClick={openHere('overview')}
               className="block truncate text-body-sm font-semibold text-text-primary underline-offset-2 hover:text-text-brand hover:underline"
             >
               {lead.fullName ?? 'Name not given'}
@@ -1492,7 +1678,12 @@ function Row({
       <td className={TD_MID}>
         <span className="flex items-center gap-1">
           {lead.canWhatsApp && lead.phoneE164 ? (
-            <Reach href={`/leads/${lead.id}?chat=1` as Route} label={`WhatsApp ${lead.fullName ?? 'lead'}`} tone="wa">
+            <Reach
+              href={drawerHref(lead.id, 'conversations')}
+              onClick={openHere('conversations')}
+              label={`WhatsApp ${lead.fullName ?? 'lead'}`}
+              tone="wa"
+            >
               <WhatsAppMark className="size-5" />
             </Reach>
           ) : wa ? (
@@ -1645,12 +1836,15 @@ function StageChooser({
 
 function Reach({
   href,
+  onClick,
   label,
   external,
   tone = 'plain',
   children,
 }: {
   href: string;
+  /** Open in place — see `openHere` in `Row`. */
+  onClick?: (e: React.MouseEvent) => void;
   label: string;
   external?: boolean;
   tone?: 'plain' | 'wa' | 'mail';
@@ -1659,6 +1853,7 @@ function Reach({
   return (
     <a
       href={href}
+      onClick={onClick}
       aria-label={label}
       title={label}
       {...(external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
