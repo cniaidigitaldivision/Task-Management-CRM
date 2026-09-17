@@ -470,6 +470,7 @@ export function LeadDrawer({
           )}
           {activeTab === 'conversations' && (
             <LeadConversationTab
+              leadId={lead.id}
               messages={messages}
               sender={related.sender}
               /* ⚠️ THE ENGINE'S OWN REASON (170), not a sentence guessed here.

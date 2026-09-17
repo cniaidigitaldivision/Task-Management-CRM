@@ -3,7 +3,12 @@
 import * as React from 'react';
 import { Check, ChevronDown, FileText, Info, Mail, Paperclip, Send, X } from 'lucide-react';
 
+import {
+  readWhatsAppThreadAction,
+  sendWhatsAppTextAction,
+} from '@/app/actions/crm-whatsapp';
 import { MAIL_BLUE, WA_GREEN, WhatsAppMark } from '@/components/crm/whatsapp-mark';
+import { useToast } from '@/components/ui/toast';
 import type { CrmMessage, CrmSender } from '@/lib/db/queries/crm-leads';
 import { displayPhone } from '@/lib/domain/phone';
 import { cn } from '@/lib/utils';
@@ -31,12 +36,14 @@ import { cn } from '@/lib/utils';
 type Filter = 'all' | 'whatsapp' | 'email';
 
 export function LeadConversationTab({
+  leadId,
   messages,
   sender,
   sequencePaused,
   leadName,
   onReviewFollowUp,
 }: {
+  leadId: string;
   messages: readonly CrmMessage[];
   sender: CrmSender | null;
   /** Why the chase stopped, when it has — migration 170 pauses on a reply. */
@@ -44,6 +51,20 @@ export function LeadConversationTab({
   leadName: string;
   onReviewFollowUp: () => void;
 }) {
+  const toast = useToast();
+  const [sending, setSending] = React.useState(false);
+  /* ⚠️ THE THREAD IS LOCAL STATE SEEDED FROM THE SERVER, so a sent message
+     appears in the frame it was sent rather than after a round trip to
+     Singapore and a full page render — Rule Zero. `seen` resets it when the
+     drawer is reused for a different lead, which is the same guard the
+     qualification draft needs. */
+  const [thread, setThread] = React.useState<readonly CrmMessage[]>(messages);
+  const [seen, setSeen] = React.useState(leadId);
+  if (seen !== leadId) {
+    setSeen(leadId);
+    setThread(messages);
+  }
+
   const [filter, setFilter] = React.useState<Filter>('all');
   const [oldestFirst, setOldestFirst] = React.useState(true);
   const [dismissed, setDismissed] = React.useState(false);
@@ -51,16 +72,50 @@ export function LeadConversationTab({
   const [draft, setDraft] = React.useState('');
 
   const counts = {
-    whatsapp: messages.filter((m) => m.channel === 'whatsapp').length,
-    email: messages.filter((m) => m.channel === 'email').length,
+    whatsapp: thread.filter((m) => m.channel === 'whatsapp').length,
+    email: thread.filter((m) => m.channel === 'email').length,
   };
 
   const shown = React.useMemo(() => {
-    const kept = filter === 'all' ? messages : messages.filter((m) => m.channel === filter);
+    const kept = filter === 'all' ? thread : thread.filter((m) => m.channel === filter);
     /* ⚠️ A COPY BEFORE SORTING. `messages` is the server's array and reversing it
        in place would reorder the prop for every other reader of it. */
     return oldestFirst ? [...kept] : [...kept].reverse();
-  }, [messages, filter, oldestFirst]);
+  }, [thread, filter, oldestFirst]);
+
+  /**
+   * Send it.
+   *
+   * ⚠️ THIS CALLS THE ACTION THAT WAS ALREADY THERE AND PROVEN LIVE.
+   * `sendWhatsAppTextAction` has worked since 2026-09-13 — it checks the
+   * number, the project's config, sends through Meta and records the row
+   * EITHER WAY, because a refusal is part of the conversation and a failure
+   * that leaves no trace looks like a message nobody wrote. The composer
+   * simply never called it, which is why pressing send did nothing.
+   */
+  async function send() {
+    const text = draft.trim();
+    if (!text || sending) return;
+
+    setSending(true);
+    const result =
+      channel === 'whatsapp'
+        ? await sendWhatsAppTextAction(leadId, text)
+        : { ok: false, error: 'Email replies are not wired yet — send a quotation by email from the Related tab.' };
+
+    /* ⚠️ RE-READ EITHER WAY. The action records a refusal as a row, so the
+       thread is how somebody finds out the 24-hour window shut — refreshing
+       only on success would hide exactly the message that explains it. */
+    const fresh = await readWhatsAppThreadAction(leadId);
+    setThread(fresh);
+    setSending(false);
+
+    if (result.ok) {
+      setDraft('');
+    } else {
+      toast({ tone: 'error', text: result.error ?? 'That did not send.' });
+    }
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -159,7 +214,7 @@ export function LeadConversationTab({
       <div className="min-h-0 flex-1 overflow-y-auto">
         {shown.length === 0 ? (
           <p className="rounded-xl border border-dashed border-border-default px-4 py-8 text-center text-body-sm text-text-secondary">
-            {messages.length === 0
+            {thread.length === 0
               ? 'Nothing has been sent or received yet.'
               : `No ${filter} messages on this lead.`}
           </p>
@@ -236,6 +291,16 @@ export function LeadConversationTab({
           rows={2}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
+          /* ⚠️ ENTER SENDS, SHIFT+ENTER BREAKS THE LINE — what every messaging
+             app does. A reply box that needs the mouse is one people stop
+             using mid-conversation. */
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              void send();
+            }
+          }}
+          disabled={sending}
           placeholder="Write a reply…"
           className="mt-2 w-full resize-y rounded-lg border border-border-default bg-bg-base px-3 py-2 text-body-sm text-text-primary placeholder:text-text-tertiary focus:border-accent-primary focus:outline-none"
         />
@@ -258,14 +323,16 @@ export function LeadConversationTab({
           </button>
           <button
             type="button"
-            disabled={!draft.trim() || (channel === 'whatsapp' && !sender?.configured)}
+            onClick={() => void send()}
+            disabled={sending || !draft.trim() || (channel === 'whatsapp' && !sender?.configured)}
             className={cn(
               'ml-auto inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-3 py-2 text-caption font-semibold text-white transition-opacity',
-              (!draft.trim() || (channel === 'whatsapp' && !sender?.configured)) && 'opacity-40',
+              (sending || !draft.trim() || (channel === 'whatsapp' && !sender?.configured)) &&
+                'opacity-40',
             )}
           >
             <Send className="size-4" aria-hidden="true" />
-            Send reply
+            {sending ? 'Sending…' : 'Send reply'}
           </button>
         </div>
       </div>
@@ -284,7 +351,14 @@ function Entry({ message, leadName }: { message: CrmMessage; leadName: string })
   });
 
   return (
-    <li className="flex gap-3">
+    /* ⚠⚠ OURS ON THE RIGHT, THEIRS ON THE LEFT. The reference draws every
+       row left-aligned and the owner caught what that costs: *"all the
+       messages are appearing in one alignment."* Side is the fastest signal
+       in any thread — it is read before the name, before the colour and before
+       the time, and every messaging app the client already uses works this
+       way. Keeping the mock's single column would have meant reading a name on
+       every line to know who spoke. */
+    <li className={cn('flex gap-3', mine && 'flex-row-reverse')}>
       {/* The channel, as a mark rather than a word repeated on every line. */}
       <span
         className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-full"
@@ -298,8 +372,13 @@ function Entry({ message, leadName }: { message: CrmMessage; leadName: string })
         {isEmail ? <Mail className="size-5" aria-hidden="true" /> : <WhatsAppMark className="size-5" />}
       </span>
 
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+      <div className={cn('min-w-0 flex-1', mine && 'flex flex-col items-end')}>
+        <div
+          className={cn(
+            'flex w-full flex-wrap items-baseline gap-x-3 gap-y-0.5',
+            mine ? 'flex-row-reverse' : 'justify-between',
+          )}
+        >
           <p className="text-body-sm font-semibold text-text-primary">
             {mine ? `You · ${message.sentByName ?? 'Sarah'}` : leadName}{' '}
             <span className="font-normal text-text-secondary">
