@@ -9,7 +9,165 @@
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
 | **Last updated** | **2026-09-16** |
-| **Last migration applied anywhere** | **170** (verified against the live database, not remembered). CRM next: **171.** |
+| **Last migration applied anywhere** | **174** (verified against the live database, not remembered). CRM next: **175.** |
+
+---
+
+## ❓ 2026-09-17 — AN ERP LEAD IS NOT ASKED ABOUT PLOTS · 173, 174
+
+> Owner: *"If it is an ERP enquiry, definitely they are not real estate; they are
+> AI services. Their questions will be different, their budget will be
+> different… you are still showing me qualifying questions relevant to real
+> estate. The system should be smart enough to know which question to display
+> according to the campaign, according to the project."*
+
+⚠️ **A REAL FAULT IN 167, AND THE OWNER FOUND IT BY LOOKING AT ONE LEAD.**
+Measured: **every** demo lead arrives on *ERP enquiry*, *CRM enquiry* or *Taskly
+enquiry* — all AI & Digital services — and all of them were being asked whether
+they wanted the plot **for investment or to build a house on**, with budget bands
+running from 20 lakh to over a crore. For a CRM priced at 2 lakh, exactly one
+band can ever apply, so the answer carried no information at all.
+
+### How it decides now — `app.crm_lead_sells(lead)`
+
+Most specific fact wins:
+
+| | |
+|---|---|
+| 1 · **The attached catalogue item** | If a 5 Marla plot is against this lead, they are discussing a plot, whatever form they arrived on |
+| 2 · **The campaign** — `crm_lead_forms.sells` | ⚠️ The owner's own rule. One project runs several campaigns and they need not sell the same thing |
+| 3 · **The project** — `crm_project_settings.sells` | The default |
+
+⚠️ **THE CAMPAIGN HAD TO BE IN THERE, and the demo data is why.** Three service
+campaigns share one project with two plots. A project-level answer alone would
+have been wrong for every lead on it.
+
+**Backfilled from evidence, not guesswork** — a form named for ERP, CRM, Taskly,
+automation, marketing or website is a service campaign. Anything else is left
+NULL and inherits, because silence is the honest answer where the name says
+nothing.
+
+### What changed in the questions
+
+⚠️ **THE FOUR AXES DO NOT MOVE, AND NEITHER DOES THE GATE.** Budget, Authority,
+Need and Timeline are universal. Only the wording and the options change. A
+second set of columns would have meant a second gate, two definitions of
+"qualified", and every report having to ask which kind it was looking at.
+
+| | Property | Service |
+|---|---|---|
+| **B** | 20 lakh → over a crore | **Under 50,000 → over 5 lakh** |
+| **N** | investment · build · rent · resale | **ERP · CRM · digital marketing · WhatsApp automation · task automation · website** |
+| **T** | *"looking to buy soon?"* | *"when do you want it running?"* |
+| **A** | "Decides with family" | **"Decides with partners"** — same stored value, different sentence |
+| Block / area | asked | ⚠️ **absent, not relabelled** — inventing a question to fill the space is how a form collects noise |
+
+⚠️ **THE `svc_` PREFIX IS PERMANENT.** Two scales share one column, and a report
+that summed them would be adding lakhs to crores. A stored value is never
+ambiguous about which world it came from.
+
+The panel also says which kind it thinks the lead is, so if the system has it
+wrong the salesperson sees that **before** answering four questions on the wrong
+scale.
+
+### ⚠️ AND IT EXPOSED A BUG IN THE DEMO FIXTURE — the owner's call
+
+**Faisal Rehman and Hina Shahzad are ERP enquiries with 5 and 10 Marla plots
+attached.** Earlier phases seeded property onto service leads. The resolution
+rule is behaving correctly — an attached plot outranks the campaign — so they
+still get property questions, which is right given the data and wrong given
+reality.
+
+⚠️ **NOT CHANGED, DELIBERATELY.** Both are the fixture the test-run artifact uses
+for the whole quotation flow (QT-1042, QT-1043, PROP-A101, PROP-B201). Silently
+detaching their plots would break the walkthrough the owner is working from.
+**Two honest fixes, owner's choice:** move those two to a property campaign so the
+data means what it says, or leave them as the property example and let the other
+nine demonstrate the service path.
+
+---
+
+## 📦 2026-09-17 — THE CATALOGUE SELLS SERVICES, AND EVERY ITEM CARRIES THREE PRICES · 171, 172
+
+> Owner: *"Give me three quotation files for CRM. Give me three quotation files
+> for ERP. Total six files… keep them separate with their proper service
+> names."* And for a plot: *"plot number, block number, size, marla, is corner or
+> not… and quotation price 1, quotation price 2, quotation price 3."*
+
+**171 · the catalogue generalises.** `crm_properties` now carries
+`catalogue_kind` (plot · unit · service), `price_mid`, `price_floor` and
+`scope_note`.
+
+⚠️ **THE TABLE KEEPS ITS NAME ON PURPOSE.** Renaming it would rewrite 150's
+policies, `crm_leads.property_id`, `crm_quotations.property_id`,
+`crm_appointments.property_id` and every query over them — a large, risky change
+that buys a better noun. **Read `crm_properties` as "a thing we can sell".** The
+plot fields were already nullable, which is the only reason a service fits.
+
+⚠️ **THE FLOOR IS ENFORCED, NOT ADVISED.** A trigger refuses a quotation below
+`price_floor` — on the APPROVED figure as well as the asked-for one, because the
+whole point of a floor is surviving a manager having a generous afternoon. At the
+floor is allowed; the floor is the last quotation, not a wall one rupee above it.
+A CHECK could not do this: it reads another table.
+
+⚠️ **AND THE LADDER MUST DESCEND** — a constraint refuses a floor above list,
+which would otherwise be found by a client quoted MORE for pushing back.
+
+**Letterhead:** `crm_project_settings.letterhead_path`, per project — it is the
+client's brand on the page, not ours. One shared letterhead would print Chitral's
+quotation on the division's paper.
+
+**Readiness:** `app.crm_project_readiness(project)` — the owner's *"mention it
+again and again with a red flag"*, as a function rather than each screen's own
+arithmetic, so the catalogue page, the quotation form, campaign setup and
+eventually the agent cannot disagree about what "ready" means. ⚠️ **It names the
+fix, not the fault** — *"upload the letterhead and a quotation can be printed"*.
+
+### ⚠️ 172 · a bug in 171, found the same day, before any screen read it
+
+Readiness called `app.crm_project_can_whatsapp()`, which answers **two** questions
+at once: is a number configured, **and may YOU send**. Right for the desk's
+button; wrong here. Readiness runs inside a definer with no `app.user_id`, so both
+access predicates were false and **every project reported "no WhatsApp number"** —
+including the demo project, which has one configured and 17 messages already sent
+through it. ⚠️ **It would have been wrong for an admin too**, who is a member of
+nothing.
+
+⚠️ **THIS ONE MATTERED MORE THAN THE USUAL, and the reason is the feature
+itself:** a red-flag list that is wrong on every row teaches people to ignore red
+flags. Fixed to read the column. **The regression guard is that the answer is now
+identical asked as nobody, as a salesperson and as an admin** — reading it once,
+as somebody with access, would have passed before the fix too.
+
+**Tenth occurrence** of an access predicate asked a question that was not about
+access — 105, 121, 125, 129, 130, 140, `crmAddLeadProjects`, and twice more
+yesterday.
+
+### 📋 What the owner now has to provide — measured, all 18 projects
+
+| Missing | Projects |
+|---|---|
+| 🔴 **Letterhead** | **18 of 18** — nothing can be printed for any project |
+| 🔴 **Catalogue** | **17 of 18** — only the demo has anything listed at all |
+| 🔴 **Prices 2 and 3** | the demo's 2 items have only tier 1 |
+| 🟠 WhatsApp number | 17 of 18. ⚠️ **Chitral genuinely has none** — messaging was only ever proved on the demo project |
+| 🟠 A follow-up sequence | 18 of 18 |
+
+⚠️ **CHITRAL HAVING NO WHATSAPP NUMBER IS WORTH THE OWNER'S ATTENTION.** 641 real
+leads, and nothing can message them.
+
+### Still not built
+
+**Email.** ⚠️ The owner is right that it was never wired. The mailer itself is
+real and capable — Resend, `EMAIL_FROM` verified, `lib/email/send.ts`, templates,
+and PDF attachments already used by invoices. **What does not exist is any lead
+email at all**: no template, nothing that sends a quotation or proposal, and no
+record of a sent email in the lead's thread. The plumbing is there; the pipe to
+the CRM is not.
+
+**Also outstanding from the owner's spec:** campaign-scoped prices (⚠️
+`crm_campaigns` is still EMPTY, so there is nothing to scope to yet), the
+quotation PDF onto the letterhead, and `supersedes_id` linking v1 → v2 → v3.
 
 ---
 

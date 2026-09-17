@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   BANT_QUESTIONS,
+  bantQuestions,
   isQualified,
   qualificationGaps,
   qualificationStarted,
@@ -81,6 +82,64 @@ describe('the order the questions are asked in', () => {
       expect(q.ask.length).toBeGreaterThan(20);
       expect(q.options.length).toBeGreaterThan(1);
     }
+  });
+});
+
+describe('⚠️ which questions a lead is actually asked', () => {
+  /* The owner caught this as a real fault: every demo lead arrives on an ERP,
+     CRM or Taskly form and was being asked whether they wanted the plot for
+     investment or to build a house on. */
+  const property = bantQuestions('property');
+  const service = bantQuestions('service');
+
+  it('asks the same four axes either way — the gate does not move', () => {
+    expect(service.map((q) => q.field)).toEqual(property.map((q) => q.field));
+  });
+
+  it('⚠️ offers software money to a service lead, not plot money', () => {
+    const budget = service.find((q) => q.field === 'budgetBand')!;
+
+    /* A CRM priced at 2 lakh offered "20-40 lakh · over a crore" has exactly one
+       usable band, so every answer is the same answer. */
+    expect(budget.options).toContain('svc_1l_to_3l');
+    expect(budget.options).not.toContain('over_10m');
+  });
+
+  it('and plot money to a property lead', () => {
+    const budget = property.find((q) => q.field === 'budgetBand')!;
+
+    expect(budget.options).toContain('6m_to_10m');
+    expect(budget.options).not.toContain('svc_under_50k');
+  });
+
+  it('⚠️ asks WHICH SERVICE rather than investment-or-build', () => {
+    const need = service.find((q) => q.field === 'purpose')!;
+
+    expect(need.options).toContain('svc_erp');
+    expect(need.options).toContain('svc_whatsapp_automation');
+    expect(need.options).not.toContain('build_to_live');
+    expect(need.label.toLowerCase()).toContain('service');
+  });
+
+  it('changes the words, not only the values', () => {
+    /* "Are you looking to buy soon" is wrong for somebody buying software. */
+    const t = (qs: typeof property) => qs.find((q) => q.field === 'timeline')!.ask;
+    expect(t(service)).not.toBe(t(property));
+    expect(t(service).toLowerCase()).toContain('running');
+  });
+
+  it('⚠️ "decides with family" becomes "decides with partners" for a business', () => {
+    const a = service.find((q) => q.field === 'authority')!;
+    expect(a.labelOf('shares_decision')).toBe('Decides with partners');
+    expect(BANT_QUESTIONS.find((q) => q.field === 'authority')!.labelOf('shares_decision'))
+      .toBe('Decides with family');
+  });
+
+  it('⚠️ mixed falls back to property rather than guessing', () => {
+    /* With no campaign and no attached item there is genuinely nothing to go on,
+       and a wrong guess at least stays in the scale the catalogue is priced in. */
+    expect(bantQuestions('mixed').find((q) => q.field === 'budgetBand')!.options)
+      .toEqual(property.find((q) => q.field === 'budgetBand')!.options);
   });
 });
 

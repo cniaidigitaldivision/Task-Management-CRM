@@ -184,6 +184,11 @@ export interface CrmLeadRecord {
   readonly qualificationNote: string | null;
   readonly budget: number | null;
   readonly qualifiedAt: string | null;
+  /* ⚠️ WHICH QUESTIONS THIS LEAD NEEDS — migration 174. Resolved server-side from
+     the attached item, then the campaign it arrived on, then the project. The
+     drawer must never re-derive it: a second opinion about whether somebody is
+     buying a plot or an ERP is a second set of questions. */
+  readonly sells: string;
 }
 
 export interface CrmLeadNote {
@@ -668,6 +673,7 @@ export async function getCrmLead(
              l.timeline::text, l.payment_mode::text,
              l.location_preference, l.qualification_note, l.budget,
              l.qualified_at,
+             app.crm_lead_sells(l.id)::text as sells,
              /* ⚠️ THE SAME LABEL THE LIST BUILDS. A second expression here would
                 render "5 Marla · A-101" on the desk and something else in the
                 drawer for the same unit, and the reader would reasonably wonder
@@ -781,6 +787,7 @@ export async function getCrmLead(
         qualifiedAt: row.qualified_at
           ? new Date(row.qualified_at as string).toISOString()
           : null,
+        sells: String(row.sells ?? 'property'),
       },
       notes: (noteRows as Array<Record<string, unknown>>).map((n) => ({
         id: String(n.id),

@@ -7,7 +7,7 @@ import { saveQualificationAction } from '@/app/actions/crm-leads';
 import { useToast } from '@/components/ui/toast';
 import type { CrmLeadRecord } from '@/lib/db/queries/crm-leads';
 import {
-  BANT_QUESTIONS,
+  bantQuestions,
   paymentModeLabel,
   PAYMENT_MODES,
   qualificationGaps,
@@ -83,6 +83,14 @@ export function QualifyPanel({ lead }: { lead: CrmLeadRecord }) {
     purpose: draft.purpose || null,
     timeline: draft.timeline || null,
   };
+  /* ⚠️ THE QUESTION SET FOLLOWS THE LEAD, not the screen. An ERP enquiry is asked
+     which service they want and what software budget they have; a plot enquiry is
+     asked whether they are investing or building. The server decided which —
+     `app.crm_lead_sells` — from the attached item, then the campaign, then the
+     project. */
+  const questions = bantQuestions((lead.sells as 'property' | 'service' | 'mixed') ?? 'property');
+  const isService = lead.sells === 'service';
+
   const gaps = qualificationGaps(bant);
   const started = qualificationStarted(bant);
   const suggestion = started ? suggestTemperature(bant) : null;
@@ -117,6 +125,12 @@ export function QualifyPanel({ lead }: { lead: CrmLeadRecord }) {
         <h3 className="text-micro font-semibold uppercase tracking-wide text-text-secondary">
           Qualifying
         </h3>
+        {/* ⚠️ SAYS WHICH KIND OF LEAD IT THINKS THIS IS. If the system has it
+            wrong, the salesperson sees that before answering four questions
+            against the wrong scale — and the fix is the campaign's own setting. */}
+        <span className="rounded bg-bg-subtle px-1.5 py-0.5 text-caption text-text-secondary">
+          {isService ? 'Services lead' : 'Property lead'}
+        </span>
         {/* ⚠️ "Not asked yet" ON AN UNTOUCHED LEAD, never "0 of 4" — a progress
             figure on something nobody has started reads as a failure rather than
             as work not yet done. */}
@@ -154,7 +168,7 @@ export function QualifyPanel({ lead }: { lead: CrmLeadRecord }) {
       )}
 
       <div className="space-y-2.5">
-        {BANT_QUESTIONS.map((q) => (
+        {questions.map((q) => (
           <div key={q.field}>
             <label
               htmlFor={`bant-${q.field}-${lead.id}`}
@@ -222,21 +236,26 @@ export function QualifyPanel({ lead }: { lead: CrmLeadRecord }) {
               ))}
             </select>
           </div>
-          <div>
-            <label
-              htmlFor={`bant-loc-${lead.id}`}
-              className="text-caption font-medium text-text-primary"
-            >
-              Which block or area?
-            </label>
-            <input
-              id={`bant-loc-${lead.id}`}
-              value={draft.locationPreference}
-              onChange={(e) => setDraft((d) => ({ ...d, locationPreference: e.target.value }))}
-              placeholder="Block A, near the park"
-              className="mt-1 w-full rounded-lg border border-border-default bg-bg-base px-2.5 py-1.5 text-body-sm text-text-primary placeholder:text-text-tertiary focus:border-accent-primary focus:outline-none"
-            />
-          </div>
+          {/* ⚠️ ABSENT FOR A SERVICE LEAD, not relabelled. "Which block or area?"
+              has no software meaning, and inventing a question to fill the space
+              is how a form starts collecting noise. */}
+          {!isService && (
+            <div>
+              <label
+                htmlFor={`bant-loc-${lead.id}`}
+                className="text-caption font-medium text-text-primary"
+              >
+                Which block or area?
+              </label>
+              <input
+                id={`bant-loc-${lead.id}`}
+                value={draft.locationPreference}
+                onChange={(e) => setDraft((d) => ({ ...d, locationPreference: e.target.value }))}
+                placeholder="Block A, near the park"
+                className="mt-1 w-full rounded-lg border border-border-default bg-bg-base px-2.5 py-1.5 text-body-sm text-text-primary placeholder:text-text-tertiary focus:border-accent-primary focus:outline-none"
+              />
+            </div>
+          )}
         </div>
 
         <div>

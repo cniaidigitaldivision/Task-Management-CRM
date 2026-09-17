@@ -41,6 +41,8 @@ const LEAD: CrmLeadRecord = {
   qualificationNote: null,
   budget: null,
   qualifiedAt: null,
+  /* A Chitral lead — the property question set. */
+  sells: 'property',
   fullName: 'Mukhtar Ahmad',
   phone: '03439040510',
   phoneE164: '+923439040510',
