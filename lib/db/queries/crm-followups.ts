@@ -65,16 +65,21 @@ export async function createFollowUp(
   input: {
     leadId: string;
     channel: 'whatsapp' | 'email' | 'call' | 'task';
+    /** One of `crm_followup_purpose` — what this follow-up is for (185). */
+    purpose?: string;
     title: string;
     body: string | null;
     dueAt: string;
+    /** ⚠️ Advanced: leave the desk's Next action alone. */
+    keepNextAction?: boolean;
   },
 ): Promise<FollowUpWrite> {
   return run(actorId, async (tx) => {
     const rows = await tx`
       insert into public.crm_follow_ups
         (lead_id, purpose, channel, mode, status, title, body, due_at, assigned_to_id, created_by_id)
-      select l.id, 'custom', ${input.channel}::public.crm_followup_channel, 'remind_me',
+      select l.id, ${input.purpose ?? 'custom'}::public.crm_followup_purpose,
+             ${input.channel}::public.crm_followup_channel, 'remind_me',
              (case when ${input.dueAt}::timestamptz <= now() then 'due' else 'planned' end)::public.crm_followup_status,
              ${input.title}, ${input.body}, ${input.dueAt}::timestamptz,
              coalesce(l.owner_id, ${actorId}::uuid), ${actorId}::uuid
@@ -88,16 +93,18 @@ export async function createFollowUp(
        row still reads "Quotation check-in — overdue" is a table that lies about
        what is owed. It takes over when there is no next action, when the
        current one is already late, or when this one comes sooner. */
-    await tx`
-      update public.crm_leads
-         set next_action = ${input.title},
-             next_action_at = ${input.dueAt}::timestamptz,
-             next_action_type = ${input.channel}::public.crm_next_action_kind
-       where id = ${input.leadId}::uuid
-         and (next_action_at is null
-              or next_action_at < now()
-              or next_action_at > ${input.dueAt}::timestamptz)
-    `;
+    if (!input.keepNextAction) {
+      await tx`
+        update public.crm_leads
+           set next_action = ${input.title},
+               next_action_at = ${input.dueAt}::timestamptz,
+               next_action_type = ${input.channel}::public.crm_next_action_kind
+         where id = ${input.leadId}::uuid
+           and (next_action_at is null
+                or next_action_at < now()
+                or next_action_at > ${input.dueAt}::timestamptz)
+      `;
+    }
     return input.leadId;
   });
 }
@@ -274,4 +281,135 @@ export async function startSequence(
     if (reason) throw new Refused(`It cannot start — ${reason}.`);
     return rows[0].lead_id;
   });
+}
+
+/* ── A scheduler for ONE lead — migration 185 ────────────────────────────── */
+
+export interface PlanStepRow {
+  readonly stepNo: number;
+  readonly channel: string;
+  readonly delayDays: number;
+  readonly title: string;
+  readonly body: string | null;
+  readonly mode: string;
+}
+
+export interface LeadPlanWritten {
+  readonly sequenceId: string;
+  readonly leadSequenceId: string;
+  readonly nextStepAt: string;
+}
+
+/**
+ * "Day 1, day 3, day 7" for one client, written by the person who works them.
+ *
+ * ⚠️ THE TEMPLATE, ITS STEPS AND THE RUN ARE ONE TRANSACTION. A plan with no
+ * steps is a sequence the engine stops on its first pass with "every step has
+ * been sent"; a template with no run is an orphan nobody ever sees. Half of this
+ * is worse than none of it.
+ *
+ * ⚠️ AND IT ASKS THE ENGINE WHETHER IT COULD RUN, BEFORE IT COMMITS. The same
+ * `app.crm_sequence_stop_reason` the scheduler calls — so a plan that would be
+ * stopped on its first pass is refused now, with the engine's own words, rather
+ * than appearing to start and dying quietly fifteen minutes later.
+ */
+export async function createLeadPlan(
+  actorId: string,
+  input: {
+    leadId: string;
+    name: string;
+    purpose: string;
+    stopOnReply: boolean;
+    keepNextAction: boolean;
+    /** When the first step falls. Null means as soon as its own delay allows. */
+    firstAt: string | null;
+    steps: readonly PlanStepRow[];
+  },
+): Promise<(FollowUpWrite & { readonly plan?: LeadPlanWritten })> {
+  let plan: LeadPlanWritten | undefined;
+  const result = await run(actorId, async (tx) => {
+    /* ⚠️ THE PROJECT AND `is_test_data` COME FROM THE LEAD, never from the
+       caller. A demo plan on a real lead would be started by the engine and
+       reach a real customer; a plan whose project does not match its lead can
+       never start at all (`startSequence`'s own join). */
+    const made = (await tx`
+      insert into public.crm_sequences
+        (project_id, lead_id, name, purpose, stop_on_reply, is_active, is_test_data, created_by_id)
+      select l.project_id, l.id, ${input.name}, ${input.purpose}::public.crm_followup_purpose,
+             ${input.stopOnReply}, true, l.is_test_data, ${actorId}::uuid
+        from public.crm_leads l
+       where l.id = ${input.leadId}::uuid
+      returning id
+    `) as Array<{ id: string }>;
+    if (!made[0]) return null;
+    const sequenceId = made[0].id;
+
+    /* One statement for every step — `unnest`, not a loop. Inside a transaction
+       each round trip is serial (they share one connection), so six steps would
+       otherwise be six waits on Singapore. */
+    await tx`
+      insert into public.crm_sequence_steps
+        (sequence_id, step_no, channel, delay_days, purpose, title, body, mode)
+      select ${sequenceId}::uuid, s.step_no, s.channel::public.crm_followup_channel,
+             s.delay_days, ${input.purpose}, s.title, nullif(s.body, ''),
+             s.mode::public.crm_followup_mode
+        from unnest(
+               ${input.steps.map((s) => s.stepNo)}::int[],
+               ${input.steps.map((s) => s.channel)}::text[],
+               ${input.steps.map((s) => s.delayDays)}::int[],
+               ${input.steps.map((s) => s.title)}::text[],
+               ${input.steps.map((s) => s.body ?? '')}::text[],
+               ${input.steps.map((s) => s.mode)}::text[]
+             ) as s(step_no, channel, delay_days, title, body, mode)
+    `;
+
+    const started = (await tx`
+      insert into public.crm_lead_sequences
+        (lead_id, sequence_id, state, current_step, total_steps, started_at, next_step_at,
+         quotation_id, created_by_id)
+      select l.id, ${sequenceId}::uuid, 'scheduled', 0, ${input.steps.length}, now(),
+             coalesce(${input.firstAt}::timestamptz,
+                      now() + make_interval(days => ${input.steps[0]?.delayDays ?? 0})),
+             /* ⚠️ Tied to the quotation it is about, so 170 stops the chase the
+                moment that quotation expires or is replaced. */
+             case when ${input.purpose} in ('quotation', 'approved_offer') then (
+               select q.id from public.crm_quotations q
+                where q.lead_id = l.id and q.status in ('approved', 'sent', 'pending_approval')
+                order by q.version desc, q.created_at desc
+                limit 1)
+             end,
+             ${actorId}::uuid
+        from public.crm_leads l
+       where l.id = ${input.leadId}::uuid
+      returning id, next_step_at
+    `) as Array<{ id: string; next_step_at: Date }>;
+    if (!started[0]) return null;
+
+    const [{ reason }] = (await tx`
+      select app.crm_sequence_stop_reason(${started[0].id}::uuid) as reason
+    `) as Array<{ reason: string | null }>;
+    if (reason) throw new Refused(`It cannot start — ${reason}.`);
+
+    const nextStepAt = new Date(started[0].next_step_at).toISOString();
+    /* ⚠️ THE DESK FOLLOWS, or the row says "nothing planned" while three
+       messages are scheduled. The engine writes no follow-up row until the first
+       step falls due, so without this the plan would be invisible everywhere
+       except this drawer. */
+    if (!input.keepNextAction) {
+      await tx`
+        update public.crm_leads
+           set next_action = ${input.steps[0]?.title ?? input.name},
+               next_action_at = ${nextStepAt}::timestamptz,
+               next_action_type = ${input.steps[0]?.channel ?? 'task'}::public.crm_next_action_kind
+         where id = ${input.leadId}::uuid
+           and (next_action_at is null
+                or next_action_at < now()
+                or next_action_at > ${nextStepAt}::timestamptz)
+      `;
+    }
+
+    plan = { sequenceId, leadSequenceId: started[0].id, nextStepAt };
+    return input.leadId;
+  });
+  return result.ok && plan ? { ...result, plan } : result;
 }

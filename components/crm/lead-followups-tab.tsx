@@ -32,7 +32,9 @@ import {
   startSequenceAction,
   stopSequenceAction,
 } from '@/app/actions/crm-followups';
+import { FollowUpWizard, optimisticSteps, type PlanCreated } from '@/components/crm/follow-up-wizard';
 import { MAIL_BLUE, PAUSED_ORANGE, WA_GREEN, WhatsAppMark } from '@/components/crm/whatsapp-mark';
+import { formatWhen, fromInputValue, QUICK_TIMES, QuickTimes, toInputValue } from '@/components/crm/when';
 import { useToast } from '@/components/ui/toast';
 import type { CrmFollowUpRow, CrmLeadRecord, CrmLeadRelated } from '@/lib/db/queries/crm-leads';
 import {
@@ -40,6 +42,7 @@ import {
   appointmentStatusLabel,
   appointmentStatusToken,
 } from '@/lib/domain/crm-appointments';
+import { fillTokens, leadFactsFrom, planTokens } from '@/lib/domain/crm-followup-plans';
 import {
   channelLabel,
   followUpCounts,
@@ -72,80 +75,12 @@ export type FollowUpComposer = 'follow_up' | 'reminder' | null;
 
 type Sequence = NonNullable<CrmLeadRelated['sequence']>;
 
-/* ── Time, in Karachi ─────────────────────────────────────────────────────── */
-
-const TZ = 'Asia/Karachi';
-const KARACHI_OFFSET_H = 5;
-
-function karachiParts(ms: number) {
-  const p = new Intl.DateTimeFormat('en-CA', {
-    timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
-    hourCycle: 'h23',
-  }).formatToParts(new Date(ms));
-  const get = (t: string) => Number(p.find((x) => x.type === t)?.value ?? 0);
-  return { y: get('year'), m: get('month'), d: get('day'), h: get('hour'), mi: get('minute') };
-}
-
-/** A Karachi wall-clock moment, as an instant. */
-function karachiAt(y: number, m: number, d: number, h: number, mi = 0): number {
-  return Date.UTC(y, m - 1, d, h - KARACHI_OFFSET_H, mi);
-}
-
-function toInputValue(ms: number): string {
-  const { y, m, d, h, mi } = karachiParts(ms);
-  const two = (n: number) => String(n).padStart(2, '0');
-  return `${y}-${two(m)}-${two(d)}T${two(h)}:${two(mi)}`;
-}
-
-function fromInputValue(v: string): number | null {
-  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(v);
-  if (!match) return null;
-  const [, y, m, d, h, mi] = match.map(Number);
-  return karachiAt(y, m, d, h, mi);
-}
-
-/** "Mon 14 Sep, 9:00 AM" — the reference's own form. */
-function formatWhen(iso: string): string {
-  const at = new Date(iso);
-  const weekday = at.toLocaleDateString('en-GB', { weekday: 'short', timeZone: TZ });
-  const day = at.toLocaleDateString('en-GB', { day: 'numeric', timeZone: TZ });
-  const month = at.toLocaleDateString('en-US', { month: 'short', timeZone: TZ });
-  const time = at.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: TZ });
-  return `${weekday} ${day} ${month}, ${time}`;
-}
-
-/** The quick choices, each computed at the moment it is pressed. */
-const QUICK_TIMES: ReadonlyArray<{ label: string; at: () => number }> = [
-  { label: 'In 1 hour', at: () => Date.now() + 3_600_000 },
-  {
-    label: 'Tomorrow 10 AM',
-    at: () => {
-      const { y, m, d } = karachiParts(Date.now());
-      return karachiAt(y, m, d + 1, 10);
-    },
-  },
-  {
-    label: 'In 3 days',
-    at: () => {
-      const { y, m, d } = karachiParts(Date.now());
-      return karachiAt(y, m, d + 3, 10);
-    },
-  },
-  {
-    label: 'Next Monday',
-    at: () => {
-      const { y, m, d } = karachiParts(Date.now());
-      const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
-      return karachiAt(y, m, d + (((8 - dow) % 7) || 7), 10);
-    },
-  },
-];
-
 /* ── The tab ──────────────────────────────────────────────────────────────── */
 
 export function LeadFollowUpsTab({
   lead,
   related,
+  viewerName,
   nowMs,
   loading,
   composer,
@@ -154,6 +89,7 @@ export function LeadFollowUpsTab({
 }: {
   lead: CrmLeadRecord;
   related: CrmLeadRelated;
+  viewerName: string;
   nowMs: number;
   loading: boolean;
   composer: FollowUpComposer;
@@ -166,6 +102,8 @@ export function LeadFollowUpsTab({
   const [patches, setPatches] = React.useState<Record<string, Partial<CrmFollowUpRow>>>({});
   const [added, setAdded] = React.useState<CrmFollowUpRow[]>([]);
   const [sequencePatch, setSequencePatch] = React.useState<Partial<Sequence> | null>(null);
+  /* A plan created here, drawn before the server render carrying it arrives. */
+  const [madePlan, setMadePlan] = React.useState<Sequence | null>(null);
   const [composerHidden, setComposerHidden] = React.useState(false);
   const [seen, setSeen] = React.useState(related);
   if (seen !== related) {
@@ -173,6 +111,7 @@ export function LeadFollowUpsTab({
     setPatches({});
     setAdded([]);
     setSequencePatch(null);
+    setMadePlan(null);
   }
 
   const followUps = React.useMemo(
@@ -180,8 +119,8 @@ export function LeadFollowUpsTab({
     [added, related.followUps, patches],
   );
   const sequence = React.useMemo(
-    () => (related.sequence ? { ...related.sequence, ...sequencePatch } : null),
-    [related.sequence, sequencePatch],
+    () => (related.sequence ? { ...related.sequence, ...sequencePatch } : madePlan),
+    [related.sequence, sequencePatch, madePlan],
   );
 
   const timeline = React.useMemo(
@@ -202,10 +141,60 @@ export function LeadFollowUpsTab({
   );
   const counts = followUpCounts(followUps, timeline, nowMs);
 
+  /* ⚠️ A PLAN IS STORED IN PLACEHOLDERS AND READ AS WORDS. The step keeps
+     `{{lead_first_name}}` so it is still right if the lead changes hands; every
+     screen fills it for the person reading. */
+  const tokens = React.useMemo(() => {
+    const facts = leadFactsFrom(lead, related, viewerName, nowMs);
+    return planTokens(facts, facts.visit ? formatWhen(facts.visit.at) : null);
+  }, [lead, related, viewerName, nowMs]);
+
   /* The rows a person set — and anything left from an earlier sequence run. */
   const history = followUps
     .filter((f) => !sequence || f.leadSequenceId !== sequence.id)
     .sort((a, b) => Date.parse(b.doneAt ?? b.dueAt) - Date.parse(a.doneAt ?? a.dueAt));
+
+  /* ⚠️ DRAWN FROM WHAT WAS JUST SAVED, not from a re-read. The dialog closes,
+     the plan is on screen in the same frame, and the server render that follows
+     replaces it — Rule Zero's first law on a screen that writes. */
+  const onPlanned = (plan: PlanCreated) => {
+    if (plan.kind === 'single') {
+      const step = plan.steps[0];
+      setAdded((v) => [
+        {
+          id: `saved-${Date.now()}`,
+          title: step.title,
+          purpose: plan.purpose,
+          channel: step.channel,
+          status: 'planned',
+          dueAt: plan.firstAt,
+          doneAt: null,
+          outcomeNote: null,
+          mode: step.mode,
+          body: step.body.trim() || null,
+          leadSequenceId: null,
+          sequenceStepNo: null,
+          doneByName: null,
+          createdByName: 'You',
+        },
+        ...v,
+      ]);
+      return;
+    }
+    setMadePlan({
+      id: plan.leadSequenceId ?? `new-${Date.now()}`,
+      name: plan.name,
+      purpose: plan.purpose,
+      state: 'scheduled',
+      step: 0,
+      total: plan.steps.length,
+      pauseReason: null,
+      startedAt: new Date().toISOString(),
+      nextStepAt: plan.firstAt,
+      quotationId: null,
+      steps: optimisticSteps(plan.steps, plan.purpose),
+    });
+  };
 
   const top = React.useRef<HTMLDivElement>(null);
   React.useEffect(() => {
@@ -221,7 +210,18 @@ export function LeadFollowUpsTab({
       {/* ⚠️ THE ROW APPEARS WHEN THE BUTTON IS PRESSED, not when the server
           answers. The composer is hidden — not unmounted — while the save is in
           flight, so a refusal brings it straight back with what was typed. */}
-      {composer && (
+      {composer === 'follow_up' && (
+        <FollowUpWizard
+          lead={lead}
+          related={related}
+          viewerName={viewerName}
+          nowMs={nowMs}
+          onClose={() => onComposer(null)}
+          onCreated={(plan) => onPlanned(plan)}
+        />
+      )}
+
+      {composer === 'reminder' && (
         <div hidden={composerHidden}>
           <Composer
             key={composer}
@@ -236,7 +236,7 @@ export function LeadFollowUpsTab({
               setAdded((v) => v.map((r) => (r.id === rowId ? { ...r, id: rowId.replace('new-', 'saved-') } : r)));
               setComposerHidden(false);
               onComposer(null);
-              toast({ tone: 'ok', text: composer === 'reminder' ? 'Reminder added.' : 'Follow-up planned.' });
+              toast({ tone: 'ok', text: 'Reminder added.' });
             }}
             onFailed={(rowId) => {
               setAdded((v) => v.filter((r) => r.id !== rowId));
@@ -278,6 +278,7 @@ export function LeadFollowUpsTab({
           related={related}
           sequence={sequence}
           timeline={timeline}
+          tokens={tokens}
           onPatch={setSequencePatch}
           onReviewReply={onReviewReply}
         />
@@ -316,6 +317,7 @@ export function LeadFollowUpsTab({
       <History
         rows={history}
         nowMs={nowMs}
+        tokens={tokens}
         onPatch={(id, patch) => setPatches((p) => ({ ...p, [id]: { ...p[id], ...patch } }))}
       />
     </div>
@@ -435,6 +437,7 @@ function SequenceCard({
   related,
   sequence,
   timeline,
+  tokens,
   onPatch,
   onReviewReply,
 }: {
@@ -442,6 +445,7 @@ function SequenceCard({
   related: CrmLeadRelated;
   sequence: Sequence;
   timeline: readonly TimelineStep[];
+  tokens: Record<string, string>;
   onPatch: (patch: Partial<Sequence> | null) => void;
   onReviewReply: () => void;
 }) {
@@ -537,7 +541,9 @@ function SequenceCard({
                 <p className="truncate text-body-sm font-semibold text-text-primary">
                   {step.stepNo}. {step.title}
                 </p>
-                {step.detail && <p className="truncate text-caption text-text-secondary">{step.detail}</p>}
+                {step.detail && (
+                  <p className="truncate text-caption text-text-secondary">{fillTokens(step.detail, tokens)}</p>
+                )}
               </div>
               <div className="shrink-0 pt-0.5 text-right">
                 <Pill color={look.color}>{look.label(step.channel)}</Pill>
@@ -816,33 +822,6 @@ function WhenPicker({
   );
 }
 
-function QuickTimes({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  return (
-    <div className="mt-2 flex flex-wrap items-center gap-1.5">
-      {QUICK_TIMES.map((q) => (
-        <button
-          key={q.label}
-          type="button"
-          onClick={() => onChange(toInputValue(q.at()))}
-          className="rounded-full border border-border-default px-2.5 py-1 text-caption text-text-primary transition-colors hover:bg-bg-subtle"
-        >
-          {q.label}
-        </button>
-      ))}
-      {/* ⚠️ KARACHI WALL-CLOCK. The value is read as Karachi time whatever the
-          browser's own zone, because every salesperson here works in it and a
-          laptop set to UTC would otherwise book the call five hours early. */}
-      <input
-        type="datetime-local"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        aria-label="Date and time"
-        className="rounded-lg border border-border-default bg-bg-surface px-2.5 py-1 text-caption tabular-nums text-text-primary focus:border-accent-primary focus:outline-none"
-      />
-    </div>
-  );
-}
-
 /* ── New follow-up / Add reminder ─────────────────────────────────────────── */
 
 const CHANNEL_CHOICES = [
@@ -1047,10 +1026,12 @@ function ChannelGlyph({ channel, onAccent = false }: { channel: string; onAccent
 function History({
   rows,
   nowMs,
+  tokens,
   onPatch,
 }: {
   rows: readonly CrmFollowUpRow[];
   nowMs: number;
+  tokens: Record<string, string>;
   onPatch: (id: string, patch: Partial<CrmFollowUpRow>) => void;
 }) {
   const [filter, setFilter] = React.useState<HistoryFilter>('all');
@@ -1094,6 +1075,7 @@ function History({
               key={row.id}
               row={row}
               nowMs={nowMs}
+              tokens={tokens}
               open={openId === row.id}
               onToggle={() => setOpenId((id) => (id === row.id ? null : row.id))}
               onPatch={onPatch}
@@ -1108,12 +1090,14 @@ function History({
 function HistoryRow({
   row,
   nowMs,
+  tokens,
   open,
   onToggle,
   onPatch,
 }: {
   row: CrmFollowUpRow;
   nowMs: number;
+  tokens: Record<string, string>;
   open: boolean;
   onToggle: () => void;
   onPatch: (id: string, patch: Partial<CrmFollowUpRow>) => void;
@@ -1153,7 +1137,7 @@ function HistoryRow({
 
   const channelTone =
     row.channel === 'whatsapp' ? WA_GREEN : row.channel === 'email' ? MAIL_BLUE : 'var(--text-secondary)';
-  const detail = row.outcomeNote ?? row.body ?? `${channelLabel(row.channel)} follow-up`;
+  const detail = row.outcomeNote ?? (row.body ? fillTokens(row.body, tokens) : null) ?? `${channelLabel(row.channel)} follow-up`;
   const when = row.doneAt ?? row.dueAt;
   const who = row.doneByName ?? row.createdByName;
 

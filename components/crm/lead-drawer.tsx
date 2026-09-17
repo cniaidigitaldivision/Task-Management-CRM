@@ -654,6 +654,7 @@ export function LeadDrawer({
             <LeadFollowUpsTab
               lead={lead}
               related={related}
+              viewerName={viewerName}
               nowMs={nowMs}
               loading={loading}
               composer={composer}

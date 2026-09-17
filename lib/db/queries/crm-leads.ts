@@ -1944,6 +1944,10 @@ export interface CrmSequenceStep {
   readonly delayDays: number;
   readonly purpose: string;
   readonly body: string | null;
+  /** The name the person who planned it gave this step — 185. */
+  readonly title: string | null;
+  /** remind_me · review_first · auto_send — who completes it (185). */
+  readonly mode: string;
 }
 
 /** A sequence this lead could be put on — active, and for its project. */
@@ -2194,7 +2198,8 @@ async function readCrmLeadRelatedMany(
              coalesce((
                select json_agg(json_build_object(
                         'stepNo', st.step_no, 'channel', st.channel, 'delayDays', st.delay_days,
-                        'purpose', st.purpose, 'body', st.body) order by st.step_no)
+                        'purpose', st.purpose, 'body', st.body,
+                        'title', st.title, 'mode', st.mode) order by st.step_no)
                  from public.crm_sequence_steps st
                 where st.sequence_id = ls.sequence_id), '[]'::json) as steps
         from public.crm_lead_sequences ls
@@ -2214,6 +2219,9 @@ async function readCrmLeadRelatedMany(
         from public.crm_leads l
         join public.crm_sequences s
           on s.is_active
+          /* ⚠️ TEMPLATES ONLY. A plan written for one lead (185) is that lead's
+             own chase, not something to start on somebody else. */
+         and s.lead_id is null
          and (s.project_id is null or s.project_id = l.project_id)
          and (not s.is_test_data or l.is_test_data)
        where l.id = any(${idList}::uuid[])
@@ -2324,6 +2332,8 @@ async function readCrmLeadRelatedMany(
         delayDays: Number(st.delayDays ?? 0),
         purpose: String(st.purpose ?? ''),
         body: (st.body as string | null) ?? null,
+        title: (st.title as string | null) ?? null,
+        mode: String(st.mode ?? 'auto_send'),
       })),
     };
   }

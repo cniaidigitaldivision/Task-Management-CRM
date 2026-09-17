@@ -21,6 +21,8 @@ export interface SequenceStepInput {
   readonly delayDays: number;
   readonly purpose: string;
   readonly body: string | null;
+  /** What the person who planned it called this step — 185. */
+  readonly title?: string | null;
 }
 
 export interface FollowUpInput {
@@ -116,7 +118,10 @@ export function sequenceTimeline(
     const base = {
       stepNo: step.stepNo,
       channel: step.channel,
-      title: stepTitle(step.channel, step.purpose),
+      /* ⚠️ THE PLANNER'S OWN WORDS FIRST. "Gentle reminder" is what they wrote
+         and what the review screen showed them; deriving "WhatsApp follow-up"
+         over the top of it renames their plan behind their back. */
+      title: step.title?.trim() || stepTitle(step.channel, step.purpose),
       detail: step.body?.trim() || null,
       daysAfterResume: null,
     };

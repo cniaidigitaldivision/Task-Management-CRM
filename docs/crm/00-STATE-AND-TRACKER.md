@@ -9,7 +9,97 @@
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
 | **Last updated** | **2026-09-17** |
-| **Last migration applied anywhere** | **184** (applied 2026-09-17; WhatsApp message features — replies, reactions, pins, stars, delete-in-CRM, stored media, saved replies. Self-check passed). CRM next: **185.** |
+| **Last migration applied anywhere** | **186** (applied 2026-09-17; 185 a follow-up plan for one lead + the appointment-reminder stop bug, 186 a queued step becomes the lead's next action. Both self-checks roll their fixtures back). CRM next: **187.** |
+
+---
+
+## 🗓️ 2026-09-17 (night) — NEW FOLLOW-UP: ONE ACTION, OR A SCHEDULER · 185, 186
+
+Owner, with a design for the dialog: *"this type of form should pop up… If I want
+to set a scheduler then the scheduler will be like: day 1, send this one"* and
+*"I want to set a single follow-up."*
+
+**`components/crm/follow-up-wizard.tsx`** — four screens over the drawer:
+
+| Screen | What is on it |
+|---|---|
+| **1 · Purpose** | The nine cards, the suggested plan beside them (Day 1 · Day 3 · Day 7), the goal, the stop condition, and Advanced settings |
+| **2 · Channel & message** | **One follow-up or a scheduler**, then each step: name, channel, message, and who completes it |
+| **3 · Schedule & conditions** | The day of each step with its real date, when the first one starts, and the conditions that end it |
+| **4 · Review** | Every step as it will run, filled with this lead's words, and what happens next |
+
+### Where each part comes from
+
+⚠️ **The nine purposes are `crm_followup_purpose` itself** (153), not a list
+invented for the screen — which is why a card becomes a row with no lookup table.
+
+⚠️ **A card says why it cannot be used, before it is pressed.** "Quotation
+follow-up" with no live quotation, "Appointment reminder" with no booked visit,
+"Payment reminder" before anything is agreed. Without this the engine would stop
+the run on its first pass and the salesperson would never learn why.
+
+⚠️ **The stop conditions listed ARE the engine's branches**, not a description of
+them — `lib/domain/crm-followup-plans.ts`, tested against
+`app.crm_sequence_stop_reason`. Only "stop on any reply" is a choice; the rest
+are shown as always on.
+
+⚠️ **Days are absolute on screen and relative in the database.** "Day 1, 3, 7" is
+stored as delays 0, 2, 4, because 170 adds a step's delay to the moment the
+previous one was queued. Backwards, it would send three messages in one morning.
+`stepsToRows` does it, and a test holds it.
+
+⚠️ **A plan is stored in `{{placeholders}}` and read as words** — the same form as
+the chat's saved replies. The plan stays correct when the lead changes hands; the
+drawer fills it for whoever is reading.
+
+### 185 · A plan may now belong to ONE lead
+
+`crm_sequences.lead_id`. A project template is still a manager's; a plan for one
+client is the salesperson's own — the same authority they have to send those
+messages by hand. `crm_sequence_steps` gains `title` ("Gentle reminder") and
+`mode`, and its write policy follows the parent instead of being admin-only,
+which is why a manager could previously create a template with no steps in it.
+
+⚠️⚠️ **AND IT FOUND A BUG THE DIALOG WOULD HAVE SHIPPED.** 170 stops a sequence
+when a visit is booked — right for a chase, fatal for the reminder ABOUT that
+visit, which would have stopped on the very appointment it exists to remind
+about. The rule now applies to chases only (`no_response`, `re_engage`,
+`quotation`). The self-check proves both directions.
+
+### 186 · The second step of every plan was invisible
+
+Found by reading what `/todos` actually selects: it is derived from
+`crm_leads.next_action`, appointments and quotations, and **never reads
+`crm_follow_ups`**. The app set `next_action` for the first step; every later step
+the engine queued appeared in this drawer and nowhere else. A salesperson working
+from their list would never have seen steps 2 and 3 — the exact failure a chase
+engine exists to prevent. A queued step that a PERSON must complete now becomes
+the lead's next action (never an `auto_send` one: a machine's step is not
+somebody's to-do).
+
+### ⚠️ Nothing sends by itself, and the dialog says so
+
+`auto_send` is **refused from the browser** (`app/actions/crm-followups.ts`): no
+route picks those rows up yet, so offering it would be a promise kept by nobody,
+on somebody's client. The two modes offered are **Draft for me to send** and
+**Reminder for me**, and the Review screen says *"You press send"*. The column
+stays for the day the sender lands.
+
+### Proved in the running app
+
+Created a 3-step quotation plan on the demo lead → refused with *"This lead
+already has a sequence running"* (the one-live-run index). On **Adnan Bashir**: a
+"No response" plan wrote the sequence, its steps (delays 0/2/4) and the run; 15
+minutes later `pg_cron` had queued step 1 as **review_first**, assigned to Sahad,
+and the tab read **Needs you**. On **Ayesha Noor**: a single "Missing
+information" follow-up wrote one row and moved the lead's next action to Fri 18
+Sep, 10:00. Both demo leads keep those rows as a live demonstration.
+
+Also: `components/crm/when.tsx` — the Karachi clock and the four quick times, one
+copy, shared by the tab and the dialog.
+
+Checks: `tsc` clean · eslint clean · vitest **3,299** passed (16 new for the plan
+rules) · `next build` clean.
 
 ---
 
