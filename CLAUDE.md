@@ -150,7 +150,7 @@ navigation-to-close-a-dialog are bugs in production too, where `regions: ["sin1"
 puts the app beside the database.
 
 The reference implementation is `/my-leads`: `components/crm/use-panel.ts`,
-`components/crm/lead-drawer-shell.tsx`, and the single query wave in
+`leadFromRow` in `components/crm/lead-drawer.tsx`, and the single query wave in
 `app/(app)/my-leads/page.tsx`. `docs/20-UI-RESPONSIVENESS.md` carries the full
 reasoning and the measurements.
 

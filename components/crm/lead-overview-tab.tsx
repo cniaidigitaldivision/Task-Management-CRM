@@ -92,6 +92,7 @@ export function LeadOverviewTab({
   phone,
   viewerName,
   onTab,
+  loading = false,
 }: {
   lead: CrmLeadRecord;
   notes: readonly CrmLeadNote[];
@@ -100,6 +101,15 @@ export function LeadOverviewTab({
   phone: string;
   viewerName: string;
   onTab: (tab: 'conversations' | 'followups' | 'activity') => void;
+  /**
+   * Drawn from the clicked row while the record is on its way.
+   * ⚠️ The lifecycle, the details and the next action are all real from the
+   * first frame. The qualification answers, the budget, the notes and the
+   * activity are not on the row — and a null there must read as "loading", not
+   * as "never asked", or the card would tell somebody to go and ask questions
+   * the lead has already answered.
+   */
+  loading?: boolean;
 }) {
   const toast = useToast();
   const [editingQualification, setEditingQualification] = React.useState(false);
@@ -208,7 +218,7 @@ export function LeadOverviewTab({
         )}
       </section>
 
-      {/* ⚠️ `sm:`, NOT `lg:`. The drawer is 46rem — 736px — so an `lg` breakpoint
+      {/* ⚠️ `sm:`, NOT `lg:`. The drawer is 42rem — 672px — so an `lg` breakpoint
           at 1024px would never fire and the two columns the reference draws would
           never appear. Written wrong first and caught by looking at it. */}
       <div className="grid gap-3 sm:grid-cols-2">
@@ -289,13 +299,15 @@ export function LeadOverviewTab({
             <span
               className={cn(
                 'inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-caption font-medium',
-                gaps.length === 0 ? 'text-white' : 'text-text-secondary',
+                !loading && gaps.length === 0 ? 'text-white' : 'text-text-secondary',
               )}
               style={
-                gaps.length === 0 ? { background: 'var(--feedback-success)' } : undefined
+                !loading && gaps.length === 0 ? { background: 'var(--feedback-success)' } : undefined
               }
             >
-              {gaps.length === 0 ? (
+              {loading ? (
+                'Loading…'
+              ) : gaps.length === 0 ? (
                 <>
                   <Check className="size-3.5" strokeWidth={3} aria-hidden="true" /> Qualified
                 </>
@@ -307,6 +319,7 @@ export function LeadOverviewTab({
             </span>
             <button
               type="button"
+              disabled={loading}
               onClick={() => setEditingQualification((v) => !v)}
               className="ml-auto text-caption font-medium text-text-brand underline-offset-2 hover:underline"
             >
@@ -319,7 +332,9 @@ export function LeadOverviewTab({
               you a form is unfinished; "Within a month · ERP · 1–3 lakh" tells you
               who you are about to ring. */}
           {!editingQualification && (
-            answered === 0 ? (
+            loading ? (
+              <p className="mt-2 text-caption text-text-secondary">Loading the answers…</p>
+            ) : answered === 0 ? (
               <p className="mt-2 text-caption leading-relaxed text-text-secondary">
                 Nothing asked yet — this lead cannot move past Contacted until it is.
               </p>
@@ -457,10 +472,12 @@ export function LeadOverviewTab({
                 onClick={() => onTab('activity')}
                 className="text-caption font-medium text-text-brand underline-offset-2 hover:underline"
               >
-                {notes.length > 1 ? `All ${notes.length}` : 'Edit'}
+                {!loading && notes.length > 1 ? `All ${notes.length}` : 'Edit'}
               </button>
             </header>
-            {notes.length === 0 ? (
+            {loading ? (
+              <p className="text-caption text-text-secondary">Loading…</p>
+            ) : notes.length === 0 ? (
               <p className="text-caption text-text-secondary">Nothing written yet.</p>
             ) : (
               <div className="flex items-start gap-2.5 rounded-xl border border-gold-200 bg-gold-100/60 px-3 py-2.5">
@@ -484,7 +501,9 @@ export function LeadOverviewTab({
                 View all
               </button>
             </header>
-            {activity.length === 0 ? (
+            {loading ? (
+              <p className="text-caption text-text-secondary">Loading…</p>
+            ) : activity.length === 0 ? (
               <p className="text-caption text-text-secondary">Nothing recorded yet.</p>
             ) : (
               <ul className="space-y-2.5">

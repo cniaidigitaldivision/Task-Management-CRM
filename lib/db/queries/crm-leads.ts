@@ -132,6 +132,17 @@ export interface CrmLeadRow {
   readonly quotationAmount: number | null;
   readonly quotationStatus: string | null;
   readonly quotationValidUntil: string | null;
+  /**
+   * property | service | mixed — migration 174's resolver.
+   *
+   * ⚠️ ON THE ROW SO THE DRAWER CAN DRAW ITS LIFECYCLE BEFORE THE RECORD
+   * ARRIVES. A service lead has no Visit step; drawing the property strip
+   * from the row and then redrawing it one step shorter on arrival was the
+   * last visible jump left between click and loaded. Measured 2026-09-17:
+   * resolving it for all 671 leads is lost in the noise of the two definers
+   * this query already calls per row.
+   */
+  readonly sells: string;
 }
 
 /**
@@ -438,6 +449,7 @@ export async function listCrmLeads(
                 exactly this. */
              app.crm_project_name(l.project_id) as project_name,
              app.crm_project_can_whatsapp(l.project_id) as can_whatsapp,
+             app.crm_lead_sells(l.id)::text as sells,
              l.sequence_state::text, l.sequence_step, l.sequence_total, l.sequence_note,
              l.source::text, l.source_detail,
              /* ⚠️ ONE LATERAL EACH, not a join — a lead can have several
@@ -594,6 +606,7 @@ export async function listCrmLeads(
       quotationValidUntil: r.quotation_valid_until
         ? new Date(r.quotation_valid_until as string).toISOString()
         : null,
+      sells: String(r.sells ?? 'property'),
       lastMessageBody: (r.last_message_body as string | null) ?? null,
       lastMessageAt: r.last_message_at
         ? new Date(r.last_message_at as string).toISOString()
@@ -1801,6 +1814,8 @@ export interface CrmLeadRelated {
      waiting on the first, which law 4 exists to prevent. It is one more read
      inside a query that already runs in the wave. */
   readonly sender: CrmSender | null;
+  /** The stored AI summary of the conversation — migration 180. Never generated here. */
+  readonly summary: CrmConversationSummary | null;
   /** The live sequence run, if any — state, step, and why it paused. */
   readonly sequence: {
     readonly name: string;
@@ -1811,14 +1826,95 @@ export interface CrmLeadRelated {
   } | null;
 }
 
+export type CrmSummaryPointKind = 'we_said' | 'they_said' | 'agreed' | 'open';
+
+export interface CrmSummaryPoint {
+  readonly kind: CrmSummaryPointKind;
+  readonly text: string;
+}
+
+export interface CrmConversationSummary {
+  readonly overview: string;
+  readonly points: readonly CrmSummaryPoint[];
+  /** What it was written from — compared against the thread on screen. */
+  readonly messageCount: number;
+  readonly lastMessageId: string | null;
+  readonly noteCount: number;
+  readonly generatedAt: string;
+  readonly model: string;
+}
+
+const POINT_KINDS: readonly CrmSummaryPointKind[] = ['we_said', 'they_said', 'agreed', 'open'];
+
+/** ⚠️ Coerced, never trusted — jsonb written from a model's output. */
+export function readSummaryRow(r: Record<string, unknown>): CrmConversationSummary {
+  const points = Array.isArray(r.points) ? (r.points as unknown[]) : [];
+  return {
+    overview: String(r.overview ?? ''),
+    points: points.flatMap((p) => {
+      const o = p as { kind?: unknown; text?: unknown };
+      return POINT_KINDS.includes(o.kind as CrmSummaryPointKind) && typeof o.text === 'string'
+        ? [{ kind: o.kind as CrmSummaryPointKind, text: o.text }]
+        : [];
+    }),
+    messageCount: Number(r.message_count ?? 0),
+    lastMessageId: (r.last_message_id as string | null) ?? null,
+    noteCount: Number(r.note_count ?? 0),
+    generatedAt: new Date(r.generated_at as string).toISOString(),
+    model: String(r.model ?? ''),
+  };
+}
+
+/**
+ * Write the summary, replacing any older one — migration 180.
+ *
+ * ⚠️ THROUGH RLS, AS THE READER. 180's write policy delegates to the lead, so
+ * this can only ever land on a lead the caller can already see.
+ */
+export async function saveConversationSummary(
+  actorId: string,
+  leadId: string,
+  input: {
+    overview: string;
+    points: readonly CrmSummaryPoint[];
+    messageCount: number;
+    lastMessageId: string | null;
+    noteCount: number;
+    fingerprint: string;
+    model: string;
+  },
+): Promise<CrmConversationSummary | null> {
+  const rows = await withUser(actorId, (tx) => tx`
+    insert into public.crm_lead_conversation_summaries
+      (lead_id, overview, points, message_count, last_message_id, note_count,
+       source_fingerprint, model, generated_at, generated_by_id)
+    values (${leadId}::uuid, ${input.overview}, ${tx.json(input.points as never)},
+            ${input.messageCount}, ${input.lastMessageId}::uuid, ${input.noteCount},
+            ${input.fingerprint}, ${input.model}, now(), ${actorId}::uuid)
+    on conflict (lead_id) do update set
+      overview = excluded.overview,
+      points = excluded.points,
+      message_count = excluded.message_count,
+      last_message_id = excluded.last_message_id,
+      note_count = excluded.note_count,
+      source_fingerprint = excluded.source_fingerprint,
+      model = excluded.model,
+      generated_at = excluded.generated_at,
+      generated_by_id = excluded.generated_by_id
+    returning overview, points, message_count, last_message_id, note_count, generated_at, model
+  `);
+  const row = (rows as Array<Record<string, unknown>>)[0];
+  return row ? readSummaryRow(row) : null;
+}
+
 export async function crmLeadRelated(
   actorId: string,
   leadId: string,
 ): Promise<CrmLeadRelated> {
-  const { quotations, appointments, followUps, sequence, owners, sender } = await withUser(
+  const { quotations, appointments, followUps, sequence, owners, sender, summary } = await withUser(
     actorId,
     async (tx) => {
-      const [quotations, appointments, followUps, sequence, owners, sender] = await Promise.all([
+      const [quotations, appointments, followUps, sequence, owners, sender, summary] = await Promise.all([
         tx`
           select q.id, q.number, q.version, q.status::text, q.net_amount,
                  q.requested_discount, q.approved_discount, q.valid_until,
@@ -1862,8 +1958,17 @@ export async function crmLeadRelated(
             from app.crm_project_sender(
               (select l.project_id from public.crm_leads l where l.id = ${leadId}::uuid))
         `,
+        /* ⚠️ IN THE SAME WAVE, so the Summary view opens on what is already
+           known rather than on a spinner (law 4). A read only — writing one
+           costs money and happens in the action, when the thread has moved. */
+        tx`
+          select overview, points, message_count, last_message_id, note_count,
+                 generated_at, model
+            from public.crm_lead_conversation_summaries
+           where lead_id = ${leadId}::uuid
+        `,
       ]);
-      return { quotations, appointments, followUps, sequence, owners, sender };
+      return { quotations, appointments, followUps, sequence, owners, sender, summary };
     },
   );
 
@@ -1917,6 +2022,10 @@ export async function crmLeadRelated(
             displayNumber: (r.display_number as string | null) ?? null,
           }
         : null;
+    })(),
+    summary: (() => {
+      const r = (summary as Array<Record<string, unknown>>)[0];
+      return r ? readSummaryRow(r) : null;
     })(),
     sequence: (() => {
       const s = (sequence as Array<Record<string, unknown>>)[0];

@@ -28,6 +28,7 @@ import type {
   CrmLeadNote,
   CrmLeadRecord,
   CrmLeadRelated,
+  CrmLeadRow,
   CrmMessage,
 } from '@/lib/db/queries/crm-leads';
 import {
@@ -84,6 +85,110 @@ export const TABS: ReadonlyArray<{ key: Tab; label: string }> = [
   { key: 'activity', label: 'Activity' },
 ];
 
+/* ============================================================================
+ * ONE DRAWER, FROM THE CLICK TO THE RECORD
+ * ----------------------------------------------------------------------------
+ * Owner, 2026-09-17: *"when I click on the drawer, for the time it is rendering,
+ * it shows me the old design. After it has rendered it shows me a new UI that is
+ * very disgusting… It instantly shows the drawer in the latest UI."*
+ *
+ * ⚠️⚠️ TWO COMPONENTS DREW THIS DRAWER, AND ONLY ONE OF THEM WAS REDESIGNED.
+ * `lead-drawer-shell.tsx` opened in the click's own frame from the row, and this
+ * replaced it once the record arrived. Its own header said the two were "the
+ * same frame, to the pixel". They were — until the Overview and Conversations
+ * tabs were rebuilt here and nobody rebuilt the shell. Every click then drew the
+ * old 36rem drawer and swapped it for this one, which is the flash the owner saw.
+ *
+ * So the shell is gone and this component draws both moments. The header, the
+ * four figures and the tab bar come straight from the clicked row, which already
+ * carries every one of them; only the tab BODIES wait, and they wait inside this
+ * design. Two components promising to look identical will drift the first time
+ * somebody changes one. One component cannot.
+ * ========================================================================= */
+
+/** The clicked row, as a record — for the frames before the server answers. */
+export function leadFromRow(row: CrmLeadRow): CrmLeadRecord {
+  return {
+    id: row.id,
+    projectId: '',
+    projectName: row.projectName ?? '',
+    propertyId: null,
+    propertyLabel: row.propertyLabel,
+    fullName: row.fullName,
+    phone: row.phone,
+    phoneE164: row.phoneE164,
+    email: row.email,
+    city: row.city,
+    answers: {},
+    stage: row.stage,
+    temperature: row.temperature,
+    lostReason: null,
+    nextAction: row.nextAction,
+    nextActionAt: row.nextActionAt,
+    submittedAt: row.submittedAt,
+    importedAt: row.submittedAt,
+    firstContactedAt: null,
+    closedAt: null,
+    ownerId: row.ownerId,
+    ownerName: row.ownerName,
+    formName: row.formName,
+    campaignName: row.campaignName,
+    source: row.source ?? '',
+    externalId: null,
+    /* ⚠️ Unknown, not unasked. The Overview shows "Loading…" for these while
+       `loading` is set, rather than reading five nulls as "never asked". */
+    budgetBand: null,
+    authority: null,
+    purpose: null,
+    timeline: null,
+    paymentMode: null,
+    locationPreference: null,
+    qualificationNote: null,
+    budget: null,
+    qualifiedAt: null,
+    sells: row.sells,
+    nextActionType: null,
+  };
+}
+
+/** What the row knows of the related records — the figures strip reads these. */
+export function relatedFromRow(row: CrmLeadRow): CrmLeadRelated {
+  return {
+    /* ⚠️ THE ROW'S OWN QUOTATION, so the strip prints QT-1042 and its value in
+       the first frame. The desk's lateral already picks the current version. */
+    quotations: row.quotationNumber
+      ? [{
+          id: `row-${row.id}`,
+          number: row.quotationNumber,
+          version: 1,
+          status: row.quotationStatus ?? 'sent',
+          netAmount: row.quotationAmount ?? 0,
+          requestedDiscount: 0,
+          approvedDiscount: 0,
+          validUntil: row.quotationValidUntil,
+          propertyLabel: row.propertyLabel,
+          preparedByName: null,
+          approvedByName: null,
+          createdAt: row.submittedAt,
+        }]
+      : [],
+    appointments: [],
+    followUps: [],
+    sender: null,
+    summary: null,
+    sequence:
+      row.sequenceState && row.sequenceState !== 'not_started'
+        ? {
+            name: '',
+            state: row.sequenceState,
+            step: row.sequenceStep ?? 0,
+            total: row.sequenceTotal ?? 0,
+            pauseReason: row.sequenceNote,
+          }
+        : null,
+  };
+}
+
 export function LeadDrawer({
   lead,
   notes,
@@ -97,6 +202,7 @@ export function LeadDrawer({
   onClose,
   onRaiseQuotation,
   onChooseUnit,
+  loading = false,
 }: {
   lead: CrmLeadRecord;
   notes: readonly CrmLeadNote[];
@@ -114,6 +220,8 @@ export function LeadDrawer({
   onRaiseQuotation: () => void;
   /** Opens the catalogue, to say which unit they are asking about. */
   onChooseUnit: () => void;
+  /** Drawn from the clicked row; the record is on its way. See `leadFromRow`. */
+  loading?: boolean;
 }) {
   const search = useSearchParams();
   const panel = React.useRef<HTMLDivElement>(null);
@@ -198,10 +306,16 @@ export function LeadDrawer({
         aria-modal="true"
         aria-label={`${lead.fullName ?? 'Lead'} — details`}
         tabIndex={-1}
-        /* ⚠️ WIDER THAN IT WAS — the reference lays Lead details beside Next action,
-             and two columns inside 36rem gives each about 250px, which wraps every
-             label. They stack below `lg:` regardless. */
-          className="relative flex h-full w-full max-w-[46rem] flex-col border-l border-border-default bg-bg-surface shadow-2xl outline-none"
+        /* ⚠️ 42rem. Owner, 2026-09-17: *"our drawer width is too much, so reduce
+           it so it will look good and exactly the same as in the screenshot."*
+           The reference drawer is about 610px ON SCREEN.
+
+           ⚠️ ON SCREEN IS NOT CSS PIXELS HERE. `body` carries `zoom: 0.9` (the
+           density scale in tokens.css), so 42rem is 672px of layout and 605px
+           of glass. 40rem was tried first and measured 576 — visibly narrower
+           than the reference. The old 46rem was 662px on screen. */
+          aria-busy={loading}
+          className="relative flex h-full w-full max-w-[42rem] flex-col border-l border-border-default bg-bg-surface shadow-2xl outline-none"
       >
         {/* ── Header ────────────────────────────────────── */}
         <div className="shrink-0 border-b border-border-subtle px-5 py-4">
@@ -262,17 +376,28 @@ export function LeadDrawer({
               </div>
             </div>
 
-            {/* ⚠️ EACH CONTROL IS ABSENT WHEN IT CANNOT WORK, never greyed out.
-                640 of 641 real leads have no email address at all, so a disabled
-                envelope would be the normal state rather than the exception. */}
-            <div className="flex shrink-0 items-center gap-1.5">
+            {/* ⚠️ THE CHANNELS AS SQUARE TILES, AND THE MARKS BIG ENOUGH TO READ.
+                Owner, 2026-09-17: *"The WhatsApp icon is very small. Make it
+                prominent, and still the email icon is missing, so please add it."*
+                The reference draws phone, WhatsApp and email as three equal 40px
+                tiles; ours were 36px circles holding 16px glyphs.
+
+                ⚠️ EMAIL IS ALWAYS THERE NOW, and that reverses a rule this file
+                used to state — "absent when it cannot work". The owner has asked
+                twice, and they are right that the row of tiles is a map of the
+                channels a lead HAS: a missing tile reads as a missing feature,
+                whereas a tile that says "no address yet" is information. So with
+                no address it is shown, quieter, and says why on hover rather than
+                pretending to be clickable. */}
+            <div className="flex shrink-0 items-center gap-2">
               {lead.phoneE164 && (
                 <a
                   href={`tel:${lead.phoneE164}`}
                   aria-label="Call"
-                  className="grid size-9 place-items-center rounded-full border border-border-default text-text-secondary transition-colors hover:text-text-primary"
+                  title="Call"
+                  className="grid size-10 place-items-center rounded-xl border border-border-default text-text-primary transition-colors hover:bg-bg-subtle"
                 >
-                  <Phone className="size-4" aria-hidden="true" />
+                  <Phone className="size-5" aria-hidden="true" />
                 </a>
               )}
               {lead.phoneE164 && (
@@ -280,24 +405,40 @@ export function LeadDrawer({
                   type="button"
                   onClick={() => go('conversations')}
                   aria-label="Open the WhatsApp thread"
-                  className="grid size-9 place-items-center rounded-full border border-border-default transition-colors hover:bg-bg-subtle"
-                  style={{ color: WA_GREEN }}
+                  title="WhatsApp"
+                  className="grid size-10 place-items-center rounded-xl border transition-colors hover:brightness-95"
+                  /* ⚠️ TINTED IN ITS OWN GREEN, which is what makes it the tile the
+                     eye finds first — it is the channel nearly every one of these
+                     leads is actually reached on. */
+                  style={{
+                    color: WA_GREEN,
+                    borderColor: `color-mix(in oklab, ${WA_GREEN} 45%, transparent)`,
+                    background: `color-mix(in oklab, ${WA_GREEN} 10%, var(--bg-surface))`,
+                  }}
                 >
-                  <WhatsAppMark className="size-4" />
+                  <WhatsAppMark className="size-6" />
                 </button>
               )}
-              {lead.email && (
+              {lead.email ? (
                 <a
                   href={`mailto:${lead.email}`}
-                  aria-label="Send an email"
-                  className="grid size-9 place-items-center rounded-full border border-border-default transition-colors hover:bg-bg-subtle"
-                  /* ⚠️ BLUE, not the brand teal. Owner: *"I want an email icon in
-                     blue."* A channel mark in our own colour reads as ours rather
-                     than as the channel. */
+                  aria-label={`Email ${lead.email}`}
+                  title={lead.email}
+                  className="grid size-10 place-items-center rounded-xl border border-border-default transition-colors hover:bg-bg-subtle"
                   style={{ color: MAIL_BLUE }}
                 >
-                  <Mail className="size-4" aria-hidden="true" />
+                  <Mail className="size-5" aria-hidden="true" />
                 </a>
+              ) : (
+                <span
+                  role="img"
+                  aria-label="No email address on this lead yet"
+                  title="No email address on this lead yet"
+                  className="grid size-10 cursor-not-allowed place-items-center rounded-xl border border-dashed border-border-default"
+                  style={{ color: `color-mix(in oklab, ${MAIL_BLUE} 45%, transparent)` }}
+                >
+                  <Mail className="size-5" aria-hidden="true" />
+                </span>
               )}
 
               {/* ⚠️ THE THREE DOTS ARE A REAL MENU, not a decoration. The full
@@ -311,9 +452,9 @@ export function LeadDrawer({
                   onClick={() => setMenuOpen((v) => !v)}
                   aria-label="More"
                   aria-expanded={menuOpen}
-                  className="grid size-9 place-items-center rounded-full border border-border-default text-text-secondary transition-colors hover:text-text-primary"
+                  className="grid size-10 place-items-center rounded-xl border border-border-default text-text-secondary transition-colors hover:text-text-primary"
                 >
-                  <MoreVertical className="size-4" aria-hidden="true" />
+                  <MoreVertical className="size-5" aria-hidden="true" />
                 </button>
                 {menuOpen && (
                   <div className="absolute right-0 z-20 mt-1 w-48 overflow-hidden rounded-xl border border-border-default bg-bg-surface py-1 shadow-lg">
@@ -449,7 +590,7 @@ export function LeadDrawer({
               )}
             >
               {t.label}
-              {t.key === 'conversations' && messages.length > 0 && ` (${messages.length})`}
+              {!loading && t.key === 'conversations' && messages.length > 0 && ` (${messages.length})`}
               {t.key === 'related' && related.quotations.length > 0 && ` (${related.quotations.length})`}
             </button>
           ))}
@@ -459,6 +600,7 @@ export function LeadDrawer({
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
           {activeTab === 'overview' && (
             <LeadOverviewTab
+              loading={loading}
               lead={lead}
               notes={notes}
               activity={activity}
@@ -476,6 +618,8 @@ export function LeadDrawer({
                  rows the Overview tab's notes card does, so the two can never
                  disagree about what was said. */
               notes={notes}
+              summary={related.summary}
+              loading={loading}
               sender={related.sender}
               /* ⚠️ THE ENGINE'S OWN REASON (170), not a sentence guessed here.
                  Two explanations of the same pause start disagreeing. */
@@ -488,8 +632,14 @@ export function LeadDrawer({
               onReviewFollowUp={() => go('followups')}
             />
           )}
-          {activeTab === 'followups' && <FollowUps related={related} nowMs={nowMs} />}
-          {activeTab === 'related' && (
+          {/* ⚠️ "Loading…", NEVER AN EMPTY LIST, for the tabs the row cannot
+              draw. "No follow-ups" in the half-second before they arrive is the
+              kind of small lie somebody books a duplicate on. */}
+          {loading && (activeTab === 'followups' || activeTab === 'related' || activeTab === 'activity') && (
+            <p className="py-6 text-center text-caption text-text-secondary">Loading…</p>
+          )}
+          {!loading && activeTab === 'followups' && <FollowUps related={related} nowMs={nowMs} />}
+          {!loading && activeTab === 'related' && (
             <Related
               related={related}
               lead={lead}
@@ -497,7 +647,7 @@ export function LeadDrawer({
               onChooseUnit={onChooseUnit}
             />
           )}
-          {activeTab === 'activity' && <Activity activity={activity} nowMs={nowMs} />}
+          {!loading && activeTab === 'activity' && <Activity activity={activity} nowMs={nowMs} />}
         </div>
 
         {/* ── The three things a salesperson does from here ──────────────
@@ -509,7 +659,14 @@ export function LeadDrawer({
             ⚠️ AND EACH ONE IS ABSENT RATHER THAN DISABLED WHEN IT CANNOT WORK. A
             greyed "Send email" on a lead with no address is a button somebody
             presses twice before reading it — 640 of 641 real leads have no email,
-            so this is the common case, not the edge. */}
+            so this is the common case, not the edge.
+
+            ⚠️ ON THE OVERVIEW ONLY. Owner, 2026-09-17: *"Below WhatsApp the Follow
+            Up button is showing in the Conversation tab. It will be in the Overview
+            tab, that's fine, but not in the Conversation tab."* Under the composer
+            it was a second row of buttons below the Send button — two places to
+            act, stacked, on the one tab that already has its own. */}
+        {activeTab === 'overview' && (
         <div className="flex shrink-0 flex-wrap gap-2 border-t border-border-subtle px-5 py-3">
           {lead.email && (
             <a
@@ -539,6 +696,7 @@ export function LeadDrawer({
             Add follow-up
           </button>
         </div>
+        )}
       </div>
     </div>
   );

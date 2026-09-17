@@ -72,6 +72,7 @@ const ROWS: CrmLeadRow[] = [
     quotationAmount: null,
     quotationStatus: null,
     quotationValidUntil: null,
+    sells: 'property',
   },
   /* The unparseable-number case — one of the three. */
   {
@@ -109,6 +110,7 @@ const ROWS: CrmLeadRow[] = [
     quotationAmount: null,
     quotationStatus: null,
     quotationValidUntil: null,
+    sells: 'property',
   },
   /* A fully worked lead — the shape Steps 6-7 will produce. */
   {
@@ -148,6 +150,7 @@ const ROWS: CrmLeadRow[] = [
     quotationAmount: null,
     quotationStatus: null,
     quotationValidUntil: null,
+    sells: 'property',
   },
 ];
 

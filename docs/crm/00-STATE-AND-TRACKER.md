@@ -9,7 +9,105 @@
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
 | **Last updated** | **2026-09-17** |
-| **Last migration applied anywhere** | **179** (verified against the live database, not remembered). CRM next: **180.** |
+| **Last migration applied anywhere** | **180** (applied 2026-09-17, self-check green as `cni_app` across all 16 active users). CRM next: **181.** |
+
+---
+
+## 🪟 2026-09-17 (evening) — ONE DRAWER, A TABLE THAT FITS, AND AN AI SUMMARY · 180
+
+### 1 · The old design flashed on every click — fixed by deleting a component
+
+> *"When I click on the drawer, for the time it is rendering, it shows me the old
+> design. After it has rendered it shows me a new UI that is very disgusting."*
+
+⚠️⚠️ **TWO COMPONENTS DREW THE DRAWER, AND ONLY ONE WAS REDESIGNED.**
+`lead-drawer-shell.tsx` opened from the clicked row (Rule Zero) and `LeadDrawer`
+replaced it when the record landed. The shell's own header promised the two were
+"the same frame, to the pixel" — true until the Overview and Conversations tabs
+were rebuilt today in `LeadDrawer` alone. Every click then drew the old 36rem
+drawer and swapped it for the new one.
+
+**The shell is deleted.** `LeadDrawer` takes `loading`, plus `leadFromRow()` /
+`relatedFromRow()` built from the row; the desk renders one drawer keyed by the
+lead, so the record arriving changes what is inside it rather than swapping it.
+Measured in the harness: header 155px and tab bar 41px, loading and loaded —
+identical. Anything the row cannot know says **Loading…**, never "Nothing
+written yet" or "No WhatsApp number" (both would have been lies for half a
+second). `CLAUDE.md` and `docs/20-UI-RESPONSIVENESS.md` pointed at the shell as
+the reference implementation and now point at `leadFromRow`.
+
+⚠️ **`sells` joined the row** so the lifecycle strip is right in the first frame
+(a service lead has no Visit step). Measured over all 671 leads: no difference
+from the two definers the list already calls per row.
+
+### 2 · The table's scrollbar — `truncate` never truncated
+
+> *"You have added a scrollbar below the table… I want that adjusted properly like
+> it was before."*
+
+**Nothing in today's work touched the table** — its data had not grown either
+(longest latest message: 40 characters). Measured in Chrome: **the table could
+not get narrower than 1300px**. In an auto-sized table `white-space: nowrap` makes
+a cell's narrowest width its full text, so every `truncate` in the name, message
+and next-action columns held its column open. ⚠️ With `body { zoom: 0.9 }` that
+means any window under ~1,450px with the sidebar pinned (~1,290px collapsed)
+scrolled.
+
+**Fix:** the two unbounded text columns (Lead/project, Latest conversation) are
+one-column grids of `minmax(0, max-content)` — full width when there is room,
+allowed to shrink when there is not. Next action keeps its old behaviour under a
+14rem ceiling. **Wide screen: every column width identical to before, measured
+column by column. Minimum: 1300px → 942px.**
+
+⚠️ **Two attempts that were worse, kept for the reasoning:** letting all four text
+columns shrink clipped "Lead ad" to "Lea…" to save 8px; adding floors wider than
+the labels made Source and Next action WIDER on a big screen and shifted every
+column.
+
+### 3 · The six points on the Conversations tab
+
+| Owner | Done |
+|---|---|
+| *"a vertical line… from this icon to this WhatsApp icon"* | A spine down the icon column in **All** and **Email** — absent in the WhatsApp chat, where the icons alternate sides and a line would zig-zag |
+| *"show a notification over here also"* | The banner fired only on a PAUSED SEQUENCE, which a hand-worked lead never has. Now: **the client spoke last**, read off the thread already on the page; "follow-up paused" is appended only when a sequence really paused |
+| *"the grey message is not properly showing… times on the right"* + *"time and date both right-aligned in one"* | `--bg-subtle` is #f1f6f7 on #ffffff — under 3% apart. Bubble now mixes 9% of `--text-primary`; ≥60% of the column wide like the reference; **"12 Sep 2026, 11:20 AM"** at the end of the sender's own row, ticks after it |
+| *"our drawer width is too much"* | **42rem** = 672px of layout = **605px on screen** under the 0.9 zoom (reference ≈ 610). 40rem was tried and measured 576 |
+| *"the Follow Up button… not in the Conversation tab"* | The footer (WhatsApp · Add follow-up) renders on **Overview only** |
+| *"WhatsApp icon is very small… email icon is missing"* | 40px square tiles; WhatsApp 24px in its own green tint; **email always present** — dashed and quiet with a tooltip when the lead has no address. ⚠️ This reverses this file's earlier "absent when it cannot work" rule at the owner's explicit, repeated request |
+
+### 4 · The AI summary — migration 180
+
+> *"I will not add the summary. If I want to add it I can add it on, but the AI
+> will also summarize my chat."*
+
+`crm_lead_conversation_summaries`, delegated to `crm_leads` like 137. Written by
+`gpt-4o` (the provider Q18 cleared) when the Summary view is opened AND the
+thread has moved since — no button, no call on page load, a second reader pays
+nothing. Stored summary rides in `crmLeadRelated`'s existing wave. Headings:
+**What we told them · What they told us · Agreed · Still open**. The
+salesperson's notes are under it, behind **Add a note**. Full reasoning and the
+four things only the live runs caught: `docs/crm-ai/00-STATE-AND-TRACKER.md`.
+
+⚠️ **Self-check, exhaustive:** for every one of the 16 active users, sight of the
+summary equals sight of the lead; the 12 who cannot see the test lead could not
+rewrite its summary. Fails rather than skips if no fixture exists.
+
+### ⚠️ Found, not fixed — needs its own measurement
+
+`listCrmLeads` calls `app.crm_project_name()` and `app.crm_project_can_whatsapp()`
+per row in the select list: **~2.1s over 671 leads** as the owner role. Whether
+Postgres evaluates them before or after `LIMIT` with `count(*) over ()` in the plan
+decides whether the manager's 650-lead desk pays that. `explain analyze` the real
+query as the sales manager before assuming either way.
+
+### Checked
+
+`tsc` · `eslint` · `vitest` 111 files / 3262 tests (6 new, for the brief and the
+parser) · `next build`. Harness screenshots of loading/ready Overview, All,
+WhatsApp, Summary and first-summary states; table measured at both sidebar widths.
+⚠️ **Not seen live in the drawer:** the admin session this was verified from has no
+leads on `/my-leads`, and a deep link to Sahad's lead redirects. Sign in as Sahad
+and open Faisal Rehman → Conversations → Summary.
 
 ---
 

@@ -87,7 +87,15 @@ open, leaving a loading shell that nothing ever replaces.
 
 ### 3.2 · Draw the panel from the row
 
-`components/crm/lead-drawer-shell.tsx` is the reference.
+`leadFromRow` in `components/crm/lead-drawer.tsx` is the reference.
+
+⚠️ **DRAW IT WITH THE REAL COMPONENT, NOT A LOOK-ALIKE.** This used to be a
+separate `lead-drawer-shell.tsx` promising to match the drawer "to the pixel".
+It did, until the drawer was redesigned on 2026-09-17 and the shell was not —
+after which every click drew the old design and swapped it for the new one, and
+the owner called it disgusting. Now the drawer itself takes a `loading` flag and
+a record built from the row; two components that must look identical will drift
+the first time one is changed, and one component cannot.
 
 A list row is nearly always a superset of its own detail header. The lead row
 already carried: name, project, city, stage, phone, email, source and detail,

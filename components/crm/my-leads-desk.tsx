@@ -31,7 +31,7 @@ import { relativeAge } from '@/lib/view/relative-age';
 import { cn } from '@/lib/utils';
 import { leadsPageAction } from '@/app/actions/crm-leads';
 import { AddLead, type AddLeadProject, type AddLeadProperty } from './add-lead';
-import { LeadDrawer } from './lead-drawer';
+import { LeadDrawer, leadFromRow, relatedFromRow } from './lead-drawer';
 import { ApprovalQueue } from './approval-queue';
 import { RaiseQuotation } from './raise-quotation';
 import { UnitPicker } from './unit-picker';
@@ -45,7 +45,6 @@ import type {
   CrmLeadRelated,
   CrmMessage,
 } from '@/lib/db/queries/crm-leads';
-import { LeadDrawerShell } from './lead-drawer-shell';
 
 /* ============================================================================
  * MY LEADS — the sales consultant's own list
@@ -660,33 +659,35 @@ export function MyLeadsDesk({
         />
       )}
 
-      {/* ⚠️ THE REAL DRAWER WINS THE MOMENT ITS DATA MATCHES THIS LEAD. */}
-      {!unitFor && !quoteFor && !outcomeFor && openLead && record && related && record.lead.id === openLead && (
-        <LeadDrawer
-          key={record.lead.id}
-          lead={record.lead}
-          notes={record.notes}
-          activity={record.activity}
-          messages={messages}
-          related={related}
-          tab={openTab as never}
-          viewerName={fullName}
-          nowMs={nowMs}
-          onTab={setTab}
-          onClose={closeLead}
-          onRaiseQuotation={() => setQuoteFor(openLead)}
-          onChooseUnit={() => setUnitFor(openLead)}
-        />
-      )}
-      {!unitFor && !quoteFor && !outcomeFor && shellRow && (
-        <LeadDrawerShell
-          row={shellRow}
-          tab={openTab}
-          nowMs={nowMs}
-          onTab={setTab}
-          onClose={closeLead}
-        />
-      )}
+      {/* ⚠️ ONE DRAWER, FROM THE CLICK TO THE RECORD. It opens in the click's own
+          frame from the row, and the record fills it in place — the same
+          component throughout, keyed by the lead, so arriving data changes what
+          is inside it and never swaps the drawer for a different one. Owner,
+          2026-09-17, on the two-component version this replaces: *"for the time
+          it is rendering, it shows me the old design… that is very disgusting."*
+          See the header above `leadFromRow` in `lead-drawer.tsx`. */}
+      {!unitFor && !quoteFor && !outcomeFor && openLead && (() => {
+        const ready = record && related && record.lead.id === openLead;
+        if (!ready && !shellRow) return null;
+        return (
+          <LeadDrawer
+            key={openLead}
+            loading={!ready}
+            lead={ready ? record.lead : leadFromRow(shellRow!)}
+            notes={ready ? record.notes : []}
+            activity={ready ? record.activity : []}
+            messages={ready ? messages : []}
+            related={ready ? related : relatedFromRow(shellRow!)}
+            tab={openTab as never}
+            viewerName={fullName}
+            nowMs={nowMs}
+            onTab={setTab}
+            onClose={closeLead}
+            onRaiseQuotation={() => setQuoteFor(openLead)}
+            onChooseUnit={() => setUnitFor(openLead)}
+          />
+        );
+      })()}
 
       {addOpen && (
         <AddLead
@@ -1063,6 +1064,41 @@ function Picker({
    buttons. A single object pinned to the top of a three-line row hangs from the
    ceiling with a gap under it, and the eye reads the gap as a missing value. */
 const TD = 'px-3 py-3 align-top';
+
+/* ⚠⚠ THE TABLE COULD NOT GET NARROWER THAN 1300px, AND `truncate` WAS WHY.
+   Owner, 2026-09-17: *"you have added a scrollbar below the table … I want
+   that adjusted properly like it was before."* Measured in Chrome: with the
+   sidebar collapsed the table gets 1406px and fits; pinned open it gets 1222px
+   against a floor of 1300, and scrolls. Nothing about the table had changed —
+   the floor had always been there, and pinning the sidebar walked into it.
+
+   ⚠️ `truncate` DOES NOT TRUNCATE IN AN AUTO-SIZED TABLE. `white-space: nowrap`
+   makes the text's narrowest possible width its FULL width, and a table cell is
+   never narrower than its content's narrowest width — so every "…" in these
+   columns was decorative, and the name, the project, the last message and the
+   next action each held their column open at full length.
+
+   ⚠️ `minmax(0, max-content)` IS THE WHOLE FIX. As a one-column grid, the text
+   block asks for its full length when there is room — so on a wide screen every
+   column is exactly the width it was, measured before and after — and may
+   shrink to nothing when there is not, which is the moment the ellipsis finally
+   has somewhere to appear. A fixed `max-w` would have clipped names on screens
+   with plenty of room; `table-fixed` would have redistributed every column. */
+const SHRINKS = 'grid min-w-0 grid-cols-[minmax(0,max-content)]';
+
+/* ⚠️ ONLY THE TWO COLUMNS WITH UNBOUNDED TEXT GIVE WAY. Chrome shares a
+   shortfall across every column that can shrink, so with all four shrinking a
+   78px deficit clipped "Lead ad" to "Lea…" and "Quotation check-in" to
+   "Quotation chec…" — short labels losing letters to save a few pixels — while
+   the project name and the message, which have room to spare, barely moved.
+   A floor on those two was tried and was worse: a floor wider than the label
+   WIDENS the column on a big screen, and every column shifted.
+
+   So Source is exactly as it was (a closed vocabulary — it cannot get long),
+   and Next action is as it was with a CEILING rather than a floor: 14rem is
+   far more than any label holds, and it stops a paragraph typed into a next
+   action from holding the table open. */
+const CAPPED_NEXT_ACTION = 'min-w-0 max-w-[14rem]';
 const TD_MID = 'px-3 py-3 align-middle';
 
 function Row({
@@ -1079,7 +1115,7 @@ function Row({
   fullName: string;
   ticked: boolean;
   onTick: (id: string, on: boolean) => void;
-  /** Opens the drawer in this click's own frame. See `lead-drawer-shell.tsx`. */
+  /** Opens the drawer in this click's own frame. See `leadFromRow` in `lead-drawer.tsx`. */
   onOpen: (leadId: string, tab: string) => void;
   onPropose: (leadId: string, stage: string) => void;
 }) {
@@ -1166,7 +1202,7 @@ function Row({
           >
             {initials}
           </span>
-          <span className="min-w-0">
+          <span className={SHRINKS}>
             <Link
               href={href}
               className="block truncate text-body-sm font-semibold text-text-primary underline-offset-2 hover:text-text-brand hover:underline"
@@ -1251,7 +1287,7 @@ function Row({
             <WhatsAppMark className="size-6" />
           </span>
 
-          <span className="min-w-0 flex-1">
+          <span className={cn(SHRINKS, 'flex-1')}>
             {lead.lastMessageAt ? (
               <button
                 type="button"
@@ -1367,7 +1403,7 @@ function Row({
                 <CalendarDays className="size-5" />
               )}
             </span>
-            <span className="min-w-0">
+            <span className={CAPPED_NEXT_ACTION}>
               <span className="block truncate text-body-sm text-text-primary">
                 {lead.nextAction}
               </span>
