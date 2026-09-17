@@ -9,7 +9,7 @@
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
 | **Last updated** | **2026-09-17** |
-| **Last migration applied anywhere** | **192** (applied 2026-09-17; 187–192 **the scheduler sends by itself** — business hours, choosable stop conditions, the sender's queue, its grants, the words it fills in, the channel an automatic message is recorded under, and the consent rule that would have made auto-send do nothing). CRM next: **193.** |
+| **Last migration applied anywhere** | **193** (applied 2026-09-17; 187–192 **the scheduler sends by itself**, 193 puts its schedule in **Supabase** beside the other five jobs). CRM next: **194.** |
 
 ---
 
@@ -27,9 +27,10 @@ that queue. Now it does.
 
 ### The sender
 
-`lib/crm/followup-sender.ts` + `app/api/cron/crm-followups/route.ts`, on Vercel
-cron **every 15 minutes** and guarded by `CRON_SECRET`. Each run advances every
-due sequence (the same function `pg_cron` runs) and then delivers what may go:
+`lib/crm/followup-sender.ts` + `app/api/cron/crm-followups/route.ts`, called by
+**Supabase** every **5 minutes** and guarded by `CRON_SECRET`. Each run advances
+every due sequence (the same function `pg_cron` runs on its own beat) and then
+delivers what may go:
 
 | | |
 |---|---|
@@ -120,12 +121,31 @@ proper way… add a WhatsApp call option, not a normal call."* Nothing dials it.
   client's paragraph. The message now has a 20rem ceiling and the lead a 13rem
   floor.
 
+### 193 · the schedule belongs to Supabase
+
+Owner: *"why are you using the cron job on Vercel? Please use the cron job in
+Supabase."* Right, and this project already worked that way — `meta-sync` and
+`crm-lead-sync` are `pg_cron` jobs calling the app over `pg_net` with the Vault
+`CRON_SECRET`. A second scheduler in a second place with a second set of logs was
+the wrong shape. `app.trigger_crm_followup_sender()` joins the other five, at
+`*/5` rather than `*/15`: the engine queues on a fifteen-minute beat, and two
+fifteen-minute clocks that do not line up can add half an hour to a step somebody
+timed to the minute. The Vercel cron entry is gone.
+
+⚠️ **The self-check does NOT call the route.** A migration that sent live WhatsApp
+messages while proving its own schedule would be the worst check in this repo. It
+proves the job, the function and the secret; the call itself was fired once by
+hand and reached the deployment (404 until the route is deployed, which is the
+answer a working pipeline gives before a release).
+
 ### What the owner still has to do
 
 1. **Approve templates** at WhatsApp Manager — the account has only Meta's
    samples (`hello_world`, `jaspers_market_*`). Until a real one is approved,
-   auto-send on WhatsApp works **only inside the 24-hour window**.
-2. **Set `CRON_SECRET` in Vercel** (it is set locally) so the schedule can run.
+   auto-send on WhatsApp works **only inside the 24-hour window**. ⚠️ And make
+   them **variable-free** for now: the sender passes no parameters, so a template
+   containing `{{1}}` is refused by Meta.
+2. **Deploy**, so `/api/cron/crm-followups` exists for the job to call.
 3. **Test a real send** on their own number.
 
 Checks: `tsc` clean · eslint clean · vitest **3,301** passed · `next build` clean.

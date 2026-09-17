@@ -6,9 +6,15 @@ import { cronRequestIsAuthorised } from '@/lib/cron-auth';
 /* ============================================================================
  * THE FOLLOW-UP SENDER — called on a timetable
  * ----------------------------------------------------------------------------
- * `vercel.json` calls this every fifteen minutes. It advances every sequence
- * that is due (the same function `pg_cron` runs) and then delivers whatever may
- * go out right now.
+ * ⚠️ SUPABASE CALLS THIS, NOT VERCEL. Owner, 2026-09-17: *"why are you using the
+ * cron job on Vercel? Please use the cron job in Supabase."* — and this project
+ * already worked that way: `pg_cron` runs `app.trigger_crm_followup_sender()`
+ * (migration 193) every five minutes, which calls this route over `pg_net` with
+ * the Vault `CRON_SECRET`. One scheduler, beside the five that were already
+ * there, with its runs visible in `cron.job_run_details`.
+ *
+ * It advances every sequence that is due (the same function `pg_cron` runs on
+ * its own beat) and then delivers whatever may go out right now.
  *
  * ⚠️ IT REQUIRES `CRON_SECRET`, like every other scheduled route here. An open
  * endpoint that sends WhatsApp messages to clients under the business's own
