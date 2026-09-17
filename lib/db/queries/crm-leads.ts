@@ -1989,6 +1989,19 @@ export interface CrmLeadRelated {
   } | null;
   /** Sequences this lead could be started on. */
   readonly sequenceOptions: readonly CrmSequenceOption[];
+  /**
+   * A plan written for this lead and saved without starting it (185/187).
+   *
+   * ⚠️ A DRAFT IS A PLAN WITH NO RUN, which is why it needs its own field: the
+   * sequence card reads `sequence`, and a draft has nothing to read there.
+   */
+  readonly draft: {
+    readonly id: string;
+    readonly name: string;
+    readonly purpose: string;
+    readonly createdAt: string;
+    readonly steps: readonly CrmSequenceStep[];
+  } | null;
 }
 
 export type CrmSummaryPointKind = 'we_said' | 'they_said' | 'agreed' | 'open';
@@ -2151,6 +2164,7 @@ const NO_RELATED: CrmLeadRelated = {
   summary: null,
   sequence: null,
   sequenceOptions: [],
+  draft: null,
 };
 
 /** Several leads' related records in SIX queries, however many leads. */
@@ -2163,7 +2177,7 @@ async function readCrmLeadRelatedMany(
   if (ids.length === 0) return out;
   const idList = ids as unknown as string[];
 
-  const [quotations, appointments, followUps, sequences, options, senders, summaries, names] = await Promise.all([
+  const [quotations, appointments, followUps, sequences, drafts, options, senders, summaries, names] = await Promise.all([
     tx`
       select q.lead_id, q.id, q.number, q.version, q.status::text, q.net_amount,
              q.requested_discount, q.approved_discount, q.valid_until,
@@ -2211,6 +2225,25 @@ async function readCrmLeadRelatedMany(
                 (ls.state in ('scheduled', 'active', 'paused')) desc,
                 ls.started_at desc nulls last
     `,
+    /* ⚠️ A DRAFT PLAN — written for this lead and never started. One row per
+       lead, newest first, and only when nothing of it is running: a sequence
+       whose run exists is not a draft, it is the sequence card. */
+    tx`
+      select distinct on (s.lead_id)
+             s.lead_id, s.id, s.name, s.purpose::text as purpose, s.created_at,
+             coalesce((
+               select json_agg(json_build_object(
+                        'stepNo', st.step_no, 'channel', st.channel, 'delayDays', st.delay_days,
+                        'purpose', st.purpose, 'body', st.body,
+                        'title', st.title, 'mode', st.mode) order by st.step_no)
+                 from public.crm_sequence_steps st
+                where st.sequence_id = s.id), '[]'::json) as steps
+        from public.crm_sequences s
+       where s.lead_id = any(${idList}::uuid[])
+         and s.is_active
+         and not exists (select 1 from public.crm_lead_sequences ls where ls.sequence_id = s.id)
+       order by s.lead_id, s.created_at desc
+    `,
     /* Sequences each lead could be put on: active, the lead's project or every
        project, and demo templates only for demo leads. */
     tx`
@@ -2253,11 +2286,12 @@ async function readCrmLeadRelatedMany(
       summary: CrmConversationSummary | null;
       sequence: CrmLeadRelated['sequence'];
       sequenceOptions: CrmSequenceOption[];
+      draft: CrmLeadRelated['draft'];
     } | undefined;
     if (!r) {
       r = {
         quotations: [], appointments: [], followUps: [], sender: null, summary: null,
-        sequence: null, sequenceOptions: [],
+        sequence: null, sequenceOptions: [], draft: null,
       };
       out.set(id, r);
     }
@@ -2326,6 +2360,24 @@ async function readCrmLeadRelatedMany(
       startedAt: new Date(s.started_at as string).toISOString(),
       nextStepAt: s.next_step_at ? new Date(s.next_step_at as string).toISOString() : null,
       quotationId: (s.quotation_id as string | null) ?? null,
+      steps: steps.map((st) => ({
+        stepNo: Number(st.stepNo),
+        channel: String(st.channel),
+        delayDays: Number(st.delayDays ?? 0),
+        purpose: String(st.purpose ?? ''),
+        body: (st.body as string | null) ?? null,
+        title: (st.title as string | null) ?? null,
+        mode: String(st.mode ?? 'auto_send'),
+      })),
+    };
+  }
+  for (const d of drafts as Array<Record<string, unknown>>) {
+    const steps = Array.isArray(d.steps) ? (d.steps as Array<Record<string, unknown>>) : [];
+    rel(String(d.lead_id)).draft = {
+      id: String(d.id),
+      name: String(d.name),
+      purpose: String(d.purpose ?? 'custom'),
+      createdAt: new Date(d.created_at as string).toISOString(),
       steps: steps.map((st) => ({
         stepNo: Number(st.stepNo),
         channel: String(st.channel),

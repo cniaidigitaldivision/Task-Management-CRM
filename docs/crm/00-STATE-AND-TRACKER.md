@@ -9,7 +9,126 @@
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
 | **Last updated** | **2026-09-17** |
-| **Last migration applied anywhere** | **186** (applied 2026-09-17; 185 a follow-up plan for one lead + the appointment-reminder stop bug, 186 a queued step becomes the lead's next action. Both self-checks roll their fixtures back). CRM next: **187.** |
+| **Last migration applied anywhere** | **192** (applied 2026-09-17; 187–192 **the scheduler sends by itself** — business hours, choosable stop conditions, the sender's queue, its grants, the words it fills in, the channel an automatic message is recorded under, and the consent rule that would have made auto-send do nothing). CRM next: **193.** |
+
+---
+
+## 🚀 2026-09-17 (night) — THE FOLLOW-UP SENDS ITSELF · 187 – 192
+
+Owner, reading a review screen that said a person presses send:
+
+> *"I am on that the follow-up will be sent at the respective time automatically.
+> If I have to log in and send the follow-up, then why should I not write the
+> message at that time and send it? What is the purpose of the follow-up then,
+> and the automation of follow-ups then?"*
+
+Right. 170 built a scheduler that **queued** and nothing had ever delivered from
+that queue. Now it does.
+
+### The sender
+
+`lib/crm/followup-sender.ts` + `app/api/cron/crm-followups/route.ts`, on Vercel
+cron **every 15 minutes** and guarded by `CRON_SECRET`. Each run advances every
+due sequence (the same function `pg_cron` runs) and then delivers what may go:
+
+| | |
+|---|---|
+| **WhatsApp, inside 24 h** | the message as written, filled per client |
+| **WhatsApp, outside 24 h** | only a template Meta approved; a step without one is handed back to a person (`review_first`) |
+| **Email** | any time — no window, attachments supported |
+| **A call or a task** | never sent; it becomes a reminder on the person's list |
+
+⚠️ **THE DATABASE DECIDES, NOT THE ROUTE.** Every rule that could reach a client
+wrongly — replied, closed, opted out, dead quotation, booked visit, the window,
+business hours, one chase a day — is answered in SQL **at the moment of sending**
+by `app.crm_followups_to_send`, which re-asks `crm_sequence_stop_reason`. The
+route may refuse and may report a failure; it may not decide something is safe.
+
+**Proved end to end** on a demo lead (2026-09-17, 20:31): the engine advanced,
+the queue handed the row over, the tokens filled (*"AoA Ayesha, this is Sarah
+from CNI AI & Digital Division…"* — the LEAD'S OWNER, not the person who wrote
+the plan), Resend accepted it, the step settled as done with the provider id, and
+the message appeared in the lead's thread. A second run sent nothing: `due: 0`.
+
+### Three bugs the first real send found
+
+⚠️ **A DUPLICATE-SEND LOOP.** The settle and the thread row were one transaction.
+175's constraint refused the thread row (an email id written into
+`wa_message_id`), which rolled back the settle — the email had gone, the step was
+still `due`, and every run for ever would have sent it again. **190** fixes the
+column; the sender now settles first, in its own transaction, and a thread it
+cannot write never un-sends a message.
+
+⚠️ **AUTO-SEND COULD NEVER HAVE SENT ANYTHING.** 188's queue demanded
+`whatsapp_consent = true`, and **nothing in the product has ever set that
+column** — it is NULL on all 652 leads. The symptom would have been silence.
+**192**: the machine works to the same line as the person — send unless they have
+said no. A stated no still stops everything, and the 24-hour rule is untouched.
+
+⚠️ **A SELF-CHECK RUNS AS THE OWNER AND CANNOT SEE A MISSING GRANT.** 187
+revoked its functions from `public` and granted nothing to `cni_app`; the check
+passed because migrations run as the owner. **188** grants them. The other side
+of `definers-hide-missing-grants`.
+
+### What else 187–192 added
+
+- **Business hours** on a plan (`send_from_hour/to/days`) and
+  `app.crm_next_send_slot` — a step due outside them is pushed to the next moment
+  the plan allows, never dropped. Quiet hours still apply when a plan sets none.
+- **Stop conditions a person chooses**: reply, booked visit, dead quotation. The
+  two that are never a choice — a closed lead, a stated no — are not columns.
+- **"Only if no reply" per step**, recorded as a `skipped` row rather than a
+  silent hole.
+- **Templates**: 191 lets the people who work a project read its WhatsApp account
+  id, so the dialog lists what Meta has **approved**, pending ones included, with
+  a link to WhatsApp Manager. ⚠️ Only Meta approves a template; the CRM never
+  claims to.
+
+### The dialog, rebuilt to the owner's four designs
+
+1 · **Purpose** — *"How would you like to proceed?"* (Remind me · Review first ·
+**Auto-send**, the default) then the nine purposes, in the exact selection
+colours **sampled from the owner's PNG** (`--pick-bg #e9fbf6`, `--pick-border
+#8fbab9`), with the suggested sequence, goal and stop rule beside them.
+2 · **Compose** — Email / WhatsApp / WhatsApp call / Task tabs per step, To,
+From, Subject, placeholders, **AI rewrite** (improve · shorten · warmer · formal,
+which never adds a fact), and a **live preview**: an email card or a WhatsApp
+bubble, in the LEAD OWNER's voice.
+3 · **Schedule** — Send now · a calendar with time and zone · **after an event**
+(a day after the quotation went), quick picks, business hours with weekday chips.
+4 · **Review follow-up sequence** — the summary chips, the steps with their real
+dates and an edit pencil, the preview of the selected step, **Save draft** and
+**Start sequence**. A draft is a plan with no run; the tab shows it with Start
+and Discard.
+
+⚠️ **"Call" IS NOW "WhatsApp call"**, and it is a reminder for the person.
+Owner: *"a salesperson uses their phone, so the number to call will not be a
+proper way… add a WhatsApp call option, not a normal call."* Nothing dials it.
+
+### And three things the owner caught in passing
+
+- **The stage dropdown in the drawer wrote silently.** The desk's dropdown has
+  always opened *Record outcome*; the drawer's saved the stage with no outcome,
+  no note and no next action. It now opens the same form, **above** the drawer
+  rather than instead of it — and the desk keeps the drawer open under it too.
+- **Record outcome rebuilt to the owner's screenshot**: two columns, eight
+  outcome cards with their own icons and colours, the tip box, notes with a
+  counter, next action as a radio pair with date · time · channel, and a computed
+  **Impact summary** on the right.
+- **The desk's columns**: the message column had no natural length and an auto
+  table gives the widest asker the most room, so the lead's name was paying for a
+  client's paragraph. The message now has a 20rem ceiling and the lead a 13rem
+  floor.
+
+### What the owner still has to do
+
+1. **Approve templates** at WhatsApp Manager — the account has only Meta's
+   samples (`hello_world`, `jaspers_market_*`). Until a real one is approved,
+   auto-send on WhatsApp works **only inside the 24-hour window**.
+2. **Set `CRON_SECRET` in Vercel** (it is set locally) so the schedule can run.
+3. **Test a real send** on their own number.
+
+Checks: `tsc` clean · eslint clean · vitest **3,301** passed · `next build` clean.
 
 ---
 

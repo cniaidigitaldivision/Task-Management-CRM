@@ -28,7 +28,8 @@ const facts = (o: Partial<LeadFacts> = {}): LeadFacts => ({
 });
 
 const step = (o: Partial<PlanStep>): PlanStep => ({
-  day: 1, channel: 'whatsapp', title: 'Step', body: 'Hello', mode: 'review_first', ...o,
+  day: 1, channel: 'whatsapp', title: 'Step', body: 'Hello', mode: 'review_first',
+  subject: '', onlyIfNoReply: false, template: null, ...o,
 });
 
 describe('days on screen are absolute; delays in the database are gaps', () => {
@@ -59,6 +60,17 @@ describe('a plan the engine can actually run', () => {
     expect(planProblem([])).toMatch(/at least one step/);
     const many = Array.from({ length: MAX_STEPS + 1 }, (_, i) => step({ day: i + 1 }));
     expect(planProblem(many)).toMatch(/at most/);
+  });
+  it('refuses an email with no subject line, and fills one from the purpose', () => {
+    expect(planProblem([step({ channel: 'email', subject: '' })])).toMatch(/needs a subject line/);
+    /* Every suggested email step comes with one. */
+    const emailSteps = suggestedPlan('quotation').filter((s) => s.channel === 'email');
+    for (const s of emailSteps) expect(s.subject.length).toBeGreaterThan(0);
+  });
+  it('carries the plan’s delivery down to the message steps, never to a call', () => {
+    const auto = suggestedPlan('no_response', 'auto_send');
+    expect(auto.filter((s) => s.channel === 'whatsapp').every((s) => s.mode === 'auto_send')).toBe(true);
+    expect(auto.find((s) => s.channel === 'call')?.mode).toBe('remind_me');
   });
   it('accepts the suggestion for every purpose it offers', () => {
     for (const p of ['no_response', 'quotation', 'appointment_reminder', 'missing_information',

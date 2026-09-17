@@ -98,7 +98,12 @@ const MONO = 'ui-monospace,SFMono-Regular,Menlo,Consolas,monospace';
 export interface EmailAttachment {
   readonly filename: string;
   readonly content: string;
-  readonly contentId: string;
+  /* ⚠️ OPTIONAL, AND THE DIFFERENCE IS VISIBLE TO THE READER. An inline image the
+     HTML references by `cid:` MUST carry one. A document the client is meant to
+     download must NOT: given a content id, mail clients treat it as part of the
+     body and hide it from the attachment list, so the letter says "attached" and
+     shows nothing. `lib/email/send.ts` carries the full account. */
+  readonly contentId?: string;
   readonly contentType: string;
 }
 

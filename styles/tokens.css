@@ -294,6 +294,15 @@
   --border-default: #d3e1e2;
   --border-subtle: #e3ecec;
   --border-strong: #b9cdcf;
+  /* ── A CHOSEN CARD ────────────────────────────────────────────────────────
+     ⚠️ SAMPLED FROM THE OWNER'S OWN DESIGN, not matched by eye. They sent the
+     New follow-up dialog with *"make sure you exactly choose these colors for
+     the selection of cards"*; #e9fbf6 is the fill read out of that PNG and
+     #8fbab9 its border. The mark is the brand teal the mock's own buttons use. */
+  --pick-bg: #e9fbf6;
+  --pick-border: #8fbab9;
+  --pick-mark: var(--teal-700);
+
   --border-brand: var(--teal-700);
   /* ⚠️ A DELIBERATELY STRONGER BRAND BORDER, for a selected card.
      Owner, 2026-08-24, of the credential list: *"its border color should be dark
@@ -497,6 +506,11 @@
   /* ---- Borders ---- */
   --border-default: #22484e;
   --border-subtle: #17383d;
+
+  /* The same idea at night: the fill is a tint of the surface, not of white. */
+  --pick-bg: #0b3034;
+  --pick-border: #1d5a5e;
+  --pick-mark: var(--teal-400);
   --border-strong: #2f5c63;
   --border-brand: var(--teal-400);
   /* Brighter, not darker — see the note in the light block. */

@@ -6,33 +6,57 @@ import {
   ArrowRight,
   BadgeCheck,
   Bell,
-  CalendarClock,
   CalendarDays,
   Check,
   ChevronDown,
   CircleHelp,
+  ExternalLink,
+  Clock3,
   CreditCard,
   FileText,
+  Flag,
   Mail,
   MapPin,
   MessageSquareText,
   MoreHorizontal,
+  Paperclip,
+  Pencil,
   Phone,
   Plus,
+  Send,
   Settings2,
+  Sparkles,
   Square,
   Target,
   Trash2,
+  User,
   Users,
   X,
+  Zap,
 } from 'lucide-react';
 
-import { createFollowUpPlanAction } from '@/app/actions/crm-followups';
+import {
+  createFollowUpPlanAction,
+  leadDocumentsAction,
+  polishMessageAction,
+  whatsAppTemplatesAction,
+  type TemplateList,
+} from '@/app/actions/crm-followups';
+import { EmailPreview, WhatsAppPreview } from '@/components/crm/followup-preview';
+import {
+  DEFAULT_HOURS,
+  eventMoment,
+  SchedulePicker,
+  ScheduleValueLabel,
+  type EventAnchor,
+  type ScheduleValue,
+} from '@/components/crm/schedule-picker';
 import { MAIL_BLUE, WA_GREEN, WhatsAppMark } from '@/components/crm/whatsapp-mark';
-import { formatDay, formatWhen, fromInputValue, QuickTimes, toInputValue } from '@/components/crm/when';
+import { formatDay, formatWhen, karachiAt, karachiParts } from '@/components/crm/when';
 import { useToast } from '@/components/ui/toast';
 import type { CrmLeadRecord, CrmLeadRelated, CrmSequenceStep } from '@/lib/db/queries/crm-leads';
 import {
+  DELIVERY_CHOICES,
   fillTokens,
   leadFactsFrom,
   MAX_STEPS,
@@ -41,6 +65,7 @@ import {
   purposeAvailability,
   purposeLabel,
   PURPOSE_CARDS,
+  suggestedSubject,
   stopConditions,
   suggestedPlan,
   type FollowUpPurpose,
@@ -51,23 +76,24 @@ import {
 import { cn } from '@/lib/utils';
 
 /* ============================================================================
- * NEW FOLLOW-UP — purpose, message, schedule, review
+ * NEW FOLLOW-UP — proceed, purpose, message, schedule, review
  * ----------------------------------------------------------------------------
- * Owner, 2026-09-17, with a design: *"this type of form should pop up… I want to
- * set a scheduler [or] a single follow-up."*
+ * Built to the owner's four designs of 2026-09-17, and to the sentence behind
+ * them: *"the follow-up will be sent at the respective time automatically. If I
+ * have to log in and send it… what is the purpose of the automation then?"*
  *
- * ⚠️ THE SCREENSHOT IS THE IDEA; THE DATA IS OURS. The nine purposes are
- * `crm_followup_purpose` (153). The suggested plans, the goal and the stop
- * conditions come from `lib/domain/crm-followup-plans.ts`, where they are
- * tested — and the stop conditions listed are the branches of the engine's own
- * `app.crm_sequence_stop_reason`, not a description of them.
+ * So **Auto-send is the default**, and it is real: 187–190 built the queue, the
+ * business hours and the sender, and `/api/cron/crm-followups` delivers on
+ * WhatsApp and by email.
  *
- * ⚠️ AND A CARD SAYS WHY IT CANNOT BE USED, BEFORE IT IS PRESSED. "Quotation
- * follow-up" with no live quotation would be stopped by the engine on its first
- * pass; the card says so instead of the sequence dying quietly.
+ * ⚠️ WHAT IT STILL WILL NOT PRETEND. Outside WhatsApp's 24-hour window only a
+ * template Meta has approved may go out. A step that would be free text out
+ * there is handed back to a person — said on screen, before anybody chooses it,
+ * rather than discovered as a silent failure days later.
  *
- * ⚠️ NOTHING HERE TOUCHES THE NETWORK UNTIL "Create". Every step, every
- * suggestion and every preview is client state — Rule Zero's first law.
+ * ⚠️ AND NOTHING HERE TOUCHES THE NETWORK UNTIL IT IS SAVED. Every preview,
+ * every suggestion and every date is client state. The documents list and the AI
+ * rewrite are the two exceptions, both on demand, both after a click.
  * ========================================================================= */
 
 export interface PlanCreated {
@@ -76,6 +102,7 @@ export interface PlanCreated {
   readonly name: string;
   readonly steps: readonly PlanStep[];
   readonly firstAt: string;
+  readonly started: boolean;
   readonly sequenceId: string | null;
   readonly leadSequenceId: string | null;
 }
@@ -92,6 +119,12 @@ const PURPOSE_ICON: Record<FollowUpPurpose, React.ComponentType<{ className?: st
   custom: MoreHorizontal,
 };
 
+const DELIVERY_ICON: Record<PlanMode, React.ComponentType<{ className?: string }>> = {
+  remind_me: Clock3,
+  review_first: FileText,
+  auto_send: Send,
+};
+
 const STAGES = ['Purpose', 'Channel & message', 'Schedule & conditions', 'Review'] as const;
 
 const MODE_LABEL: Record<PlanMode, string> = {
@@ -100,7 +133,24 @@ const MODE_LABEL: Record<PlanMode, string> = {
   auto_send: 'Sent automatically',
 };
 
-/* ── Channel glyphs, in the channel's own colour ─────────────────────────── */
+/* ⚠️ "WhatsApp call", NOT "Call". Owner, 2026-09-17: *"a salesperson uses their
+   phone, so the number to call will not be a proper way… add a WhatsApp call
+   option, not a normal call."* Nothing places it — WhatsApp's business calling
+   is not on this account — so it is a reminder for the person, and the screen
+   says exactly that. */
+const CHANNEL_CHOICES: ReadonlyArray<{ key: PlanChannel; label: string }> = [
+  { key: 'email', label: 'Email' },
+  { key: 'whatsapp', label: 'WhatsApp' },
+  { key: 'call', label: 'WhatsApp call' },
+  { key: 'task', label: 'Task' },
+];
+
+const POLISH: ReadonlyArray<{ key: string; label: string }> = [
+  { key: 'improve', label: 'Improve wording' },
+  { key: 'shorten', label: 'Shorten' },
+  { key: 'warmer', label: 'Warmer tone' },
+  { key: 'formal', label: 'More formal' },
+];
 
 function ChannelIcon({ channel, className = 'size-4' }: { channel: string; className?: string }) {
   if (channel === 'whatsapp') return <span style={{ color: WA_GREEN }}><WhatsAppMark className={className} /></span>;
@@ -112,16 +162,9 @@ function ChannelIcon({ channel, className = 'size-4' }: { channel: string; class
 function channelVerb(channel: string): string {
   if (channel === 'whatsapp') return 'Send via WhatsApp';
   if (channel === 'email') return 'Send via Email';
-  if (channel === 'call') return 'Call them';
+  if (channel === 'call') return 'WhatsApp call — you make it';
   return 'A task for you';
 }
-
-const CHANNEL_CHOICES: ReadonlyArray<{ key: PlanChannel; label: string }> = [
-  { key: 'whatsapp', label: 'WhatsApp' },
-  { key: 'email', label: 'Email' },
-  { key: 'call', label: 'Call' },
-  { key: 'task', label: 'Task' },
-];
 
 /* ── The dialog ──────────────────────────────────────────────────────────── */
 
@@ -129,8 +172,6 @@ export function FollowUpWizard({
   lead,
   related,
   viewerName,
-  /* The clock comes from the page, never `Date.now()` in a render: two renders
-     would otherwise draw two different "tomorrow". */
   nowMs,
   onClose,
   onCreated,
@@ -143,59 +184,118 @@ export function FollowUpWizard({
   onCreated: (plan: PlanCreated) => void;
 }) {
   const toast = useToast();
-  const [stage, setStage] = React.useState(0);
-  const [purpose, setPurpose] = React.useState<FollowUpPurpose>('no_response');
-  const [kind, setKind] = React.useState<'single' | 'schedule'>('schedule');
-  const [steps, setSteps] = React.useState<readonly PlanStep[]>(() => suggestedPlan('no_response'));
-  const [touched, setTouched] = React.useState(false);
-  const [stopOnReply, setStopOnReply] = React.useState(true);
-  const [keepNextAction, setKeepNextAction] = React.useState(false);
-  const [startAt, setStartAt] = React.useState<string | null>(null);
-  const [advanced, setAdvanced] = React.useState(false);
-  const [busy, setBusy] = React.useState(false);
-
-  /* ── What this lead can answer ──────────────────────────────────────────── */
+  /* ⚠️ THE PLAN IS SENT BY THE LEAD'S OWNER, NOT BY WHOEVER IS WRITING IT. A
+     manager drafting on Sahad's lead must see "I am Sahad" in the preview,
+     because that is the name the client will read — `app.crm_followup_tokens`
+     fills it from the follow-up's assignee at the moment of sending. */
   const facts = React.useMemo(
-    () => leadFactsFrom(lead, related, viewerName, nowMs),
+    () => leadFactsFrom(lead, related, lead.ownerName ?? viewerName, nowMs),
     [lead, related, viewerName, nowMs],
   );
-
   const tokens = React.useMemo(
     () => planTokens(facts, facts.visit ? formatWhen(facts.visit.at) : null),
     [facts],
   );
 
-  /* ⚠️ CHANGING THE PURPOSE REWRITES THE PLAN — unless the plan has been edited.
-     Losing somebody's typing because they went back one screen is the kind of
-     small betrayal that makes people distrust a wizard. */
-  const choosePurpose = (next: FollowUpPurpose) => {
-    setPurpose(next);
-    if (!touched) setSteps(suggestedPlan(next));
-  };
+  /* ⚠️ THE PURPOSE THIS LEAD IS ACTUALLY ABOUT, and never a card that opens on a
+     reason it has to refuse. A lead with a live quotation is a quotation chase;
+     one with a visit booked is a reminder; everything else is a nudge. */
+  const firstUsable = React.useMemo<FollowUpPurpose>(() => {
+    const order: FollowUpPurpose[] = facts.approvedQuotation
+      ? ['approved_offer', 'quotation', 'no_response']
+      : facts.quotation
+        ? ['quotation', 'no_response']
+        : facts.visit
+          ? ['appointment_reminder', 'no_response']
+          : facts.visitedAt
+            ? ['site_visit_checkin', 'no_response']
+            : ['no_response'];
+    return order.find((k) => purposeAvailability(k, facts).ok) ?? 'no_response';
+  }, [facts]);
 
-  const editSteps = (next: readonly PlanStep[]) => {
-    setTouched(true);
-    setSteps(next);
-  };
+  const [stage, setStage] = React.useState(0);
+  const [delivery, setDelivery] = React.useState<PlanMode>('auto_send');
+  const [purpose, setPurpose] = React.useState<FollowUpPurpose>(firstUsable);
+  const [kind, setKind] = React.useState<'single' | 'schedule'>('schedule');
+  const [steps, setSteps] = React.useState<readonly PlanStep[]>(() => suggestedPlan(firstUsable, 'auto_send'));
+  const [active, setActive] = React.useState(0);
+  const [touched, setTouched] = React.useState(false);
+  const [schedule, setSchedule] = React.useState<ScheduleValue>(() => ({
+    mode: 'at',
+    at: tomorrowAt10(nowMs),
+    hours: { ...DEFAULT_HOURS, days: [...DEFAULT_HOURS.days] },
+    event: null,
+  }));
+  const [conditions, setConditions] = React.useState({ reply: true, visit: true, quotation: true });
+  const [keepNextAction, setKeepNextAction] = React.useState(false);
+  const [planName, setPlanName] = React.useState('');
+  const [advanced, setAdvanced] = React.useState(false);
+  const [busy, setBusy] = React.useState<null | 'draft' | 'start'>(null);
 
   const shown = kind === 'single' ? steps.slice(0, 1) : steps;
   const problem = planProblem(shown);
-  const firstAtMs = startAt ? fromInputValue(startAt) : null;
-  const startMs = firstAtMs ?? nowMs + Math.max(0, (shown[0]?.day ?? 1) - 1) * 86_400_000;
+  const anchors = React.useMemo<readonly EventAnchor[]>(() => {
+    const live = related.quotations.find((q) => !['superseded', 'rejected', 'expired'].includes(q.status)) ?? null;
+    return [
+      { key: 'quotation_sent', label: 'The quotation was sent', at: live?.createdAt ?? null },
+      { key: 'visit_booked', label: 'The visit is booked for', at: facts.visit?.at ?? null },
+      { key: 'lead_created', label: 'The enquiry arrived', at: lead.submittedAt },
+    ];
+  }, [related.quotations, facts.visit, lead.submittedAt]);
 
-  const create = async () => {
+  const startMs =
+    schedule.mode === 'now'
+      ? nowMs
+      : schedule.mode === 'event'
+        ? (eventMoment(schedule.event, anchors) ?? nowMs)
+        : (schedule.at ?? nowMs);
+
+  const setStep = (i: number, patch: Partial<PlanStep>) => {
+    setTouched(true);
+    setSteps(steps.map((s, n) => (n === i ? { ...s, ...patch } : s)));
+  };
+
+  const choosePurpose = (next: FollowUpPurpose) => {
+    setPurpose(next);
+    if (!touched) {
+      setSteps(suggestedPlan(next, delivery));
+      setActive(0);
+    }
+  };
+
+  const chooseDelivery = (next: PlanMode) => {
+    setDelivery(next);
+    /* ⚠️ A CALL IS NEVER "sent". The plan's answer applies to message steps and
+       stops there — otherwise Auto-send would claim the machine rings people. */
+    setSteps(steps.map((s) => (s.channel === 'whatsapp' || s.channel === 'email' ? { ...s, mode: next } : s)));
+  };
+
+  const save = async (start: boolean) => {
     if (busy || problem) return;
-    setBusy(true);
+    setBusy(start ? 'start' : 'draft');
     try {
       const result = await createFollowUpPlanAction({
         leadId: lead.id,
         kind,
         purpose,
-        name: purposeLabel(purpose),
-        stopOnReply,
+        name: planName.trim() || purposeLabel(purpose),
+        stopOnReply: conditions.reply,
+        stopOnVisit: conditions.visit,
+        stopOnQuotationDead: conditions.quotation,
         keepNextAction,
-        firstAt: firstAtMs !== null ? new Date(firstAtMs).toISOString() : null,
-        steps: shown.map((s) => ({ day: s.day, channel: s.channel, title: s.title, body: s.body, mode: s.mode })),
+        hours: schedule.hours,
+        firstAt: schedule.mode === 'now' ? null : new Date(startMs).toISOString(),
+        start,
+        steps: shown.map((s) => ({
+          day: s.day,
+          channel: s.channel,
+          title: s.title,
+          body: s.body,
+          subject: s.subject,
+          mode: s.mode,
+          onlyIfNoReply: s.onlyIfNoReply,
+          template: s.template,
+        })),
       });
       if (!result.ok) {
         toast({ tone: 'error', text: result.error });
@@ -204,18 +304,22 @@ export function FollowUpWizard({
       onCreated({
         kind,
         purpose,
-        name: purposeLabel(purpose),
+        name: planName.trim() || purposeLabel(purpose),
         steps: shown,
         firstAt: result.plan?.nextStepAt ?? new Date(startMs).toISOString(),
+        started: start,
         sequenceId: result.plan?.sequenceId ?? null,
         leadSequenceId: result.plan?.leadSequenceId ?? null,
       });
-      toast({ tone: 'ok', text: kind === 'single' ? 'Follow-up planned.' : 'Plan started.' });
+      toast({
+        tone: 'ok',
+        text: kind === 'single' ? 'Follow-up planned.' : start ? 'Sequence started.' : 'Draft saved.',
+      });
       onClose();
     } catch {
       toast({ tone: 'error', text: 'That did not save — the connection dropped.' });
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   };
 
@@ -230,6 +334,12 @@ export function FollowUpWizard({
     return () => window.removeEventListener('keydown', onKey, true);
   }, [onClose]);
 
+  const footerLine =
+    problem ??
+    (kind === 'single'
+      ? `One follow-up · ${formatWhen(new Date(startMs).toISOString())}`
+      : `${shown.length} step${shown.length === 1 ? '' : 's'} · starts ${ScheduleValueLabel(schedule, nowMs, anchors)}`);
+
   const body = (
     <div
       className="fixed inset-0 z-[60] grid place-items-center bg-black/40 p-4"
@@ -240,68 +350,111 @@ export function FollowUpWizard({
     >
       <div
         onMouseDown={(e) => e.stopPropagation()}
-        className="flex max-h-[92vh] w-full max-w-[56rem] flex-col overflow-hidden rounded-2xl border border-border-subtle bg-bg-surface shadow-2xl"
+        className="flex max-h-[94vh] w-full max-w-[60rem] flex-col overflow-hidden rounded-2xl border border-border-subtle bg-bg-surface shadow-2xl"
       >
-        {/* ── Header ────────────────────────────────────────────────────── */}
         <header className="shrink-0 border-b border-border-subtle px-5 pb-3 pt-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <h2 className="text-h3 font-semibold text-text-primary">New follow-up</h2>
+              <h2 className="text-h3 font-semibold text-text-primary">
+                {stage === 3 ? 'Review follow-up sequence' : stage === 1 ? 'Compose follow-up' : 'New follow-up'}
+              </h2>
               <p className="mt-0.5 text-caption text-text-secondary">
-                Create a follow-up for this lead. Choose the purpose and how it goes out.
+                {stage === 3
+                  ? 'Set up and review the follow-up for this lead.'
+                  : stage === 1
+                    ? `Send a personalised message to ${lead.fullName ?? 'this lead'}.`
+                    : 'Create a follow-up for this lead. Choose the purpose and how it goes out.'}
               </p>
             </div>
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Close"
-              className="grid size-8 shrink-0 place-items-center rounded-lg text-text-secondary transition-colors hover:bg-bg-subtle hover:text-text-primary"
-            >
-              <X className="size-4" aria-hidden="true" />
-            </button>
+            <div className="flex shrink-0 items-center gap-2">
+              <span className="hidden items-center gap-1.5 rounded-full border border-border-subtle px-2.5 py-1 text-caption text-text-secondary sm:inline-flex">
+                <User className="size-3.5" aria-hidden="true" />
+                {lead.ownerName ? `Assigned to ${lead.ownerName}` : 'Unassigned'}
+              </span>
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Close"
+                className="grid size-8 place-items-center rounded-lg text-text-secondary transition-colors hover:bg-bg-subtle hover:text-text-primary"
+              >
+                <X className="size-4" aria-hidden="true" />
+              </button>
+            </div>
           </div>
           <Stepper stage={stage} onStage={setStage} />
           <LeadStrip lead={lead} facts={facts} />
         </header>
 
-        {/* ── Body ──────────────────────────────────────────────────────── */}
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
           {stage === 0 && (
             <Purpose
-              purpose={purpose}
               facts={facts}
+              purpose={purpose}
+              delivery={delivery}
               steps={shown}
               kind={kind}
-              stopOnReply={stopOnReply}
-              onChoose={choosePurpose}
+              startMs={startMs}
+              conditions={conditions}
+              onPurpose={choosePurpose}
+              onDelivery={chooseDelivery}
               advanced={advanced}
               onAdvanced={setAdvanced}
               keepNextAction={keepNextAction}
               onKeepNextAction={setKeepNextAction}
-              startAt={startAt}
-              onStartAt={setStartAt}
+              planName={planName}
+              onPlanName={setPlanName}
+              kindSet={setKind}
             />
           )}
           {stage === 1 && (
-            <Message
-              kind={kind}
-              onKind={setKind}
-              steps={steps}
-              onSteps={editSteps}
+            <Compose
+              lead={lead}
+              facts={facts}
               tokens={tokens}
               purpose={purpose}
+              steps={shown}
+              active={Math.min(active, shown.length - 1)}
+              onActive={setActive}
+              onStep={setStep}
+              onAdd={() => {
+                const last = steps[steps.length - 1];
+                setTouched(true);
+                setSteps([
+                  ...steps,
+                  {
+                    day: (last?.day ?? 1) + 3,
+                    channel: last?.channel ?? 'whatsapp',
+                    title: `Step ${steps.length + 1}`,
+                    body: '',
+                    subject: '',
+                    mode: delivery,
+                    onlyIfNoReply: false,
+                    template: null,
+                  },
+                ]);
+                setActive(steps.length);
+              }}
+              onRemove={(i) => {
+                setTouched(true);
+                setSteps(steps.filter((_, n) => n !== i));
+                setActive(0);
+              }}
+              single={kind === 'single'}
+              startMs={startMs}
             />
           )}
           {stage === 2 && (
             <Schedule
               kind={kind}
-              steps={steps}
-              onSteps={editSteps}
+              steps={shown}
+              onStep={setStep}
               purpose={purpose}
-              stopOnReply={stopOnReply}
-              onStopOnReply={setStopOnReply}
-              startAt={startAt}
-              onStartAt={setStartAt}
+              schedule={schedule}
+              onSchedule={setSchedule}
+              nowMs={nowMs}
+              anchors={anchors}
+              conditions={conditions}
+              onConditions={setConditions}
               startMs={startMs}
             />
           )}
@@ -312,22 +465,26 @@ export function FollowUpWizard({
               steps={shown}
               facts={facts}
               tokens={tokens}
-              stopOnReply={stopOnReply}
-              keepNextAction={keepNextAction}
+              lead={lead}
+              delivery={delivery}
+              conditions={conditions}
               startMs={startMs}
+              active={Math.min(active, shown.length - 1)}
+              onActive={setActive}
+              onEdit={(i) => {
+                setActive(i);
+                setStage(1);
+              }}
             />
           )}
         </div>
 
-        {/* ── Footer ────────────────────────────────────────────────────── */}
-        <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-border-subtle px-5 py-3">
-          <p className="min-w-0 truncate text-caption text-text-secondary">
-            {problem ? <span className="text-feedback-error">{problem}</span>
-              : kind === 'single'
-                ? `One follow-up · ${formatWhen(new Date(startMs).toISOString())}`
-                : `${shown.length} step${shown.length === 1 ? '' : 's'} · starts ${formatWhen(new Date(startMs).toISOString())}`}
+        <footer className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border-subtle px-5 py-3">
+          <p className="flex min-w-0 items-center gap-2 text-caption text-text-secondary">
+            <CalendarDays className="size-4 shrink-0" aria-hidden="true" />
+            <span className={cn('min-w-0 truncate', problem && 'text-feedback-error')}>{footerLine}</span>
           </p>
-          <div className="flex shrink-0 gap-2">
+          <div className="flex shrink-0 flex-wrap gap-2">
             <Button onClick={stage === 0 ? onClose : () => setStage((s) => s - 1)}>
               {stage === 0 ? 'Cancel' : 'Back'}
             </Button>
@@ -336,9 +493,21 @@ export function FollowUpWizard({
                 Continue
               </Button>
             ) : (
-              <Button tone="primary" icon={Check} disabled={busy || problem !== null} onClick={() => void create()}>
-                {busy ? 'Saving…' : kind === 'single' ? 'Plan follow-up' : 'Start the plan'}
-              </Button>
+              <>
+                {kind === 'schedule' && (
+                  <Button icon={FileText} disabled={busy !== null || problem !== null} onClick={() => void save(false)}>
+                    {busy === 'draft' ? 'Saving…' : 'Save draft'}
+                  </Button>
+                )}
+                <Button
+                  tone="primary"
+                  icon={kind === 'single' ? Check : Send}
+                  disabled={busy !== null || problem !== null}
+                  onClick={() => void save(true)}
+                >
+                  {busy === 'start' ? 'Saving…' : kind === 'single' ? 'Plan follow-up' : 'Start sequence'}
+                </Button>
+              </>
             )}
           </div>
         </footer>
@@ -349,37 +518,25 @@ export function FollowUpWizard({
   return typeof document === 'undefined' ? body : createPortal(body, document.body);
 }
 
-/* ── Stepper ─────────────────────────────────────────────────────────────── */
+/* ── Stepper and lead strip ──────────────────────────────────────────────── */
 
 function Stepper({ stage, onStage }: { stage: number; onStage: (n: number) => void }) {
   return (
     <ol className="mt-3 flex items-center gap-2">
       {STAGES.map((label, i) => (
         <li key={label} className="flex min-w-0 flex-1 items-center gap-2 last:flex-none">
-          <button
-            type="button"
-            onClick={() => onStage(i)}
-            aria-current={i === stage ? 'step' : undefined}
-            className="flex min-w-0 items-center gap-2 text-left"
-          >
+          <button type="button" onClick={() => onStage(i)} aria-current={i === stage ? 'step' : undefined} className="flex min-w-0 items-center gap-2 text-left">
             <span
               className={cn(
                 'grid size-6 shrink-0 place-items-center rounded-full text-caption font-semibold transition-colors',
-                i === stage
-                  ? 'bg-accent-primary text-white'
-                  : i < stage
-                    ? 'bg-feedback-success text-white'
+                i === stage ? 'bg-accent-primary text-white'
+                  : i < stage ? 'bg-feedback-success text-white'
                     : 'border border-border-default bg-bg-surface text-text-secondary',
               )}
             >
               {i < stage ? <Check className="size-3.5" strokeWidth={3} aria-hidden="true" /> : i + 1}
             </span>
-            <span
-              className={cn(
-                'truncate text-caption',
-                i === stage ? 'font-semibold text-text-primary' : 'text-text-secondary',
-              )}
-            >
+            <span className={cn('truncate text-caption', i === stage ? 'font-semibold text-text-primary' : 'text-text-secondary')}>
               {label}
             </span>
           </button>
@@ -390,12 +547,8 @@ function Stepper({ stage, onStage }: { stage: number; onStage: (n: number) => vo
   );
 }
 
-/* ── The lead, so nobody plans for the wrong person ──────────────────────── */
-
 function LeadStrip({ lead, facts }: { lead: CrmLeadRecord; facts: ReturnType<typeof leadFactsFrom> }) {
-  const initials = (lead.fullName ?? '?')
-    .split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? '').join('');
-  const money = (n: number) => `PKR ${n.toLocaleString('en-PK')}`;
+  const initials = (lead.fullName ?? '?').split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? '').join('');
   return (
     <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xl bg-bg-subtle px-3.5 py-2.5">
       <div className="flex min-w-0 items-center gap-2.5">
@@ -405,135 +558,119 @@ function LeadStrip({ lead, facts }: { lead: CrmLeadRecord; facts: ReturnType<typ
         <div className="min-w-0">
           <p className="truncate text-body-sm font-semibold text-text-primary">{lead.fullName ?? 'Unnamed lead'}</p>
           <p className="truncate text-caption text-text-secondary">
-            {lead.projectName}
-            {lead.propertyLabel ? ` · ${lead.propertyLabel}` : ''}
+            {lead.projectName}{lead.city ? ` · ${lead.city}` : ''}
           </p>
         </div>
       </div>
-      {lead.city && (
-        <Fact icon={<MapPin className="size-4" aria-hidden="true" />} label={lead.city} />
-      )}
-      {facts.quotation && (
-        <Fact
-          icon={<FileText className="size-4" aria-hidden="true" />}
-          label={facts.quotation.number}
-          detail={money(facts.quotation.amount)}
-        />
-      )}
-      {facts.visit && (
-        <Fact
-          icon={<CalendarDays className="size-4" aria-hidden="true" />}
-          label="Visit booked"
-          detail={formatWhen(facts.visit.at)}
-        />
-      )}
-      <Fact
-        icon={<Users className="size-4" aria-hidden="true" />}
-        label="Owner"
-        detail={lead.ownerName ?? 'Unassigned'}
-      />
+      {lead.propertyLabel && <Fact label="Property" value={lead.propertyLabel} />}
+      {facts.quotation && <Fact label="Quotation" value={facts.quotation.number} />}
+      {facts.quotation && <Fact label="Value" value={`PKR ${facts.quotation.amount.toLocaleString('en-PK')}`} />}
+      <Fact label="Owner" value={lead.ownerName ?? 'Unassigned'} />
     </div>
   );
 }
 
-function Fact({ icon, label, detail }: { icon: React.ReactNode; label: string; detail?: string }) {
+function Fact({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex min-w-0 items-center gap-2 text-text-secondary">
-      <span className="shrink-0">{icon}</span>
-      <div className="min-w-0">
-        <p className="truncate text-caption font-medium text-text-primary">{label}</p>
-        {detail && <p className="truncate text-caption">{detail}</p>}
-      </div>
+    <div className="min-w-0">
+      <p className="truncate text-caption text-text-secondary">{label}</p>
+      <p className="truncate text-body-sm font-medium text-text-primary">{value}</p>
     </div>
   );
 }
 
-/* ── 1 · Purpose ─────────────────────────────────────────────────────────── */
+/* ── 1 · How, and what for ───────────────────────────────────────────────── */
 
 function Purpose({
-  purpose,
   facts,
+  purpose,
+  delivery,
   steps,
   kind,
-  stopOnReply,
-  onChoose,
+  startMs,
+  conditions,
+  onPurpose,
+  onDelivery,
   advanced,
   onAdvanced,
   keepNextAction,
   onKeepNextAction,
-  startAt,
-  onStartAt,
+  planName,
+  onPlanName,
+  kindSet,
 }: {
-  purpose: FollowUpPurpose;
   facts: ReturnType<typeof leadFactsFrom>;
+  purpose: FollowUpPurpose;
+  delivery: PlanMode;
   steps: readonly PlanStep[];
   kind: 'single' | 'schedule';
-  stopOnReply: boolean;
-  onChoose: (p: FollowUpPurpose) => void;
+  startMs: number;
+  conditions: { reply: boolean; visit: boolean; quotation: boolean };
+  onPurpose: (p: FollowUpPurpose) => void;
+  onDelivery: (m: PlanMode) => void;
   advanced: boolean;
   onAdvanced: (v: boolean) => void;
   keepNextAction: boolean;
   onKeepNextAction: (v: boolean) => void;
-  startAt: string | null;
-  onStartAt: (v: string | null) => void;
+  planName: string;
+  onPlanName: (v: string) => void;
+  kindSet: (k: 'single' | 'schedule') => void;
 }) {
   const card = PURPOSE_CARDS.find((c) => c.key === purpose)!;
   return (
-    <div className="grid gap-5 lg:grid-cols-[1.05fr_1fr]">
-      <section>
-        <h3 className="text-body font-semibold text-text-primary">What is this follow-up for?</h3>
-        <p className="mt-0.5 text-caption text-text-secondary">It decides the suggested plan and when it stops.</p>
-        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
-          {PURPOSE_CARDS.map((c) => {
-            const can = purposeAvailability(c.key, facts);
-            const Icon = PURPOSE_ICON[c.key];
-            const chosen = c.key === purpose;
-            return (
-              <button
-                key={c.key}
-                type="button"
-                disabled={!can.ok}
-                onClick={() => onChoose(c.key)}
-                aria-pressed={chosen}
-                title={can.reason ?? undefined}
-                className={cn(
-                  'relative rounded-xl border p-3 text-left transition-colors',
-                  chosen
-                    ? 'border-accent-primary bg-accent-primary/5'
-                    : can.ok
-                      ? 'border-border-subtle bg-bg-surface hover:bg-bg-subtle'
-                      : 'cursor-not-allowed border-border-subtle bg-bg-subtle/50 opacity-60',
-                )}
-              >
-                {chosen && (
-                  <span className="absolute right-2 top-2 grid size-4 place-items-center rounded-full bg-accent-primary text-white">
-                    <Check className="size-3" strokeWidth={3} aria-hidden="true" />
-                  </span>
-                )}
-                <span
-                  className={cn(
-                    'grid size-8 place-items-center rounded-lg',
-                    chosen ? 'bg-accent-primary text-white' : 'bg-bg-subtle text-text-secondary',
-                  )}
-                >
-                  <Icon className="size-4" />
-                </span>
-                <span className="mt-2 block text-body-sm font-semibold leading-tight text-text-primary">{c.label}</span>
-                <span className="mt-0.5 block text-caption leading-snug text-text-secondary">
-                  {can.ok ? c.blurb : can.reason}
-                </span>
-                {c.badge && can.ok && (
-                  <span className="mt-1.5 inline-block rounded-md bg-feedback-warning/15 px-1.5 py-0.5 text-caption font-medium text-feedback-warning">
-                    {c.badge}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
+    <div className="grid gap-5 lg:grid-cols-[1.1fr_1fr]">
+      <div className="space-y-4">
+        <section>
+          <h3 className="text-body font-semibold text-text-primary">1. How would you like to proceed?</h3>
+          <div className="mt-2 grid gap-2 sm:grid-cols-3">
+            {DELIVERY_CHOICES.map((d) => {
+              const Icon = DELIVERY_ICON[d.key];
+              return (
+                <Pick key={d.key} chosen={delivery === d.key} onClick={() => onDelivery(d.key)}>
+                  <Icon className="size-5 text-text-secondary" />
+                  <span className="mt-1.5 block text-body-sm font-semibold text-text-primary">{d.label}</span>
+                  <span className="mt-0.5 block text-caption leading-snug text-text-secondary">{d.detail}</span>
+                </Pick>
+              );
+            })}
+          </div>
+          {delivery === 'auto_send' && (
+            <p className="mt-2 flex items-start gap-2 rounded-lg bg-bg-subtle px-3 py-2 text-caption leading-relaxed text-text-secondary">
+              <Zap className="mt-0.5 size-3.5 shrink-0 text-accent-primary" aria-hidden="true" />
+              <span>
+                Sent by the system at the time you choose. WhatsApp only allows free text within 24 hours of the
+                client&rsquo;s last message — outside that, a step without an approved template waits for you instead.
+                Email has no such limit.
+              </span>
+            </p>
+          )}
+        </section>
 
-        {/* ── Advanced ─────────────────────────────────────────────────── */}
-        <div className="mt-3 rounded-xl border border-border-subtle">
+        <section>
+          <h3 className="text-body font-semibold text-text-primary">2. What is the purpose of this follow-up?</h3>
+          <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {PURPOSE_CARDS.map((c) => {
+              const can = purposeAvailability(c.key, facts);
+              const Icon = PURPOSE_ICON[c.key];
+              return (
+                <Pick key={c.key} chosen={c.key === purpose} disabled={!can.ok} onClick={() => onPurpose(c.key)} title={can.reason ?? undefined}>
+                  <Icon className="size-5 text-text-secondary" />
+                  <span className="mt-1.5 block text-body-sm font-semibold leading-tight text-text-primary">{c.label}</span>
+                  <span className="mt-0.5 block text-caption leading-snug text-text-secondary">
+                    {can.ok ? c.blurb : can.reason}
+                  </span>
+                  {c.badge && can.ok && (
+                    <span className="mt-1.5 inline-block rounded-md bg-feedback-warning/15 px-1.5 py-0.5 text-caption font-medium text-feedback-warning">
+                      {c.badge}
+                    </span>
+                  )}
+                </Pick>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="rounded-xl border border-border-subtle">
           <button
             type="button"
             onClick={() => onAdvanced(!advanced)}
@@ -541,337 +678,577 @@ function Purpose({
             className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left"
           >
             <Settings2 className="size-4 shrink-0 text-text-secondary" aria-hidden="true" />
-            <span className="min-w-0 flex-1">
-              <span className="block text-body-sm font-medium text-text-primary">Advanced settings (optional)</span>
-              <span className="block text-caption text-text-secondary">Start at a set time, or leave the desk&rsquo;s next action alone.</span>
+            <span className="min-w-0 flex-1 text-body-sm font-medium text-text-primary">
+              Advanced settings <span className="font-normal text-text-secondary">(optional)</span>
             </span>
             <ChevronDown className={cn('size-4 shrink-0 text-text-secondary transition-transform', advanced && 'rotate-180')} aria-hidden="true" />
           </button>
           {advanced && (
-            <div className="border-t border-border-subtle px-3.5 py-3">
-              <p className="text-caption font-semibold text-text-primary">Start the first step at</p>
-              <QuickTimes value={startAt ?? ''} onChange={(v) => onStartAt(v)} />
-              {startAt && (
-                <button
-                  type="button"
-                  onClick={() => onStartAt(null)}
-                  className="mt-1.5 text-caption text-text-secondary underline hover:text-text-primary"
-                >
-                  Use the plan&rsquo;s own timing instead
-                </button>
-              )}
-              <label className="mt-3 flex cursor-pointer items-start gap-2.5">
+            <div className="space-y-3 border-t border-border-subtle px-3.5 py-3">
+              <label className="block">
+                <span className="block text-caption font-semibold text-text-primary">Name this plan</span>
+                <input
+                  value={planName}
+                  onChange={(e) => onPlanName(e.target.value)}
+                  maxLength={80}
+                  placeholder={purposeLabel(purpose)}
+                  className="mt-1 w-full rounded-lg border border-border-default bg-bg-surface px-3 py-1.5 text-body-sm text-text-primary placeholder:text-text-tertiary focus:border-accent-primary focus:outline-none"
+                />
+                <span className="mt-1 block text-caption text-text-secondary">
+                  What the sequence card calls it on this lead. Your team sees it; the client never does.
+                </span>
+              </label>
+
+              <div>
+                <span className="block text-caption font-semibold text-text-primary">One follow-up, or a plan?</span>
+                <div className="mt-1.5 grid gap-2 sm:grid-cols-2">
+                  <Pick chosen={kind === 'single'} onClick={() => kindSet('single')} compact>
+                    <span className="block text-body-sm font-semibold text-text-primary">A single follow-up</span>
+                    <span className="block text-caption leading-snug text-text-secondary">One action, at one time.</span>
+                  </Pick>
+                  <Pick chosen={kind === 'schedule'} onClick={() => kindSet('schedule')} compact>
+                    <span className="block text-body-sm font-semibold text-text-primary">A sequence</span>
+                    <span className="block text-caption leading-snug text-text-secondary">Day 1, day 3, day 7 — step by step.</span>
+                  </Pick>
+                </div>
+              </div>
+
+              <label className="flex cursor-pointer items-start gap-2.5">
                 <input
                   type="checkbox"
                   checked={keepNextAction}
                   onChange={(e) => onKeepNextAction(e.target.checked)}
-                  className="mt-0.5 size-4 accent-[var(--accent-primary)]"
+                  className="mt-0.5 size-4 accent-[var(--pick-mark)]"
                 />
                 <span className="min-w-0">
                   <span className="block text-body-sm text-text-primary">Leave the lead&rsquo;s Next action unchanged</span>
                   <span className="block text-caption text-text-secondary">
-                    By default the desk row starts showing this follow-up when it is the soonest thing owed.
+                    By default the desk row and your Todos start showing this follow-up when it is the soonest thing owed.
                   </span>
                 </span>
               </label>
             </div>
           )}
-        </div>
-      </section>
+        </section>
+      </div>
 
       {/* ── The suggestion ───────────────────────────────────────────────── */}
       <section className="rounded-xl border border-border-subtle bg-bg-subtle/40 p-3.5">
         <h3 className="text-body font-semibold text-text-primary">
-          {kind === 'single' ? 'Suggested follow-up' : 'Follow-up plan (suggested)'}
+          {kind === 'single' ? 'Suggested follow-up' : 'Suggested sequence'}
         </h3>
         <p className="mt-0.5 text-caption text-text-secondary">
-          You can change every part of this on the next screen.
+          {delivery === 'auto_send'
+            ? 'These messages are sent for you. You can change every part on the next screen.'
+            : 'Prepared for you to send. You can change every part on the next screen.'}
         </p>
-        <ol className="mt-3 space-y-2">
+        <ol className="mt-3 space-y-3">
           {steps.map((s, i) => (
-            <li key={i} className="flex items-center gap-2.5">
-              <span className="grid size-6 shrink-0 place-items-center rounded-full border border-border-default bg-bg-surface text-caption font-semibold text-text-secondary">
-                {i + 1}
+            <li key={i} className="flex gap-3">
+              <span className="flex flex-col items-center">
+                <span className="grid size-8 shrink-0 place-items-center rounded-full bg-bg-surface shadow-sm">
+                  <ChannelIcon channel={s.channel} />
+                </span>
+                {i < steps.length - 1 && <span aria-hidden="true" className="my-1 w-px flex-1 bg-border-subtle" />}
               </span>
-              <span className="grid size-8 shrink-0 place-items-center rounded-full bg-bg-surface">
-                <ChannelIcon channel={s.channel} className="size-4" />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-body-sm font-semibold text-text-primary">Day {s.day}</span>
-                <span className="block truncate text-caption text-text-secondary">{channelVerb(s.channel)}</span>
-              </span>
-              <span className="shrink-0 rounded-md bg-bg-surface px-2 py-0.5 text-caption text-text-secondary">
-                {s.title}
+              <span className="min-w-0 flex-1 pb-1">
+                <span className="block text-body-sm font-semibold text-text-primary">
+                  Day {s.day} · {s.title}
+                </span>
+                <span className="block text-caption text-text-secondary">
+                  {channelVerb(s.channel)} · {formatDay(startMs + Math.max(0, s.day - (steps[0]?.day ?? 1)) * 86_400_000)}
+                </span>
+                <span className="block text-caption text-text-secondary">{MODE_LABEL[s.mode]}</span>
               </span>
             </li>
           ))}
         </ol>
         <div className="mt-3 space-y-2.5 border-t border-border-subtle pt-3">
-          <div className="flex items-start gap-2.5">
-            <Target className="mt-0.5 size-4 shrink-0 text-accent-primary" aria-hidden="true" />
-            <div className="min-w-0">
-              <p className="text-body-sm font-semibold text-text-primary">Goal</p>
-              <p className="text-caption leading-relaxed text-text-secondary">{card.goal(facts)}</p>
-            </div>
-          </div>
-          <div className="flex items-start gap-2.5">
-            <Square className="mt-0.5 size-4 shrink-0 text-text-secondary" aria-hidden="true" />
-            <div className="min-w-0">
-              <p className="text-body-sm font-semibold text-text-primary">Stop condition</p>
-              <p className="text-caption leading-relaxed text-text-secondary">
-                {stopOnReply
-                  ? 'Stops on any reply, and whenever the lead closes.'
-                  : 'Stops when the lead closes or they ask not to be messaged.'}
-              </p>
-            </div>
-          </div>
+          <IconLine icon={Target} title="Goal" detail={card.goal(facts)} />
+          <IconLine
+            icon={Square}
+            title="Stop rule"
+            detail={
+              conditions.reply
+                ? 'Any reply pauses this sequence and tells you immediately.'
+                : 'It runs to the end unless the lead closes or they ask you to stop.'
+            }
+          />
         </div>
       </section>
     </div>
   );
 }
 
-/* ── 2 · Channel & message ───────────────────────────────────────────────── */
-
-function Message({
-  kind,
-  onKind,
-  steps,
-  onSteps,
-  tokens,
-  purpose,
-}: {
-  kind: 'single' | 'schedule';
-  onKind: (k: 'single' | 'schedule') => void;
-  steps: readonly PlanStep[];
-  onSteps: (s: readonly PlanStep[]) => void;
-  tokens: Record<string, string>;
-  purpose: FollowUpPurpose;
-}) {
-  const shown = kind === 'single' ? steps.slice(0, 1) : steps;
-  const set = (i: number, patch: Partial<PlanStep>) =>
-    onSteps(steps.map((s, n) => (n === i ? { ...s, ...patch } : s)));
-
-  const add = () => {
-    const last = steps[steps.length - 1];
-    onSteps([
-      ...steps,
-      { day: (last?.day ?? 1) + 3, channel: last?.channel ?? 'whatsapp', title: `Step ${steps.length + 1}`, body: '', mode: 'review_first' },
-    ]);
-  };
-
-  return (
-    <div className="space-y-4">
-      {/* ⚠️ THE OWNER'S OWN QUESTION, ASKED ONCE AND PLAINLY. */}
-      <section>
-        <h3 className="text-body font-semibold text-text-primary">One follow-up, or a plan?</h3>
-        <div className="mt-2 grid gap-2 sm:grid-cols-2">
-          <Choice
-            chosen={kind === 'single'}
-            onClick={() => onKind('single')}
-            icon={CalendarClock}
-            title="A single follow-up"
-            detail="One action, at one time. It appears in your list and on the desk row."
-          />
-          <Choice
-            chosen={kind === 'schedule'}
-            onClick={() => onKind('schedule')}
-            icon={CalendarDays}
-            title="A scheduler"
-            detail="Day 1, day 3, day 7 — it runs step by step and pauses when they reply."
-          />
-        </div>
-      </section>
-
-      <section className="space-y-3">
-        <h3 className="text-body font-semibold text-text-primary">
-          {kind === 'single' ? 'What are you going to do?' : 'What each step says'}
-        </h3>
-        {shown.map((s, i) => (
-          <StepEditor
-            key={i}
-            index={i}
-            step={s}
-            tokens={tokens}
-            single={kind === 'single'}
-            canRemove={kind === 'schedule' && steps.length > 1}
-            onChange={(patch) => set(i, patch)}
-            onRemove={() => onSteps(steps.filter((_, n) => n !== i))}
-          />
-        ))}
-        {kind === 'schedule' && steps.length < MAX_STEPS && (
-          <button
-            type="button"
-            onClick={add}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-border-default px-3 py-2 text-caption font-medium text-text-secondary transition-colors hover:bg-bg-subtle hover:text-text-primary"
-          >
-            <Plus className="size-4" aria-hidden="true" />
-            Add a step
-          </button>
-        )}
-        {purpose === 'custom' && (
-          <p className="text-caption text-text-secondary">
-            A custom follow-up starts empty on purpose — write it in your own words.
-          </p>
-        )}
-      </section>
-    </div>
-  );
-}
-
-function Choice({
-  chosen,
-  onClick,
+function IconLine({
   icon: Icon,
   title,
   detail,
 }: {
-  chosen: boolean;
-  onClick: () => void;
   icon: React.ComponentType<{ className?: string; 'aria-hidden'?: boolean | 'true' }>;
   title: string;
   detail: string;
 }) {
   return (
+    <div className="flex items-start gap-2.5">
+      <Icon className="mt-0.5 size-4 shrink-0 text-accent-primary" aria-hidden="true" />
+      <div className="min-w-0">
+        <p className="text-body-sm font-semibold text-text-primary">{title}</p>
+        <p className="text-caption leading-relaxed text-text-secondary">{detail}</p>
+      </div>
+    </div>
+  );
+}
+
+/** A card that can be chosen, in the colours sampled from the owner's design. */
+function Pick({
+  chosen,
+  disabled = false,
+  onClick,
+  title,
+  compact = false,
+  children,
+}: {
+  chosen: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+  title?: string;
+  compact?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       aria-pressed={chosen}
+      title={title}
       className={cn(
-        'flex items-start gap-2.5 rounded-xl border p-3 text-left transition-colors',
-        chosen ? 'border-accent-primary bg-accent-primary/5' : 'border-border-subtle bg-bg-surface hover:bg-bg-subtle',
+        'relative rounded-xl border text-left transition-colors',
+        compact ? 'p-2.5' : 'p-3',
+        chosen
+          ? 'border-[var(--pick-border)] bg-[var(--pick-bg)]'
+          : disabled
+            ? 'cursor-not-allowed border-border-subtle bg-bg-subtle/50 opacity-60'
+            : 'border-border-subtle bg-bg-surface hover:bg-bg-subtle',
       )}
     >
-      <span className={cn('grid size-8 shrink-0 place-items-center rounded-lg', chosen ? 'bg-accent-primary text-white' : 'bg-bg-subtle text-text-secondary')}>
-        <Icon className="size-4" aria-hidden="true" />
+      <span
+        aria-hidden="true"
+        className={cn(
+          'absolute right-2 top-2 grid size-4 place-items-center rounded-full border',
+          chosen ? 'border-[var(--pick-mark)] bg-[var(--pick-mark)] text-white' : 'border-border-default',
+        )}
+      >
+        {chosen && <Check className="size-3" strokeWidth={3} />}
       </span>
-      <span className="min-w-0">
-        <span className="block text-body-sm font-semibold text-text-primary">{title}</span>
-        <span className="block text-caption leading-snug text-text-secondary">{detail}</span>
-      </span>
+      <span className="block pr-5">{children}</span>
     </button>
   );
 }
 
-function StepEditor({
-  index,
-  step,
+/* ── 2 · Compose ─────────────────────────────────────────────────────────── */
+
+function Compose({
+  lead,
+  facts,
   tokens,
-  single,
-  canRemove,
-  onChange,
+  purpose,
+  steps,
+  active,
+  onActive,
+  onStep,
+  onAdd,
   onRemove,
+  single,
+  startMs,
 }: {
-  index: number;
-  step: PlanStep;
+  lead: CrmLeadRecord;
+  facts: ReturnType<typeof leadFactsFrom>;
   tokens: Record<string, string>;
+  purpose: FollowUpPurpose;
+  steps: readonly PlanStep[];
+  active: number;
+  onActive: (i: number) => void;
+  onStep: (i: number, patch: Partial<PlanStep>) => void;
+  onAdd: () => void;
+  onRemove: (i: number) => void;
   single: boolean;
-  canRemove: boolean;
-  onChange: (patch: Partial<PlanStep>) => void;
-  onRemove: () => void;
+  startMs: number;
 }) {
+  const toast = useToast();
+  const step = steps[active] ?? steps[0];
   const writes = step.channel === 'whatsapp' || step.channel === 'email';
-  const preview = fillTokens(step.body, tokens);
+  const [polishing, setPolishing] = React.useState(false);
+  const [docs, setDocs] = React.useState<ReadonlyArray<{ id: string; title: string; mime: string; sizeBytes: number }> | null>(null);
+  const [templates, setTemplates] = React.useState<TemplateList | null>(null);
+
+  /* ⚠️ ON DEMAND, ONCE. The dialog opens without touching the network; the list
+     is fetched the first time an email step is composed and kept after that. */
+  React.useEffect(() => {
+    if (step.channel !== 'email' || docs !== null) return;
+    let alive = true;
+    void leadDocumentsAction(lead.id).then((rows) => {
+      if (alive) setDocs(rows);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [step.channel, docs, lead.id]);
+
+  /* ⚠️ ASKED OF META, ON DEMAND, ONCE PER DIALOG. Only shown where it matters:
+     a WhatsApp step that is meant to send itself. */
+  React.useEffect(() => {
+    if (step.channel !== 'whatsapp' || step.mode !== 'auto_send' || templates !== null) return;
+    let alive = true;
+    void whatsAppTemplatesAction(lead.id).then((list) => {
+      if (alive) setTemplates(list);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [step.channel, step.mode, templates, lead.id]);
+
+  const polish = async (mode: string) => {
+    if (polishing || !step.body.trim()) return;
+    setPolishing(true);
+    try {
+      const result = await polishMessageAction({ text: step.body, mode, channel: step.channel });
+      if (result.ok) onStep(active, { body: result.text });
+      else toast({ tone: 'error', text: result.error });
+    } catch {
+      toast({ tone: 'error', text: 'The rewrite did not come back.' });
+    } finally {
+      setPolishing(false);
+    }
+  };
+
+  const filled = fillTokens(step.body, tokens);
+  const filledSubject = fillTokens(step.subject || step.title, tokens);
+
   return (
-    <div className="rounded-xl border border-border-subtle bg-bg-surface p-3.5">
-      <div className="flex flex-wrap items-center gap-2">
+    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+      <div className="space-y-3">
+        {/* ── Which step ─────────────────────────────────────────────── */}
         {!single && (
-          <span className="grid size-6 shrink-0 place-items-center rounded-full bg-bg-subtle text-caption font-semibold text-text-secondary">
-            {index + 1}
-          </span>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {steps.map((s, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => onActive(i)}
+                aria-pressed={i === active}
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-caption font-medium transition-colors',
+                  i === active
+                    ? 'border-[var(--pick-border)] bg-[var(--pick-bg)] text-text-primary'
+                    : 'border-border-default text-text-secondary hover:text-text-primary',
+                )}
+              >
+                <ChannelIcon channel={s.channel} className="size-3.5" />
+                Day {s.day} · {s.title}
+              </button>
+            ))}
+            {steps.length < MAX_STEPS && (
+              <button
+                type="button"
+                onClick={onAdd}
+                className="inline-flex items-center gap-1 rounded-full border border-dashed border-border-default px-2.5 py-1 text-caption font-medium text-text-secondary transition-colors hover:text-text-primary"
+              >
+                <Plus className="size-3.5" aria-hidden="true" />
+                Add step
+              </button>
+            )}
+          </div>
         )}
-        <input
-          value={step.title}
-          onChange={(e) => onChange({ title: e.target.value })}
-          maxLength={60}
-          aria-label={single ? 'What the follow-up is' : `Step ${index + 1} name`}
-          placeholder={single ? 'What is the follow-up?' : 'Step name'}
-          className="min-w-0 flex-1 rounded-lg border border-border-default bg-bg-surface px-3 py-1.5 text-body-sm font-medium text-text-primary placeholder:text-text-tertiary focus:border-accent-primary focus:outline-none"
-        />
-        <div className="inline-flex shrink-0 rounded-lg border border-border-default p-0.5">
+
+        {/* ── Channel tabs ───────────────────────────────────────────── */}
+        <div role="tablist" aria-label="Channel" className="flex items-center gap-1 border-b border-border-subtle">
           {CHANNEL_CHOICES.map((c) => (
             <button
               key={c.key}
               type="button"
-              onClick={() => onChange({ channel: c.key, mode: c.key === 'whatsapp' || c.key === 'email' ? step.mode : 'remind_me' })}
-              aria-pressed={step.channel === c.key}
-              title={c.label}
+              role="tab"
+              aria-selected={step.channel === c.key}
+              onClick={() =>
+                onStep(active, {
+                  channel: c.key,
+                  /* ⚠️ A call or a task cannot send itself, so switching to one
+                     changes what happens when it falls due — silently leaving
+                     "sent automatically" on a phone call would be a lie. */
+                  mode: c.key === 'call' || c.key === 'task' ? 'remind_me' : step.mode,
+                  /* An email needs a subject; offer one rather than a refusal. */
+                  subject: c.key === 'email' && !step.subject.trim() ? suggestedSubject(purpose) : step.subject,
+                })
+              }
               className={cn(
-                'inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-caption font-medium transition-colors',
-                step.channel === c.key ? 'bg-bg-subtle text-text-primary' : 'text-text-secondary hover:text-text-primary',
+                'inline-flex items-center gap-1.5 border-b-2 px-3 py-2 text-body-sm font-medium transition-colors',
+                step.channel === c.key
+                  ? 'border-accent-primary text-text-primary'
+                  : 'border-transparent text-text-secondary hover:text-text-primary',
               )}
             >
-              <ChannelIcon channel={c.key} className="size-3.5" />
-              <span className="hidden sm:inline">{c.label}</span>
+              <ChannelIcon channel={c.key} />
+              {c.label}
             </button>
           ))}
         </div>
-        {canRemove && (
-          <button
-            type="button"
-            onClick={onRemove}
-            aria-label={`Remove step ${index + 1}`}
-            className="grid size-8 shrink-0 place-items-center rounded-lg text-text-secondary transition-colors hover:bg-bg-subtle hover:text-feedback-error"
-          >
-            <Trash2 className="size-4" aria-hidden="true" />
-          </button>
+
+        <Labelled label="Step name">
+          <input
+            value={step.title}
+            onChange={(e) => onStep(active, { title: e.target.value })}
+            maxLength={60}
+            placeholder={single ? 'What is the follow-up?' : 'Step name'}
+            className="w-full rounded-lg border border-border-default bg-bg-surface px-3 py-2 text-body-sm text-text-primary placeholder:text-text-tertiary focus:border-accent-primary focus:outline-none"
+          />
+        </Labelled>
+
+        {step.channel === 'email' && (
+          <>
+            <Labelled label="To">
+              <input
+                readOnly
+                value={lead.email ? `${lead.fullName ?? 'This lead'} <${lead.email}>` : 'This lead has no email address'}
+                className={cn(
+                  'w-full rounded-lg border border-border-default bg-bg-subtle px-3 py-2 text-body-sm',
+                  lead.email ? 'text-text-primary' : 'italic text-feedback-error',
+                )}
+              />
+            </Labelled>
+            <Labelled label="From">
+              <input
+                readOnly
+                value={`${facts.company} · the address your project sends from`}
+                className="w-full rounded-lg border border-border-default bg-bg-subtle px-3 py-2 text-body-sm text-text-secondary"
+              />
+            </Labelled>
+            <Labelled label="Subject">
+              <input
+                value={step.subject}
+                onChange={(e) => onStep(active, { subject: e.target.value })}
+                maxLength={160}
+                placeholder="What the client sees before opening it"
+                className="w-full rounded-lg border border-border-default bg-bg-surface px-3 py-2 text-body-sm text-text-primary placeholder:text-text-tertiary focus:border-accent-primary focus:outline-none"
+              />
+            </Labelled>
+          </>
         )}
-      </div>
 
-      <textarea
-        rows={writes ? 3 : 2}
-        value={step.body}
-        onChange={(e) => onChange({ body: e.target.value })}
-        maxLength={1500}
-        aria-label={writes ? 'Message' : 'Note'}
-        placeholder={writes ? 'The message that goes to the client…' : 'A note for whoever does this…'}
-        className="mt-2 w-full resize-y rounded-lg border border-border-default bg-bg-surface px-3 py-2 text-body-sm leading-relaxed text-text-primary placeholder:text-text-tertiary focus:border-accent-primary focus:outline-none"
-      />
-
-      {writes && (
-        <>
-          {/* ⚠️ THE SAME `{{placeholders}}` AS THE CHAT'S SAVED REPLIES, so one
-              plan reads correctly for whoever ends up running it. */}
-          <div className="mt-1.5 flex flex-wrap items-center gap-1">
-            {['lead_first_name', 'my_first_name', 'company', 'project'].map((key) => (
+        <Labelled label={writes ? 'Message' : 'Note for whoever does this'}>
+          <div className="mb-1.5 flex flex-wrap gap-1">
+            {['lead_first_name', 'my_first_name', 'company', 'project', 'quotation_number'].map((key) => (
               <button
                 key={key}
                 type="button"
-                onClick={() => onChange({ body: `${step.body}{{${key}}}` })}
+                onClick={() => onStep(active, { body: `${step.body}{{${key}}}` })}
                 className="rounded-full bg-bg-subtle px-2 py-0.5 text-caption text-text-secondary transition-colors hover:text-text-primary"
               >
-                {`{{${key}}}`}
+                {key.replace(/_/g, ' ')}
               </button>
             ))}
           </div>
-          {step.body.includes('{{') && (
-            <p className="mt-1.5 rounded-lg bg-bg-subtle px-2.5 py-1.5 text-caption leading-relaxed text-text-secondary">
-              <span className="font-semibold text-text-primary">Preview: </span>
-              {preview}
-            </p>
-          )}
-        </>
-      )}
+          <textarea
+            rows={writes ? 6 : 3}
+            value={step.body}
+            onChange={(e) => onStep(active, { body: e.target.value })}
+            maxLength={1500}
+            placeholder={writes ? 'The message that goes to the client…' : 'What needs doing…'}
+            className="w-full resize-y rounded-lg border border-border-default bg-bg-surface px-3 py-2 text-body-sm leading-relaxed text-text-primary placeholder:text-text-tertiary focus:border-accent-primary focus:outline-none"
+          />
+        </Labelled>
 
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        <span className="text-caption text-text-secondary">When it falls due:</span>
-        {(['review_first', 'remind_me'] as const).map((m) => (
-          <button
-            key={m}
-            type="button"
-            disabled={!writes && m === 'review_first'}
-            onClick={() => onChange({ mode: m })}
-            aria-pressed={step.mode === m}
-            className={cn(
-              'rounded-full border px-2.5 py-1 text-caption font-medium transition-colors disabled:opacity-40',
-              step.mode === m ? 'border-accent-primary bg-accent-primary/10 text-text-primary' : 'border-border-default text-text-secondary hover:text-text-primary',
+        {writes && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="inline-flex items-center gap-1 text-caption font-medium text-text-secondary">
+              <Sparkles className="size-3.5" aria-hidden="true" />
+              AI suggestions
+            </span>
+            {POLISH.map((p) => (
+              <button
+                key={p.key}
+                type="button"
+                disabled={polishing || !step.body.trim()}
+                onClick={() => void polish(p.key)}
+                className="rounded-full border border-border-default px-2.5 py-1 text-caption text-text-primary transition-colors hover:bg-bg-subtle disabled:opacity-40"
+              >
+                {polishing ? 'Rewriting…' : p.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {step.channel === 'whatsapp' && step.mode === 'auto_send' && (
+          <div className="rounded-xl border border-border-subtle bg-bg-subtle/40 p-3">
+            <p className="text-caption font-semibold text-text-primary">
+              Template — for when the 24-hour window has closed
+            </p>
+            <p className="mt-0.5 text-caption leading-relaxed text-text-secondary">
+              Inside 24 hours of the client&rsquo;s last message the text above is sent as it is. Outside it, WhatsApp
+              only carries a template <span className="font-medium text-text-primary">Meta has approved</span> — without
+              one, this step waits for you instead of sending.
+            </p>
+            {templates === null ? (
+              <p className="mt-2 text-caption text-text-secondary">Asking Meta what this account has…</p>
+            ) : (
+              <>
+                <select
+                  value={step.template ? `${step.template.name}::${step.template.language}` : ''}
+                  onChange={(e) => {
+                    const [name, language] = e.target.value.split('::');
+                    onStep(active, { template: name ? { name, language } : null });
+                  }}
+                  className="mt-2 w-full rounded-lg border border-border-default bg-bg-surface px-3 py-2 text-body-sm text-text-primary focus:border-accent-primary focus:outline-none"
+                >
+                  <option value="">No template — only send inside the 24-hour window</option>
+                  {templates.templates
+                    .filter((t) => t.status === 'APPROVED')
+                    .map((t) => (
+                      <option key={`${t.name}::${t.language}`} value={`${t.name}::${t.language}`}>
+                        {t.name} · {t.language}
+                      </option>
+                    ))}
+                </select>
+                {templates.error && <p className="mt-1.5 text-caption text-feedback-error">{templates.error}</p>}
+                {templates.ok && templates.templates.filter((t) => t.status === 'APPROVED').length === 0 && (
+                  <p className="mt-1.5 text-caption text-text-secondary">
+                    This account has no approved template yet.
+                  </p>
+                )}
+                {templates.templates.some((t) => t.status !== 'APPROVED') && (
+                  <p className="mt-1.5 text-caption text-text-secondary">
+                    Waiting on Meta:{' '}
+                    {templates.templates
+                      .filter((t) => t.status !== 'APPROVED')
+                      .map((t) => `${t.name} (${t.status.toLowerCase()})`)
+                      .join(', ')}
+                  </p>
+                )}
+                {/* ⚠️ THE ONLY PLACE ONE IS WRITTEN AND APPROVED. The CRM cannot do
+                    it and never claims to — Meta reviews every template itself. */}
+                <a
+                  href={templates.managerUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-2 inline-flex items-center gap-1.5 text-caption font-medium text-text-brand underline-offset-2 hover:underline"
+                >
+                  Write or approve a template in Meta&rsquo;s WhatsApp Manager
+                  <ExternalLink className="size-3.5" aria-hidden="true" />
+                </a>
+              </>
             )}
-          >
-            {MODE_LABEL[m]}
-          </button>
-        ))}
+          </div>
+        )}
+
+        {step.channel === 'call' && (
+          <p className="rounded-xl bg-bg-subtle px-3 py-2.5 text-caption leading-relaxed text-text-secondary">
+            A <span className="font-medium text-text-primary">WhatsApp call you make yourself</span>, from your own
+            phone. Nothing dials it — WhatsApp&rsquo;s business calling is not on this account — so this step becomes a
+            reminder on your list at the time you choose.
+          </p>
+        )}
+
+        {step.channel === 'email' && docs !== null && docs.length > 0 && (
+          <Labelled label="Attachments">
+            <ul className="space-y-1.5">
+              {docs.map((d) => (
+                <li key={d.id} className="flex items-center gap-2 rounded-lg border border-border-subtle px-2.5 py-1.5">
+                  <Paperclip className="size-3.5 shrink-0 text-text-secondary" aria-hidden="true" />
+                  <span className="min-w-0 flex-1 truncate text-caption text-text-primary">{d.title}</span>
+                  <span className="shrink-0 text-caption text-text-secondary">{(d.sizeBytes / 1_048_576).toFixed(1)} MB</span>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-1 text-caption text-text-secondary">
+              These are this lead&rsquo;s files. Choosing which to attach is coming next — the sender already carries them.
+            </p>
+          </Labelled>
+        )}
+
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-caption text-text-secondary">When it falls due:</span>
+          {(['auto_send', 'review_first', 'remind_me'] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              disabled={!writes && m !== 'remind_me'}
+              onClick={() => onStep(active, { mode: m })}
+              aria-pressed={step.mode === m}
+              className={cn(
+                'rounded-full border px-2.5 py-1 text-caption font-medium transition-colors disabled:opacity-40',
+                step.mode === m
+                  ? 'border-[var(--pick-border)] bg-[var(--pick-bg)] text-text-primary'
+                  : 'border-border-default text-text-secondary hover:text-text-primary',
+              )}
+            >
+              {MODE_LABEL[m]}
+            </button>
+          ))}
+          {!single && steps.length > 1 && (
+            <button
+              type="button"
+              onClick={() => onRemove(active)}
+              className="ml-auto inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-caption text-text-secondary transition-colors hover:bg-bg-subtle hover:text-feedback-error"
+            >
+              <Trash2 className="size-3.5" aria-hidden="true" />
+              Remove this step
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* ── The preview ──────────────────────────────────────────────── */}
+      <div className="space-y-2">
+        <p className="text-body font-semibold text-text-primary">
+          {step.channel === 'email' ? 'Live email preview' : step.channel === 'whatsapp' ? 'WhatsApp preview' : 'What you will see'}
+        </p>
+        <p className="text-caption text-text-secondary">
+          {writes
+            ? `This is how it will reach ${lead.fullName ?? 'the client'}.`
+            : 'This step is for you — nothing goes to the client.'}
+        </p>
+        {step.channel === 'email' ? (
+          <EmailPreview
+            fromName={facts.company}
+            fromAddress="your project’s sending address"
+            toName={lead.fullName ?? 'This lead'}
+            toAddress={lead.email ?? ''}
+            subject={filledSubject}
+            body={filled}
+            signOff={`${facts.myFirstName} · ${facts.company}`}
+          />
+        ) : step.channel === 'whatsapp' ? (
+          <WhatsAppPreview
+            businessName={facts.company}
+            body={filled}
+            timeLabel={timeLabel(startMs)}
+            note="Any reply pauses the sequence and tells you."
+          />
+        ) : (
+          <div className="rounded-xl border border-border-subtle bg-bg-subtle/40 p-4">
+            <p className="flex items-center gap-2 text-body-sm font-semibold text-text-primary">
+              <ChannelIcon channel={step.channel} />
+              {step.title || 'This step'}
+            </p>
+            <p className="mt-1 whitespace-pre-wrap text-caption leading-relaxed text-text-secondary">
+              {step.body || 'Nothing written yet.'}
+            </p>
+            <p className="mt-2 text-caption text-text-secondary">
+              It lands in this lead&rsquo;s follow-ups and on your Todos when it falls due.
+            </p>
+          </div>
+        )}
       </div>
     </div>
+  );
+}
+
+function Labelled({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-caption font-semibold text-text-primary">{label}</span>
+      {children}
+    </label>
   );
 }
 
@@ -880,123 +1257,163 @@ function StepEditor({
 function Schedule({
   kind,
   steps,
-  onSteps,
+  onStep,
   purpose,
-  stopOnReply,
-  onStopOnReply,
-  startAt,
-  onStartAt,
+  schedule,
+  onSchedule,
+  nowMs,
+  anchors,
+  conditions,
+  onConditions,
   startMs,
 }: {
   kind: 'single' | 'schedule';
   steps: readonly PlanStep[];
-  onSteps: (s: readonly PlanStep[]) => void;
+  onStep: (i: number, patch: Partial<PlanStep>) => void;
   purpose: FollowUpPurpose;
-  stopOnReply: boolean;
-  onStopOnReply: (v: boolean) => void;
-  startAt: string | null;
-  onStartAt: (v: string | null) => void;
+  schedule: ScheduleValue;
+  onSchedule: (v: ScheduleValue) => void;
+  nowMs: number;
+  anchors: readonly EventAnchor[];
+  conditions: { reply: boolean; visit: boolean; quotation: boolean };
+  onConditions: (c: { reply: boolean; visit: boolean; quotation: boolean }) => void;
   startMs: number;
 }) {
-  const conditions = stopConditions(purpose);
-  const set = (i: number, day: number) => onSteps(steps.map((s, n) => (n === i ? { ...s, day } : s)));
-
+  const list = stopConditions(purpose);
   return (
-    <div className="grid gap-5 lg:grid-cols-[1fr_1fr]">
+    <div className="space-y-4">
       <section>
         <h3 className="text-body font-semibold text-text-primary">
-          {kind === 'single' ? 'When?' : 'The schedule'}
+          {kind === 'single' ? 'When should this follow-up happen?' : 'When should the first step go?'}
         </h3>
-        {kind === 'single' ? (
-          <>
-            <p className="mt-0.5 text-caption text-text-secondary">Karachi time, whatever your laptop is set to.</p>
-            <QuickTimes value={startAt ?? toInputValue(startMs)} onChange={(v) => onStartAt(v)} />
-          </>
-        ) : (
-          <>
-            <p className="mt-0.5 text-caption text-text-secondary">
-              Day 1 is the day it starts. Each step falls on its own day, at this time of day.
-            </p>
-            <ol className="mt-3 space-y-2">
-              {steps.map((s, i) => (
-                <li key={i} className="flex items-center gap-2.5 rounded-xl border border-border-subtle bg-bg-surface px-3 py-2">
-                  <span className="grid size-7 shrink-0 place-items-center rounded-full bg-bg-subtle text-caption font-semibold text-text-secondary">
-                    {i + 1}
-                  </span>
-                  <ChannelIcon channel={s.channel} />
-                  <span className="min-w-0 flex-1 truncate text-body-sm text-text-primary">{s.title}</span>
-                  <span className="flex shrink-0 items-center gap-1.5">
-                    <span className="text-caption text-text-secondary">Day</span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={90}
-                      value={s.day}
-                      onChange={(e) => set(i, Math.max(1, Math.min(90, Number(e.target.value) || 1)))}
-                      aria-label={`Day for step ${i + 1}`}
-                      className="w-16 rounded-lg border border-border-default bg-bg-surface px-2 py-1 text-center text-body-sm tabular-nums text-text-primary focus:border-accent-primary focus:outline-none"
-                    />
-                  </span>
-                  <span className="w-24 shrink-0 text-right text-caption tabular-nums text-text-secondary">
-                    {formatDay(startMs + Math.max(0, s.day - (steps[0]?.day ?? 1)) * 86_400_000)}
-                  </span>
-                </li>
-              ))}
-            </ol>
-            <p className="mt-2.5 text-caption font-semibold text-text-primary">Start the first step</p>
-            <QuickTimes value={startAt ?? toInputValue(startMs)} onChange={(v) => onStartAt(v)} />
-          </>
-        )}
-
-        {/* ⚠️ THE SCHEDULER'S RULES, ON THE SCHEDULER ONLY. Neither applies to one
-            follow-up on a list, and printing them there would be two sentences of
-            machinery somebody has to work out does not concern them. */}
-        <div hidden={kind === 'single'} className="mt-3 rounded-xl bg-bg-subtle px-3.5 py-2.5 text-caption leading-relaxed text-text-secondary">
-          <p className="font-semibold text-text-primary">Two rules the scheduler keeps on its own</p>
-          <p className="mt-0.5">
-            Nothing goes out during the project&rsquo;s quiet hours — a step due at night is pushed to the morning, never
-            dropped. And a lead is chased at most once a day, so two steps on the same day become two days.
-          </p>
+        <div className="mt-2">
+          <SchedulePicker value={schedule} onChange={onSchedule} nowMs={nowMs} anchors={anchors} compact />
         </div>
       </section>
+
+      {kind === 'schedule' && (
+        <section>
+          <h3 className="text-body font-semibold text-text-primary">The steps after it</h3>
+          <p className="mt-0.5 text-caption text-text-secondary">
+            Day 1 is the day the plan starts. Each step also has its own rule.
+          </p>
+          <ol className="mt-2 space-y-2">
+            {steps.map((s, i) => (
+              <li key={i} className="flex flex-wrap items-center gap-2.5 rounded-xl border border-border-subtle bg-bg-surface px-3 py-2">
+                <span className="grid size-7 shrink-0 place-items-center rounded-full bg-bg-subtle text-caption font-semibold text-text-secondary">
+                  {i + 1}
+                </span>
+                <ChannelIcon channel={s.channel} />
+                <span className="min-w-0 flex-1 truncate text-body-sm text-text-primary">{s.title}</span>
+                <span className="flex shrink-0 items-center gap-1.5">
+                  <span className="text-caption text-text-secondary">Day</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={90}
+                    value={s.day}
+                    onChange={(e) => onStep(i, { day: Math.max(1, Math.min(90, Number(e.target.value) || 1)) })}
+                    aria-label={`Day for step ${i + 1}`}
+                    className="w-16 rounded-lg border border-border-default bg-bg-surface px-2 py-1 text-center text-body-sm tabular-nums text-text-primary focus:border-accent-primary focus:outline-none"
+                  />
+                </span>
+                <span className="w-24 shrink-0 text-right text-caption tabular-nums text-text-secondary">
+                  {formatDay(startMs + Math.max(0, s.day - (steps[0]?.day ?? 1)) * 86_400_000)}
+                </span>
+                <label className="flex shrink-0 cursor-pointer items-center gap-1.5">
+                  <input
+                    type="checkbox"
+                    checked={s.onlyIfNoReply}
+                    onChange={(e) => onStep(i, { onlyIfNoReply: e.target.checked })}
+                    className="size-3.5 accent-[var(--pick-mark)]"
+                  />
+                  <span className="text-caption text-text-secondary">Only if no reply</span>
+                </label>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
 
       <section>
         <h3 className="text-body font-semibold text-text-primary">When should it stop?</h3>
         <p className="mt-0.5 text-caption text-text-secondary">
           {kind === 'single'
             ? 'A single follow-up has no conditions — it is one thing on your list.'
-            : 'The first is yours to choose. The rest are always on.'}
+            : 'Choose the first three. The last two are always on and cannot be switched off.'}
         </p>
-        <ul className="mt-3 space-y-2">
-          {conditions.map((c) => (
-            <li
-              key={c.label}
-              className={cn(
-                'flex items-start gap-2.5 rounded-xl border p-3',
-                c.optional ? 'border-border-default' : 'border-border-subtle bg-bg-subtle/40',
-              )}
-            >
-              {c.optional ? (
-                <input
-                  type="checkbox"
-                  checked={stopOnReply}
-                  disabled={kind === 'single'}
-                  onChange={(e) => onStopOnReply(e.target.checked)}
-                  aria-label={c.label}
-                  className="mt-0.5 size-4 accent-[var(--accent-primary)]"
-                />
-              ) : (
-                <Check className="mt-0.5 size-4 shrink-0 text-feedback-success" strokeWidth={3} aria-hidden="true" />
-              )}
-              <div className="min-w-0">
-                <p className="text-body-sm font-medium text-text-primary">{c.label}</p>
-                <p className="text-caption leading-relaxed text-text-secondary">{c.detail}</p>
-              </div>
-            </li>
-          ))}
+        <ul className="mt-2 grid gap-2 sm:grid-cols-2">
+          <Condition
+            on={conditions.reply}
+            disabled={kind === 'single'}
+            onChange={(v) => onConditions({ ...conditions, reply: v })}
+            label="Stop on any reply"
+            detail="Pauses the moment the client replies on any channel, so you read it first."
+          />
+          <Condition
+            on={conditions.visit}
+            disabled={kind === 'single' || !list.some((c) => c.label.includes('visit is already booked'))}
+            onChange={(v) => onConditions({ ...conditions, visit: v })}
+            label="Stop when a visit is booked"
+            detail={
+              list.some((c) => c.label.includes('visit is already booked'))
+                ? 'They have agreed to come; chasing them to come stops.'
+                : 'Not used for this purpose — this follow-up is about the visit itself.'
+            }
+          />
+          <Condition
+            on={conditions.quotation}
+            disabled={kind === 'single' || purpose !== 'quotation'}
+            onChange={(v) => onConditions({ ...conditions, quotation: v })}
+            label="Stop if the quotation dies"
+            detail={
+              purpose === 'quotation'
+                ? 'Expired, rejected or replaced by a new version.'
+                : 'Only applies to a quotation follow-up.'
+            }
+          />
+          <Condition on disabled onChange={() => {}} label="The lead is closed" detail="Won or lost — nothing further is sent. Always on." />
+          <Condition on disabled onChange={() => {}} label="They asked not to be messaged" detail="A stated no stops every plan. Always on." />
         </ul>
       </section>
     </div>
+  );
+}
+
+function Condition({
+  on,
+  disabled,
+  onChange,
+  label,
+  detail,
+}: {
+  on: boolean;
+  disabled: boolean;
+  onChange: (v: boolean) => void;
+  label: string;
+  detail: string;
+}) {
+  return (
+    <li
+      className={cn(
+        'flex items-start gap-2.5 rounded-xl border p-3',
+        on && !disabled ? 'border-[var(--pick-border)] bg-[var(--pick-bg)]' : 'border-border-subtle bg-bg-surface',
+        disabled && 'opacity-70',
+      )}
+    >
+      <input
+        type="checkbox"
+        checked={on}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.checked)}
+        aria-label={label}
+        className="mt-0.5 size-4 accent-[var(--pick-mark)]"
+      />
+      <span className="min-w-0">
+        <span className="block text-body-sm font-medium text-text-primary">{label}</span>
+        <span className="block text-caption leading-relaxed text-text-secondary">{detail}</span>
+      </span>
+    </li>
   );
 }
 
@@ -1008,92 +1425,171 @@ function Review({
   steps,
   facts,
   tokens,
-  stopOnReply,
-  keepNextAction,
+  lead,
+  delivery,
+  conditions,
   startMs,
+  active,
+  onActive,
+  onEdit,
 }: {
   kind: 'single' | 'schedule';
   purpose: FollowUpPurpose;
   steps: readonly PlanStep[];
   facts: ReturnType<typeof leadFactsFrom>;
   tokens: Record<string, string>;
-  stopOnReply: boolean;
-  keepNextAction: boolean;
+  lead: CrmLeadRecord;
+  delivery: PlanMode;
+  conditions: { reply: boolean; visit: boolean; quotation: boolean };
   startMs: number;
+  active: number;
+  onActive: (i: number) => void;
+  onEdit: (i: number) => void;
 }) {
   const first = steps[0]?.day ?? 1;
+  const last = steps[steps.length - 1]?.day ?? 1;
+  const step = steps[active] ?? steps[0];
+  const stepAt = startMs + Math.max(0, step.day - first) * 86_400_000;
+
   return (
     <div className="space-y-4">
-      <section className="rounded-xl border border-border-subtle bg-bg-surface p-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-body font-semibold text-text-primary">
-            {purposeLabel(purpose)} · {kind === 'single' ? 'one follow-up' : `${steps.length} steps`}
-          </h3>
-          <p className="text-caption text-text-secondary">
-            Starts {formatWhen(new Date(startMs).toISOString())}
-          </p>
-        </div>
-        <ol className="mt-3 space-y-3">
-          {steps.map((s, i) => (
-            <li key={i} className="flex items-start gap-3">
-              <span className="grid size-8 shrink-0 place-items-center rounded-full bg-bg-subtle">
-                <ChannelIcon channel={s.channel} />
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="text-body-sm font-semibold text-text-primary">
-                  {s.title}
-                  <span className="ml-2 font-normal text-text-secondary">{channelVerb(s.channel)}</span>
-                </p>
-                {s.body.trim() && (
-                  <p className="mt-0.5 whitespace-pre-wrap text-caption leading-relaxed text-text-secondary">
-                    {fillTokens(s.body, tokens)}
-                  </p>
-                )}
-              </div>
-              <div className="shrink-0 text-right">
-                <p className="text-caption font-medium text-text-primary">
-                  {formatDay(startMs + Math.max(0, s.day - first) * 86_400_000)}
-                </p>
-                <p className="text-caption text-text-secondary">{MODE_LABEL[s.mode]}</p>
-              </div>
-            </li>
-          ))}
-        </ol>
-      </section>
+      {/* ── The summary strip ──────────────────────────────────────────── */}
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <Chip icon={Pencil} label="Draft" detail="Not started yet" />
+        <Chip icon={CalendarDays} label={`${steps.length} step${steps.length === 1 ? '' : 's'}`} detail={purposeLabel(purpose)} />
+        <Chip icon={Clock3} label={`${Math.max(1, last - first + 1)} days`} detail="Total duration" />
+        <Chip
+          icon={DELIVERY_ICON[delivery]}
+          label={MODE_LABEL[delivery]}
+          detail={conditions.reply ? 'Only until they reply' : 'Runs to the end'}
+        />
+      </div>
 
-      {/* ⚠️ WHO SENDS IT, SAID BEFORE THE BUTTON. Nothing in the product sends a
-          step by machine yet; a review screen that implied otherwise would be a
-          promise kept by nobody, on somebody's client. */}
-      <section className="rounded-xl border border-border-subtle bg-bg-subtle/40 p-4">
-        <h3 className="text-body-sm font-semibold text-text-primary">What happens next</h3>
-        <ul className="mt-1.5 space-y-1 text-caption leading-relaxed text-text-secondary">
-          <li>
-            · When a step falls due it appears here and becomes the lead&rsquo;s next action, which is what your
-            Todos list reads. <span className="font-medium text-text-primary">You press send</span> — nothing is
-            messaged automatically.
-          </li>
-          {kind === 'schedule' && (
-            <li>
-              · {stopOnReply
-                ? 'The plan pauses the moment they reply, so you read it before the next step.'
-                : 'The plan does not pause on a reply — it runs to the end unless you stop it.'}
-            </li>
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        {/* ── The steps ────────────────────────────────────────────────── */}
+        <section className="rounded-xl border border-border-subtle bg-bg-surface p-3.5">
+          <h3 className="text-body font-semibold text-text-primary">
+            {kind === 'single' ? 'The follow-up' : `Sequence steps (${steps.length})`}
+          </h3>
+          <ol className="mt-3 space-y-2">
+            {steps.map((s, i) => (
+              <li key={i}>
+                <button
+                  type="button"
+                  onClick={() => onActive(i)}
+                  className={cn(
+                    'flex w-full gap-3 rounded-xl border p-3 text-left transition-colors',
+                    i === active ? 'border-[var(--pick-border)] bg-[var(--pick-bg)]' : 'border-border-subtle hover:bg-bg-subtle',
+                  )}
+                >
+                  <span className="flex flex-col items-center">
+                    <span className="grid size-7 shrink-0 place-items-center rounded-full bg-accent-primary text-caption font-semibold text-white">
+                      {i + 1}
+                    </span>
+                    {i < steps.length - 1 && <span aria-hidden="true" className="my-1 w-px flex-1 bg-border-subtle" />}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-2">
+                      <ChannelIcon channel={s.channel} />
+                      <span className="min-w-0 truncate text-body-sm font-semibold text-text-primary">{s.title}</span>
+                      <span className="ml-auto shrink-0 rounded-md bg-feedback-warning/15 px-1.5 py-0.5 text-caption font-medium text-feedback-warning">
+                        Planned
+                      </span>
+                    </span>
+                    <span className="mt-1 block text-caption tabular-nums text-accent-primary">
+                      {formatWhen(new Date(startMs + Math.max(0, s.day - first) * 86_400_000).toISOString())}
+                    </span>
+                    <span className="mt-0.5 block text-caption text-text-secondary">{MODE_LABEL[s.mode]}</span>
+                    {s.onlyIfNoReply && (
+                      <span className="block text-caption text-text-secondary">Only if no reply</span>
+                    )}
+                  </span>
+                  <span
+                    role="presentation"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onEdit(i);
+                    }}
+                    className="grid size-7 shrink-0 cursor-pointer place-items-center self-start rounded-lg border border-border-default text-text-secondary transition-colors hover:bg-bg-surface hover:text-text-primary"
+                  >
+                    <Pencil className="size-3.5" aria-hidden="true" />
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ol>
+          <p className="mt-3 flex items-center gap-1.5 border-t border-border-subtle pt-3 text-caption text-text-secondary">
+            <Flag className="size-3.5" aria-hidden="true" />
+            Ends after step {steps.length}
+          </p>
+        </section>
+
+        {/* ── What that step will look like ────────────────────────────── */}
+        <section className="space-y-2">
+          <p className="text-body font-semibold text-text-primary">
+            Step {active + 1} · {step.channel === 'email' ? 'Email' : step.channel === 'whatsapp' ? 'WhatsApp message' : 'For you'}
+          </p>
+          {step.channel === 'email' ? (
+            <EmailPreview
+              fromName={facts.company}
+              fromAddress="your project’s sending address"
+              toName={lead.fullName ?? 'This lead'}
+              toAddress={lead.email ?? ''}
+              subject={fillTokens(step.subject || step.title, tokens)}
+              body={fillTokens(step.body, tokens)}
+              signOff={`${facts.myFirstName} · ${facts.company}`}
+            />
+          ) : step.channel === 'whatsapp' ? (
+            <WhatsAppPreview
+              businessName={facts.company}
+              body={fillTokens(step.body, tokens)}
+              timeLabel={timeLabel(stepAt)}
+              note={conditions.reply ? 'Any reply pauses the sequence and tells you.' : 'It runs to the end unless you stop it.'}
+            />
+          ) : (
+            <div className="rounded-xl border border-border-subtle bg-bg-subtle/40 p-4 text-caption leading-relaxed text-text-secondary">
+              {step.body || 'Nothing written yet.'}
+            </div>
           )}
-          <li>
-            · {keepNextAction
-              ? 'The lead’s Next action is left as it is.'
-              : `The desk row will show “${steps[0]?.title ?? 'this follow-up'}” when it is the soonest thing owed.`}
-          </li>
-          {facts.quotation && (purpose === 'quotation' || purpose === 'approved_offer') && (
-            <li>· It is tied to {facts.quotation.number} and stops by itself if that quotation expires or is replaced.</li>
-          )}
-        </ul>
-      </section>
+
+          <div className="rounded-xl border border-border-subtle bg-bg-subtle/40 p-3 text-caption leading-relaxed text-text-secondary">
+            <p className="font-semibold text-text-primary">What happens next</p>
+            <p className="mt-0.5">
+              {delivery === 'auto_send'
+                ? `Step 1 goes out on ${formatWhen(new Date(startMs).toISOString())} without anybody pressing send.`
+                : `Step 1 appears on your list on ${formatWhen(new Date(startMs).toISOString())} for you to send.`}
+              {conditions.reply ? ' If the client replies before then, the plan pauses and waits for you.' : ''}
+            </p>
+          </div>
+        </section>
+      </div>
     </div>
   );
 }
 
-/* ── Button ──────────────────────────────────────────────────────────────── */
+function Chip({
+  icon: Icon,
+  label,
+  detail,
+}: {
+  icon: React.ComponentType<{ className?: string; 'aria-hidden'?: boolean | 'true' }>;
+  label: string;
+  detail: string;
+}) {
+  return (
+    <div className="flex items-center gap-2.5 rounded-xl border border-border-subtle bg-bg-surface px-3 py-2">
+      <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-bg-subtle text-text-secondary">
+        <Icon className="size-4" aria-hidden="true" />
+      </span>
+      <span className="min-w-0">
+        <span className="block truncate text-body-sm font-semibold text-text-primary">{label}</span>
+        <span className="block truncate text-caption text-text-secondary">{detail}</span>
+      </span>
+    </div>
+  );
+}
+
+/* ── Bits ────────────────────────────────────────────────────────────────── */
 
 function Button({
   tone = 'outline',
@@ -1127,6 +1623,18 @@ function Button({
       {Icon && iconAfter && <Icon className="size-4" aria-hidden="true" />}
     </button>
   );
+}
+
+function timeLabel(ms: number): string {
+  const p = karachiParts(ms);
+  const suffix = p.h < 12 ? 'AM' : 'PM';
+  const hour = p.h % 12 === 0 ? 12 : p.h % 12;
+  return `${hour}:${String(p.mi).padStart(2, '0')} ${suffix}`;
+}
+
+function tomorrowAt10(nowMs: number): number {
+  const p = karachiParts(nowMs);
+  return karachiAt(p.y, p.m, p.d + 1, 10);
 }
 
 /** The steps a created plan draws with, before the server render catches up. */

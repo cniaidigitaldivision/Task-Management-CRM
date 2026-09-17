@@ -126,3 +126,40 @@ export async function crmDocumentPath(actorId: string, id: string): Promise<stri
   const r = (rows as Array<Record<string, unknown>>)[0];
   return r ? String(r.storage_path) : null;
 }
+
+/**
+ * What one lead's emails may attach: its own files, and the project's shared
+ * ones (a brochure, a price list).
+ *
+ * ⚠️ AS THE PERSON. RLS on `crm_documents` decides; a document from another
+ * project is not offered, and 189's definer refuses it again at send time.
+ */
+export async function crmLeadDocuments(actorId: string, leadId: string): Promise<CrmDocument[]> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select d.id, d.project_id, d.lead_id, d.kind::text, d.title, d.storage_path,
+           d.mime, d.size_bytes, d.created_at,
+           app.crm_project_name(d.project_id) as project_name,
+           null::text as lead_name,
+           null::text as uploaded_by_name
+      from public.crm_documents d
+      join public.crm_leads l on l.id = ${leadId}::uuid
+     where d.project_id = l.project_id
+       and (d.lead_id = l.id or d.lead_id is null)
+     order by (d.lead_id is null), d.created_at desc
+     limit 20
+  `);
+  return (rows as Array<Record<string, unknown>>).map((r) => ({
+    id: String(r.id),
+    projectId: String(r.project_id),
+    projectName: (r.project_name as string | null) ?? null,
+    leadId: (r.lead_id as string | null) ?? null,
+    leadName: null,
+    kind: String(r.kind),
+    title: String(r.title),
+    storagePath: String(r.storage_path),
+    mime: String(r.mime),
+    sizeBytes: Number(r.size_bytes ?? 0),
+    uploadedByName: null,
+    createdAt: new Date(r.created_at as string).toISOString(),
+  }));
+}

@@ -823,7 +823,10 @@ export function MyLeadsDesk({
 
           ⚠️ WHICHEVER COPY WAS READ LATER WINS: the page's own render (`nowMs`)
           or the background answer (`at`). */}
-      {!unitFor && !quoteFor && !outcomeFor && openLead && (() => {
+      {/* ⚠️ THE DRAWER STAYS OPEN UNDER "Record outcome". It used to be swapped
+          out for it, so recording an outcome from a row while reading a lead
+          closed the lead. The form is z-[60]; the drawer is z-50. */}
+      {!unitFor && !quoteFor && openLead && (() => {
         const fromPage =
           record && related && record.lead.id === openLead
             ? { record, messages: [...messages], related }
@@ -1263,6 +1266,19 @@ const SHRINKS = 'grid min-w-0 grid-cols-[minmax(0,max-content)]';
    far more than any label holds, and it stops a paragraph typed into a next
    action from holding the table open. */
 const CAPPED_NEXT_ACTION = 'min-w-0 max-w-[14rem]';
+
+/* ⚠️ THE MESSAGE IS THE ONLY CELL WITH NO NATURAL LENGTH, and an auto table
+   hands the widest asker the most room. Owner, 2026-09-17: *"the Lead and
+   Project columns are shown as very small while the Latest Conversation column
+   looks very big."* A paragraph from a client was asking for the width of a
+   paragraph, and the name it belongs to was paying for it.
+
+   So the message gets a CEILING and the lead gets a FLOOR: 20rem is more than
+   two lines of preview, 13rem always fits a name over a project. Neither is a
+   fixed width — both still shrink on a narrow screen, which is what the
+   `minmax(0, max-content)` grid above exists for. */
+const CAPPED_CONVERSATION = 'max-w-[20rem]';
+const LEAD_FLOOR = 'min-w-[13rem]';
 const TD_MID = 'px-3 py-3 align-middle';
 
 function Row({
@@ -1385,7 +1401,7 @@ function Row({
           >
             {initials}
           </span>
-          <span className={SHRINKS}>
+          <span className={cn(SHRINKS, LEAD_FLOOR)}>
             <Link
               href={href}
               prefetch={false}
@@ -1473,7 +1489,7 @@ function Row({
             <WhatsAppMark className="size-6" />
           </span>
 
-          <span className={cn(SHRINKS, 'flex-1')}>
+          <span className={cn(SHRINKS, CAPPED_CONVERSATION, 'flex-1')}>
             {lead.lastMessageAt ? (
               <button
                 type="button"

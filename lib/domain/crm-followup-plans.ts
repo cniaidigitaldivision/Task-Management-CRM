@@ -49,16 +49,39 @@ export interface PlanStep {
   readonly title: string;
   readonly body: string;
   readonly mode: PlanMode;
+  /** Email only. An email with no subject line is a spam folder. */
+  readonly subject: string;
+  /** Skip this step if the client has written since the plan started. */
+  readonly onlyIfNoReply: boolean;
+  /**
+   * The approved WhatsApp template this step falls back to outside the 24-hour
+   * window. ⚠️ Only Meta can approve one; the dialog lists what this account has.
+   */
+  readonly template: { readonly name: string; readonly language: string } | null;
 }
 
 /**
- * ⚠️ NOTHING IS SENT BY MACHINE YET, AND THE DIALOG SAYS SO. `auto_send` rows
- * are queued by 170 and no route picks them up (`docs/crm/00-STATE-AND-TRACKER.md`
- * — Phase G, missing piece 1). Offering "send automatically" would be a promise
- * the product does not keep, on somebody's client. So the dialog offers the two
- * modes a person completes, and the review step says who sends.
+ * How a plan is carried out — the owner's own first question on the dialog:
+ * *"How would you like to proceed?"*
+ *
+ * ⚠️ `auto_send` IS REAL NOW (187–190). `/api/cron/crm-followups` advances the
+ * sequences and delivers what may go out: free text on WhatsApp inside the
+ * 24-hour window, an approved template outside it, email at any time.
+ *
+ * ⚠️ AND IT IS STILL NARROWED BY THE ENGINE, NEVER WIDENED. A step marked
+ * auto-send that would be free text outside the window is handed back to a
+ * person (`review_first`) rather than attempted — the screen says so before
+ * anybody chooses it.
  */
-export const NOTHING_SENDS_YET = true;
+export const DELIVERY_CHOICES: ReadonlyArray<{
+  key: PlanMode;
+  label: string;
+  detail: string;
+}> = [
+  { key: 'remind_me', label: 'Remind me', detail: 'Set a reminder to follow up later. Nothing is sent.' },
+  { key: 'review_first', label: 'Review first', detail: 'The message is drafted and waits for you to press send.' },
+  { key: 'auto_send', label: 'Auto-send', detail: 'Sent automatically at the time you choose.' },
+];
 
 export interface LeadFacts {
   readonly leadFirstName: string;
@@ -250,6 +273,23 @@ export function stopConditions(purpose: FollowUpPurpose): readonly StopCondition
 
 const WA = 'whatsapp' as const;
 
+/* A subject line per purpose — only ever used by an email step. */
+export function suggestedSubject(purpose: FollowUpPurpose): string {
+  return SUBJECT[purpose];
+}
+
+const SUBJECT: Record<FollowUpPurpose, string> = {
+  quotation: 'Your quotation {{quotation_number}}',
+  no_response: 'Following up on your enquiry',
+  appointment_reminder: 'Your visit on {{visit_when}}',
+  missing_information: 'A couple of quick questions',
+  approved_offer: 'Your approved offer {{quotation_number}}',
+  payment_reminder: 'A reminder about your payment',
+  site_visit_checkin: 'Thank you for visiting us',
+  re_engage: 'Are you still looking?',
+  custom: 'Following up',
+};
+
 /**
  * ⚠️ WRITTEN IN PLACEHOLDERS, FILLED PER SENDER AND PER CLIENT — the same
  * `{{name}}` form as the saved replies in the chat, so one plan reads correctly
@@ -259,18 +299,33 @@ const WA = 'whatsapp' as const;
  * date that is not already a row — the guardrail that `lib/ai/reply-suggestion.ts`
  * learned the hard way.
  */
-export function suggestedPlan(purpose: FollowUpPurpose): readonly PlanStep[] {
-  const review: PlanMode = 'review_first';
+export function suggestedPlan(purpose: FollowUpPurpose, delivery: PlanMode = 'review_first'): readonly PlanStep[] {
+  /* ⚠️ THE PLAN'S DELIVERY WINS ON A MESSAGE STEP, but a call or a task is
+     always a person's — a machine cannot ring somebody. */
+  const review: PlanMode = delivery;
   const remind: PlanMode = 'remind_me';
+  const subject = SUBJECT[purpose];
+  /* ⚠️ THE LITERALS BELOW STAY READABLE. A subject belongs to an email step and
+     nothing else, and "only if no reply" is off unless somebody asks for it —
+     both are filled in here rather than repeated on twenty objects. */
+  type Draft = Omit<PlanStep, 'subject' | 'onlyIfNoReply' | 'template'>;
+  const finish = (steps: readonly Draft[]): readonly PlanStep[] =>
+    steps.map((s) => ({ ...s, subject: s.channel === 'email' ? subject : '', onlyIfNoReply: false, template: null }));
+  return finish(plan());
+
+  function plan(): readonly Draft[] {
   switch (purpose) {
+    /* ⚠️ THE OWNER'S OWN THREE STEPS, from the design they sent: a WhatsApp
+       check-in, then email — which has no 24-hour window and reaches the desk
+       readers and the 44 leads in the Gulf who never answer on WhatsApp. */
     case 'quotation':
       return [
-        { day: 1, channel: WA, title: 'Initial follow-up', mode: review,
+        { day: 1, channel: WA, title: 'WhatsApp check-in', mode: review,
           body: 'AoA {{lead_first_name}}, this is {{my_first_name}} from {{company}}. Did you get a chance to look at quotation {{quotation_number}}? Happy to go through it with you.' },
-        { day: 3, channel: WA, title: 'Gentle reminder', mode: review,
-          body: 'AoA {{lead_first_name}}, just checking whether you had any questions about the quotation. I can explain anything that is not clear.' },
-        { day: 7, channel: 'call', title: 'Final check-in', mode: remind,
-          body: 'Call to ask where they have got to, and whether the quotation is still what they want.' },
+        { day: 3, channel: 'email', title: 'Email clarification', mode: review,
+          body: 'Dear {{lead_first_name}},\n\nFollowing up on quotation {{quotation_number}}. I can explain the payment plan or arrange a site visit, whichever is more useful.\n\nDo let me know if anything on it is unclear.' },
+        { day: 7, channel: 'email', title: 'Final check-in', mode: review,
+          body: 'Dear {{lead_first_name}},\n\nJust checking whether you would like to keep this enquiry open. If the timing is not right, tell me when to come back to you and I will.' },
       ];
     case 'no_response':
       return [
@@ -278,29 +333,29 @@ export function suggestedPlan(purpose: FollowUpPurpose): readonly PlanStep[] {
           body: 'AoA {{lead_first_name}}, this is {{my_first_name}} from {{company}}. You enquired with us — is this a good time to talk about what you are looking for?' },
         { day: 3, channel: WA, title: 'Second nudge', mode: review,
           body: 'AoA {{lead_first_name}}, just making sure my message reached you. Let me know if you would rather I called instead.' },
-        { day: 7, channel: 'call', title: 'Try a call', mode: remind,
-          body: 'Call once. If there is no answer, leave it for a fortnight before trying again.' },
+        { day: 7, channel: 'call', title: 'WhatsApp call', mode: remind,
+          body: 'Call them on WhatsApp from your own phone. If there is no answer, leave it for a fortnight.' },
       ];
     case 'appointment_reminder':
       return [
         { day: 1, channel: WA, title: 'Confirm the visit', mode: review,
           body: 'AoA {{lead_first_name}}, confirming our visit on {{visit_when}}. Please let me know if the time still suits you.' },
         { day: 2, channel: 'call', title: 'Day-before call', mode: remind,
-          body: 'Call to confirm they are coming and share directions.' },
+          body: 'WhatsApp call to confirm they are coming, and share directions.' },
       ];
     case 'missing_information':
       return [
         { day: 1, channel: WA, title: 'Ask for the details', mode: review,
           body: 'AoA {{lead_first_name}}, to put the right options in front of you I need a little more detail. May I ask you two quick questions?' },
         { day: 3, channel: 'call', title: 'Ask on a call', mode: remind,
-          body: 'Some people answer questions on a call that they never answer in writing.' },
+          body: 'WhatsApp call — some people answer on a call what they never answer in writing.' },
       ];
     case 'approved_offer':
       return [
         { day: 1, channel: WA, title: 'Share the approved offer', mode: review,
           body: 'AoA {{lead_first_name}}, I have the approved offer {{quotation_number}} ready for you. Shall I send it across?' },
         { day: 3, channel: 'call', title: 'Talk it through', mode: remind,
-          body: 'Call to answer whatever is holding the decision up.' },
+          body: 'WhatsApp call to answer whatever is holding the decision up.' },
         { day: 7, channel: WA, title: 'Last check', mode: review,
           body: 'AoA {{lead_first_name}}, just checking where you have got to with the offer. Let me know either way and I will keep the file updated.' },
       ];
@@ -309,14 +364,14 @@ export function suggestedPlan(purpose: FollowUpPurpose): readonly PlanStep[] {
         { day: 1, channel: WA, title: 'Polite reminder', mode: review,
           body: 'AoA {{lead_first_name}}, a gentle reminder about the agreed payment. Let me know if you need anything from our side to complete it.' },
         { day: 4, channel: 'call', title: 'Call about it', mode: remind,
-          body: 'Call to agree a date rather than repeat the reminder.' },
+          body: 'WhatsApp call to agree a date rather than repeat the reminder.' },
       ];
     case 'site_visit_checkin':
       return [
         { day: 1, channel: WA, title: 'Thanks for coming', mode: review,
           body: 'AoA {{lead_first_name}}, thank you for visiting us. What did you think? Happy to answer anything that came to mind afterwards.' },
         { day: 3, channel: 'call', title: 'Ask what they thought', mode: remind,
-          body: 'Call to hear their honest impression and what they want next.' },
+          body: 'WhatsApp call to hear their honest impression and what they want next.' },
       ];
     case 're_engage':
       return [
@@ -330,6 +385,7 @@ export function suggestedPlan(purpose: FollowUpPurpose): readonly PlanStep[] {
       return [
         { day: 1, channel: WA, title: 'Follow-up', mode: review, body: '' },
       ];
+  }
   }
 }
 
@@ -360,6 +416,10 @@ export interface StepRow {
   readonly title: string;
   readonly body: string | null;
   readonly mode: PlanMode;
+  readonly subject: string | null;
+  readonly onlyIfNoReply: boolean;
+  readonly templateName: string | null;
+  readonly templateLanguage: string | null;
 }
 
 /**
@@ -378,6 +438,10 @@ export function stepsToRows(steps: readonly PlanStep[]): readonly StepRow[] {
       title: s.title.trim(),
       body: s.body.trim() || null,
       mode: s.mode,
+      subject: s.channel === 'email' ? (s.subject.trim() || s.title.trim()) : null,
+      onlyIfNoReply: s.onlyIfNoReply,
+      templateName: s.channel === 'whatsapp' ? (s.template?.name ?? null) : null,
+      templateLanguage: s.channel === 'whatsapp' ? (s.template?.language ?? null) : null,
     };
   });
 }
@@ -409,6 +473,13 @@ export function planProblem(steps: readonly PlanStep[]): string | null {
     if ((s.channel === 'whatsapp' || s.channel === 'email') && !s.body.trim()) {
       return `Step ${n} sends a message, so it needs one written.`;
     }
+    /* ⚠️ AN EMAIL NEEDS ITS OWN SUBJECT. Falling back to the step's internal
+       name would put "Gentle reminder" in a client's inbox — the one line they
+       decide on before opening anything. */
+    if (s.channel === 'email' && !s.subject.trim()) {
+      return `Step ${n} is an email, so it needs a subject line.`;
+    }
+    if (s.subject.length > 160) return `Step ${n}'s subject is longer than 160 characters.`;
   }
   return null;
 }

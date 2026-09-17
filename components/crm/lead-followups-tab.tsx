@@ -27,8 +27,10 @@ import {
   cancelFollowUpAction,
   completeFollowUpAction,
   createFollowUpAction,
+  discardDraftAction,
   pauseSequenceAction,
   rescheduleSequenceAction,
+  startDraftAction,
   startSequenceAction,
   stopSequenceAction,
 } from '@/app/actions/crm-followups';
@@ -104,6 +106,7 @@ export function LeadFollowUpsTab({
   const [sequencePatch, setSequencePatch] = React.useState<Partial<Sequence> | null>(null);
   /* A plan created here, drawn before the server render carrying it arrives. */
   const [madePlan, setMadePlan] = React.useState<Sequence | null>(null);
+  const [discarded, setDiscarded] = React.useState(false);
   const [composerHidden, setComposerHidden] = React.useState(false);
   const [seen, setSeen] = React.useState(related);
   if (seen !== related) {
@@ -112,6 +115,7 @@ export function LeadFollowUpsTab({
     setAdded([]);
     setSequencePatch(null);
     setMadePlan(null);
+    setDiscarded(false);
   }
 
   const followUps = React.useMemo(
@@ -271,6 +275,9 @@ export function LeadFollowUpsTab({
         />
       </div>
 
+      {/* ── A plan saved and not started ─────────────────────────────────── */}
+      {related.draft && !discarded && <DraftCard lead={lead} draft={related.draft} onGone={() => setDiscarded(true)} />}
+
       {/* ── The sequence ─────────────────────────────────────────────────── */}
       {sequence ? (
         <SequenceCard
@@ -318,6 +325,7 @@ export function LeadFollowUpsTab({
         rows={history}
         nowMs={nowMs}
         tokens={tokens}
+        planRunning={sequence !== null && ['scheduled', 'active', 'paused'].includes(sequence.state)}
         onPatch={(id, patch) => setPatches((p) => ({ ...p, [id]: { ...p[id], ...patch } }))}
       />
     </div>
@@ -704,6 +712,88 @@ function SequenceCard({
   );
 }
 
+/* ── A plan saved and not started ────────────────────────────────────────── */
+
+/**
+ * ⚠️ A DRAFT HAS TO BE SOMEWHERE. "Save draft" that put a plan out of reach
+ * would be worse than no button at all — this is where it lands, with the two
+ * things anybody wants next.
+ */
+function DraftCard({
+  lead,
+  draft,
+  onGone,
+}: {
+  lead: CrmLeadRecord;
+  draft: NonNullable<CrmLeadRelated['draft']>;
+  onGone: () => void;
+}) {
+  const toast = useToast();
+  const [busy, setBusy] = React.useState(false);
+
+  const act = async (fn: () => Promise<{ ok: true } | { ok: false; error: string }>, ok: string) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const result = await fn();
+      if (result.ok) {
+        onGone();
+        toast({ tone: 'ok', text: ok });
+      } else {
+        toast({ tone: 'error', text: result.error });
+      }
+    } catch {
+      toast({ tone: 'error', text: 'That did not save — the connection dropped.' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="rounded-xl border border-dashed border-border-default bg-bg-surface p-4">
+      <header className="flex items-start gap-3">
+        <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-bg-subtle text-text-secondary">
+          <CalendarDays className="size-5" aria-hidden="true" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-caption text-text-secondary">Draft · not started yet</p>
+          <h3 className="truncate text-body font-semibold text-text-primary">{draft.name}</h3>
+          <p className="mt-0.5 text-caption text-text-secondary">
+            {draft.steps.length} step{draft.steps.length === 1 ? '' : 's'} · saved {formatWhen(draft.createdAt)}
+          </p>
+        </div>
+      </header>
+      <ol className="mt-3 space-y-1.5">
+        {draft.steps.map((s) => (
+          <li key={s.stepNo} className="flex items-center gap-2.5 text-caption">
+            <span className="grid size-6 shrink-0 place-items-center rounded-full bg-bg-subtle font-semibold text-text-secondary">
+              {s.stepNo}
+            </span>
+            <ChannelGlyph channel={s.channel} />
+            <span className="min-w-0 flex-1 truncate text-text-primary">{s.title ?? channelLabel(s.channel)}</span>
+            <span className="shrink-0 text-text-secondary">
+              {s.delayDays === 0 ? 'at the start' : `${s.delayDays} day${s.delayDays === 1 ? '' : 's'} later`}
+            </span>
+          </li>
+        ))}
+      </ol>
+      <div className="mt-3 flex flex-wrap justify-end gap-2">
+        <Button tone="quiet" disabled={busy} onClick={() => void act(() => discardDraftAction(draft.id), 'Draft discarded.')}>
+          Discard
+        </Button>
+        <Button
+          tone="primary"
+          icon={Play}
+          disabled={busy}
+          onClick={() => void act(() => startDraftAction(lead.id, draft.id, null), 'Plan started.')}
+        >
+          Start this plan
+        </Button>
+      </div>
+    </section>
+  );
+}
+
 /* ── Starting one ─────────────────────────────────────────────────────────── */
 
 function StartSequence({
@@ -1027,11 +1117,13 @@ function History({
   rows,
   nowMs,
   tokens,
+  planRunning,
   onPatch,
 }: {
   rows: readonly CrmFollowUpRow[];
   nowMs: number;
   tokens: Record<string, string>;
+  planRunning: boolean;
   onPatch: (id: string, patch: Partial<CrmFollowUpRow>) => void;
 }) {
   const [filter, setFilter] = React.useState<HistoryFilter>('all');
@@ -1076,6 +1168,7 @@ function History({
               row={row}
               nowMs={nowMs}
               tokens={tokens}
+              planRunning={planRunning}
               open={openId === row.id}
               onToggle={() => setOpenId((id) => (id === row.id ? null : row.id))}
               onPatch={onPatch}
@@ -1091,6 +1184,7 @@ function HistoryRow({
   row,
   nowMs,
   tokens,
+  planRunning,
   open,
   onToggle,
   onPatch,
@@ -1098,6 +1192,8 @@ function HistoryRow({
   row: CrmFollowUpRow;
   nowMs: number;
   tokens: Record<string, string>;
+  /** Whether a sequence is live on this lead — what "stop it too" would stop. */
+  planRunning: boolean;
   open: boolean;
   onToggle: () => void;
   onPatch: (id: string, patch: Partial<CrmFollowUpRow>) => void;
@@ -1107,6 +1203,7 @@ function HistoryRow({
   const look = STATE_LOOK[state];
   const openRow = state === 'planned' || state === 'due' || state === 'overdue';
   const [note, setNote] = React.useState('');
+  const [stopPlan, setStopPlan] = React.useState(true);
   const [busy, setBusy] = React.useState(false);
   const pending = row.id.startsWith('new-');
   /* Saved, and the real row (with its real id) is on its way — nothing to act on yet. */
@@ -1121,7 +1218,9 @@ function HistoryRow({
       : { status: 'cancelled' });
     onToggle();
     try {
-      const result = done ? await completeFollowUpAction(row.id, note) : await cancelFollowUpAction(row.id);
+      const result = done
+        ? await completeFollowUpAction(row.id, note, planRunning && stopPlan)
+        : await cancelFollowUpAction(row.id);
       if (result.ok) toast({ tone: 'ok', text: done ? 'Marked as done.' : 'Follow-up cancelled.' });
       else {
         onPatch(row.id, before);
@@ -1186,6 +1285,23 @@ function HistoryRow({
             aria-label="Outcome"
             className="w-full rounded-lg border border-border-default bg-bg-surface px-3 py-2 text-body-sm text-text-primary placeholder:text-text-tertiary focus:border-accent-primary focus:outline-none"
           />
+          {/* ⚠️ THE CHASE ENDS WITH IT, UNLESS YOU SAY OTHERWISE. Owner's rule:
+              completing the follow-up means it is handled — so the plan stops
+              rather than nudging the client again tomorrow. */}
+          {planRunning && (
+            <label className="mt-2 flex cursor-pointer items-start gap-2">
+              <input
+                type="checkbox"
+                checked={stopPlan}
+                onChange={(e) => setStopPlan(e.target.checked)}
+                className="mt-0.5 size-4 accent-[var(--pick-mark)]"
+              />
+              <span className="text-caption leading-relaxed text-text-secondary">
+                <span className="font-medium text-text-primary">Stop the running plan too.</span>{' '}
+                Nothing further is sent, and anything it had queued is cancelled.
+              </span>
+            </label>
+          )}
           <div className="mt-2 flex flex-wrap justify-end gap-2">
             <Button tone="quiet" disabled={busy} onClick={() => void close(false)}>
               Cancel follow-up

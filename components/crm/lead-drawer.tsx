@@ -20,9 +20,8 @@ import {
   WA_GREEN,
   WhatsAppMark,
 } from '@/components/crm/whatsapp-mark';
-import { setStageAction } from '@/app/actions/crm-leads';
+import { RecordOutcome } from '@/components/crm/record-outcome';
 import { initialsOf } from '@/components/ui/avatar';
-import { useToast } from '@/components/ui/toast';
 import type {
   CrmLeadEvent,
   CrmLeadNote,
@@ -196,6 +195,7 @@ export function relatedFromRow(row: CrmLeadRow): CrmLeadRelated {
           }
         : null,
     sequenceOptions: [],
+    draft: null,
   };
 }
 
@@ -299,9 +299,13 @@ export function LeadDrawer({
   const [menuOpen, setMenuOpen] = React.useState(false);
   /* The Follow-ups tab's composer — opened from the drawer's foot, drawn in the tab. */
   const [composer, setComposer] = React.useState<FollowUpComposer>(null);
-  const [savingStage, setSavingStage] = React.useState(false);
-  const [, startStage] = React.useTransition();
-  const toast = useToast();
+  /* ⚠️ THE STAGE DROPDOWN OPENS "Record outcome", it does not write.
+     Owner, 2026-09-17: *"Each time the state changes it shows this modal.
+     Whether the drawer is open and then I change the state, it also shows this
+     modal above that."* A stage moved with no outcome, no note and no next
+     action is exactly the silent edit the form exists to prevent — and it was
+     silent here while the desk's own dropdown asked properly. */
+  const [outcomeStage, setOutcomeStage] = React.useState<string | null>(null);
 
   /* ⚠️ THE LIVE ONE, not the newest row. A superseded v1 still exists (176) and
      printing its figure on the strip would show a price nobody is offering any
@@ -519,23 +523,14 @@ export function LeadDrawer({
                     Record Outcome owns that. */}
                 <select
                   value={lead.stage}
-                  disabled={savingStage}
-                  onChange={(e) => {
-                    const next = e.target.value;
-                    setSavingStage(true);
-                    startStage(async () => {
-                      const r = await setStageAction(lead.id, next, null);
-                      setSavingStage(false);
-                      if (!r.ok) toast({ tone: 'error', text: r.error ?? 'That did not save.' });
-                    });
-                  }}
+                  onChange={(e) => setOutcomeStage(e.target.value)}
                   className="w-full rounded-md border-0 px-2 py-1 text-caption font-medium focus:outline-none"
                   style={{
                     backgroundColor: `color-mix(in oklab, var(--${stageToken(lead.stage)}) 14%, transparent)`,
                     color: `var(--${stageToken(lead.stage)})`,
                   }}
                 >
-                  {STAGE_ORDER.filter((v) => v !== 'lost').map((v) => (
+                  {STAGE_ORDER.map((v) => (
                     <option key={v} value={v}>
                       {stageLabel(v)}
                     </option>
@@ -749,6 +744,20 @@ export function LeadDrawer({
         </div>
         )}
       </div>
+
+      {/* ⚠️ ABOVE THE DRAWER, NOT INSTEAD OF IT. The desk swaps one for the other;
+          from in here the drawer is the context somebody is recording FROM, and
+          taking it away to ask about the stage loses the conversation they were
+          reading. `RecordOutcome` is z-[60], this is z-50. */}
+      {outcomeStage && (
+        <RecordOutcome
+          leadId={lead.id}
+          leadName={lead.fullName ?? 'this lead'}
+          currentStage={lead.stage}
+          proposedStage={outcomeStage}
+          onClose={() => setOutcomeStage(null)}
+        />
+      )}
     </div>
   );
 }

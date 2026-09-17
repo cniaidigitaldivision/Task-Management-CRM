@@ -119,6 +119,15 @@ export async function closeFollowUp(
   actorId: string,
   followUpId: string,
   outcome: { done: true; note: string | null } | { done: false },
+  /**
+   * ⚠️ AND STOP THE CHASE, WHEN THE PERSON SAYS SO. Owner, 2026-09-17: *"if any
+   * follow-up is showing, when you mark it as done or complete, it means that
+   * follow-up should be stopped."* A salesperson who has just spoken to the
+   * client does not want the plan to send the next nudge tomorrow morning — but
+   * it is asked on screen rather than assumed, because sometimes the call was
+   * the step and the rest of the plan still stands.
+   */
+  stopPlan = false,
 ): Promise<FollowUpWrite> {
   return run(actorId, async (tx) => {
     const closed = (await tx`
@@ -153,6 +162,27 @@ export async function closeFollowUp(
        where l.id = ${row.lead_id}::uuid
          and l.next_action is not distinct from ${row.title}
     `;
+
+    if (stopPlan) {
+      const stopped = (await tx`
+        update public.crm_lead_sequences
+           set state = 'stopped', stopped_at = now(), paused_at = null,
+               pause_reason = 'the follow-up was completed', next_step_at = null, updated_at = now()
+         where lead_id = ${row.lead_id}::uuid
+           and state in ('scheduled', 'active', 'paused')
+        returning id
+      `) as Array<{ id: string }>;
+      /* Whatever it had already queued goes with it — a stopped chase whose next
+         message is still sitting in the queue is not stopped. */
+      if (stopped[0]) {
+        await tx`
+          update public.crm_follow_ups
+             set status = 'cancelled', updated_at = now()
+           where lead_sequence_id = ${stopped[0].id}::uuid
+             and status in ('planned', 'due')
+        `;
+      }
+    }
     return row.lead_id;
   });
 }
@@ -292,12 +322,17 @@ export interface PlanStepRow {
   readonly title: string;
   readonly body: string | null;
   readonly mode: string;
+  readonly subject: string | null;
+  readonly onlyIfNoReply: boolean;
+  readonly templateName: string | null;
+  readonly templateLanguage: string | null;
 }
 
 export interface LeadPlanWritten {
   readonly sequenceId: string;
-  readonly leadSequenceId: string;
-  readonly nextStepAt: string;
+  /** Null when the plan was saved as a draft — nothing is running. */
+  readonly leadSequenceId: string | null;
+  readonly nextStepAt: string | null;
 }
 
 /**
@@ -320,9 +355,15 @@ export async function createLeadPlan(
     name: string;
     purpose: string;
     stopOnReply: boolean;
+    stopOnVisit: boolean;
+    stopOnQuotationDead: boolean;
     keepNextAction: boolean;
+    /** Business hours in Karachi, or null for the project's quiet hours. */
+    hours: { from: number; to: number; days: readonly number[] } | null;
     /** When the first step falls. Null means as soon as its own delay allows. */
     firstAt: string | null;
+    /** ⚠️ FALSE SAVES A DRAFT: the plan and its steps, with nothing running. */
+    start: boolean;
     steps: readonly PlanStepRow[];
   },
 ): Promise<(FollowUpWrite & { readonly plan?: LeadPlanWritten })> {
@@ -334,9 +375,13 @@ export async function createLeadPlan(
        never start at all (`startSequence`'s own join). */
     const made = (await tx`
       insert into public.crm_sequences
-        (project_id, lead_id, name, purpose, stop_on_reply, is_active, is_test_data, created_by_id)
+        (project_id, lead_id, name, purpose, stop_on_reply, stop_on_visit, stop_on_quotation_dead,
+         send_from_hour, send_to_hour, send_days, is_active, is_test_data, created_by_id)
       select l.project_id, l.id, ${input.name}, ${input.purpose}::public.crm_followup_purpose,
-             ${input.stopOnReply}, true, l.is_test_data, ${actorId}::uuid
+             ${input.stopOnReply}, ${input.stopOnVisit}, ${input.stopOnQuotationDead},
+             ${input.hours?.from ?? null}, ${input.hours?.to ?? null},
+             ${input.hours ? [...input.hours.days] : null}::smallint[],
+             true, l.is_test_data, ${actorId}::uuid
         from public.crm_leads l
        where l.id = ${input.leadId}::uuid
       returning id
@@ -349,19 +394,41 @@ export async function createLeadPlan(
        otherwise be six waits on Singapore. */
     await tx`
       insert into public.crm_sequence_steps
-        (sequence_id, step_no, channel, delay_days, purpose, title, body, mode)
+        (sequence_id, step_no, channel, delay_days, purpose, title, body, mode, subject,
+         only_if_no_reply, wa_template_name, wa_template_language)
       select ${sequenceId}::uuid, s.step_no, s.channel::public.crm_followup_channel,
              s.delay_days, ${input.purpose}, s.title, nullif(s.body, ''),
-             s.mode::public.crm_followup_mode
+             s.mode::public.crm_followup_mode, nullif(s.subject, ''), s.only_if_no_reply = 1,
+             nullif(s.template_name, ''), nullif(s.template_language, '')
         from unnest(
                ${input.steps.map((s) => s.stepNo)}::int[],
                ${input.steps.map((s) => s.channel)}::text[],
                ${input.steps.map((s) => s.delayDays)}::int[],
                ${input.steps.map((s) => s.title)}::text[],
                ${input.steps.map((s) => s.body ?? '')}::text[],
-               ${input.steps.map((s) => s.mode)}::text[]
-             ) as s(step_no, channel, delay_days, title, body, mode)
+               ${input.steps.map((s) => s.mode)}::text[],
+               ${input.steps.map((s) => s.subject ?? '')}::text[],
+               /* ⚠️ 1 AND 0, NOT JS booleans. postgres.js infers an array of them
+                  as a single boolean and the insert dies with "cannot cast type
+                  boolean to boolean[]" — caught the first time a plan was saved
+                  from the dialog. Integers infer as int[] reliably.
+                  ⚠️ AND NO BACKTICKS IN THIS COMMENT: the query is one template
+                  literal and a backtick ends it, which is how this file just
+                  failed to parse (the memory note is backticks-break-sql-literals). */
+               ${input.steps.map((s) => (s.onlyIfNoReply ? 1 : 0))}::int[],
+               ${input.steps.map((s) => s.templateName ?? '')}::text[],
+               ${input.steps.map((s) => s.templateLanguage ?? '')}::text[]
+             ) as s(step_no, channel, delay_days, title, body, mode, subject, only_if_no_reply,
+                    template_name, template_language)
     `;
+
+    /* ⚠️ A DRAFT IS A PLAN WITH NOTHING RUNNING. No new state, no flag on the
+       run — there simply is no run until somebody presses Start, which is also
+       what makes "one live sequence per lead" still true while drafts exist. */
+    if (!input.start) {
+      plan = { sequenceId, leadSequenceId: null, nextStepAt: null };
+      return input.leadId;
+    }
 
     const started = (await tx`
       insert into public.crm_lead_sequences
@@ -412,4 +479,24 @@ export async function createLeadPlan(
     return input.leadId;
   });
   return result.ok && plan ? { ...result, plan } : result;
+}
+
+/**
+ * Discard a plan that was never started.
+ *
+ * ⚠️ `not exists (… crm_lead_sequences …)` IS THE WHOLE SAFETY. A plan that has
+ * run owns rows in the timeline; deleting it would cascade its steps away and
+ * leave sent messages pointing at a step that no longer exists.
+ */
+export async function discardDraftPlan(actorId: string, sequenceId: string): Promise<FollowUpWrite> {
+  return run(actorId, async (tx) => {
+    const rows = (await tx`
+      delete from public.crm_sequences s
+       where s.id = ${sequenceId}::uuid
+         and s.lead_id is not null
+         and not exists (select 1 from public.crm_lead_sequences ls where ls.sequence_id = s.id)
+      returning s.lead_id
+    `) as Array<{ lead_id: string }>;
+    return rows[0]?.lead_id ?? null;
+  });
 }

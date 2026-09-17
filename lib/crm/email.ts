@@ -245,3 +245,49 @@ export async function sendLeadEmail(input: {
 
   return { ok: true, messageId: result.id || undefined };
 }
+
+/* ============================================================================
+ * A FOLLOW-UP LETTER — the same shell, carrying whatever the plan wrote
+ * ----------------------------------------------------------------------------
+ * ⚠️ IT ADDS NOTHING OF ITS OWN. No "just checking in", no signature the
+ * salesperson did not write, no offer. The body is what somebody typed into the
+ * plan and reviewed on screen; this only wraps it so it arrives looking like the
+ * business rather than like a form.
+ *
+ * ⚠️ AND IT KEEPS THE LINE BREAKS. A message written in a textarea and sent as
+ * HTML with its newlines collapsed reads as one long paragraph — the commonest
+ * way an email looks careless without anybody being able to say why.
+ * ========================================================================= */
+export function followUpEmail(input: {
+  businessName: string;
+  greetingName: string;
+  subject: string;
+  /** Plain text, as written. Escaped here; newlines become paragraphs. */
+  body: string;
+  salespersonName: string;
+  /* ⚠️ `contentId` STAYS UNSET. These are documents the client downloads, not
+     images the letter references — one given a content id is hidden from the
+     attachment list by mail clients, so the email says "attached" and shows
+     nothing (`lib/email/send.ts` carries the full account of that bug). */
+  attachments?: ReadonlyArray<{ filename: string; content: string; contentType: string }>;
+}): Email {
+  const paragraphs = input.body
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter(Boolean);
+
+  const html = paragraphs
+    .map((block) => para(esc(block).replace(/\n/g, '<br>')))
+    .join('\n');
+
+  return {
+    subject: input.subject,
+    html: crmShell(
+      `${html}\n${para(`${esc(input.salespersonName)}<br>${esc(input.businessName)}`)}`,
+      paragraphs[0]?.slice(0, 120) ?? input.subject,
+      input.businessName,
+    ),
+    text: [...paragraphs, '', input.salespersonName, input.businessName].join('\n\n'),
+    attachments: input.attachments ?? [],
+  };
+}
