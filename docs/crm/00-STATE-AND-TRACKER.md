@@ -9,7 +9,66 @@
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
 | **Last updated** | **2026-09-16** |
-| **Last migration applied anywhere** | **178** (verified against the live database, not remembered). CRM next: **179.** |
+| **Last migration applied anywhere** | **179** (verified against the live database, not remembered). CRM next: **180.** |
+
+---
+
+## 💬 2026-09-17 — THE CONVERSATION TAB, AND WHO A REPLY COMES FROM · 179
+
+Built to the owner's second reference. One thread carrying both channels, a
+banner when a reply has paused the chase, and a composer that names the number it
+would send from.
+
+### Migration 179 · the composer could not say who it was
+
+⚠️ **`projects.whatsapp_phone_number_id` IS META'S INTERNAL ID** — a 15-digit
+opaque string, not a phone number. There was nothing in this database that could
+print *"CNI AI & Digital · +92 300 123 8726"* above a reply box, which is what
+stops somebody sending a client's message from the wrong business.
+
+`crm_project_settings` gains `whatsapp_display_name` and
+`whatsapp_display_number` (E.164, CHECKed), and `app.crm_project_sender()`
+answers both. ⚠️ **Configuration, never access** — 172 exists because
+`crm_project_can_whatsapp` bundles the two and returns false from a sessionless
+caller. Readiness gained `no_sender_number`, ⚠️ **raised only where sending
+actually works**: nagging about a display number on a project that cannot send at
+all is noise on top of the real problem.
+
+### What the tab does
+
+| | |
+|---|---|
+| **All · WhatsApp · Email** | Client-state filter over rows already on the page (law 3) |
+| **The pause banner** | Fires from 170's own `pause_reason`, not a sentence written in the component — two explanations of one pause start disagreeing |
+| **Email entries** | Subject, preview, and the attachment as a card |
+| **WhatsApp bubbles** | ⚠️ Tinted by WHO SPOKE, not by channel — green is ours, plain is theirs, the convention every client already knows |
+| **Ticks** | ⚠️ Ours only. An inbound message has no delivery state we own, and drawing one would be inventing a receipt |
+| **A failure** | Shown on the message, not in a toast that has gone — *"did it send?"* is asked days later |
+
+⚠️ **THE SORT LABEL NOW MATCHES THE ORDER.** The reference reads *"Newest
+first"* above a thread running oldest to newest. A conversation is read
+downwards, so the default is oldest-first and the control says so.
+
+⚠️ **AND WHERE A PROJECT CANNOT SEND, IT SAYS WHICH THING IS MISSING** rather
+than greying a box out. Chitral is in exactly that state: 641 real leads and no
+number.
+
+### The header and the four figures
+
+Avatar, Active pill, the unit line, the unit kind and temperature as chips, and
+call · WhatsApp · email · full record · close as round buttons. ⚠️ **Each control
+is absent when it cannot work, never disabled** — 640 of 641 leads have no email,
+so a greyed envelope would be the normal state rather than the exception.
+
+Stage · Quotation · Value · Next follow-up. ⚠️ **The quotation shown is the LIVE
+one, not the newest row** — a superseded v1 still exists (176), and printing its
+figure would show a price nobody is offering to the person about to repeat it on
+the phone.
+
+⚠️ **THE SENDER RIDES ON `crmLeadRelated`, NOT ITS OWN FETCH.** It needs the
+LEAD's project, which is not known until the lead is read — so a separate call
+would have been a second wave waiting on the first. `tsc` caught it as
+*"`record` used before its declaration"*, which is law 4 refusing to compile.
 
 ---
 

@@ -4,9 +4,10 @@ import * as React from 'react';
 import type { Route } from 'next';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { CalendarClock, ExternalLink, Mail, X } from 'lucide-react';
+import { CalendarClock, ExternalLink, Mail, PauseCircle, Phone, X } from 'lucide-react';
 
 import { WA_GREEN, WhatsAppMark } from '@/components/crm/whatsapp-mark';
+import { initialsOf } from '@/components/ui/avatar';
 import type {
   CrmLeadEvent,
   CrmLeadNote,
@@ -14,13 +15,20 @@ import type {
   CrmLeadRelated,
   CrmMessage,
 } from '@/lib/db/queries/crm-leads';
-import { activityLabel, stageLabel, stageToken } from '@/lib/domain/crm-stages';
+import {
+  activityLabel,
+  stageLabel,
+  stageToken,
+  temperatureLabel,
+  temperatureToken,
+} from '@/lib/domain/crm-stages';
 import {
   appointmentKindLabel,
   appointmentStatusLabel,
   appointmentStatusToken,
 } from '@/lib/domain/crm-appointments';
 import { displayPhone } from '@/lib/domain/phone';
+import { LeadConversationTab } from '@/components/crm/lead-conversation-tab';
 import { LeadOverviewTab } from '@/components/crm/lead-overview-tab';
 import { relativeAge } from '@/lib/view/relative-age';
 import { cn } from '@/lib/utils';
@@ -141,6 +149,18 @@ export function LeadDrawer({
 
   const phone = displayPhone(lead.phoneE164, lead.phone);
 
+  /* ⚠️ THE LIVE ONE, not the newest row. A superseded v1 still exists (176) and
+     printing its figure on the strip would show a price nobody is offering any
+     more — to the person about to repeat it on the phone. */
+  const live =
+    related.quotations.find(
+      (q) => !['superseded', 'rejected', 'expired'].includes(q.status),
+    ) ?? null;
+  const isOpen = lead.stage !== 'won' && lead.stage !== 'lost';
+  /* The unit's own kind, taken from the label the rest of the product already
+     prints rather than re-derived into a second wording. */
+  const unitKind = lead.propertyLabel?.split('·')[0]?.trim() ?? null;
+
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       {/* ⚠️ A BUTTON, not a div with onClick — a scrim somebody can only dismiss
@@ -163,52 +183,165 @@ export function LeadDrawer({
              label. They stack below `lg:` regardless. */
           className="relative flex h-full w-full max-w-[46rem] flex-col border-l border-border-default bg-bg-surface shadow-2xl outline-none"
       >
-        {/* ── Header ───────────────────────────────────────────────────── */}
-        <div className="border-b border-border-subtle px-5 py-4">
+        {/* ── Header ────────────────────────────────────── */}
+        <div className="shrink-0 border-b border-border-subtle px-5 py-4">
           <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <h2 className="truncate text-h3 font-semibold text-text-primary">
-                {lead.fullName ?? 'Name not given'}
-              </h2>
-              <p className="mt-0.5 truncate text-caption text-text-secondary">
-                {lead.projectName}
-                {lead.city && ` · ${lead.city}`}
-              </p>
+            <div className="flex min-w-0 gap-3">
+              <span className="grid size-11 shrink-0 place-items-center rounded-full bg-accent-primary/10 text-body-sm font-semibold text-accent-primary">
+                {initialsOf(lead.fullName ?? '?')}
+              </span>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="truncate text-h3 font-semibold text-text-primary">
+                    {lead.fullName ?? 'Name not given'}
+                  </h2>
+                  {/* ⚠️ "Active" MEANS THE LEAD IS OPEN, not that anybody is online.
+                      A presence badge on a client would be inventing a signal we
+                      have no way at all to observe. */}
+                  <span
+                    className="rounded-full px-2 py-0.5 text-caption font-medium"
+                    style={{
+                      background: isOpen
+                        ? 'color-mix(in oklab, var(--feedback-success) 14%, transparent)'
+                        : 'var(--bg-subtle)',
+                      color: isOpen ? 'var(--feedback-success)' : 'var(--text-secondary)',
+                    }}
+                  >
+                    {isOpen ? 'Active' : stageLabel(lead.stage)}
+                  </span>
+                </div>
+                <p className="mt-0.5 truncate text-caption text-text-secondary">
+                  {lead.projectName}
+                  {lead.city ? ` · ${lead.city}` : ''}
+                </p>
+                {lead.propertyLabel && (
+                  <p className="truncate text-caption text-text-secondary">{lead.propertyLabel}</p>
+                )}
+                {/* ⚠️ ONLY WHAT IS RECORDED. The reference shows "Residential" and
+                    "Hot lead"; the first is the unit's own kind and the second is
+                    `temperature`. Neither is drawn when unset — an empty chip is a
+                    fact nobody established, dressed as one they did. */}
+                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                  {unitKind && (
+                    <span className="rounded-md bg-bg-subtle px-2 py-0.5 text-caption text-text-secondary">
+                      {unitKind}
+                    </span>
+                  )}
+                  {lead.temperature && (
+                    <span
+                      className="rounded-md px-2 py-0.5 text-caption font-medium"
+                      style={{
+                        background: `color-mix(in oklab, var(--${temperatureToken(lead.temperature)}) 14%, transparent)`,
+                        color: `var(--${temperatureToken(lead.temperature)})`,
+                      }}
+                    >
+                      {temperatureLabel(lead.temperature)} lead
+                    </span>
+                  )}
+                </div>
+              </div>
             </div>
-            <button
-              type="button"
-              onClick={close}
-              aria-label="Close"
-              className="grid size-8 shrink-0 place-items-center rounded-lg text-text-secondary transition-colors hover:bg-bg-subtle hover:text-text-primary"
-            >
-              <X className="size-4" />
-            </button>
+
+            {/* ⚠️ EACH CONTROL IS ABSENT WHEN IT CANNOT WORK, never greyed out.
+                640 of 641 real leads have no email address at all, so a disabled
+                envelope would be the normal state rather than the exception. */}
+            <div className="flex shrink-0 items-center gap-1.5">
+              {lead.phoneE164 && (
+                <a
+                  href={`tel:${lead.phoneE164}`}
+                  aria-label="Call"
+                  className="grid size-9 place-items-center rounded-full border border-border-default text-text-secondary transition-colors hover:text-text-primary"
+                >
+                  <Phone className="size-4" aria-hidden="true" />
+                </a>
+              )}
+              {lead.phoneE164 && (
+                <button
+                  type="button"
+                  onClick={() => go('conversations')}
+                  aria-label="Open the WhatsApp thread"
+                  className="grid size-9 place-items-center rounded-full border border-border-default transition-colors hover:bg-bg-subtle"
+                  style={{ color: WA_GREEN }}
+                >
+                  <WhatsAppMark className="size-4" />
+                </button>
+              )}
+              {lead.email && (
+                <a
+                  href={`mailto:${lead.email}`}
+                  aria-label="Send an email"
+                  className="grid size-9 place-items-center rounded-full border border-border-default text-text-brand transition-colors hover:bg-bg-subtle"
+                >
+                  <Mail className="size-4" aria-hidden="true" />
+                </a>
+              )}
+              <Link
+                href={`/leads/${lead.id}` as Route}
+                aria-label="The full record"
+                className="grid size-9 place-items-center rounded-full border border-border-default text-text-secondary transition-colors hover:text-text-primary"
+              >
+                <ExternalLink className="size-4" aria-hidden="true" />
+              </Link>
+              <button
+                type="button"
+                onClick={close}
+                aria-label="Close"
+                className="grid size-9 place-items-center rounded-full text-text-secondary transition-colors hover:bg-bg-subtle hover:text-text-primary"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
           </div>
 
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <span
-              className="rounded-md px-2 py-0.5 text-caption font-medium"
-              style={{
-                backgroundColor: `color-mix(in oklab, var(--${stageToken(lead.stage)}) 14%, transparent)`,
-                color: `var(--${stageToken(lead.stage)})`,
-              }}
-            >
-              {stageLabel(lead.stage)}
-            </span>
-            {/* ⚠️ "You", not a dropdown. The owner's rule is explicit: a
-                salesperson may not choose an owner, so there is nothing to
-                choose from — showing a disabled select would suggest otherwise. */}
-            <span className="text-caption text-text-secondary">
-              Assigned to <strong className="font-medium text-text-primary">you · {viewerName}</strong>
-            </span>
-            <Link
-              href={`/leads/${lead.id}` as Route}
-              className="ml-auto inline-flex items-center gap-1 text-caption font-medium text-text-brand underline-offset-2 hover:underline"
-            >
-              Full record
-              <ExternalLink className="size-3.5" aria-hidden="true" />
-            </Link>
-          </div>
+          {/* ── The four figures ─────────────────────────────────
+              ⚠️ EVERY ONE READ FROM A ROW. A lead with no quotation shows a dash
+              rather than a figure borrowed from somewhere else — a value on this
+              strip is what somebody repeats to a client on the phone. */}
+          <dl className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div>
+              <dt className="text-caption text-text-secondary">Stage</dt>
+              <dd
+                className="mt-0.5 inline-block rounded-md px-2 py-0.5 text-caption font-medium"
+                style={{
+                  backgroundColor: `color-mix(in oklab, var(--${stageToken(lead.stage)}) 14%, transparent)`,
+                  color: `var(--${stageToken(lead.stage)})`,
+                }}
+              >
+                {stageLabel(lead.stage)}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-caption text-text-secondary">Quotation</dt>
+              <dd className="mt-0.5 text-body-sm font-semibold text-text-primary">
+                {live ? `${live.number}${live.version > 1 ? ` v${live.version}` : ''}` : '—'}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-caption text-text-secondary">Value</dt>
+              <dd className="mt-0.5 text-body-sm font-semibold text-text-primary">
+                {live ? `PKR ${live.netAmount.toLocaleString('en-PK')}` : '—'}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-caption text-text-secondary">Next follow-up</dt>
+              <dd className="mt-0.5 flex items-center gap-1.5 text-body-sm text-text-primary">
+                {related.sequence?.state === 'paused' ? (
+                  <>
+                    <PauseCircle className="size-4 shrink-0 text-gold-700" aria-hidden="true" />
+                    <span className="truncate">Paused after reply</span>
+                  </>
+                ) : lead.nextActionAt ? (
+                  <span className="truncate">
+                    {new Date(lead.nextActionAt).toLocaleDateString('en-GB', {
+                      day: 'numeric', month: 'short', timeZone: 'Asia/Karachi',
+                    })}
+                  </span>
+                ) : (
+                  <span className="text-text-secondary">Nothing planned</span>
+                )}
+              </dd>
+            </div>
+          </dl>
         </div>
 
         {/* ── Tabs ─────────────────────────────────────────────────────── */}
@@ -246,7 +379,21 @@ export function LeadDrawer({
               onTab={go}
             />
           )}
-          {activeTab === 'conversations' && <Conversation messages={messages} nowMs={nowMs} />}
+          {activeTab === 'conversations' && (
+            <LeadConversationTab
+              messages={messages}
+              sender={related.sender}
+              /* ⚠️ THE ENGINE'S OWN REASON (170), not a sentence guessed here.
+                 Two explanations of the same pause start disagreeing. */
+              sequencePaused={
+                related.sequence?.state === 'paused'
+                  ? (related.sequence.pauseReason ?? 'the client replied')
+                  : null
+              }
+              leadName={lead.fullName ?? 'This lead'}
+              onReviewFollowUp={() => go('followups')}
+            />
+          )}
           {activeTab === 'followups' && <FollowUps related={related} nowMs={nowMs} />}
           {activeTab === 'related' && (
             <Related
@@ -309,66 +456,11 @@ export function LeadDrawer({
    and three cards. It was the largest thing in this file and it is the one tab
    that will keep changing. */
 
-/* ---- Conversation --------------------------------------------------------- */
+/* ---- Conversation --------------------------------------------------------
+   ⚠️ MOVED OUT to `lead-conversation-tab.tsx` on 2026-09-17, when the owner's
+   reference turned it from a list of bubbles into a filtered two-channel thread
+   with a pause banner and a composer that names its own sending number. */
 
-function Conversation({
-  messages,
-  nowMs,
-}: {
-  messages: readonly CrmMessage[];
-  nowMs: number;
-}) {
-  if (messages.length === 0) {
-    return (
-      <Empty>
-        Nothing has been sent or received yet. ⚠️ Email is not connected, so this
-        shows WhatsApp only.
-      </Empty>
-    );
-  }
-
-  return (
-    <div className="space-y-2">
-      {/* ⚠️ ONE CHANNEL, AND IT SAYS SO. The owner's spec asks for WhatsApp AND
-          email in one timeline; there is no email integration, so a heading
-          promising both would be the page claiming something it cannot do. */}
-      <p className="flex items-center gap-1.5 pb-1 text-caption text-text-tertiary">
-        <span aria-hidden="true" style={{ color: WA_GREEN }}>
-          <WhatsAppMark className="size-4" />
-        </span>
-        WhatsApp only — email is not connected yet.
-      </p>
-      {messages.map((m) => {
-        const mine = m.direction === 'outbound';
-        return (
-          <div key={m.id} className={cn('flex', mine ? 'justify-end' : 'justify-start')}>
-            <div
-              className={cn(
-                'max-w-[85%] rounded-2xl px-3 py-2',
-                mine ? 'rounded-br-sm' : 'rounded-bl-sm border border-border-subtle bg-bg-subtle',
-              )}
-              style={mine ? { backgroundColor: `color-mix(in oklab, ${WA_GREEN} 18%, transparent)` } : undefined}
-            >
-              {m.body && (
-                <p className="whitespace-pre-wrap break-words text-body-sm text-text-primary">
-                  {m.body}
-                </p>
-              )}
-              <p className="mt-0.5 text-caption text-text-tertiary">
-                {/* ⚠️ THE CUSTOMER SEES THE BUSINESS, THE TEAM SEES THE PERSON.
-                    Outbound is sent as CNI AI & Digital; who actually typed it is
-                    an internal fact, and it is the one "how did he deal with this
-                    client" is answered from. */}
-                {mine ? (m.sentByName ?? 'CNI AI & Digital') : 'Them'} ·{' '}
-                {relativeAge(m.occurredAt, nowMs)}
-              </p>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
 
 /* ---- Follow-ups ----------------------------------------------------------- */
 

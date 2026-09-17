@@ -1576,6 +1576,10 @@ export interface CrmMessage {
   readonly errorDetail: string | null;
   readonly sentByName: string | null;
   readonly occurredAt: string;
+  /** whatsapp | email — migration 175. The thread carries both. */
+  readonly channel: string;
+  /** ⚠️ Email only. A WhatsApp message has no subject and a CHECK refuses one. */
+  readonly subject: string | null;
 }
 
 /**
@@ -1602,6 +1606,7 @@ export async function crmLeadThread(actorId: string, leadId: string): Promise<Cr
     select m.id, m.direction::text, m.kind::text, m.body,
            m.media_id, m.media_mime, m.media_filename,
            m.status::text, m.error_detail, m.occurred_at,
+           m.channel::text, m.subject,
            (select o.full_name from app.crm_lead_owners() o where o.id = m.sent_by_id)
              as sent_by_name
       from public.crm_lead_messages m
@@ -1612,6 +1617,8 @@ export async function crmLeadThread(actorId: string, leadId: string): Promise<Cr
   return (rows as Array<Record<string, unknown>>).map((r) => ({
     id: String(r.id),
     direction: r.direction === 'inbound' ? 'inbound' : 'outbound',
+    channel: String(r.channel ?? 'whatsapp'),
+    subject: (r.subject as string | null) ?? null,
     kind: String(r.kind),
     body: (r.body as string | null) ?? null,
     mediaId: (r.media_id as string | null) ?? null,
@@ -1788,6 +1795,12 @@ export interface CrmLeadRelated {
   readonly quotations: readonly CrmQuotationRow[];
   readonly appointments: readonly CrmAppointmentRow[];
   readonly followUps: readonly CrmFollowUpRow[];
+  /* ⚠️ THE SENDER RIDES WITH THE LEAD'S OTHER RELATED ROWS, and that is why.
+     The composer needs the number of the LEAD's project, which is not known
+     until the lead is read — so fetching it separately would be a second wave
+     waiting on the first, which law 4 exists to prevent. It is one more read
+     inside a query that already runs in the wave. */
+  readonly sender: CrmSender | null;
   /** The live sequence run, if any — state, step, and why it paused. */
   readonly sequence: {
     readonly name: string;
@@ -1802,10 +1815,10 @@ export async function crmLeadRelated(
   actorId: string,
   leadId: string,
 ): Promise<CrmLeadRelated> {
-  const { quotations, appointments, followUps, sequence, owners } = await withUser(
+  const { quotations, appointments, followUps, sequence, owners, sender } = await withUser(
     actorId,
     async (tx) => {
-      const [quotations, appointments, followUps, sequence, owners] = await Promise.all([
+      const [quotations, appointments, followUps, sequence, owners, sender] = await Promise.all([
         tx`
           select q.id, q.number, q.version, q.status::text, q.net_amount,
                  q.requested_discount, q.approved_discount, q.valid_until,
@@ -1844,8 +1857,13 @@ export async function crmLeadRelated(
            every colleague renders as "Former member". That was the 2026-09-08
            bug and it has been re-found on four screens since. */
         tx`select * from app.crm_lead_owners()`,
+        tx`
+          select configured, display_name, display_number
+            from app.crm_project_sender(
+              (select l.project_id from public.crm_leads l where l.id = ${leadId}::uuid))
+        `,
       ]);
-      return { quotations, appointments, followUps, sequence, owners };
+      return { quotations, appointments, followUps, sequence, owners, sender };
     },
   );
 
@@ -1890,6 +1908,16 @@ export async function crmLeadRelated(
       doneAt: f.done_at ? new Date(f.done_at as string).toISOString() : null,
       outcomeNote: (f.outcome_note as string | null) ?? null,
     })),
+    sender: (() => {
+      const r = (sender as Array<Record<string, unknown>>)[0];
+      return r
+        ? {
+            configured: r.configured === true,
+            displayName: String(r.display_name ?? ''),
+            displayNumber: (r.display_number as string | null) ?? null,
+          }
+        : null;
+    })(),
     sequence: (() => {
       const s = (sequence as Array<Record<string, unknown>>)[0];
       if (!s) return null;
@@ -3160,4 +3188,41 @@ export async function crmReviseQuotation(
       price,
     };
   });
+}
+
+/* ============================================================================
+ * WHO A REPLY COMES FROM — migration 179
+ * ========================================================================= */
+
+export interface CrmSender {
+  /** Can this project send on WhatsApp at all? */
+  readonly configured: boolean;
+  /** What the client sees it as. Falls back to the project's own name. */
+  readonly displayName: string;
+  /** E.164, or null where nobody has set one. */
+  readonly displayNumber: string | null;
+}
+
+/**
+ * The number a reply would go from.
+ *
+ * ⚠️ CONFIGURATION, NOT ACCESS. 172 exists because `crm_project_can_whatsapp`
+ * bundles the two and answers false from a sessionless caller. `configured` here
+ * is a fact about the project, the same for everybody who asks.
+ */
+export async function crmProjectSender(
+  actorId: string,
+  projectId: string,
+): Promise<CrmSender | null> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select configured, display_name, display_number
+      from app.crm_project_sender(${projectId}::uuid)
+  `);
+  const r = (rows as Array<Record<string, unknown>>)[0];
+  if (!r) return null;
+  return {
+    configured: r.configured === true,
+    displayName: String(r.display_name ?? ''),
+    displayNumber: (r.display_number as string | null) ?? null,
+  };
 }
