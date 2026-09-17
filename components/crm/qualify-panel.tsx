@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { CheckCircle2, CircleDashed, Copy } from 'lucide-react';
+import { CheckCircle2, ChevronDown, CircleDashed, Copy } from 'lucide-react';
 
 import { saveQualificationAction } from '@/app/actions/crm-leads';
 import { useToast } from '@/components/ui/toast';
@@ -57,6 +57,17 @@ export function QualifyPanel({ lead }: { lead: CrmLeadRecord }) {
     temperature: lead.temperature ?? '',
   });
 
+  /* ⚠️ SHUT BY DEFAULT, AND THE OWNER WAS RIGHT TO ASK FOR IT. This sat open on
+     every lead, so four dropdowns and a textarea were the first thing anybody saw
+     on a record they had opened to READ. Owner: *"Once I fill it, it is done…
+     then it should be minimized and not show again. If I want to add it, then I
+     can add it, but not all the time display them."*
+
+     ⚠️ CLIENT STATE, SO IT OPENS IN THE CLICK'S OWN FRAME — Rule Zero. And it
+     resets with the lead, below, so opening a colleague's record does not inherit
+     a panel somebody left open on the last one. */
+  const [open, setOpen] = React.useState(false);
+
   /* ⚠️ THE DRAFT FOLLOWS THE LEAD. The drawer is reused as somebody clicks from
      row to row, so state keyed to the component would show the last lead's
      answers against this one's name — which on a qualification form is not a
@@ -64,6 +75,7 @@ export function QualifyPanel({ lead }: { lead: CrmLeadRecord }) {
   const [seen, setSeen] = React.useState(lead.id);
   if (seen !== lead.id) {
     setSeen(lead.id);
+    setOpen(false);
     setDraft({
       budgetBand: lead.budgetBand ?? '',
       authority: lead.authority ?? '',
@@ -112,6 +124,10 @@ export function QualifyPanel({ lead }: { lead: CrmLeadRecord }) {
       /* ⚠️ A PARTIAL SAVE REPORTS ITSELF. The action returns ok WITH a sentence
          when the gate is still shut — telling somebody "saved" and letting them
          discover it at the stage dropdown is the worse of the two. */
+      /* ⚠️ IT SHUTS ITSELF ONLY WHEN THE GATE IS OPEN. A partial save that
+         collapsed would hide the two questions still outstanding, and somebody
+         would meet them again at the stage dropdown instead. */
+      if (!result.error) setOpen(false);
       toast({
         tone: result.error ? 'warn' : 'ok',
         text: result.error ?? 'Qualification recorded.',
@@ -121,7 +137,18 @@ export function QualifyPanel({ lead }: { lead: CrmLeadRecord }) {
 
   return (
     <section aria-busy={pending} className={cn('transition-opacity', pending && 'opacity-60')}>
-      <header className="mb-2 flex flex-wrap items-center gap-2">
+      {/* ⚠️ THE WHOLE HEADER IS THE TOGGLE, not a small chevron beside it. A
+          disclosure whose target is a 16px arrow is one people miss. */}
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full flex-wrap items-center gap-2 rounded-lg py-1 text-left hover:opacity-80"
+      >
+        <ChevronDown
+          className={cn('size-4 shrink-0 text-text-secondary transition-transform', !open && '-rotate-90')}
+          aria-hidden="true"
+        />
         <h3 className="text-micro font-semibold uppercase tracking-wide text-text-secondary">
           Qualifying
         </h3>
@@ -144,7 +171,7 @@ export function QualifyPanel({ lead }: { lead: CrmLeadRecord }) {
         >
           {gaps.length === 0 ? (
             <>
-              <CheckCircle2 className="size-3.5" aria-hidden="true" /> All four answered
+              <CheckCircle2 className="size-3.5" aria-hidden="true" /> Qualified
             </>
           ) : started ? (
             <>
@@ -157,16 +184,39 @@ export function QualifyPanel({ lead }: { lead: CrmLeadRecord }) {
             </>
           )}
         </span>
-      </header>
+      </button>
 
-      {gaps.length > 0 && (
-        <p className="mb-2.5 rounded-lg border border-dashed border-border-default px-3 py-2 text-caption leading-relaxed text-text-secondary">
+      {/* ── Shut: the answers, on one line ─────────────────────────────────
+          ⚠️ THE ANSWERS, NOT A COUNT. Somebody reading a record wants to know
+          they are buying within a month on a 1–3 lakh budget; "4 of 4" tells
+          them only that a form was filled in. */}
+      {!open && (
+        <p className="mt-0.5 text-caption leading-relaxed text-text-secondary">
+          {started ? (
+            questions
+              .map((q) => q.labelOf(bant[q.field]))
+              .filter(Boolean)
+              .join(' · ')
+          ) : (
+            <>
+              Nothing asked yet.{' '}
+              <span className="text-text-primary">
+                This lead cannot move past Contacted until it is.
+              </span>
+            </>
+          )}
+        </p>
+      )}
+
+      {open && gaps.length > 0 && (
+        <p className="mb-2.5 mt-2 rounded-lg border border-dashed border-border-default px-3 py-2 text-caption leading-relaxed text-text-secondary">
           This lead cannot move past <strong className="text-text-primary">Contacted</strong> until
           all four are recorded. ⚠️ <em>Didn&rsquo;t find out</em> is a valid answer — never asking
           is not.
         </p>
       )}
 
+      {open && (
       <div className="space-y-2.5">
         {questions.map((q) => (
           <div key={q.field}>
@@ -340,6 +390,7 @@ export function QualifyPanel({ lead }: { lead: CrmLeadRecord }) {
           </p>
         )}
       </div>
+      )}
     </section>
   );
 }

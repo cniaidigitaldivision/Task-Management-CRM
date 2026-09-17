@@ -9,7 +9,73 @@
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
 | **Last updated** | **2026-09-16** |
-| **Last migration applied anywhere** | **175** (verified against the live database, not remembered). CRM next: **176.** |
+| **Last migration applied anywhere** | **177** (verified against the live database, not remembered). CRM next: **178.** |
+
+---
+
+## 💱 2026-09-17 — ONE SERVICE, SEVERAL PRICE LADDERS · 176, 177
+
+**176 · the ladder exists.** `number`, `version` and `supersedes_id` have been on
+`crm_quotations` since 151 and **every quotation ever raised was version 1 with a
+brand new number** — 2 rows, 0 above v1, 0 chains. QT-1044, not QT-1042 v2. The
+history the versioning rule depends on was never being written. ⚠️ **And the
+unique (number, version) pair the test pack promised was not on the table** — a
+documented invariant nothing enforces is a documented hope.
+
+Now: one live version per number, a chain that must be a chain (same number, same
+lead, consecutive versions), and **the old version retires inside the same
+statement** so two live prices for one client are impossible by construction.
+`app.crm_next_rung` reads the item's own 2 lakh / 1.5 / 1 and says whether it is
+the floor. ⚠️ **A rung is not a discount** — the price is one the company already
+set, so it needs nobody's approval; the two-person rule exists for a salesperson
+inventing a number, which this is the opposite of.
+
+**177 · the same service costs different money in a different campaign.**
+
+> Owner: *"For the same CRM I am running a campaign for the US… one campaign
+> could take the CRM quotation for Pakistan, which is different for the same
+> project. The quotation for the USA and foreign countries would be different."*
+
+⚠️ **ONE ITEM WITH SEVERAL LADDERS, NOT SEVERAL ITEMS.** The shortcut is a second
+catalogue row — *CRM (Pakistan)* and *CRM (USA)*. Wrong for a reason that only
+appears months later: the same service would exist twice, so every count of what
+the division sells and every "which product wins" report double-counts it.
+
+⚠️ **KEYED ON THE FORM, BECAUSE THAT IS WHAT A CAMPAIGN ACTUALLY IS HERE.**
+`crm_campaigns` is still **empty and has been since 111**. 127 files a lead by its
+form, 174 asks the form what it sells, and the demo project's three campaigns are
+three forms. A NULL form is the item's default ladder.
+
+⚠️ **AND A PRICE IN DOLLARS IS NOT A PRICE IN RUPEES.** `currency` travels with
+the ladder and is **copied onto the quotation**, never read back — a quotation is
+a statement made on a date, and re-reading would silently restate every one ever
+issued if a market's currency changed.
+
+⚠️ **TWO PARTIAL UNIQUE INDEXES, BECAUSE NULLS DO NOT COLLIDE.** A plain
+`unique (item_id, form_id)` accepts any number of default ladders, since NULL is
+never equal to NULL — and the resolver would then pick one at random. Silent, and
+the standard trap.
+
+⚠️ **THE FLOOR TRIGGER WAS WRONG THE MOMENT THIS LANDED, and 177 fixes it in the
+same migration.** 171 read `crm_properties` directly, so a **USA quotation would
+have been held to the Pakistan floor** — on a dollar ladder, not a floor at all.
+It asks the resolver now.
+
+**Also:** `crm_properties.demo_url` — the owner's per-service demo link, CHECKed
+as a real URL because *"ask Sarah for the link"* in that field is something a
+salesperson would send to a client.
+
+### 🗂️ And the panel the owner asked to be put away
+
+> *"Once I fill it, it is done… then it should be minimized and not show again.
+> If I want to add it, then I can add it, but not all the time display them."*
+
+Fair, and a fault in what shipped yesterday: the qualifying form sat **open on
+every lead**, so four dropdowns and a textarea were the first thing anybody saw on
+a record they had opened to READ. It is now a two-line summary — *Within a month ·
+ERP · 1–3 lakh · Decides alone* — that opens on click and shuts itself after a
+complete save. ⚠️ **It does not shut on a partial save**, or the outstanding
+questions would be hidden and met again at the stage dropdown.
 
 ---
 
