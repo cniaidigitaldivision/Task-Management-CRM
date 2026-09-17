@@ -4,6 +4,7 @@ import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import {
   AlertTriangle,
+  Briefcase,
   CheckCircle2,
   BookOpen,
   Folder as FolderIcon,
@@ -18,6 +19,11 @@ import {
   rejectDocumentAction,
   type DocumentResult,
 } from '@/app/actions/documents';
+/* ⚠️ THE CRM'S ONE IMPORT INTO THIS FILE — see `canSales` below. Deliberate,
+   single, and deletable; the owner asked for sales documents to live on this
+   page rather than on one of their own. */
+import { DocumentShelf } from '@/components/crm/document-shelf';
+import type { CrmDocument } from '@/lib/db/queries/crm-documents';
 import type { DocumentRow } from '@/lib/db/queries/documents';
 import type { DriveSyncRow } from '@/lib/db/queries/documents';
 import type { DriveFolderRow } from '@/lib/db/queries/drive-folders';
@@ -59,7 +65,7 @@ import { LibraryPanel } from './library-panel';
    normally sits in this system's own storage rather than in Drive. One control
    answering both is how a screen comes to claim that accepting moves a file. */
 
-type Tab = 'folders' | 'projects' | 'approvals' | 'library' | 'settings';
+type Tab = 'folders' | 'projects' | 'approvals' | 'library' | 'sales' | 'settings';
 
 /* ============================================================================
  * THE TABS, AND WHO SEES WHICH — revised 2026-08-24
@@ -106,6 +112,7 @@ const TABS: ReadonlyArray<{
   tint: string;
   adminOnly?: boolean;
   approverOnly?: boolean;
+  salesOnly?: boolean;
 }> = [
   { key: 'folders', label: 'Folders & files', icon: FolderIcon, tint: 'status-done' },
   { key: 'projects', label: 'Project files', icon: FolderOpen, tint: 'status-todo' },
@@ -117,6 +124,16 @@ const TABS: ReadonlyArray<{
     approverOnly: true,
   },
   { key: 'library', label: 'Company library', icon: BookOpen, tint: 'status-revisions' },
+  /* ⚠️ SALES ONLY, and the gate is the CRM's own capability rather than a rank —
+     the people whose job this is are `member`, the bottom of Taskly's ladder, so
+     a rank check would hide it from exactly the people it is for. Owner,
+     2026-09-17: *"add that tab and that will only be visible to salespersons
+     only."*
+
+     ⚠️ AND HIDING IT GRANTS NOBODY ANYTHING. Migration 178's policies are the
+     real boundary: a lead's booking form is invisible to a colleague whatever
+     tab they reach. This file has never been a security boundary (NFR-006). */
+  { key: 'sales', label: 'Sales documents', icon: Briefcase, tint: 'accent-primary', salesOnly: true },
   { key: 'settings', label: 'Drive settings', icon: Settings, tint: 'status-backlog', adminOnly: true },
 ];
 
@@ -128,6 +145,9 @@ export function DocumentsWorkspace({
   canManageLibrary,
   canConfigure,
   canShare,
+  canSales,
+  salesDocuments,
+  salesProjects,
   nowMs,
   folders,
   library,
@@ -144,6 +164,16 @@ export function DocumentsWorkspace({
   /** Coordinator and above: may share a folder with members, and may file into
    *  any folder rather than only the shared ones. */
   canShare: boolean;
+  /* ── ⚠️ THE CRM'S ONE FOOT IN THIS FILE ──────────────────────────────────
+     `16-EXTRACTING-THE-CRM.md` rule 2 says nothing outside the CRM may import
+     from inside it, and today exactly one file did (`api/pulse`). This is the
+     second, and it is deliberate: the owner asked for the documents to live on
+     THIS page rather than a separate one. It is a single import, a single tab
+     entry and three props — a known, deletable line rather than a thread to
+     find later. */
+  canSales: boolean;
+  salesDocuments: readonly CrmDocument[];
+  salesProjects: ReadonlyArray<{ id: string; name: string }>;
   /** The server clock, for every date label below. See lib/now.ts — a component
    *  that reads its own clock renders one string on the server and another in the
    *  browser, which is a hydration mismatch. */
@@ -288,6 +318,9 @@ export function DocumentsWorkspace({
    * something rather than the absence of anything to measure.
    */
   const TAB_COUNTS: Record<Tab, number | null> = {
+    /* ⚠️ No count. A document shelf has no queue and no decision waiting —
+       a number here would be a total nobody acts on. */
+    sales: null,
     folders: folders.length || null,
     /* Documents attached to a project — what the Project files tab lists. */
     projects: documents.filter((d) => d.projectId !== null).length || null,
@@ -335,7 +368,10 @@ export function DocumentsWorkspace({
         className="grid gap-2 sm:grid-cols-3 lg:grid-cols-5"
       >
         {TABS.filter(
-          (tab) => (!tab.adminOnly || canConfigure) && (!tab.approverOnly || canApprove),
+          (tab) =>
+            (!tab.adminOnly || canConfigure) &&
+            (!tab.approverOnly || canApprove) &&
+            (!tab.salesOnly || canSales),
         ).map((tab) => {
           const isActive = tab.key === activeTab;
           const count = TAB_COUNTS[tab.key];
@@ -477,6 +513,20 @@ export function DocumentsWorkspace({
           everybody with no approval in front of it. Passing the wrong one here
           would put a button in front of a Coordinator whose only possible outcome
           is a refusal from `library_documents_write`. */}
+      {/* ⚠️ GUARDED ON `canSales` AS WELL AS THE TAB. Without it a salesperson
+          losing CRM access mid-session would be left on a panel with no tab to
+          navigate away from — the same fault the approvals tab already documents
+          for a Member. */}
+      {activeTab === 'sales' && canSales && (
+        <div role="tabpanel" id="documents-panel-sales" aria-labelledby="documents-tab-sales">
+          <DocumentShelf
+            documents={salesDocuments}
+            projects={salesProjects}
+            nowMs={nowMs}
+          />
+        </div>
+      )}
+
       {activeTab === 'library' && (
         <div role="tabpanel" id="documents-panel-library" aria-labelledby="documents-tab-library">
           <LibraryPanel

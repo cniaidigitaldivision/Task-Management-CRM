@@ -2,7 +2,9 @@ import type { Metadata } from 'next';
 
 import { DocumentsWorkspace } from '@/components/documents/documents-workspace';
 import { PageHeader } from '@/components/ui/page-header';
-import { requireUser } from '@/lib/auth/current-user';
+import { getCurrentDepartment, requireUser } from '@/lib/auth/current-user';
+import { crmIsOpenTo } from '@/lib/auth/current-user';
+import { crmDocumentProjects, crmDocuments } from '@/lib/db/queries/crm-documents';
 import { getDriveSync, listDocuments, listDraftProjects } from '@/lib/db/queries/documents';
 import { connectionStatus } from '@/lib/db/queries/drive';
 import { listFolders } from '@/lib/db/queries/drive-folders';
@@ -105,7 +107,17 @@ export default async function DocumentsPage({
   const canShare = can(actor, 'document.share');
   const drive = describeDrive();
 
-  const [documents, projects, sync, drafts, connection, folders, library] = await Promise.all([
+  /* ⚠️ THE CRM GATE IS RESOLVED BEFORE THE WAVE, because the two reads below are
+     skipped entirely for somebody who cannot see the tab — asking for data the
+     page will not render is a query for nothing. Same stance the Drive reads
+     take two lines down. */
+  const department = await getCurrentDepartment();
+  const canSales = crmIsOpenTo(user, department);
+
+  const [
+    documents, projects, sync, drafts, connection, folders, library,
+    salesDocuments, salesProjects,
+  ] = await Promise.all([
     listDocuments(user.id),
     listProjects(user.id),
     /* Both are Admin+ by policy, so they are only read for somebody who may see
@@ -125,6 +137,11 @@ export default async function DocumentsPage({
     /* The company's own material. Read for every role — the whole point is that
        anybody can find the rate card. */
     listLibraryDocuments(user.id),
+    /* ⚠️ IN THE SAME WAVE. These owe the other seven nothing and the other seven
+       owe them nothing — Rule Zero, law 4. And empty for anybody who cannot see
+       the tab, so a Development member costs no extra query. */
+    canSales ? crmDocuments(user.id) : Promise.resolve([]),
+    canSales ? crmDocumentProjects(user.id) : Promise.resolve([]),
   ]);
 
   const pending = documents.filter((d) => d.state === 'pending').length;
@@ -194,6 +211,9 @@ export default async function DocumentsPage({
       <DocumentsWorkspace
         documents={documents}
         projects={projects.map((p) => ({ id: p.id, name: p.name }))}
+        canSales={canSales}
+        salesDocuments={salesDocuments}
+        salesProjects={salesProjects}
         canApprove={can(actor, 'document.approve')}
         canManage={can(actor, 'document.manage')}
         /* ⚠️ A SEPARATE PERMISSION, ONE RUNG HIGHER — owner request 2026-08-29.

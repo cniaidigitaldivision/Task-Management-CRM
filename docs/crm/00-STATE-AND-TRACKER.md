@@ -9,7 +9,52 @@
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
 | **Last updated** | **2026-09-16** |
-| **Last migration applied anywhere** | **177** (verified against the live database, not remembered). CRM next: **178.** |
+| **Last migration applied anywhere** | **178** (verified against the live database, not remembered). CRM next: **179.** |
+
+---
+
+## 📎 2026-09-17 — SOMEWHERE TO PUT THE LETTERHEAD · migration 178
+
+The owner asked twice — *"give me some place where I can see all the documents
+this project has"*, then *"you didn't provide me a place where I can upload
+these documents"*. Fair: the letterhead had been the top blocking item on all 18
+projects for a day with nowhere to put one.
+
+**Where it lives:** ⚠️ **a tab on `/documents`, not a page of its own** — the
+owner's instruction: *"add that tab and that will only be visible to salespersons
+only."* Gated on `crmIsOpenTo()`, the same capability that opens the lead desk,
+**not** on rank — the people whose job this is are `member`, the bottom of
+Taskly's ladder.
+
+⚠️ **THIS IS THE CRM'S SECOND FOOT OUTSIDE ITSELF, AND IT IS DELIBERATE.**
+`16-EXTRACTING-THE-CRM.md` rule 2 says nothing outside the CRM may import from
+inside it, and until today exactly one file did (`api/pulse`). Now two. It is one
+import, one tab entry and three props in `documents-workspace.tsx` — a known,
+deletable line rather than a thread somebody finds later. The coupling check in
+that file now returns it, which is the check working.
+
+**No new bucket.** The existing one already allows PDF, PNG, JPEG and SVG, already
+has signed URLs, already has its mime allowlist. CRM files go under a `crm/`
+prefix so they stay identifiable when the module is lifted.
+
+| Rule | Why |
+|---|---|
+| **One letterhead per project** | A unique index. Two means the PDF generator picks one and the owner watches a corrected letterhead fail to take effect |
+| **A lead's document follows the lead** | The policy asks `crm_leads` itself, under the caller — so this file never restates the membership rule and gets it wrong for the tenth time |
+| **Delete is admin-only** | A signed booking form removed by accident is not recoverable. The same append-only stance `crm_lead_activity` takes |
+| **The upload maintains the pointer** | `letterhead_path` is what the PDF generator and readiness read. One place to upload, one pointer — rather than asking the owner to do both and watching them disagree |
+| **Recorded only after the bytes land** | A row written first lists a document that 404s, and the first one anybody clicks is the letterhead |
+
+⚠️ **A TEST CAUGHT A REAL BUG WHILE BUILDING IT.** The upload form is a client
+component and it imported `DOCUMENT_KINDS` and `documentKindLabel` from a
+`server-only` query module — which drags server code into the browser bundle.
+`design-tokens.test.ts` asserts exactly this and failed immediately. The
+vocabulary now lives in `lib/domain/crm-documents.ts` with every other pure list
+in this codebase.
+
+**The shelf leads with what is MISSING** — *"N projects still have no
+letterhead"*, naming them — because a list of what IS there would not have told
+the owner what to do next.
 
 ---
 
