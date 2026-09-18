@@ -44,6 +44,8 @@ const ENUM_STAGES = [
   'visit_scheduled',
   'visited',
   'negotiation',
+  /* Added by migration 205 — the sequence parks a lead here on silence. */
+  'nurture',
   'won',
   'lost',
 ];
@@ -85,7 +87,7 @@ const ENUM_LOST_REASONS = [
 ];
 
 describe('every database value has a word', () => {
-  it('covers all ten live stages, and no invented ones', () => {
+  it('covers all eleven live stages, and no invented ones', () => {
     expect([...STAGE_ORDER].sort()).toEqual([...ENUM_STAGES].sort());
   });
 
@@ -226,11 +228,15 @@ describe('the order is the pipeline', () => {
     expect(isOpen('negotiation')).toBe(true);
   });
 
-  it('lists exactly the eight open stages', () => {
-    /* Ten live stages, less `won` and `lost` — the two exits. */
-    expect(OPEN_STAGES).toHaveLength(8);
+  it('lists exactly the nine open stages', () => {
+    /* Eleven live stages, less `won` and `lost` — the two exits. */
+    expect(OPEN_STAGES).toHaveLength(9);
     expect(OPEN_STAGES).not.toContain('won');
     expect(OPEN_STAGES).not.toContain('lost');
+    /* ⚠️ NURTURE IS OPEN. A lead that stopped answering never said no, so it
+       still counts as live — treating it as closed would write off every lead
+       that went quiet (206). */
+    expect(OPEN_STAGES).toContain('nurture');
   });
 });
 

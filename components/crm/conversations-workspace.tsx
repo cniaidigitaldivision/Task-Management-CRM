@@ -5,23 +5,31 @@ import type { Route } from 'next';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
+  CalendarClock,
   ChevronRight,
   FileText,
   Mail,
   MoreVertical,
   NotebookPen,
+  Pencil,
   Phone,
   Search,
   UserRound,
   Video,
+  X,
 } from 'lucide-react';
 
 import { LeadConversationTab, useConversationSummary } from '@/components/crm/lead-conversation-tab';
+import { LeadOverviewTab } from '@/components/crm/lead-overview-tab';
+import { RecordOutcome } from '@/components/crm/record-outcome';
+import { RelatedItemsDialog, seedRelated } from '@/components/crm/related-items';
+import { EditLeadDetails } from '@/components/crm/edit-lead-details';
+import { STAGE_ORDER, stageLabel as stageName } from '@/lib/domain/crm-stages';
 import { MAIL_BLUE, WA_GREEN, WhatsAppMark } from '@/components/crm/whatsapp-mark';
 import { leadBundlesAction } from '@/app/actions/crm-lead-bundles';
 import type { CrmConversation, CrmLeadBundle } from '@/lib/db/queries/crm-leads';
 import { quotationStatusLabel, quotationStatusToken } from '@/lib/domain/crm-quotations';
-import { stageLabel, stageToken } from '@/lib/domain/crm-stages';
+import { stageToken } from '@/lib/domain/crm-stages';
 import { relativeAge } from '@/lib/view/relative-age';
 import { cn } from '@/lib/utils';
 
@@ -126,6 +134,30 @@ export function ConversationsWorkspace({
   const active = activeId ? conversations.find((c) => c.leadId === activeId) ?? null : null;
   const bundle = activeId ? bundles[activeId] ?? null : null;
 
+  /* ── ⚠️ EVERYTHING OPENS HERE, NOTHING NAVIGATES ──────────────────────────
+     Owner, 2026-09-18: *"anything that I click, like View Lead Details, should
+     either expand here or show a modal here. It should not bring me to some lead
+     page or a drawer."*
+
+     So the quick links and the context rail no longer carry `<Link href>`. They
+     set one of these, and the panel opens over this page — the same components
+     the drawer uses, so nothing about what they do or what they are allowed to
+     write changes. */
+  const [panel, setPanel] = React.useState<null | 'details' | 'related' | 'edit'>(null);
+  const [relatedTab, setRelatedTab] =
+    React.useState<'quotations' | 'properties' | 'appointments' | 'bookings' | 'invoices'>('quotations');
+  /* The stage the dropdown was set to — Record outcome opens on it (155). */
+  const [outcomeStage, setOutcomeStage] = React.useState<string | null>(null);
+
+  /* ⚠️ CLOSED WHEN THE CONVERSATION CHANGES. A panel left open over a different
+     lead would be showing one person's record beside another's thread. */
+  const [panelFor, setPanelFor] = React.useState<string | null>(activeId);
+  if (panelFor !== activeId) {
+    setPanelFor(activeId);
+    if (panel) setPanel(null);
+    if (outcomeStage) setOutcomeStage(null);
+  }
+
   /* ── The filters write the URL, because they change what the SERVER lists ── */
   const setChannel = (next: Channel) => {
     const params = new URLSearchParams(urlParams.toString());
@@ -159,7 +191,15 @@ export function ConversationsWorkspace({
   }, [typed]);
 
   return (
-    <div className="flex h-[calc(100dvh-var(--app-header-h,4rem))] min-h-0 flex-col gap-4 p-4 sm:p-6">
+    /* ⚠️ NO PADDING OF ITS OWN, AND FULL HEIGHT. Owner, 2026-09-18: *"the padding
+       on the right side is a little different from other pages… I want it to
+       display fully from the top down."* The shell's own `<main>` already pads
+       every page (`px-4 py-4 sm:px-6 sm:py-4`), so the `p-6` this had was a
+       SECOND gutter on top of it — which is exactly the difference they saw. And
+       the height now subtracts the real topbar and that padding rather than a
+       `--app-header-h` variable which does not exist, so the three panes reach
+       the bottom of the window instead of stopping short. */
+    <div className="-mx-4 -my-4 flex h-[calc(100dvh-var(--topbar-height))] min-h-0 flex-col gap-3 px-4 py-4 sm:-mx-6 sm:-my-4 sm:px-6">
       <Header channel={channel} onChannel={setChannel} total={conversations.length} />
 
       <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)] xl:grid-cols-[minmax(0,21rem)_minmax(0,1fr)_minmax(0,19rem)]">
@@ -176,12 +216,151 @@ export function ConversationsWorkspace({
           conversation={active}
           bundle={bundle}
           viewerName={viewerName}
-          onOpenFollowUps={() =>
-            active && router.push(`/my-leads?lead=${active.leadId}&tab=followups` as Route)
-          }
+          onOpenDetails={() => setPanel('details')}
+          onOpenFollowUps={() => setPanel('details')}
         />
 
-        <ContextPane conversation={active} bundle={bundle} />
+        <ContextPane
+          conversation={active}
+          bundle={bundle}
+          onStage={(next) => setOutcomeStage(next)}
+          onOpen={(which, tab) => {
+            if (tab) setRelatedTab(tab);
+            setPanel(which);
+          }}
+        />
+      </div>
+
+      {/* ── The panels, over this page ─────────────────────────────────── */}
+      {panel === 'details' && active && bundle && (
+        <RecordPanel
+          title={active.fullName ?? 'Lead details'}
+          subtitle={[active.projectName, active.city].filter(Boolean).join(' · ')}
+          onClose={() => setPanel(null)}
+          onEdit={() => setPanel('edit')}
+        >
+          <LeadOverviewTab
+            loading={false}
+            lead={bundle.record.lead}
+            notes={bundle.record.notes}
+            activity={bundle.record.activity}
+            related={bundle.related}
+            phone={active.phoneE164 ?? ''}
+            viewerName={viewerName}
+            /* ⚠️ ITS TABS BECOME THIS PAGE'S PANELS. The overview offers the
+               drawer's other tabs; here "conversations" is the screen behind this
+               panel, and the rest open the follow-ups the same way. */
+            onTab={(tab) => {
+              if (tab === 'conversations') setPanel(null);
+              else setPanel('details');
+            }}
+          />
+        </RecordPanel>
+      )}
+
+      {panel === 'related' && active && bundle && (
+        <RelatedItemsDialog
+          lead={bundle.record.lead}
+          sender={bundle.related.sender}
+          seed={seedRelated(bundle.record.lead, bundle.related)}
+          initialTab={relatedTab}
+          onAttach={() => setPanel(null)}
+          onClose={() => setPanel(null)}
+          onChooseUnit={() => setPanel(null)}
+          onRecordOutcome={() => {
+            setPanel(null);
+            setOutcomeStage(bundle.record.lead.stage);
+          }}
+        />
+      )}
+
+      {panel === 'edit' && active && bundle && (
+        <EditLeadDetails lead={bundle.record.lead} onClose={() => setPanel('details')} />
+      )}
+
+      {/* ⚠️ THE SAME RECORD OUTCOME MODAL AS EVERYWHERE ELSE. The owner's rule of
+          2026-09-17: every stage change asks what happened, on whichever screen
+          the change was made. */}
+      {outcomeStage && active && (
+        <RecordOutcome
+          leadId={active.leadId}
+          leadName={active.fullName ?? 'this lead'}
+          currentStage={bundle?.record.lead.stage ?? active.stage}
+          proposedStage={outcomeStage}
+          onClose={() => setOutcomeStage(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * A full-height panel over the page.
+ *
+ * ⚠️ NOT A ROUTE, AND NOT THE DRAWER. It renders the same components the drawer
+ * does, so there is one definition of what a lead's overview is — but it opens
+ * here, which is the whole of the owner's request.
+ */
+function RecordPanel({
+  title,
+  subtitle,
+  onClose,
+  onEdit,
+  children,
+}: {
+  title: string;
+  subtitle: string;
+  onClose: () => void;
+  onEdit: () => void;
+  children: React.ReactNode;
+}) {
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+      onMouseDown={onClose}
+    >
+      <div
+        onMouseDown={(e) => e.stopPropagation()}
+        className="flex h-[min(46rem,92vh)] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-border-subtle bg-bg-surface shadow-2xl"
+      >
+        <header className="flex shrink-0 items-center gap-3 border-b border-border-subtle px-5 py-4">
+          <Avatar name={title} />
+          <div className="min-w-0 flex-1">
+            <h2 className="truncate text-body font-semibold text-text-primary">{title}</h2>
+            <p className="truncate text-caption text-text-secondary">{subtitle}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onEdit}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border-default px-3 py-1.5 text-caption font-medium text-text-primary transition-colors hover:bg-bg-subtle"
+          >
+            <Pencil className="size-3.5" aria-hidden="true" />
+            Edit details
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="grid size-8 shrink-0 place-items-center rounded-lg text-text-secondary transition-colors hover:bg-bg-subtle hover:text-text-primary"
+          >
+            <X className="size-4" aria-hidden="true" />
+          </button>
+        </header>
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</div>
       </div>
     </div>
   );
@@ -398,11 +577,13 @@ function ThreadPane({
   conversation,
   bundle,
   viewerName,
+  onOpenDetails,
   onOpenFollowUps,
 }: {
   conversation: CrmConversation | null;
   bundle: CrmLeadBundle | null;
   viewerName: string;
+  onOpenDetails: () => void;
   onOpenFollowUps: () => void;
 }) {
   if (!conversation) {
@@ -443,7 +624,9 @@ function ThreadPane({
         >
           <Video className="size-4" aria-hidden="true" />
         </HeaderAction>
-        <HeaderAction href={`/my-leads?lead=${conversation.leadId}`} label="Open the full record">
+        {/* ⚠️ OPENS HERE. It used to link to the drawer on another page, which is
+            exactly what the owner asked to stop happening. */}
+        <HeaderAction onClick={onOpenDetails} label="Open the full record">
           <MoreVertical className="size-4" aria-hidden="true" />
         </HeaderAction>
       </header>
@@ -466,15 +649,24 @@ function ThreadPane({
 
 function HeaderAction({
   href,
+  onClick,
   label,
   children,
 }: {
-  href: string | null;
+  href?: string | null;
+  onClick?: () => void;
   label: string;
   children: React.ReactNode;
 }) {
   const className =
     'grid size-9 shrink-0 place-items-center rounded-xl border border-border-default text-text-secondary transition-colors hover:bg-bg-subtle hover:text-text-primary';
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick} aria-label={label} title={label} className={className}>
+        {children}
+      </button>
+    );
+  }
   if (!href) {
     return (
       <span
@@ -557,12 +749,19 @@ function ThreadBody({
 
 /* ── 3 · The lead's context ──────────────────────────────────────────────── */
 
+type PanelKey = 'details' | 'related' | 'edit';
+type RelatedTab = 'quotations' | 'properties' | 'appointments' | 'bookings' | 'invoices';
+
 function ContextPane({
   conversation,
   bundle,
+  onStage,
+  onOpen,
 }: {
   conversation: CrmConversation | null;
   bundle: CrmLeadBundle | null;
+  onStage: (next: string) => void;
+  onOpen: (which: PanelKey, tab?: RelatedTab) => void;
 }) {
   if (!conversation) return <aside className="hidden xl:block" />;
 
@@ -583,13 +782,14 @@ function ContextPane({
     <aside className="hidden min-h-0 flex-col overflow-y-auto rounded-2xl border border-border-subtle bg-bg-surface xl:flex">
       <header className="flex shrink-0 items-center justify-between gap-2 border-b border-border-subtle px-4 py-3">
         <h2 className="text-body-sm font-semibold text-text-primary">Lead context</h2>
-        <Link
-          href={`/my-leads?lead=${conversation.leadId}` as Route}
+        <button
+          type="button"
+          onClick={() => onOpen('details')}
           className="inline-flex items-center gap-1 text-caption font-medium text-accent-primary hover:underline"
         >
           View details
           <ChevronRight className="size-3.5" aria-hidden="true" />
-        </Link>
+        </button>
       </header>
 
       <div className="space-y-4 px-4 py-4">
@@ -623,16 +823,31 @@ function ContextPane({
           </Reach>
         </div>
 
+        {/* ⚠️ A REAL DROPDOWN, AND IT ASKS WHAT HAPPENED. Owner, 2026-09-18:
+            *"there is also a stage dropdown and that will be a dropdown when I
+            click… the outcome modal will again be the same modal."* Changing it
+            here opens `RecordOutcome`, exactly as the drawer does — the stage is
+            never written straight from a select (155).
+            ⚠️ `lost` is absent: it needs a reason (111's constraint), so offering
+            it would produce a refusal rather than a change. */}
         <Row label="Stage">
-          <span
-            className="inline-block rounded-md px-2 py-0.5 text-caption font-medium"
+          <select
+            value={lead?.stage ?? conversation.stage}
+            disabled={!bundle}
+            onChange={(e) => onStage(e.target.value)}
+            aria-label="Stage"
+            className="w-full rounded-md border-0 px-2 py-1 text-caption font-medium focus:outline-none disabled:opacity-60"
             style={{
+              backgroundColor: `color-mix(in oklab, var(--${stageToken(lead?.stage ?? conversation.stage)}) 14%, transparent)`,
               color: `var(--${stageToken(lead?.stage ?? conversation.stage)})`,
-              background: `color-mix(in oklab, var(--${stageToken(lead?.stage ?? conversation.stage)}) 14%, transparent)`,
             }}
           >
-            {stageLabel(lead?.stage ?? conversation.stage)}
-          </span>
+            {STAGE_ORDER.map((v) => (
+              <option key={v} value={v}>
+                {stageName(v)}
+              </option>
+            ))}
+          </select>
         </Row>
 
         <Row label="Quotation">
@@ -692,17 +907,18 @@ function ContextPane({
 
         <div className="border-t border-border-subtle pt-3">
           <p className="mb-2 text-caption font-semibold text-text-primary">Quick links</p>
-          <QuickLink href={`/my-leads?lead=${conversation.leadId}`} icon={UserRound}>
+          {/* ⚠️ NONE OF THESE NAVIGATE. Each opens over this page. */}
+          <QuickLink onClick={() => onOpen('details')} icon={UserRound}>
             View lead details
           </QuickLink>
-          <QuickLink href={`/my-leads?lead=${conversation.leadId}&tab=related`} icon={FileText}>
+          <QuickLink onClick={() => onOpen('related', 'quotations')} icon={FileText}>
             View quotation
           </QuickLink>
-          <QuickLink href={`/my-leads?lead=${conversation.leadId}&tab=overview`} icon={NotebookPen}>
+          <QuickLink onClick={() => onOpen('details')} icon={NotebookPen}>
             Add a note
           </QuickLink>
-          <QuickLink href={`/my-leads?lead=${conversation.leadId}&tab=followups`} icon={Mail}>
-            Schedule follow-up
+          <QuickLink onClick={() => onOpen('related', 'appointments')} icon={CalendarClock}>
+            Book an appointment
           </QuickLink>
         </div>
       </div>
@@ -760,22 +976,23 @@ function Reach({
 }
 
 function QuickLink({
-  href,
+  onClick,
   icon: Icon,
   children,
 }: {
-  href: string;
+  onClick: () => void;
   icon: React.ComponentType<{ className?: string; 'aria-hidden'?: boolean | 'true' }>;
   children: React.ReactNode;
 }) {
   return (
-    <Link
-      href={href as Route}
-      className="flex items-center gap-2.5 rounded-lg px-1 py-2 text-caption text-text-primary transition-colors hover:bg-bg-subtle"
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex w-full items-center gap-2.5 rounded-lg px-1 py-2 text-left text-caption text-text-primary transition-colors hover:bg-bg-subtle"
     >
       <Icon className="size-4 shrink-0 text-text-secondary" aria-hidden="true" />
       <span className="min-w-0 flex-1 truncate">{children}</span>
       <ChevronRight className="size-3.5 shrink-0 text-text-tertiary" aria-hidden="true" />
-    </Link>
+    </button>
   );
 }

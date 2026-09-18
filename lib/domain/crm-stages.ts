@@ -45,6 +45,11 @@ export const STAGE_ORDER = [
   'visit_scheduled',
   'visited',
   'negotiation',
+  /* ⚠️ PARKED, NOT CLOSED — migration 205/206. A lead that was chased to the end
+     of a sequence and never answered belongs here: it never said no, so it is not
+     `lost`, and it is not moving, so it is not in the pipeline. The sequence puts
+     it here by itself when every step went out in silence. */
+  'nurture',
   'won',
   'lost',
 ] as const;
@@ -131,6 +136,13 @@ const STAGES: Record<string, StageMeta> = {
      lead is in trouble" with later. And measured: feedback-warning through the
      Badge's mix gives **4.37:1 in light**, just under the 4.5 floor. */
   negotiation: { label: 'Negotiation', token: 'chart-2', open: true },
+  /* ⚠️ `open: true`. A nurtured lead still counts as live and can still be won —
+     it has only stopped answering. Counting it as closed would quietly write off
+     every lead that went quiet. */
+  /* ⚠️ `chart-3`, NOT `gold-700` — `visited` already owns that, and every stage
+     needs its own hue or the funnel strip reads as one band (the colour test
+     catches exactly this). */
+  nurture: { label: 'Nurture', token: 'chart-3', open: true },
   won: { label: 'Won', token: 'feedback-success', open: false },
   lost: { label: 'Lost', token: 'neutral-500', open: false },
 };

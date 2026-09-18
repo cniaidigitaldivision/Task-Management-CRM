@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 
 import { ConversationsWorkspace } from '@/components/crm/conversations-workspace';
 import { requireCrmAccess } from '@/lib/auth/current-user';
-import { crmConversations, crmLeadBundles } from '@/lib/db/queries/crm-leads';
+import { crmConversations, crmLeadBundles, type CrmLeadBundle } from '@/lib/db/queries/crm-leads';
 import { nowMs } from '@/lib/now';
 
 export const metadata: Metadata = { title: 'Conversations' };
@@ -47,23 +47,39 @@ export default async function ConversationsPage({
     params.channel === 'whatsapp' ? 'whatsapp' : params.channel === 'email' ? 'email' : null;
   const search = params.q ?? null;
 
-  /* ⚠️ THE LIST FIRST, BECAUSE THE BUNDLES DEPEND ON IT. This is the one real
-     dependency on the page — which conversations to preload is the list's own
-     answer — so it is two waves rather than one, and the second is wide rather
-     than deep. Everything inside each wave leaves together. */
-  const conversations = await crmConversations(user.id, { channel, search });
+  /* ── ⚠️ ONE BUNDLE, NOT NINE — AND IN THE SAME WAVE WHEN IT CAN BE ────────
+     Owner, 2026-09-18: *"still the page is taking a lot of time to load. Why is
+     that so?"* Measured before answering: the list query is **0.5 ms**, so it was
+     never the list. It was this — the page awaited NINE full bundles before
+     rendering a pixel, and a bundle is thirteen queries that run in series on one
+     connection (`transactions-run-queries-in-series`). Nine of them is most of a
+     second here and several times that from Karachi.
+
+     Only the OPEN conversation is needed to draw the screen. The other eight were
+     a prefetch dressed up as a dependency — and the client already fetches them in
+     the background, which is where a prefetch belongs.
+
+     ⚠️ AND WHEN THE URL NAMES THE LEAD, NOTHING IS WAITED FOR TWICE. `?lead=` is
+     known before any query runs, so the list and that lead's bundle leave together
+     (law 4). Only a bare `/conversations` has to learn which conversation is first
+     before it can fetch it — one short wave, then one. */
+  const named = params.lead ?? null;
+
+  const [conversations, namedBundle] = await Promise.all([
+    crmConversations(user.id, { channel, search }),
+    named ? crmLeadBundles(user.id, [named]) : Promise.resolve({} as Record<string, CrmLeadBundle>),
+  ]);
 
   const wanted =
-    params.lead && conversations.some((c) => c.leadId === params.lead)
-      ? params.lead
+    named && conversations.some((c) => c.leadId === named)
+      ? named
       : (conversations[0]?.leadId ?? null);
 
-  /* The open one first, then the top of the list — what a person clicks next. */
-  const preload = [...new Set([wanted, ...conversations.slice(0, 9).map((c) => c.leadId)])].filter(
-    (id): id is string => id !== null,
-  );
-
-  const bundles = preload.length > 0 ? await crmLeadBundles(user.id, preload) : {};
+  /* Already in hand when the URL named it; otherwise the first conversation's. */
+  const bundles =
+    wanted && !namedBundle[wanted]
+      ? await crmLeadBundles(user.id, [wanted])
+      : namedBundle;
 
   return (
     <ConversationsWorkspace
