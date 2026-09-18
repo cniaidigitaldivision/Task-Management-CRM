@@ -9,7 +9,78 @@
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
 | **Last updated** | **2026-09-18** |
-| **Last migration applied anywhere** | **200** (applied 2026-09-18; 197 requests reach the manager, 198 the receipt stamp reads its own table — **every booking update had been failing**, 199 a booking holds its plot, **200 the timeline takes what the app writes — recording an outcome had been failing for every salesperson**). CRM next: **201.** |
+| **Last migration applied anywhere** | **201** (applied 2026-09-18; **201 a lead's own details are correctable — the grant was missing, so no edit form could exist**; 197 requests reach the manager, 198 the receipt stamp reads its own table — **every booking update had been failing**, 199 a booking holds its plot, **200 the timeline takes what the app writes — recording an outcome had been failing for every salesperson**). CRM next: **202.** |
+
+---
+
+## ✏️ 2026-09-18 (later) — A LEAD CAN BE CORRECTED · 201
+
+Owner: *"add the edit option for things like phone number, email, for example, if I
+want to change it, or their name, their interest… when I contact him and he gives
+me a correct number or a correct email, I want to add that information."*
+
+Which is the commonest correction in this business: a Meta form arrives with a
+typo'd number, the salesperson rings the one that works, and the record has to
+follow.
+
+### 201 · the grant was missing, so the form could not exist
+
+`cni_app` had UPDATE on `stage`, `temperature`, `owner_id`, `property_id` and the
+next action — and **not** on `full_name`, `phone`, `phone_e164`, `email`, `city` or
+`answers`. The RLS policy has always let the owner update their lead; the column
+grant was never widened.
+
+⚠️ **A GRANT, NOT A POLICY, AND THE DIFFERENCE IS THE ERROR MESSAGE.** A missing
+column grant says *"permission denied for table crm_leads"*, which reads as RLS and
+sends somebody to rewrite a policy that was already correct (166's lesson,
+`definers-hide-missing-grants`).
+
+⚠️ **PROVENANCE STAYS UNWRITABLE.** `project_id`, `source`, `external_id`,
+`submitted_at` and `is_test_data` are where the lead CAME FROM; a record whose
+provenance can be edited cannot be reconciled with Meta's own export. The
+self-check proves `external_id` is still refused.
+
+⚠️ **AND `phone_e164` MUST FOLLOW `phone`.** It is what duplicate detection, the
+WhatsApp link and the message thread all match on — a writer that changed the number
+and left the normalised form behind would produce a lead that *looks* corrected and
+still reaches the old handset. `app.crm_leads_guard_phone_pair` (CRM96) refuses the
+pair when the stored E.164 no longer ends with the last nine digits of the number
+being saved. **It compares digits; it does not parse** — `lib/domain/phone.ts` knows
+about 0092 and leading zeros and is tested, and a second parser in PL/pgSQL would be
+a second thing to keep in step.
+
+### The form
+
+Behind the three dots in the drawer, with *Open the full record* and *See everything
+that happened* — a correction is not a channel, so it does not become a sixth tile
+on a row somebody reads left to right.
+
+Five fields: **Name · Phone · Email · City · Interest**. Stage, owner and
+temperature are decisions with their own controls; putting them in a form called
+"Edit details" would make a correction look like a change of plan.
+
+⚠️ **WHAT IS BEING REPLACED IS SHOWN**, under each field, once it differs — the
+commonest way this goes wrong is somebody overwriting a good number from memory.
+⚠️ **THE EMAIL AND THE NUMBER ARE CHECKED**, because the whole point is that
+somebody read them off a phone call. A number `toE164` cannot dial is refused with
+the shape it wants.
+⚠️ **AND EVERY CHANGE LEAVES A NOTE** — *"Email: faisal@example.com →
+ummehabiba989@gmail.com"* — written in the same transaction, so 200's note trigger
+puts it on the timeline. A record that can be edited silently is one nobody can
+trust six months later when the number on the lead is not the number the quotation
+went to.
+⚠️ **AND `answers` IS MERGED, NEVER REPLACED.** It holds everything Meta sent;
+overwriting the object to record one interest would throw away the form the lead
+arrived on.
+
+### Proved on Faisal Rehman
+
+The owner asked for that lead's email set to their own address, so it went in
+**through `crmUpdateLeadDetails` itself** rather than a hand-written UPDATE — the
+only way to prove the feature. Result: `email` set, `answers` carrying both the new
+interest **and** the original Meta question, `changed: 2`, and the note on the
+timeline. A deliberately stale `phone_e164` in the same call was refused by CRM96
+with the record left alone.
 
 ---
 

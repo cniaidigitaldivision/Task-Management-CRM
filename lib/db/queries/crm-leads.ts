@@ -3799,3 +3799,98 @@ export async function crmLeadEmailContext(
     lastSubject: (r.last_subject as string | null) ?? null,
   };
 }
+
+/* ── Correcting the person's own details — migration 201 ──────────────────── */
+
+export interface LeadDetailsInput {
+  readonly fullName: string | null;
+  readonly phone: string | null;
+  /** Derived from `phone` by the caller with `toE164` — see below. */
+  readonly phoneE164: string | null;
+  readonly email: string | null;
+  readonly city: string | null;
+  /** What they are after, in their own words. Merged into `answers`. */
+  readonly interest: string | null;
+}
+
+/**
+ * Save a correction.
+ *
+ * Owner, 2026-09-18: *"when I contact him and he gives me a correct number or a
+ * correct email, I want to add that information."*
+ *
+ * ⚠️ AND IT LEAVES A NOTE SAYING WHAT CHANGED. A record that can be edited
+ * silently is a record nobody can trust: six months later the number on the lead
+ * is not the number the quotation was sent to, and nothing says when it moved.
+ * The note is written in the same transaction, and `app.crm_note_record_activity`
+ * turns it into the timeline entry (200's rule — 'note_added' is the trigger's
+ * alone).
+ *
+ * ⚠️ `phone_e164` IS DERIVED BY THE CALLER, NOT HERE. `toE164` is tested TypeScript
+ * and belongs in one place; 201's trigger refuses a pair that disagrees, so a
+ * writer that forgets is stopped rather than trusted.
+ *
+ * ⚠️ AND THE ANSWERS ARE MERGED, NEVER REPLACED. `answers` holds everything Meta
+ * sent; overwriting the object to record one interest would throw away the form
+ * the lead arrived on.
+ */
+export async function crmUpdateLeadDetails(
+  actorId: string,
+  leadId: string,
+  input: LeadDetailsInput,
+): Promise<{ ok: boolean; changed: number }> {
+  return withUser(actorId, async (tx) => {
+    const before = (await tx`
+      select full_name, phone, email, city, answers
+        from public.crm_leads where id = ${leadId}::uuid
+    `) as Array<{
+      full_name: string | null;
+      phone: string | null;
+      email: string | null;
+      city: string | null;
+      answers: Record<string, string> | null;
+    }>;
+    const was = before[0];
+    /* ⚠️ ZERO ROWS IS RLS REFUSING THE LEAD, not a fault. */
+    if (!was) return { ok: false, changed: 0 };
+
+    const interestWas = was.answers?.interest ?? null;
+    const moved: string[] = [];
+    const note = (label: string, from: string | null, to: string | null) => {
+      if ((from ?? '') === (to ?? '')) return;
+      moved.push(`${label}: ${from?.trim() || '—'} → ${to?.trim() || '—'}`);
+    };
+    note('Name', was.full_name, input.fullName);
+    note('Phone', was.phone, input.phone);
+    note('Email', was.email, input.email);
+    note('City', was.city, input.city);
+    note('Interest', interestWas, input.interest);
+
+    if (moved.length === 0) return { ok: true, changed: 0 };
+
+    const rows = (await tx`
+      update public.crm_leads
+         set full_name  = ${input.fullName},
+             phone      = ${input.phone},
+             phone_e164 = ${input.phoneE164},
+             email      = ${input.email},
+             city       = ${input.city},
+             answers    = case
+                            when ${input.interest}::text is null
+                              then coalesce(answers, '{}'::jsonb) - 'interest'
+                            else coalesce(answers, '{}'::jsonb)
+                                 || jsonb_build_object('interest', ${input.interest}::text)
+                          end
+       where id = ${leadId}::uuid
+      returning id
+    `) as Array<{ id: string }>;
+    if (rows.length === 0) return { ok: false, changed: 0 };
+
+    await tx`
+      insert into public.crm_lead_notes (lead_id, author_id, body)
+      values (${leadId}::uuid, ${actorId}::uuid, ${`Details corrected\n${moved.join('\n')}`})
+    `;
+
+    return { ok: true, changed: moved.length };
+  });
+}

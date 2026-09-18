@@ -7,6 +7,7 @@ import {
   CalendarClock,
   CirclePlus,
   ClipboardCheck,
+  Pencil,
   ExternalLink,
   Eye,
   FileText,
@@ -26,6 +27,7 @@ import {
   WhatsAppMark,
 } from '@/components/crm/whatsapp-mark';
 import { RecordOutcome } from '@/components/crm/record-outcome';
+import { EditLeadDetails } from '@/components/crm/edit-lead-details';
 import { RelatedItemsDialog, seedRelated } from '@/components/crm/related-items';
 import { initialsOf } from '@/components/ui/avatar';
 import type {
@@ -322,6 +324,7 @@ export function LeadDrawer({
   const [relatedOpen, setRelatedOpen] = React.useState(false);
   const [relatedTab, setRelatedTab] =
     React.useState<'quotations' | 'properties' | 'appointments' | 'bookings' | 'invoices'>('quotations');
+  const [editing, setEditing] = React.useState(false);
   /* What the Related items dialog handed to the composer, if anything. */
   const [handoff, setHandoff] = React.useState<{ id: number; files: readonly File[]; text: string } | null>(null);
 
@@ -507,6 +510,22 @@ export function LeadDrawer({
                     >
                       <CalendarClock className="size-3.5" aria-hidden="true" />
                       See everything that happened
+                    </button>
+                    {/* ⚠️ BEHIND THE DOTS, WITH THE OTHER TWO. Owner, 2026-09-18:
+                        *"in the drawer where the three buttons at the top are
+                        appearing… plus add the edit option."* A correction is not
+                        a channel, so it belongs in this menu rather than as a
+                        sixth tile on a row somebody reads left to right. */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        setEditing(true);
+                      }}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-caption text-text-primary hover:bg-bg-subtle"
+                    >
+                      <Pencil className="size-3.5" aria-hidden="true" />
+                      Edit details
                     </button>
                   </div>
                 )}
@@ -798,6 +817,8 @@ export function LeadDrawer({
           }}
         />
       )}
+
+      {editing && <EditLeadDetails lead={lead} onClose={() => setEditing(false)} />}
 
       {outcomeStage && (
         <RecordOutcome

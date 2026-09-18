@@ -17,6 +17,7 @@ import {
   crmDiaryAround,
   crmMarkQuotationSent,
   crmRaiseQuotation,
+  crmUpdateLeadDetails,
   crmLeadDuplicates,
   crmNextOwner,
   deleteLeadNote,
@@ -1438,4 +1439,72 @@ export async function reviseQuotationAction(
       ? `${revised.number} v${revised.version} raised at PKR ${revised.price.toLocaleString('en-PK')} — this is the floor, there is nothing below it.`
       : undefined,
   };
+}
+
+/* ============================================================================
+ * CORRECTING A LEAD'S DETAILS — migration 201
+ * ----------------------------------------------------------------------------
+ * Owner, 2026-09-18: *"add the edit option for things like phone number, email…
+ * or their name, their interest… when I contact him and he gives me a correct
+ * number or a correct email, I want to add that information."*
+ * ========================================================================= */
+
+export interface LeadDetailsResult extends LeadWriteResult {
+  /** How many fields actually moved, so the toast can say "nothing changed". */
+  readonly changed?: number;
+  /** What the number normalised to, so the form can show what was stored. */
+  readonly phoneE164?: string | null;
+}
+
+export async function updateLeadDetailsAction(input: {
+  leadId: string;
+  fullName: string;
+  phone: string;
+  email: string;
+  city: string;
+  interest: string;
+}): Promise<LeadDetailsResult> {
+  const user = await requireUser();
+
+  const fullName = input.fullName.trim();
+  if (fullName.length > 160) return { ok: false, error: 'Keep the name under 160 characters.' };
+  const city = input.city.trim();
+  if (city.length > 120) return { ok: false, error: 'Keep the city under 120 characters.' };
+  const interest = input.interest.trim();
+  if (interest.length > 400) return { ok: false, error: 'Keep the interest under 400 characters — the detail belongs in a note.' };
+
+  /* ⚠️ AN EMAIL IS CHECKED HERE, because the whole point of this form is that
+     somebody read an address off a phone call. A typo saved silently is a
+     quotation that bounces and nobody notices for a week. */
+  const email = input.email.trim();
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
+    return { ok: false, error: `"${email}" does not look like an email address.` };
+  }
+  if (email.length > 240) return { ok: false, error: 'That email address is too long.' };
+
+  /* ⚠️ AND A NUMBER MUST NORMALISE, or WhatsApp cannot reach it. `toE164` is the
+     same function the importer and the composer use, so a number this refuses is
+     one nothing else in the system could have dialled either. */
+  const phone = input.phone.trim();
+  const phoneE164 = phone ? toE164(phone) : null;
+  if (phone && !phoneE164) {
+    return {
+      ok: false,
+      error: `"${phone}" is not a number we can dial. A Pakistani mobile looks like 0300 1234567, or +92 300 1234567.`,
+    };
+  }
+
+  const saved = await crmUpdateLeadDetails(user.id, input.leadId, {
+    fullName: fullName || null,
+    phone: phone || null,
+    phoneE164,
+    email: email || null,
+    city: city || null,
+    interest: interest || null,
+  });
+  if (!saved.ok) return { ok: false, error: NOT_YOURS };
+
+  refresh(input.leadId);
+  revalidatePath('/my-leads');
+  return { ok: true, changed: saved.changed, phoneE164 };
 }
