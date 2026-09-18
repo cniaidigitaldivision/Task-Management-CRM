@@ -40,7 +40,6 @@ import type {
   CrmMessage,
 } from '@/lib/db/queries/crm-leads';
 import {
-  activityLabel,
   STAGE_ORDER,
   stageLabel,
   stageToken,
@@ -54,9 +53,9 @@ import {
   LeadConversationTab,
   useConversationSummary,
 } from '@/components/crm/lead-conversation-tab';
+import { LeadActivityTab } from '@/components/crm/lead-activity-tab';
 import { LeadOverviewTab } from '@/components/crm/lead-overview-tab';
 import { LeadFollowUpsTab, type FollowUpComposer } from '@/components/crm/lead-followups-tab';
-import { relativeAge } from '@/lib/view/relative-age';
 import { cn } from '@/lib/utils';
 
 /* ============================================================================
@@ -624,25 +623,64 @@ export function LeadDrawer({
         </div>
 
         {/* ── Tabs ─────────────────────────────────────────────────────── */}
-        <div className="flex gap-1 overflow-x-auto border-b border-border-subtle px-3 py-2">
-          {TABS.map((t) => (
-            <button
-              key={t.key}
-              type="button"
-              onClick={() => go(t.key)}
-              aria-pressed={activeTab === t.key}
-              className={cn(
-                'shrink-0 rounded-lg px-3 py-1.5 text-caption font-medium transition-colors',
-                activeTab === t.key
-                  ? 'bg-accent-primary text-white'
-                  : 'text-text-secondary hover:bg-bg-subtle hover:text-text-primary',
-              )}
-            >
-              {t.label}
-              {!loading && t.key === 'conversations' && messages.length > 0 && ` (${messages.length})`}
-              {t.key === 'related' && related.quotations.length > 0 && ` (${related.quotations.length})`}
-            </button>
-          ))}
+        {/* ⚠️ FIVE EQUAL SHARES OF THE WIDTH, NOT FIVE LABELS PUSHED LEFT.
+            Owner, 2026-09-18: *"all the tabs are just left-aligned so make them
+            properly distributed, not just left-aligned. Space them equally so that
+            it will look good or balanced."* `flex-1 basis-0` gives every tab the
+            same width whatever its label weighs, so the row reads as a bar across
+            the drawer rather than a cluster with dead space after it.
+
+            ⚠️ AND THE COUNT IS BARE TEXT, NOT A PILL, BECAUSE IT HAS TO FIT.
+            Measured in the running app: at 38rem each tab gets 102px, and
+            "Conversations" is 83px of it. A pill's own padding put the pair over
+            the line and truncated the longest label the moment a message arrived.
+            Two digits fit; a third does not, so the count caps at 99+ — the
+            busiest lead in the database has 14 messages.
+
+            ⚠️ AND `scrollWidth` LIED ABOUT IT. Under the 0.9 body zoom the used
+            width was 82.7px against 83px of text, which every integer measurement
+            rounds to "83 fits 83" while the browser draws the ellipsis. The
+            screenshot is what caught it; px-2 on the bar and px-1 on each tab give
+            the row the few pixels the reading could not see. */}
+        <div className="flex gap-1 border-b border-border-subtle px-2 py-2">
+          {TABS.map((t) => {
+            const count =
+              t.key === 'conversations'
+                ? !loading && messages.length > 0
+                  ? messages.length
+                  : null
+                : t.key === 'related' && related.quotations.length > 0
+                  ? related.quotations.length
+                  : null;
+            const on = activeTab === t.key;
+            return (
+              <button
+                key={t.key}
+                type="button"
+                onClick={() => go(t.key)}
+                aria-pressed={on}
+                title={t.label}
+                className={cn(
+                  'flex min-w-0 flex-1 basis-0 items-center justify-center gap-1 rounded-lg px-1 py-1.5 text-caption font-medium transition-colors',
+                  on
+                    ? 'bg-accent-primary text-white'
+                    : 'text-text-secondary hover:bg-bg-subtle hover:text-text-primary',
+                )}
+              >
+                <span className="truncate">{t.label}</span>
+                {count !== null && (
+                  <span
+                    className={cn(
+                      'shrink-0 text-micro tabular-nums',
+                      on ? 'text-white/80' : 'text-text-tertiary',
+                    )}
+                  >
+                    {count > 99 ? '99+' : count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
 
         {/* ── Body ─────────────────────────────────────────────────────── */}
@@ -718,7 +756,21 @@ export function LeadDrawer({
               />
             </>
           )}
-          {!loading && activeTab === 'activity' && <Activity activity={activity} nowMs={nowMs} />}
+          {!loading && activeTab === 'activity' && (
+            <LeadActivityTab
+              leadId={lead.id}
+              activity={activity}
+              notes={notes}
+              related={related}
+              nowMs={nowMs}
+              viewerName={viewerName}
+              onTab={go}
+              onOpenRelated={(t) => {
+                setRelatedTab(t);
+                setRelatedOpen(true);
+              }}
+            />
+          )}
         </div>
 
         {/* ── The three things a salesperson does from here ──────────────
@@ -1150,36 +1202,5 @@ function Cell({ label, value, strong = false }: { label: string; value: string; 
   );
 }
 
-/* ---- Activity ------------------------------------------------------------- */
-
-function Activity({ activity, nowMs }: { activity: readonly CrmLeadEvent[]; nowMs: number }) {
-  if (activity.length === 0) return <Empty>Nothing has happened yet.</Empty>;
-  return (
-    <ol className="space-y-3">
-      {activity.map((e) => (
-        <li key={e.id} className="flex gap-3">
-          <span
-            aria-hidden="true"
-            className="mt-1.5 size-2 shrink-0 rounded-full bg-border-strong"
-          />
-          <div className="min-w-0">
-            <p className="text-body-sm text-text-primary">{activityLabel(e.kind)}</p>
-            <p className="mt-0.5 text-caption text-text-tertiary">
-              {/* ⚠️ A NULL ACTOR MEANS THE IMPORTER, not a missing person. 615
-                  rows carry one, and rendering "Unknown" would suggest data was
-                  lost when the truth is that no human did it. */}
-              {e.actorName ?? 'The importer'} · {relativeAge(e.occurredAt, nowMs)}
-            </p>
-          </div>
-        </li>
-      ))}
-    </ol>
-  );
-}
-
 /* ---- Small parts ---------------------------------------------------------- */
 
-
-function Empty({ children }: { children: React.ReactNode }) {
-  return <p className="text-caption leading-relaxed text-text-secondary">{children}</p>;
-}

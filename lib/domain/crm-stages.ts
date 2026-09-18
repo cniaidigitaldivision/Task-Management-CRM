@@ -302,6 +302,9 @@ export function responseBand(minutes: number | null | undefined): 'fast' | 'fair
  */
 const ACTIVITY_LABELS: Record<string, string> = {
   imported: 'Imported',
+  /* 158's own kind for a lead somebody typed in. It was missing here, so the
+     first line of a hand-made lead's timeline read 'created' in lower case. */
+  created: 'Created',
   assigned: 'Assigned',
   stage_changed: 'Stage changed',
   note_added: 'Note added',

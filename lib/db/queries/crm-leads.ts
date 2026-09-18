@@ -218,6 +218,17 @@ export interface CrmLeadEvent {
   readonly id: string;
   readonly kind: string;
   readonly outcome: string | null;
+  /**
+   * What the trigger recorded beside the kind: {from, to} on a stage or a
+   * temperature change, {due} on a next action, {note_id} on a note.
+   *
+   * WARNING: IT WAS READ FROM THE DATABASE AND THEN DROPPED HERE. 114's
+   * reader has returned this column all along, and 149's own comment says
+   * the timeline renderer reads from/to off a stage change - it could not,
+   * because the mapper below never carried it. Every timeline said 'Stage
+   * changed' and nothing about which stage.
+   */
+  readonly detail: Readonly<Record<string, unknown>> | null;
   readonly occurredAt: string;
   readonly actorId: string | null;
   readonly actorName: string | null;
@@ -799,6 +810,7 @@ async function readCrmLeads(
     id: String(a.id),
     kind: String(a.kind),
     outcome: (a.outcome as string | null) ?? null,
+    detail: (a.detail as Record<string, unknown> | null) ?? null,
     occurredAt: new Date(a.occurred_at as string).toISOString(),
     actorId: (a.actor_id as string | null) ?? null,
     actorName: (a.actor_name as string | null) ?? null,
