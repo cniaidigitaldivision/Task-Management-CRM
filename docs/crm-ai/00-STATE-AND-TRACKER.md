@@ -11,7 +11,54 @@ is the only file in this folder that changes every session, and it is maintained
 | **Tier reached** | **Tier 0 not started** — that is Phase G of the CRM's own build order |
 | **Blocked on** | The CRM working with humans first. See below |
 | **Opened** | 2026-09-16, at the owner's request, as a folder deliberately separate from `docs/crm/` |
-| **Last updated** | 2026-09-17 |
+| **Last updated** | 2026-09-19 |
+
+---
+
+## 🗺️ 2026-09-19 — THE OWNER ASKS FOR THE AGENT ITSELF (PLANNING ONLY)
+
+> *"Can you put an AI agent here? When a new lead arrives, it will send an auto
+> message… give a little summary about the project… If a client needs a proposal
+> he sends a proposal and if he needs a quotation he sends a quotation… The point
+> over here is when the AI will stop and when a salesperson will start… It's just
+> a planning phase. Do not implement anything right now."*
+
+Most of this folder already answers it — `01-THE-AGENT-LADDER.md` Tier 2,
+`03-HANDOVER.md` for the stop line. What is NEW in the ask, and what it needs:
+
+| The owner's ask | Where it lands | What is missing |
+|---|---|---|
+| Auto first response on a new lead | Tier 2, first row | consent, the 24-hour window, the knowledge base |
+| Tells the client about the project | Tier 2 FAQ | **the knowledge base does not exist** — nobody but the owner can write what Taskly is |
+| Sets follow-ups the way a human does | **Tier 0, already built** (170/187/207) | only the choice of which plan to start |
+| Sends a proposal when asked | new | the rule below |
+| Sends a quotation when asked | new | the rule below |
+| Hands to the salesperson once the client agrees | `03` trigger 7 | an explicit "intent to buy" trigger |
+
+**⚠️ THE PROPOSED DOCUMENT RULE — the agent may SEND, never AUTHOR.** A proposal
+is a file a human approved on the shelf; a quotation is a row somebody already
+raised and, where it needed one, had approved. If the client asks and no such
+document exists, that is a handover carrying what they asked for — not a document
+the agent assembles. The two-person discount rule is enforced at two database
+layers, and an agent that priced anything would be a third party defeating it.
+
+**⚠️ AND ONE ASK CONTRADICTS `05-GUARDRAILS.md` §6.** The owner wants the client
+*"not to understand whether an AI is responding or some real person"*. §6 says the
+agent may never present itself as a person, and says no plainly if asked. There
+are two different things inside that sentence, and only one is a rule:
+
+- **Sounding human** — tone, timing, the client's own language, no robotic
+  phrasing, no "as an AI". **Fully intended, and most of the work.**
+- **Denying it is software when asked outright** — what §6 forbids, because a
+  buyer who finds out mid-negotiation stops trusting every figure they were
+  given, including the salesperson's.
+
+Recorded as **the owner's decision to take**, not settled here. Nothing is built
+either way.
+
+**Consent, checked today: 688 leads `NULL`, one `true`.** NULL is not permission,
+so on the numbers as they stand an agent has exactly one lead it may open a
+conversation with. That is the first practical blocker, ahead of any model work.
 
 ---
 
