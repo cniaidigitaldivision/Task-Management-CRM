@@ -130,3 +130,58 @@ describe('the quotation letter shares the frame', () => {
     expect(e.html).not.toContain('Taskly');
   });
 });
+
+/* ============================================================================
+ * THE HEADER, THE HEADING AND THE FOOT — 2026-09-19
+ * ----------------------------------------------------------------------------
+ * Owner, on a letter that went out headed `Demo — Product Enquiries [demo]`:
+ * *"It should have a proper project name, a proper header, and a proper footer,
+ * like a professional email. It is just like you are putting random things over
+ * there."*
+ * ========================================================================= */
+
+describe('a letter that reads as written', () => {
+  it('opens with its subject as a heading', () => {
+    const html = letter().html;
+    expect(html).toContain('Your 5 Marla plot in Block A</h1>');
+  });
+
+  it('signs off with the person, what they do, and the business', () => {
+    const html = letter().html;
+    expect(html).toContain('Sarah');
+    /* The default when nobody has set a role. The stored `role_title` values are
+       "SalesMan" and "sale person" — internal shorthand, not for a client. */
+    expect(html).toContain('Sales');
+    expect(html).toContain('sales@crescentnovainternational.com');
+    expect(html).toContain('+92 300 123 8726');
+  });
+
+  it('says why the letter arrived, without a password-reset disclaimer', () => {
+    const html = letter().html;
+    expect(html).toContain('You are receiving this because you enquired with us.');
+    expect(html).not.toContain('safely ignore');
+  });
+
+  it('puts the same signature in the plain-text part', () => {
+    const text = letter().text;
+    expect(text).toContain('Sarah');
+    expect(text).toContain('Sales · Chitral Royal Homes');
+    expect(text).toContain('sales@crescentnovainternational.com');
+    /* ⚠️ And the paragraphs keep their blank lines — a text alternative run
+       together is what a spam filter reads once the HTML is stripped. */
+    expect(text).toContain('Assalam-o-Alaikum Faisal.\n\nThe plot we discussed');
+  });
+
+  it('prints a role when the caller has a real one', () => {
+    const html = letter({ from: { ...FROM, role: 'Sales Manager' } }).html;
+    expect(html).toContain('Sales Manager');
+  });
+
+  it('never prints an internal tag, because the name is cleaned upstream', () => {
+    /* `clientFacingName` is what strips it — see lib/domain/crm-brand.ts. This
+       holds the contract at the boundary: whatever it is handed, it prints. */
+    const html = letter({ from: { ...FROM, businessName: 'CNI AI & Digital Division' } }).html;
+    expect(html).toContain('CNI AI &amp; Digital Division');
+    expect(html).not.toContain('[demo]');
+  });
+});

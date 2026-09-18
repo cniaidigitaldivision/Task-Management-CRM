@@ -404,8 +404,13 @@ export function LeadConversationTab({
       .find((m) => m.channel === 'email' && (m.subject ?? '').trim() !== '');
     const subject = (last?.subject ?? '').trim();
     if (subject) return /^re:/i.test(subject) ? subject : `Re: ${subject}`;
-    return projectName ? `${projectName} — following up` : 'Following up';
-  }, [liveThread, projectName]);
+    /* ⚠️ A SUBJECT IS FOR THE READER, NOT FOR US. This put the project's own
+       name in front of every subject - "Demo — Product Enquiries [demo] —
+       following up" reached a real person's inbox on 18 Sep. The From line
+       already carries who it is from; the subject should say what it is
+       about. */
+    return 'Following up on your enquiry';
+  }, [liveThread]);
 
   const counts = {
     whatsapp: everything.filter((m) => m.channel === 'whatsapp').length,

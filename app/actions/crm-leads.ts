@@ -46,7 +46,7 @@ import { OUTCOMES, outcomeProblems } from '@/lib/domain/crm-outcomes';
 import { newLeadProblems } from '@/lib/domain/crm-new-lead';
 import { appointmentKindLabel, appointmentProblems, clashesWith } from '@/lib/domain/crm-appointments';
 import { needsApproval, quotationProblems, toRupees } from '@/lib/domain/crm-quotations';
-import { toE164 } from '@/lib/domain/phone';
+import { displayPhone, toE164 } from '@/lib/domain/phone';
 import { fromAddress, quotationEmail, sendLeadEmail } from '@/lib/crm/email';
 import { describeSender } from '@/lib/email/send';
 import { DIVISION_NAME } from '@/lib/domain/constants';
@@ -1358,11 +1358,14 @@ export async function emailQuotationAction(
     itemLabel: q.itemLabel,
     itemDetail: q.itemDetail,
     from: {
-      businessName: q.projectName ?? DIVISION_NAME,
-      subtitle: null,
+      /* ⚠️ THE BUSINESS AS THE CLIENT KNOWS IT — the same resolution WhatsApp
+         uses, cleaned of our own tags. This used to be `projectName`, so a
+         price went out headed with the label on OUR project list. */
+      businessName: q.businessName ?? DIVISION_NAME,
+      subtitle: q.subtitle,
       salespersonName: user.fullName,
       replyTo: describeSender().configured ? fromAddress() : null,
-      phone: null,
+      phone: q.phone ? displayPhone(q.phone) : null,
     },
     note: note.trim() || null,
   });
@@ -1370,7 +1373,7 @@ export async function emailQuotationAction(
   const sent = await sendLeadEmail({
     to,
     email,
-    as: { businessName: q.projectName ?? null, replyTo: user.email ?? null },
+    as: { businessName: q.businessName, replyTo: user.email ?? null },
   });
   if (!sent.ok) return { ok: false, error: sent.error ?? 'The email could not be sent.' };
 

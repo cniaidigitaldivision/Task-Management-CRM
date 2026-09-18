@@ -4,6 +4,7 @@ import { followUpEmail, fromAddress, sendLeadEmail } from '@/lib/crm/email';
 import { describeSender } from '@/lib/email/send';
 import { sendTemplate, sendText, type WhatsAppConfig } from '@/lib/crm/whatsapp';
 import { withAppRole } from '@/lib/db/client';
+import { clientFacingName, letterSubtitle } from '@/lib/domain/crm-brand';
 import { fillTokens } from '@/lib/domain/crm-followup-plans';
 import { downloadObject } from '@/lib/storage/bucket';
 
@@ -200,8 +201,12 @@ async function sendOne(row: QueueRow, token: string | undefined, apiVersion: str
     const files = await attachmentsFor(row.follow_up_id);
     const email = followUpEmail({
       from: {
-        businessName: tokens.company,
-        subtitle: null,
+        /* ⚠️ THE SAME LETTERHEAD A PERSON WOULD HAVE SENT. 189's token already
+           prefers the WhatsApp display name over the project label; this takes
+           our own `[demo]`-style tags off whatever it hands back, and puts the
+           project on the second line the way the composer's letters do. */
+        businessName: clientFacingName(tokens.company) ?? tokens.company,
+        subtitle: letterSubtitle(tokens.company, tokens.project),
         salespersonName: tokens.owner_name || tokens.company,
         /* ⚠️ THE REAL REPLY ADDRESS, or none at all. `describeSender` reports
            what the mailer is actually configured with; inventing one would print
@@ -219,7 +224,7 @@ async function sendOne(row: QueueRow, token: string | undefined, apiVersion: str
       /* ⚠️ THE SAME NAME THE PERSON WOULD HAVE SENT UNDER. An automatic step that
          arrived from a different sender than the salesperson's own messages would
          read as a different correspondent. `sender_name` is the business. */
-      as: { businessName: tokens.company || row.sender_name, replyTo: null },
+      as: { businessName: clientFacingName(tokens.company || row.sender_name), replyTo: null },
     });
     return done(result.messageId ?? null, result.ok ? null : (result.error ?? 'The email was refused.'), body, subject);
   }

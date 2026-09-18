@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { withUser, type Tx } from '../client';
+import { clientFacingName, letterSubtitle } from '@/lib/domain/crm-brand';
 import { needsApproval, netAmount, nextQuotationNumber } from '@/lib/domain/crm-quotations';
 
 /* ============================================================================
@@ -3551,6 +3552,17 @@ export interface QuotationForEmail {
   readonly itemLabel: string | null;
   readonly itemDetail: string | null;
   readonly projectName: string | null;
+  /**
+   * The letterhead for this quotation — the same three values the composer gets.
+   *
+   * ⚠️ A QUOTATION IS THE LETTER THAT MATTERS MOST, and it was the worst off: it
+   * headed itself with `projectName`, our internal label, and passed `null` for
+   * the subtitle and the phone. A price going to somebody else's customer under
+   * a name they have never seen is the one email here that costs a sale.
+   */
+  readonly businessName: string | null;
+  readonly subtitle: string | null;
+  readonly phone: string | null;
 }
 
 /**
@@ -3568,6 +3580,8 @@ export async function crmQuotationForEmail(
     select q.number, q.version, q.net_amount, q.valid_until,
            l.id as lead_id, l.full_name as lead_name, l.email as lead_email,
            app.crm_project_name(l.project_id) as project_name,
+           (select snd.display_name from app.crm_project_sender(l.project_id) snd) as business_name,
+           (select snd.display_number from app.crm_project_sender(l.project_id) snd) as phone,
            p.code as item_code, p.kind as item_kind, p.scope_note,
            p.plot_number, p.block, p.size_marla
       from public.crm_quotations q
@@ -3604,6 +3618,13 @@ export async function crmQuotationForEmail(
       (r.scope_note as string | null) ??
       ([r.plot_number, r.block ? `Block ${r.block}` : null].filter(Boolean).join(', ') || null),
     projectName: (r.project_name as string | null) ?? null,
+    businessName:
+      clientFacingName((r.business_name as string | null) ?? (r.project_name as string | null)),
+    subtitle: letterSubtitle(
+      (r.business_name as string | null) ?? (r.project_name as string | null),
+      r.project_name as string | null,
+    ),
+    phone: (r.phone as string | null) ?? null,
   };
 }
 
@@ -3770,9 +3791,21 @@ export interface LeadEmailContext {
   readonly leadId: string;
   readonly leadName: string | null;
   readonly to: string | null;
+  /**
+   * The business as the CLIENT knows it.
+   *
+   * ⚠️ `crm_project_sender`, THE WAY WHATSAPP ASKS. This used to be
+   * `app.crm_project_name` — our own label for the project — so a letter went
+   * out headed, signed and subjected `Demo — Product Enquiries [demo]` while the
+   * same client's WhatsApp said "CNI AI & Digital Division". The name was never
+   * missing; email was reading the wrong column. One function now answers for
+   * both channels, or they drift again.
+   */
   readonly businessName: string | null;
-  /** The letterspaced line under the business name: the lead's city. */
+  /** The letterspaced line under the business name: the project, cleaned. */
   readonly subtitle: string | null;
+  /** The project as WE name it — for the salesperson's screens, never a letter. */
+  readonly projectName: string | null;
   /** The business's WhatsApp number, for the letter's footer. */
   readonly phone: string | null;
   /** The last email subject on this thread, so a reply can carry "Re:". */
@@ -3796,6 +3829,7 @@ export async function crmLeadEmailContext(
   const rows = await withUser(actorId, (tx) => tx`
     select l.id, l.full_name, l.email, l.city,
            app.crm_project_name(l.project_id) as project_name,
+           (select snd.display_name from app.crm_project_sender(l.project_id) snd) as business_name,
            (select snd.display_number from app.crm_project_sender(l.project_id) snd) as phone,
            (select m.subject from public.crm_lead_messages m
              where m.lead_id = l.id and m.channel = 'email'
@@ -3810,8 +3844,15 @@ export async function crmLeadEmailContext(
     leadId: String(r.id),
     leadName: (r.full_name as string | null) ?? null,
     to: (r.email as string | null) ?? null,
-    businessName: (r.project_name as string | null) ?? null,
-    subtitle: (r.city as string | null) ?? null,
+    /* ⚠️ CLEANED BEFORE IT LEAVES THE QUERY, so no caller has to remember. A
+       project tagged `[demo]` is ours to know about, not the client's. */
+    businessName:
+      clientFacingName((r.business_name as string | null) ?? (r.project_name as string | null)),
+    subtitle: letterSubtitle(
+      (r.business_name as string | null) ?? (r.project_name as string | null),
+      r.project_name as string | null,
+    ),
+    projectName: (r.project_name as string | null) ?? null,
     phone: (r.phone as string | null) ?? null,
     lastSubject: (r.last_subject as string | null) ?? null,
   };

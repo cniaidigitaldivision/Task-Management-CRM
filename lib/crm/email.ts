@@ -64,6 +64,8 @@ export interface LetterFrom {
   /** The project or city under the name — the login shell's division line. */
   readonly subtitle: string | null;
   readonly salespersonName: string;
+  /** What they do, under their name in the signature. "Sales" when unset. */
+  readonly role?: string | null;
   /** The address a reply reaches. Null when the mailer is not configured. */
   readonly replyTo: string | null;
   /** The business's WhatsApp number, if the project has one (179). */
@@ -216,17 +218,42 @@ const BORDER = '#dde7e8';
 const PAGE = '#eef3f3';
 const FOOT_BG = '#eef3f3';
 
-function crmShell(body: string, preheader: string, from: LetterFrom): string {
+/**
+ * The letterhead, the letter, and the hand that signed it.
+ *
+ * Owner, 2026-09-19, about a letter headed `Demo — Product Enquiries [demo]`:
+ * *"It should have a proper project name, a proper header, and a proper footer,
+ * like a professional email. It is just like you are putting random things over
+ * there."* Three things changed, and each was a real fault:
+ *
+ * - The band carries the BUSINESS name — `crm-brand.ts` for where that comes
+ *   from — with the project under it, in place of the lead's own city. Telling
+ *   somebody in Rawalpindi that they are in RAWALPINDI is filler.
+ * - The letter opens with its subject as a heading, so the page says what it is
+ *   before the first sentence has to.
+ * - The foot is a signature block: who wrote it and what they do on the left,
+ *   the ways to answer on the right — and outside the card, the one line a
+ *   letter from a stranger has to carry, which is why it arrived at all.
+ */
+function crmShell(
+  body: string,
+  preheader: string,
+  from: LetterFrom,
+  /** Printed above the letter. Null for a letter that is its own opening line. */
+  title: string | null = null,
+): string {
   const subtitle = from.subtitle
     ? `<div style="margin-top:5px;font:400 12px/1.2 ${SANS};color:${BAND_MUTED};letter-spacing:.13em;text-transform:uppercase;">${esc(from.subtitle)}</div>`
     : '';
 
   /* ⚠️ THE FOOTER NAMES ONLY WHAT IS KNOWN. A "reply to" line with no address
-     under it, or a phone row with no number, reads as a broken template. */
+     under it, or a phone row with no number, reads as a broken template.
+     ⚠️ AND THEY STACK. Side by side with a dot between them, an address and a
+     number wrap into each other on a phone. */
   const contact = [
-    from.replyTo ? `<a href="mailto:${esc(from.replyTo)}" style="color:#1155cc;text-decoration:none;">${esc(from.replyTo)}</a>` : null,
+    from.replyTo ? `<a href="mailto:${esc(from.replyTo)}" style="color:${BAND};text-decoration:none;">${esc(from.replyTo)}</a>` : null,
     from.phone ? esc(from.phone) : null,
-  ].filter(Boolean).join(' &nbsp;·&nbsp; ');
+  ].filter(Boolean).join('<br>');
 
   return `<!doctype html>
 <html lang="en">
@@ -249,20 +276,38 @@ function crmShell(body: string, preheader: string, from: LetterFrom): string {
 
         <tr><td bgcolor="${GOLD}" style="background:${GOLD};height:3px;line-height:3px;font-size:0;">&nbsp;</td></tr>
 
+        <!-- ⚠️ THE SAME GEOMETRY AS THE LOGIN TEMPLATE, to the pixel: 26/46/34 is
+             lib/email/templates.ts line 204, and a test holds the two together.
+             The owner asked for one design across both letters, and a body inset
+             that drifts by two pixels is how one design quietly becomes two.
+             ⚠️ NO BACKTICKS IN HERE — this comment lives inside a template
+             literal, and one would end the string. It just did. -->
         <tr><td style="padding:26px 46px 34px 46px;font:400 15px/1.62 ${SANS};color:${BODY_INK};">
+          ${title ? `<h1 style="margin:0 0 14px 0;font:600 19px/1.35 ${SANS};color:${BAND};letter-spacing:-.01em;">${esc(title)}</h1>` : ''}
           ${body}
         </td></tr>
 
         <tr><td bgcolor="${FOOT_BG}" style="background:${FOOT_BG};padding:18px 46px;border-top:1px solid ${BORDER};">
-          <p style="margin:0;font:600 13px/1.5 ${SANS};color:${BODY_INK};">${esc(from.salespersonName)}</p>
-          <p style="margin:2px 0 0 0;font:400 12px/1.5 ${SANS};color:${MUTED};">${esc(from.businessName)}</p>
-          ${contact ? `<p style="margin:6px 0 0 0;font:400 12px/1.5 ${SANS};color:${MUTED};">${contact}</p>` : ''}
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+            <tr>
+              <td style="vertical-align:top;font:400 12px/1.6 ${SANS};color:${MUTED};">
+                <span style="display:block;font:600 14px/1.5 ${SANS};color:${BAND};">${esc(from.salespersonName)}</span>
+                ${esc(from.role?.trim() || 'Sales')} &nbsp;·&nbsp; ${esc(from.businessName)}
+              </td>
+              ${contact ? `<td align="right" style="vertical-align:top;font:400 12px/1.7 ${SANS};color:${MUTED};">${contact}</td>` : ''}
+            </tr>
+          </table>
         </td></tr>
       </table>
 
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:620px;">
-        <tr><td align="center" style="padding:16px 8px 0 8px;font:400 11px/1.5 ${SANS};color:${MUTED};">
-          ${esc(from.businessName)}
+        <tr><td align="center" style="padding:14px 8px 0 8px;font:400 11px/1.6 ${SANS};color:${MUTED};">
+          ${esc(from.businessName)}${from.subtitle ? ` &nbsp;·&nbsp; ${esc(from.subtitle)}` : ''}
+          <br>
+          <!-- ⚠️ THE ONE LINE A LETTER FROM A STRANGER OWES ITS READER. Not a
+               password-reset disclaimer borrowed from the internal shell — the
+               reason THIS person is hearing from THIS business. -->
+          <span style="color:#8aa0a6;">You are receiving this because you enquired with us.</span>
         </td></tr>
       </table>
     </td></tr>
@@ -389,10 +434,23 @@ export function followUpEmail(input: {
     .map((block) => para(esc(block).replace(/\n/g, '<br>')))
     .join('\n');
 
+  /* ⚠️ THE SIGNATURE IS THE SAME IN BOTH PARTS. A plain-text alternative that
+     ends on the last sentence, while the HTML ends on a signature block, is two
+     different letters — and the text part is what a screen reader, a watch and
+     a stripped-down client actually show. */
+  const signature = [
+    input.from.salespersonName,
+    [input.from.role?.trim() || 'Sales', input.from.businessName].filter(Boolean).join(' · '),
+    input.from.replyTo,
+    input.from.phone,
+  ].filter(Boolean).join('\n');
+
   return {
     subject: input.subject,
-    html: crmShell(html, paragraphs[0]?.slice(0, 120) ?? input.subject, input.from),
-    text: [...paragraphs, '', input.from.salespersonName, input.from.businessName].join('\n\n'),
+    /* The subject heads the letter as well: one that opens by saying what it is
+       about reads as written, not as filled in. */
+    html: crmShell(html, paragraphs[0]?.slice(0, 120) ?? input.subject, input.from, input.subject),
+    text: [...paragraphs, signature].join('\n\n'),
     attachments: input.attachments ?? [],
   };
 }
