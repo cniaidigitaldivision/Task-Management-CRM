@@ -13,6 +13,48 @@
 
 ---
 
+## 📜 2026-09-19 — THE LETTER LOOKS LIKE A LETTER
+
+Owner: *"It should have a proper project name, a proper header, and a proper
+footer, like a professional email. It is just like you are putting random things
+over there."*
+
+Fair, and the fault was one column. The email took `projects.name` — OUR label
+for the project — so a real client got a letter headed, signed and subjected
+**`Demo — Product Enquiries [demo]`** while the same client's WhatsApp said
+**CNI AI & Digital Division**. That name lives in
+`crm_project_settings.whatsapp_display_name`, and `app.crm_project_sender`
+already resolves it; email simply was not asking.
+
+- `lib/domain/crm-brand.ts` (new, 8 tests) — `clientFacingName` strips our own
+  `[demo]`-style tags, `letterSubtitle` puts the project under the business and
+  says nothing when the two are the same name.
+- The composer, the **quotation** and the automatic follow-up sender all read the
+  one resolution now. The quotation was the worst off: internal label in the
+  header, `null` for the subtitle and the phone — on the letter that carries a
+  price.
+- The shell: business + project in the band (**not the lead's own city**), the
+  subject as a heading over the letter, a real signature block (name · role ·
+  business, with the ways to answer opposite), and outside the card the one line
+  a letter from a stranger owes its reader — why it arrived.
+- The plain-text alternative carries the same signature and keeps its blank
+  lines.
+- The composer's default subject was `<project> — following up`. It is now
+  **"Following up on your enquiry"** — the From line already says who it is from.
+
+⚠️ **`role_title` IS NOT PRINTED, deliberately.** The stored values are
+"SalesMan", "sale person", "sales manager" — internal shorthand somebody typed
+once. The signature says "Sales" until a project can set a real one.
+
+⚠️ **Geometry is still the login template's, to the pixel** (26/46/34 body
+inset), and a test holds the two together — one design across both letters.
+
+⚠️ **A backtick in an HTML comment inside the shell ended the template
+literal** while this was being written. Third time in this codebase; the comment
+now says so in place.
+
+---
+
 ## ✉️ 2026-09-19 — EMAIL SENDS AGAIN; THE DOMAIN WAS IN TWO RESEND TEAMS
 
 Owner: *"why my email services are not working... I have set up a recent API."*
