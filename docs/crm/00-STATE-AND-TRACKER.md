@@ -13,6 +13,51 @@
 
 ---
 
+## 🗓️ 2026-09-18 (later) — THE APPOINTMENT TAB GETS THE OWNER'S DATE PICKER
+
+Owner, with the reference: *"properly I can get time, date, and everything very
+interactively… design the appointment tab so that when I click to schedule an
+appointment, it shows me this way."*
+
+The reference is the follow-up scheduler, and its three top tabs are about
+SENDING: now, at a moment, after an event. An appointment has no "now" — somebody
+has to be somewhere — so the same row carries what actually varies here:
+
+| the reference | the appointment tab |
+|---|---|
+| Send now · Choose date & time · After an event | **Site visit · Payment plan meeting · WhatsApp call** |
+| Send during business hours | **Keep inside office hours** — 10 AM–6 PM, Mon–Sat |
+| Event-based scheduling | **Remind the client** — 1 day / 3 hours / 1 hour before |
+
+⚠️ **THE OFFICE HOURS ARE A GUARD, NOT DECORATION.** With it on, a slot outside
+hours or on a closed day snaps to the next one that works and the strip says so. A
+visit booked for 9 PM on a Sunday is a client standing at a gate nobody is behind.
+`snapToOffice` and `outsideOffice` are proved to agree **on all 168 hours of a
+week** — one rule calling a slot fine while the other warns about it is a screen
+arguing with itself.
+
+⚠️ **THE REMINDER IS A REAL FOLLOW-UP.** `bookAppointmentAction` writes one with
+purpose `appointment_reminder` — the purpose the tab already reads back as the
+visit reminder (`visitReminderAt`) and the Follow-ups tab lists. A toggle that only
+looked right would promise the client a message nobody sends. It is queued for the
+salesperson to send, and the copy says so rather than implying it goes by itself.
+
+⚠️ **AND IT CANNOT UNDO THE BOOKING.** The reminder is written after, in its own
+try: a reminder that failed to queue is worth reporting, never worth throwing away
+an appointment the client has been told about.
+
+⚠️ **IN PLACE OF THE TAB, NOT ON TOP OF IT.** The panel is returned as the tab's
+own body, so the dialog header, the five tabs and the fixed height stay exactly as
+they are. An `absolute inset-0` covered the header — which would have undone the
+owner's first rule about this modal on the way to satisfying the second.
+
+**One calendar now.** `components/crm/calendar-bits.tsx` holds the month grid, the
+fields, the tab and the day chips; the follow-up wizard and this share them, so
+"which day is past" is decided in one place. Two copies drift, and they drift into
+booking a visit on a day that has gone. 15 new tests, 3,340 total.
+
+---
+
 ## 📄 2026-09-18 — A QUOTATION CAN ARRIVE AS A PDF, AND THREE THINGS THAT WERE BROKEN · 198, 199, 200
 
 Owner's list of 2026-09-17, finished: *"the Attach Selected Quote button… will pop

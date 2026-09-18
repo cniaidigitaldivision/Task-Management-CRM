@@ -1287,7 +1287,7 @@ function Schedule({
           {kind === 'single' ? 'When should this follow-up happen?' : 'When should the first step go?'}
         </h3>
         <div className="mt-2">
-          <SchedulePicker value={schedule} onChange={onSchedule} nowMs={nowMs} anchors={anchors} compact />
+          <SchedulePicker value={schedule} onChange={onSchedule} nowMs={nowMs} anchors={anchors} />
         </div>
       </section>
 

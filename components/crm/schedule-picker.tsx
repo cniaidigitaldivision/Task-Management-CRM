@@ -1,8 +1,19 @@
 'use client';
 
 import * as React from 'react';
-import { CalendarDays, ChevronLeft, ChevronRight, Clock3, Globe, Send, Workflow } from 'lucide-react';
+import { CalendarDays, Clock3, Globe, Send, Workflow } from 'lucide-react';
 
+/* ⚠️ THE CALENDAR IS SHARED WITH THE APPOINTMENTS TAB. One month grid, one idea
+   of which days are past, one time list — see `calendar-bits.tsx`. */
+import {
+  DayChips,
+  Field,
+  hour12,
+  MonthGrid,
+  PickerTab as Tab,
+  sameMinute,
+  timeOptions as times,
+} from '@/components/crm/calendar-bits';
 import { formatWhen, karachiAt, karachiParts, TZ } from '@/components/crm/when';
 import { cn } from '@/lib/utils';
 
@@ -43,10 +54,6 @@ export interface EventAnchor {
   readonly at: string | null;
 }
 
-const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
-const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
-  'August', 'September', 'October', 'November', 'December'] as const;
-
 /** 10 AM … 6 PM, the office's own day, and the default the design shows. */
 export const DEFAULT_HOURS = { from: 10, to: 18, days: [1, 2, 3, 4, 5, 6] } as const;
 
@@ -78,14 +85,11 @@ export function SchedulePicker({
   onChange,
   nowMs,
   anchors,
-  compact = false,
 }: {
   value: ScheduleValue;
   onChange: (next: ScheduleValue) => void;
   nowMs: number;
   anchors: readonly EventAnchor[];
-  /** Hides the calendar's own heading when it sits inside a step of a wizard. */
-  compact?: boolean;
 }) {
   const chosen = value.at ?? nowMs;
   const p = karachiParts(chosen);
@@ -174,53 +178,13 @@ export function SchedulePicker({
 
       {value.mode === 'at' && (
         <div className="mt-3 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-          {/* ── Calendar ─────────────────────────────────────────────── */}
-          <div className="rounded-xl border border-border-subtle p-3">
-            {!compact && <p className="sr-only">Calendar</p>}
-            <div className="flex items-center justify-between">
-              <IconButton
-                label="Previous month"
-                onClick={() => setMonth((v) => (v.m === 1 ? { y: v.y - 1, m: 12 } : { ...v, m: v.m - 1 }))}
-              >
-                <ChevronLeft className="size-4" aria-hidden="true" />
-              </IconButton>
-              <p className="text-body-sm font-semibold text-text-primary">
-                {MONTHS[month.m - 1]} {month.y}
-              </p>
-              <IconButton
-                label="Next month"
-                onClick={() => setMonth((v) => (v.m === 12 ? { y: v.y + 1, m: 1 } : { ...v, m: v.m + 1 }))}
-              >
-                <ChevronRight className="size-4" aria-hidden="true" />
-              </IconButton>
-            </div>
-            <div className="mt-2 grid grid-cols-7 gap-1 text-center">
-              {DAYS.map((d) => (
-                <span key={d} className="py-1 text-caption text-text-secondary">{d}</span>
-              ))}
-              {calendarCells(month.y, month.m).map((cell, i) =>
-                cell === null ? (
-                  <span key={`x${i}`} />
-                ) : (
-                  <button
-                    key={cell}
-                    type="button"
-                    onClick={() => setDay(month.y, month.m, cell)}
-                    aria-pressed={p.y === month.y && p.m === month.m && p.d === cell}
-                    disabled={isPast(month.y, month.m, cell, nowMs)}
-                    className={cn(
-                      'rounded-lg py-1.5 text-body-sm tabular-nums transition-colors disabled:cursor-not-allowed disabled:opacity-30',
-                      p.y === month.y && p.m === month.m && p.d === cell
-                        ? 'bg-accent-primary font-semibold text-white'
-                        : 'text-text-primary hover:bg-bg-subtle',
-                    )}
-                  >
-                    {cell}
-                  </button>
-                ),
-              )}
-            </div>
-          </div>
+          <MonthGrid
+            month={month}
+            onMonth={setMonth}
+            selected={{ y: p.y, m: p.m, d: p.d }}
+            onPick={(y, m, d) => setDay(y, m, d)}
+            nowMs={nowMs}
+          />
 
           {/* ── Time, zone, quick picks ──────────────────────────────── */}
           <div className="space-y-3">
@@ -320,29 +284,18 @@ export function SchedulePicker({
                 </select>
               </Field>
             </div>
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {DAYS.map((label, i) => {
-                const on = value.hours!.days.includes(i);
-                return (
-                  <button
-                    key={label}
-                    type="button"
-                    aria-pressed={on}
-                    onClick={() => {
-                      const days = on ? value.hours!.days.filter((d) => d !== i) : [...value.hours!.days, i].sort();
-                      /* ⚠️ NEVER ZERO DAYS. A plan allowed to send on no day at
-                         all would wait for ever and look like a bug. */
-                      set({ hours: { ...value.hours!, days: days.length > 0 ? days : value.hours!.days } });
-                    }}
-                    className={cn(
-                      'min-w-14 rounded-lg px-3 py-1.5 text-caption font-medium transition-colors',
-                      on ? 'bg-accent-primary text-white' : 'bg-bg-subtle text-text-secondary hover:text-text-primary',
-                    )}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
+            <div className="mt-2">
+              <DayChips
+                days={value.hours.days}
+                ariaLabel="Days a step may go out"
+                onToggle={(i) => {
+                  const on = value.hours!.days.includes(i);
+                  const days = on ? value.hours!.days.filter((d) => d !== i) : [...value.hours!.days, i].sort();
+                  /* ⚠️ NEVER ZERO DAYS. A plan allowed to send on no day at all
+                     would wait for ever and look like a bug. */
+                  set({ hours: { ...value.hours!, days: days.length > 0 ? days : value.hours!.days } });
+                }}
+              />
             </div>
           </>
         )}
@@ -351,105 +304,16 @@ export function SchedulePicker({
   );
 }
 
+
 /* ── Pieces ──────────────────────────────────────────────────────────────── */
 
-function Tab({
-  active,
-  onClick,
-  icon: Icon,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  icon: React.ComponentType<{ className?: string; 'aria-hidden'?: boolean | 'true' }>;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={active}
-      onClick={onClick}
-      className={cn(
-        'inline-flex items-center gap-1.5 border-b-2 px-3 py-2 text-body-sm font-medium transition-colors',
-        active
-          ? 'border-accent-primary text-accent-primary'
-          : 'border-transparent text-text-secondary hover:text-text-primary',
-      )}
-    >
-      <Icon className="size-4" aria-hidden="true" />
-      {children}
-    </button>
-  );
-}
 
-function Field({
-  label,
-  icon: Icon,
-  children,
-}: {
-  label: string;
-  icon: React.ComponentType<{ className?: string; 'aria-hidden'?: boolean | 'true' }>;
-  children: React.ReactNode;
-}) {
-  return (
-    <label className="block min-w-0">
-      <span className="block text-caption text-text-secondary">{label}</span>
-      <span className="mt-1 flex items-center gap-2 rounded-lg border border-border-default bg-bg-surface px-2.5 py-1.5">
-        <Icon className="size-4 shrink-0 text-text-secondary" aria-hidden="true" />
-        <span className="min-w-0 flex-1">{children}</span>
-      </span>
-    </label>
-  );
-}
 
-function IconButton({ label, onClick, children }: { label: string; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      onClick={onClick}
-      className="grid size-7 place-items-center rounded-lg text-text-secondary transition-colors hover:bg-bg-subtle hover:text-text-primary"
-    >
-      {children}
-    </button>
-  );
-}
 
 /* ── Dates ───────────────────────────────────────────────────────────────── */
 
-function calendarCells(y: number, m: number): ReadonlyArray<number | null> {
-  const first = new Date(Date.UTC(y, m - 1, 1)).getUTCDay();
-  const days = new Date(Date.UTC(y, m, 0)).getUTCDate();
-  return [...Array.from({ length: first }, () => null), ...Array.from({ length: days }, (_, i) => i + 1)];
-}
 
-function isPast(y: number, m: number, d: number, nowMs: number): boolean {
-  const today = karachiParts(nowMs);
-  return karachiAt(y, m, d, 23, 59) < karachiAt(today.y, today.m, today.d, 0, 0);
-}
 
-function sameMinute(a: number, b: number): boolean {
-  return Math.abs(a - b) < 60_000;
-}
 
-function hour12(h: number): string {
-  const hour = h % 24;
-  const suffix = hour < 12 ? 'AM' : 'PM';
-  const shown = hour % 12 === 0 ? 12 : hour % 12;
-  return `${shown}:00 ${suffix}`;
-}
 
 /** Every half hour, which is as fine as anybody schedules a follow-up. */
-function times(): ReadonlyArray<{ value: string; label: string }> {
-  const out: Array<{ value: string; label: string }> = [];
-  for (let h = 0; h < 24; h++) {
-    for (const mi of [0, 30]) {
-      const value = `${String(h).padStart(2, '0')}:${String(mi).padStart(2, '0')}`;
-      const suffix = h < 12 ? 'AM' : 'PM';
-      const shown = h % 12 === 0 ? 12 : h % 12;
-      out.push({ value, label: `${shown}:${String(mi).padStart(2, '0')} ${suffix}` });
-    }
-  }
-  return out;
-}

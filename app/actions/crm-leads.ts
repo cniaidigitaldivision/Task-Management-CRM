@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 
 import { requireUser } from '@/lib/auth/current-user';
 import { withUser } from '@/lib/db/client';
+import { createFollowUp } from '@/lib/db/queries/crm-followups';
 import { notify } from '@/lib/db/queries/feed';
 import {
   addLeadNote,
@@ -42,7 +43,7 @@ import {
 } from '@/lib/domain/crm-qualification';
 import { OUTCOMES, outcomeProblems } from '@/lib/domain/crm-outcomes';
 import { newLeadProblems } from '@/lib/domain/crm-new-lead';
-import { appointmentProblems, clashesWith } from '@/lib/domain/crm-appointments';
+import { appointmentKindLabel, appointmentProblems, clashesWith } from '@/lib/domain/crm-appointments';
 import { needsApproval, quotationProblems, toRupees } from '@/lib/domain/crm-quotations';
 import { toE164 } from '@/lib/domain/phone';
 import { quotationEmail, sendLeadEmail } from '@/lib/crm/email';
@@ -875,6 +876,8 @@ export interface BookResult {
   readonly id?: string;
   /** Said out loud, never a refusal — see `clashesWith`. */
   readonly clash?: string;
+  /** True when the client reminder was queued alongside the booking. */
+  readonly reminded?: boolean;
 }
 
 /**
@@ -903,6 +906,15 @@ export async function bookAppointmentAction(input: {
   durationMinutes: number;
   location: string;
   note: string;
+  /**
+   * Hours before the appointment to remind the client, or null for none.
+   *
+   * ⚠️ A REMINDER IS A FOLLOW-UP, NOT A FLAG ON THE APPOINTMENT. It is written
+   * with purpose `appointment_reminder`, which is what the Appointments tab reads
+   * back as "WhatsApp reminder · Scheduled" and what the Follow-ups tab lists. A
+   * boolean on the appointment row would show on this screen and reach nobody.
+   */
+  remindHoursBefore?: number | null;
 }): Promise<BookResult> {
   const user = await requireUser();
 
@@ -965,7 +977,36 @@ export async function bookAppointmentAction(input: {
        booking. */
   }
 
-  return { ok: true, id: booked.id, clash };
+  /* ⚠️ THE REMINDER COMES AFTER THE BOOKING, AND CANNOT UNDO IT. A reminder that
+     failed to queue is worth saying; it is not worth throwing away an appointment
+     the client has already been told about. */
+  let reminded = false;
+  const hours = input.remindHoursBefore ?? null;
+  if (hours !== null && hours > 0) {
+    const dueMs = Date.parse(input.scheduledAt!) - hours * 3_600_000;
+    if (dueMs > Date.now()) {
+      try {
+        const written = await createFollowUp(user.id, {
+          leadId: input.leadId,
+          channel: 'whatsapp',
+          purpose: 'appointment_reminder',
+          title: `Remind about the ${appointmentKindLabel(input.kind).toLowerCase()} on ${new Date(
+            input.scheduledAt!,
+          ).toLocaleString('en-GB', {
+            weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit',
+            timeZone: 'Asia/Karachi',
+          })}`,
+          body: input.location.trim() ? `Where: ${input.location.trim()}` : null,
+          dueAt: new Date(dueMs).toISOString(),
+        });
+        reminded = written !== null && written.ok !== false;
+      } catch {
+        /* Said by `reminded: false`, never by losing the booking. */
+      }
+    }
+  }
+
+  return { ok: true, id: booked.id, clash, reminded };
 }
 
 export async function closeAppointmentAction(

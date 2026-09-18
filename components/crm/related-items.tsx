@@ -54,6 +54,12 @@ import {
   type RelatedBundle,
 } from '@/app/actions/crm-related';
 import { WA_GREEN, WhatsAppMark } from '@/components/crm/whatsapp-mark';
+import {
+  AppointmentScheduler,
+  OFFICE,
+  snapToOffice,
+  type AppointmentDraft,
+} from '@/components/crm/appointment-scheduler';
 import { formatWhen, fromInputValue, karachiAt, karachiParts, toInputValue } from '@/components/crm/when';
 import { useToast } from '@/components/ui/toast';
 import type { CrmLeadRecord, CrmLeadRelated, CrmSender } from '@/lib/db/queries/crm-leads';
@@ -1788,17 +1794,73 @@ function AppointmentsTab({ ctx, pickedId, onPick, onRecordOutcome }: {
   const unit = items.properties.find((p) => p.id === chosen?.propertyId) ?? items.properties.find((p) => p.linked) ?? null;
 
   const [sheet, setSheet] = React.useState<null | 'new' | 'move'>(null);
-  const [kind, setKind] = React.useState('site_visit');
   const [when, setWhen] = React.useState(() => {
     const p = karachiParts(Date.now());
     return toInputValue(karachiAt(p.y, p.m, p.d + 1, 11));
   });
-  const [minutes, setMinutes] = React.useState(30);
-  const [location, setLocation] = React.useState('');
-  const [note, setNote] = React.useState('');
+  /* ⚠️ ONE CLOCK READ, HELD. `Date.now()` during a render is impure (the
+     react-hooks purity rule caught this in the follow-up wizard), and a scheduler
+     whose "today" moved mid-interaction would renumber the calendar under the
+     cursor. */
+  const [nowMs] = React.useState(() => Date.now());
+  const [draft, setDraft] = React.useState<AppointmentDraft>(() => {
+    const t = karachiParts(nowMs);
+    return {
+      kind: 'site_visit',
+      at: snapToOffice(karachiAt(t.y, t.m, t.d + 1, 11), OFFICE),
+      minutes: 90,
+      location: '',
+      note: '',
+      remindHoursBefore: 24,
+    };
+  });
 
   const title = (a: RelatedAppointment) =>
     `${appointmentKindLabel(a.kind)}${a.propertyLabel ? ` · ${a.propertyLabel.split(' · ')[0]}` : ''}`;
+
+  /* ⚠️ IN PLACE OF THE TAB, NOT ON TOP OF IT. Returning the scheduler here keeps
+     the dialog's header, its five tabs and its fixed height exactly as they are,
+     and gives the calendar the whole area below them. */
+  if (sheet === 'new') {
+    return (
+      <AppointmentScheduler
+        draft={draft}
+        onChange={setDraft}
+        nowMs={nowMs}
+        clientPhone={lead.phone}
+        clientName={lead.fullName ?? 'The client'}
+        unitLabel={unit ? [unit.title, unit.label].filter(Boolean).join(' · ') : null}
+        busy={busy}
+        existing={items.appointments.map((a) => ({
+          at: a.scheduledAt,
+          minutes: a.durationMinutes,
+          status: a.status,
+        }))}
+        onCancel={() => setSheet(null)}
+        onSubmit={async () => {
+          const ok = await ctx.act(
+            () =>
+              bookAppointmentAction({
+                leadId: lead.id,
+                kind: draft.kind,
+                scheduledAt: new Date(draft.at).toISOString(),
+                durationMinutes: draft.minutes,
+                location: draft.location,
+                note: draft.note,
+                remindHoursBefore: draft.remindHoursBefore,
+              }),
+            draft.remindHoursBefore === null
+              ? 'Appointment booked.'
+              : 'Appointment booked, and the reminder is in your list.',
+          );
+          if (ok) {
+            setSheet(null);
+            setDraft((d) => ({ ...d, note: '' }));
+          }
+        }}
+      />
+    );
+  }
 
   return (
     <>
@@ -1966,65 +2028,6 @@ function AppointmentsTab({ ctx, pickedId, onPick, onRecordOutcome }: {
           </>
         }
       />
-      {sheet === 'new' && (
-        <Sheet title="Schedule an appointment" onClose={() => setSheet(null)}>
-          <div className="grid gap-2 sm:grid-cols-2">
-            {/* ⚠️ THE TWO KINDS THE BUSINESS ACTUALLY HAS. Owner, 2026-09-17:
-                *"Appointments are in two terms: 1. Site visit 2. Payment plan or
-                this type of appointment."* The plots are in Chitral and the
-                office is in Islamabad, so most appointments are the second kind —
-                naming it "Meeting" hid that. The WhatsApp call stays because a
-                salesperson calls from the business number, not their own. */}
-            <select value={kind} onChange={(e) => setKind(e.target.value)} className={field} aria-label="Kind">
-              <option value="site_visit">Site visit</option>
-              <option value="meeting">Payment plan meeting</option>
-              <option value="call">WhatsApp call</option>
-            </select>
-            <input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} className={field} aria-label="When" />
-            <select value={minutes} onChange={(e) => setMinutes(Number(e.target.value))} className={field} aria-label="Length">
-              {[15, 30, 45, 60, 90, 120].map((m) => (
-                <option key={m} value={m}>
-                  {m} minutes
-                </option>
-              ))}
-            </select>
-            <input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Location" className={field} />
-          </div>
-          <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional)" className={cn(field, 'mt-2')} />
-          <p className="mt-1.5 text-caption text-text-secondary">
-            {kind === 'site_visit'
-              ? 'A site visit puts somebody at the plot — the location is where they are being met.'
-              : kind === 'meeting'
-                ? 'A payment plan meeting is the instalments conversation: the office, or wherever the client is.'
-                : 'A WhatsApp call is placed from the business number, so the client sees the business calling.'}
-          </p>
-          <div className="mt-3 flex justify-end gap-2">
-            <Btn onClick={() => setSheet(null)}>Cancel</Btn>
-            <Btn
-              primary
-              disabled={busy}
-              onClick={async () => {
-                const ms = fromInputValue(when);
-                const ok = await ctx.act(
-                  () =>
-                    bookAppointmentAction({
-                      leadId: lead.id,
-                      kind,
-                      scheduledAt: ms === null ? null : new Date(ms).toISOString(),
-                      durationMinutes: minutes,
-                      location,
-                      note,
-                    }),
-                  'Appointment booked.',
-                );
-                if (ok) setSheet(null);
-              }}
-            >
-              Book it
-            </Btn>
-          </div>
-        </Sheet>
-      )}
       {sheet === 'move' && chosen && (
         <Sheet title={`Reschedule · ${title(chosen)}`} onClose={() => setSheet(null)}>
           <input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} className={field} aria-label="New time" />
