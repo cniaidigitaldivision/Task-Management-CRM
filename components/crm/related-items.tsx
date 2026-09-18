@@ -1288,14 +1288,31 @@ function QuotationsTab({ ctx, pickedId, onPick }: { ctx: Ctx; pickedId?: string;
               primary
               disabled={busy || !note.trim()}
               onClick={async () => {
-                const ok = await ctx.act(
-                  () => requestFromManagerAction({ leadId: lead.id, kind: 'quote', subject: chosen.number, note }),
-                  'Request sent to your manager.',
-                );
-                if (ok) {
-                  setAsking(false);
-                  setNote('');
+                /* ⚠️ IT SAYS WHAT ACTUALLY HAPPENED. Owner, 2026-09-18: *"I
+                   receive a notification that the quotation is sent, while I see
+                   in the sales manager dashboard that no quotation is received."*
+                   The old message claimed delivery flatly — so it read the same
+                   whether one manager was told, three were, or nobody was. */
+                const result = await requestFromManagerAction({
+                  leadId: lead.id,
+                  kind: 'quote',
+                  subject: chosen.number,
+                  note,
+                });
+                if (!result.ok) {
+                  ctx.toast({ tone: 'error', text: result.error ?? 'That request did not send.' });
+                  return;
                 }
+                const n = result.recipients ?? 0;
+                ctx.toast({
+                  tone: 'ok',
+                  text:
+                    result.queued === 0
+                      ? 'Already on their list — they have this request.'
+                      : `On the list of ${n} ${n === 1 ? 'manager' : 'managers'}, and they have been notified.`,
+                });
+                setAsking(false);
+                setNote('');
               }}
             >
               Send request

@@ -13,6 +13,49 @@
 
 ---
 
+## 📬 2026-09-18 (later) — A REQUEST TO THE MANAGER BECOMES WORK
+
+Owner: *"when I request to send the quotation to the sales manager, I receive a
+notification that the quotation is sent, while I see in the sales manager dashboard
+that no quotation is received."*
+
+Traced rather than guessed. **The notification was real** — both of the owner's
+requests were in the database, addressed to "sale manager tester", unread, linking
+to the lead. `app.crm_request_recipients` found the manager correctly.
+
+⚠️ **THE BUG WAS THAT A BELL IS NOT WORK.** `crmMyTodos` — the manager's own screen
+— is *derived from real state*, by design: a lead not yet contacted, an appointment
+with no outcome, a quotation awaiting approval. **Doing the work is what clears the
+item, because the item IS the work.** A request wrote a note and a notification and
+created none of that state, so the manager's list stayed empty while the salesperson
+was told it had been sent. Both screens were telling the truth about different
+things.
+
+So the request now also writes a **follow-up assigned to the manager**, due now,
+`review_first`. That is the state their queue is derived from, it sits there until
+somebody acts, and it needed no new table and no new todo kind — `crm_follow_ups`
+already carries an assignee.
+
+⚠️ **ASKING TWICE DOES NOT QUEUE TWICE.** The owner pressed the button two minutes
+apart while testing; a list with duplicates in it is a list people stop clearing.
+⚠️ **AND IT DOES NOT TOUCH THE SALESPERSON'S OWN NEXT ACTION** — which is why this
+writes its own row rather than calling `createFollowUp`, whose whole job is to move
+`crm_leads.next_action`.
+
+⚠️ **NOBODY TO ASK IS NOW A REFUSAL.** The old toast said *"Request sent to your
+manager"* flatly — the same words whether one manager was told, three were, or
+nobody was. It now names the count, says *"already on their list"* when it was a
+repeat, and refuses outright when the project has no department manager and no
+active admin. **A screen that agrees with itself while disagreeing with the
+database is the hardest kind of bug to find later.**
+
+Proved as the manager, reading their own queue: `follow_up · Faisal Rehman ·
+Updated quotation requested — QT-1042` now sits beside `approve_quotation ·
+Hina Shahzad`. Four checks, including that the count moves by exactly one and that
+a second identical request adds nothing.
+
+---
+
 ## ⚡ 2026-09-18 (later) — THE EMAIL COMPOSER STOPS WAITING
 
 Owner: *"why is it taking a lot of time to load in the conversation in the email

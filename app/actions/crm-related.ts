@@ -596,7 +596,7 @@ export async function requestFromManagerAction(input: {
   kind: 'quote' | 'invoice';
   subject: string;
   note: string;
-}): Promise<RelatedWrite & { recipients?: number }> {
+}): Promise<RelatedWrite & { recipients?: number; queued?: number }> {
   const { user } = await requireCrmAccess();
   if (!UUID.test(input.leadId)) return { ok: false, error: 'That lead could not be found.' };
   const note = input.note.trim();

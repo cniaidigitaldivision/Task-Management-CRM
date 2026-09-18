@@ -627,7 +627,7 @@ export async function attachQuotationPdf(
 export async function requestFromManager(
   actorId: string,
   input: { leadId: string; kind: 'quote' | 'invoice'; subject: string; note: string },
-): Promise<RelatedWrite & { readonly recipients?: number }> {
+): Promise<RelatedWrite & { readonly recipients?: number; readonly queued?: number }> {
   return withUser(actorId, async (tx) => {
     const leads = (await tx`
       select l.id, l.project_id, l.full_name from public.crm_leads l where l.id = ${input.leadId}::uuid
@@ -647,7 +647,79 @@ export async function requestFromManager(
       select app.crm_request_recipients(${lead.project_id}::uuid) as ids
     `) as Array<{ ids: string[] | null }>;
     const recipients = (ids ?? []).filter((id) => id !== actorId);
+
+    /* ⚠️ NOBODY TO ASK IS A REFUSAL, NOT A SUCCESS. Owner, 2026-09-18: *"I
+       receive a notification that the quotation is sent, while I see in the sales
+       manager dashboard that no quotation is received."* Reporting "sent" to
+       nobody is the half of that bug which would have been hardest to find later,
+       because the screen agreed with itself. */
+    if (recipients.length === 0) {
+      return {
+        ok: false as const,
+        error: 'Nobody is set up to receive this. This project has no department manager and no active admin.',
+        recipients: 0,
+      };
+    }
+
+    const title = input.kind === 'quote'
+      ? `Updated quotation requested — ${input.subject}`
+      : `Invoice correction requested — ${input.subject}`;
+
+    let queued = 0;
     for (const userId of recipients) {
+      /* ── ⚠️ A REQUEST HAS TO BECOME WORK, NOT JUST A BELL ─────────────────
+         This is the bug the owner found. A notification is a message: it is read
+         once, cleared, and gone. The manager's own screen (`crmMyTodos`) is
+         DERIVED FROM REAL STATE — a lead not yet contacted, an appointment with
+         no outcome, a quotation awaiting approval — and a request created none of
+         those, so their list stayed empty while the salesperson was told it had
+         been sent.
+
+         A follow-up assigned to them IS that state: it sits in their queue until
+         somebody does something about it, and doing the work is what clears it.
+         `crm_follow_ups` already carries an assignee, so this needs no new table
+         and no new todo kind. */
+      const already = (await tx`
+        select 1 as one from public.crm_follow_ups
+         where lead_id = ${lead.id}::uuid
+           and assigned_to_id = ${userId}::uuid
+           and status in ('planned', 'due')
+           and title = ${title}
+         limit 1
+      `) as Array<{ one: number }>;
+
+      /* ⚠️ ASKING TWICE MUST NOT QUEUE TWICE. The owner pressed this button two
+         minutes apart while testing and the manager would have got the same job
+         twice — a list with duplicates in it is a list people stop clearing. */
+      if (already.length === 0) {
+        await tx`
+          insert into public.crm_follow_ups
+            (lead_id, purpose, channel, mode, status, title, body, due_at,
+             assigned_to_id, created_by_id)
+          values (
+            ${lead.id}::uuid,
+            ${input.kind === 'quote' ? 'quotation' : 'custom'}::public.crm_followup_purpose,
+            'task'::public.crm_followup_channel,
+            /* ⚠️ review_first, NEVER auto_send. A person decides what a new
+               quotation says; nothing about this may be sent by machine.
+               (No backticks in this comment: the file is a JS template literal
+               and one would end the string — backticks-break-sql-literals.) */
+            'review_first',
+            /* Due now: it is owed the moment it is asked for. The status 'due'
+               is also what puts it on the manager's list; 'planned' would hide it
+               until the clock caught up. */
+            'due'::public.crm_followup_status,
+            ${title},
+            ${input.note},
+            now(),
+            ${userId}::uuid,
+            ${actorId}::uuid
+          )
+        `;
+        queued += 1;
+      }
+
+      /* And the bell as well, because a queue is not a prompt. */
       await notify(tx, actorId, {
         userId,
         kind: 'lead_request',
@@ -659,7 +731,8 @@ export async function requestFromManager(
         entityId: lead.id,
       });
     }
-    return { ok: true as const, recipients: recipients.length };
+
+    return { ok: true as const, recipients: recipients.length, queued };
   });
 }
 
