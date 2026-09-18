@@ -28,7 +28,7 @@ const facts = (o: Partial<LeadFacts> = {}): LeadFacts => ({
 });
 
 const step = (o: Partial<PlanStep>): PlanStep => ({
-  day: 1, channel: 'whatsapp', title: 'Step', body: 'Hello', mode: 'review_first',
+  day: 1, at: null, channel: 'whatsapp', title: 'Step', body: 'Hello', mode: 'review_first',
   subject: '', onlyIfNoReply: false, template: null, ...o,
 });
 

@@ -349,6 +349,8 @@ export interface PlanStepRow {
   readonly onlyIfNoReply: boolean;
   readonly templateName: string | null;
   readonly templateLanguage: string | null;
+  /** 207 · `HH:MM` in Karachi, or null to inherit the running time. */
+  readonly sendAtTime: string | null;
 }
 
 export interface LeadPlanWritten {
@@ -418,11 +420,13 @@ export async function createLeadPlan(
     await tx`
       insert into public.crm_sequence_steps
         (sequence_id, step_no, channel, delay_days, purpose, title, body, mode, subject,
-         only_if_no_reply, wa_template_name, wa_template_language)
+         only_if_no_reply, wa_template_name, wa_template_language, send_at_time)
       select ${sequenceId}::uuid, s.step_no, s.channel::public.crm_followup_channel,
              s.delay_days, ${input.purpose}, s.title, nullif(s.body, ''),
              s.mode::public.crm_followup_mode, nullif(s.subject, ''), s.only_if_no_reply = 1,
-             nullif(s.template_name, ''), nullif(s.template_language, '')
+             nullif(s.template_name, ''), nullif(s.template_language, ''),
+             /* 207 · the step's own hour, or null to inherit the running time. */
+             nullif(s.send_at_time, '')::time
         from unnest(
                ${input.steps.map((s) => s.stepNo)}::int[],
                ${input.steps.map((s) => s.channel)}::text[],
@@ -440,9 +444,10 @@ export async function createLeadPlan(
                   failed to parse (the memory note is backticks-break-sql-literals). */
                ${input.steps.map((s) => (s.onlyIfNoReply ? 1 : 0))}::int[],
                ${input.steps.map((s) => s.templateName ?? '')}::text[],
-               ${input.steps.map((s) => s.templateLanguage ?? '')}::text[]
+               ${input.steps.map((s) => s.templateLanguage ?? '')}::text[],
+               ${input.steps.map((s) => s.sendAtTime ?? '')}::text[]
              ) as s(step_no, channel, delay_days, title, body, mode, subject, only_if_no_reply,
-                    template_name, template_language)
+                    template_name, template_language, send_at_time)
     `;
 
     /* ⚠️ A DRAFT IS A PLAN WITH NOTHING RUNNING. No new state, no flag on the

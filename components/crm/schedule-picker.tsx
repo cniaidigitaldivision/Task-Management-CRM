@@ -110,7 +110,7 @@ export function SchedulePicker({
   return (
     <div>
       {/* ── The three ways ─────────────────────────────────────────────── */}
-      <div role="tablist" aria-label="When" className="flex flex-wrap items-center gap-1 border-b border-border-subtle">
+      <div role="tablist" aria-label="When" className="flex flex-wrap items-center gap-2 border-b border-border-subtle sm:gap-4">
         <Tab active={value.mode === 'now'} onClick={() => set({ mode: 'now', at: null })} icon={Send}>Send now</Tab>
         <Tab active={value.mode === 'at'} onClick={() => set({ mode: 'at', at: value.at ?? quick[0].at() })} icon={CalendarDays}>
           Choose date &amp; time

@@ -288,6 +288,8 @@ export function FollowUpWizard({
         start,
         steps: shown.map((s) => ({
           day: s.day,
+          /* 207 · the hour this step asked for, or null to inherit. */
+          at: s.at,
           channel: s.channel,
           title: s.title,
           body: s.body,
@@ -423,6 +425,8 @@ export function FollowUpWizard({
                   ...steps,
                   {
                     day: (last?.day ?? 1) + 3,
+                    /* Inherits the running hour until somebody sets one (207). */
+                    at: null,
                     channel: last?.channel ?? 'whatsapp',
                     title: `Step ${steps.length + 1}`,
                     body: '',
@@ -620,8 +624,57 @@ function Purpose({
   return (
     <div className="grid gap-5 lg:grid-cols-[1.1fr_1fr]">
       <div className="space-y-4">
+        {/* ── ⚠️ THE FIRST QUESTION IS WHAT KIND OF THING THIS IS ──────────────
+            Owner, 2026-09-18: *"I should first choose the settings that you have
+            shown in Advanced Settings. That should not be in Advanced Settings…
+            'Which follow-up do I want, one follow-up or a plan?' I should be able
+            to name this plan."*
+
+            They are right, and it was a real mistake: "one action or a sequence"
+            decides what every other control on this screen MEANS — how many steps
+            there are, whether a name is needed, what the schedule screen shows.
+            A question that changes the shape of the form cannot live behind a
+            collapsed panel called optional. */}
         <section>
-          <h3 className="text-body font-semibold text-text-primary">1. How would you like to proceed?</h3>
+          <h3 className="text-body font-semibold text-text-primary">1. One follow-up, or a plan?</h3>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            <Pick chosen={kind === 'single'} onClick={() => kindSet('single')}>
+              <Send className="size-5 text-text-secondary" />
+              <span className="mt-1.5 block text-body-sm font-semibold text-text-primary">A single follow-up</span>
+              <span className="mt-0.5 block text-caption leading-snug text-text-secondary">
+                One action, at one time you choose.
+              </span>
+            </Pick>
+            <Pick chosen={kind === 'schedule'} onClick={() => kindSet('schedule')}>
+              <CalendarDays className="size-5 text-text-secondary" />
+              <span className="mt-1.5 block text-body-sm font-semibold text-text-primary">A sequence</span>
+              <span className="mt-0.5 block text-caption leading-snug text-text-secondary">
+                Several steps, each with its own day and time.
+              </span>
+            </Pick>
+          </div>
+
+          {/* ⚠️ THE NAME ONLY EXISTS FOR A PLAN. A single follow-up has a title of
+              its own on the next screen; asking for both would be asking twice. */}
+          {kind === 'schedule' && (
+            <label className="mt-2.5 block">
+              <span className="block text-caption font-semibold text-text-primary">Name this plan</span>
+              <input
+                value={planName}
+                onChange={(e) => onPlanName(e.target.value)}
+                maxLength={80}
+                placeholder={purposeLabel(purpose)}
+                className="mt-1 w-full rounded-lg border border-border-default bg-bg-surface px-3 py-2 text-body-sm text-text-primary placeholder:text-text-tertiary focus:border-accent-primary focus:outline-none"
+              />
+              <span className="mt-1 block text-caption text-text-secondary">
+                What the sequence card calls it on this lead. Your team sees it; the client never does.
+              </span>
+            </label>
+          )}
+        </section>
+
+        <section>
+          <h3 className="text-body font-semibold text-text-primary">2. How would you like to proceed?</h3>
           <div className="mt-2 grid gap-2 sm:grid-cols-3">
             {DELIVERY_CHOICES.map((d) => {
               const Icon = DELIVERY_ICON[d.key];
@@ -647,7 +700,7 @@ function Purpose({
         </section>
 
         <section>
-          <h3 className="text-body font-semibold text-text-primary">2. What is the purpose of this follow-up?</h3>
+          <h3 className="text-body font-semibold text-text-primary">3. What is the purpose of this follow-up?</h3>
           <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
             {PURPOSE_CARDS.map((c) => {
               const can = purposeAvailability(c.key, facts);
@@ -670,6 +723,11 @@ function Purpose({
           </div>
         </section>
 
+        {/* ⚠️ WHAT IS LEFT HERE IS GENUINELY ADVANCED: one switch, whose default
+            is right for almost everybody, and which changes nothing about the
+            shape of the plan. That is the test for this panel — if a control
+            decides what the rest of the form means, it is not advanced, it is the
+            first question. */}
         <section className="rounded-xl border border-border-subtle">
           <button
             type="button"
@@ -685,34 +743,6 @@ function Purpose({
           </button>
           {advanced && (
             <div className="space-y-3 border-t border-border-subtle px-3.5 py-3">
-              <label className="block">
-                <span className="block text-caption font-semibold text-text-primary">Name this plan</span>
-                <input
-                  value={planName}
-                  onChange={(e) => onPlanName(e.target.value)}
-                  maxLength={80}
-                  placeholder={purposeLabel(purpose)}
-                  className="mt-1 w-full rounded-lg border border-border-default bg-bg-surface px-3 py-1.5 text-body-sm text-text-primary placeholder:text-text-tertiary focus:border-accent-primary focus:outline-none"
-                />
-                <span className="mt-1 block text-caption text-text-secondary">
-                  What the sequence card calls it on this lead. Your team sees it; the client never does.
-                </span>
-              </label>
-
-              <div>
-                <span className="block text-caption font-semibold text-text-primary">One follow-up, or a plan?</span>
-                <div className="mt-1.5 grid gap-2 sm:grid-cols-2">
-                  <Pick chosen={kind === 'single'} onClick={() => kindSet('single')} compact>
-                    <span className="block text-body-sm font-semibold text-text-primary">A single follow-up</span>
-                    <span className="block text-caption leading-snug text-text-secondary">One action, at one time.</span>
-                  </Pick>
-                  <Pick chosen={kind === 'schedule'} onClick={() => kindSet('schedule')} compact>
-                    <span className="block text-body-sm font-semibold text-text-primary">A sequence</span>
-                    <span className="block text-caption leading-snug text-text-secondary">Day 1, day 3, day 7 — step by step.</span>
-                  </Pick>
-                </div>
-              </div>
-
               <label className="flex cursor-pointer items-start gap-2.5">
                 <input
                   type="checkbox"
@@ -963,7 +993,10 @@ function Compose({
         )}
 
         {/* ── Channel tabs ───────────────────────────────────────────── */}
-        <div role="tablist" aria-label="Channel" className="flex items-center gap-1 border-b border-border-subtle">
+        {/* ⚠️ THE SAME COMPLAINT, THE SAME FIX. Owner, 2026-09-18: *"for Email,
+            WhatsApp, WhatsApp Call, or a Task, the selected tab is not visible or
+            prominent."* */}
+        <div role="tablist" aria-label="Channel" className="flex items-center gap-2 border-b border-border-subtle sm:gap-3">
           {CHANNEL_CHOICES.map((c) => (
             <button
               key={c.key}
@@ -982,14 +1015,25 @@ function Compose({
                 })
               }
               className={cn(
-                'inline-flex items-center gap-1.5 border-b-2 px-3 py-2 text-body-sm font-medium transition-colors',
+                'relative inline-flex items-center gap-2 rounded-t-lg px-3.5 py-2.5 text-body-sm transition-colors',
                 step.channel === c.key
-                  ? 'border-accent-primary text-text-primary'
-                  : 'border-transparent text-text-secondary hover:text-text-primary',
+                  ? 'font-semibold text-accent-primary'
+                  : 'font-medium text-text-secondary hover:bg-bg-subtle/60 hover:text-text-primary',
               )}
+              style={
+                step.channel === c.key
+                  ? { background: 'color-mix(in oklab, var(--accent-primary) 8%, transparent)' }
+                  : undefined
+              }
             >
               <ChannelIcon channel={c.key} />
               {c.label}
+              {step.channel === c.key && (
+                <span
+                  aria-hidden="true"
+                  className="absolute inset-x-0 -bottom-px h-[3px] rounded-full bg-accent-primary"
+                />
+              )}
             </button>
           ))}
         </div>
@@ -1293,9 +1337,10 @@ function Schedule({
 
       {kind === 'schedule' && (
         <section>
-          <h3 className="text-body font-semibold text-text-primary">The steps after it</h3>
+          <h3 className="text-body font-semibold text-text-primary">Every step&rsquo;s day and time</h3>
           <p className="mt-0.5 text-caption text-text-secondary">
-            Day 1 is the day the plan starts. Each step also has its own rule.
+            Day 1 is the day the plan starts. Leave a time blank and that step goes out at whatever hour the plan is
+            running at.
           </p>
           <ol className="mt-2 space-y-2">
             {steps.map((s, i) => (
@@ -1317,8 +1362,25 @@ function Schedule({
                     className="w-16 rounded-lg border border-border-default bg-bg-surface px-2 py-1 text-center text-body-sm tabular-nums text-text-primary focus:border-accent-primary focus:outline-none"
                   />
                 </span>
-                <span className="w-24 shrink-0 text-right text-caption tabular-nums text-text-secondary">
+                {/* ── ⚠️ ITS OWN HOUR — 207 ────────────────────────────────
+                    Owner, 2026-09-18: *"the date and time for the second and third
+                    follow-ups is not visible. That's a major flaw."* It was: the
+                    engine had nowhere to put a second hour, so every step fired at
+                    the first one's time. Blank still means "inherit", which is what
+                    every existing plan does. */}
+                <span className="flex shrink-0 items-center gap-1.5">
+                  <span className="text-caption text-text-secondary">at</span>
+                  <input
+                    type="time"
+                    value={s.at ?? ''}
+                    onChange={(e) => onStep(i, { at: e.target.value || null })}
+                    aria-label={`Time for step ${i + 1}`}
+                    className="w-28 rounded-lg border border-border-default bg-bg-surface px-2 py-1 text-center text-body-sm tabular-nums text-text-primary focus:border-accent-primary focus:outline-none"
+                  />
+                </span>
+                <span className="w-28 shrink-0 text-right text-caption tabular-nums text-text-secondary">
                   {formatDay(startMs + Math.max(0, s.day - (steps[0]?.day ?? 1)) * 86_400_000)}
+                  {s.at ? ` · ${s.at}` : ''}
                 </span>
                 <label className="flex shrink-0 cursor-pointer items-center gap-1.5">
                   <input

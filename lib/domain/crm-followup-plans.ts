@@ -45,6 +45,15 @@ export type PlanMode = 'remind_me' | 'review_first' | 'auto_send';
 export interface PlanStep {
   /** Day 1 is the day the plan starts. */
   readonly day: number;
+  /**
+   * The hour this step should go out, as `HH:MM` in Karachi. Null inherits the
+   * time the plan happens to be running at.
+   *
+   * ⚠️ WITHOUT THIS EVERY STEP FIRED AT THE FIRST ONE'S HOUR. The engine computed
+   * `now() + delay_days` at the moment the previous step ran, so a three-step
+   * plan went out at the same minute three times (207).
+   */
+  readonly at: string | null;
   readonly channel: PlanChannel;
   readonly title: string;
   readonly body: string;
@@ -308,9 +317,18 @@ export function suggestedPlan(purpose: FollowUpPurpose, delivery: PlanMode = 're
   /* ⚠️ THE LITERALS BELOW STAY READABLE. A subject belongs to an email step and
      nothing else, and "only if no reply" is off unless somebody asks for it —
      both are filled in here rather than repeated on twenty objects. */
-  type Draft = Omit<PlanStep, 'subject' | 'onlyIfNoReply' | 'template'>;
+  type Draft = Omit<PlanStep, 'subject' | 'onlyIfNoReply' | 'template' | 'at'>;
   const finish = (steps: readonly Draft[]): readonly PlanStep[] =>
-    steps.map((s) => ({ ...s, subject: s.channel === 'email' ? subject : '', onlyIfNoReply: false, template: null }));
+    /* ⚠️ `at: null` — a suggested plan proposes DAYS, not hours. Null means the
+       step inherits the time the plan is running at, which is what every
+       sequence did before 207; a person sets an hour only where they want one. */
+    steps.map((s) => ({
+      ...s,
+      subject: s.channel === 'email' ? subject : '',
+      onlyIfNoReply: false,
+      template: null,
+      at: null,
+    }));
   return finish(plan());
 
   function plan(): readonly Draft[] {
@@ -413,6 +431,8 @@ export interface StepRow {
   readonly stepNo: number;
   readonly channel: PlanChannel;
   readonly delayDays: number;
+  /** `HH:MM` in Karachi, or null to inherit — see `PlanStep.at`. */
+  readonly sendAtTime: string | null;
   readonly title: string;
   readonly body: string | null;
   readonly mode: PlanMode;
@@ -435,6 +455,9 @@ export function stepsToRows(steps: readonly PlanStep[]): readonly StepRow[] {
       stepNo: i + 1,
       channel: s.channel,
       delayDays: delay,
+      /* ⚠️ VALIDATED HERE, NOT TRUSTED. It reaches SQL as a `time`, where a
+         malformed value is a 500 rather than an ignored field. */
+      sendAtTime: s.at && /^([01]\d|2[0-3]):[0-5]\d$/.test(s.at) ? s.at : null,
       title: s.title.trim(),
       body: s.body.trim() || null,
       mode: s.mode,

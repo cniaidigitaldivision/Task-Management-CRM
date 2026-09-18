@@ -125,6 +125,15 @@ export interface PlanInput {
   readonly start: boolean;
   readonly steps: ReadonlyArray<{
     readonly day: number;
+    /**
+     * `HH:MM` in Karachi, or null to inherit the running hour (207).
+     *
+     * ⚠️ IT HAS TO BE DECLARED HERE OR IT IS SILENTLY LOST. The wizard's steps
+     * are cast to `PlanStep` below; a field missing from this type arrives as
+     * `undefined`, `stepsToRows` reads it as "no time", and the hour somebody
+     * chose vanishes with nothing anywhere saying so.
+     */
+    readonly at: string | null;
     readonly channel: string;
     readonly title: string;
     readonly body: string;

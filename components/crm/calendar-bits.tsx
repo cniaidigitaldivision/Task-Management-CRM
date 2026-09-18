@@ -198,14 +198,32 @@ export function PickerTab({
       aria-selected={active}
       onClick={onClick}
       className={cn(
-        'inline-flex items-center gap-1.5 border-b-2 px-3 py-2.5 text-body-sm font-medium transition-colors',
+        /* ⚠️ THE OPEN TAB HAS TO BE UNMISTAKABLE, AND THE TABS NEED AIR. Owner,
+           2026-09-18: *"nothing shows which tab is open. The tab selection is not
+           visible properly and the tabs are very congested with each other."* A
+           2px underline in the same grey as its neighbours is not a selected
+           state. So: the brand teal, semibold, a tinted ground, a 3px bar, and
+           real space between them — the same treatment the Related items dialog
+           got for the same complaint. */
+        'relative inline-flex items-center gap-2 rounded-t-lg px-4 py-2.5 text-body-sm transition-colors',
         active
-          ? 'border-accent-primary text-accent-primary'
-          : 'border-transparent text-text-secondary hover:text-text-primary',
+          ? 'font-semibold text-accent-primary'
+          : 'font-medium text-text-secondary hover:bg-bg-subtle/60 hover:text-text-primary',
       )}
+      style={
+        active
+          ? { background: 'color-mix(in oklab, var(--accent-primary) 8%, transparent)' }
+          : undefined
+      }
     >
       <Icon className="size-4 shrink-0" aria-hidden="true" />
       {children}
+      {active && (
+        <span
+          aria-hidden="true"
+          className="absolute inset-x-0 -bottom-px h-[3px] rounded-full bg-accent-primary"
+        />
+      )}
     </button>
   );
 }
