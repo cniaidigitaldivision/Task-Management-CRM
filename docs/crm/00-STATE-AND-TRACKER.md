@@ -13,6 +13,36 @@
 
 ---
 
+## 🚨 2026-09-19 — RECORD OUTCOME THREW, AND TOOK THE OUTCOME WITH IT
+
+Owner hit **RangeError: Invalid time value** on Record outcome. Four characters
+that read like SQL and were not:
+
+```ts
+paused_at = ${closing ? null : 'now()'}::timestamptz
+```
+
+Everything inside a template hole is a **bound value**. postgres.js saw the
+`::timestamptz` cast, chose its timestamptz serializer, and called
+`new Date('now()').toISOString()` — which raises before a byte reaches Postgres.
+Proved both ways against the live database: the old shape throws exactly that
+error, `case when ${closing}::boolean then now() else null end` returns a
+timestamp on one branch and a null on the other.
+
+⚠️ **THE BLAST RADIUS WAS THE WHOLE TRANSACTION.** The statement sits with the
+stage change, the timeline row and the note, so **every outcome that closed a
+lead, recorded a reply or paused a chase rolled back entirely** — an error on
+screen, and what the client had just said lost. Outcomes that do not close a lead
+never reach the branch, which is how it survived this long. Nothing was written
+half-done; the owner needs to record that one outcome again.
+
+⚠️ **TYPES CANNOT SEE THIS ONE**, so `lib/db/__tests__/sql-in-a-parameter.test.ts`
+greps for it across `app`, `lib` and `components` — comment-aware, because the fix's
+own explanation quotes the line that threw, and proved with a canary file that it
+still catches the real shape.
+
+---
+
 ## 📜 2026-09-19 — THE LETTER LOOKS LIKE A LETTER
 
 Owner: *"It should have a proper project name, a proper header, and a proper
