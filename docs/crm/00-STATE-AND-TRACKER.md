@@ -9,7 +9,73 @@
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
 | **Last updated** | **2026-09-18** |
-| **Last migration applied anywhere** | **204** (applied 2026-09-18; **201 a lead's own details are correctable — the grant was missing, so no edit form could exist**; 197 requests reach the manager, 198 the receipt stamp reads its own table — **every booking update had been failing**, 199 a booking holds its plot, **200 the timeline takes what the app writes — recording an outcome had been failing for every salesperson**). CRM next: **205.** |
+| **Last migration applied anywhere** | **207** (applied 2026-09-18; 205/206 a lead with three unanswered chases moves to Nurture, **203 one definition of due — 202 was half a fix and the 1pm send failed with "no longer due"**, 204 the sender claims a row before it sends, 207 every step keeps its own hour). CRM next: **208.** |
+
+---
+
+## 🗓️ 2026-09-18 (latest) — THE ACTIVITY TAB IS A TIMELINE YOU CAN FILTER
+
+Owner, with a reference image: *"I want that in the drawer where the activity tab
+is, so make it exactly the same as on the reference image. Plus one more thing:
+all the tabs are just left-aligned so make them properly distributed."*
+
+`components/crm/lead-activity-tab.tsx` + `lib/domain/crm-activity-feed.ts` (17
+tests). Filter chips with counts, a timeline grouped by Karachi day (Today /
+Yesterday / 16 Sep 2026), a coloured mark per kind, a grey detail line, "View
+details" only where there is somewhere real to go, and an internal note composer
+pinned at the foot.
+
+- **Nothing here fetches.** The feed is built once from rows the drawer already
+  holds; a chip is an array filter. Rule Zero, laws 1 and 3.
+- **Every one of the fourteen activity kinds lands under exactly one chip**, and a
+  test holds it. A row no chip can reach is a row somebody will swear was lost.
+- **"Documents" cannot be filled by `crm_lead_activity`** — raising a quotation
+  leaves a note, not an activity row — so quotations, past appointments and
+  finished follow-ups join the feed from `related`.
+- **A note appears in the timeline the moment it is written**, marked as saving,
+  and the words come back if the write is refused.
+
+**Two bugs found on the way:**
+
+- ⚠️ **`detail` was read from the database and dropped in the mapper.** 114's
+  reader has returned the column all along and 149's own comment says the timeline
+  renderer reads `from`/`to` off a stage change. It could not: every stage change
+  in the product said "Stage changed" and nothing about which stage.
+- ⚠️ **`created` had no label**, so the first line of a hand-made lead's timeline
+  read `created` in lower case.
+
+**The drawer's tabs now take equal shares** (`flex-1 basis-0`), and the count left
+the label and lost its pill. Measured in the running app: each tab gets 102px and
+"Conversations" is 83px of it — and `scrollWidth` rounds 82.7 up to 83, so every
+integer reading said it fitted while the browser drew an ellipsis. **The
+screenshot caught what the measurement could not.**
+
+---
+
+## ⏰ 2026-09-18 (latest) — WHY AN 11 PM STEP DOES NOT GO AT 11 PM
+
+Owner: *"again follow up is not working... it is set on 11pm but i didnt get any
+msg."*
+
+**The sender is fine and nothing is late.** `cron.job_run_details` shows the job
+succeeding every minute, and today's 13:00 and 14:00 steps both went within a
+second. The plan saved at 22:34 has `next_step_at` = **19 Sep 10:00**, because:
+
+| Rule | Value on this plan | Effect on a 22:41 step |
+|---|---|---|
+| The plan's own business hours | **10:00 – 18:00, Mon–Sat** | pushed to 10:00 tomorrow |
+| The project's quiet hours (`crm_project_settings`) | **22:00 – 08:00** | would push to 08:00 |
+
+`app.crm_next_send_slot` (187) never drops a step — it pushes it to the next
+allowed moment. That is correct behaviour and the dialog even says so ("A step
+due outside them waits, it is never dropped").
+
+⚠️ **THE WIZARD IS WHAT IS WRONG: it accepts an hour its own plan forbids and
+says nothing.** The per-step time inputs added today do not check the send window
+they are saved beside — the same failure as the same-day step rule the owner hit
+this afternoon: *a form must not offer what the engine will refuse*. **Next: the
+step time must name the window, and offer to widen it, at the moment it is
+picked.**
 
 ---
 
