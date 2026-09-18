@@ -254,7 +254,15 @@ export function LeadConversationTab({
    * ⚠️ IT ARRIVES IN THE COMPOSER, IT DOES NOT SEND. The person reads it, changes
    * it if they want, and presses send. Nothing in that dialog talks to a client.
    */
-  handoff?: { readonly id: number; readonly files: readonly File[]; readonly text: string } | null;
+  handoff?: {
+    readonly id: number;
+    readonly files: readonly File[];
+    readonly text: string;
+    /** Which composer it is for — chosen in the Related items dialog. */
+    readonly channel: 'whatsapp' | 'email';
+    /** Email only: the subject the letter starts with. */
+    readonly subject?: string;
+  } | null;
   onHandoffUsed?: () => void;
   onReviewFollowUp: () => void;
 }) {
@@ -627,12 +635,20 @@ export function LeadConversationTab({
   const [handoffSeen, setHandoffSeen] = React.useState<number | null>(null);
   if (handoff && handoff.id !== handoffSeen) {
     setHandoffSeen(handoff.id);
-    setChannel('whatsapp');
-    /* ⚠️ AND THE FILTER WITH IT. The composer follows the chip now, so leaving
-       the chip on Email would drop a WhatsApp hand-off into an email body and
-       lose its attachments. */
-    setFilter('whatsapp');
-    if (handoff.text) setDraft((d) => (d.trim() ? `${d}\n\n${handoff.text}` : handoff.text));
+    /* ⚠️ THE FILTER FOLLOWS THE CHOICE. The composer follows the chip, so the
+       chip is what has to move: leaving it on WhatsApp after somebody picked
+       Email would put the letter in a chat box and lose its attachment. */
+    setChannel(handoff.channel);
+    setFilter(handoff.channel);
+    /* ⚠️ ONLY THE WHATSAPP DRAFT IS SET HERE. An email hand-off carries a subject
+       too, and both belong to the email composer's own state — so it takes the
+       whole hand-off as a prop rather than having its fields pushed into a draft
+       it does not read. */
+    if (handoff.channel === 'whatsapp' && handoff.text) {
+      setDraft((d) => (d.trim() ? `${d}
+
+${handoff.text}` : handoff.text));
+    }
   }
 
   const pickFilesRef = React.useRef(pickFiles);
@@ -641,6 +657,10 @@ export function LeadConversationTab({
   });
   React.useEffect(() => {
     if (!handoff) return;
+    /* ⚠️ THE EMAIL COMPOSER UPLOADS ITS OWN FILES, so this must not also push them
+       into the WhatsApp attachment tray — they would sit ready to send on a
+       channel nobody chose. */
+    if (handoff.channel !== 'whatsapp') return;
     if (handoff.files.length > 0) void pickFilesRef.current(handoff.files);
     /* ⚠️ CLEARED AFTER IT IS USED. This tab unmounts when somebody switches tab;
        a hand-off left standing would be applied again on the way back. */
@@ -1009,6 +1029,8 @@ export function LeadConversationTab({
               businessName={sender?.displayName ?? projectName}
               fromName={viewerName}
               suggestedSubject={suggestedSubject}
+              handoff={handoff?.channel === 'email' ? handoff : null}
+              onHandoffUsed={onHandoffUsed}
               onSent={() => void refreshThread()}
             />
           )}

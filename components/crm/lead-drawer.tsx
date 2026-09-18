@@ -326,7 +326,14 @@ export function LeadDrawer({
     React.useState<'quotations' | 'properties' | 'appointments' | 'bookings' | 'invoices'>('quotations');
   const [editing, setEditing] = React.useState(false);
   /* What the Related items dialog handed to the composer, if anything. */
-  const [handoff, setHandoff] = React.useState<{ id: number; files: readonly File[]; text: string } | null>(null);
+  const [handoff, setHandoff] = React.useState<{
+    id: number;
+    files: readonly File[];
+    text: string;
+    /** Which composer it belongs to — the person chose in the dialog. */
+    channel: 'whatsapp' | 'email';
+    subject?: string;
+  } | null>(null);
 
   /* ⚠️ THE LIVE ONE, not the newest row. A superseded v1 still exists (176) and
      printing its figure on the strip would show a price nobody is offering any
@@ -802,8 +809,8 @@ export function LeadDrawer({
           /* ⚠️ THE DIALOG OPENS ON WHAT IS ALREADY HERE. Its own read follows. */
           seed={seedRelated(lead, related)}
           initialTab={relatedTab}
-          onAttach={({ files, text }) => {
-            setHandoff({ id: Date.now(), files, text });
+          onAttach={({ files, text, channel, subject }) => {
+            setHandoff({ id: Date.now(), files, text, channel, subject });
             setRelatedOpen(false);
             go('conversations');
           }}

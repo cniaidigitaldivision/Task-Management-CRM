@@ -85,6 +85,8 @@ export function EmailComposer({
   businessName,
   fromName,
   suggestedSubject,
+  handoff,
+  onHandoffUsed,
   onSent,
 }: {
   leadId: string;
@@ -96,6 +98,21 @@ export function EmailComposer({
   fromName: string;
   /** Computed from the thread already on the page. */
   suggestedSubject: string;
+  /**
+   * A quotation, property sheet or invoice the Related items dialog handed over
+   * after somebody chose Email.
+   *
+   * ⚠️ IT ARRIVES IN THE COMPOSER, IT DOES NOT SEND. The letter is filled in and
+   * the file attached; a person reads it and presses Send. Nothing in that dialog
+   * talks to a client.
+   */
+  handoff?: {
+    readonly id: number;
+    readonly files: readonly File[];
+    readonly text: string;
+    readonly subject?: string;
+  } | null;
+  onHandoffUsed?: () => void;
   /** Re-read the thread so the sent email appears without waiting for the poll. */
   onSent: () => void;
 }) {
@@ -107,6 +124,18 @@ export function EmailComposer({
   const [uploading, setUploading] = React.useState(false);
   const [sending, setSending] = React.useState(false);
   const [status, setStatus] = React.useState<MailerStatus | null>(null);
+  const [handoffSeen, setHandoffSeen] = React.useState<number | null>(null);
+
+  /* ⚠️ THE SUBJECT AND BODY ARE SET DURING RENDER, ONCE PER HAND-OFF, so the
+     letter is on screen in the same frame the dialog closes. The file needs an
+     await, so it goes through the same upload a manual Attach uses. */
+  if (handoff && handoff.id !== handoffSeen) {
+    setHandoffSeen(handoff.id);
+    if (handoff.subject) setSubject(handoff.subject);
+    if (handoff.text) setBody((current) => (current.trim() ? `${current}
+
+${handoff.text}` : handoff.text));
+  }
 
   /* ⚠️ UNDERNEATH A SCREEN THAT IS ALREADY UP. Nothing waits on this. */
   React.useEffect(() => {
@@ -120,7 +149,6 @@ export function EmailComposer({
   }, []);
 
   const pick = async (file: File) => {
-    if (uploading) return;
     setUploading(true);
     try {
       const slot = await prepareEmailAttachmentAction(leadId, file.name, file.size);
@@ -153,6 +181,35 @@ export function EmailComposer({
       setUploading(false);
     }
   };
+
+  const pickRef = React.useRef<(file: File) => Promise<void>>(async () => {});
+  /* ⚠️ ASSIGNED IN AN EFFECT, NEVER DURING RENDER — `react-hooks/refs`, and the
+     same slip the WhatsApp composer's `pickFilesRef` made first. Effects run in
+     declaration order after the render, so `pick` is defined by the time this
+     runs even though it is written below. */
+  React.useEffect(() => {
+    pickRef.current = pick;
+  });
+
+  React.useEffect(() => {
+    if (!handoff || handoff.files.length === 0) {
+      if (handoff) onHandoffUsed?.();
+      return;
+    }
+    let alive = true;
+    void (async () => {
+      /* ⚠️ IN SERIES, NOT IN PARALLEL. Each upload sets `uploading`, and two at
+         once would have the second refused by its own guard. */
+      for (const file of handoff.files) {
+        if (!alive) return;
+        await pickRef.current(file);
+      }
+      if (alive) onHandoffUsed?.();
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [handoff, onHandoffUsed]);
 
   const remove = (item: Attached) => {
     setAttached((list) => list.filter((a) => a.id !== item.id));

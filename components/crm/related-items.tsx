@@ -53,6 +53,7 @@ import {
   rescheduleAppointmentAction,
   type RelatedBundle,
 } from '@/app/actions/crm-related';
+import { ChannelChoice, type Channel } from '@/components/crm/channel-choice';
 import { WA_GREEN, WhatsAppMark } from '@/components/crm/whatsapp-mark';
 import {
   AppointmentScheduler,
@@ -184,6 +185,17 @@ function StatusPill({ status }: { status: string }) {
 export interface AttachPayload {
   readonly files: readonly File[];
   readonly text: string;
+  /**
+   * Which composer it lands in.
+   *
+   * ⚠️ THE PERSON CHOOSES, THE DIALOG DOES NOT ASSUME. Owner, 2026-09-18: *"it
+   * shows me a channel to which I want to send it, whether from WhatsApp or
+   * email."* Before this every attach went to WhatsApp, which for the leads with
+   * an address and no reply on WhatsApp was the wrong channel every time.
+   */
+  readonly channel: Channel;
+  /** Email only: the subject the letter starts with. */
+  readonly subject?: string;
 }
 
 async function fileFromLink(link: { url?: string; error?: string }, name: string): Promise<File> {
@@ -327,6 +339,28 @@ export function RelatedItemsDialog({
     [busy, lead.id, load, toast],
   );
 
+  /**
+   * What is waiting on a channel, if anything.
+   *
+   * ⚠️ INSIDE THE DIALOG, NOT OVER IT. The chooser is `absolute inset-0` within
+   * this panel, so the Related items header and tabs stay put and the dialog's
+   * fixed height does not move — the owner's first rule about this modal.
+   */
+  const [choosing, setChoosing] = React.useState<null | {
+    title: string;
+    summary: string;
+    files: number;
+    build: (channel: Channel) => Promise<AttachPayload | null>;
+  }>(null);
+
+  const attachVia = React.useCallback(
+    (
+      what: { title: string; summary: string; files: number },
+      build: (channel: Channel) => Promise<AttachPayload | null>,
+    ) => setChoosing({ ...what, build }),
+    [],
+  );
+
   const go = (next: TabKey, id?: string | null) => {
     setTab(next);
     if (id) setPicked((p) => ({ ...p, [next]: id }));
@@ -335,7 +369,7 @@ export function RelatedItemsDialog({
 
   const where = [lead.projectName, lead.city].filter(Boolean).join(' · ');
   const ctx: Ctx | null = items
-    ? { lead, items, sender, where, busy, loading, act, upload, go, onClose, onAttach, toast }
+    ? { lead, items, sender, where, busy, loading, act, upload, go, onClose, onAttach, attachVia, toast }
     : null;
 
   const body = (
@@ -404,6 +438,33 @@ export function RelatedItemsDialog({
           ))}
         </div>
 
+        {choosing && (
+          <ChannelChoice
+            title={choosing.title}
+            summary={choosing.summary}
+            fileCount={choosing.files}
+            phone={lead.phone}
+            email={lead.email}
+            senderName={sender?.displayName ?? lead.projectName}
+            busy={busy}
+            onCancel={() => setChoosing(null)}
+            onPick={async (channel) => {
+              setBusy(true);
+              try {
+                const payload = await choosing.build(channel);
+                if (payload) {
+                  setChoosing(null);
+                  onAttach(payload);
+                }
+              } catch (e) {
+                toast({ tone: 'error', text: e instanceof Error ? e.message : 'That could not be attached.' });
+              } finally {
+                setBusy(false);
+              }
+            }}
+          />
+        )}
+
         {loading && (
           <p className="flex shrink-0 items-center gap-2 border-b border-border-subtle bg-bg-subtle/40 px-6 py-1.5 text-caption text-text-secondary">
             <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
@@ -459,6 +520,18 @@ interface Ctx {
   go: (tab: TabKey, id?: string | null) => void;
   onClose: () => void;
   onAttach: (payload: AttachPayload) => void;
+  /**
+   * Ask which channel, then build the payload for the one chosen.
+   *
+   * ⚠️ THE FILES ARE FETCHED AFTER THE CHOICE, not before. A PDF downloaded for a
+   * channel nobody picked is a signed-URL round trip spent on nothing — and on
+   * Email the attachment is uploaded again by the composer, so doing it eagerly
+   * would cost two.
+   */
+  attachVia: (
+    what: { title: string; summary: string; files: number },
+    build: (channel: Channel) => Promise<AttachPayload | null>,
+  ) => void;
   toast: ReturnType<typeof useToast>;
 }
 
@@ -1050,20 +1123,57 @@ function QuotationsTab({ ctx, pickedId, onPick }: { ctx: Ctx; pickedId?: string;
   const unitName = (q: RelatedQuotation) =>
     [q.propertyTitle, blockOf(q.propertyLabel)].filter(Boolean).join(' · ') || q.propertyLabel || quotedUnit(q) || '—';
 
-  const attach = async () => {
+  /**
+   * Ask which channel, then build the message for it.
+   *
+   * ⚠️ THE WORDING IS NOT THE SAME ON BOTH. A WhatsApp message is one line a
+   * salesperson would type; an email is a letter with a subject and a greeting.
+   * Sending the chat line as an email body, which is what one shared string would
+   * do, is how an email ends up looking like a text message.
+   */
+  const attach = () => {
     if (!chosen) return;
-    const text = `Quotation ${chosen.number} for ${unitName(chosen)}: ${money(chosen.netAmount)}${
-      chosen.validUntil ? `, valid until ${longDay(chosen.validUntil)}` : ''
-    }.`;
-    try {
-      const files =
-        attachPdf && chosen.pdfPath
+    const unit = unitName(chosen);
+    const amount = money(chosen.netAmount);
+    const valid = chosen.validUntil ? longDay(chosen.validUntil) : null;
+    const withPdf = attachPdf && !!chosen.pdfPath;
+
+    ctx.attachVia(
+      {
+        title: 'Send this quotation',
+        summary: `${chosen.number} · ${unit} · ${amount}`,
+        files: withPdf ? 1 : 0,
+      },
+      async (channel) => {
+        const files = withPdf
           ? [await fileFromLink(await relatedFileLinkAction('quotation_pdf', chosen.id), `${chosen.number}.pdf`)]
           : [];
-      ctx.onAttach({ files, text });
-    } catch (e) {
-      ctx.toast({ tone: 'error', text: e instanceof Error ? e.message : 'The PDF could not be attached.' });
-    }
+
+        if (channel === 'whatsapp') {
+          return {
+            channel,
+            files,
+            text: `Quotation ${chosen.number} for ${unit}: ${amount}${valid ? `, valid until ${valid}` : ''}.`,
+          };
+        }
+        return {
+          channel,
+          files,
+          subject: `Quotation ${chosen.number} — ${unit}`,
+          text: [
+            `Assalam-o-Alaikum ${(lead.fullName ?? '').split(' ')[0] || 'Sir/Madam'}.`,
+            '',
+            `Please find our quotation ${chosen.number} for ${unit}.`,
+            '',
+            `Quotation amount: ${amount}${valid ? `\nValid until: ${valid}` : ''}`,
+            '',
+            withPdf
+              ? 'The full quotation is attached. Please let me know if you would like to discuss anything on it.'
+              : 'Please let me know if you would like to discuss anything on it.',
+          ].join('\n'),
+        };
+      },
+    );
   };
 
   const openPdf = async () => {
@@ -1608,12 +1718,29 @@ function PropertiesTab({ ctx, pickedId, onPick, onChooseUnit }: {
     ]
       .filter(Boolean)
       .join('\n');
-    try {
-      const files = attachSheet && sheet ? [await fileFromLink(await crmDocumentLinkAction(sheet.id), sheet.title)] : [];
-      ctx.onAttach({ files, text });
-    } catch (e) {
-      ctx.toast({ tone: 'error', text: e instanceof Error ? e.message : 'The sheet could not be attached.' });
-    }
+    ctx.attachVia(
+      {
+        title: 'Send these property details',
+        summary: `${chosen.label} · ${chosen.title}`,
+        files: attachSheet && sheet ? 1 : 0,
+      },
+      async (channel) => {
+        const files = attachSheet && sheet ? [await fileFromLink(await crmDocumentLinkAction(sheet.id), sheet.title)] : [];
+        if (channel === 'whatsapp') return { channel, files, text };
+        return {
+          channel,
+          files,
+          subject: `${chosen.label} — ${chosen.title}`,
+          text: [
+            `Assalam-o-Alaikum ${(lead.fullName ?? '').split(' ')[0] || 'Sir/Madam'}.`,
+            '',
+            'Here are the details of the unit we discussed.',
+            '',
+            text,
+          ].join('\n'),
+        };
+      },
+    );
   };
 
   return (
@@ -2519,20 +2646,40 @@ function InvoicesTab({ ctx, pickedId, onPick }: { ctx: Ctx; pickedId?: string; o
       percentage: s.percentage,
     }));
 
-  const attach = async () => {
+  const attach = () => {
     if (!chosen) return;
-    const text = `Invoice ${chosen.number} · ${chosen.description}: ${money(
-      Math.max(0, chosen.amount - chosen.paidAmount),
-    )} due${chosen.dueAt ? ` by ${longDay(chosen.dueAt)}` : ''}.`;
-    try {
-      const files =
-        attachPdf && chosen.pdfPath
+    const outstanding = money(Math.max(0, chosen.amount - chosen.paidAmount));
+    const due = chosen.dueAt ? longDay(chosen.dueAt) : null;
+    const withPdf = attachPdf && !!chosen.pdfPath;
+    const text = `Invoice ${chosen.number} · ${chosen.description}: ${outstanding} due${due ? ` by ${due}` : ''}.`;
+
+    ctx.attachVia(
+      {
+        title: 'Send this invoice',
+        summary: `${chosen.number} · ${outstanding} outstanding`,
+        files: withPdf ? 1 : 0,
+      },
+      async (channel) => {
+        const files = withPdf
           ? [await fileFromLink(await relatedFileLinkAction('invoice_pdf', chosen.id), `${chosen.number}.pdf`)]
           : [];
-      ctx.onAttach({ files, text });
-    } catch (e) {
-      ctx.toast({ tone: 'error', text: e instanceof Error ? e.message : 'The PDF could not be attached.' });
-    }
+        if (channel === 'whatsapp') return { channel, files, text };
+        return {
+          channel,
+          files,
+          subject: `Invoice ${chosen.number}`,
+          text: [
+            `Assalam-o-Alaikum ${(lead.fullName ?? '').split(' ')[0] || 'Sir/Madam'}.`,
+            '',
+            `Please find invoice ${chosen.number} for ${chosen.description}.`,
+            '',
+            `Amount outstanding: ${outstanding}${due ? `\nDue by: ${due}` : ''}`,
+            '',
+            'Once the payment is made, please share the receipt so we can record it.',
+          ].join('\n'),
+        };
+      },
+    );
   };
 
   const open = async (what: 'invoice_pdf' | 'invoice_receipt') => {

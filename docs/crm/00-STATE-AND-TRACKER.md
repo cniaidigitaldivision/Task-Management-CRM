@@ -13,6 +13,54 @@
 
 ---
 
+## 📲 2026-09-18 (later) — ATTACH ASKS WHICH CHANNEL
+
+Owner: *"when I click on the attach selected quote, it shows me a channel to which
+I want to send it, whether from WhatsApp or email… if I say attach to email, then
+it will be sent attached to email. When I go to email, that attached quote will be
+shown, right?"*
+
+Before this, **every** Attach went to WhatsApp. For the leads with an address who
+never reply on WhatsApp — the Gulf ones, and anybody who reads mail at a desk — it
+was the wrong channel every single time.
+
+`components/crm/channel-choice.tsx`: two cards, each carrying the one fact that
+decides the answer — the number the client is messaged on, the address they are
+written to. WhatsApp in its own green with the real mark; email on
+`--channel-email`. The chooser is `absolute inset-0` **inside** the dialog, so the
+header, the five tabs and the fixed height do not move.
+
+⚠️ **A CHANNEL WITH NOWHERE TO SEND IS SHOWN AS UNAVAILABLE, NOT HIDDEN.** 640 of
+641 leads arrived from a Meta form that never asked for an email address, so Email
+is missing far more often than it is present — a card that vanished would read as a
+feature that comes and goes. It stays, dashed and greyed, with the reason on it and
+*"Add one with Edit details"* underneath.
+
+⚠️ **AND THE 24-HOUR WINDOW IS NOT A REASON TO REFUSE WHATSAPP HERE.** Outside it
+WhatsApp takes an approved template rather than free text, which the composer
+already knows and says; deciding that in this dialog would refuse a send the next
+screen would have allowed.
+
+⚠️ **THE FILES ARE FETCHED AFTER THE CHOICE, NOT BEFORE.** A PDF downloaded for a
+channel nobody picked is a signed-URL round trip spent on nothing — and on Email the
+composer uploads it again, so doing it eagerly would cost two.
+
+⚠️ **AND THE WORDING IS NOT THE SAME ON BOTH.** A WhatsApp message is the one line
+a salesperson would type; an email is a letter with a subject, a greeting and a
+closing question. Sending the chat line as an email body — which one shared string
+would have done — is how an email ends up looking like a text message. All three
+tabs (quotation, property, invoice) now build both.
+
+The email hand-off carries its subject and body into the composer during render, and
+its file through the same signed-URL upload a manual Attach uses, in series — so the
+quote is sitting in the letter, attached, when the dialog closes.
+
+⚠️ **`react-hooks/refs` AGAIN** (third time): a ref assigned during render, and then
+a forward reference the linter refuses. The effect ends up *below* the function it
+calls, which is the only arrangement that satisfies both.
+
+---
+
 ## 📬 2026-09-18 (later) — A REQUEST TO THE MANAGER BECOMES WORK
 
 Owner: *"when I request to send the quotation to the sales manager, I receive a
