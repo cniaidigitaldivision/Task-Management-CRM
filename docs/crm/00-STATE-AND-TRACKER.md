@@ -13,6 +13,45 @@
 
 ---
 
+## 🚫 2026-09-18 (later) — THE 24-HOUR WINDOW IS ENFORCED, NOT DISPLAYED
+
+Owner, with a screenshot of two messages marked *"Not delivered — Re-engagement
+message"*: *"why is it showing me this error?"*
+
+Read the database rather than guessing. For that lead, **`last_inbound` is null** —
+they have never written to us. Outside a service window WhatsApp delivers approved
+TEMPLATES only, so Meta refused both (error 131047). **Not our bug.**
+
+⚠️ **BUT THE SCREEN KNEW AND SENT ANYWAY, AND THAT IS OURS.** The strip directly
+above the composer said *"24-hour window closed"* at the moment they pressed send.
+`disabledReason` covered `loading` and `no number` and **not the window** — so free
+text went to Meta, came back refused, and landed in the thread as a failure the
+salesperson had to decode. A rule that is displayed but not enforced is a rule the
+product breaks on the user's behalf.
+
+**Three fixes, in the order they matter:**
+
+1. **The server refuses first.** `windowRefusal` reads our own records — text,
+   media and each forward target — and returns before Meta is called. ⚠️ **Decided
+   from our records, never by asking Meta**: there is no "is the window open" API,
+   and `whatsapp-test-number-lies` is the note about discovering this on the test
+   number, which accepts free text 26 hours later and lies.
+2. **Two situations, two sentences.** *"They have never messaged you"* and *"the
+   window closed"* need different things from a salesperson; one message for both
+   leaves them guessing which they have.
+3. **And it says what works.** The warning in the strip is now a button —
+   *"Never messaged you · Send a template"* — that opens the place templates are
+   sent from. "Closed" is a fact; the template is the way out of it.
+
+⚠️ **META'S WORDS ARE KEPT, EXCEPT WHERE THEY ARE NOT WORDS.** `error_data.details`
+is usually the most useful sentence there is and rewording it would cost the reader
+the only instruction they get. But *"Re-engagement message"* is a label. Those few
+are translated; **the table fails open** — an unrecognised detail passes through
+untouched, because one that swallowed the only sentence explaining a NEW failure
+would be worse than no table. 6 tests hold that, including the pass-through.
+
+---
+
 ## 📲 2026-09-18 (later) — ATTACH ASKS WHICH CHANNEL
 
 Owner: *"when I click on the attach selected quote, it shows me a channel to which

@@ -442,11 +442,29 @@ export function LeadConversationTab({
     company: sender?.displayName || projectName,
     project: projectName,
   };
+  /**
+   * Why nothing can be typed and sent right now.
+   *
+   * ⚠️ THE CLOSED WINDOW BELONGS HERE, AND DID NOT. Owner, 2026-09-18, holding a
+   * screenshot of two messages marked *"Not delivered — Re-engagement message"*:
+   * the strip above the composer said "24-hour window closed" at the moment they
+   * pressed send, and the composer sent anyway. WhatsApp refuses free text outside
+   * the window (error 131047) — so the send was never going to arrive, and the
+   * only thing the product did was turn a rule it knew about into a failure the
+   * salesperson had to decode.
+   *
+   * ⚠️ AND IT SAYS WHAT WILL WORK. "Closed" is a fact; "send an approved template"
+   * is the way out of it, and the button beside this opens the place that does it.
+   */
   const disabledReason = loading
     ? 'Loading…'
     : !sender?.configured
       ? 'This project has no WhatsApp number'
-      : null;
+      : !windowInfo.open
+        ? windowInfo.closesAt === null
+          ? 'They have never messaged you — send an approved template to start'
+          : 'The 24-hour window closed — send an approved template'
+        : null;
 
   /* ── Scrolling: opens at the newest, stays there while you are there ────── */
   const scroller = React.useRef<HTMLDivElement>(null);
@@ -980,9 +998,16 @@ ${handoff.text}` : handoff.text));
                           ● Chat open{windowInfo.closesAt ? ` · ${hoursLeft(windowInfo.closesAt, now)}` : ''}
                         </span>
                       ) : (
-                        <span className="text-[color:var(--feedback-warning)]" title="WhatsApp only delivers approved templates until the client writes again.">
-                          ● 24-hour window closed
-                        </span>
+                        <button
+                          type="button"
+                          onClick={onReviewFollowUp}
+                          title="WhatsApp only delivers approved templates until the client writes again."
+                          className="font-medium underline-offset-2 hover:underline"
+                          style={{ color: 'var(--feedback-warning)' }}
+                        >
+                          ● {windowInfo.closesAt === null ? 'Never messaged you' : '24-hour window closed'} · Send a
+                          template
+                        </button>
                       )}
                     </span>
                   </>

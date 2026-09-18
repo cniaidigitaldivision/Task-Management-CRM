@@ -37,6 +37,7 @@ import {
   whatsAppMediaType,
 } from '@/lib/crm/whatsapp';
 import type { WhatsAppConfigResult } from '@/lib/crm/whatsapp';
+import { withUser } from '@/lib/db/client';
 import { crmLeadThread, getCrmLead } from '@/lib/db/queries/crm-leads';
 import type { CrmMessage } from '@/lib/db/queries/crm-leads';
 import {
@@ -105,6 +106,53 @@ async function sendableLead(actorId: string, leadId: string) {
   return { ok: true as const, lead, config: ready.config, phone: lead.phoneE164 };
 }
 
+/* ════════════════════════════════════════════════════════════════════════════
+ * THE 24-HOUR WINDOW, ENFORCED RATHER THAN DISPLAYED
+ * ----------------------------------------------------------------------------
+ * Owner, 2026-09-18, with two messages showing "Not delivered — Re-engagement
+ * message": *"when I send this message while I have added this recipient number,
+ * why is it showing me this error?"*
+ *
+ * Because WhatsApp refused it, and it was always going to. That lead has NEVER
+ * written to us (`last_inbound` is null), so there is no service window open, and
+ * outside one Meta delivers approved TEMPLATES only. Error 131047.
+ *
+ * ⚠️ THE SCREEN KNEW AND SENT ANYWAY. The composer showed "24-hour window closed"
+ * in the same strip as the send button, and `disabledReason` covered only
+ * "loading" and "no number" — so free text went to Meta, came back refused, and
+ * landed in the thread as a failure the salesperson had to interpret. A rule that
+ * is displayed but not enforced is a rule the product breaks on the user's behalf.
+ *
+ * ⚠️ AND IT IS DECIDED FROM OUR OWN RECORDS, NOT BY ASKING META. There is no API
+ * for "is the window open"; the only truth is when they last wrote to us.
+ * `whatsapp-test-number-lies` in the notes: the TEST number accepts free text 26
+ * hours later, so discovering this by trying it on the sandbox reports success and
+ * a real client's number then refuses.
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+const WINDOW_MS = 24 * 3_600_000;
+
+/** Null when free text may be sent; otherwise why it may not. */
+async function windowRefusal(actorId: string, leadId: string): Promise<string | null> {
+  const rows = (await withUser(actorId, (tx) => tx`
+    select max(m.occurred_at) as last_inbound
+      from public.crm_lead_messages m
+     where m.lead_id = ${leadId}::uuid
+       and m.channel = 'whatsapp'
+       and m.direction = 'inbound'
+  `)) as Array<{ last_inbound: string | null }>;
+
+  const last = rows[0]?.last_inbound ? Date.parse(String(rows[0].last_inbound)) : null;
+  if (last !== null && Date.now() - last < WINDOW_MS) return null;
+
+  /* ⚠️ TWO DIFFERENT SITUATIONS, TWO DIFFERENT SENTENCES. "They have never
+     written" and "they wrote, but three days ago" need different things from the
+     salesperson, and one message for both leaves them guessing which they have. */
+  return last === null
+    ? 'This person has never messaged you on WhatsApp, so WhatsApp will not deliver a typed message. Send an approved template to open the conversation — once they reply, you can write freely for 24 hours.'
+    : 'The 24-hour window closed, so WhatsApp will not deliver a typed message. Send an approved template — once they reply, you can write freely again for 24 hours.';
+}
+
 /** The wamid of the message being replied to — only from the same lead. */
 async function replyWamid(actorId: string, leadId: string, replyToMessageId: string | null | undefined) {
   if (!replyToMessageId || !UUID.test(replyToMessageId)) return null;
@@ -129,6 +177,11 @@ export async function sendWhatsAppTextAction(
 
   const ready = await sendableLead(user.id, leadId);
   if (!ready.ok) return { ok: false, error: ready.error };
+
+  /* ⚠️ REFUSED HERE, BEFORE META AND BEFORE THE THREAD. A message recorded as
+     failed is a message the salesperson believes they sent. */
+  const closed = await windowRefusal(user.id, leadId);
+  if (closed) return { ok: false, error: closed };
 
   const replyTo = await replyWamid(user.id, leadId, replyToMessageId);
   const result = await sendText(ready.config, ready.phone, text, replyTo);
@@ -219,6 +272,12 @@ export async function sendWhatsAppMediaAction(input: {
 
   const ready = await sendableLead(user.id, input.leadId);
   if (!ready.ok) return { ok: false, error: ready.error };
+
+  /* ⚠️ A PHOTO IS NOT AN EXCEPTION. The window governs everything that is not an
+     approved template — a brochure sent into a closed one fails exactly as a
+     typed line does, and costs an upload on the way. */
+  const closedForMedia = await windowRefusal(user.id, input.leadId);
+  if (closedForMedia) return { ok: false, error: closedForMedia };
 
   const stored = await downloadObject(input.path);
   if (!stored.ok) return { ok: false, error: `The file did not arrive in storage — ${stored.message}` };
@@ -390,6 +449,13 @@ export async function forwardMessageAction(
     const ready = await sendableLead(user.id, target);
     if (!ready.ok) {
       results.push({ leadId: target, ok: false, error: ready.error });
+      continue;
+    }
+    /* ⚠️ PER TARGET. Forwarding to five people is five windows, not one — and
+       the one that is shut must be named rather than silently failing. */
+    const shut = await windowRefusal(user.id, target);
+    if (shut) {
+      results.push({ leadId: target, ok: false, error: shut });
       continue;
     }
     if (file) {

@@ -147,17 +147,44 @@ async function post(
   };
 
   if (!response.ok || json.error) {
-    /* ⚠️ META'S OWN WORDS, not ours. `error_data.details` is the specific one —
-       "re-engagement message" for a closed window, or which template is
-       unapproved — and rewording it costs the reader the only sentence that
-       says what to do next. */
+    /* ⚠️ META'S OWN WORDS, EXCEPT WHERE THEY ARE NOT WORDS. `error_data.details`
+       is usually the specific and useful one — which template is unapproved, which
+       parameter is missing — and rewording those costs the reader the only
+       sentence that says what to do.
+
+       But a few are labels, not sentences. "Re-engagement message" is what a
+       salesperson saw against two failed sends on 2026-09-18, and it tells them
+       nothing: not that the client has to write first, not that a template is the
+       way in. Those few are translated; everything else is passed through. */
     const detail = json.error?.error_data?.details ?? json.error?.message;
-    return { ok: false, error: detail ?? `WhatsApp refused the message (${response.status}).` };
+    return { ok: false, error: explainWhatsAppRefusal(detail) ?? `WhatsApp refused the message (${response.status}).` };
   }
 
   const wamid = json.messages?.[0]?.id;
   if (!wamid) return { ok: false, error: 'WhatsApp accepted the message but returned no id.' };
   return { ok: true, wamid };
+}
+
+/**
+ * Meta's terser refusals, in words somebody can act on.
+ *
+ * ⚠️ MATCHED LOOSELY AND FAILING OPEN. An unrecognised detail is returned
+ * untouched — a translation table that swallowed the one message explaining a new
+ * failure would be worse than no table at all.
+ */
+export function explainWhatsAppRefusal(detail: string | undefined): string | undefined {
+  if (!detail) return detail;
+  const d = detail.toLowerCase();
+  if (d.includes('re-engagement') || d.includes('reengagement') || d.includes('24 hours')) {
+    return 'Not delivered: the client has not messaged you in the last 24 hours, so WhatsApp only accepts an approved template. Send one to open the conversation.';
+  }
+  if (d.includes('template') && (d.includes('not exist') || d.includes('not found'))) {
+    return `${detail} — check the name and language in WhatsApp Manager.`;
+  }
+  if (d.includes('not opted in') || d.includes('opt-in')) {
+    return 'Not delivered: this number has not opted in to messages from your business.';
+  }
+  return detail;
 }
 
 /** Free text. ⚠️ Only inside the 24-hour window; Meta refuses it outside. */
