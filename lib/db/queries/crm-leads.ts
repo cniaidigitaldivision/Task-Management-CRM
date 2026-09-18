@@ -3899,3 +3899,106 @@ export async function crmUpdateLeadDetails(
     return { ok: true, changed: moved.length };
   });
 }
+
+/* ============================================================================
+ * THE CONVERSATIONS PAGE — every thread this salesperson owns, in one list
+ * ----------------------------------------------------------------------------
+ * Owner, 2026-09-18, with a design: *"in the salesperson's conversation page…
+ * like WhatsApp on an app like that."*
+ *
+ * ⚠️ THIS IS NOT `listCrmLeads` WITH A FILTER. The desk's list is a lead list
+ * that happens to show a last message; this is a MESSAGE list that happens to
+ * name a lead. It is ordered by when somebody last spoke, not by when the lead
+ * arrived, and a lead nobody has ever messaged is not a conversation.
+ *
+ * ⚠️ ONE ROW PER LEAD, PICKED BY A LATERAL. A join to `crm_lead_messages` would
+ * multiply the lead by its message count and then need a DISTINCT ON to undo
+ * it — and the ordering would be decided after the multiplication rather than
+ * before.
+ *
+ * ⚠️ AND THE PROJECT NAME COMES FROM THE DEFINER. `projects_select` asks for
+ * membership and a salesperson is a member of nothing, so a join blanks the
+ * name on every row (migration 130, and the ninth time this has been written
+ * down).
+ * ========================================================================= */
+
+export interface CrmConversation {
+  readonly leadId: string;
+  readonly fullName: string | null;
+  readonly projectName: string | null;
+  readonly city: string | null;
+  readonly phoneE164: string | null;
+  readonly email: string | null;
+  readonly stage: string;
+  /** The last thing either side said, on any channel. */
+  readonly lastBody: string | null;
+  readonly lastAt: string | null;
+  readonly lastChannel: 'whatsapp' | 'email' | null;
+  readonly lastDirection: 'inbound' | 'outbound' | null;
+  /** True when THEY spoke last — what "waiting on you" means. */
+  readonly awaitingReply: boolean;
+  /** How many messages the thread holds, for the tab counts. */
+  readonly messageCount: number;
+}
+
+export async function crmConversations(
+  actorId: string,
+  options: { channel?: 'whatsapp' | 'email' | null; search?: string | null; limit?: number } = {},
+): Promise<CrmConversation[]> {
+  const channel = options.channel ?? null;
+  const search = (options.search ?? '').trim() || null;
+  const limit = Math.min(Math.max(options.limit ?? 100, 1), 200);
+
+  const rows = await withUser(actorId, (tx) => tx`
+    with me as (select app.current_user_id() as id)
+    select l.id, l.full_name, l.city, l.phone_e164, l.email, l.stage::text as stage,
+           app.crm_project_name(l.project_id) as project_name,
+           m.body as last_body,
+           m.occurred_at as last_at,
+           m.channel::text as last_channel,
+           m.direction::text as last_direction,
+           (select count(*) from public.crm_lead_messages c
+             where c.lead_id = l.id and c.hidden_at is null) as message_count
+      from public.crm_leads l, me
+      /* The newest message on this lead, on the channel being looked at. */
+      left join lateral (
+        select x.body, x.occurred_at, x.channel, x.direction
+          from public.crm_lead_messages x
+         where x.lead_id = l.id
+           and x.hidden_at is null
+           and (${channel}::text is null or x.channel::text = ${channel}::text)
+         order by x.occurred_at desc
+         limit 1
+      ) m on true
+     where l.owner_id = me.id
+       /* ⚠️ A CONVERSATION IS A THREAD THAT EXISTS. A lead nobody has written to
+          belongs on the desk, not here — the design's list is of people you are
+          talking to. */
+       and m.occurred_at is not null
+       and (${search}::text is null
+            or l.full_name ilike '%' || ${search}::text || '%'
+            or l.phone_e164 ilike '%' || ${search}::text || '%'
+            or l.email ilike '%' || ${search}::text || '%'
+            or m.body ilike '%' || ${search}::text || '%')
+     order by m.occurred_at desc
+     limit ${limit}
+  `);
+
+  return (rows as Array<Record<string, unknown>>).map((r) => ({
+    leadId: String(r.id),
+    fullName: (r.full_name as string | null) ?? null,
+    projectName: (r.project_name as string | null) ?? null,
+    city: (r.city as string | null) ?? null,
+    phoneE164: (r.phone_e164 as string | null) ?? null,
+    email: (r.email as string | null) ?? null,
+    stage: String(r.stage ?? 'new'),
+    lastBody: (r.last_body as string | null) ?? null,
+    lastAt: r.last_at ? new Date(r.last_at as string).toISOString() : null,
+    lastChannel:
+      r.last_channel === 'whatsapp' ? 'whatsapp' : r.last_channel === 'email' ? 'email' : null,
+    lastDirection:
+      r.last_direction === 'inbound' ? 'inbound' : r.last_direction === 'outbound' ? 'outbound' : null,
+    awaitingReply: r.last_direction === 'inbound',
+    messageCount: Number(r.message_count ?? 0),
+  }));
+}

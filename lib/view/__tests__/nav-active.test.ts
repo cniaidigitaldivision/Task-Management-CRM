@@ -115,6 +115,8 @@ const ADMIN_NAV = [
      be narrowed while it is a mock, that is a change to the nav entry, not to
      this fixture — this list only describes what the tree actually offers. */
   '/composer',
+  /* The salesperson's own inbox — 2026-09-18. */
+  '/conversations',
 ] as const;
 
 describe('activeHref', () => {

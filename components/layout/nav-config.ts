@@ -1,4 +1,5 @@
 import {
+  MessagesSquare,
   Activity,
   ClipboardList,
   BarChart3,
@@ -203,6 +204,21 @@ export const NAV_SECTIONS: readonly NavSection[] = [
         label: 'My leads',
         href: '/my-leads',
         icon: ClipboardList,
+        roles: ADMIN_UP,
+        requires: 'crm',
+      },
+      {
+        /* ⚠️ THE SALESPERSON'S OWN INBOX. Owner, 2026-09-18, with a design:
+           *"in the salesperson's conversation page… like WhatsApp on an app like
+           that."* Every thread they own, ordered by who spoke last — the desk is
+           for working a lead, this is for answering one.
+
+           `requires: 'crm'` like My leads: it lists only the caller's own
+           conversations (the query carries `owner_id = app.current_user_id()`
+           and RLS narrows it again), so it discloses nothing the desk does not. */
+        label: 'Conversations',
+        href: '/conversations',
+        icon: MessagesSquare,
         roles: ADMIN_UP,
         requires: 'crm',
       },
