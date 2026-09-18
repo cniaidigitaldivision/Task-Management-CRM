@@ -437,6 +437,23 @@ export function LeadConversationTab({
   );
 
   const windowInfo = whatsAppWindow(liveThread, now);
+
+  /**
+   * Have we already reached out and had no reply yet?
+   *
+   * ⚠️ SENDING A TEMPLATE DOES NOT OPEN THE WINDOW — only THEIR reply does, and
+   * the screen has to stop saying "never messaged you" the moment we have written
+   * to them, or it reads as though the template never went. Owner, 2026-09-18:
+   * *"it's still showing me never messaged you… and does not let me add any
+   * message."* It was right about the window and wrong about the reason, which is
+   * the product's fault for using the same sentence for both.
+   */
+  const awaitingFirstReply = React.useMemo(
+    () =>
+      windowInfo.closesAt === null &&
+      liveThread.some((m) => m.channel === 'whatsapp' && m.direction === 'outbound' && m.status !== 'failed'),
+    [liveThread, windowInfo.closesAt],
+  );
   const vars: ReplyVariables = {
     myName: viewerName,
     leadName: leadName === 'This lead' ? null : leadName,
@@ -463,7 +480,9 @@ export function LeadConversationTab({
       ? 'This project has no WhatsApp number'
       : !windowInfo.open
         ? windowInfo.closesAt === null
-          ? 'They have never messaged you — send an approved template to start'
+          ? awaitingFirstReply
+            ? 'Sent — you can write freely once they reply'
+            : 'They have never messaged you — send an approved template to start'
           : 'The 24-hour window closed — send an approved template'
         : null;
 
@@ -1019,8 +1038,13 @@ ${handoff.text}` : handoff.text));
                           className="font-medium underline-offset-2 hover:underline"
                           style={{ color: 'var(--feedback-warning)' }}
                         >
-                          ● {windowInfo.closesAt === null ? 'Never messaged you' : '24-hour window closed'} · Send a
-                          template
+                          ●{' '}
+                          {windowInfo.closesAt === null
+                            ? awaitingFirstReply
+                              ? 'Waiting for their first reply'
+                              : 'Never messaged you'
+                            : '24-hour window closed'}{' '}
+                          · Send a template
                         </button>
                       )}
                     </span>

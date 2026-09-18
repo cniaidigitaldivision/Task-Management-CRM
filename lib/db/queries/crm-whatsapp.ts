@@ -109,8 +109,23 @@ export async function recordOutboundMessage(
       ${input.body}, ${input.mediaId ?? null}, ${input.mediaPath ?? null}, ${input.mediaMime ?? null},
       ${input.mediaFilename ?? null}, ${input.mediaSize ?? null}, ${input.mediaVoice ?? false},
       ${input.replyToWamid ?? null}, ${input.forwarded ?? false},
-      ${input.error ? 'failed' : 'sent'}::public.crm_message_status, now(),
-      ${input.error ?? null}, ${actorId}::uuid, now()
+      /* ── ⚠️ NO WAMID MEANS IT DID NOT GO, WHATEVER ELSE WE WERE TOLD ───────
+         Found on 2026-09-18 in the Lareeb Testing thread: a row with status
+         'sent', no error, and **no WhatsApp message id**. Meta returns an id on
+         every accepted message, so a row without one never reached a handset —
+         and this table said it had.
+
+         The path in: the error arrives as an EMPTY STRING rather than null (??
+         does not catch it, so a refusal Meta described with a blank detail fell
+         through both guards), and an empty string is falsy, so the row was
+         written 'sent'. The status now depends on the id as well, which is the
+         fact that cannot be faked.
+
+         ⚠️ NO BACKTICKS IN THIS COMMENT: the query is a JS template literal and
+         one would end the string. Third time today. */
+      ${input.error || !input.wamid ? 'failed' : 'sent'}::public.crm_message_status, now(),
+      ${input.error?.trim() || (input.wamid ? null : 'WhatsApp returned no message id, so it was not delivered.')},
+      ${actorId}::uuid, now()
     )
     on conflict (wa_message_id) do nothing
     returning id

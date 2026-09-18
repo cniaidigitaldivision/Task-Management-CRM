@@ -173,7 +173,10 @@ async function post(
  * failure would be worse than no table at all.
  */
 export function explainWhatsAppRefusal(detail: string | undefined): string | undefined {
-  if (!detail) return detail;
+  /* ⚠️ A BLANK DETAIL IS NOT A DETAIL, and returning it would hand the caller an
+     empty string — which `??` does not catch and `if (error)` reads as "no error".
+     That is how a refused message came to be recorded as sent. */
+  if (!detail?.trim()) return undefined;
   const d = detail.toLowerCase();
   if (d.includes('re-engagement') || d.includes('reengagement') || d.includes('24 hours')) {
     return 'Not delivered: the client has not messaged you in the last 24 hours, so WhatsApp only accepts an approved template. Send one to open the conversation.';

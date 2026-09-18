@@ -13,6 +13,59 @@
 
 ---
 
+## ✅ 2026-09-18 (later) — EMAIL IS LIVE; AND "SENT" NOW DEPENDS ON THE ID
+
+Owner: *"it's still showing me never messaged you… and does not let me add any
+message."*
+
+**Right about the state, and the product was wrong about the reason.** Sending a
+template does NOT open the window — only THEIR reply does — so the composer stays
+locked afterwards, which is correct. But it kept saying *"Never messaged you"*
+after we had written to them, which reads as though the template never went.
+
+Now: *"Waiting for their first reply"* once any WhatsApp message has gone out, and
+*"Sent — you can write freely once they reply"* in the box. One sentence for two
+different situations is what made a correct lock look like a bug.
+
+### 🎉 Email is verified and delivering
+
+Checking the thread turned up something better than a bug. The email sent at
+11:48 Karachi to Lareeb reached Resend with id `01a0b346…`, and Resend's own
+record says **`last_event: delivered`**:
+
+```
+from     Demo — Product Enquiries [demo] <info@aidigitaldivision.com>
+reply_to habibaminhas989@gmail.com
+to       laraibrafique090@gmail.com        last_event: delivered
+```
+
+So the 403 from this morning is gone — **the owner verified the domain** — and
+every piece of the email work is confirmed live: `fromAs` putting the business in
+front of the verified mailbox, the salesperson's own address as reply-to, the
+letter on the login template's frame.
+
+⚠️ **AND THERE ARE TWO `RESEND_API_KEY` LINES IN `.env.local`** (152 and 208), for
+two different Resend accounts. The loader takes the **last**, so the app uses 208 —
+where the domain is `verified`. Key 152's account still reports `failed`, which is
+what made an earlier check here report the domain as unverified when it was not.
+A duplicated key is a coin toss that depends on the parser; it should be one line.
+
+### And a latent bug found on the way
+
+⚠️ **A MESSAGE WITH NO WAMID WAS BEING RECORDED AS `sent`.** Meta returns an id on
+every accepted message, so a WhatsApp row without one never reached a handset —
+and `recordOutboundMessage` set the status from the error alone. An error arriving
+as an **empty string** (`??` does not catch `''`, and `if (error)` reads `''` as
+"no error") would therefore be written `sent`.
+
+**Not observed live** — the row that prompted the search was an *email*, which
+correctly has no wamid, and the first read of it here missed the channel column.
+The path is real though, so the status now depends on the id as well, which is the
+fact that cannot be faked, and `explainWhatsAppRefusal` returns `undefined` rather
+than a blank string.
+
+---
+
 ## 💬 2026-09-18 (later) — A CONVERSATION CAN BE STARTED
 
 Owner: *"how can I initiate a chat with it? You are saying to send the quotation
