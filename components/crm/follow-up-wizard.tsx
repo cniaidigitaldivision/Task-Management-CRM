@@ -12,6 +12,7 @@ import {
   CircleHelp,
   ExternalLink,
   Clock3,
+  Info,
   CreditCard,
   FileText,
   Flag,
@@ -52,6 +53,9 @@ import {
   type ScheduleValue,
 } from '@/components/crm/schedule-picker';
 import { MAIL_BLUE, WA_GREEN, WhatsAppMark } from '@/components/crm/whatsapp-mark';
+/* ⚠️ THE SAME CALENDAR THE APPOINTMENT TAB USES — one month grid, one idea of
+   which days are past. See `calendar-bits.tsx`. */
+import { Field, MonthGrid } from '@/components/crm/calendar-bits';
 import { formatDay, formatWhen, karachiAt, karachiParts } from '@/components/crm/when';
 import { useToast } from '@/components/ui/toast';
 import type { CrmLeadRecord, CrmLeadRelated, CrmSequenceStep } from '@/lib/db/queries/crm-leads';
@@ -1296,6 +1300,172 @@ function Labelled({ label, children }: { label: string; children: React.ReactNod
   );
 }
 
+/**
+ * Every step's own date and time, on the same calendar.
+ *
+ * Owner, 2026-09-18: *"the same way I can choose the date and time in the
+ * calendar and the time input box, exactly show it for the three schedules… also
+ * show that this is for the first schedule, this is for the second schedule, and
+ * this is for the third schedule… If I change the date from the calendar below,
+ * that duration will auto-change."*
+ *
+ * ── ⚠️ THE DAYS ARE DERIVED, NOT TYPED ─────────────────────────────────────
+ * A person picking dates does not want to do the arithmetic. So the calendar
+ * writes an absolute date and `day` — the offset the engine stores — is computed
+ * from it. Picking "23 Sep" on a plan starting the 19th sets day 5 without
+ * anybody counting, which is the "duration will auto-change" the owner is after.
+ *
+ * ⚠️ AND MOVING STEP ONE MOVES THE PLAN, NOT THE GAPS. The first step's date is
+ * the plan's own start (the picker above owns it), so the others keep their
+ * offsets and slide with it. Anything else would silently re-space a plan
+ * somebody had already laid out.
+ *
+ * ⚠️ A STEP CANNOT LAND BEFORE THE ONE BEFORE IT. Same-day is allowed — two
+ * messages on day 3 is a real plan — but going backwards is not, because the
+ * engine walks the steps in order and would simply send it at the earlier
+ * moment, which is not what the screen would be showing.
+ */
+function StepCalendar({
+  steps,
+  onStep,
+  startMs,
+  nowMs,
+}: {
+  steps: readonly PlanStep[];
+  onStep: (i: number, patch: Partial<PlanStep>) => void;
+  startMs: number;
+  nowMs: number;
+}) {
+  const [active, setActive] = React.useState(0);
+  const first = steps[0]?.day ?? 1;
+
+  /* The moment a step falls, from the plan's start plus its own offset. */
+  const dayMs = (step: PlanStep) => startMs + Math.max(0, step.day - first) * 86_400_000;
+
+  const step = steps[Math.min(active, steps.length - 1)] ?? steps[0];
+  const index = Math.min(active, steps.length - 1);
+  const at = dayMs(step);
+  const parts = karachiParts(at);
+  const [month, setMonth] = React.useState(() => ({ y: parts.y, m: parts.m }));
+
+  /* ⚠️ THE FIRST STEP'S DATE BELONGS TO THE PICKER ABOVE — it is the plan's
+     start, and two controls writing one value is how they disagree. */
+  const readOnlyDate = index === 0;
+
+  const pick = (y: number, m: number, d: number) => {
+    if (readOnlyDate) return;
+    const chosen = karachiAt(y, m, d, 12);
+    const offset = Math.round((chosen - startMs) / 86_400_000);
+    const previous = steps[index - 1]?.day ?? first;
+    onStep(index, { day: Math.max(previous, first + Math.max(0, offset)) });
+  };
+
+  return (
+    <section>
+      <h3 className="text-body font-semibold text-text-primary">Each step&rsquo;s date and time</h3>
+      <p className="mt-0.5 text-caption text-text-secondary">
+        Pick a step, then its day and hour. Leave the time blank and it goes out at whatever hour the plan is running
+        at.
+      </p>
+
+      {/* ── Which step ────────────────────────────────────────────────── */}
+      <div role="tablist" aria-label="Step" className="mt-2 flex flex-wrap gap-2">
+        {steps.map((s, i) => (
+          <button
+            key={i}
+            type="button"
+            role="tab"
+            aria-selected={i === index}
+            onClick={() => {
+              setActive(i);
+              const p = karachiParts(dayMs(s));
+              setMonth({ y: p.y, m: p.m });
+            }}
+            className={cn(
+              'rounded-xl border px-3 py-2 text-left transition-colors',
+              i === index
+                ? 'border-[var(--pick-border)] bg-[var(--pick-bg)]'
+                : 'border-border-default hover:bg-bg-subtle',
+            )}
+          >
+            <span className="flex items-center gap-1.5">
+              <ChannelIcon channel={s.channel} className="size-3.5" />
+              <span className="text-caption font-semibold text-text-primary">{ORDINAL[i] ?? `Step ${i + 1}`}</span>
+            </span>
+            <span className="mt-0.5 block text-caption tabular-nums text-text-secondary">
+              {formatDay(dayMs(s))}
+              {s.at ? ` · ${s.at}` : ''}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <MonthGrid
+          month={month}
+          onMonth={setMonth}
+          selected={{ y: parts.y, m: parts.m, d: parts.d }}
+          onPick={pick}
+          nowMs={nowMs}
+        />
+
+        <div className="space-y-3">
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Field label="Date" icon={CalendarDays}>
+              <span className="block truncate text-body-sm text-text-primary">{formatDay(at)}</span>
+            </Field>
+            <Field label="Time" icon={Clock3}>
+              <input
+                type="time"
+                value={step.at ?? ''}
+                onChange={(e) => onStep(index, { at: e.target.value || null })}
+                aria-label={`Time for ${ORDINAL[index] ?? `step ${index + 1}`}`}
+                className="w-full bg-transparent text-body-sm tabular-nums text-text-primary focus:outline-none"
+              />
+            </Field>
+          </div>
+
+          {readOnlyDate ? (
+            /* ⚠️ SAID, NOT DISABLED SILENTLY. The first step's date is the plan's
+               start and is set by the picker above; a calendar that simply
+               ignored clicks would read as broken. */
+            <p className="flex items-start gap-2 rounded-lg bg-bg-subtle px-3 py-2 text-caption leading-relaxed text-text-secondary">
+              <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+              The first step&rsquo;s date is the plan&rsquo;s start — set it in &ldquo;When should the first step
+              go?&rdquo; above. Move it and every later step slides with it, keeping the gaps you chose.
+            </p>
+          ) : (
+            <p className="flex items-start gap-2 rounded-lg bg-bg-subtle px-3 py-2 text-caption leading-relaxed text-text-secondary">
+              <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+              {step.day - first === 0
+                ? 'The same day as the plan starts.'
+                : `${step.day - first} day${step.day - first === 1 ? '' : 's'} after the plan starts` +
+                  (index > 0 ? `, ${step.day - (steps[index - 1]?.day ?? first)} after the step before it.` : '.')}
+            </p>
+          )}
+
+          <label className="flex cursor-pointer items-start gap-2.5">
+            <input
+              type="checkbox"
+              checked={step.onlyIfNoReply}
+              onChange={(e) => onStep(index, { onlyIfNoReply: e.target.checked })}
+              className="mt-0.5 size-4 accent-[var(--pick-mark)]"
+            />
+            <span className="min-w-0">
+              <span className="block text-body-sm text-text-primary">Only if they have not replied</span>
+              <span className="block text-caption text-text-secondary">
+                Skipped, and recorded as skipped, if the client writes before this step falls due.
+              </span>
+            </span>
+          </label>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+const ORDINAL = ['1st follow-up', '2nd follow-up', '3rd follow-up', '4th follow-up', '5th follow-up', '6th follow-up'];
+
 /* ── 3 · Schedule & conditions ───────────────────────────────────────────── */
 
 function Schedule({
@@ -1336,65 +1506,7 @@ function Schedule({
       </section>
 
       {kind === 'schedule' && (
-        <section>
-          <h3 className="text-body font-semibold text-text-primary">Every step&rsquo;s day and time</h3>
-          <p className="mt-0.5 text-caption text-text-secondary">
-            Day 1 is the day the plan starts. Leave a time blank and that step goes out at whatever hour the plan is
-            running at.
-          </p>
-          <ol className="mt-2 space-y-2">
-            {steps.map((s, i) => (
-              <li key={i} className="flex flex-wrap items-center gap-2.5 rounded-xl border border-border-subtle bg-bg-surface px-3 py-2">
-                <span className="grid size-7 shrink-0 place-items-center rounded-full bg-bg-subtle text-caption font-semibold text-text-secondary">
-                  {i + 1}
-                </span>
-                <ChannelIcon channel={s.channel} />
-                <span className="min-w-0 flex-1 truncate text-body-sm text-text-primary">{s.title}</span>
-                <span className="flex shrink-0 items-center gap-1.5">
-                  <span className="text-caption text-text-secondary">Day</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={90}
-                    value={s.day}
-                    onChange={(e) => onStep(i, { day: Math.max(1, Math.min(90, Number(e.target.value) || 1)) })}
-                    aria-label={`Day for step ${i + 1}`}
-                    className="w-16 rounded-lg border border-border-default bg-bg-surface px-2 py-1 text-center text-body-sm tabular-nums text-text-primary focus:border-accent-primary focus:outline-none"
-                  />
-                </span>
-                {/* ── ⚠️ ITS OWN HOUR — 207 ────────────────────────────────
-                    Owner, 2026-09-18: *"the date and time for the second and third
-                    follow-ups is not visible. That's a major flaw."* It was: the
-                    engine had nowhere to put a second hour, so every step fired at
-                    the first one's time. Blank still means "inherit", which is what
-                    every existing plan does. */}
-                <span className="flex shrink-0 items-center gap-1.5">
-                  <span className="text-caption text-text-secondary">at</span>
-                  <input
-                    type="time"
-                    value={s.at ?? ''}
-                    onChange={(e) => onStep(i, { at: e.target.value || null })}
-                    aria-label={`Time for step ${i + 1}`}
-                    className="w-28 rounded-lg border border-border-default bg-bg-surface px-2 py-1 text-center text-body-sm tabular-nums text-text-primary focus:border-accent-primary focus:outline-none"
-                  />
-                </span>
-                <span className="w-28 shrink-0 text-right text-caption tabular-nums text-text-secondary">
-                  {formatDay(startMs + Math.max(0, s.day - (steps[0]?.day ?? 1)) * 86_400_000)}
-                  {s.at ? ` · ${s.at}` : ''}
-                </span>
-                <label className="flex shrink-0 cursor-pointer items-center gap-1.5">
-                  <input
-                    type="checkbox"
-                    checked={s.onlyIfNoReply}
-                    onChange={(e) => onStep(i, { onlyIfNoReply: e.target.checked })}
-                    className="size-3.5 accent-[var(--pick-mark)]"
-                  />
-                  <span className="text-caption text-text-secondary">Only if no reply</span>
-                </label>
-              </li>
-            ))}
-          </ol>
-        </section>
+        <StepCalendar steps={steps} onStep={onStep} startMs={startMs} nowMs={nowMs} />
       )}
 
       <section>
