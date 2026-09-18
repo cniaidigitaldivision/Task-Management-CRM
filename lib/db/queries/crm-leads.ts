@@ -3058,16 +3058,25 @@ export async function crmRaiseQuotation(
     const row = (rows as Array<Record<string, unknown>>)[0];
     if (!row) return null;
 
+    /* ⚠️ A NOTE, NOT AN ACTIVITY ROW — AND THIS WAS A LIVE BUG. 116's
+       `crm_lead_activity_insert` admits five kinds; 'note_added' is not one of
+       them, because that kind belongs to `app.crm_note_record_activity`, the
+       definer trigger on the note itself. So this insert raised 42501 for
+       everybody below admin and took the whole quotation down with it — a
+       salesperson could not raise a quotation at all. Found on 2026-09-18 by the
+       PDF-intake probe, which did the same insert and was refused.
+
+       The note keeps what the JSON detail carried, in a sentence somebody reads,
+       and the trigger writes the activity row that the feed shows. */
     await tx`
-      insert into public.crm_lead_activity (lead_id, actor_id, kind, occurred_at, detail)
+      insert into public.crm_lead_notes (lead_id, author_id, body)
       values (
-        ${input.leadId}::uuid, ${actorId}::uuid, 'note_added', now(),
-        ${tx.json({
-          quotation: String(row.number),
-          status,
-          net,
-          discount: input.requestedDiscount,
-        })}
+        ${input.leadId}::uuid, ${actorId}::uuid,
+        ${`Quotation ${String(row.number)} raised — PKR ${net.toLocaleString('en-PK')}${
+          input.requestedDiscount > 0
+            ? `, discount of PKR ${input.requestedDiscount.toLocaleString('en-PK')} requested`
+            : ''
+        } · ${status.replace(/_/g, ' ')}.`}
       )`;
 
     return { id: String(row.id), number: String(row.number) };

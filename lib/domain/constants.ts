@@ -1005,6 +1005,10 @@ export const NOTIFICATION_KINDS = [
      their customers' replies with it would not find out until the window had
      already closed and the only way back was an approved template. */
   'lead_replied',
+  /* 197. A salesperson asks the manager for a revised quotation or an invoice
+     correction from the Related items dialog. Its own kind for the same reason
+     as the three above: silencing one must never silence another. */
+  'lead_request',
 ] as const;
 
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];

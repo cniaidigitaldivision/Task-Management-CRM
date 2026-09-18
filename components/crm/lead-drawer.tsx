@@ -6,6 +6,7 @@ import Link from 'next/link';
 import {
   CalendarClock,
   CirclePlus,
+  ClipboardCheck,
   ExternalLink,
   Eye,
   FileText,
@@ -25,7 +26,7 @@ import {
   WhatsAppMark,
 } from '@/components/crm/whatsapp-mark';
 import { RecordOutcome } from '@/components/crm/record-outcome';
-import { RelatedItemsDialog } from '@/components/crm/related-items';
+import { RelatedItemsDialog, seedRelated } from '@/components/crm/related-items';
 import { initialsOf } from '@/components/ui/avatar';
 import type {
   CrmLeadEvent,
@@ -320,7 +321,9 @@ export function LeadDrawer({
      and this opens the records themselves. */
   const [relatedOpen, setRelatedOpen] = React.useState(false);
   const [relatedTab, setRelatedTab] =
-    React.useState<'quotations' | 'properties' | 'appointments' | 'bookings' | 'invoices' | 'files'>('quotations');
+    React.useState<'quotations' | 'properties' | 'appointments' | 'bookings' | 'invoices'>('quotations');
+  /* What the Related items dialog handed to the composer, if anything. */
+  const [handoff, setHandoff] = React.useState<{ id: number; files: readonly File[]; text: string } | null>(null);
 
   /* ⚠️ THE LIVE ONE, not the newest row. A superseded v1 still exists (176) and
      printing its figure on the strip would show a price nobody is offering any
@@ -651,6 +654,8 @@ export function LeadDrawer({
               leadName={lead.fullName ?? 'This lead'}
               viewerName={viewerName}
               projectName={lead.projectName}
+              handoff={handoff}
+              onHandoffUsed={() => setHandoff(null)}
               onReviewFollowUp={() => go('followups')}
             />
           )}
@@ -773,7 +778,15 @@ export function LeadDrawer({
       {relatedOpen && (
         <RelatedItemsDialog
           lead={lead}
+          sender={related.sender}
+          /* ⚠️ THE DIALOG OPENS ON WHAT IS ALREADY HERE. Its own read follows. */
+          seed={seedRelated(lead, related)}
           initialTab={relatedTab}
+          onAttach={({ files, text }) => {
+            setHandoff({ id: Date.now(), files, text });
+            setRelatedOpen(false);
+            go('conversations');
+          }}
           onClose={() => setRelatedOpen(false)}
           onChooseUnit={() => {
             setRelatedOpen(false);
@@ -839,7 +852,7 @@ function Related({
   onRaiseQuotation: () => void;
   onChooseUnit: () => void;
   /** Opens the dialog, on the tab that was asked for. */
-  onOpen: (tab: 'quotations' | 'properties' | 'appointments' | 'bookings' | 'invoices' | 'files') => void;
+  onOpen: (tab: 'quotations' | 'properties' | 'appointments' | 'bookings' | 'invoices') => void;
 }) {
   const live =
     related.quotations.find((q) => !['superseded', 'rejected', 'expired'].includes(q.status)) ??
@@ -853,7 +866,6 @@ function Related({
     { key: 'appointments', label: 'Appointments', n: related.appointments.length },
     { key: 'bookings', label: 'Bookings', n: related.counts.bookings },
     { key: 'invoices', label: 'Invoices', n: related.counts.invoices },
-    { key: 'files', label: 'Files', n: related.counts.files },
   ];
 
   return (
@@ -1048,6 +1060,41 @@ function Related({
         >
           <CalendarClock className="size-3.5" aria-hidden="true" />
           {visit ? 'View visit' : 'Schedule visit'}
+        </button>
+      </section>
+
+      {/* ── The booking ────────────────────────────────────────────────────
+          Owner, 2026-09-17: *"Also add View Booking, which is basically just
+          booking the property. Book Property is when he sends payment and the
+          property is reserved. When these two things are done, the property
+          booking is done."*
+
+          ⚠️ TWO FACTS, ONE ROW. The count is all the drawer carries (the bundle
+          keeps rows out of the drawer's own load), so this says whether there is
+          a booking and opens the tab that holds both halves. */}
+      <section className="flex flex-wrap items-center gap-3 rounded-xl border border-border-subtle bg-bg-surface px-3.5 py-3">
+        <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-bg-subtle text-text-secondary">
+          <ClipboardCheck className="size-4" aria-hidden="true" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-body-sm font-semibold text-text-primary">
+            {related.counts.bookings > 0
+              ? `${related.counts.bookings} booking${related.counts.bookings > 1 ? 's' : ''} on this lead`
+              : 'Property not booked'}
+          </p>
+          <p className="truncate text-caption text-text-secondary">
+            {related.counts.bookings > 0
+              ? 'Payment evidence and the plot hold are in Bookings.'
+              : 'Booking it sends the payment for verification and holds the plot.'}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => onOpen('bookings')}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-border-default px-2.5 py-1.5 text-caption font-medium text-text-primary transition-colors hover:bg-bg-subtle"
+        >
+          <ClipboardCheck className="size-3.5" aria-hidden="true" />
+          {related.counts.bookings > 0 ? 'View booking' : 'Book property'}
         </button>
       </section>
 

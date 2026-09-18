@@ -8,8 +8,166 @@
 | **Route** | `/leads` · `/my-leads` · `/clients` · `/lead-reports` · `/lead-overview` · nav: Growth → Campaign & Lead Desk |
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
-| **Last updated** | **2026-09-17** |
-| **Last migration applied anywhere** | **196** (applied 2026-09-17; 187–193 the scheduler sends by itself from Supabase, 194–195 bookings and invoices, **196 the salesperson sends the invoice and uploads the receipt as proof; Finance approves**). CRM next: **197.** |
+| **Last updated** | **2026-09-18** |
+| **Last migration applied anywhere** | **200** (applied 2026-09-18; 197 requests reach the manager, 198 the receipt stamp reads its own table — **every booking update had been failing**, 199 a booking holds its plot, **200 the timeline takes what the app writes — recording an outcome had been failing for every salesperson**). CRM next: **201.** |
+
+---
+
+## 📄 2026-09-18 — A QUOTATION CAN ARRIVE AS A PDF, AND THREE THINGS THAT WERE BROKEN · 198, 199, 200
+
+Owner's list of 2026-09-17, finished: *"the Attach Selected Quote button… will pop
+up a modal where we can select any PDF… read that PDF and get the quotation
+name… the property, Marla, block… plus its amount. If you don't get these things
+from the quotation, you will show a message that the PDF is not showing this
+information. You can't add them to an available quotation."*
+
+### Reading a PDF, and refusing one
+
+| | |
+|---|---|
+| `lib/crm/pdf-text.ts` | `readPdfLines` — pdfjs fragments **grouped by where they sit on the page**. |
+| `lib/crm/quotation-pdf.ts` | the three facts: number, property, amount (+ valid-until). |
+| `lib/domain/crm-property-sheet.ts` | a price list → one `ParsedPlot` per row. 14 unit tests. |
+
+⚠️ **A PDF HAS NO LINES, AND THAT IS THE WHOLE PROBLEM.** `getTextContent` returns
+positioned fragments in draw order, so joining them with spaces turns a price table
+into one sentence where a plot code and a price four columns away are neighbours —
+every row would read as a different plot. The fragments are grouped by baseline
+(±2.5pt) and sorted left to right, which is what makes
+`A-101 Block A 5 Marla Corner 4,500,000` one line a regex can trust.
+
+⚠️ **AND `GlobalWorkerOptions` IS LEFT ALONE.** Setting `workerSrc = ''` to "turn
+the worker off" does the opposite: pdfjs then tries to load a worker from an empty
+URL and throws `Setting up fake worker failed`, which the catch around it would
+have reported as an unreadable PDF. In Node the legacy build makes its own
+in-process worker. Found by running a real file through it before shipping.
+
+⚠️ **THE SERVER READS THE FILE, TWICE.** Once for the picker to show what it found,
+again when Add is pressed — what reaches the row is what this server read, not what
+the page sent back. A quotation amount is not something to take on trust.
+
+⚠️ **AND THE REFUSAL NAMES THE MISSING FIELDS.** A scan gets its own sentence ("no
+readable text — it looks like a scan"), because that is a different problem from a
+quotation that omits its number.
+
+Three bugs the real PDFs found, each of which had shipped as a passing string test:
+
+- **`QT-2051` was being read as the plot.** A quotation number has exactly the shape
+  of a plot code, so a PDF naming no property passed the three-facts check on the
+  strength of its own reference. A labelled `Plot A-101` is trusted; a bare code is
+  not when it is the number or carries a document prefix.
+- **`Valid until 30 Oct 2026` became 2026-10-29.** `Date.parse` gives local
+  midnight and `toISOString()` in Karachi (+05:00) hands back the previous day —
+  `karachi-not-utc`, again.
+- **A `\s` inside a SQL template literal** reaches Postgres as `s`, so the plot-code
+  normaliser would have stripped every letter s. `[^A-Za-z0-9]` needs no escapes.
+
+### The catalogue is still the manager's
+
+A property sheet lists every plot it found with a tick against each. Adding them is
+`app.crm_manages_project` — 150's rule, *a price is the company's and not the
+seller's* — so a salesperson sees what the sheet says and is told who can add it,
+rather than being handed a button that fails on submit. One `unnest(...)` insert for
+all of them, `on conflict do nothing`, and a bare `77` in Block ZZ is stored as
+`ZZ-77` keeping `77` as its plot number, because `code` is unique per project.
+
+### 198 · the receipt stamp reads its own table — every booking update was failing
+
+196 attached one trigger function to `crm_invoices` **and** `crm_bookings`, with the
+invoice-only part behind `if tg_table_name = 'crm_invoices' and new.sent_at is
+distinct from old.sent_at`.
+
+⚠️ **THAT GUARD DOES NOT PROTECT THE FIELD REFERENCE.** PL/pgSQL hands the whole
+condition to the executor as one expression and `new.sent_at` is resolved against the
+row's own type first. `crm_bookings` has no `sent_at`, so **every UPDATE on
+`crm_bookings` raised `record "new" has no field "sent_at"`**: request verification,
+confirm, cancel, upload the receipt. Since 196 the Bookings tab could create a
+booking and never move one.
+
+⚠️ **196'S SELF-CHECK PASSED BECAUSE IT ONLY TOUCHED INVOICES.** It proved the rule
+it was written about and never updated the other table the same trigger had just
+been attached to. A shared trigger needs a case per table it is attached to. It was
+199's check, writing a booking for a different reason, that found this.
+
+Now one function per row type: `crm_stamp_receipt` keeps only the columns both tables
+have, and `crm_stamp_invoice_sent` runs on invoices alone.
+
+### 199 · a booking holds the plot
+
+Owner: *"Book Property is when he sends payment and the property is reserved. When
+these two things are done, the property booking is done."* So a booking is two
+facts, and 194 recorded only one — the plot a client had paid for stayed
+`available` and the next salesperson could quote it to somebody else.
+
+| the booking | the plot |
+|---|---|
+| requested · pending_verification · confirmed | → `reserved` |
+| its last live booking cancelled | → `available` |
+
+⚠️ **RESERVED, NOT SOLD.** Sold is transfer; nothing here knows about that yet, and
+writing it would retire a plot on the strength of a first instalment.
+⚠️ **AND IT NEVER TOUCHES `sold` OR `withdrawn`** — a cancelled booking must not put
+a sold plot back on the market. Definer, because the catalogue is not the
+salesperson's to edit: the hold is a consequence of their booking, not a hand-edit.
+The Bookings tab shows it as the second half of "Booked", read from the plot's own
+row rather than inferred from the booking.
+
+### 200 · the timeline takes what the app writes — Record outcome was failing
+
+116 narrowed `crm_lead_activity_insert` to the five contact kinds that migration was
+about. Everything written since has been outside that list, and each one fails with
+42501 **inside the transaction doing the real work**, so the whole action rolls back:
+
+| kind | what it broke |
+|---|---|
+| `stage_changed` | **Record outcome — every stage change the owner asked to be prompted for.** |
+| `next_action_set` | booking a site visit or a payment plan meeting |
+| `note_added` | raising a quotation at all |
+
+⚠️ **AND IT ONLY FAILS BELOW ADMIN, WHICH IS WHY IT SURVIVED.** An admin session
+never meets the refusal. **Sarah — the account the owner uses — is a `member`.**
+Proved by inserting each kind as her: the five pass, these three are refused.
+`admin-sessions-cannot-test-access`, for the eighth time.
+
+Two different repairs, because the cases differ. `stage_changed` and
+`next_action_set` are the person's own acts and join the list under the same two
+conditions as the rest (the lead must be visible, the actor must be the session).
+`note_added` **stays refused**: that kind belongs to `app.crm_note_record_activity`,
+the definer trigger on `crm_lead_notes`, and the invariant is worth keeping — an
+activity row saying "note added" has a note behind it. So `crmRaiseQuotation` and
+the PDF intake write the note and let the trigger write the row. Nothing became
+editable: still no UPDATE and no DELETE policy for any rank.
+
+### The dialog, as the owner asked for it
+
+- **Opens in its own frame.** `seedRelated(lead, related)` draws it from what the
+  drawer already holds; the full read lands underneath with the bookings, invoices
+  and payment plans the drawer deliberately does not carry (Rule Zero, law 3).
+- ⚠️ **An empty list is not "nothing here".** `EmptyList` says *reading* while the
+  read is in flight — "no bookings yet" against rows still arriving is a lie
+  somebody acts on.
+- **The open tab is obvious**: `gap-2 sm:gap-4`, teal and semibold, a tinted ground
+  and a 3px bar. **Files is gone** — five tabs, as drawn.
+- **Fixed height** `h-[min(48rem,94vh)]`, so switching tab does not resize it.
+- **The logo and the business name are in the header**, on every tab.
+- **Appointments are named for what they are**: *Site visit* and *Payment plan
+  meeting* (the office is in Islamabad and the plots are in Chitral, so most are the
+  second kind), plus the WhatsApp call.
+
+### Proved, not assumed
+
+A quotation and a four-plot price list were written with `pdf-lib` in the layout real
+ones use, put in the bucket, and read back through the server's own path:
+
+```
+QT-2051 · 5 Marla · Block A · Plot A-101 · PKR 4,750,000 · valid 2026-10-30
+A-101/A/5/4,500,000 · A-102/A/5/4,200,000 · B-7/B/10/8,900,000 · C-18/C/20(1 Kanal)/17,500,000
+```
+
+…then `createQuotationFromPdf` (draft row + document + note), a salesperson refused
+on the catalogue, an admin adding four plots, and a second run adding none. Six
+checks, all passing, fixtures deleted afterwards. ⚠️ **My own fixtures, never a
+client's file** — the owner's standing rule.
 
 ---
 

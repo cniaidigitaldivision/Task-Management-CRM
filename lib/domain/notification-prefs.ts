@@ -87,6 +87,12 @@ export const PREF_DEFINITIONS: readonly PrefDefinition[] = [
       'Cannot be turned off in-app. WhatsApp only allows a free reply for 24 hours after they write — missing one costs the conversation.',
   },
   {
+    kind: 'lead_request',
+    label: 'Requests from the sales team',
+    help: 'For the sales manager: a salesperson asks for an updated quotation or an invoice correction.',
+    group: 'the team',
+  },
+  {
     kind: 'lead_neglected',
     label: 'Leads that have gone quiet',
     help: 'For the sales manager: whose leads have had no call, message or note for several days.',

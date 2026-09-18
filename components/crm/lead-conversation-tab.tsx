@@ -214,6 +214,8 @@ export function LeadConversationTab({
   leadName,
   viewerName,
   projectName,
+  handoff,
+  onHandoffUsed,
   onReviewFollowUp,
 }: {
   leadId: string;
@@ -235,6 +237,15 @@ export function LeadConversationTab({
   /** Who is reading — for "You deleted this message" and saved replies. */
   viewerName: string;
   projectName: string;
+  /**
+   * Something the Related items dialog handed over — a quotation PDF, an invoice,
+   * a property sheet — with the line of text that goes with it.
+   *
+   * ⚠️ IT ARRIVES IN THE COMPOSER, IT DOES NOT SEND. The person reads it, changes
+   * it if they want, and presses send. Nothing in that dialog talks to a client.
+   */
+  handoff?: { readonly id: number; readonly files: readonly File[]; readonly text: string } | null;
+  onHandoffUsed?: () => void;
   onReviewFollowUp: () => void;
 }) {
   const toast = useToast();
@@ -560,6 +571,28 @@ export function LeadConversationTab({
       setFiles((f) => [...f, ...ok].slice(0, 10));
     }
   }
+
+  /* ⚠️ THE DRAFT IS SET DURING RENDER, ONCE PER HAND-OFF, so the text is on
+     screen in the same frame the dialog closes. The files need an await, so they
+     go through the same `pickFiles` a drag-and-drop uses. */
+  const [handoffSeen, setHandoffSeen] = React.useState<number | null>(null);
+  if (handoff && handoff.id !== handoffSeen) {
+    setHandoffSeen(handoff.id);
+    setChannel('whatsapp');
+    if (handoff.text) setDraft((d) => (d.trim() ? `${d}\n\n${handoff.text}` : handoff.text));
+  }
+
+  const pickFilesRef = React.useRef(pickFiles);
+  React.useEffect(() => {
+    pickFilesRef.current = pickFiles;
+  });
+  React.useEffect(() => {
+    if (!handoff) return;
+    if (handoff.files.length > 0) void pickFilesRef.current(handoff.files);
+    /* ⚠️ CLEARED AFTER IT IS USED. This tab unmounts when somebody switches tab;
+       a hand-off left standing would be applied again on the way back. */
+    onHandoffUsed?.();
+  }, [handoff, onHandoffUsed]);
 
   const handlers: ThreadHandlers = {
     onReply: (m) => {

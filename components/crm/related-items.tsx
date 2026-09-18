@@ -3,11 +3,12 @@
 import * as React from 'react';
 import { createPortal } from 'react-dom';
 import {
+  AlertTriangle,
+  ArrowRight,
   ArrowUpRight,
   CalendarDays,
   CalendarPlus,
   Check,
-  CircleCheck,
   ClipboardList,
   ExternalLink,
   FileText,
@@ -17,121 +18,212 @@ import {
   MessageSquareText,
   Paperclip,
   Plus,
+  PlusCircle,
+  Receipt,
   Upload,
-  User,
   X,
 } from 'lucide-react';
 
+import { crmDocumentLinkAction } from '@/app/actions/crm-documents';
+import { bookAppointmentAction } from '@/app/actions/crm-leads';
 import {
+  addPlotsFromSheetAction,
+  addQuotationFromPdfAction,
+  attachBookingReceiptAction,
+  attachInvoicePdfAction,
   attachInvoiceReceiptAction,
   attachQuotationPdfAction,
   confirmBookingAction,
   createBookingAction,
   createInvoiceAction,
-  invoiceReceiptLinkAction,
   markInvoiceSentAction,
+  discardPropertySheetAction,
+  discardQuotationPdfAction,
+  preparePropertySheetAction,
   prepareQuotationPdfAction,
   prepareReceiptAction,
-  quotationPdfLinkAction,
+  readPropertySheetAction,
+  readQuotationPdfAction,
   recordInvoicePaymentAction,
+  relatedFileLinkAction,
   relatedItemsAction,
   requestBookingVerificationAction,
+  requestFromManagerAction,
+  rescheduleAppointmentAction,
+  type RelatedBundle,
 } from '@/app/actions/crm-related';
-import { crmDocumentLinkAction } from '@/app/actions/crm-documents';
-import { formatWhen } from '@/components/crm/when';
+import { WA_GREEN, WhatsAppMark } from '@/components/crm/whatsapp-mark';
+import { formatWhen, fromInputValue, karachiAt, karachiParts, toInputValue } from '@/components/crm/when';
 import { useToast } from '@/components/ui/toast';
-import type { CrmLeadRecord } from '@/lib/db/queries/crm-leads';
+import type { CrmLeadRecord, CrmLeadRelated, CrmSender } from '@/lib/db/queries/crm-leads';
+import type { ParsedPlot } from '@/lib/domain/crm-property-sheet';
 import type {
+  RelatedAppointment,
   RelatedBooking,
   RelatedInvoice,
-  RelatedItems,
   RelatedProperty,
   RelatedQuotation,
 } from '@/lib/db/queries/crm-related';
 import { appointmentKindLabel } from '@/lib/domain/crm-appointments';
+import { displayPhone } from '@/lib/domain/phone';
 import { cn } from '@/lib/utils';
 
 /* ============================================================================
- * RELATED ITEMS — quotations, properties, appointments, bookings, invoices
+ * RELATED ITEMS — built to the owner's five designs of 2026-09-17
  * ----------------------------------------------------------------------------
- * Built to the owner's five designs of 2026-09-17. One dialog, five tabs, and
- * the same shape on every one: the list on the left, the record itself on the
- * right, the actions along the foot.
+ * *"the relevant items modal… is not as equal to or the same as what I have
+ * shared with you."* So this follows the designs in shape — a header naming the
+ * lead, even tabs, a list with column headings on the left, the record on the
+ * right, and each tab's own actions along the foot — and every figure, name and
+ * file in it is a row.
  *
- * ⚠️ NOTHING HERE IS DEMO DATA. The owner's mock-ups carry a "Demo data" badge
- * on Bookings and Invoices because no such table existed; 194 and 195 built them,
- * with the three rules their own design states — a quotation reserves nothing, a
- * pending booking is not a sale, and a salesperson does not verify money.
+ * ⚠️ WHERE THE DESIGN SHOWS SOMETHING WE DO NOT HAVE, IT SAYS SO. The mock-ups
+ * carry "Demo data" badges, an APPT-201 number and a tagline; none of those
+ * exists here, so none is invented. A booking application nobody generates reads
+ * "Not generated", and a visit reminder nobody planned reads "Not set".
  *
- * ⚠️ AND IT READS ON OPEN, NOT WITH THE DRAWER. One statement, once, when
- * somebody asks to see it (`readLeadRelatedItems`). A payment plan nobody has
- * opened has no business in the drawer's first paint — Rule Zero.
+ * ⚠️ "ATTACH" MEANS THE CONVERSATION. Every primary button hands its file and a
+ * one-line summary to the WhatsApp composer (`onAttach`), where a person still
+ * reads it and presses send — nothing leaves from this dialog.
  * ========================================================================= */
 
-export type TabKey = 'quotations' | 'properties' | 'appointments' | 'bookings' | 'invoices' | 'files';
+/* ⚠️ FIVE TABS, as the owner drew them. A sixth "Files" tab was mine and it is
+   gone: an uploaded quotation appears in Available quotations, a receipt on the
+   booking or the invoice it proves — where somebody looks for it. */
+export type TabKey = 'quotations' | 'properties' | 'appointments' | 'bookings' | 'invoices';
+
+type Tone = 'green' | 'grey' | 'amber' | 'blue' | 'red';
 
 const TABS: ReadonlyArray<{ key: TabKey; label: string; icon: React.ComponentType<{ className?: string }> }> = [
   { key: 'quotations', label: 'Quotations', icon: ClipboardList },
   { key: 'properties', label: 'Properties', icon: Home },
   { key: 'appointments', label: 'Appointments', icon: CalendarDays },
-  { key: 'bookings', label: 'Bookings', icon: CircleCheck },
+  { key: 'bookings', label: 'Bookings', icon: CalendarPlus },
   { key: 'invoices', label: 'Invoices', icon: FileText },
-  { key: 'files', label: 'Files', icon: Paperclip },
 ];
+
+const BLUE = 'var(--channel-email)';
+const ROW_ON = 'color-mix(in oklab, var(--channel-email) 7%, var(--bg-surface))';
 
 const money = (n: number | null | undefined) =>
   n === null || n === undefined ? '—' : `PKR ${Math.round(n).toLocaleString('en-PK')}`;
-
-const day = (iso: string | null) =>
+const shortDay = (iso: string | null) =>
   iso ? new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Karachi' }) : '—';
+const longDay = (iso: string | null) =>
+  iso ? new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Karachi' }) : '—';
+const clock = (ms: number) =>
+  new Date(ms).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Karachi' });
+const blockOf = (label: string | null) => label?.split(' · ')[1] ?? null;
 
-/* Meta's own words for a status, in ours, with a colour. */
-function tone(status: string): { label: string; color: string } {
-  const map: Record<string, { label: string; color: string }> = {
-    approved: { label: 'Approved', color: 'var(--feedback-success)' },
-    sent: { label: 'Valid', color: 'var(--feedback-success)' },
-    pending_approval: { label: 'Awaiting approval', color: 'var(--feedback-warning)' },
-    draft: { label: 'Draft', color: 'var(--text-secondary)' },
-    superseded: { label: 'Superseded', color: 'var(--text-secondary)' },
-    rejected: { label: 'Rejected', color: 'var(--feedback-error)' },
-    expired: { label: 'Expired', color: 'var(--feedback-error)' },
-    available: { label: 'Available', color: 'var(--feedback-success)' },
-    reserved: { label: 'Reserved', color: 'var(--feedback-warning)' },
-    sold: { label: 'Sold', color: 'var(--text-secondary)' },
-    requested: { label: 'Requested', color: 'var(--channel-email)' },
-    pending_verification: { label: 'Pending verification', color: 'var(--feedback-warning)' },
-    confirmed: { label: 'Confirmed', color: 'var(--feedback-success)' },
-    cancelled: { label: 'Cancelled', color: 'var(--text-secondary)' },
-    unpaid: { label: 'Unpaid', color: 'var(--feedback-warning)' },
-    part_paid: { label: 'Part paid', color: 'var(--channel-email)' },
-    paid: { label: 'Paid', color: 'var(--feedback-success)' },
-    void: { label: 'Void', color: 'var(--text-secondary)' },
+function statusLook(status: string): { label: string; tone: Tone } {
+  const map: Record<string, { label: string; tone: Tone }> = {
+    approved: { label: 'Valid', tone: 'green' },
+    sent: { label: 'Valid', tone: 'green' },
+    pending_approval: { label: 'Awaiting approval', tone: 'amber' },
+    draft: { label: 'Draft', tone: 'grey' },
+    superseded: { label: 'Superseded', tone: 'grey' },
+    rejected: { label: 'Rejected', tone: 'red' },
+    expired: { label: 'Expired', tone: 'red' },
+    available: { label: 'Available', tone: 'green' },
+    reserved: { label: 'Reserved', tone: 'amber' },
+    booked: { label: 'Booked', tone: 'amber' },
+    sold: { label: 'Sold', tone: 'grey' },
+    scheduled: { label: 'Scheduled', tone: 'blue' },
+    rescheduled: { label: 'Rescheduled', tone: 'grey' },
+    completed: { label: 'Completed', tone: 'grey' },
+    no_show: { label: 'No show', tone: 'red' },
+    requested: { label: 'Requested', tone: 'blue' },
+    pending_verification: { label: 'Pending verification', tone: 'amber' },
+    confirmed: { label: 'Confirmed', tone: 'green' },
+    cancelled: { label: 'Cancelled', tone: 'grey' },
+    unpaid: { label: 'Unpaid', tone: 'amber' },
+    part_paid: { label: 'Part paid', tone: 'blue' },
+    paid: { label: 'Paid', tone: 'green' },
+    void: { label: 'Void', tone: 'grey' },
   };
-  return map[status] ?? { label: status.replace(/_/g, ' '), color: 'var(--text-secondary)' };
+  return map[status] ?? { label: status.replace(/_/g, ' '), tone: 'grey' };
 }
+
+const TONE: Record<Tone, string> = {
+  green: 'var(--feedback-success)',
+  grey: 'var(--text-secondary)',
+  amber: 'var(--feedback-warning)',
+  blue: 'var(--channel-email)',
+  red: 'var(--feedback-error)',
+};
+
+function Pill({ tone, children }: { tone: Tone; children: React.ReactNode }) {
+  const c = TONE[tone];
+  return (
+    <span
+      className="inline-flex shrink-0 items-center whitespace-nowrap rounded-md border px-2 py-0.5 text-caption font-medium"
+      style={{
+        color: c,
+        borderColor: `color-mix(in oklab, ${c} 22%, transparent)`,
+        background: `color-mix(in oklab, ${c} 10%, transparent)`,
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
+function StatusPill({ status }: { status: string }) {
+  const look = statusLook(status);
+  return <Pill tone={look.tone}>{look.label}</Pill>;
+}
+
+/** Everything a button hands to the conversation. */
+export interface AttachPayload {
+  readonly files: readonly File[];
+  readonly text: string;
+}
+
+async function fileFromLink(link: { url?: string; error?: string }, name: string): Promise<File> {
+  if (!link.url) throw new Error(link.error ?? 'That file could not be read.');
+  const response = await fetch(link.url);
+  if (!response.ok) throw new Error(`The file could not be downloaded (${response.status}).`);
+  const blob = await response.blob();
+  return new File([blob], name, { type: blob.type || 'application/pdf' });
+}
+
+/* ── The dialog ──────────────────────────────────────────────────────────── */
 
 export function RelatedItemsDialog({
   lead,
+  sender,
+  seed,
   initialTab = 'quotations',
   onClose,
   onChooseUnit,
   onRecordOutcome,
+  onAttach,
 }: {
   lead: CrmLeadRecord;
-  /** Which tab the drawer's summary asked for. */
+  /** The WhatsApp business name and number the client sees (179). */
+  sender: CrmSender | null;
+  /**
+   * What the drawer already holds — quotations, the linked unit, appointments.
+   *
+   * ⚠️ SO THE DIALOG IS DRAWN IN THE FRAME IT OPENS. Owner, 2026-09-17: *"the
+   * related item modal, when opened, is taking a lot of time to load."* It was
+   * waiting on its own round trip for rows the drawer had already read. Now that
+   * read only fills in what the drawer could not know — bookings, invoices, the
+   * payment plan — underneath a screen that is already up (Rule Zero, law 3).
+   */
+  seed?: RelatedBundle;
   initialTab?: TabKey;
   onClose: () => void;
-  /** The drawer already owns the unit picker; this dialog borrows it. */
   onChooseUnit: () => void;
-  /** Appointments are booked by recording an outcome, which the drawer owns too. */
   onRecordOutcome: () => void;
+  /** Hand files and a line of text to the WhatsApp composer. */
+  onAttach: (payload: AttachPayload) => void;
 }) {
   const toast = useToast();
   const [tab, setTab] = React.useState<TabKey>(initialTab);
-  const [items, setItems] = React.useState<RelatedItems | null>(null);
-  const [chosen, setChosen] = React.useState<Record<TabKey, string | null>>({
-    quotations: null, properties: null, appointments: null, bookings: null, invoices: null, files: null,
-  });
+  const [items, setItems] = React.useState<RelatedBundle | null>(seed ?? null);
+  const [loading, setLoading] = React.useState(true);
+  const [picked, setPicked] = React.useState<Partial<Record<TabKey, string>>>({});
   const [busy, setBusy] = React.useState(false);
 
   const load = React.useCallback(async () => {
@@ -142,7 +234,9 @@ export function RelatedItemsDialog({
   React.useEffect(() => {
     let alive = true;
     void relatedItemsAction(lead.id).then((next) => {
-      if (alive && next) setItems(next);
+      if (!alive) return;
+      if (next) setItems(next);
+      setLoading(false);
     });
     return () => {
       alive = false;
@@ -160,29 +254,82 @@ export function RelatedItemsDialog({
     return () => window.removeEventListener('keydown', onKey, true);
   }, [onClose]);
 
-  /** Every write goes through here: act, re-read, report in the server's words. */
-  const act = async (fn: () => Promise<{ ok: true } | { ok: false; error: string }>, done: string) => {
-    if (busy) return false;
-    setBusy(true);
-    try {
-      const result = await fn();
-      if (!result.ok) {
-        toast({ tone: 'error', text: result.error });
+  /** Every write: act, re-read, and report in the server's own words. */
+  const act = React.useCallback(
+    async (fn: () => Promise<{ ok: boolean; error?: string }>, done: string) => {
+      if (busy) return false;
+      setBusy(true);
+      try {
+        const result = await fn();
+        if (!result.ok) {
+          toast({ tone: 'error', text: result.error ?? 'That did not save.' });
+          return false;
+        }
+        await load();
+        toast({ tone: 'ok', text: done });
+        return true;
+      } catch {
+        toast({ tone: 'error', text: 'That did not save — the connection dropped.' });
         return false;
+      } finally {
+        setBusy(false);
       }
-      await load();
-      toast({ tone: 'ok', text: done });
-      return true;
-    } catch {
-      toast({ tone: 'error', text: 'That did not save — the connection dropped.' });
-      return false;
-    } finally {
-      setBusy(false);
-    }
-  };
+    },
+    [busy, load, toast],
+  );
 
-  const pick = (key: TabKey, id: string) => setChosen((c) => ({ ...c, [key]: id }));
-  const count = (key: TabKey) => (items ? items[key].length : null);
+  /** Upload one file straight to storage, then record where it went. */
+  const upload = React.useCallback(
+    async (
+      file: File,
+      prepare: (leadId: string, name: string, size: number) => Promise<{ ok: boolean; path?: string; url?: string; error?: string }>,
+      save: (path: string) => Promise<{ ok: boolean; error?: string }>,
+      done: string,
+    ) => {
+      if (busy) return;
+      setBusy(true);
+      try {
+        const slot = await prepare(lead.id, file.name, file.size);
+        if (!slot.ok || !slot.url || !slot.path) {
+          toast({ tone: 'error', text: slot.error ?? 'That file could not be prepared.' });
+          return;
+        }
+        /* ⚠️ STRAIGHT TO STORAGE. A server action refuses a body over 4.5 MB. */
+        const put = await fetch(slot.url, {
+          method: 'PUT',
+          headers: { 'content-type': file.type || 'application/pdf' },
+          body: file,
+        });
+        if (!put.ok) {
+          toast({ tone: 'error', text: `The upload was refused (${put.status}).` });
+          return;
+        }
+        const saved = await save(slot.path);
+        if (!saved.ok) {
+          toast({ tone: 'error', text: saved.error ?? 'That file could not be attached.' });
+          return;
+        }
+        await load();
+        toast({ tone: 'ok', text: done });
+      } catch {
+        toast({ tone: 'error', text: 'The upload did not finish — the connection dropped.' });
+      } finally {
+        setBusy(false);
+      }
+    },
+    [busy, lead.id, load, toast],
+  );
+
+  const go = (next: TabKey, id?: string | null) => {
+    setTab(next);
+    if (id) setPicked((p) => ({ ...p, [next]: id }));
+  };
+  const pick = (key: TabKey) => (id: string) => setPicked((p) => ({ ...p, [key]: id }));
+
+  const where = [lead.projectName, lead.city].filter(Boolean).join(' · ');
+  const ctx: Ctx | null = items
+    ? { lead, items, sender, where, busy, loading, act, upload, go, onClose, onAttach, toast }
+    : null;
 
   const body = (
     <div
@@ -194,126 +341,100 @@ export function RelatedItemsDialog({
     >
       <div
         onMouseDown={(e) => e.stopPropagation()}
-        className="flex max-h-[94vh] w-full max-w-[64rem] flex-col overflow-hidden rounded-2xl border border-border-subtle bg-bg-surface shadow-2xl"
+        className="relative flex h-[min(48rem,94vh)] w-full max-w-[70rem] flex-col overflow-hidden rounded-2xl border border-border-subtle bg-bg-surface shadow-2xl"
       >
-        {/* ── Who this is about ───────────────────────────────────────── */}
-        <header className="flex items-start gap-3 border-b border-border-subtle px-5 py-4">
-          <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-bg-subtle text-text-secondary">
-            <User className="size-5" aria-hidden="true" />
-          </span>
+        {/* ⚠️ THE MARK AND THE NAME, ON EVERY TAB. Owner, 2026-09-17: *"the header
+            logo and the name should display right."* The business's own mark and
+            the name a client sees it under — the same pair the quotation preview
+            prints, so what is on screen here is what goes out. */}
+        <header className="flex shrink-0 items-center gap-3 border-b border-border-subtle px-6 py-4">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/brand/cni-ai-digital-division.png"
+            alt=""
+            className="size-11 shrink-0 rounded-xl bg-bg-subtle object-contain p-1"
+          />
           <div className="min-w-0 flex-1">
-            <h2 className="text-h3 font-semibold text-text-primary">Related items</h2>
-            <p className="truncate text-caption text-text-secondary">
-              {lead.fullName ?? 'This lead'} · {lead.projectName}
-              {lead.city ? ` · ${lead.city}` : ''}
+            <h2 className="truncate text-h3 font-semibold text-text-primary">
+              Related items
+              <span className="ml-2 text-body-sm font-normal text-text-secondary">
+                {sender?.displayName ?? lead.projectName}
+              </span>
+            </h2>
+            <p className="truncate text-body-sm text-text-secondary">
+              {[lead.fullName ?? 'This lead', lead.projectName, lead.city].filter(Boolean).join(' · ')}
             </p>
           </div>
+          {sender?.displayNumber && (
+            <p className="hidden shrink-0 items-center gap-2 text-caption text-text-secondary sm:flex">
+              <span style={{ color: WA_GREEN }}>
+                <WhatsAppMark className="size-4" />
+              </span>
+              {displayPhone(sender.displayNumber)}
+            </p>
+          )}
           <button
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="grid size-8 shrink-0 place-items-center rounded-lg text-text-secondary transition-colors hover:bg-bg-subtle hover:text-text-primary"
+            className="grid size-9 shrink-0 place-items-center rounded-lg text-text-secondary transition-colors hover:bg-bg-subtle hover:text-text-primary"
           >
-            <X className="size-4" aria-hidden="true" />
+            <X className="size-5" aria-hidden="true" />
           </button>
         </header>
 
-        {/* ── The five ────────────────────────────────────────────────── */}
-        <div role="tablist" aria-label="Related items" className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border-subtle px-3">
-          {TABS.map((t) => {
-            const n = count(t.key);
-            return (
-              <button
-                key={t.key}
-                type="button"
-                role="tab"
-                aria-selected={tab === t.key}
-                onClick={() => setTab(t.key)}
-                className={cn(
-                  'inline-flex shrink-0 items-center gap-2 border-b-2 px-3 py-2.5 text-body-sm font-medium transition-colors',
-                  tab === t.key
-                    ? 'border-accent-primary text-text-primary'
-                    : 'border-transparent text-text-secondary hover:text-text-primary',
-                )}
-              >
-                <t.icon className="size-4" />
-                {t.label}
-                {n !== null && n > 0 && (
-                  <span className="rounded-full bg-bg-subtle px-1.5 text-caption tabular-nums text-text-secondary">{n}</span>
-                )}
-              </button>
-            );
-          })}
+        {/* ⚠️ THE OPEN TAB HAS TO BE OBVIOUS. Owner, 2026-09-17: *"the open tab is
+            not visible… there is a gap between the Quotation, Properties and
+            Appointment tabs."* So: gaps between the tabs, the brand teal on the
+            live one, and a 3px bar under it. */}
+        <div role="tablist" aria-label="Related items" className="flex shrink-0 gap-2 border-b border-border-subtle px-4 sm:gap-4">
+          {TABS.map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              role="tab"
+              aria-selected={tab === t.key}
+              onClick={() => setTab(t.key)}
+              className={cn(
+                'relative flex min-w-0 flex-1 items-center justify-center gap-2 rounded-t-lg px-2 py-3.5 text-body transition-colors',
+                tab === t.key
+                  ? 'font-semibold text-accent-primary'
+                  : 'font-medium text-text-secondary hover:bg-bg-subtle/60 hover:text-text-primary',
+              )}
+              style={tab === t.key ? { background: 'color-mix(in oklab, var(--accent-primary) 7%, transparent)' } : undefined}
+            >
+              <t.icon className="size-5 shrink-0" />
+              <span className="truncate">{t.label}</span>
+              {tab === t.key && (
+                <span aria-hidden="true" className="absolute inset-x-0 -bottom-px h-[3px] rounded-full bg-accent-primary" />
+              )}
+            </button>
+          ))}
         </div>
 
-        {/* ── The records ─────────────────────────────────────────────── */}
-        <div className="min-h-0 flex-1 overflow-y-auto p-4">
-          {items === null ? (
-            <p className="flex items-center justify-center gap-2 py-16 text-caption text-text-secondary">
-              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-              Reading this lead&rsquo;s records…
-            </p>
-          ) : tab === 'quotations' ? (
-            <Quotations
-              lead={lead}
-              items={items}
-              chosenId={chosen.quotations}
-              onPick={(id) => pick('quotations', id)}
-              onReload={load}
-              busy={busy}
-              setBusy={setBusy}
-            />
-          ) : tab === 'properties' ? (
-            <Properties
-              items={items}
-              chosenId={chosen.properties}
-              onPick={(id) => pick('properties', id)}
-              onChooseUnit={onChooseUnit}
-            />
-          ) : tab === 'appointments' ? (
-            <Appointments
-              items={items}
-              chosenId={chosen.appointments}
-              onPick={(id) => pick('appointments', id)}
-              onRecordOutcome={onRecordOutcome}
-            />
-          ) : tab === 'bookings' ? (
-            <Bookings
-              lead={lead}
-              items={items}
-              chosenId={chosen.bookings}
-              onPick={(id) => pick('bookings', id)}
-              act={act}
-              busy={busy}
-            />
-          ) : tab === 'invoices' ? (
-            <Invoices
-              lead={lead}
-              items={items}
-              chosenId={chosen.invoices}
-              onPick={(id) => pick('invoices', id)}
-              act={act}
-              busy={busy}
-              onReload={load}
-            />
-          ) : (
-            <Files items={items} />
-          )}
-        </div>
-
-        <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-border-subtle px-5 py-3">
-          <p className="min-w-0 truncate text-caption text-text-secondary">
-            Every record here belongs to {lead.fullName ?? 'this lead'}
-            {lead.ownerName ? ` · ${lead.ownerName}` : ''}
+        {loading && (
+          <p className="flex shrink-0 items-center gap-2 border-b border-border-subtle bg-bg-subtle/40 px-6 py-1.5 text-caption text-text-secondary">
+            <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+            Reading the rest of this lead&rsquo;s records…
           </p>
-          <button
-            type="button"
-            onClick={onClose}
-            className="shrink-0 rounded-lg border border-border-default px-3.5 py-2 text-caption font-semibold text-text-primary transition-colors hover:bg-bg-subtle"
-          >
-            Done
-          </button>
-        </footer>
+        )}
+
+        {!ctx ? (
+          <div className="flex min-h-0 flex-1 items-center justify-center gap-2 text-caption text-text-secondary">
+            <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+            Reading this lead&rsquo;s records…
+          </div>
+        ) : tab === 'quotations' ? (
+          <QuotationsTab ctx={ctx} pickedId={picked.quotations} onPick={pick('quotations')} />
+        ) : tab === 'properties' ? (
+          <PropertiesTab ctx={ctx} pickedId={picked.properties} onPick={pick('properties')} onChooseUnit={onChooseUnit} />
+        ) : tab === 'appointments' ? (
+          <AppointmentsTab ctx={ctx} pickedId={picked.appointments} onPick={pick('appointments')} onRecordOutcome={onRecordOutcome} />
+        ) : tab === 'bookings' ? (
+          <BookingsTab ctx={ctx} pickedId={picked.bookings} onPick={pick('bookings')} />
+        ) : (
+          <InvoicesTab ctx={ctx} pickedId={picked.invoices} onPick={pick('invoices')} />
+        )}
       </div>
     </div>
   );
@@ -321,42 +442,93 @@ export function RelatedItemsDialog({
   return typeof document === 'undefined' ? body : createPortal(body, document.body);
 }
 
-/* ── The shared two-column frame ─────────────────────────────────────────── */
+interface Ctx {
+  lead: CrmLeadRecord;
+  items: RelatedBundle;
+  sender: CrmSender | null;
+  where: string;
+  busy: boolean;
+  act: (fn: () => Promise<{ ok: boolean; error?: string }>, done: string) => Promise<boolean>;
+  upload: (
+    file: File,
+    prepare: (leadId: string, name: string, size: number) => Promise<{ ok: boolean; path?: string; url?: string; error?: string }>,
+    save: (path: string) => Promise<{ ok: boolean; error?: string }>,
+    done: string,
+  ) => Promise<void>;
+  /**
+   * True while the full read is still in flight behind a seeded screen.
+   *
+   * ⚠️ AN EMPTY LIST IS NOT THE SAME AS "NOTHING HERE". Rule Zero, law 3: *"No
+   * notes yet while notes are in flight is a lie somebody will act on."* The
+   * dialog opens on what the drawer already had, so bookings and invoices are
+   * genuinely unknown for a moment — and they say so rather than showing none.
+   */
+  loading: boolean;
+  go: (tab: TabKey, id?: string | null) => void;
+  onClose: () => void;
+  onAttach: (payload: AttachPayload) => void;
+  toast: ReturnType<typeof useToast>;
+}
 
-function Split({
-  title,
-  count,
-  action,
-  list,
-  detail,
-}: {
-  title: string;
-  count: number;
-  action?: React.ReactNode;
-  list: React.ReactNode;
-  detail: React.ReactNode;
-}) {
+/* ── The frame every tab shares ──────────────────────────────────────────── */
+
+function Body({ list, detail }: { list: React.ReactNode; detail: React.ReactNode }) {
   return (
-    <div className="grid gap-4 lg:grid-cols-[1.05fr_1fr]">
-      <section className="flex min-h-[18rem] flex-col rounded-xl border border-border-subtle bg-bg-surface">
-        <header className="flex items-center justify-between gap-2 border-b border-border-subtle px-3.5 py-2.5">
-          <h3 className="text-body-sm font-semibold text-text-primary">
-            {title} <span className="font-normal text-text-secondary">({count})</span>
-          </h3>
-          {action}
-        </header>
-        <div className="min-h-0 flex-1 overflow-y-auto">{list}</div>
+    <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto px-6 pt-4 lg:grid-cols-[1.12fr_1fr] lg:overflow-hidden">
+      <section className="flex min-h-[16rem] flex-col overflow-hidden rounded-xl border border-border-subtle bg-bg-surface">
+        {list}
       </section>
-      <section className="min-w-0">{detail}</section>
+      <section className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-border-subtle bg-bg-surface">
+        {detail}
+      </section>
     </div>
   );
 }
 
-function Row({
+function Foot({ left, note, right }: { left?: React.ReactNode; note?: React.ReactNode; right: React.ReactNode }) {
+  return (
+    <footer className="flex shrink-0 flex-wrap items-end justify-between gap-3 px-6 py-4">
+      <div className="min-w-0">{left}</div>
+      {note && <p className="hidden min-w-0 flex-1 text-center text-caption text-text-secondary xl:block">{note}</p>}
+      <div className="flex shrink-0 items-center gap-2">{right}</div>
+    </footer>
+  );
+}
+
+function ListHead({ title, count, action }: { title: string; count: number; action?: React.ReactNode }) {
+  return (
+    <header className="flex shrink-0 items-center justify-between gap-2 border-b border-border-subtle px-4 py-3">
+      <h3 className="text-body font-semibold text-text-primary">
+        {title} ({count})
+      </h3>
+      {action}
+    </header>
+  );
+}
+
+function Columns({ template, labels }: { template: string; labels: readonly string[] }) {
+  return (
+    <div
+      className="grid shrink-0 items-center gap-3 border-b border-border-subtle bg-bg-subtle/50 px-4 py-2.5 text-caption text-text-secondary"
+      style={{ gridTemplateColumns: template }}
+    >
+      <span />
+      {labels.map((l) => (
+        <span key={l} className="truncate">
+          {l}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function ListRow({
+  template,
   chosen,
   onClick,
   children,
 }: {
+  template: string;
   chosen: boolean;
   onClick: () => void;
   children: React.ReactNode;
@@ -366,1207 +538,2419 @@ function Row({
       type="button"
       onClick={onClick}
       aria-pressed={chosen}
-      className={cn(
-        'flex w-full items-center gap-3 border-b border-border-subtle px-3.5 py-3 text-left transition-colors last:border-b-0',
-        chosen ? 'bg-[var(--pick-bg)]' : 'hover:bg-bg-subtle',
-      )}
+      className="grid w-full items-center gap-3 border-b border-border-subtle px-4 py-3.5 text-left transition-colors hover:bg-bg-subtle/60"
+      style={{ gridTemplateColumns: template, background: chosen ? ROW_ON : undefined }}
     >
       <span
         aria-hidden="true"
         className={cn(
-          'grid size-4 shrink-0 place-items-center rounded-full border',
-          chosen ? 'border-[var(--pick-mark)]' : 'border-border-default',
+          'grid size-[18px] place-items-center rounded-full border-2',
+          chosen ? 'border-accent-primary' : 'border-border-default',
         )}
       >
-        {chosen && <span className="size-2 rounded-full bg-[var(--pick-mark)]" />}
+        {chosen && <span className="size-2 rounded-full bg-accent-primary" />}
       </span>
       {children}
     </button>
   );
 }
 
-function Pill({ status }: { status: string }) {
-  const t = tone(status);
+function Two({ top, bottom, blue = false }: { top: React.ReactNode; bottom?: React.ReactNode; blue?: boolean }) {
   return (
-    <span
-      className="shrink-0 whitespace-nowrap rounded-md px-2 py-0.5 text-caption font-medium"
-      style={{ color: t.color, background: `color-mix(in oklab, ${t.color} 12%, transparent)` }}
-    >
-      {t.label}
+    <span className="min-w-0">
+      <span className="block truncate text-body-sm font-semibold" style={{ color: blue ? BLUE : 'var(--text-primary)' }}>
+        {top}
+      </span>
+      {bottom && <span className="block truncate text-caption text-text-secondary">{bottom}</span>}
     </span>
   );
 }
 
-function Empty({ children }: { children: React.ReactNode }) {
-  return <p className="px-4 py-10 text-center text-caption leading-relaxed text-text-secondary">{children}</p>;
-}
-
-function Detail({
-  title,
-  subtitle,
-  status,
-  onOpen,
-  children,
-}: {
-  title: string;
-  subtitle?: string;
-  status?: string;
-  onOpen?: () => void;
-  children: React.ReactNode;
-}) {
+function Empty({ children, action }: { children: React.ReactNode; action?: React.ReactNode }) {
   return (
-    <div className="rounded-xl border border-border-subtle bg-bg-surface">
-      <header className="flex items-start gap-3 border-b border-border-subtle px-3.5 py-3">
-        <div className="min-w-0 flex-1">
-          <h3 className="truncate text-body font-semibold text-text-primary">{title}</h3>
-          {subtitle && <p className="truncate text-caption text-text-secondary">{subtitle}</p>}
-        </div>
-        {status && <Pill status={status} />}
-        {onOpen && (
-          <button
-            type="button"
-            onClick={onOpen}
-            className="inline-flex shrink-0 items-center gap-1 text-caption font-medium text-text-brand underline-offset-2 hover:underline"
-          >
-            Open
-            <ExternalLink className="size-3.5" aria-hidden="true" />
-          </button>
-        )}
-      </header>
-      <div className="space-y-3 px-3.5 py-3">{children}</div>
+    <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 py-10 text-center">
+      <p className="max-w-sm text-caption leading-relaxed text-text-secondary">{children}</p>
+      {action}
     </div>
   );
 }
 
-function Facts({ rows }: { rows: ReadonlyArray<[string, React.ReactNode]> }) {
+/** `Empty`, except that it does not claim emptiness while the read is running. */
+function EmptyList({ loading, children, action }: { loading: boolean; children: React.ReactNode; action?: React.ReactNode }) {
+  if (loading) {
+    return (
+      <div className="flex flex-1 items-center justify-center gap-2 px-6 py-10 text-caption text-text-secondary">
+        <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+        Reading this lead&rsquo;s records…
+      </div>
+    );
+  }
+  return <Empty action={action}>{children}</Empty>;
+}
+
+function DetailHead({ title, onOpen }: { title: string; onOpen?: () => void }) {
   return (
-    <dl className="grid grid-cols-2 gap-x-4 gap-y-2.5">
-      {rows.map(([label, value]) => (
-        <div key={label} className="min-w-0">
-          <dt className="truncate text-caption text-text-secondary">{label}</dt>
-          <dd className="truncate text-body-sm font-medium text-text-primary">{value}</dd>
-        </div>
-      ))}
-    </dl>
+    <header className="flex shrink-0 items-center justify-between gap-2 px-4 pb-2 pt-3">
+      <h3 className="text-body font-semibold text-text-primary">{title}</h3>
+      {onOpen && (
+        <button
+          type="button"
+          onClick={onOpen}
+          className="inline-flex items-center gap-1.5 text-body-sm font-medium hover:underline"
+          style={{ color: BLUE }}
+        >
+          Open
+          <ExternalLink className="size-4" aria-hidden="true" />
+        </button>
+      )}
+    </header>
+  );
+}
+
+function Scroll({ children }: { children: React.ReactNode }) {
+  return <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 pb-4">{children}</div>;
+}
+
+function Card({ children, className }: { children: React.ReactNode; className?: string }) {
+  return <div className={cn('rounded-xl border border-border-subtle bg-bg-surface', className)}>{children}</div>;
+}
+
+function Label({ children }: { children: React.ReactNode }) {
+  return <p className="text-caption text-text-secondary">{children}</p>;
+}
+
+function LinkText({ onClick, children, icon = 'up' }: { onClick: () => void; children: React.ReactNode; icon?: 'up' | 'right' | 'ext' | 'upload' }) {
+  const Icon = icon === 'right' ? ArrowRight : icon === 'ext' ? ExternalLink : icon === 'upload' ? Upload : ArrowUpRight;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex max-w-full items-center gap-1 truncate text-body-sm font-medium hover:underline"
+      style={{ color: BLUE }}
+    >
+      <span className="truncate">{children}</span>
+      <Icon className="size-4 shrink-0" aria-hidden="true" />
+    </button>
+  );
+}
+
+function IconTile({ children, tint = 'var(--accent-primary)' }: { children: React.ReactNode; tint?: string }) {
+  return (
+    <span
+      className="grid size-11 shrink-0 place-items-center rounded-xl"
+      style={{ background: `color-mix(in oklab, ${tint} 12%, transparent)`, color: tint }}
+    >
+      {children}
+    </span>
+  );
+}
+
+function Toggle({ on, disabled, onChange, label }: { on: boolean; disabled?: boolean; onChange: (v: boolean) => void; label: string }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      disabled={disabled}
+      onClick={() => onChange(!on)}
+      className={cn(
+        'relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-40',
+        on ? 'bg-accent-primary' : 'bg-border-default',
+      )}
+    >
+      <span
+        className={cn(
+          'absolute top-0.5 size-5 rounded-full bg-white shadow transition-transform',
+          on ? 'translate-x-[22px]' : 'translate-x-0.5',
+        )}
+      />
+    </button>
+  );
+}
+
+function OutlineBlue({ icon: Icon, onClick, disabled, children }: {
+  icon: React.ComponentType<{ className?: string }>;
+  onClick: () => void;
+  disabled?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-body-sm font-medium transition-colors hover:bg-bg-subtle disabled:opacity-50"
+      style={{ color: BLUE, borderColor: `color-mix(in oklab, ${BLUE} 45%, transparent)` }}
+    >
+      <Icon className="size-4" />
+      {children}
+    </button>
+  );
+}
+
+function Btn({ primary = false, disabled, onClick, children }: { primary?: boolean; disabled?: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        'inline-flex min-h-[2.75rem] items-center justify-center gap-2 rounded-lg px-5 text-body-sm font-semibold transition-colors disabled:opacity-50',
+        primary
+          ? 'bg-accent-primary text-white hover:opacity-90'
+          : 'border border-border-default bg-bg-surface text-text-primary hover:bg-bg-subtle',
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function HiddenFile({ inputRef, onFile, accept = 'application/pdf,image/*' }: {
+  inputRef: React.RefObject<HTMLInputElement | null>;
+  onFile: (f: File) => void;
+  accept?: string;
+}) {
+  return (
+    <input
+      ref={inputRef}
+      type="file"
+      accept={accept}
+      hidden
+      onChange={(e) => {
+        const file = e.target.files?.[0];
+        e.target.value = '';
+        if (file) onFile(file);
+      }}
+    />
+  );
+}
+
+/** A small sheet over the foot of the dialog, for the few things that need typing. */
+function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  return (
+    <div className="absolute inset-x-6 bottom-20 z-10 rounded-xl border border-border-default bg-bg-surface p-4 shadow-2xl">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h4 className="text-body-sm font-semibold text-text-primary">{title}</h4>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          className="grid size-7 place-items-center rounded-md text-text-secondary hover:bg-bg-subtle"
+        >
+          <X className="size-4" aria-hidden="true" />
+        </button>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+const field =
+  'w-full rounded-lg border border-border-default bg-bg-surface px-3 py-2 text-body-sm text-text-primary placeholder:text-text-tertiary focus:border-accent-primary focus:outline-none';
+
+/* --- What the drawer already knows ------------------------------------------
+ * Owner, 2026-09-17: *"the related item modal, when opened, is taking a lot of
+ * time to load and show anything… these things should be instantly opening."*
+ *
+ * The drawer has already read this lead's quotations and appointments — Rule Zero
+ * law 3 says do not fetch them again to draw the same rows. This turns what it
+ * holds into the bundle the dialog draws in the frame it opens, and the full read
+ * lands underneath with the bookings, invoices and payment plans the drawer
+ * deliberately does not carry.
+ *
+ * ⚠️ WHAT IS NOT HERE IS MARKED UNKNOWN, NOT EMPTY. `ctx.loading` is what keeps
+ * an un-read tab saying "reading" instead of "none" — see `EmptyList`.
+ * ========================================================================= */
+
+export function seedRelated(lead: CrmLeadRecord, related: CrmLeadRelated): RelatedBundle {
+  return {
+    quotations: related.quotations.map((q) => ({
+      id: q.id,
+      number: q.number,
+      version: q.version,
+      status: q.status,
+      netAmount: q.netAmount,
+      /* The drawer's row does not carry the breakdown, and nothing on the screen
+         shows it before the full read arrives. */
+      basePrice: q.netAmount,
+      requestedDiscount: q.requestedDiscount,
+      approvedDiscount: q.approvedDiscount,
+      validUntil: q.validUntil,
+      createdAt: q.createdAt,
+      sentAt: null,
+      pdfPath: q.pdfPath ?? null,
+      propertyId: null,
+      propertyLabel: q.propertyLabel,
+      propertyTitle: null,
+      preparedByName: q.preparedByName,
+      terms: null,
+    })),
+    properties: [],
+    appointments: related.appointments.map((a) => ({
+      id: a.id,
+      kind: a.kind,
+      status: a.status,
+      scheduledAt: a.scheduledAt,
+      durationMinutes: a.durationMinutes,
+      location: a.location,
+      notes: null,
+      outcome: a.outcome,
+      ownerName: a.ownerName,
+      propertyId: lead.propertyId ?? null,
+      propertyLabel: null,
+    })),
+    bookings: [],
+    invoices: [],
+    files: [],
+    visitReminderAt: null,
+    canVerifyPayments: false,
+    senderEmail: null,
+  };
+}
+
+/* --- The quotation PDF picker -----------------------------------------------
+ * Owner, 2026-09-17: *"it will pop up a modal where we can select any PDF. That
+ * PDF will be automatically selected and we just put the name of that PDF. It
+ * will be displayed here in the available quotation files… read that PDF and get
+ * the quotation name… the property, Marla, block… plus its amount. If you don't
+ * get these things from the quotation, you will show a message that the PDF is
+ * not showing this information."*
+ *
+ * ⚠️ THE FILE IS READ BEFORE ANYTHING IS ADDED. What the reading found is on the
+ * screen, next to the name, before the button that writes the row is live. A
+ * quotation added first and checked later is a price on a client's record that
+ * nobody agreed to.
+ * ========================================================================= */
+
+type PickPhase = 'pick' | 'working' | 'read' | 'refused';
+
+function QuotationPdfPicker({ ctx, onClose }: { ctx: Ctx; onClose: () => void }) {
+  const { lead } = ctx;
+  const fileRef = React.useRef<HTMLInputElement>(null);
+  const [phase, setPhase] = React.useState<PickPhase>('pick');
+  const [step, setStep] = React.useState('');
+  const [error, setError] = React.useState('');
+  const [file, setFile] = React.useState<File | null>(null);
+  const [path, setPath] = React.useState('');
+  const [title, setTitle] = React.useState('');
+  const [found, setFound] = React.useState<{
+    number?: string;
+    amount?: number;
+    unitHint?: string;
+    validUntil?: string | null;
+  }>({});
+
+  const take = async (picked: File) => {
+    setFile(picked);
+    setTitle(picked.name.replace(/\.pdf$/i, ''));
+    setPhase('working');
+    setError('');
+    try {
+      setStep('Uploading the file…');
+      const slot = await prepareQuotationPdfAction(lead.id, picked.name, picked.size);
+      if (!slot.ok || !slot.url || !slot.path) {
+        setPhase('refused');
+        setError(slot.error ?? 'That file could not be prepared.');
+        return;
+      }
+      /* ⚠️ STRAIGHT TO STORAGE — a server action refuses a body over 4.5 MB. */
+      const put = await fetch(slot.url, {
+        method: 'PUT',
+        headers: { 'content-type': picked.type || 'application/pdf' },
+        body: picked,
+      });
+      if (!put.ok) {
+        setPhase('refused');
+        setError(`The upload was refused (${put.status}).`);
+        return;
+      }
+      setPath(slot.path);
+      setStep('Reading the quotation…');
+      const reading = await readQuotationPdfAction(lead.id, slot.path);
+      if (!reading.ok) {
+        setPhase('refused');
+        setError(reading.error ?? 'That PDF could not be read.');
+        /* Nothing points at it, so it does not stay in the bucket. */
+        /* Nothing is waiting on this, and a failed tidy-up must not become an
+           unhandled rejection in the middle of a refusal message. */
+        void discardQuotationPdfAction(lead.id, slot.path).catch(() => {});
+        setPath('');
+        return;
+      }
+      setFound({
+        number: reading.number,
+        amount: reading.amount,
+        unitHint: reading.unitHint,
+        validUntil: reading.validUntil,
+      });
+      setPhase('read');
+    } catch {
+      setPhase('refused');
+      setError('The upload did not finish — the connection dropped.');
+    } finally {
+      setStep('');
+    }
+  };
+
+  const reset = () => {
+    if (path) void discardQuotationPdfAction(lead.id, path).catch(() => {});
+    setPhase('pick');
+    setError('');
+    setFile(null);
+    setPath('');
+    setFound({});
+  };
+
+  const add = async () => {
+    if (!file || !path) return;
+    const ok = await ctx.act(
+      () =>
+        addQuotationFromPdfAction({
+          leadId: lead.id,
+          path,
+          title: title.trim() || file.name,
+          mime: file.type || 'application/pdf',
+          sizeBytes: file.size,
+        }),
+      `${found.number ?? 'The quotation'} added to available quotations.`,
+    );
+    if (ok) onClose();
+  };
+
+  return (
+    <Sheet title="Add a quotation PDF" onClose={onClose}>
+      {phase === 'pick' && (
+        <>
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            className="flex w-full flex-col items-center gap-1.5 rounded-xl border border-dashed border-border-default px-4 py-6 text-center transition-colors hover:bg-bg-subtle"
+          >
+            <span
+              className="grid size-10 place-items-center rounded-full"
+              style={{ background: `color-mix(in oklab, ${BLUE} 12%, transparent)`, color: BLUE }}
+            >
+              <Upload className="size-5" aria-hidden="true" />
+            </span>
+            <span className="text-body-sm font-semibold text-text-primary">Choose a quotation PDF</span>
+            <span className="text-caption text-text-secondary">
+              Its quotation number, property and amount are read from the file — nothing is typed in by hand.
+            </span>
+          </button>
+          <HiddenFile inputRef={fileRef} accept="application/pdf" onFile={(f) => void take(f)} />
+        </>
+      )}
+
+      {phase === 'working' && (
+        <p className="flex items-center gap-2 px-1 py-6 text-body-sm text-text-secondary">
+          <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+          {step || 'Working…'}
+          <span className="truncate text-caption text-text-tertiary">{file?.name}</span>
+        </p>
+      )}
+
+      {phase === 'refused' && (
+        <>
+          <div
+            className="flex items-start gap-2.5 rounded-xl border px-3.5 py-3"
+            style={{
+              borderColor: 'color-mix(in oklab, #d92d20 35%, transparent)',
+              background: 'color-mix(in oklab, #d92d20 7%, transparent)',
+            }}
+          >
+            <AlertTriangle className="mt-0.5 size-4 shrink-0" style={{ color: '#d92d20' }} aria-hidden="true" />
+            <div className="min-w-0">
+              <p className="text-body-sm font-semibold text-text-primary">This PDF cannot be added</p>
+              <p className="mt-0.5 text-caption text-text-secondary">{error}</p>
+              {file && <p className="mt-1 truncate text-caption text-text-tertiary">{file.name}</p>}
+            </div>
+          </div>
+          <div className="mt-3 flex justify-end gap-2">
+            <Btn onClick={onClose}>Close</Btn>
+            <Btn primary onClick={reset}>
+              Choose another PDF
+            </Btn>
+          </div>
+        </>
+      )}
+
+      {phase === 'read' && (
+        <>
+          <label className="block">
+            <span className="text-caption text-text-secondary">Name it</span>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              maxLength={140}
+              className={cn(field, 'mt-1')}
+            />
+          </label>
+          {/* ⚠️ WHAT THE FILE SAID, not what anybody would like it to say. */}
+          <div className="mt-3 rounded-xl border border-border-subtle bg-bg-subtle/40 p-3">
+            <p className="flex items-center gap-1.5 text-caption font-semibold text-text-primary">
+              <Check className="size-3.5" style={{ color: WA_GREEN }} aria-hidden="true" />
+              Read from this PDF
+            </p>
+            <dl className="mt-2 grid gap-2 sm:grid-cols-3">
+              {[
+                { k: 'Quotation', v: found.number ?? '—' },
+                { k: 'Property', v: found.unitHint || '—' },
+                { k: 'Amount', v: found.amount !== undefined ? money(found.amount) : '—' },
+              ].map((r) => (
+                <div key={r.k} className="min-w-0">
+                  <dt className="text-caption text-text-secondary">{r.k}</dt>
+                  <dd className="truncate text-body-sm font-semibold text-text-primary">{r.v}</dd>
+                </div>
+              ))}
+            </dl>
+            {found.validUntil && (
+              <p className="mt-2 text-caption text-text-secondary">Valid until {shortDay(found.validUntil)}</p>
+            )}
+          </div>
+          <p className="mt-2 text-caption text-text-secondary">
+            It is added as a draft against this lead, and the plot is matched inside {lead.projectName} where the
+            catalogue has it.
+          </p>
+          <div className="mt-3 flex justify-end gap-2">
+            <Btn onClick={reset}>Choose another</Btn>
+            <Btn primary disabled={ctx.busy} onClick={() => void add()}>
+              Add to available quotations
+            </Btn>
+          </div>
+        </>
+      )}
+    </Sheet>
   );
 }
 
 /* ── 1 · Quotations ──────────────────────────────────────────────────────── */
 
-function Quotations({
-  lead,
-  items,
-  chosenId,
-  onPick,
-  onReload,
-  busy,
-  setBusy,
-}: {
-  lead: CrmLeadRecord;
-  items: RelatedItems;
-  chosenId: string | null;
-  onPick: (id: string) => void;
-  onReload: () => Promise<void>;
-  busy: boolean;
-  setBusy: (v: boolean) => void;
-}) {
-  const toast = useToast();
-  const list = items.quotations;
-  const chosen: RelatedQuotation | undefined = list.find((q) => q.id === chosenId) ?? list[0];
-  const input = React.useRef<HTMLInputElement>(null);
+const Q_COLS = '18px minmax(0,0.9fr) minmax(0,1.4fr) minmax(0,1fr) auto';
 
-  const open = async (quotationId: string) => {
-    const result = await quotationPdfLinkAction(quotationId);
-    if (result.url) window.open(result.url, '_blank', 'noopener');
-    else toast({ tone: 'error', text: result.error ?? 'That could not be opened.' });
+function QuotationsTab({ ctx, pickedId, onPick }: { ctx: Ctx; pickedId?: string; onPick: (id: string) => void }) {
+  const { lead, items, sender, busy } = ctx;
+  const list = items.quotations;
+  const chosen: RelatedQuotation | undefined =
+    list.find((q) => q.id === pickedId) ??
+    list.find((q) => !['superseded', 'rejected', 'expired'].includes(q.status)) ??
+    list[0];
+  const [attachPdf, setAttachPdf] = React.useState(true);
+  const [asking, setAsking] = React.useState(false);
+  const [adding, setAdding] = React.useState(false);
+  const [note, setNote] = React.useState('');
+  const fileRef = React.useRef<HTMLInputElement>(null);
+  const unit = items.properties.find((p) => p.id === chosen?.propertyId) ?? null;
+  /* ⚠️ A QUOTATION READ OUT OF A PDF MAY NAME A PLOT THIS PROJECT HAS NOT GOT.
+     The catalogue is not extended to match a document (see `createQuotationFromPdf`),
+     so what the file said is kept in the terms and shown here — "—" against a
+     quotation whose own PDF names a unit would look like missing data. */
+  const quotedUnit = (q: RelatedQuotation) => /Property as quoted: ([^\n.]+)/.exec(q.terms ?? '')?.[1]?.trim() ?? null;
+  const unitName = (q: RelatedQuotation) =>
+    [q.propertyTitle, blockOf(q.propertyLabel)].filter(Boolean).join(' · ') || q.propertyLabel || quotedUnit(q) || '—';
+
+  const attach = async () => {
+    if (!chosen) return;
+    const text = `Quotation ${chosen.number} for ${unitName(chosen)}: ${money(chosen.netAmount)}${
+      chosen.validUntil ? `, valid until ${longDay(chosen.validUntil)}` : ''
+    }.`;
+    try {
+      const files =
+        attachPdf && chosen.pdfPath
+          ? [await fileFromLink(await relatedFileLinkAction('quotation_pdf', chosen.id), `${chosen.number}.pdf`)]
+          : [];
+      ctx.onAttach({ files, text });
+    } catch (e) {
+      ctx.toast({ tone: 'error', text: e instanceof Error ? e.message : 'The PDF could not be attached.' });
+    }
   };
 
-  /* ⚠️ THE FILE GOES STRAIGHT TO STORAGE. A server action would refuse a body
-     over 4.5 MB, and a quotation with a site plan in it passes that easily. */
-  const upload = async (file: File, quotationId: string) => {
-    if (busy) return;
-    setBusy(true);
+  const openPdf = async () => {
+    if (!chosen) return;
+    const link = await relatedFileLinkAction('quotation_pdf', chosen.id);
+    if (link.url) window.open(link.url, '_blank', 'noopener');
+    else ctx.toast({ tone: 'error', text: link.error ?? 'That could not be opened.' });
+  };
+
+  return (
+    <>
+      <Body
+        list={
+          <>
+            <ListHead
+              title="Available quotations"
+              count={list.length}
+              action={
+                <LinkText icon="upload" onClick={() => setAdding(true)}>
+                  Add PDF
+                </LinkText>
+              }
+            />
+            {list.length === 0 ? (
+              <EmptyList loading={ctx.loading}>
+                No quotation has been raised for this lead yet. Raise one from the drawer, or add the quotation PDF you
+                already sent — its number, property and amount are read out of the file.
+              </EmptyList>
+            ) : (
+              <>
+                <Columns template={Q_COLS} labels={['Quotation', 'Property', 'Amount', 'Status']} />
+                <div className="min-h-0 flex-1 overflow-y-auto">
+                  {list.map((q) => (
+                    <ListRow key={q.id} template={Q_COLS} chosen={q.id === chosen?.id} onClick={() => onPick(q.id)}>
+                      <Two top={`${q.number}${q.version > 1 ? ` v${q.version}` : ''}`} bottom={shortDay(q.createdAt)} />
+                      <Two top={unitName(q)} bottom={lead.projectName} />
+                      <span className="truncate text-body-sm tabular-nums text-text-primary">{money(q.netAmount)}</span>
+                      <StatusPill status={q.status} />
+                    </ListRow>
+                  ))}
+                </div>
+              </>
+            )}
+          </>
+        }
+        detail={
+          !chosen ? (
+            <EmptyList loading={ctx.loading}>Nothing to preview yet.</EmptyList>
+          ) : (
+            <>
+              <DetailHead title="Quotation preview" onOpen={chosen.pdfPath ? () => void openPdf() : undefined} />
+              <Scroll>
+                {/* ⚠️ THE LETTER, AS THE CLIENT RECEIVES IT — the business's own
+                    mark and name, the real sending address and WhatsApp number. */}
+                <Card className="p-5 shadow-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-3">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src="/brand/cni-ai-digital-division.png" alt="" className="size-11 shrink-0 object-contain" />
+                      <div className="min-w-0">
+                        <p className="truncate text-body font-semibold text-text-primary">
+                          {sender?.displayName ?? lead.projectName}
+                        </p>
+                        <p className="truncate text-caption text-text-secondary">{lead.projectName}</p>
+                      </div>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className="text-caption text-text-secondary">Quotation</p>
+                      <p className="text-h3 font-semibold text-text-primary">{chosen.number}</p>
+                      <p className="text-caption text-text-secondary">{shortDay(chosen.createdAt)}</p>
+                    </div>
+                  </div>
+                  <div className="mt-4 grid grid-cols-2 border-t border-border-subtle pt-3">
+                    <div className="min-w-0 pr-3">
+                      <Label>Client</Label>
+                      <p className="truncate text-body-sm font-semibold text-text-primary">{lead.fullName ?? '—'}</p>
+                      <p className="truncate text-caption text-text-secondary">{lead.projectName}</p>
+                      {lead.city && <p className="truncate text-caption text-text-secondary">{lead.city}</p>}
+                    </div>
+                    <div className="min-w-0 border-l border-border-subtle pl-3">
+                      <Label>Property</Label>
+                      <p className="truncate text-body-sm font-semibold text-text-primary">{unitName(chosen)}</p>
+                      <p className="truncate text-caption text-text-secondary">{lead.projectName}</p>
+                      {lead.city && <p className="truncate text-caption text-text-secondary">{lead.city}</p>}
+                    </div>
+                  </div>
+                  <div className="mt-4">
+                    <Label>Quotation amount</Label>
+                    <p className="text-[1.6rem] font-bold leading-tight tabular-nums text-text-primary">
+                      {money(chosen.netAmount)}
+                    </p>
+                    <p className="text-caption text-text-secondary">
+                      {chosen.validUntil ? `Valid until ${shortDay(chosen.validUntil)}` : 'Open-ended'}
+                    </p>
+                  </div>
+                  <div className="mt-4 flex flex-wrap items-end justify-between gap-2 border-t border-border-subtle pt-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-caption font-semibold text-text-primary">
+                        {sender?.displayName ?? lead.projectName}
+                      </p>
+                      {items.senderEmail && <p className="truncate text-caption text-text-secondary">{items.senderEmail}</p>}
+                    </div>
+                    {sender?.displayNumber && (
+                      <p className="flex items-center gap-2 text-caption text-text-primary">
+                        <span style={{ color: WA_GREEN }}>
+                          <WhatsAppMark className="size-5" />
+                        </span>
+                        {displayPhone(sender.displayNumber)}
+                      </p>
+                    )}
+                  </div>
+                </Card>
+
+                <Card className="flex items-center gap-3 px-4 py-3">
+                  <IconTile tint="var(--text-secondary)">
+                    <FileText className="size-5" aria-hidden="true" />
+                  </IconTile>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-body-sm font-semibold text-text-primary">Attach quotation PDF</p>
+                    <p className="text-caption text-text-secondary">
+                      {chosen.pdfPath
+                        ? attachPdf
+                          ? `${chosen.number} will be attached to your message.`
+                          : 'Only the summary line will be sent.'
+                        : 'No PDF on this quotation yet — upload it to attach it.'}
+                    </p>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => fileRef.current?.click()}
+                      className="mt-0.5 inline-flex items-center gap-1 text-caption font-medium hover:underline disabled:opacity-50"
+                      style={{ color: BLUE }}
+                    >
+                      <Upload className="size-3.5" aria-hidden="true" />
+                      {busy ? 'Uploading…' : chosen.pdfPath ? 'Replace PDF' : 'Upload PDF'}
+                    </button>
+                    <HiddenFile
+                      inputRef={fileRef}
+                      onFile={(f) =>
+                        void ctx.upload(
+                          f,
+                          prepareQuotationPdfAction,
+                          (path) =>
+                            attachQuotationPdfAction({
+                              leadId: lead.id,
+                              quotationId: chosen.id,
+                              path,
+                              title: f.name,
+                              mime: f.type || 'application/pdf',
+                              sizeBytes: f.size,
+                            }),
+                          'Quotation PDF attached.',
+                        )
+                      }
+                    />
+                  </div>
+                  <Toggle on={attachPdf && !!chosen.pdfPath} disabled={!chosen.pdfPath} onChange={setAttachPdf} label="Attach quotation PDF" />
+                </Card>
+
+                <Card className="flex items-center gap-3 px-4 py-3">
+                  <IconTile tint={BLUE}>
+                    <Home className="size-5" aria-hidden="true" />
+                  </IconTile>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-caption text-text-secondary">Linked property</p>
+                    <p className="truncate text-body-sm font-semibold text-text-primary">{unitName(chosen)}</p>
+                    <p className="truncate text-caption text-text-secondary">{ctx.where}</p>
+                  </div>
+                  {unit && (
+                    <LinkText icon="right" onClick={() => ctx.go('properties', unit.id)}>
+                      View property
+                    </LinkText>
+                  )}
+                </Card>
+              </Scroll>
+            </>
+          )
+        }
+      />
+      <Foot
+        left={
+          <div>
+            <OutlineBlue icon={MessageSquareText} onClick={() => setAsking(true)} disabled={!chosen}>
+              Request updated quote
+            </OutlineBlue>
+            <p className="mt-1 pl-1 text-caption text-text-secondary">Ask for a revised quotation from the team.</p>
+          </div>
+        }
+        right={
+          <>
+            <Btn onClick={() => setAdding(true)}>
+              <Upload className="size-4" aria-hidden="true" />
+              Upload quotation PDF
+            </Btn>
+            <Btn primary disabled={!chosen || busy} onClick={() => void attach()}>
+              Attach selected quote
+            </Btn>
+          </>
+        }
+      />
+      {adding && <QuotationPdfPicker ctx={ctx} onClose={() => setAdding(false)} />}
+      {asking && chosen && (
+        <Sheet title={`Request an updated quotation · ${chosen.number}`} onClose={() => setAsking(false)}>
+          <textarea
+            rows={3}
+            autoFocus
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            maxLength={1000}
+            placeholder="What should change? e.g. the client asked for a longer payment plan."
+            className={field}
+          />
+          <p className="mt-1.5 text-caption text-text-secondary">
+            Goes to your sales manager, and is kept as a note on this lead.
+          </p>
+          <div className="mt-3 flex justify-end gap-2">
+            <Btn onClick={() => setAsking(false)}>Cancel</Btn>
+            <Btn
+              primary
+              disabled={busy || !note.trim()}
+              onClick={async () => {
+                const ok = await ctx.act(
+                  () => requestFromManagerAction({ leadId: lead.id, kind: 'quote', subject: chosen.number, note }),
+                  'Request sent to your manager.',
+                );
+                if (ok) {
+                  setAsking(false);
+                  setNote('');
+                }
+              }}
+            >
+              Send request
+            </Btn>
+          </div>
+        </Sheet>
+      )}
+    </>
+  );
+}
+
+/* --- The property sheet picker ----------------------------------------------
+ * Owner, 2026-09-17: *"when the property sheet is uploaded and it has multiple
+ * plots and multiple data on it, then you will add each plot with you in this
+ * way."*
+ *
+ * So one upload lists every plot it found, and each one is a row somebody can
+ * tick. The parsing is in `lib/domain/crm-property-sheet.ts` and tested there.
+ *
+ * ⚠️ THE CATALOGUE IS THE PROJECT MANAGER'S (150). A salesperson sees what the
+ * sheet says and is told who can add it, rather than being handed a button that
+ * fails on submit.
+ * ========================================================================= */
+
+function PropertySheetPicker({ ctx, onClose }: { ctx: Ctx; onClose: () => void }) {
+  const { lead } = ctx;
+  const fileRef = React.useRef<HTMLInputElement>(null);
+  const [phase, setPhase] = React.useState<PickPhase>('pick');
+  const [step, setStep] = React.useState('');
+  const [error, setError] = React.useState('');
+  const [file, setFile] = React.useState<File | null>(null);
+  const [path, setPath] = React.useState('');
+  const [plots, setPlots] = React.useState<readonly ParsedPlot[]>([]);
+  const [existing, setExisting] = React.useState<readonly string[]>([]);
+  const [canAdd, setCanAdd] = React.useState(false);
+  const [chosen, setChosen] = React.useState<readonly string[]>([]);
+
+  const isNew = (code: string) => !existing.includes(code.trim().toLowerCase());
+
+  const take = async (picked: File) => {
+    setFile(picked);
+    setPhase('working');
+    setError('');
     try {
-      const slot = await prepareQuotationPdfAction(lead.id, file.name, file.size);
+      setStep('Uploading the sheet…');
+      const slot = await preparePropertySheetAction(lead.id, picked.name, picked.size);
       if (!slot.ok || !slot.url || !slot.path) {
-        toast({ tone: 'error', text: slot.error ?? 'That file could not be prepared.' });
+        setPhase('refused');
+        setError(slot.error ?? 'That file could not be prepared.');
         return;
       }
       const put = await fetch(slot.url, {
         method: 'PUT',
-        headers: { 'content-type': file.type || 'application/pdf' },
-        body: file,
+        headers: { 'content-type': picked.type || 'application/pdf' },
+        body: picked,
       });
       if (!put.ok) {
-        toast({ tone: 'error', text: `The upload was refused (${put.status}).` });
+        setPhase('refused');
+        setError(`The upload was refused (${put.status}).`);
         return;
       }
-      const saved = await attachQuotationPdfAction({
-        leadId: lead.id,
-        quotationId,
-        path: slot.path,
-        title: file.name,
-        mime: file.type || 'application/pdf',
-        sizeBytes: file.size,
-      });
-      if (!saved.ok) {
-        toast({ tone: 'error', text: saved.error });
+      setPath(slot.path);
+      setStep('Reading the plots…');
+      const reading = await readPropertySheetAction(lead.id, slot.path);
+      if (!reading.ok) {
+        setPhase('refused');
+        setError(reading.error ?? 'That sheet could not be read.');
+        void discardPropertySheetAction(lead.id, slot.path).catch(() => {});
+        setPath('');
         return;
       }
-      await onReload();
-      toast({ tone: 'ok', text: 'Quotation PDF attached.' });
+      const found = reading.plots ?? [];
+      setPlots(found);
+      setExisting(reading.existing ?? []);
+      setCanAdd(reading.canAdd === true);
+      /* Everything the project has not got is ticked; what it already has is not. */
+      const already = new Set((reading.existing ?? []).map((c) => c.toLowerCase()));
+      setChosen(found.filter((pl) => !already.has(pl.code.toLowerCase())).map((pl) => pl.code));
+      setPhase('read');
+    } catch {
+      setPhase('refused');
+      setError('The upload did not finish — the connection dropped.');
     } finally {
-      setBusy(false);
+      setStep('');
     }
   };
 
+  const reset = () => {
+    if (path) void discardPropertySheetAction(lead.id, path).catch(() => {});
+    setPhase('pick');
+    setError('');
+    setFile(null);
+    setPath('');
+    setPlots([]);
+    setChosen([]);
+  };
+
+  const add = async () => {
+    if (!file || !path || chosen.length === 0) return;
+    const ok = await ctx.act(
+      () =>
+        addPlotsFromSheetAction({
+          leadId: lead.id,
+          path,
+          title: file.name,
+          mime: file.type || 'application/pdf',
+          sizeBytes: file.size,
+          codes: chosen,
+        }),
+      `${chosen.length} plot${chosen.length > 1 ? 's' : ''} added to the catalogue.`,
+    );
+    if (ok) onClose();
+  };
+
   return (
-    <Split
-      title="Available quotations"
-      count={list.length}
-      list={
-        list.length === 0 ? (
-          <Empty>
-            No quotation has been raised for this lead yet. Raise one from the drawer&rsquo;s Related items tab, and it
-            will appear here with its PDF.
-          </Empty>
-        ) : (
-          list.map((q) => (
-            <Row key={q.id} chosen={q.id === chosen?.id} onClick={() => onPick(q.id)}>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-body-sm font-semibold text-text-primary">
-                  {q.number}
-                  {q.version > 1 ? ` v${q.version}` : ''}
-                </span>
-                <span className="block truncate text-caption text-text-secondary">
-                  {day(q.createdAt)}
-                  {q.propertyLabel ? ` · ${q.propertyLabel}` : ''}
-                </span>
-              </span>
-              <span className="shrink-0 text-right">
-                <span className="block text-body-sm font-semibold tabular-nums text-text-primary">{money(q.netAmount)}</span>
-                {q.pdfPath && (
-                  <span className="mt-0.5 inline-flex items-center gap-1 text-caption text-text-secondary">
-                    <Paperclip className="size-3" aria-hidden="true" />
-                    PDF
-                  </span>
-                )}
-              </span>
-              <Pill status={q.status} />
-            </Row>
-          ))
-        )
-      }
-      detail={
-        !chosen ? null : (
-          <div className="space-y-3">
-            <Detail
-              title="Quotation preview"
-              subtitle="What the client was quoted — the full terms are in the PDF."
-              onOpen={chosen.pdfPath ? () => void open(chosen.id) : undefined}
+    <Sheet title="Add plots from a property sheet" onClose={onClose}>
+      {phase === 'pick' && (
+        <>
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            className="flex w-full flex-col items-center gap-1.5 rounded-xl border border-dashed border-border-default px-4 py-6 text-center transition-colors hover:bg-bg-subtle"
+          >
+            <span
+              className="grid size-10 place-items-center rounded-full"
+              style={{ background: `color-mix(in oklab, ${BLUE} 12%, transparent)`, color: BLUE }}
             >
-              {/* ⚠️ THE LETTER, NOT A FORM. The owner's design draws the quotation
-                  as the client sees it, which is what somebody checks before
-                  repeating a figure on the phone. */}
-              <div className="rounded-xl border border-border-subtle p-3.5">
-                <div className="flex items-start justify-between gap-3 border-b border-border-subtle pb-2.5">
-                  <div className="min-w-0">
-                    <p className="truncate text-body-sm font-semibold text-text-primary">{lead.projectName}</p>
-                    <p className="truncate text-caption text-text-secondary">Quotation for {lead.fullName ?? 'this client'}</p>
-                  </div>
-                  <div className="shrink-0 text-right">
-                    <p className="text-caption text-text-secondary">Quotation</p>
-                    <p className="text-body-sm font-semibold text-text-primary">{chosen.number}</p>
-                    <p className="text-caption text-text-secondary">{day(chosen.createdAt)}</p>
-                  </div>
-                </div>
-                <div className="mt-3">
-                  <Facts
-                    rows={[
-                      ['Client', lead.fullName ?? '—'],
-                      ['Property', chosen.propertyLabel ?? lead.propertyLabel ?? '—'],
-                      ['Prepared by', chosen.preparedByName ?? '—'],
-                      ['Valid until', day(chosen.validUntil)],
-                    ]}
-                  />
-                </div>
-                <div className="mt-3 border-t border-border-subtle pt-2.5">
-                  <p className="text-caption text-text-secondary">Quotation amount</p>
-                  <p className="text-h3 font-semibold tabular-nums text-text-primary">{money(chosen.netAmount)}</p>
-                  {chosen.approvedDiscount > 0 && (
-                    <p className="text-caption text-text-secondary">
-                      after {money(chosen.approvedDiscount)} approved off {money(chosen.basePrice)}
-                    </p>
-                  )}
-                </div>
-                {chosen.terms && (
-                  <p className="mt-3 whitespace-pre-wrap border-t border-border-subtle pt-2.5 text-caption leading-relaxed text-text-secondary">
-                    {chosen.terms}
-                  </p>
-                )}
-              </div>
+              <Upload className="size-5" aria-hidden="true" />
+            </span>
+            <span className="text-body-sm font-semibold text-text-primary">Choose a property sheet PDF</span>
+            <span className="text-caption text-text-secondary">
+              Every plot on it — code, block, size and price — is read off the sheet and listed for you to confirm.
+            </span>
+          </button>
+          <HiddenFile inputRef={fileRef} accept="application/pdf" onFile={(f) => void take(f)} />
+        </>
+      )}
 
-              {/* ── The PDF ────────────────────────────────────────────── */}
-              <div className="flex items-center gap-3 rounded-xl border border-border-subtle px-3 py-2.5">
-                <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-bg-subtle text-text-secondary">
-                  <FileText className="size-4" aria-hidden="true" />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-body-sm font-medium text-text-primary">
-                    {chosen.pdfPath ? 'Quotation PDF attached' : 'No PDF attached yet'}
-                  </span>
-                  <span className="block text-caption text-text-secondary">
-                    {chosen.pdfPath
-                      ? `${chosen.number} can be sent to the client and opened by your team.`
-                      : 'Upload the signed or designed quotation so it travels with this record.'}
-                  </span>
-                </span>
-                <input
-                  ref={input}
-                  type="file"
-                  accept="application/pdf,image/*"
-                  hidden
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    e.target.value = '';
-                    if (file) void upload(file, chosen.id);
-                  }}
-                />
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => input.current?.click()}
-                  className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border-default px-2.5 py-1.5 text-caption font-semibold text-text-primary transition-colors hover:bg-bg-subtle disabled:opacity-50"
-                >
-                  <Upload className="size-3.5" aria-hidden="true" />
-                  {busy ? 'Uploading…' : chosen.pdfPath ? 'Replace' : 'Upload PDF'}
-                </button>
-              </div>
-            </Detail>
+      {phase === 'working' && (
+        <p className="flex items-center gap-2 px-1 py-6 text-body-sm text-text-secondary">
+          <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+          {step || 'Working…'}
+          <span className="truncate text-caption text-text-tertiary">{file?.name}</span>
+        </p>
+      )}
 
-            {chosen.propertyLabel && (
-              <p className="flex items-center gap-2 rounded-xl border border-border-subtle bg-bg-subtle/40 px-3 py-2.5 text-caption text-text-secondary">
-                <Home className="size-4 shrink-0" aria-hidden="true" />
-                Linked property: <span className="font-medium text-text-primary">{chosen.propertyLabel}</span>
-              </p>
-            )}
+      {phase === 'refused' && (
+        <>
+          <div
+            className="flex items-start gap-2.5 rounded-xl border px-3.5 py-3"
+            style={{
+              borderColor: 'color-mix(in oklab, #d92d20 35%, transparent)',
+              background: 'color-mix(in oklab, #d92d20 7%, transparent)',
+            }}
+          >
+            <AlertTriangle className="mt-0.5 size-4 shrink-0" style={{ color: '#d92d20' }} aria-hidden="true" />
+            <div className="min-w-0">
+              <p className="text-body-sm font-semibold text-text-primary">This sheet cannot be added</p>
+              <p className="mt-0.5 text-caption text-text-secondary">{error}</p>
+              {file && <p className="mt-1 truncate text-caption text-text-tertiary">{file.name}</p>}
+            </div>
           </div>
-        )
-      }
-    />
+          <div className="mt-3 flex justify-end gap-2">
+            <Btn onClick={onClose}>Close</Btn>
+            <Btn primary onClick={reset}>
+              Choose another sheet
+            </Btn>
+          </div>
+        </>
+      )}
+
+      {phase === 'read' && (
+        <>
+          <p className="flex items-center justify-between gap-2 text-caption text-text-secondary">
+            <span>
+              {plots.length} plot{plots.length === 1 ? '' : 's'} read from{' '}
+              <span className="font-medium text-text-primary">{file?.name}</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => setChosen(chosen.length === plots.length ? [] : plots.map((pl) => pl.code))}
+              className="font-medium hover:underline"
+              style={{ color: BLUE }}
+            >
+              {chosen.length === plots.length ? 'Clear all' : 'Select all'}
+            </button>
+          </p>
+
+          <div className="mt-2 max-h-56 overflow-y-auto rounded-xl border border-border-subtle">
+            {plots.map((pl) => (
+              <label
+                key={`${pl.code}-${pl.block ?? ''}`}
+                className="flex cursor-pointer items-center gap-3 border-b border-border-subtle px-3 py-2 last:border-b-0 hover:bg-bg-subtle/60"
+              >
+                <input
+                  type="checkbox"
+                  checked={chosen.includes(pl.code)}
+                  onChange={(e) =>
+                    setChosen(e.target.checked ? [...chosen, pl.code] : chosen.filter((c) => c !== pl.code))
+                  }
+                  className="size-4 shrink-0 accent-[var(--accent-primary)]"
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-body-sm font-semibold text-text-primary">
+                    {pl.code}
+                    {pl.block ? ` · Block ${pl.block}` : ''}
+                  </span>
+                  <span className="block truncate text-caption text-text-secondary">
+                    {[pl.sizeMarla !== null ? `${pl.sizeMarla} Marla` : null, pl.category].filter(Boolean).join(' · ') ||
+                      'No size on the sheet'}
+                  </span>
+                </span>
+                <span className="shrink-0 text-right">
+                  <span className="block text-body-sm font-semibold tabular-nums text-text-primary">
+                    {pl.basePrice === null ? 'No price' : money(pl.basePrice)}
+                  </span>
+                  {!isNew(pl.code) && <span className="block text-caption text-text-tertiary">Already listed</span>}
+                </span>
+              </label>
+            ))}
+          </div>
+
+          {canAdd ? (
+            <p className="mt-2 text-caption text-text-secondary">
+              They join {ctx.where} as available plots. Ones already in the catalogue are left exactly as they are.
+            </p>
+          ) : (
+            <p
+              className="mt-2 flex items-start gap-2 rounded-xl px-3 py-2 text-caption leading-relaxed"
+              style={{ background: `color-mix(in oklab, ${BLUE} 8%, transparent)`, color: BLUE }}
+            >
+              <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+              Only the project manager can add plots to the catalogue — a price is the company&rsquo;s, not the
+              seller&rsquo;s. Ask your manager to add these and the sheet stays on this lead either way.
+            </p>
+          )}
+
+          <div className="mt-3 flex justify-end gap-2">
+            <Btn onClick={reset}>Choose another</Btn>
+            <Btn primary disabled={!canAdd || ctx.busy || chosen.length === 0} onClick={() => void add()}>
+              {canAdd ? `Add ${chosen.length} plot${chosen.length === 1 ? '' : 's'}` : 'Manager only'}
+            </Btn>
+          </div>
+        </>
+      )}
+    </Sheet>
   );
 }
 
 /* ── 2 · Properties ──────────────────────────────────────────────────────── */
 
-function Properties({
-  items,
-  chosenId,
-  onPick,
-  onChooseUnit,
-}: {
-  items: RelatedItems;
-  chosenId: string | null;
+const P_COLS = '18px minmax(0,1.3fr) minmax(0,0.7fr) minmax(0,1fr) auto';
+
+function PropertiesTab({ ctx, pickedId, onPick, onChooseUnit }: {
+  ctx: Ctx;
+  pickedId?: string;
   onPick: (id: string) => void;
   onChooseUnit: () => void;
 }) {
+  const { lead, items } = ctx;
   const list = items.properties;
-  const chosen: RelatedProperty | undefined = list.find((p) => p.id === chosenId) ?? list[0];
+  const chosen: RelatedProperty | undefined = list.find((p) => p.id === pickedId) ?? list[0];
+  const quote =
+    items.quotations.find((q) => q.propertyId === chosen?.id && !['superseded', 'rejected', 'expired'].includes(q.status)) ??
+    items.quotations.find((q) => q.propertyId === chosen?.id) ??
+    null;
+  /* ⚠️ A PROPERTY SHEET IS A FILE SOMEBODY UPLOADED — a brochure, site plan or
+     price list on the project. None generated, none invented. */
+  const sheet = items.files.find((f) => ['brochure', 'site_plan', 'price_list'].includes(f.kind)) ?? null;
+  const [attachSheet, setAttachSheet] = React.useState(true);
+  const [addingPlots, setAddingPlots] = React.useState(false);
+
+  const attach = async () => {
+    if (!chosen) return;
+    const plan = chosen.stages
+      .filter((s) => s.amount !== null)
+      .map((s) =>
+        s.instalments && s.instalments > 1
+          ? `• ${s.label}: ${money((s.amount as number) / s.instalments)} each`
+          : `• ${s.label}: ${money(s.amount)}`,
+      );
+    const text = [
+      `${chosen.label} — ${chosen.title}, ${chosen.projectName ?? lead.projectName}`,
+      [
+        chosen.areaSqft ? `${chosen.areaSqft.toLocaleString('en-PK')} sq ft` : null,
+        chosen.dimensions,
+        chosen.facing ? `${chosen.facing} facing` : null,
+      ]
+        .filter(Boolean)
+        .join(' · '),
+      `Price: ${money(chosen.basePrice)}`,
+      ...(plan.length ? ['Payment plan:', ...plan] : []),
+    ]
+      .filter(Boolean)
+      .join('\n');
+    try {
+      const files = attachSheet && sheet ? [await fileFromLink(await crmDocumentLinkAction(sheet.id), sheet.title)] : [];
+      ctx.onAttach({ files, text });
+    } catch (e) {
+      ctx.toast({ tone: 'error', text: e instanceof Error ? e.message : 'The sheet could not be attached.' });
+    }
+  };
 
   return (
-    <Split
-      title="Linked properties"
-      count={list.length}
-      action={
-        <button
-          type="button"
-          onClick={onChooseUnit}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-border-default px-2.5 py-1 text-caption font-medium text-text-primary transition-colors hover:bg-bg-subtle"
-        >
-          <Plus className="size-3.5" aria-hidden="true" />
-          Link property
-        </button>
-      }
-      list={
-        list.length === 0 ? (
-          <Empty>
-            No unit is attached to this lead. Linking one is what lets a quotation name a plot and a price rather than
-            a figure typed from memory.
-          </Empty>
-        ) : (
-          list.map((p) => (
-            <Row key={p.id} chosen={p.id === chosen?.id} onClick={() => onPick(p.id)}>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-body-sm font-semibold text-text-primary">{p.label}</span>
-                <span className="block truncate text-caption text-text-secondary">
-                  {p.projectName}
-                  {p.linked ? ' · attached to this lead' : ''}
-                </span>
-              </span>
-              <span className="shrink-0 text-right">
-                <span className="block text-body-sm font-semibold tabular-nums text-text-primary">{money(p.basePrice)}</span>
-                <span className="block text-caption text-text-secondary">
-                  {p.sizeMarla ? `${p.sizeMarla} Marla` : p.kind}
-                </span>
-              </span>
-              <Pill status={p.status} />
-            </Row>
-          ))
-        )
-      }
-      detail={
-        !chosen ? null : (
-          <Detail title={chosen.label} subtitle={chosen.projectName ?? undefined} status={chosen.status}>
-            <Facts
-              rows={[
-                ['Area', chosen.areaSqft ? `${chosen.areaSqft.toLocaleString('en-PK')} sq ft` : '—'],
-                ['Dimensions', chosen.dimensions ?? '—'],
-                ['Facing', chosen.facing ?? '—'],
-                ['Road', chosen.roadWidthFt ? `${chosen.roadWidthFt} ft` : '—'],
-              ]}
+    <>
+      <Body
+        list={
+          <>
+            <ListHead
+              title="Linked properties"
+              count={list.length}
+              action={
+                <LinkText icon="upload" onClick={() => setAddingPlots(true)}>
+                  Add from sheet
+                </LinkText>
+              }
             />
-            <div className="border-t border-border-subtle pt-2.5">
-              <p className="text-caption text-text-secondary">Price</p>
-              <p className="text-h3 font-semibold tabular-nums text-text-primary">{money(chosen.basePrice)}</p>
-            </div>
-
-            {/* ⚠️ THE PAYMENT PLAN IS ROWS, NOT A PICTURE. `crm_payment_stages`
-                is what a quotation is built from, so what is shown here is what
-                the client would be quoted. */}
-            {chosen.stages.length > 0 && (
-              <div className="overflow-hidden rounded-xl border border-border-subtle">
-                <table className="w-full text-body-sm">
-                  <thead className="bg-bg-subtle text-caption text-text-secondary">
-                    <tr>
-                      <th scope="col" className="px-3 py-1.5 text-left font-medium">Payment plan</th>
-                      <th scope="col" className="px-3 py-1.5 text-right font-medium">Amount (PKR)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {chosen.stages.map((s, i) => (
-                      <tr key={`${s.label}-${i}`} className="border-t border-border-subtle">
-                        <td className="px-3 py-1.5 text-text-primary">
-                          {s.label}
-                          {s.percentage ? <span className="text-text-secondary"> · {s.percentage}%</span> : null}
-                        </td>
-                        {/* ⚠️ THE STAGE'S AMOUNT IS THE WHOLE STAGE, and the plan
-                            says "18 instalments". Printing the total against that
-                            line reads as 2,250,000 a month — the figure somebody
-                            would then repeat to a client. Divided, and labelled. */}
-                        <td className="px-3 py-1.5 text-right tabular-nums text-text-primary">
-                          {s.amount === null
-                            ? '—'
-                            : s.instalments && s.instalments > 1
-                              ? `${Math.round(s.amount / s.instalments).toLocaleString('en-PK')} each`
-                              : Math.round(s.amount).toLocaleString('en-PK')}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+            {list.length === 0 ? (
+              <EmptyList loading={ctx.loading} action={<OutlineBlue icon={PlusCircle} onClick={onChooseUnit}>Link property</OutlineBlue>}>
+                No unit is linked to this lead yet.
+              </EmptyList>
+            ) : (
+              <>
+                <Columns template={P_COLS} labels={['Property', 'Size', 'Price', 'Status']} />
+                <div className="min-h-0 flex-1 overflow-y-auto">
+                  {list.map((p) => (
+                    <ListRow key={p.id} template={P_COLS} chosen={p.id === chosen?.id} onClick={() => onPick(p.id)}>
+                      <Two top={p.label} bottom={p.projectName} blue />
+                      <span className="truncate text-body-sm text-text-primary">
+                        {p.sizeMarla ? `${p.sizeMarla} Marla` : '—'}
+                      </span>
+                      <span className="truncate text-body-sm tabular-nums text-text-primary">{money(p.basePrice)}</span>
+                      <StatusPill status={p.status} />
+                    </ListRow>
+                  ))}
+                </div>
+              </>
             )}
-          </Detail>
-        )
-      }
-    />
+          </>
+        }
+        detail={
+          !chosen ? (
+            <EmptyList loading={ctx.loading}>Link a property to see its details and payment plan.</EmptyList>
+          ) : (
+            <>
+              <DetailHead title="Property details" />
+              <Scroll>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-h3 font-semibold" style={{ color: BLUE }}>
+                      {chosen.label}
+                    </p>
+                    <p className="truncate text-body-sm text-text-primary">{chosen.projectName}</p>
+                    <p className="truncate text-body-sm text-text-secondary">
+                      {[chosen.sizeMarla ? `${chosen.sizeMarla} Marla` : null, chosen.kind].filter(Boolean).join(' · ')}
+                    </p>
+                  </div>
+                  <StatusPill status={chosen.status} />
+                </div>
+
+                <div className="grid grid-cols-2 border-y border-border-subtle py-3">
+                  <dl className="space-y-1.5 pr-3 text-body-sm">
+                    <Row2 k="Area" v={chosen.areaSqft ? `${chosen.areaSqft.toLocaleString('en-PK')} sq ft` : '—'} />
+                    <Row2 k="Dimensions" v={chosen.dimensions ?? '—'} />
+                  </dl>
+                  <dl className="space-y-1.5 border-l border-border-subtle pl-3 text-body-sm">
+                    <Row2 k="Road" v={chosen.roadWidthFt ? `${chosen.roadWidthFt} ft` : '—'} />
+                    <Row2 k="Facing" v={chosen.facing ?? '—'} />
+                  </dl>
+                </div>
+
+                <div>
+                  <Label>Price</Label>
+                  <p className="text-[1.6rem] font-bold leading-tight tabular-nums text-text-primary">{money(chosen.basePrice)}</p>
+                  {chosen.areaSqft && chosen.sizeMarla ? (
+                    <p className="text-caption text-text-secondary">
+                      {Math.round(chosen.areaSqft / chosen.sizeMarla)} sq ft per Marla.
+                    </p>
+                  ) : null}
+                </div>
+
+                {chosen.stages.length > 0 && (
+                  <Card className="overflow-hidden">
+                    <table className="w-full text-body-sm">
+                      <thead className="bg-bg-subtle/60">
+                        <tr>
+                          <th scope="col" className="px-4 py-2 text-left font-semibold text-text-primary">Payment plan</th>
+                          <th scope="col" className="px-4 py-2 text-right font-semibold text-text-primary">Amount (PKR)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {chosen.stages.map((s, i) => (
+                          <tr key={`${s.label}-${i}`} className="border-t border-border-subtle">
+                            <td className="px-4 py-2 text-text-primary">{s.label}</td>
+                            <td className="px-4 py-2 text-right tabular-nums text-text-primary">
+                              {s.amount === null
+                                ? '—'
+                                : s.instalments && s.instalments > 1
+                                  ? `${Math.round(s.amount / s.instalments).toLocaleString('en-PK')} each`
+                                  : Math.round(s.amount).toLocaleString('en-PK')}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </Card>
+                )}
+
+                {quote && (
+                  <Card className="flex items-center gap-3 px-4 py-3">
+                    <IconTile tint="var(--text-secondary)">
+                      <FileText className="size-5" aria-hidden="true" />
+                    </IconTile>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-body-sm font-semibold text-text-primary">Linked quotation</p>
+                      <p className="truncate text-body-sm" style={{ color: BLUE }}>
+                        {quote.number} · {statusLook(quote.status).label}
+                      </p>
+                    </div>
+                    <LinkText icon="right" onClick={() => ctx.go('quotations', quote.id)}>
+                      View quotation
+                    </LinkText>
+                  </Card>
+                )}
+
+                <Card className="flex items-center gap-3 px-4 py-3">
+                  <IconTile tint="var(--text-secondary)">
+                    <FileText className="size-5" aria-hidden="true" />
+                  </IconTile>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-body-sm font-semibold text-text-primary">Attach property sheet PDF</p>
+                    <p className="text-caption text-text-secondary">
+                      {sheet
+                        ? attachSheet
+                          ? `${sheet.title} will be attached to your message.`
+                          : 'Only the details and payment plan will be sent.'
+                        : 'No brochure or site plan on this project yet — the details go as text.'}
+                    </p>
+                  </div>
+                  <Toggle on={attachSheet && !!sheet} disabled={!sheet} onChange={setAttachSheet} label="Attach property sheet PDF" />
+                </Card>
+              </Scroll>
+            </>
+          )
+        }
+      />
+      <Foot
+        left={
+          <div>
+            <OutlineBlue icon={PlusCircle} onClick={onChooseUnit}>
+              Link property
+            </OutlineBlue>
+            <p className="mt-1 pl-1 text-caption text-text-secondary">Link another property to this lead.</p>
+          </div>
+        }
+        note={`All records are linked to ${lead.fullName ?? 'this lead'} · Salesperson: ${lead.ownerName ?? 'Unassigned'}`}
+        right={
+          <>
+            <Btn onClick={() => setAddingPlots(true)}>
+              <Upload className="size-4" aria-hidden="true" />
+              Upload sheet
+            </Btn>
+            <Btn primary disabled={!chosen} onClick={() => void attach()}>
+              Attach property sheet
+            </Btn>
+          </>
+        }
+      />
+      {addingPlots && <PropertySheetPicker ctx={ctx} onClose={() => setAddingPlots(false)} />}
+    </>
+  );
+}
+
+function Row2({ k, v }: { k: string; v: string }) {
+  return (
+    <div className="grid grid-cols-[6rem_minmax(0,1fr)] gap-2">
+      <dt className="text-text-secondary">{k}</dt>
+      <dd className="truncate font-medium text-text-primary">{v}</dd>
+    </div>
   );
 }
 
 /* ── 3 · Appointments ────────────────────────────────────────────────────── */
 
-function Appointments({
-  items,
-  chosenId,
-  onPick,
-  onRecordOutcome,
-}: {
-  items: RelatedItems;
-  chosenId: string | null;
+const A_COLS = '18px minmax(0,1.3fr) minmax(0,1.2fr) auto';
+
+function AppointmentsTab({ ctx, pickedId, onPick, onRecordOutcome }: {
+  ctx: Ctx;
+  pickedId?: string;
   onPick: (id: string) => void;
   onRecordOutcome: () => void;
 }) {
+  const { lead, items, busy } = ctx;
   const list = items.appointments;
-  const chosen = list.find((a) => a.id === chosenId) ?? list[0];
+  const chosen: RelatedAppointment | undefined =
+    list.find((a) => a.id === pickedId) ?? list.find((a) => ['scheduled', 'confirmed'].includes(a.status)) ?? list[0];
+  const upcoming = chosen ? ['scheduled', 'confirmed'].includes(chosen.status) : false;
+  const quote = items.quotations.find((q) => !['superseded', 'rejected', 'expired'].includes(q.status)) ?? null;
+  const unit = items.properties.find((p) => p.id === chosen?.propertyId) ?? items.properties.find((p) => p.linked) ?? null;
+
+  const [sheet, setSheet] = React.useState<null | 'new' | 'move'>(null);
+  const [kind, setKind] = React.useState('site_visit');
+  const [when, setWhen] = React.useState(() => {
+    const p = karachiParts(Date.now());
+    return toInputValue(karachiAt(p.y, p.m, p.d + 1, 11));
+  });
+  const [minutes, setMinutes] = React.useState(30);
+  const [location, setLocation] = React.useState('');
+  const [note, setNote] = React.useState('');
+
+  const title = (a: RelatedAppointment) =>
+    `${appointmentKindLabel(a.kind)}${a.propertyLabel ? ` · ${a.propertyLabel.split(' · ')[0]}` : ''}`;
 
   return (
-    <Split
-      title="Appointments"
-      count={list.length}
-      action={
-        <button
-          type="button"
-          onClick={onRecordOutcome}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-border-default px-2.5 py-1 text-caption font-medium text-text-primary transition-colors hover:bg-bg-subtle"
-        >
-          <CalendarPlus className="size-3.5" aria-hidden="true" />
-          Schedule
-        </button>
-      }
-      list={
-        list.length === 0 ? (
-          <Empty>
-            Nothing booked yet. Recording the outcome &ldquo;Site visit requested&rdquo; puts a visit in the diary and it
-            appears here.
-          </Empty>
-        ) : (
-          list.map((a) => (
-            <Row key={a.id} chosen={a.id === chosen?.id} onClick={() => onPick(a.id)}>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-body-sm font-semibold text-text-primary">
-                  {appointmentKindLabel(a.kind)}
-                  {a.propertyLabel ? ` · ${a.propertyLabel}` : ''}
-                </span>
-                <span className="block truncate text-caption text-text-secondary">{formatWhen(a.scheduledAt)}</span>
-              </span>
-              <Pill status={a.status} />
-            </Row>
-          ))
-        )
-      }
-      detail={
-        !chosen ? null : (
-          <Detail
-            title={appointmentKindLabel(chosen.kind)}
-            subtitle={chosen.propertyLabel ?? undefined}
-            status={chosen.status}
-          >
-            <Facts
-              rows={[
-                ['When', formatWhen(chosen.scheduledAt)],
-                ['Length', `${chosen.durationMinutes} minutes`],
-                ['Where', chosen.location ?? '—'],
-                ['With', chosen.ownerName ?? '—'],
-              ]}
-            />
-            {chosen.notes && (
-              <p className="whitespace-pre-wrap rounded-xl bg-bg-subtle px-3 py-2.5 text-caption leading-relaxed text-text-secondary">
-                {chosen.notes}
-              </p>
-            )}
-            {chosen.outcome ? (
-              <p className="flex items-start gap-2 rounded-xl border border-border-subtle px-3 py-2.5 text-caption leading-relaxed text-text-secondary">
-                <Check className="mt-0.5 size-4 shrink-0 text-feedback-success" aria-hidden="true" />
-                <span>
-                  <span className="block font-medium text-text-primary">What happened</span>
-                  {chosen.outcome}
-                </span>
-              </p>
+    <>
+      <Body
+        list={
+          <>
+            <ListHead title="Appointments" count={list.length} />
+            {list.length === 0 ? (
+              <EmptyList loading={ctx.loading} action={<OutlineBlue icon={CalendarPlus} onClick={() => setSheet('new')}>Schedule appointment</OutlineBlue>}>
+                Nothing booked yet.
+              </EmptyList>
             ) : (
-              <p className="flex items-start gap-2 rounded-xl border border-border-subtle bg-bg-subtle/40 px-3 py-2.5 text-caption leading-relaxed text-text-secondary">
-                <MessageSquareText className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-                Not written up yet. Record the outcome after the visit — a visit nobody wrote up is the commonest way a
-                lead goes quiet.
-              </p>
+              <>
+                <Columns template={A_COLS} labels={['Appointment', 'Date / time', 'Status']} />
+                <div className="min-h-0 flex-1 overflow-y-auto">
+                  {list.map((a) => (
+                    <ListRow key={a.id} template={A_COLS} chosen={a.id === chosen?.id} onClick={() => onPick(a.id)}>
+                      <Two top={title(a)} />
+                      <span className="truncate text-body-sm text-text-primary">
+                        {shortDay(a.scheduledAt)} · {clock(Date.parse(a.scheduledAt))}
+                      </span>
+                      <StatusPill status={a.status} />
+                    </ListRow>
+                  ))}
+                </div>
+              </>
             )}
-          </Detail>
-        )
-      }
-    />
+          </>
+        }
+        detail={
+          !chosen ? (
+            <EmptyList loading={ctx.loading}>Schedule a visit or a call and its details appear here.</EmptyList>
+          ) : (
+            <>
+              <DetailHead title="Appointment details" onOpen={() => window.open('/appointments', '_blank', 'noopener')} />
+              <Scroll>
+                <Card className="p-4">
+                  <div className="flex items-center gap-3 border-b border-border-subtle pb-3">
+                    <IconTile>
+                      <CalendarDays className="size-5" aria-hidden="true" />
+                    </IconTile>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-h3 font-semibold text-text-primary">{appointmentKindLabel(chosen.kind)}</p>
+                      <p className="truncate text-body-sm text-text-secondary">{title(chosen)}</p>
+                    </div>
+                    <StatusPill status={chosen.status} />
+                  </div>
+                  <div className="mt-3 grid grid-cols-2">
+                    <div className="min-w-0 space-y-3 pr-3">
+                      <div>
+                        <Label>Client</Label>
+                        <p className="truncate text-body-sm font-semibold text-text-primary">{lead.fullName ?? '—'}</p>
+                        <p className="truncate text-caption text-text-secondary">{lead.projectName}</p>
+                        {lead.city && <p className="truncate text-caption text-text-secondary">{lead.city}</p>}
+                      </div>
+                      <div>
+                        <Label>Location</Label>
+                        <p className="text-body-sm text-text-primary">{chosen.location ?? '—'}</p>
+                      </div>
+                      {chosen.propertyLabel && unit && (
+                        <div>
+                          <Label>Property</Label>
+                          <LinkText onClick={() => ctx.go('properties', unit.id)}>{chosen.propertyLabel}</LinkText>
+                        </div>
+                      )}
+                    </div>
+                    <div className="min-w-0 space-y-3 border-l border-border-subtle pl-3">
+                      <div>
+                        <Label>Consultant</Label>
+                        <p className="truncate text-body-sm font-semibold text-text-primary">
+                          {chosen.ownerName ?? lead.ownerName ?? '—'}
+                        </p>
+                      </div>
+                      <div>
+                        <Label>Date</Label>
+                        <p className="text-body-sm text-text-primary">{longDay(chosen.scheduledAt)}</p>
+                      </div>
+                      <div>
+                        <Label>Time</Label>
+                        <p className="text-body-sm text-text-primary">
+                          {clock(Date.parse(chosen.scheduledAt))} –{' '}
+                          {clock(Date.parse(chosen.scheduledAt) + chosen.durationMinutes * 60_000)} PKT
+                        </p>
+                      </div>
+                      {quote && (
+                        <div>
+                          <Label>Related quotation</Label>
+                          <LinkText icon="ext" onClick={() => ctx.go('quotations', quote.id)}>
+                            {quote.number}
+                          </LinkText>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </Card>
+
+                <Card className="flex items-center gap-3 px-4 py-3">
+                  <IconTile tint={WA_GREEN}>
+                    <WhatsAppMark className="size-5" />
+                  </IconTile>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-body-sm font-semibold text-text-primary">WhatsApp reminder</p>
+                    <p className="text-caption text-text-secondary">
+                      {items.visitReminderAt
+                        ? `A reminder is planned for ${formatWhen(items.visitReminderAt)}.`
+                        : 'None planned — add one from Follow-ups → Appointment reminder.'}
+                    </p>
+                  </div>
+                  <Pill tone={items.visitReminderAt ? 'green' : 'grey'}>
+                    {items.visitReminderAt ? 'Scheduled' : 'Not set'}
+                  </Pill>
+                </Card>
+
+                <Card className="flex items-start gap-3 px-4 py-3">
+                  <IconTile tint="var(--text-secondary)">
+                    <FileText className="size-5" aria-hidden="true" />
+                  </IconTile>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-body-sm font-semibold text-text-primary">Notes</p>
+                    <p className="whitespace-pre-wrap text-body-sm text-text-secondary">
+                      {chosen.outcome ?? chosen.notes ?? 'No notes on this appointment.'}
+                    </p>
+                  </div>
+                </Card>
+
+                <div className="flex flex-wrap items-center justify-between gap-3 px-1">
+                  {unit ? (
+                    <span className="inline-flex items-center gap-2">
+                      <Home className="size-4" style={{ color: BLUE }} aria-hidden="true" />
+                      <LinkText icon="ext" onClick={() => ctx.go('properties', unit.id)}>
+                        View property
+                      </LinkText>
+                    </span>
+                  ) : (
+                    <span />
+                  )}
+                  {quote && (
+                    <span className="inline-flex items-center gap-2">
+                      <FileText className="size-4" style={{ color: BLUE }} aria-hidden="true" />
+                      <LinkText icon="ext" onClick={() => ctx.go('quotations', quote.id)}>
+                        View quotation
+                      </LinkText>
+                    </span>
+                  )}
+                </div>
+              </Scroll>
+            </>
+          )
+        }
+      />
+      <Foot
+        left={
+          <OutlineBlue icon={CalendarPlus} onClick={() => setSheet('new')}>
+            Schedule appointment
+          </OutlineBlue>
+        }
+        right={
+          <>
+            <Btn disabled={!upcoming} onClick={() => setSheet('move')}>
+              Reschedule
+            </Btn>
+            <Btn primary onClick={onRecordOutcome}>
+              Record outcome
+            </Btn>
+          </>
+        }
+      />
+      {sheet === 'new' && (
+        <Sheet title="Schedule an appointment" onClose={() => setSheet(null)}>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {/* ⚠️ THE TWO KINDS THE BUSINESS ACTUALLY HAS. Owner, 2026-09-17:
+                *"Appointments are in two terms: 1. Site visit 2. Payment plan or
+                this type of appointment."* The plots are in Chitral and the
+                office is in Islamabad, so most appointments are the second kind —
+                naming it "Meeting" hid that. The WhatsApp call stays because a
+                salesperson calls from the business number, not their own. */}
+            <select value={kind} onChange={(e) => setKind(e.target.value)} className={field} aria-label="Kind">
+              <option value="site_visit">Site visit</option>
+              <option value="meeting">Payment plan meeting</option>
+              <option value="call">WhatsApp call</option>
+            </select>
+            <input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} className={field} aria-label="When" />
+            <select value={minutes} onChange={(e) => setMinutes(Number(e.target.value))} className={field} aria-label="Length">
+              {[15, 30, 45, 60, 90, 120].map((m) => (
+                <option key={m} value={m}>
+                  {m} minutes
+                </option>
+              ))}
+            </select>
+            <input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Location" className={field} />
+          </div>
+          <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional)" className={cn(field, 'mt-2')} />
+          <p className="mt-1.5 text-caption text-text-secondary">
+            {kind === 'site_visit'
+              ? 'A site visit puts somebody at the plot — the location is where they are being met.'
+              : kind === 'meeting'
+                ? 'A payment plan meeting is the instalments conversation: the office, or wherever the client is.'
+                : 'A WhatsApp call is placed from the business number, so the client sees the business calling.'}
+          </p>
+          <div className="mt-3 flex justify-end gap-2">
+            <Btn onClick={() => setSheet(null)}>Cancel</Btn>
+            <Btn
+              primary
+              disabled={busy}
+              onClick={async () => {
+                const ms = fromInputValue(when);
+                const ok = await ctx.act(
+                  () =>
+                    bookAppointmentAction({
+                      leadId: lead.id,
+                      kind,
+                      scheduledAt: ms === null ? null : new Date(ms).toISOString(),
+                      durationMinutes: minutes,
+                      location,
+                      note,
+                    }),
+                  'Appointment booked.',
+                );
+                if (ok) setSheet(null);
+              }}
+            >
+              Book it
+            </Btn>
+          </div>
+        </Sheet>
+      )}
+      {sheet === 'move' && chosen && (
+        <Sheet title={`Reschedule · ${title(chosen)}`} onClose={() => setSheet(null)}>
+          <input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} className={field} aria-label="New time" />
+          <p className="mt-1.5 text-caption text-text-secondary">
+            The old time is kept as &ldquo;Rescheduled&rdquo;, so the history shows it moved.
+          </p>
+          <div className="mt-3 flex justify-end gap-2">
+            <Btn onClick={() => setSheet(null)}>Cancel</Btn>
+            <Btn
+              primary
+              disabled={busy}
+              onClick={async () => {
+                const ms = fromInputValue(when);
+                if (ms === null) return;
+                const ok = await ctx.act(
+                  () => rescheduleAppointmentAction(lead.id, chosen.id, new Date(ms).toISOString()),
+                  'Appointment moved.',
+                );
+                if (ok) setSheet(null);
+              }}
+            >
+              Move it
+            </Btn>
+          </div>
+        </Sheet>
+      )}
+    </>
   );
 }
 
 /* ── 4 · Bookings ────────────────────────────────────────────────────────── */
 
-function Bookings({
-  lead,
-  items,
-  chosenId,
-  onPick,
-  act,
-  busy,
-}: {
-  lead: CrmLeadRecord;
-  items: RelatedItems;
-  chosenId: string | null;
-  onPick: (id: string) => void;
-  act: (fn: () => Promise<{ ok: true } | { ok: false; error: string }>, done: string) => Promise<boolean>;
-  busy: boolean;
-}) {
+const B_COLS = '18px minmax(0,0.9fr) minmax(0,1.2fr) minmax(0,1fr) auto';
+
+function BookingsTab({ ctx, pickedId, onPick }: { ctx: Ctx; pickedId?: string; onPick: (id: string) => void }) {
+  const { lead, items, busy } = ctx;
   const list = items.bookings;
-  const chosen: RelatedBooking | undefined = list.find((b) => b.id === chosenId) ?? list[0];
+  const chosen: RelatedBooking | undefined = list.find((b) => b.id === pickedId) ?? list[0];
+  const live = items.quotations.find((q) => !['superseded', 'rejected', 'expired'].includes(q.status)) ?? null;
   const [adding, setAdding] = React.useState(false);
   const [amount, setAmount] = React.useState('');
   const [notes, setNotes] = React.useState('');
-  const [verified, setVerified] = React.useState('');
+  const [received, setReceived] = React.useState('');
+  const proofRef = React.useRef<HTMLInputElement>(null);
 
-  const live = items.quotations.find((q) => !['superseded', 'rejected', 'expired'].includes(q.status)) ?? null;
+  const bookingStage = React.useMemo(() => {
+    const unit = items.properties.find((p) => p.id === live?.propertyId) ?? items.properties.find((p) => p.linked);
+    return unit?.stages.find((s) => /booking/i.test(s.label)) ?? null;
+  }, [items.properties, live]);
+
+  /* ⚠️ READ FROM THE CATALOGUE, not inferred from the booking's own status. The
+     hold is a row in `crm_properties`; printing "reserved" because a booking
+     exists would keep saying it after somebody withdrew the plot. */
+  const held = chosen?.propertyStatus === 'reserved' || chosen?.propertyStatus === 'sold';
+
+  const openProof = async (id: string) => {
+    const link = await relatedFileLinkAction('booking_receipt', id);
+    if (link.url) window.open(link.url, '_blank', 'noopener');
+    else ctx.toast({ tone: 'error', text: link.error ?? 'That could not be opened.' });
+  };
 
   return (
-    <Split
-      title="Bookings"
-      count={list.length}
-      action={
-        <button
-          type="button"
-          onClick={() => setAdding((v) => !v)}
-          aria-pressed={adding}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-border-default px-2.5 py-1 text-caption font-medium text-text-primary transition-colors hover:bg-bg-subtle"
-        >
-          <Plus className="size-3.5" aria-hidden="true" />
-          New booking
-        </button>
-      }
-      list={
-        <>
-          {adding && (
-            <div className="space-y-2 border-b border-border-subtle bg-bg-subtle/40 px-3.5 py-3">
-              <p className="text-caption font-semibold text-text-primary">
-                Book {live ? `against ${live.number}` : 'this lead'}
-              </p>
-              <input
-                type="number"
-                min={1}
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                placeholder="Booking amount in PKR"
-                className="w-full rounded-lg border border-border-default bg-bg-surface px-3 py-1.5 text-body-sm tabular-nums text-text-primary focus:border-accent-primary focus:outline-none"
-              />
-              <input
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="What was agreed (optional)"
-                className="w-full rounded-lg border border-border-default bg-bg-surface px-3 py-1.5 text-body-sm text-text-primary focus:border-accent-primary focus:outline-none"
-              />
-              <div className="flex justify-end gap-2">
+    <>
+      <Body
+        list={
+          <>
+            <ListHead
+              title="Bookings"
+              count={list.length}
+              action={
                 <button
                   type="button"
-                  onClick={() => setAdding(false)}
-                  className="rounded-lg px-2.5 py-1 text-caption text-text-secondary hover:text-text-primary"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  disabled={busy || !Number(amount)}
-                  onClick={async () => {
-                    const ok = await act(
-                      () =>
-                        createBookingAction({
-                          leadId: lead.id,
-                          quotationId: live?.id ?? null,
-                          propertyId: live?.propertyId ?? null,
-                          amount: Number(amount),
-                          notes,
-                        }),
-                      'Booking recorded.',
-                    );
-                    if (ok) {
-                      setAdding(false);
-                      setAmount('');
-                      setNotes('');
-                    }
+                  onClick={() => {
+                    setAdding(true);
+                    if (!amount && bookingStage?.amount) setAmount(String(Math.round(bookingStage.amount)));
                   }}
-                  className="rounded-lg bg-accent-primary px-2.5 py-1 text-caption font-semibold text-white disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-border-default px-2.5 py-1 text-caption font-medium text-text-primary hover:bg-bg-subtle"
                 >
-                  Record booking
+                  <Plus className="size-3.5" aria-hidden="true" />
+                  Book property
                 </button>
-              </div>
-            </div>
-          )}
-          {list.length === 0 && !adding ? (
-            <Empty>
-              No booking yet. ⚠️ A quotation does not reserve anything — a booking is what holds the unit, and it only
-              counts once Finance has seen the money.
-            </Empty>
-          ) : (
-            list.map((b) => (
-              <Row key={b.id} chosen={b.id === chosen?.id} onClick={() => onPick(b.id)}>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-body-sm font-semibold text-text-primary">{b.number}</span>
-                  <span className="block truncate text-caption text-text-secondary">
-                    {day(b.requestedAt)}
-                    {b.propertyLabel ? ` · ${b.propertyLabel}` : ''}
-                  </span>
-                </span>
-                <span className="shrink-0 text-right">
-                  <span className="block text-body-sm font-semibold tabular-nums text-text-primary">{money(b.amount)}</span>
-                </span>
-                <Pill status={b.status} />
-              </Row>
-            ))
-          )}
-        </>
-      }
-      detail={
-        !chosen ? null : (
-          <Detail title={chosen.number} subtitle={chosen.propertyLabel ?? undefined} status={chosen.status}>
-            <Facts
-              rows={[
-                ['Client', lead.fullName ?? '—'],
-                ['Quotation', chosen.quotationNumber ?? '—'],
-                ['Booking due', money(chosen.amount)],
-                ['Verified received', money(chosen.verifiedAmount)],
-                ['Outstanding', money(Math.max(0, chosen.amount - chosen.verifiedAmount))],
-                ['Taken by', chosen.createdByName ?? '—'],
-              ]}
+              }
             />
-
-            {/* ── Where it has got to ─────────────────────────────────── */}
-            <ol className="space-y-2 border-t border-border-subtle pt-3">
-              <Step done label="Booking requested" detail={day(chosen.requestedAt)} />
-              <Step
-                done={chosen.status === 'confirmed'}
-                active={chosen.status === 'pending_verification'}
-                label="Payment verification"
-                detail={
-                  chosen.verifiedAt
-                    ? `Verified ${day(chosen.verifiedAt)}`
-                    : chosen.verificationRequestedAt
-                      ? 'Under review by Finance'
-                      : 'Not requested yet'
-                }
-              />
-              <Step
-                done={chosen.status === 'confirmed'}
-                label="Booking confirmed"
-                detail={chosen.confirmedAt ? day(chosen.confirmedAt) : 'Awaiting verification'}
-              />
-            </ol>
-
-            {chosen.notes && (
-              <p className="whitespace-pre-wrap rounded-xl bg-bg-subtle px-3 py-2.5 text-caption leading-relaxed text-text-secondary">
-                {chosen.notes}
-              </p>
+            {list.length === 0 ? (
+              <EmptyList loading={ctx.loading}>
+                No booking yet. A quotation does not reserve the plot — a booking does, once Finance has verified the
+                payment.
+              </EmptyList>
+            ) : (
+              <>
+                <Columns template={B_COLS} labels={['Booking', 'Property', 'Booking amount', 'Status']} />
+                <div className="min-h-0 flex-1 overflow-y-auto">
+                  {list.map((b) => (
+                    <ListRow key={b.id} template={B_COLS} chosen={b.id === chosen?.id} onClick={() => onPick(b.id)}>
+                      <Two top={b.number} bottom={shortDay(b.requestedAt)} />
+                      <Two top={b.propertyLabel ?? '—'} bottom={lead.projectName} blue />
+                      <span className="truncate text-body-sm font-semibold tabular-nums text-text-primary">{money(b.amount)}</span>
+                      <StatusPill status={b.status} />
+                    </ListRow>
+                  ))}
+                </div>
+              </>
             )}
+          </>
+        }
+        detail={
+          !chosen ? (
+            <EmptyList loading={ctx.loading}>Record a booking and its progress appears here.</EmptyList>
+          ) : (
+            <>
+              <DetailHead
+                title="Booking details"
+                onOpen={chosen.receiptPath ? () => void openProof(chosen.id) : undefined}
+              />
+              <Scroll>
+                <div className="flex items-start justify-between gap-3 border-b border-border-subtle pb-3">
+                  <div className="min-w-0">
+                    <p className="text-h3 font-semibold text-text-primary">{chosen.number}</p>
+                    <p className="truncate text-body font-semibold text-text-primary">{chosen.propertyLabel ?? '—'}</p>
+                    <p className="truncate text-body-sm text-text-secondary">{ctx.where}</p>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <Label>Status</Label>
+                    <Pill tone={statusLook(chosen.status).tone}>
+                      {chosen.status === 'pending_verification'
+                        ? 'Pending payment verification'
+                        : statusLook(chosen.status).label}
+                    </Pill>
+                  </div>
+                </div>
 
-            <p className="flex items-start gap-2 rounded-xl px-3 py-2.5 text-caption leading-relaxed text-text-secondary"
-               style={{ background: 'color-mix(in oklab, var(--channel-email) 8%, transparent)' }}>
-              <Info className="mt-0.5 size-4 shrink-0" style={{ color: 'var(--channel-email)' }} aria-hidden="true" />
-              A quotation does not reserve the plot, and a pending booking cannot mark the lead Won. Only Finance can
-              verify a payment.
-            </p>
+                <div className="grid grid-cols-3 gap-y-3 border-b border-border-subtle pb-3">
+                  <Cell3 label="Client" first>
+                    <p className="truncate text-body-sm font-semibold text-text-primary">{lead.fullName ?? '—'}</p>
+                    <p className="truncate text-caption text-text-secondary">{lead.city ?? lead.projectName}</p>
+                  </Cell3>
+                  <Cell3 label="Quotation">
+                    {chosen.quotationNumber && chosen.quotationId ? (
+                      <LinkText onClick={() => ctx.go('quotations', chosen.quotationId)}>{chosen.quotationNumber}</LinkText>
+                    ) : (
+                      <p className="text-body-sm text-text-primary">—</p>
+                    )}
+                    {chosen.quotationStatus && (
+                      <div className="mt-1">
+                        <StatusPill status={chosen.quotationStatus} />
+                      </div>
+                    )}
+                  </Cell3>
+                  <Cell3 label="Property total">
+                    <p className="text-body font-semibold tabular-nums text-text-primary">{money(chosen.propertyTotal)}</p>
+                  </Cell3>
+                  <Cell3 label="Booking due" first>
+                    <p className="text-body font-semibold tabular-nums text-text-primary">{money(chosen.amount)}</p>
+                  </Cell3>
+                  <Cell3 label="Verified received">
+                    <p className="text-body font-semibold tabular-nums text-text-primary">{money(chosen.verifiedAmount)}</p>
+                  </Cell3>
+                  <Cell3 label="Outstanding booking">
+                    <p className="text-body font-semibold tabular-nums text-text-primary">
+                      {money(Math.max(0, chosen.amount - chosen.verifiedAmount))}
+                    </p>
+                  </Cell3>
+                </div>
 
-            {/* ── What each side may do ───────────────────────────────── */}
-            <div className="flex flex-wrap justify-end gap-2 border-t border-border-subtle pt-3">
-              {chosen.status === 'requested' && (
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void act(() => requestBookingVerificationAction(lead.id, chosen.id), 'Sent to Finance.')}
-                  className="rounded-lg border border-border-default px-3 py-1.5 text-caption font-semibold text-text-primary hover:bg-bg-subtle disabled:opacity-50"
+                <div>
+                  <p className="mb-2 text-body-sm font-semibold text-text-primary">Booking progress</p>
+                  <ol className="space-y-2.5">
+                    <Progress state="done" label="Booking requested" detail={shortDay(chosen.requestedAt)} pill="Completed" />
+                    <Progress
+                      state={chosen.status === 'confirmed' ? 'done' : chosen.status === 'pending_verification' ? 'active' : 'todo'}
+                      label="Payment verification"
+                      detail={
+                        chosen.verifiedAt
+                          ? `Verified ${shortDay(chosen.verifiedAt)}`
+                          : chosen.verificationRequestedAt
+                            ? 'Under review by Finance'
+                            : 'Not requested yet'
+                      }
+                      pill={
+                        chosen.status === 'confirmed' ? 'Completed' : chosen.status === 'pending_verification' ? 'Pending' : 'Awaiting'
+                      }
+                    />
+                    <Progress
+                      state={chosen.status === 'confirmed' ? 'done' : 'todo'}
+                      label="Booking confirmation"
+                      detail={chosen.confirmedAt ? shortDay(chosen.confirmedAt) : 'Awaiting verification'}
+                      pill={chosen.status === 'confirmed' ? 'Completed' : 'Awaiting'}
+                    />
+                    {/* ⚠️ THE SECOND HALF OF "BOOKED". Owner, 2026-09-17: *"Book
+                        Property is when he sends payment and the property is
+                        reserved. When these two things are done, the property
+                        booking is done."* The plot is held by the booking itself
+                        (199), and this is where somebody can see that it is. */}
+                    <Progress
+                      state={held ? 'done' : chosen.propertyId ? 'active' : 'todo'}
+                      label="Property reserved"
+                      detail={
+                        !chosen.propertyId
+                          ? 'No plot on this booking yet'
+                          : held
+                            ? `${chosen.propertyLabel ?? 'The plot'} is held for this client`
+                            : 'The plot is not held — link it to this booking'
+                      }
+                      pill={held ? 'Reserved' : 'Awaiting'}
+                      last
+                    />
+                  </ol>
+                </div>
+
+                <div className="border-t border-border-subtle pt-3">
+                  <p className="mb-2 text-body-sm font-semibold text-text-primary">Linked documents</p>
+                  <ul className="space-y-2">
+                    <DocRow label="Booking application" pill="Not generated" action={<span className="text-text-tertiary">—</span>} />
+                    <DocRow
+                      label="Payment evidence"
+                      pill={chosen.receiptPath ? `Uploaded ${shortDay(chosen.receiptUploadedAt)}` : 'Not uploaded'}
+                      tone={chosen.receiptPath ? 'green' : 'grey'}
+                      action={
+                        <>
+                          {chosen.receiptPath && (
+                            <button
+                              type="button"
+                              onClick={() => void openProof(chosen.id)}
+                              className="mr-3 font-medium hover:underline"
+                              style={{ color: BLUE }}
+                            >
+                              View
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => proofRef.current?.click()}
+                            className="font-medium hover:underline disabled:opacity-50"
+                            style={{ color: BLUE }}
+                          >
+                            {chosen.receiptPath ? 'Replace' : 'Upload'}
+                          </button>
+                          <HiddenFile
+                            inputRef={proofRef}
+                            onFile={(f) =>
+                              void ctx.upload(
+                                f,
+                                prepareReceiptAction,
+                                (path) =>
+                                  attachBookingReceiptAction({
+                                    leadId: lead.id,
+                                    bookingId: chosen.id,
+                                    path,
+                                    title: f.name,
+                                    mime: f.type || 'application/pdf',
+                                    sizeBytes: f.size,
+                                  }),
+                                'Payment evidence uploaded.',
+                              )
+                            }
+                          />
+                        </>
+                      }
+                    />
+                    <DocRow
+                      label="Confirmation"
+                      pill={chosen.status === 'confirmed' ? 'Issued' : 'Not issued'}
+                      tone={chosen.status === 'confirmed' ? 'green' : 'grey'}
+                      action={<span className="text-text-tertiary">—</span>}
+                    />
+                  </ul>
+                </div>
+
+                <p
+                  className="flex items-start gap-2.5 rounded-xl px-3.5 py-3 text-caption leading-relaxed"
+                  style={{ background: `color-mix(in oklab, ${BLUE} 8%, transparent)`, color: BLUE }}
                 >
-                  Request verification
-                </button>
-              )}
-              {items.canVerifyPayments && chosen.status !== 'confirmed' && chosen.status !== 'cancelled' && (
-                <span className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    min={0}
-                    value={verified}
-                    onChange={(e) => setVerified(e.target.value)}
-                    placeholder={String(chosen.amount)}
-                    aria-label="Amount received"
-                    className="w-32 rounded-lg border border-border-default bg-bg-surface px-2.5 py-1.5 text-caption tabular-nums text-text-primary focus:border-accent-primary focus:outline-none"
-                  />
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() =>
-                      void act(
-                        () => confirmBookingAction(lead.id, chosen.id, Number(verified || chosen.amount)),
-                        'Booking confirmed.',
-                      )
-                    }
-                    className="rounded-lg bg-accent-primary px-3 py-1.5 text-caption font-semibold text-white disabled:opacity-50"
-                  >
-                    Confirm booking
-                  </button>
-                </span>
-              )}
-            </div>
-          </Detail>
-        )
-      }
-    />
+                  <Info className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+                  Quotation does not reserve the plot. Pending booking cannot mark the lead Won. Sales consultant cannot
+                  verify payments.
+                </p>
+
+                {items.canVerifyPayments && chosen.status !== 'confirmed' && chosen.status !== 'cancelled' && (
+                  <Card className="flex flex-wrap items-center gap-2 px-4 py-3">
+                    <p className="min-w-0 flex-1 text-caption text-text-secondary">Finance · confirm what was received</p>
+                    <input
+                      type="number"
+                      min={0}
+                      value={received}
+                      onChange={(e) => setReceived(e.target.value)}
+                      placeholder={String(chosen.amount)}
+                      aria-label="Amount received"
+                      className="w-36 rounded-lg border border-border-default bg-bg-surface px-2.5 py-1.5 text-body-sm tabular-nums focus:border-accent-primary focus:outline-none"
+                    />
+                    <Btn
+                      primary
+                      disabled={busy}
+                      onClick={() =>
+                        void ctx.act(
+                          () => confirmBookingAction(lead.id, chosen.id, Number(received || chosen.amount)),
+                          'Booking confirmed.',
+                        )
+                      }
+                    >
+                      Confirm booking
+                    </Btn>
+                  </Card>
+                )}
+              </Scroll>
+            </>
+          )
+        }
+      />
+      <Foot
+        left={
+          live ? (
+            <OutlineBlue icon={ExternalLink} onClick={() => ctx.go('quotations', chosen?.quotationId ?? live.id)}>
+              View quotation
+            </OutlineBlue>
+          ) : null
+        }
+        right={
+          <>
+            <Btn onClick={() => setAdding(true)}>
+              <Plus className="size-4" aria-hidden="true" />
+              Book property
+            </Btn>
+            <Btn
+              primary
+              disabled={!chosen || busy || chosen.status !== 'requested'}
+              onClick={() =>
+                chosen &&
+                void ctx.act(
+                  () => requestBookingVerificationAction(lead.id, chosen.id),
+                  'Sent to Finance for verification.',
+                )
+              }
+            >
+              {chosen?.status === 'pending_verification'
+                ? 'Verification requested'
+                : chosen?.status === 'confirmed'
+                  ? 'Verified'
+                  : 'Request verification'}
+            </Btn>
+          </>
+        }
+      />
+      {adding && (
+        <Sheet title={`Book property${live ? ` against ${live.number}` : ''}`} onClose={() => setAdding(false)}>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <input
+              type="number"
+              min={1}
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="Booking amount (PKR)"
+              className={field}
+              aria-label="Booking amount"
+            />
+            <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="What was agreed (optional)" className={field} />
+          </div>
+          {bookingStage?.amount ? (
+            <p className="mt-1.5 text-caption text-text-secondary">
+              The payment plan&rsquo;s booking stage is {money(bookingStage.amount)}.
+            </p>
+          ) : null}
+          <div className="mt-3 flex justify-end gap-2">
+            <Btn onClick={() => setAdding(false)}>Cancel</Btn>
+            <Btn
+              primary
+              disabled={busy || !Number(amount)}
+              onClick={async () => {
+                const ok = await ctx.act(
+                  () =>
+                    createBookingAction({
+                      leadId: lead.id,
+                      quotationId: live?.id ?? null,
+                      propertyId: live?.propertyId ?? null,
+                      amount: Number(amount),
+                      notes,
+                    }),
+                  'Booking recorded.',
+                );
+                if (ok) {
+                  setAdding(false);
+                  setNotes('');
+                }
+              }}
+            >
+              Book property
+            </Btn>
+          </div>
+        </Sheet>
+      )}
+    </>
   );
 }
 
-function Step({ done = false, active = false, label, detail }: { done?: boolean; active?: boolean; label: string; detail: string }) {
+function Cell3({ label, first = false, children }: { label: string; first?: boolean; children: React.ReactNode }) {
   return (
-    <li className="flex items-start gap-2.5">
+    <div className={cn('min-w-0 px-3', first ? 'pl-0' : 'border-l border-border-subtle')}>
+      <Label>{label}</Label>
+      {children}
+    </div>
+  );
+}
+
+function Progress({ state, label, detail, pill, last = false }: {
+  state: 'done' | 'active' | 'todo';
+  label: string;
+  detail: string;
+  pill: string;
+  last?: boolean;
+}) {
+  return (
+    <li className="relative flex items-start gap-3">
+      {!last && <span aria-hidden="true" className="absolute left-[11px] top-7 h-[calc(100%-0.75rem)] w-px bg-border-subtle" />}
       <span
         aria-hidden="true"
         className={cn(
-          'mt-0.5 grid size-5 shrink-0 place-items-center rounded-full border-2',
-          done ? 'border-feedback-success bg-feedback-success text-white' : active ? 'border-feedback-warning' : 'border-border-default',
+          'relative grid size-6 shrink-0 place-items-center rounded-full border-2',
+          state === 'done'
+            ? 'border-accent-primary bg-accent-primary text-white'
+            : state === 'active'
+              ? 'border-feedback-warning bg-bg-surface'
+              : 'border-border-default bg-bg-surface',
         )}
       >
-        {done && <Check className="size-3" strokeWidth={3} />}
+        {state === 'done' && <Check className="size-3.5" strokeWidth={3} />}
       </span>
       <span className="min-w-0 flex-1">
         <span className="block text-body-sm font-medium text-text-primary">{label}</span>
         <span className="block text-caption text-text-secondary">{detail}</span>
       </span>
+      <Pill tone={state === 'done' ? 'green' : state === 'active' ? 'amber' : 'grey'}>{pill}</Pill>
+    </li>
+  );
+}
+
+function DocRow({ label, pill, tone = 'grey', action }: { label: string; pill: string; tone?: Tone; action: React.ReactNode }) {
+  return (
+    <li className="grid grid-cols-[1.25rem_minmax(0,1fr)_auto_auto] items-center gap-3 text-body-sm">
+      <FileText className="size-4 text-text-secondary" aria-hidden="true" />
+      <span className="truncate text-text-primary">{label}</span>
+      <Pill tone={tone}>{pill}</Pill>
+      <span className="min-w-[4rem] text-right">{action}</span>
     </li>
   );
 }
 
 /* ── 5 · Invoices ────────────────────────────────────────────────────────── */
 
-function Invoices({
-  lead,
-  items,
-  chosenId,
-  onPick,
-  act,
-  busy,
-  onReload,
-}: {
-  lead: CrmLeadRecord;
-  items: RelatedItems;
-  chosenId: string | null;
-  onPick: (id: string) => void;
-  act: (fn: () => Promise<{ ok: true } | { ok: false; error: string }>, done: string) => Promise<boolean>;
-  busy: boolean;
-  onReload: () => Promise<void>;
-}) {
+const I_COLS = '18px minmax(0,1.6fr) minmax(0,0.9fr) minmax(0,0.9fr) auto';
+
+function InvoicesTab({ ctx, pickedId, onPick }: { ctx: Ctx; pickedId?: string; onPick: (id: string) => void }) {
+  const { lead, items, busy } = ctx;
   const list = items.invoices;
-  const chosen: RelatedInvoice | undefined = list.find((i) => i.id === chosenId) ?? list[0];
+  const chosen: RelatedInvoice | undefined = list.find((i) => i.id === pickedId) ?? list[0];
+  const [attachPdf, setAttachPdf] = React.useState(true);
   const [adding, setAdding] = React.useState(false);
+  const [asking, setAsking] = React.useState(false);
   const [description, setDescription] = React.useState('Booking deposit');
   const [amount, setAmount] = React.useState('');
   const [dueAt, setDueAt] = React.useState('');
   const [paid, setPaid] = React.useState('');
+  const [note, setNote] = React.useState('');
+  const pdfRef = React.useRef<HTMLInputElement>(null);
+  const receiptRef = React.useRef<HTMLInputElement>(null);
 
   const booking = items.bookings.find((b) => b.status !== 'cancelled') ?? null;
-
-  /* ⚠️ THE INVOICE COMES FROM THE TERMS, NOT FROM MEMORY. Owner, 2026-09-17:
-     *"he is dealing with the quotation in which the prices are mentioned, like
-     50% advance or whatever the terms are, he will make sure that the invoice is
-     sent."* So the plan's own stages are offered as one tap each — the figure on
-     the invoice is the figure the client was quoted, not one retyped. */
   const live = items.quotations.find((q) => !['superseded', 'rejected', 'expired'].includes(q.status)) ?? null;
-  const unit =
-    items.properties.find((p) => p.id === live?.propertyId) ??
-    items.properties.find((p) => p.linked) ??
-    items.properties[0] ??
-    null;
+  const unit = items.properties.find((p) => p.id === live?.propertyId) ?? items.properties.find((p) => p.linked) ?? null;
+  /* ⚠️ THE INVOICE COMES FROM THE TERMS — the payment plan's own stages, one tap each. */
   const terms = (unit?.stages ?? [])
-    .filter((st) => st.amount !== null && st.amount > 0)
-    .map((st) => {
-      const each = st.instalments && st.instalments > 1 ? (st.amount as number) / st.instalments : (st.amount as number);
-      return {
-        label: st.instalments && st.instalments > 1 ? `${st.label} (1 of ${st.instalments})` : st.label,
-        amount: Math.round(each),
-        percentage: st.percentage,
-      };
-    });
+    .filter((s) => s.amount !== null && s.amount > 0)
+    .map((s) => ({
+      label: s.instalments && s.instalments > 1 ? `${s.label} (1 of ${s.instalments})` : s.label,
+      amount: Math.round(s.instalments && s.instalments > 1 ? (s.amount as number) / s.instalments : (s.amount as number)),
+      percentage: s.percentage,
+    }));
 
-  return (
-    <Split
-      title="Invoices"
-      count={list.length}
-      action={
-        <button
-          type="button"
-          onClick={() => setAdding((v) => !v)}
-          aria-pressed={adding}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-border-default px-2.5 py-1 text-caption font-medium text-text-primary transition-colors hover:bg-bg-subtle"
-        >
-          <Plus className="size-3.5" aria-hidden="true" />
-          New invoice
-        </button>
-      }
-      list={
-        <>
-          {adding && (
-            <div className="space-y-2 border-b border-border-subtle bg-bg-subtle/40 px-3.5 py-3">
-              <p className="text-caption font-semibold text-text-primary">
-                {booking ? `Against ${booking.number}` : 'For this lead'}
-                {live ? ` · from ${live.number}` : ''}
-              </p>
-              {terms.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {terms.map((t) => {
-                    const on = description === t.label && Number(amount) === t.amount;
-                    return (
-                      <button
-                        key={t.label}
-                        type="button"
-                        onClick={() => {
-                          setDescription(t.label);
-                          setAmount(String(t.amount));
-                        }}
-                        aria-pressed={on}
-                        className={cn(
-                          'rounded-full border px-2.5 py-1 text-caption transition-colors',
-                          on
-                            ? 'border-[var(--pick-border)] bg-[var(--pick-bg)] text-text-primary'
-                            : 'border-border-default text-text-secondary hover:text-text-primary',
-                        )}
-                      >
-                        {t.label}
-                        {t.percentage ? ` · ${t.percentage}%` : ''} · {money(t.amount)}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-              <input
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="What it is for"
-                className="w-full rounded-lg border border-border-default bg-bg-surface px-3 py-1.5 text-body-sm text-text-primary focus:border-accent-primary focus:outline-none"
-              />
-              <div className="flex gap-2">
-                <input
-                  type="number"
-                  min={1}
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                  placeholder="Amount in PKR"
-                  className="w-full rounded-lg border border-border-default bg-bg-surface px-3 py-1.5 text-body-sm tabular-nums text-text-primary focus:border-accent-primary focus:outline-none"
-                />
-                <input
-                  type="date"
-                  value={dueAt}
-                  onChange={(e) => setDueAt(e.target.value)}
-                  aria-label="Due date"
-                  className="rounded-lg border border-border-default bg-bg-surface px-3 py-1.5 text-body-sm text-text-primary focus:border-accent-primary focus:outline-none"
-                />
-              </div>
-              <div className="flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setAdding(false)}
-                  className="rounded-lg px-2.5 py-1 text-caption text-text-secondary hover:text-text-primary"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  disabled={busy || !Number(amount) || !description.trim()}
-                  onClick={async () => {
-                    const ok = await act(
-                      () =>
-                        createInvoiceAction({
-                          leadId: lead.id,
-                          bookingId: booking?.id ?? null,
-                          description,
-                          amount: Number(amount),
-                          dueAt: dueAt || null,
-                        }),
-                      'Invoice raised.',
-                    );
-                    if (ok) {
-                      setAdding(false);
-                      setAmount('');
-                    }
-                  }}
-                  className="rounded-lg bg-accent-primary px-2.5 py-1 text-caption font-semibold text-white disabled:opacity-50"
-                >
-                  Raise invoice
-                </button>
-              </div>
-            </div>
-          )}
-          {list.length === 0 && !adding ? (
-            <Empty>
-              Nothing invoiced yet. Raise one from the quotation&rsquo;s own terms, send it, and upload the receipt the
-              client sends back — Finance approves the payment from that proof.
-            </Empty>
-          ) : (
-            list.map((i) => (
-              <Row key={i.id} chosen={i.id === chosen?.id} onClick={() => onPick(i.id)}>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-body-sm font-semibold text-text-primary">
-                    {i.number} · {i.description}
-                  </span>
-                  <span className="block truncate text-caption text-text-secondary">
-                    {i.dueAt ? `Due ${day(i.dueAt)}` : `Issued ${day(i.issuedAt)}`}
-                  </span>
-                </span>
-                <span className="shrink-0 text-right text-body-sm font-semibold tabular-nums text-text-primary">
-                  {money(i.amount)}
-                </span>
-                <Pill status={i.status} />
-              </Row>
-            ))
-          )}
-        </>
-      }
-      detail={
-        !chosen ? null : (
-          <Detail title={`Invoice · ${chosen.number}`} subtitle={chosen.description} status={chosen.status}>
-            <Facts
-              rows={[
-                ['Client', lead.fullName ?? '—'],
-                ['Issued', day(chosen.issuedAt)],
-                ['Property', chosen.propertyLabel ?? lead.propertyLabel ?? '—'],
-                ['Due', day(chosen.dueAt)],
-                ['Booking', chosen.bookingNumber ?? '—'],
-                ['Quotation', chosen.quotationNumber ?? '—'],
-              ]}
-            />
-
-            <div className="overflow-hidden rounded-xl border border-border-subtle">
-              <table className="w-full text-body-sm">
-                <thead className="bg-bg-subtle text-caption text-text-secondary">
-                  <tr>
-                    <th scope="col" className="px-3 py-1.5 text-left font-medium">Description</th>
-                    <th scope="col" className="px-3 py-1.5 text-right font-medium">Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr className="border-t border-border-subtle">
-                    <td className="px-3 py-1.5 text-text-primary">{chosen.description}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums text-text-primary">{money(chosen.amount)}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-
-            <div className="grid gap-2 sm:grid-cols-2">
-              <div className="rounded-xl border border-border-subtle px-3 py-2.5">
-                <p className="text-caption text-text-secondary">Amount due</p>
-                <p className="text-h3 font-semibold tabular-nums text-text-primary">
-                  {money(Math.max(0, chosen.amount - chosen.paidAmount))}
-                </p>
-              </div>
-              <div className="rounded-xl border border-border-subtle px-3 py-2.5 text-caption">
-                <p className="font-semibold text-text-primary">Payment summary</p>
-                <p className="mt-1 flex justify-between text-text-secondary">
-                  <span>Verified received</span>
-                  <span className="tabular-nums text-text-primary">{money(chosen.paidAmount)}</span>
-                </p>
-                <p className="flex justify-between text-text-secondary">
-                  <span>Outstanding</span>
-                  <span className="tabular-nums text-text-primary">{money(Math.max(0, chosen.amount - chosen.paidAmount))}</span>
-                </p>
-              </div>
-            </div>
-
-            {/* ── The salesperson's half ─────────────────────────────── */}
-            <div className="space-y-2 border-t border-border-subtle pt-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="min-w-0 flex-1 text-caption text-text-secondary">
-                  {chosen.sentAt ? `Sent to the client on ${day(chosen.sentAt)}.` : 'Not sent to the client yet.'}
-                </span>
-                {!chosen.sentAt && (
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void act(() => markInvoiceSentAction(lead.id, chosen.id), 'Marked as sent.')}
-                    className="rounded-lg border border-border-default px-2.5 py-1.5 text-caption font-semibold text-text-primary hover:bg-bg-subtle disabled:opacity-50"
-                  >
-                    Mark as sent
-                  </button>
-                )}
-              </div>
-
-              {/* ⚠️ THE PROOF, NOT THE PAYMENT. Owner's own words: the
-                  salesperson sends the invoice and uploads what the client sends
-                  back; Finance then approves it. Uploading this marks nothing
-                  paid — 195's trigger still owns that column. */}
-              <Receipt leadId={lead.id} invoice={chosen} busy={busy} onDone={onReload} />
-            </div>
-
-            {items.canVerifyPayments ? (
-              <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border-subtle pt-3">
-                <input
-                  type="number"
-                  min={0}
-                  value={paid}
-                  onChange={(e) => setPaid(e.target.value)}
-                  placeholder={String(chosen.amount)}
-                  aria-label="Amount received"
-                  className="w-32 rounded-lg border border-border-default bg-bg-surface px-2.5 py-1.5 text-caption tabular-nums text-text-primary focus:border-accent-primary focus:outline-none"
-                />
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() =>
-                    void act(
-                      () => recordInvoicePaymentAction(lead.id, chosen.id, Number(paid || chosen.amount)),
-                      'Payment recorded.',
-                    )
-                  }
-                  className="rounded-lg bg-accent-primary px-3 py-1.5 text-caption font-semibold text-white disabled:opacity-50"
-                >
-                  Record payment
-                </button>
-              </div>
-            ) : (
-              <p className="flex items-start gap-2 rounded-xl bg-bg-subtle px-3 py-2.5 text-caption leading-relaxed text-text-secondary">
-                <ArrowUpRight className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-                You raise it, send it and upload the receipt. Finance looks at the proof and approves the payment.
-              </p>
-            )}
-          </Detail>
-        )
-      }
-    />
-  );
-}
-
-/* ── 6 · Files ───────────────────────────────────────────────────────────── */
-
-/**
- * Everything on this lead and the shared files of its project.
- *
- * ⚠️ ONE SHELF, NOT TWO. A quotation PDF uploaded on the Quotations tab lands
- * here as well, because `crm_documents` is where the shelf, the email
- * attachments and the sequence steps all look.
- */
-function Files({ items }: { items: RelatedItems }) {
-  const toast = useToast();
-  const list = items.files;
-
-  const open = async (id: string) => {
-    const link = await crmDocumentLinkAction(id);
-    if (link.url) window.open(link.url, '_blank', 'noopener');
-    else toast({ tone: 'error', text: link.error ?? 'That could not be opened.' });
-  };
-
-  if (list.length === 0) {
-    return (
-      <p className="px-4 py-16 text-center text-caption leading-relaxed text-text-secondary">
-        No files yet. A quotation PDF uploaded on the Quotations tab appears here, as do the project&rsquo;s shared
-        brochures and price lists.
-      </p>
-    );
-  }
-
-  return (
-    <ul className="grid gap-2 sm:grid-cols-2">
-      {list.map((f) => (
-        <li key={f.id}>
-          <button
-            type="button"
-            onClick={() => void open(f.id)}
-            className="flex w-full items-center gap-3 rounded-xl border border-border-subtle bg-bg-surface px-3 py-2.5 text-left transition-colors hover:bg-bg-subtle"
-          >
-            <span
-              className="grid size-9 shrink-0 place-items-center rounded-lg text-caption font-bold text-white"
-              style={{ background: f.mime.includes('pdf') ? 'var(--feedback-error)' : 'var(--accent-primary)' }}
-              aria-hidden="true"
-            >
-              {f.mime.includes('pdf') ? 'PDF' : f.mime.split('/')[1]?.slice(0, 3).toUpperCase() || 'DOC'}
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-body-sm font-medium text-text-primary">{f.title}</span>
-              <span className="block truncate text-caption text-text-secondary">
-                {(f.sizeBytes / 1_048_576).toFixed(1)} MB · {day(f.createdAt)}
-                {f.leadId === null ? ' · shared with the project' : ''}
-              </span>
-            </span>
-            <ExternalLink className="size-4 shrink-0 text-text-secondary" aria-hidden="true" />
-          </button>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-/**
- * The receipt on an invoice.
- *
- * ⚠️ EVIDENCE, NOT A PAYMENT — the label says so, because the two are one click
- * apart and only one of them is the salesperson's to make.
- */
-function Receipt({
-  leadId,
-  invoice,
-  busy,
-  onDone,
-}: {
-  leadId: string;
-  invoice: RelatedInvoice;
-  busy: boolean;
-  onDone: () => Promise<void>;
-}) {
-  const toast = useToast();
-  const input = React.useRef<HTMLInputElement>(null);
-  const [working, setWorking] = React.useState(false);
-
-  const upload = async (file: File) => {
-    if (working || busy) return;
-    setWorking(true);
+  const attach = async () => {
+    if (!chosen) return;
+    const text = `Invoice ${chosen.number} · ${chosen.description}: ${money(
+      Math.max(0, chosen.amount - chosen.paidAmount),
+    )} due${chosen.dueAt ? ` by ${longDay(chosen.dueAt)}` : ''}.`;
     try {
-      const slot = await prepareReceiptAction(leadId, file.name, file.size);
-      if (!slot.ok || !slot.url || !slot.path) {
-        toast({ tone: 'error', text: slot.error ?? 'That file could not be prepared.' });
-        return;
-      }
-      const put = await fetch(slot.url, {
-        method: 'PUT',
-        headers: { 'content-type': file.type || 'application/pdf' },
-        body: file,
-      });
-      if (!put.ok) {
-        toast({ tone: 'error', text: `The upload was refused (${put.status}).` });
-        return;
-      }
-      const saved = await attachInvoiceReceiptAction({
-        leadId,
-        invoiceId: invoice.id,
-        path: slot.path,
-        title: file.name,
-        mime: file.type || 'application/pdf',
-        sizeBytes: file.size,
-      });
-      if (!saved.ok) {
-        toast({ tone: 'error', text: saved.error });
-        return;
-      }
-      await onDone();
-      toast({ tone: 'ok', text: 'Receipt uploaded — Finance can approve it now.' });
-    } finally {
-      setWorking(false);
+      const files =
+        attachPdf && chosen.pdfPath
+          ? [await fileFromLink(await relatedFileLinkAction('invoice_pdf', chosen.id), `${chosen.number}.pdf`)]
+          : [];
+      ctx.onAttach({ files, text });
+    } catch (e) {
+      ctx.toast({ tone: 'error', text: e instanceof Error ? e.message : 'The PDF could not be attached.' });
     }
   };
 
+  const open = async (what: 'invoice_pdf' | 'invoice_receipt') => {
+    if (!chosen) return;
+    const link = await relatedFileLinkAction(what, chosen.id);
+    if (link.url) window.open(link.url, '_blank', 'noopener');
+    else ctx.toast({ tone: 'error', text: link.error ?? 'That could not be opened.' });
+  };
+
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-border-subtle px-3 py-2.5">
-      <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-bg-subtle text-text-secondary">
-        <Paperclip className="size-4" aria-hidden="true" />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block text-body-sm font-medium text-text-primary">
-          {invoice.receiptPath ? 'Payment receipt uploaded' : 'No payment receipt yet'}
-        </span>
-        <span className="block text-caption text-text-secondary">
-          {invoice.receiptPath
-            ? `${invoice.receiptByName ? `${invoice.receiptByName} · ` : ''}${day(invoice.receiptUploadedAt)} — proof for Finance, not a payment`
-            : 'Upload what the client sent back. Finance approves the payment from it.'}
-        </span>
-      </span>
-      <input
-        ref={input}
-        type="file"
-        accept="application/pdf,image/*"
-        hidden
-        onChange={(e) => {
-          const file = e.target.files?.[0];
-          e.target.value = '';
-          if (file) void upload(file);
-        }}
+    <>
+      <Body
+        list={
+          <>
+            <ListHead
+              title="Invoices"
+              count={list.length}
+              action={
+                <button
+                  type="button"
+                  onClick={() => setAdding(true)}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-border-default px-2.5 py-1 text-caption font-medium text-text-primary hover:bg-bg-subtle"
+                >
+                  <Plus className="size-3.5" aria-hidden="true" />
+                  New invoice
+                </button>
+              }
+            />
+            {list.length === 0 ? (
+              <EmptyList loading={ctx.loading}>
+                Nothing invoiced yet. Raise one from the quotation&rsquo;s terms, send it, and upload the receipt the
+                client sends back — Finance approves the payment from that proof.
+              </EmptyList>
+            ) : (
+              <>
+                <Columns template={I_COLS} labels={['Invoice', 'Due date', 'Amount', 'Status']} />
+                <div className="min-h-0 flex-1 overflow-y-auto">
+                  {list.map((i) => (
+                    <ListRow key={i.id} template={I_COLS} chosen={i.id === chosen?.id} onClick={() => onPick(i.id)}>
+                      <Two top={`${i.number} · ${i.description}`} />
+                      <span className="truncate text-body-sm text-text-primary">{shortDay(i.dueAt)}</span>
+                      <span className="truncate text-body-sm tabular-nums text-text-primary">{money(i.amount)}</span>
+                      <StatusPill status={i.status} />
+                    </ListRow>
+                  ))}
+                </div>
+              </>
+            )}
+          </>
+        }
+        detail={
+          !chosen ? (
+            <EmptyList loading={ctx.loading}>Raise an invoice and its preview appears here.</EmptyList>
+          ) : (
+            <>
+              <DetailHead title="Invoice preview" onOpen={chosen.pdfPath ? () => void open('invoice_pdf') : undefined} />
+              <Scroll>
+                <Card className="p-4">
+                  <div className="flex items-center gap-3 border-b border-border-subtle pb-3">
+                    <IconTile>
+                      <Receipt className="size-5" aria-hidden="true" />
+                    </IconTile>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-h3 font-semibold text-text-primary">INVOICE · {chosen.number}</p>
+                      <p className="truncate text-body-sm text-text-secondary">{chosen.description}</p>
+                    </div>
+                    <StatusPill status={chosen.status} />
+                  </div>
+                  <div className="mt-3 grid grid-cols-2">
+                    <div className="min-w-0 space-y-2.5 pr-3">
+                      <div>
+                        <Label>Client</Label>
+                        <p className="truncate text-body-sm font-semibold text-text-primary">{lead.fullName ?? '—'}</p>
+                        <p className="truncate text-caption text-text-secondary">{lead.city ?? lead.projectName}</p>
+                      </div>
+                      <div>
+                        <Label>Property</Label>
+                        {chosen.propertyLabel && unit ? (
+                          <LinkText onClick={() => ctx.go('properties', unit.id)}>{chosen.propertyLabel}</LinkText>
+                        ) : (
+                          <p className="text-body-sm text-text-primary">{chosen.propertyLabel ?? '—'}</p>
+                        )}
+                      </div>
+                      <div>
+                        <Label>Booking</Label>
+                        {chosen.bookingNumber && chosen.bookingId ? (
+                          <LinkText onClick={() => ctx.go('bookings', chosen.bookingId)}>{chosen.bookingNumber}</LinkText>
+                        ) : (
+                          <p className="text-body-sm text-text-primary">—</p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="min-w-0 space-y-2.5 border-l border-border-subtle pl-3">
+                      <div>
+                        <Label>Issued</Label>
+                        <p className="text-body-sm text-text-primary">{longDay(chosen.issuedAt)}</p>
+                      </div>
+                      <div>
+                        <Label>Due</Label>
+                        <p className="text-body-sm text-text-primary">{longDay(chosen.dueAt)}</p>
+                      </div>
+                      <div>
+                        <Label>Quotation</Label>
+                        {chosen.quotationNumber && chosen.quotationId ? (
+                          <LinkText icon="ext" onClick={() => ctx.go('quotations', chosen.quotationId)}>
+                            {chosen.quotationNumber}
+                          </LinkText>
+                        ) : (
+                          <p className="text-body-sm text-text-primary">—</p>
+                        )}
+                      </div>
+                      <div>
+                        <Label>Salesperson</Label>
+                        <p className="text-body-sm text-text-primary">{lead.ownerName ?? '—'}</p>
+                      </div>
+                    </div>
+                  </div>
+                </Card>
+
+                <Card className="overflow-hidden">
+                  <p className="border-b border-border-subtle bg-bg-subtle/60 px-4 py-2 text-body-sm font-semibold text-text-primary">
+                    Invoice items
+                  </p>
+                  <table className="w-full text-body-sm">
+                    <thead>
+                      <tr className="text-text-secondary">
+                        <th scope="col" className="px-4 py-1.5 text-left font-normal">Description</th>
+                        <th scope="col" className="px-4 py-1.5 text-right font-normal">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr className="border-t border-border-subtle">
+                        <td className="px-4 py-2 text-text-primary">{chosen.description}</td>
+                        <td className="px-4 py-2 text-right tabular-nums text-text-primary">{money(chosen.amount)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </Card>
+
+                <div className="grid gap-3 sm:grid-cols-[0.9fr_1.1fr]">
+                  <div className="rounded-xl px-4 py-3" style={{ background: `color-mix(in oklab, ${BLUE} 8%, transparent)` }}>
+                    <p className="text-body-sm font-semibold text-text-primary">Amount due</p>
+                    <p className="text-[1.6rem] font-bold leading-tight tabular-nums text-text-primary">
+                      {money(Math.max(0, chosen.amount - chosen.paidAmount))}
+                    </p>
+                  </div>
+                  <Card className="px-4 py-2.5 text-body-sm">
+                    <p className="font-semibold text-text-primary">Payment summary</p>
+                    <p className="mt-1 flex justify-between text-text-secondary">
+                      Verified received <span className="tabular-nums text-text-primary">{money(chosen.paidAmount)}</span>
+                    </p>
+                    <p className="flex justify-between text-text-secondary">
+                      Outstanding{' '}
+                      <span className="tabular-nums text-text-primary">{money(Math.max(0, chosen.amount - chosen.paidAmount))}</span>
+                    </p>
+                    <p className="flex items-center justify-between text-text-secondary">
+                      Status <StatusPill status={chosen.status} />
+                    </p>
+                  </Card>
+                </div>
+
+                {/* ── The salesperson's half: sent, and the proof that came back ── */}
+                <Card className="space-y-2 px-4 py-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="min-w-0 flex-1 text-body-sm text-text-primary">
+                      {chosen.sentAt ? `Sent to the client on ${shortDay(chosen.sentAt)}` : 'Not sent to the client yet'}
+                    </p>
+                    {!chosen.sentAt && (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void ctx.act(() => markInvoiceSentAction(lead.id, chosen.id), 'Marked as sent.')}
+                        className="rounded-lg border border-border-default px-2.5 py-1 text-caption font-semibold text-text-primary hover:bg-bg-subtle disabled:opacity-50"
+                      >
+                        Mark as sent
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 border-t border-border-subtle pt-2">
+                    <p className="min-w-0 flex-1 text-caption text-text-secondary">
+                      {chosen.receiptPath
+                        ? `Payment receipt uploaded ${shortDay(chosen.receiptUploadedAt)} — proof for Finance, not a payment.`
+                        : 'Upload the receipt the client sends back. Finance approves the payment from it.'}
+                    </p>
+                    {chosen.receiptPath && (
+                      <button
+                        type="button"
+                        onClick={() => void open('invoice_receipt')}
+                        className="text-caption font-semibold hover:underline"
+                        style={{ color: BLUE }}
+                      >
+                        View
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => receiptRef.current?.click()}
+                      className="inline-flex items-center gap-1 rounded-lg border border-border-default px-2.5 py-1 text-caption font-semibold text-text-primary hover:bg-bg-subtle disabled:opacity-50"
+                    >
+                      <Upload className="size-3.5" aria-hidden="true" />
+                      {chosen.receiptPath ? 'Replace receipt' : 'Upload receipt'}
+                    </button>
+                    <HiddenFile
+                      inputRef={receiptRef}
+                      onFile={(f) =>
+                        void ctx.upload(
+                          f,
+                          prepareReceiptAction,
+                          (path) =>
+                            attachInvoiceReceiptAction({
+                              leadId: lead.id,
+                              invoiceId: chosen.id,
+                              path,
+                              title: f.name,
+                              mime: f.type || 'application/pdf',
+                              sizeBytes: f.size,
+                            }),
+                          'Receipt uploaded — Finance can approve it now.',
+                        )
+                      }
+                    />
+                  </div>
+                  {items.canVerifyPayments && chosen.status !== 'paid' && chosen.status !== 'void' && (
+                    <div className="flex flex-wrap items-center gap-2 border-t border-border-subtle pt-2">
+                      <p className="min-w-0 flex-1 text-caption text-text-secondary">Finance · approve the payment</p>
+                      <input
+                        type="number"
+                        min={0}
+                        value={paid}
+                        onChange={(e) => setPaid(e.target.value)}
+                        placeholder={String(chosen.amount)}
+                        aria-label="Amount received"
+                        className="w-32 rounded-lg border border-border-default bg-bg-surface px-2.5 py-1 text-caption tabular-nums focus:border-accent-primary focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() =>
+                          void ctx.act(
+                            () => recordInvoicePaymentAction(lead.id, chosen.id, Number(paid || chosen.amount)),
+                            'Payment approved.',
+                          )
+                        }
+                        className="rounded-lg bg-accent-primary px-2.5 py-1 text-caption font-semibold text-white disabled:opacity-50"
+                      >
+                        Approve payment
+                      </button>
+                    </div>
+                  )}
+                </Card>
+
+                <div className="flex flex-wrap items-center justify-between gap-3 px-1">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2.5">
+                      <Paperclip className="size-4 text-text-secondary" aria-hidden="true" />
+                      <span className="text-body-sm text-text-primary">Attach invoice PDF</span>
+                      <Toggle
+                        on={attachPdf && !!chosen.pdfPath}
+                        disabled={!chosen.pdfPath}
+                        onChange={setAttachPdf}
+                        label="Attach invoice PDF"
+                      />
+                    </div>
+                    <p className="mt-0.5 pl-6 text-caption text-text-secondary">
+                      {chosen.pdfPath ? (
+                        'Payment verification is handled by Finance.'
+                      ) : (
+                        <>
+                          No PDF yet.{' '}
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => pdfRef.current?.click()}
+                            className="font-medium hover:underline"
+                            style={{ color: BLUE }}
+                          >
+                            Upload invoice PDF
+                          </button>
+                        </>
+                      )}
+                    </p>
+                    <HiddenFile
+                      inputRef={pdfRef}
+                      onFile={(f) =>
+                        void ctx.upload(
+                          f,
+                          prepareQuotationPdfAction,
+                          (path) =>
+                            attachInvoicePdfAction({
+                              leadId: lead.id,
+                              invoiceId: chosen.id,
+                              path,
+                              title: f.name,
+                              mime: f.type || 'application/pdf',
+                              sizeBytes: f.size,
+                            }),
+                          'Invoice PDF attached.',
+                        )
+                      }
+                    />
+                  </div>
+                  {chosen.bookingId && <LinkText onClick={() => ctx.go('bookings', chosen.bookingId)}>View booking</LinkText>}
+                </div>
+              </Scroll>
+            </>
+          )
+        }
       />
-      {invoice.receiptPath && (
-        <button
-          type="button"
-          onClick={async () => {
-            const link = await invoiceReceiptLinkAction(invoice.id);
-            if (link.url) window.open(link.url, '_blank', 'noopener');
-            else toast({ tone: 'error', text: link.error ?? 'That could not be opened.' });
-          }}
-          className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 text-caption font-semibold text-text-brand transition-colors hover:bg-bg-subtle"
+      <Foot
+        left={
+          <OutlineBlue icon={MessageSquareText} onClick={() => setAsking(true)} disabled={!chosen}>
+            Request correction
+          </OutlineBlue>
+        }
+        right={
+          <>
+            <Btn onClick={ctx.onClose}>Cancel</Btn>
+            <Btn primary disabled={!chosen || busy} onClick={() => void attach()}>
+              Attach invoice PDF
+            </Btn>
+          </>
+        }
+      />
+      {adding && (
+        <Sheet
+          title={`New invoice${booking ? ` against ${booking.number}` : ''}${live ? ` · from ${live.number}` : ''}`}
+          onClose={() => setAdding(false)}
         >
-          View
-          <ExternalLink className="size-3.5" aria-hidden="true" />
-        </button>
+          {terms.length > 0 && (
+            <div className="mb-2 flex flex-wrap gap-1.5">
+              {terms.map((t) => {
+                const on = description === t.label && Number(amount) === t.amount;
+                return (
+                  <button
+                    key={t.label}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => {
+                      setDescription(t.label);
+                      setAmount(String(t.amount));
+                    }}
+                    className={cn(
+                      'rounded-full border px-2.5 py-1 text-caption transition-colors',
+                      on
+                        ? 'border-[var(--pick-border)] bg-[var(--pick-bg)] text-text-primary'
+                        : 'border-border-default text-text-secondary hover:text-text-primary',
+                    )}
+                  >
+                    {t.label}
+                    {t.percentage ? ` · ${t.percentage}%` : ''} · {money(t.amount)}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          <div className="grid gap-2 sm:grid-cols-[1.4fr_1fr_1fr]">
+            <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What it is for" className={field} />
+            <input
+              type="number"
+              min={1}
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="Amount (PKR)"
+              className={field}
+            />
+            <input type="date" value={dueAt} onChange={(e) => setDueAt(e.target.value)} aria-label="Due date" className={field} />
+          </div>
+          <div className="mt-3 flex justify-end gap-2">
+            <Btn onClick={() => setAdding(false)}>Cancel</Btn>
+            <Btn
+              primary
+              disabled={busy || !Number(amount) || !description.trim()}
+              onClick={async () => {
+                const ok = await ctx.act(
+                  () =>
+                    createInvoiceAction({
+                      leadId: lead.id,
+                      bookingId: booking?.id ?? null,
+                      description,
+                      amount: Number(amount),
+                      dueAt: dueAt || null,
+                    }),
+                  'Invoice raised.',
+                );
+                if (ok) {
+                  setAdding(false);
+                  setAmount('');
+                }
+              }}
+            >
+              Raise invoice
+            </Btn>
+          </div>
+        </Sheet>
       )}
-      <button
-        type="button"
-        disabled={busy || working}
-        onClick={() => input.current?.click()}
-        className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border-default px-2.5 py-1.5 text-caption font-semibold text-text-primary transition-colors hover:bg-bg-subtle disabled:opacity-50"
-      >
-        <Upload className="size-3.5" aria-hidden="true" />
-        {working ? 'Uploading…' : invoice.receiptPath ? 'Replace' : 'Upload receipt'}
-      </button>
-    </div>
+      {asking && chosen && (
+        <Sheet title={`Request a correction · ${chosen.number}`} onClose={() => setAsking(false)}>
+          <textarea
+            rows={3}
+            autoFocus
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            maxLength={1000}
+            placeholder="What is wrong? e.g. the due date should be 30 September."
+            className={field}
+          />
+          <p className="mt-1.5 text-caption text-text-secondary">Goes to your sales manager, and is kept as a note on this lead.</p>
+          <div className="mt-3 flex justify-end gap-2">
+            <Btn onClick={() => setAsking(false)}>Cancel</Btn>
+            <Btn
+              primary
+              disabled={busy || !note.trim()}
+              onClick={async () => {
+                const ok = await ctx.act(
+                  () => requestFromManagerAction({ leadId: lead.id, kind: 'invoice', subject: chosen.number, note }),
+                  'Correction requested.',
+                );
+                if (ok) {
+                  setAsking(false);
+                  setNote('');
+                }
+              }}
+            >
+              Send request
+            </Btn>
+          </div>
+        </Sheet>
+      )}
+    </>
   );
 }
