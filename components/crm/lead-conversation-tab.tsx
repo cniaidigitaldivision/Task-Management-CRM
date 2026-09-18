@@ -30,6 +30,7 @@ import {
 } from '@/app/actions/crm-whatsapp';
 import { summariseConversationAction } from '@/app/actions/crm-conversation-summary';
 import { addNoteAction } from '@/app/actions/crm-leads';
+import { EmailComposer } from '@/components/crm/email-composer';
 import { AttachmentPreview, prepareFile, type PreparedFile } from '@/components/crm/whatsapp/attachments';
 import { WhatsAppComposer } from '@/components/crm/whatsapp/composer';
 import { EMOJI_FONT, preloadEmoji } from '@/components/crm/whatsapp/emoji-picker';
@@ -268,8 +269,19 @@ export function LeadConversationTab({
   const [oldestFirst, setOldestFirst] = React.useState(true);
   const [dismissed, setDismissed] = React.useState(false);
   const [channel, setChannel] = React.useState<'whatsapp' | 'email'>('whatsapp');
+  /**
+   * Which composer is below the thread.
+   *
+   * ⚠️ THE FILTER DECIDES WHEN IT IS A CHANNEL. Owner, 2026-09-18: *"when I click
+   * on the WhatsApp tab… it should show only WhatsApp below, not the email
+   * option. When I click on email, it only shows email."* Reading a WhatsApp
+   * conversation and typing into an email box is how a message goes out on the
+   * wrong channel — so on **All** the switch is offered, and on a channel chip
+   * there is nothing to switch.
+   */
+  const composerChannel: 'whatsapp' | 'email' =
+    filter === 'whatsapp' ? 'whatsapp' : filter === 'email' ? 'email' : channel;
   const [draft, setDraft] = React.useState('');
-  const [emailSending, setEmailSending] = React.useState(false);
 
   /* ── ⚠️ WHAT THE SCREEN SHOWS BEFORE THE SERVER HAS ANSWERED ───────────────
      `pending` — messages being uploaded or sent, drawn at once with a clock.
@@ -342,6 +354,15 @@ export function LeadConversationTab({
       window.clearInterval(t);
     };
   }, [leadId, loading]);
+
+  /** Re-read the thread now, rather than waiting for the five-second poll. */
+  const refreshThread = React.useCallback(async () => {
+    try {
+      setThread(await readWhatsAppThreadAction(leadId));
+    } catch {
+      /* The poll will pick it up. */
+    }
+  }, [leadId]);
 
   const liveThread = React.useMemo(
     () => thread.map((m) => (overrides[m.id] ? { ...m, ...overrides[m.id].patch } : m)),
@@ -579,6 +600,10 @@ export function LeadConversationTab({
   if (handoff && handoff.id !== handoffSeen) {
     setHandoffSeen(handoff.id);
     setChannel('whatsapp');
+    /* ⚠️ AND THE FILTER WITH IT. The composer follows the chip now, so leaving
+       the chip on Email would drop a WhatsApp hand-off into an email body and
+       lose its attachments. */
+    setFilter('whatsapp');
     if (handoff.text) setDraft((d) => (d.trim() ? `${d}\n\n${handoff.text}` : handoff.text));
   }
 
@@ -618,13 +643,6 @@ export function LeadConversationTab({
     onOpenMedia: (kind, src, m) => setLightbox({ kind, src, message: m }),
     onJumpTo: jumpTo,
   };
-
-  async function sendEmail() {
-    if (!draft.trim() || emailSending) return;
-    setEmailSending(true);
-    toast({ tone: 'error', text: 'Email replies are not wired yet — send a quotation by email from the Related tab.' });
-    setEmailSending(false);
-  }
 
   return (
     <div className="relative flex h-full min-h-0 flex-col">
@@ -872,33 +890,35 @@ export function LeadConversationTab({
       {filter !== 'summary' && (
         <div className="mt-3 shrink-0">
           <div className="mb-2 flex flex-wrap items-center gap-2">
-            <div className="inline-flex rounded-lg border border-border-default">
-              <button
-                type="button"
-                onClick={() => setChannel('whatsapp')}
-                className={cn(
-                  'inline-flex items-center gap-1.5 rounded-l-lg px-2.5 py-1 text-caption font-medium',
-                  channel === 'whatsapp' ? 'bg-bg-subtle text-text-primary' : 'text-text-secondary',
-                )}
-              >
-                <span style={{ color: WA_GREEN }}><WhatsAppMark className="size-4" /></span>
-                WhatsApp
-              </button>
-              <button
-                type="button"
-                onClick={() => setChannel('email')}
-                className={cn(
-                  'inline-flex items-center gap-1.5 rounded-r-lg border-l border-border-default px-2.5 py-1 text-caption font-medium',
-                  channel === 'email' ? 'bg-bg-subtle text-text-primary' : 'text-text-secondary',
-                )}
-              >
-                <Mail className="size-4" style={{ color: MAIL_BLUE }} aria-hidden="true" />
-                Email
-              </button>
-            </div>
+            {filter === 'all' && (
+              <div className="inline-flex rounded-lg border border-border-default">
+                <button
+                  type="button"
+                  onClick={() => setChannel('whatsapp')}
+                  className={cn(
+                    'inline-flex items-center gap-1.5 rounded-l-lg px-2.5 py-1 text-caption font-medium',
+                    composerChannel === 'whatsapp' ? 'bg-bg-subtle text-text-primary' : 'text-text-secondary',
+                  )}
+                >
+                  <span style={{ color: WA_GREEN }}><WhatsAppMark className="size-4" /></span>
+                  WhatsApp
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setChannel('email')}
+                  className={cn(
+                    'inline-flex items-center gap-1.5 rounded-r-lg border-l border-border-default px-2.5 py-1 text-caption font-medium',
+                    composerChannel === 'email' ? 'bg-bg-subtle text-text-primary' : 'text-text-secondary',
+                  )}
+                >
+                  <Mail className="size-4" style={{ color: MAIL_BLUE }} aria-hidden="true" />
+                  Email
+                </button>
+              </div>
+            )}
 
             {/* ⚠️ WHO IT COMES FROM, and whether WhatsApp will deliver it at all. */}
-            {channel === 'whatsapp' && (
+            {composerChannel === 'whatsapp' && (
               <p className="flex min-w-0 flex-1 items-center gap-1.5 text-caption text-text-secondary">
                 {loading ? (
                   <span>Checking which number this sends from…</span>
@@ -925,7 +945,7 @@ export function LeadConversationTab({
             )}
           </div>
 
-          {channel === 'whatsapp' ? (
+          {composerChannel === 'whatsapp' ? (
             <WhatsAppComposer
               disabledReason={disabledReason}
               replyTo={replyTo}
@@ -950,23 +970,11 @@ export function LeadConversationTab({
               inputRef={composerInput}
             />
           ) : (
-            <div className="flex items-end gap-2">
-              <textarea
-                rows={2}
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                placeholder="Write an email reply…"
-                className="min-w-0 flex-1 resize-y rounded-lg border border-border-default bg-bg-base px-3 py-2 text-body-sm text-text-primary placeholder:text-text-tertiary focus:border-accent-primary focus:outline-none"
-              />
-              <button
-                type="button"
-                onClick={() => void sendEmail()}
-                disabled={!draft.trim()}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-3 py-2 text-caption font-semibold text-white disabled:opacity-40"
-              >
-                <Send className="size-4" aria-hidden="true" /> Send
-              </button>
-            </div>
+            /* ⚠️ THE REAL THING NOW. What stood here was a textarea whose Send
+               called a function whose whole body was a toast saying "email
+               replies are not wired yet" — which is what the owner meant by
+               *"right now email is not working."* */
+            <EmailComposer leadId={leadId} onSent={() => void refreshThread()} />
           )}
         </div>
       )}

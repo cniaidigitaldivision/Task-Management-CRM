@@ -18,8 +18,13 @@ const BASE = {
   validUntilLabel: '30 Sep 2026',
   itemLabel: '5 Marla Residential plot',
   itemDetail: 'A-101, Block A',
-  salespersonName: 'Sarah',
-  businessName: 'Chitral Royal Homes',
+  from: {
+    businessName: 'Chitral Royal Homes',
+    subtitle: 'Islamabad',
+    salespersonName: 'Sarah',
+    replyTo: 'sales@example.com',
+    phone: '+92 300 123 8726',
+  },
   note: null,
 };
 
@@ -108,7 +113,7 @@ describe('a service quotation, not a plot', () => {
       itemLabel: 'CRM implementation',
       itemDetail: 'Setup, training, three months support.',
       amountLabel: 'PKR 200,000',
-      businessName: 'AI & Digital Division',
+      from: { ...BASE.from, businessName: 'AI & Digital Division' },
     });
 
     expect(e.html).toContain('Setup, training, three months support.');
@@ -120,7 +125,7 @@ describe('⚠️ escaping — the one that becomes a real bug', () => {
   it('a name with an ampersand does not break the markup', () => {
     /* "AI & Digital Division" is a real business name in this database, and a
        bare & is invalid HTML that some clients render as a stray entity. */
-    const e = quotationEmail({ ...BASE, businessName: 'AI & Digital Division' });
+    const e = quotationEmail({ ...BASE, from: { ...BASE.from, businessName: 'AI & Digital Division' } });
 
     expect(e.html).toContain('AI &amp; Digital Division');
   });

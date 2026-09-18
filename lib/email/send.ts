@@ -74,6 +74,34 @@ export function describeSender(): { configured: boolean; sandbox: boolean; from:
   return { configured: apiKey() !== null, sandbox: usingSandboxSender(), from: from() };
 }
 
+/** The bare address out of `EMAIL_FROM`, without its display name. */
+export function fromMailbox(): string | null {
+  const match = /<([^>]+)>/.exec(from()) ?? /([^\s<>]+@[^\s<>]+)/.exec(from());
+  return match ? match[1] : null;
+}
+
+/**
+ * The same mailbox under a different name.
+ *
+ * ⚠️ THE NAME IS THE MOST VISIBLE PART OF AN EMAIL, and the only part most
+ * people read before deciding whether to open it. `EMAIL_FROM` is
+ * `Taskly <info@aidigitaldivision.com>` — right for a letter to a colleague, and
+ * wrong on a quotation going to somebody else's customer, who has never heard of
+ * our tool. A CRM letter sends under the CLIENT'S BUSINESS name.
+ *
+ * ⚠️ THE DOMAIN DOES NOT CHANGE, AND CANNOT. The mailbox is the one Resend has
+ * verified; only the display name in front of it moves. Sending as
+ * `sales@theirdomain.com` would be spoofing somebody else's domain, which is
+ * both a refusal from the provider and the thing SPF exists to stop.
+ */
+export function fromAs(displayName: string): string | null {
+  const mailbox = fromMailbox();
+  if (!mailbox) return null;
+  /* A quote or an angle bracket in a business name would break the header. */
+  const safe = displayName.replace(/["<>\r\n]/g, ' ').replace(/\s+/g, ' ').trim();
+  return safe ? `${safe} <${mailbox}>` : mailbox;
+}
+
 export async function sendEmail(input: {
   to: string;
   subject: string;
@@ -107,6 +135,20 @@ export async function sendEmail(input: {
     contentId?: string;
     contentType: string;
   }[];
+  /**
+   * Who it appears to come from. Defaults to `EMAIL_FROM`.
+   *
+   * ⚠️ BUILD IT WITH `fromAs`, never by hand. The mailbox must stay the verified
+   * one; only the display name in front of it may change.
+   */
+  from?: string;
+  /**
+   * Where a reply should go, when that is not the sending mailbox.
+   *
+   * ⚠️ A CLIENT WILL PRESS REPLY, and it has to reach the salesperson rather
+   * than a shared inbox nobody watches.
+   */
+  replyTo?: string;
 }): Promise<EmailResult> {
   const key = apiKey();
   if (!key) {
@@ -125,8 +167,9 @@ export async function sendEmail(input: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        from: from(),
+        from: input.from?.trim() || from(),
         to: [input.to],
+        ...(input.replyTo?.trim() ? { reply_to: input.replyTo.trim() } : {}),
         subject: input.subject,
         html: input.html,
         text: input.text,

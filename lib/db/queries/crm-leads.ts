@@ -3746,3 +3746,56 @@ export async function crmProjectSender(
     displayNumber: (r.display_number as string | null) ?? null,
   };
 }
+
+/* ── What an email from the drawer needs to know — 2026-09-18 ─────────────── */
+
+export interface LeadEmailContext {
+  readonly leadId: string;
+  readonly leadName: string | null;
+  readonly to: string | null;
+  readonly businessName: string | null;
+  /** The letterspaced line under the business name: the lead's city. */
+  readonly subtitle: string | null;
+  /** The business's WhatsApp number, for the letter's footer. */
+  readonly phone: string | null;
+  /** The last email subject on this thread, so a reply can carry "Re:". */
+  readonly lastSubject: string | null;
+}
+
+/**
+ * Everything the email composer and the send action read.
+ *
+ * ⚠️ `app.crm_project_name`, NOT A JOIN TO `public.projects`. A salesperson
+ * cannot see the project row — `projects_select` is `app.project_is_visible`, and
+ * a member of the sales department is not on the project — so a join returns no
+ * row at all and the letter would go out headed with our division's name instead
+ * of the client's business. Migration 130's definer exists for this, and the lead
+ * desk has used it all along. Proved against Sahad's session on 2026-09-18.
+ */
+export async function crmLeadEmailContext(
+  actorId: string,
+  leadId: string,
+): Promise<LeadEmailContext | null> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select l.id, l.full_name, l.email, l.city,
+           app.crm_project_name(l.project_id) as project_name,
+           (select snd.display_number from app.crm_project_sender(l.project_id) snd) as phone,
+           (select m.subject from public.crm_lead_messages m
+             where m.lead_id = l.id and m.channel = 'email'
+               and coalesce(btrim(m.subject), '') <> ''
+             order by m.occurred_at desc limit 1) as last_subject
+      from public.crm_leads l
+     where l.id = ${leadId}::uuid
+  `);
+  const r = (rows as Array<Record<string, unknown>>)[0];
+  if (!r) return null;
+  return {
+    leadId: String(r.id),
+    leadName: (r.full_name as string | null) ?? null,
+    to: (r.email as string | null) ?? null,
+    businessName: (r.project_name as string | null) ?? null,
+    subtitle: (r.city as string | null) ?? null,
+    phone: (r.phone as string | null) ?? null,
+    lastSubject: (r.last_subject as string | null) ?? null,
+  };
+}

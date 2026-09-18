@@ -1,6 +1,7 @@
 import 'server-only';
 
-import { followUpEmail, sendLeadEmail } from '@/lib/crm/email';
+import { followUpEmail, fromAddress, sendLeadEmail } from '@/lib/crm/email';
+import { describeSender } from '@/lib/email/send';
 import { sendTemplate, sendText, type WhatsAppConfig } from '@/lib/crm/whatsapp';
 import { withAppRole } from '@/lib/db/client';
 import { fillTokens } from '@/lib/domain/crm-followup-plans';
@@ -198,14 +199,28 @@ async function sendOne(row: QueueRow, token: string | undefined, apiVersion: str
 
     const files = await attachmentsFor(row.follow_up_id);
     const email = followUpEmail({
-      businessName: tokens.company,
-      greetingName: tokens.lead_first,
+      from: {
+        businessName: tokens.company,
+        subtitle: null,
+        salespersonName: tokens.owner_name || tokens.company,
+        /* ⚠️ THE REAL REPLY ADDRESS, or none at all. `describeSender` reports
+           what the mailer is actually configured with; inventing one would print
+           an address in the footer that bounces. */
+        replyTo: describeSender().configured ? fromAddress() : null,
+        phone: null,
+      },
       subject,
       body,
-      salespersonName: tokens.owner_name || tokens.company,
       attachments: files,
     });
-    const result = await sendLeadEmail({ to: row.to_email, email });
+    const result = await sendLeadEmail({
+      to: row.to_email,
+      email,
+      /* ⚠️ THE SAME NAME THE PERSON WOULD HAVE SENT UNDER. An automatic step that
+         arrived from a different sender than the salesperson's own messages would
+         read as a different correspondent. `sender_name` is the business. */
+      as: { businessName: tokens.company || row.sender_name, replyTo: null },
+    });
     return done(result.messageId ?? null, result.ok ? null : (result.error ?? 'The email was refused.'), body, subject);
   }
 

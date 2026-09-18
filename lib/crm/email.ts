@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { sendEmail } from '@/lib/email/send';
+import { describeSender, fromAs, fromMailbox, sendEmail } from '@/lib/email/send';
 import { esc, para, type Email } from '@/lib/email/templates';
 
 /* ============================================================================
@@ -48,6 +48,28 @@ import { esc, para, type Email } from '@/lib/email/templates';
  * sequence scheduler. A marketing email is a different decision and needs asking.
  * ========================================================================= */
 
+/**
+ * Who the letter is from, as the client reads it.
+ *
+ * ⚠️ THE BUSINESS, THE PERSON, AND A WAY TO REPLY. Owner, 2026-09-18: *"email
+ * should be sender and the email template should be equal to or the same as the
+ * login-purpose professional email template."* The login shell's footer says
+ * *"if you were not expecting this, you may safely ignore this email"* — a
+ * password-reset line that makes no sense on a quotation somebody asked for. So
+ * this letter keeps the STRUCTURE of that template and fills its footer with the
+ * one thing a client actually wants there: who wrote to them, and how to answer.
+ */
+export interface LetterFrom {
+  readonly businessName: string;
+  /** The project or city under the name — the login shell's division line. */
+  readonly subtitle: string | null;
+  readonly salespersonName: string;
+  /** The address a reply reaches. Null when the mailer is not configured. */
+  readonly replyTo: string | null;
+  /** The business's WhatsApp number, if the project has one (179). */
+  readonly phone: string | null;
+}
+
 export interface QuotationEmailInput {
   /** The client. Already trimmed; may be a company rather than a person. */
   readonly greetingName: string;
@@ -60,9 +82,8 @@ export interface QuotationEmailInput {
   /** What is being quoted: a plot with its block, or a service with its scope. */
   readonly itemLabel: string | null;
   readonly itemDetail: string | null;
-  /** Whose name signs it off. */
-  readonly salespersonName: string;
-  readonly businessName: string;
+  /** Who it is from, as the client reads it. */
+  readonly from: LetterFrom;
   /** The salesperson's own covering line, or null. */
   readonly note: string | null;
 }
@@ -118,12 +139,14 @@ export function quotationEmail(input: QuotationEmailInput): Email {
     </table>
 
     ${para(`Please let me know if you would like to discuss anything on it.`)}
-    ${para(`${esc(input.salespersonName)}<br>${esc(input.businessName)}`)}
   `;
 
   return {
-    subject: `${title}${versionNote} — ${input.businessName}`,
-    html: crmShell(body, `${title} — ${input.amountLabel}`, input.businessName),
+    subject: `${title}${versionNote} — ${input.from.businessName}`,
+    /* ⚠️ THE SIGN-OFF IS THE SHELL'S FOOTER, NOT THE LETTER'S LAST LINE. It
+       prints the salesperson, the business and a way to reply; repeating the
+       name here as well reads as a template arguing with itself. */
+    html: crmShell(body, `${title} — ${input.amountLabel}`, input.from),
     /* ⚠️ ALWAYS A PLAIN-TEXT ALTERNATIVE. `sendEmail` documents why: a message
        without one scores worse with spam filters, and a quotation landing in
        junk is indistinguishable from one never sent. */
@@ -141,8 +164,8 @@ export function quotationEmail(input: QuotationEmailInput): Email {
       '',
       'Please let me know if you would like to discuss anything on it.',
       '',
-      input.salespersonName,
-      input.businessName,
+      input.from.salespersonName,
+      input.from.businessName,
     ].join('\n'),
     /* ⚠️ NO ATTACHMENTS, AND THAT IS DELIBERATE. Taskly's shell inlines its own
        mark by content id; this letter carries no logo at all until the project's
@@ -152,38 +175,110 @@ export function quotationEmail(input: QuotationEmailInput): Email {
 }
 
 /* ============================================================================
- * THE CRM'S OWN SHELL
+ * THE CRM'S OWN SHELL — the login template's frame, the business's identity
  * ----------------------------------------------------------------------------
- * Deliberately plain: a rule, a name, the letter, a quiet footer. ⚠️ Tables and
- * inline styles rather than anything modern, because this is read in Outlook and
- * in Gmail's clipped view, not in a browser.
+ * Owner, 2026-09-18: *"the email template should be equal to or the same as the
+ * login-purpose professional email template."*
+ *
+ * So this is `shell()` from `lib/email/templates.ts`, part for part: the dark
+ * header band with the name and a letterspaced line under it, the gold rule at
+ * full bleed, the body at 15px/1.62 in 46px of side padding, a footer band
+ * INSIDE the card, and a quiet line outside it.
+ *
+ * ⚠️ WHAT IT DOES NOT BORROW IS THE IDENTITY. Taskly's mark, wordmark, division
+ * line and "you may safely ignore this email" belong on a letter from our tool to
+ * a colleague. This one goes from a CLIENT'S BUSINESS to their customer — a
+ * quotation from Chitral Royal Homes headed *"Taskly · AI & Digital Division"*
+ * with a password-reset footer is what the first version of this file did, and it
+ * is why the two shells are separate. The header carries the business name; the
+ * footer carries the salesperson and a way to reply.
+ *
+ * ⚠️ AND THE MARK IS TEXT, NOT A PICTURE. `crm_project_settings.letterhead_path`
+ * (171) is still NULL for all 18 projects, so there is no image that belongs to
+ * the business. The login shell's mark is attached by content id and a client can
+ * still fail to render it — which is why the product name is text there too. An
+ * empty header beats the wrong company's logo.
+ *
+ * ⚠️ TABLES AND INLINE HEX, NO `var()`. Read in Outlook's Word renderer and
+ * Gmail's clipped view, not in a browser — the same reason the login shell is
+ * written this way, and the one place BR-025 is deliberately broken.
  * ========================================================================= */
-const SANS = "'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
 
-function crmShell(body: string, preheader: string, businessName: string): string {
+const SANS = '-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif';
+/* The same values as the login template's palette, because it is the same design. */
+const BAND = '#0e2a2c';
+const BAND_HEADING = '#ffffff';
+const BAND_MUTED = '#9fb6b8';
+const GOLD = '#d4a63c';
+const BODY_INK = '#3f5157';
+const MUTED = '#5b6f77';
+const BORDER = '#dde7e8';
+const PAGE = '#eef3f3';
+const FOOT_BG = '#eef3f3';
+
+function crmShell(body: string, preheader: string, from: LetterFrom): string {
+  const subtitle = from.subtitle
+    ? `<div style="margin-top:5px;font:400 12px/1.2 ${SANS};color:${BAND_MUTED};letter-spacing:.13em;text-transform:uppercase;">${esc(from.subtitle)}</div>`
+    : '';
+
+  /* ⚠️ THE FOOTER NAMES ONLY WHAT IS KNOWN. A "reply to" line with no address
+     under it, or a phone row with no number, reads as a broken template. */
+  const contact = [
+    from.replyTo ? `<a href="mailto:${esc(from.replyTo)}" style="color:#1155cc;text-decoration:none;">${esc(from.replyTo)}</a>` : null,
+    from.phone ? esc(from.phone) : null,
+  ].filter(Boolean).join(' &nbsp;·&nbsp; ');
+
   return `<!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(businessName)}</title></head>
-<body style="margin:0;padding:0;background:#f1f4f4;-webkit-font-smoothing:antialiased;">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(from.businessName)}</title></head>
+<body style="margin:0;padding:0;background:${PAGE};-webkit-font-smoothing:antialiased;">
+  <!-- The inbox preview line: the first thing anybody reads, so it says
+       something useful rather than repeating the subject. The zero-width run
+       after it stops Gmail pulling the opening sentence in behind it. -->
   <div style="display:none;max-height:0;overflow:hidden;opacity:0;">${esc(preheader)}</div>
-  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#f1f4f4;">
-    <tr><td align="center" style="padding:28px 12px;">
-      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="620" style="width:620px;max-width:100%;background:#ffffff;border:1px solid #e3e9e9;border-radius:8px;">
-        <!-- ⚠️ THE BUSINESS, NOT TASKLY. The client never heard of our tool. -->
-        <tr><td style="padding:22px 30px 0 30px;border-bottom:2px solid #0e5c63;">
-          <p style="margin:0 0 14px 0;font:700 17px/1.3 ${SANS};color:#0e5c63;letter-spacing:.01em;">
-            ${esc(businessName)}
-          </p>
+  <div style="display:none;max-height:0;overflow:hidden;">&#8203;&#8203;&#8203;&#8203;&#8203;&#8203;&#8203;&#8203;&#8203;&#8203;</div>
+
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${PAGE};padding:32px 12px;">
+    <tr><td align="center">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:620px;background:#ffffff;border:1px solid ${BORDER};border-radius:10px;overflow:hidden;">
+
+        <tr><td bgcolor="${BAND}" style="background:${BAND};padding:22px 34px;">
+          <div style="font:700 24px/1.1 ${SANS};color:${BAND_HEADING};letter-spacing:-.01em;">${esc(from.businessName)}</div>
+          ${subtitle}
         </td></tr>
-        <tr><td style="padding:26px 30px 28px 30px;">${body}</td></tr>
+
+        <tr><td bgcolor="${GOLD}" style="background:${GOLD};height:3px;line-height:3px;font-size:0;">&nbsp;</td></tr>
+
+        <tr><td style="padding:26px 46px 34px 46px;font:400 15px/1.62 ${SANS};color:${BODY_INK};">
+          ${body}
+        </td></tr>
+
+        <tr><td bgcolor="${FOOT_BG}" style="background:${FOOT_BG};padding:18px 46px;border-top:1px solid ${BORDER};">
+          <p style="margin:0;font:600 13px/1.5 ${SANS};color:${BODY_INK};">${esc(from.salespersonName)}</p>
+          <p style="margin:2px 0 0 0;font:400 12px/1.5 ${SANS};color:${MUTED};">${esc(from.businessName)}</p>
+          ${contact ? `<p style="margin:6px 0 0 0;font:400 12px/1.5 ${SANS};color:${MUTED};">${contact}</p>` : ''}
+        </td></tr>
       </table>
-      <p style="margin:14px 0 0 0;font:400 12px/1.5 ${SANS};color:#7b8b8f;">
-        ${esc(businessName)}
-      </p>
+
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:620px;">
+        <tr><td align="center" style="padding:16px 8px 0 8px;font:400 11px/1.5 ${SANS};color:${MUTED};">
+          ${esc(from.businessName)}
+        </td></tr>
+      </table>
     </td></tr>
   </table>
-</body>
-</html>`;
+</body></html>`;
+}
+
+/**
+ * The address a client's reply actually reaches.
+ *
+ * ⚠️ READ OFF THE MAILER, NEVER TYPED INTO A TEMPLATE. `describeSender` reports
+ * what this environment is configured with; a footer printing an address that
+ * bounces is worse than no footer at all.
+ */
+export function fromAddress(): string | null {
+  return describeSender().configured ? fromMailbox() : null;
 }
 
 export interface LeadEmailResult {
@@ -205,6 +300,15 @@ export interface LeadEmailResult {
 export async function sendLeadEmail(input: {
   to: string;
   email: Email;
+  /**
+   * The business the client should see it from, and where a reply goes.
+   *
+   * ⚠️ THE INBOX LINE IS THE LETTERHEAD NOBODY READS PAST. Without this the
+   * envelope says "Taskly" — our internal tool — on a quotation to somebody
+   * else's customer, however carefully the letter inside is branded. The mailbox
+   * stays the verified one; only the name in front of it changes (`fromAs`).
+   */
+  as?: { readonly businessName: string | null; readonly replyTo: string | null };
 }): Promise<LeadEmailResult> {
   /* ⚠️ `sendEmail` RETURNS ITS FAILURE, IT DOES NOT THROW. Written first as a
      try/catch around it, which would have reported every failed send as a
@@ -221,6 +325,8 @@ export async function sendLeadEmail(input: {
       html: input.email.html,
       text: input.email.text,
       attachments: input.email.attachments,
+      ...(input.as?.businessName ? { from: fromAs(input.as.businessName) ?? undefined } : {}),
+      ...(input.as?.replyTo ? { replyTo: input.as.replyTo } : {}),
     });
   } catch (err) {
     /* Only a genuine throw lands here — a network fault, not a refusal. ⚠️ And
@@ -254,17 +360,20 @@ export async function sendLeadEmail(input: {
  * plan and reviewed on screen; this only wraps it so it arrives looking like the
  * business rather than like a form.
  *
+ * ⚠️ AND IT WRITES NO GREETING EITHER. This took a `greetingName` it never used
+ * — the body always carries its own "Assalam-o-Alaikum {{lead_first}}", whether a
+ * plan filled the token or a person typed the line. Adding one here would have
+ * put a second greeting above the one already written.
+ *
  * ⚠️ AND IT KEEPS THE LINE BREAKS. A message written in a textarea and sent as
  * HTML with its newlines collapsed reads as one long paragraph — the commonest
  * way an email looks careless without anybody being able to say why.
  * ========================================================================= */
 export function followUpEmail(input: {
-  businessName: string;
-  greetingName: string;
+  from: LetterFrom;
   subject: string;
   /** Plain text, as written. Escaped here; newlines become paragraphs. */
   body: string;
-  salespersonName: string;
   /* ⚠️ `contentId` STAYS UNSET. These are documents the client downloads, not
      images the letter references — one given a content id is hidden from the
      attachment list by mail clients, so the email says "attached" and shows
@@ -282,12 +391,8 @@ export function followUpEmail(input: {
 
   return {
     subject: input.subject,
-    html: crmShell(
-      `${html}\n${para(`${esc(input.salespersonName)}<br>${esc(input.businessName)}`)}`,
-      paragraphs[0]?.slice(0, 120) ?? input.subject,
-      input.businessName,
-    ),
-    text: [...paragraphs, '', input.salespersonName, input.businessName].join('\n\n'),
+    html: crmShell(html, paragraphs[0]?.slice(0, 120) ?? input.subject, input.from),
+    text: [...paragraphs, '', input.from.salespersonName, input.from.businessName].join('\n\n'),
     attachments: input.attachments ?? [],
   };
 }

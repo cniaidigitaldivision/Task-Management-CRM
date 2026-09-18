@@ -13,6 +13,92 @@
 
 ---
 
+## ✉️ 2026-09-18 (later) — EMAIL ACTUALLY SENDS, AND IT LOOKS LIKE THE BUSINESS
+
+Owner: *"Make this email work. Right now email is not working… when I click on the
+WhatsApp tab it should show only WhatsApp below, not the email option… email should
+be sender and the email template should be equal to the login-purpose professional
+email template… a proper email setup, like a subject and body, and we can select
+media also."*
+
+### It was not broken — it was never written
+
+`sendEmail()` in the conversation tab was four lines, and one of them was a toast
+reading *"Email replies are not wired yet."* That is the whole of what "email is
+not working" was.
+
+Now `app/actions/crm-emails.ts` + `components/crm/email-composer.tsx`:
+
+| | |
+|---|---|
+| **From** | the salesperson, the business, and the address this environment really sends from |
+| **To** | the client, or *"has no email address — add one on the Overview tab"* |
+| **Subject** | suggested as `Re: <the last one>`, never `Re: Re:` |
+| **Body** | a blank line starts a paragraph, a single newline is a `<br>` |
+| **Media** | up to 5 files, 10 MB each, 20 MB total |
+
+⚠️ **THE SUBJECT AND BODY ARE THE PERSON'S; EVERYTHING ELSE IS THE SERVER'S.** Who
+it is from, which business heads it and who it goes to are read from the lead under
+RLS. A composer that posted its own "from" could put one client's business on
+another's letter.
+
+⚠️ **ATTACHMENTS GO TO STORAGE FIRST, AND ARE READ BACK BY PATH PREFIX.** The
+browser uploads on a signed URL (a server action refuses a body over 4.5 MB), and
+the send action only accepts paths under `crm-email/<leadId>/` — without that check
+a page could name any object in the bucket and the email would carry it to a client.
+
+### The composer follows the chip
+
+⚠️ **ON A CHANNEL FILTER THERE IS NOTHING TO SWITCH.** WhatsApp shows the WhatsApp
+composer, Email shows the email composer, and only **All** offers the toggle.
+Reading one conversation and typing into the other channel's box is how a message
+goes out on the wrong channel. A hand-off from Related items now sets the filter
+too, or its attachments would land in an email body.
+
+### The letter, to the login template's frame
+
+⚠️ **THE FRAME IS `shell()`; THE IDENTITY IS NOT.** Header band `#0e2a2c`, the gold
+rule, 46px body at 15px/1.62, a footer band inside the card — part for part. What
+it does **not** borrow is Taskly's mark, wordmark and *"if you were not expecting
+this, you may safely ignore this email"*: a password-reset footer under a quotation
+somebody asked for. The header carries the business and the lead's city; the footer
+carries the salesperson, the business and a way to reply. Rendered and looked at,
+not assumed.
+
+### Two real faults the live run found
+
+⚠️ **1 · A SALESPERSON COULD NOT SEE THE BUSINESS NAME.** `projects_select` is
+`app.project_is_visible` and a sales-department member is not on the project, so a
+join to `public.projects` returns **no row** — the letter would have gone out headed
+with our own division instead of the client's business. `app.crm_project_name`
+(migration 130's definer) is what the lead desk has always used, and
+`crmLeadEmailContext` uses it too. Proved against Sahad's session.
+
+⚠️ **2 · THE INBOX LINE SAID "TASKLY".** `EMAIL_FROM` is
+`Taskly <info@aidigitaldivision.com>` — right for a letter to a colleague, wrong on
+a quotation to somebody else's customer. `fromAs()` now sends as
+`Chitral Royal Homes <info@aidigitaldivision.com>`: **the display name moves, the
+mailbox never does.** Sending as `sales@theirdomain.com` is what SPF exists to stop,
+and a business name is user input, so quotes, angle brackets and newlines are
+stripped — header injection otherwise. 7 tests hold that.
+
+### 🚨 AND THE LAST MILE IS BLOCKED, BY CONFIGURATION
+
+Resend, 2026-09-18, on a live send:
+
+> `403 — The aidigitaldivision.com domain is not verified. Please, add and verify
+> your domain on https://resend.com/domains`
+
+**No CRM email can be delivered to anybody until that domain is verified.** The
+code path is proved: context → letter → provider → the refusal reported (not
+thrown, which was the bug class `sendLeadEmail` was written around) → the thread row
+written by a member. The composer now warns about a test sender *before* somebody
+writes, and the provider's own sentence is what it shows when it refuses.
+
+23 letter tests + 7 sender-name tests; 3,357 in total.
+
+---
+
 ## 🗓️ 2026-09-18 (later) — THE APPOINTMENT TAB GETS THE OWNER'S DATE PICKER
 
 Owner, with the reference: *"properly I can get time, date, and everything very

@@ -46,7 +46,8 @@ import { newLeadProblems } from '@/lib/domain/crm-new-lead';
 import { appointmentKindLabel, appointmentProblems, clashesWith } from '@/lib/domain/crm-appointments';
 import { needsApproval, quotationProblems, toRupees } from '@/lib/domain/crm-quotations';
 import { toE164 } from '@/lib/domain/phone';
-import { quotationEmail, sendLeadEmail } from '@/lib/crm/email';
+import { fromAddress, quotationEmail, sendLeadEmail } from '@/lib/crm/email';
+import { describeSender } from '@/lib/email/send';
 import { DIVISION_NAME } from '@/lib/domain/constants';
 
 /* ============================================================================
@@ -1355,12 +1356,21 @@ export async function emailQuotationAction(
       : null,
     itemLabel: q.itemLabel,
     itemDetail: q.itemDetail,
-    salespersonName: user.fullName,
-    businessName: q.projectName ?? DIVISION_NAME,
+    from: {
+      businessName: q.projectName ?? DIVISION_NAME,
+      subtitle: null,
+      salespersonName: user.fullName,
+      replyTo: describeSender().configured ? fromAddress() : null,
+      phone: null,
+    },
     note: note.trim() || null,
   });
 
-  const sent = await sendLeadEmail({ to, email });
+  const sent = await sendLeadEmail({
+    to,
+    email,
+    as: { businessName: q.projectName ?? null, replyTo: user.email ?? null },
+  });
   if (!sent.ok) return { ok: false, error: sent.error ?? 'The email could not be sent.' };
 
   /* ⚠️ RECORDED ONLY ONCE IT HAS ACTUALLY GONE. A row written first would show a
