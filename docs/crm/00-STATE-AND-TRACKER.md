@@ -13,6 +13,50 @@
 
 ---
 
+## ⚡ 2026-09-18 (later) — THE EMAIL COMPOSER STOPS WAITING
+
+Owner: *"why is it taking a lot of time to load in the conversation in the email
+tab?"*
+
+Measured before guessing. `explain (analyze)` on the query behind it:
+**6.4 ms**. So the database was never the problem — the composer was, and it was
+mine from an hour earlier.
+
+It called `emailComposerContextAction(leadId)` on mount and rendered
+*"Reading who this would come from…"* until the answer arrived. Of the six fields
+that action returned, **four were already on the page**:
+
+| it fetched | where it already was |
+|---|---|
+| the client's name and address | `lead.fullName`, `lead.email` in the drawer's record |
+| the business | `sender.displayName` / `lead.projectName` |
+| the salesperson | `viewerName`, already a prop |
+| the last email's subject | `messages` — the thread drawn directly above it |
+
+⚠️ **RULE ZERO, LAW 3, BROKEN BY THE PERSON WHO WROTE IT DOWN.** *Never re-fetch
+what is already on the page.* A round trip from Karachi is ~101 ms before the
+server does anything, and in dev the first call to a brand-new server action pays
+a Turbopack compile on top — which is why it read as *"a lot of time"* rather than
+a flicker.
+
+**Now:** every field the header shows is a prop, and the subject is computed from
+the thread with `useMemo`. The composer draws in the frame the chip is clicked.
+
+⚠️ **ONE THING GENUINELY CANNOT BE KNOWN BY THE BROWSER** — whether a mailer is
+configured and which address it sends from. That is a per-ENVIRONMENT fact, not a
+per-lead one, so `mailerStatusAction()` takes no arguments, is cached in a
+module-level promise for the whole page, and **nothing waits on it**: the address
+appears in the From line when it lands, and its absence for a beat is not
+announced. Re-asking it per drawer would have been the same wasted trip in smaller
+pieces.
+
+⚠️ **AND SEND IS NOT DISABLED WHILE THAT PROBE IS IN FLIGHT.** The one thing that
+can stop a send is an address the lead has not got, and the page knows that
+instantly. Everything else is the server's refusal to make, in the provider's own
+words.
+
+---
+
 ## ✏️ 2026-09-18 (later) — A LEAD CAN BE CORRECTED · 201
 
 Owner: *"add the edit option for things like phone number, email, for example, if I

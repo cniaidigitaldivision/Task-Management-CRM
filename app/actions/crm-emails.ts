@@ -26,7 +26,7 @@ import { revalidatePath } from 'next/cache';
 
 import { requireCrmAccess } from '@/lib/auth/current-user';
 import { followUpEmail, fromAddress, sendLeadEmail } from '@/lib/crm/email';
-import { crmLeadEmailContext, crmRecordSentEmail, type LeadEmailContext } from '@/lib/db/queries/crm-leads';
+import { crmLeadEmailContext, crmRecordSentEmail } from '@/lib/db/queries/crm-leads';
 import { describeSender } from '@/lib/email/send';
 import { displayPhone } from '@/lib/domain/phone';
 import { downloadObject, removeObject, signedUploadUrl } from '@/lib/storage/bucket';
@@ -38,67 +38,44 @@ const ATTACHMENT_MAX = 10 * 1024 * 1024;
 const TOTAL_MAX = 20 * 1024 * 1024;
 const MAX_FILES = 5;
 
-export interface EmailComposerContext {
-  readonly ok: boolean;
-  readonly error?: string;
-  /** The client's address, or null when the lead has none on record. */
-  readonly to?: string | null;
-  readonly toName?: string | null;
-  /** The address this environment actually sends from. */
-  readonly from?: string | null;
-  readonly fromName?: string | null;
-  readonly businessName?: string | null;
-  /** A subject to start from: a reply to the last one, or the business's name. */
-  readonly suggestedSubject?: string;
+/**
+ * What the mailer is, which has nothing to do with which lead is open.
+ *
+ * ⚠️ THIS REPLACED A PER-LEAD READ THAT BLOCKED THE WHOLE COMPOSER. Owner,
+ * 2026-09-18: *"why is it taking a lot of time to load in the conversation in the
+ * email tab?"* — and they were right. The composer would not draw until
+ * `emailComposerContextAction` came back, and everything it returned except these
+ * two fields was **already on the page**: the client's name and address, the
+ * business, the salesperson, and the last email's subject are all in the drawer's
+ * own record and thread (Rule Zero, law 3 — *never re-fetch what is already on
+ * the page*). The query itself measured 6.4 ms; the wait was the round trip, and
+ * the round trip did not need to exist.
+ *
+ * What is left genuinely cannot be known by the browser — whether a mailer is
+ * configured, and which address it sends from. Both are the same for every lead,
+ * so the composer asks once, in the background, and draws without waiting.
+ */
+export interface MailerStatus {
+  readonly configured: boolean;
+  /** The address this environment sends from, or null when there is none. */
+  readonly from: string | null;
   /**
    * True while mail can only reach the Resend account's own address.
    *
    * ⚠️ SAID BEFORE SOMEBODY WRITES, not after the provider refuses. The sandbox
-   * sender (`onboarding@resend.dev`) delivers to one address and refuses every
-   * other with a 403 — discovering that at the end of a carefully written email
-   * to a client is the worst moment to find out.
+   * sender delivers to one address and refuses every other with a 403.
    */
-  readonly sandbox?: boolean;
+  readonly sandbox: boolean;
 }
 
-/**
- * What the composer shows before anybody types.
- *
- * ⚠️ IT NAMES THE MISSING PIECE RATHER THAN DISABLING SILENTLY. "No email
- * address on this lead" is an ordinary state — 640 of 641 leads arrived from a
- * Meta form that never asked for one — and the composer says so with the fix
- * beside it, rather than a dead Send button.
- */
-export async function emailComposerContextAction(leadId: string): Promise<EmailComposerContext> {
-  const { user } = await requireCrmAccess();
-  if (!UUID.test(leadId)) return { ok: false, error: 'That lead could not be found.' };
-
-  const context = await crmLeadEmailContext(user.id, leadId);
-  if (!context) return { ok: false, error: 'That lead could not be found.' };
-
+export async function mailerStatusAction(): Promise<MailerStatus> {
+  await requireCrmAccess();
   const mailer = describeSender();
   return {
-    ok: true,
-    to: context.to,
-    toName: context.leadName,
+    configured: mailer.configured,
     from: mailer.configured ? fromAddress() : null,
-    fromName: user.fullName,
-    businessName: context.businessName,
-    suggestedSubject: suggestSubject(context),
     sandbox: mailer.configured && mailer.sandbox,
   };
-}
-
-/**
- * "Re: …" when there is a thread, the business's own line when there is not.
- *
- * ⚠️ NEVER "Re: Re: …". A client whose subject line grows a prefix every time is
- * reading a machine, not a salesperson.
- */
-function suggestSubject(context: LeadEmailContext): string {
-  const last = (context.lastSubject ?? '').trim();
-  if (last) return /^re:/i.test(last) ? last : `Re: ${last}`;
-  return context.businessName ? `${context.businessName} — following up` : 'Following up';
 }
 
 export interface EmailUploadSlot {

@@ -673,6 +673,7 @@ export function LeadDrawer({
               leadName={lead.fullName ?? 'This lead'}
               viewerName={viewerName}
               projectName={lead.projectName}
+              leadEmail={lead.email}
               handoff={handoff}
               onHandoffUsed={() => setHandoff(null)}
               onReviewFollowUp={() => go('followups')}

@@ -5,10 +5,10 @@ import { AlertTriangle, Loader2, Mail, Paperclip, X } from 'lucide-react';
 
 import {
   discardEmailAttachmentAction,
-  emailComposerContextAction,
+  mailerStatusAction,
   prepareEmailAttachmentAction,
   sendLeadEmailAction,
-  type EmailComposerContext,
+  type MailerStatus,
 } from '@/app/actions/crm-emails';
 import { useToast } from '@/components/ui/toast';
 import { cn } from '@/lib/utils';
@@ -16,25 +16,32 @@ import { cn } from '@/lib/utils';
 /* ============================================================================
  * WRITING AN EMAIL TO THE CLIENT
  * ----------------------------------------------------------------------------
- * Owner, 2026-09-18: *"Make this email work. Right now email is not working…
- * email should be sender… make sure that there is a proper email setup, like a
- * subject and body, and we can select media also."*
+ * Owner, 2026-09-18: *"Make this email work… a proper email setup, like a subject
+ * and body, and we can select media also."*
  *
- * So: who it is from, who it is going to, a subject, a body, and attachments.
+ * ── ⚠️ AND IT DRAWS IN THE FRAME IT OPENS ───────────────────────────────────
+ * Owner, an hour later: *"why is it taking a lot of time to load in the
+ * conversation in the email tab?"* The first version asked the server for a
+ * context object before rendering anything, and everything in that object except
+ * two fields was **already on the page** — the client's name and address, the
+ * business, the salesperson, and the last email's subject all live in the
+ * drawer's own record and thread. Rule Zero, law 3: *never re-fetch what is
+ * already on the page.* The query measured 6.4 ms; the wait was a round trip that
+ * did not need to exist.
  *
- * ⚠️ THE FROM LINE IS READ FROM THE SERVER, NOT WRITTEN HERE. It is the address
- * this environment actually sends from, so what the client will see in their
- * inbox is what this says — a hard-coded "sales@" would be a promise the mailer
- * does not keep.
+ * So everything the header shows arrives as a prop, and the one genuinely unknown
+ * thing — whether a mailer is configured and which address it sends from — is a
+ * per-ENVIRONMENT fact, asked once for the whole session and never blocking.
  *
- * ⚠️ AND THE MISSING PIECES ARE NAMED, NOT HIDDEN. No address on the lead, or no
- * mailer configured, each get their own sentence with the fix in it. A greyed-out
- * Send button teaches somebody the feature is broken.
+ * ⚠️ THE FROM LINE IS STILL THE SERVER'S. What this shows is a label; the letter's
+ * real sender, business and recipient are read from the lead under RLS inside
+ * `sendLeadEmailAction`. A composer that posted its own "from" could put one
+ * client's business on another's letter.
  *
  * ⚠️ ATTACHMENTS GO TO STORAGE FIRST. A server action refuses a body over 4.5 MB
  * (Vercel's limit), so the browser uploads on a signed URL and the send action
- * reads the file back out of the bucket — the same route the WhatsApp composer
- * and the quotation PDF take.
+ * reads the file back out of the bucket — the same route the WhatsApp composer and
+ * the quotation PDF take.
  * ========================================================================= */
 
 interface Attached {
@@ -45,44 +52,72 @@ interface Attached {
   readonly sizeLabel: string;
 }
 
+const MAX_FILES = 5;
+
 function sizeLabel(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/**
+ * The mailer, asked once per page load.
+ *
+ * ⚠️ A MODULE-LEVEL PROMISE, NOT STATE. Switching leads unmounts this component,
+ * and re-asking "is email configured" for every drawer would be the same wasted
+ * round trip in smaller pieces. The answer cannot change while the page is open —
+ * it is read from the environment.
+ */
+let mailerOnce: Promise<MailerStatus> | null = null;
+function mailer(): Promise<MailerStatus> {
+  mailerOnce ??= mailerStatusAction().catch(
+    /* A failed probe must not break the composer: Send still works, and the
+       server refuses with the real reason if there is one. */
+    (): MailerStatus => ({ configured: true, from: null, sandbox: false }),
+  );
+  return mailerOnce;
+}
+
 export function EmailComposer({
   leadId,
+  to,
+  toName,
+  businessName,
+  fromName,
+  suggestedSubject,
   onSent,
 }: {
   leadId: string;
+  /** The client's address, or null when the lead has none on record. */
+  to: string | null;
+  toName: string;
+  businessName: string;
+  /** Who signs it — the person reading this screen. */
+  fromName: string;
+  /** Computed from the thread already on the page. */
+  suggestedSubject: string;
   /** Re-read the thread so the sent email appears without waiting for the poll. */
   onSent: () => void;
 }) {
   const toast = useToast();
   const fileRef = React.useRef<HTMLInputElement>(null);
-  const [context, setContext] = React.useState<EmailComposerContext | null>(null);
-  const [subject, setSubject] = React.useState('');
+  const [subject, setSubject] = React.useState(suggestedSubject);
   const [body, setBody] = React.useState('');
   const [attached, setAttached] = React.useState<readonly Attached[]>([]);
   const [uploading, setUploading] = React.useState(false);
   const [sending, setSending] = React.useState(false);
+  const [status, setStatus] = React.useState<MailerStatus | null>(null);
 
-  /* ⚠️ ONE READ WHEN THE COMPOSER OPENS. The subject it suggests comes from the
-     thread, so it cannot be computed on the client. */
+  /* ⚠️ UNDERNEATH A SCREEN THAT IS ALREADY UP. Nothing waits on this. */
   React.useEffect(() => {
     let alive = true;
-    void emailComposerContextAction(leadId).then((next) => {
-      if (!alive) return;
-      setContext(next);
-      if (next.ok && next.suggestedSubject) {
-        setSubject((current) => current || next.suggestedSubject!);
-      }
+    void mailer().then((next) => {
+      if (alive) setStatus(next);
     });
     return () => {
       alive = false;
     };
-  }, [leadId]);
+  }, []);
 
   const pick = async (file: File) => {
     if (uploading) return;
@@ -105,7 +140,7 @@ export function EmailComposer({
       setAttached((list) => [
         ...list,
         {
-          id: `${slot.path}`,
+          id: slot.path!,
           path: slot.path!,
           filename: file.name,
           mime: file.type || 'application/octet-stream',
@@ -141,9 +176,7 @@ export function EmailComposer({
       }
       toast({
         tone: 'ok',
-        text: result.unrecorded
-          ? 'Sent — but it could not be added to the conversation.'
-          : 'Email sent.',
+        text: result.unrecorded ? 'Sent — but it could not be added to the conversation.' : 'Email sent.',
       });
       setBody('');
       setAttached([]);
@@ -155,26 +188,9 @@ export function EmailComposer({
     }
   };
 
-  if (!context) {
-    return (
-      <p className="flex items-center gap-2 rounded-xl border border-border-default bg-bg-base px-3 py-3 text-caption text-text-secondary">
-        <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
-        Reading who this would come from…
-      </p>
-    );
-  }
-
-  if (!context.ok) {
-    return (
-      <p className="rounded-xl border border-border-default bg-bg-base px-3 py-3 text-caption text-feedback-error">
-        {context.error}
-      </p>
-    );
-  }
-
-  const noAddress = !context.to;
-  const noMailer = !context.from;
-  const blocked = noAddress || noMailer;
+  /* ⚠️ THE ADDRESS ON THE LEAD IS THE ONE THING THAT CAN STOP A SEND, and the
+     page knows it — so that refusal is instant rather than waiting on a probe. */
+  const noAddress = !to;
 
   return (
     <div className="rounded-xl border border-border-default bg-bg-base">
@@ -183,25 +199,25 @@ export function EmailComposer({
         <p className="flex min-w-0 flex-wrap items-baseline gap-x-2 text-caption">
           <span className="w-10 shrink-0 text-text-tertiary">From</span>
           <span className="truncate font-medium text-text-primary">
-            {context.fromName}
-            {context.businessName ? ` · ${context.businessName}` : ''}
+            {fromName} · {businessName}
           </span>
-          {context.from ? (
-            <span className="truncate text-text-secondary">&lt;{context.from}&gt;</span>
-          ) : (
+          {/* ⚠️ THE ADDRESS APPEARS WHEN IT ARRIVES, and its absence is not
+              announced — an empty slot for a beat is not worth a spinner. */}
+          {status?.from && <span className="truncate text-text-secondary">&lt;{status.from}&gt;</span>}
+          {status && !status.configured && (
             <span className="text-[color:var(--feedback-warning)]">no mailer configured</span>
           )}
         </p>
         <p className="flex min-w-0 flex-wrap items-baseline gap-x-2 text-caption">
           <span className="w-10 shrink-0 text-text-tertiary">To</span>
-          {context.to ? (
+          {to ? (
             <>
-              <span className="truncate font-medium text-text-primary">{context.toName}</span>
-              <span className="truncate text-text-secondary">&lt;{context.to}&gt;</span>
+              <span className="truncate font-medium text-text-primary">{toName}</span>
+              <span className="truncate text-text-secondary">&lt;{to}&gt;</span>
             </>
           ) : (
             <span className="text-[color:var(--feedback-warning)]">
-              {context.toName ?? 'This lead'} has no email address — add one on the Overview tab.
+              {toName} has no email address — add one with Edit details.
             </span>
           )}
         </p>
@@ -260,7 +276,7 @@ export function EmailComposer({
         <button
           type="button"
           onClick={() => fileRef.current?.click()}
-          disabled={uploading || attached.length >= 5}
+          disabled={uploading || attached.length >= MAX_FILES}
           className="inline-flex items-center gap-1.5 rounded-lg border border-border-default px-2.5 py-1.5 text-caption font-medium text-text-primary transition-colors hover:bg-bg-subtle disabled:opacity-50"
         >
           {uploading ? (
@@ -282,28 +298,34 @@ export function EmailComposer({
           }}
         />
 
-        {blocked ? (
+        {noAddress ? (
           <p className="flex min-w-0 flex-1 items-center gap-1.5 text-caption text-text-secondary">
             <AlertTriangle className="size-3.5 shrink-0 text-[color:var(--feedback-warning)]" aria-hidden="true" />
-            {noAddress
-              ? 'Nothing can be sent until this lead has an email address.'
-              : 'Email is not configured in this environment — no RESEND_API_KEY.'}
+            Nothing can be sent until this lead has an email address.
           </p>
-        ) : context.sandbox ? (
+        ) : status && !status.configured ? (
           <p className="flex min-w-0 flex-1 items-center gap-1.5 text-caption text-text-secondary">
             <AlertTriangle className="size-3.5 shrink-0 text-[color:var(--feedback-warning)]" aria-hidden="true" />
-            Test sender: mail can only reach the Resend account&rsquo;s own address until a domain is verified.
+            Email is not configured in this environment — no RESEND_API_KEY.
+          </p>
+        ) : status?.sandbox ? (
+          <p className="flex min-w-0 flex-1 items-center gap-1.5 text-caption text-text-secondary">
+            <AlertTriangle className="size-3.5 shrink-0 text-[color:var(--feedback-warning)]" aria-hidden="true" />
+            Test sender: mail only reaches the Resend account&rsquo;s own address until a domain is verified.
           </p>
         ) : (
           <p className="min-w-0 flex-1 truncate text-caption text-text-tertiary">
-            Goes out as {context.businessName ?? 'your business'}, signed {context.fromName}.
+            Goes out as {businessName}, signed {fromName}.
           </p>
         )}
 
+        {/* ⚠️ NOT DISABLED WHILE THE PROBE IS IN FLIGHT. Send is live the moment
+            there is something to send; the server is what actually refuses, and it
+            refuses with the provider's own sentence. */}
         <button
           type="button"
           onClick={() => void send()}
-          disabled={blocked || sending || !subject.trim() || !body.trim()}
+          disabled={noAddress || sending || !subject.trim() || !body.trim()}
           className={cn(
             'inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-3.5 py-2 text-caption font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40',
           )}

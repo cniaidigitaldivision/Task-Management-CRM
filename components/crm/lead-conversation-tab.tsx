@@ -213,6 +213,7 @@ export function LeadConversationTab({
   sender,
   sequencePaused,
   leadName,
+  leadEmail,
   viewerName,
   projectName,
   handoff,
@@ -235,6 +236,14 @@ export function LeadConversationTab({
   /** Why the chase stopped, when it has — migration 170 pauses on a reply. */
   sequencePaused: string | null;
   leadName: string;
+  /**
+   * The client's email address, or null when the lead has none.
+   *
+   * ⚠️ A PROP, NOT A FETCH. The drawer already read it; the email composer used
+   * to ask the server for it and would not draw until the answer came back (Rule
+   * Zero, law 3 — and the owner noticed).
+   */
+  leadEmail: string | null;
   /** Who is reading — for "You deleted this message" and saved replies. */
   viewerName: string;
   projectName: string;
@@ -369,6 +378,25 @@ export function LeadConversationTab({
     [thread, overrides],
   );
   const everything = React.useMemo(() => [...liveThread, ...pending], [liveThread, pending]);
+
+  /**
+   * What to put in the subject line to start with.
+   *
+   * ⚠️ READ OFF THE THREAD THAT IS ALREADY HERE. This was a scalar subquery in a
+   * server action the composer blocked on; the messages it reads are the ones
+   * drawn above it.
+   *
+   * ⚠️ AND NEVER "Re: Re: …". A client whose subject grows a prefix every time is
+   * reading a machine, not a salesperson.
+   */
+  const suggestedSubject = React.useMemo(() => {
+    const last = [...liveThread]
+      .reverse()
+      .find((m) => m.channel === 'email' && (m.subject ?? '').trim() !== '');
+    const subject = (last?.subject ?? '').trim();
+    if (subject) return /^re:/i.test(subject) ? subject : `Re: ${subject}`;
+    return projectName ? `${projectName} — following up` : 'Following up';
+  }, [liveThread, projectName]);
 
   const counts = {
     whatsapp: everything.filter((m) => m.channel === 'whatsapp').length,
@@ -974,7 +1002,15 @@ export function LeadConversationTab({
                called a function whose whole body was a toast saying "email
                replies are not wired yet" — which is what the owner meant by
                *"right now email is not working."* */
-            <EmailComposer leadId={leadId} onSent={() => void refreshThread()} />
+            <EmailComposer
+              leadId={leadId}
+              to={leadEmail}
+              toName={leadName}
+              businessName={sender?.displayName ?? projectName}
+              fromName={viewerName}
+              suggestedSubject={suggestedSubject}
+              onSent={() => void refreshThread()}
+            />
           )}
         </div>
       )}
