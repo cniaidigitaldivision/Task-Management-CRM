@@ -13,6 +13,46 @@
 
 ---
 
+## ✉️ 2026-09-19 — EMAIL SENDS AGAIN; THE DOMAIN WAS IN TWO RESEND TEAMS
+
+Owner: *"why my email services are not working... I have set up a recent API."*
+
+The key was never the problem — it answered HTTP 200 throughout. **The sending
+domain `aidigitaldivision.com` exists in two Resend teams**, and only one matches
+the DNS:
+
+| | Domain id | Region | Status |
+|---|---|---|---|
+| **live** | `31b2ae65-…` | ap-northeast-1 | **verified** |
+| dead | `d82e917d-…` | us-east-1 | failed — a different DKIM key |
+
+The laptop held a key from the dead team, production held one from the live team.
+So **production sent and localhost was refused 403** — which is why no failed row
+appeared anywhere: the composer records a message only when the provider accepts
+it. A key made in the dead team can never work; the status belongs to the team.
+
+Fixed by issuing a key in the live team. Proved end to end through `sendEmail`
+itself, not curl: two sends accepted, both `last_event: delivered`, one carrying
+an attachment. The two earlier production sends (17 Sep 20:31, 18 Sep 11:48) are
+visible under the new key, so **both environments are now on one account**.
+
+⚠️ **`.env.local` had TWO `RESEND_API_KEY` lines** — the new one appended at the
+bottom while the old stayed at line 152. Within one file dotenv takes the last,
+so the app was already using the new key while every check read the first. One
+line now; `grep -n RESEND_API_KEY .env.local` before believing any reading.
+
+⚠️ **`mailerStatusAction` still cannot see a dead domain.** It reports "ready"
+whenever a key exists, and the refusal only appears after somebody presses Send.
+**Next, if it recurs:** have it ask Resend for the domain once per page.
+
+⚠️ **MX is about receiving.** The owner asked whether Gmail SMTP could replace
+this: their MX is ImprovMX → Gmail and the root SPF names privateemail and
+improvmx, with no Google anywhere. Gmail SMTP would need an alias verified, an app
+password, and `include:_spf.google.com`, and a free Gmail cannot align DKIM for
+the domain at all. Not needed now; recorded so it is not re-litigated.
+
+---
+
 ## 🗓️ 2026-09-18 (latest) — THE ACTIVITY TAB IS A TIMELINE YOU CAN FILTER
 
 Owner, with a reference image: *"I want that in the drawer where the activity tab
