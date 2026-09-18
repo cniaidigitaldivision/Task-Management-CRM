@@ -78,6 +78,17 @@ export function MonthGrid({
   nowMs,
   /** Days of the week to mark as closed — shown faint, still choosable. */
   closedDays = [],
+  /**
+   * Nothing on or before this instant may be picked.
+   *
+   * ⚠️ A CALENDAR MUST NOT OFFER WHAT THE FORM WILL REFUSE. A sequence step has
+   * to fall strictly after the one before it — `planProblem` has said so all
+   * along, because 170's one-chase-a-day cap would otherwise push the second to
+   * tomorrow and the plan on screen would not be the plan that ran. Letting
+   * somebody click the day and then rejecting it on save is the same rule
+   * enforced in the least helpful possible place.
+   */
+  notOnOrBefore = null,
 }: {
   month: { y: number; m: number };
   onMonth: (next: { y: number; m: number }) => void;
@@ -85,6 +96,7 @@ export function MonthGrid({
   onPick: (y: number, m: number, d: number) => void;
   nowMs: number;
   closedDays?: readonly number[];
+  notOnOrBefore?: number | null;
 }) {
   const today = karachiParts(nowMs);
   return (
@@ -115,7 +127,9 @@ export function MonthGrid({
         {calendarCells(month.y, month.m).map((cell, i) => {
           if (cell === null) return <span key={`x${i}`} className="rounded-lg bg-bg-subtle/40" />;
           const on = selected.y === month.y && selected.m === month.m && selected.d === cell;
-          const past = isPastDay(month.y, month.m, cell, nowMs);
+          const past =
+            isPastDay(month.y, month.m, cell, nowMs) ||
+            (notOnOrBefore !== null && karachiAt(month.y, month.m, cell, 12) <= notOnOrBefore);
           const isToday = today.y === month.y && today.m === month.m && today.d === cell;
           const closed = closedDays.includes(dayOfWeek(month.y, month.m, cell));
           return (

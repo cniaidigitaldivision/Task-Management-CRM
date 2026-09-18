@@ -1352,12 +1352,22 @@ function StepCalendar({
      start, and two controls writing one value is how they disagree. */
   const readOnlyDate = index === 0;
 
+  /* ⚠️ STRICTLY AFTER THE STEP BEFORE IT — `previous + 1`, not `previous`.
+     Owner, 2026-09-18: *"Step 2 must be after step 1, not on the same day."*
+     They were quoting `planProblem`'s own refusal, which this calendar was
+     walking people into: it let the same day be picked and the save then said no.
+     The reason the rule exists is 170's one-chase-a-day cap — two steps on one
+     day means the second is silently pushed to tomorrow, so the plan on screen
+     would not be the plan that ran. */
+  const earliestDay = index === 0 ? first : (steps[index - 1]?.day ?? first) + 1;
+  const notOnOrBefore =
+    index === 0 ? null : startMs + Math.max(0, earliestDay - 1 - first) * 86_400_000;
+
   const pick = (y: number, m: number, d: number) => {
     if (readOnlyDate) return;
     const chosen = karachiAt(y, m, d, 12);
     const offset = Math.round((chosen - startMs) / 86_400_000);
-    const previous = steps[index - 1]?.day ?? first;
-    onStep(index, { day: Math.max(previous, first + Math.max(0, offset)) });
+    onStep(index, { day: Math.max(earliestDay, first + Math.max(0, offset)) });
   };
 
   return (
@@ -1407,6 +1417,7 @@ function StepCalendar({
           selected={{ y: parts.y, m: parts.m, d: parts.d }}
           onPick={pick}
           nowMs={nowMs}
+          notOnOrBefore={notOnOrBefore}
         />
 
         <div className="space-y-3">
@@ -1437,10 +1448,10 @@ function StepCalendar({
           ) : (
             <p className="flex items-start gap-2 rounded-lg bg-bg-subtle px-3 py-2 text-caption leading-relaxed text-text-secondary">
               <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-              {step.day - first === 0
-                ? 'The same day as the plan starts.'
-                : `${step.day - first} day${step.day - first === 1 ? '' : 's'} after the plan starts` +
-                  (index > 0 ? `, ${step.day - (steps[index - 1]?.day ?? first)} after the step before it.` : '.')}
+              {`${step.day - first} day${step.day - first === 1 ? '' : 's'} after the plan starts` +
+                (index > 0
+                  ? `, ${step.day - (steps[index - 1]?.day ?? first)} after the step before it. Earlier days are closed because only one chase a day reaches a client.`
+                  : '.')}
             </p>
           )}
 
