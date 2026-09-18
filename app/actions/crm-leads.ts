@@ -626,10 +626,26 @@ export async function recordOutcomeAction(
        replied is the fastest way to look like a robot. `stopped` for a closed
        lead, `paused` while somebody decides. */
     if (input.pauseSequence || closing || input.outcome === 'client_replied') {
+      /* ⚠️⚠️ `now()` IS SQL. IT CANNOT TRAVEL AS A PARAMETER, AND THIS THREW.
+         Written as `${closing ? null : 'now()'}::timestamptz`, which reads like
+         SQL and is not: everything in `${}` is a bound value, so the string
+         "now()" was handed to postgres.js's timestamptz serializer, which did
+         `new Date('now()').toISOString()` and raised **RangeError: Invalid time
+         value** before a byte reached Postgres.
+
+         ⚠️ AND IT TOOK THE WHOLE OUTCOME WITH IT. This runs inside the same
+         transaction as the stage change, the timeline row and the note, so
+         every outcome that closes a lead, records a reply, or pauses a chase
+         rolled back entirely — the salesperson saw an error and lost what the
+         client had just told them. Anything that does not close a lead was
+         unaffected, which is why it survived this long.
+
+         The clock stays the database's, as it is on `updated_at` one line down;
+         only the branch is a parameter now. */
       await tx`
         update public.crm_lead_sequences
            set state = ${closing ? 'stopped' : 'paused'}::public.crm_sequence_state,
-               paused_at = ${closing ? null : 'now()'}::timestamptz,
+               paused_at = case when ${closing}::boolean then null else now() end,
                pause_reason = ${
                  closing
                    ? null
@@ -637,7 +653,7 @@ export async function recordOutcomeAction(
                      ? 'Client replied'
                      : 'Paused when the outcome was recorded'
                },
-               stopped_at = ${closing ? 'now()' : null}::timestamptz,
+               stopped_at = case when ${closing}::boolean then now() else null end,
                updated_at = now()
          where lead_id = ${leadId}::uuid
            and state in ('scheduled', 'active', 'paused')`;
