@@ -3484,7 +3484,12 @@ export async function crmMyTodos(actorId: string, aheadDays = 7): Promise<CrmTod
       from public.crm_follow_ups f
       join public.crm_leads l on l.id = f.lead_id, me
      where f.assigned_to_id = me.id
-       and f.status = 'due'
+       /* ⚠️ 202: A PLANNED ROW WHOSE MOMENT HAS COME IS DUE. Nothing ever moved
+          a follow-up from 'planned' to 'due' — no job, no trigger — so one set
+          for a future time never reached this list OR the sender, and its moment
+          passed in silence. The clock is asked, not the column. */
+       and f.status in ('planned', 'due')
+       and f.due_at <= now()
        and f.mode in ('remind_me', 'review_first')
   `);
 

@@ -191,6 +191,9 @@ export async function createFollowUpPlanAction(input: PlanInput): Promise<PlanRe
       title: step.title.trim(),
       body: step.body.trim() || null,
       dueAt,
+      /* ⚠️ THE MODE THE PERSON CHOSE. It was validated above and then dropped —
+         so "Auto-send" on a single follow-up saved a reminder instead. */
+      mode: step.mode,
       keepNextAction: input.keepNextAction,
     });
     const settled = settle(written);

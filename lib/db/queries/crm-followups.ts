@@ -70,6 +70,16 @@ export async function createFollowUp(
     title: string;
     body: string | null;
     dueAt: string;
+    /**
+     * What happens when it falls due — `remind_me` unless told otherwise.
+     *
+     * ⚠️ IT USED TO BE HARD-CODED, AND THE WIZARD'S CHOICE WAS THROWN AWAY.
+     * `createFollowUpPlanAction` validates that an auto-send channel can send
+     * itself and then called this without the mode, so **every single follow-up
+     * was written `remind_me`** however the person set it. The owner set one to
+     * auto-send on 2026-09-18 and asked whether it would go: it would not have.
+     */
+    mode?: 'remind_me' | 'review_first' | 'auto_send';
     /** ⚠️ Advanced: leave the desk's Next action alone. */
     keepNextAction?: boolean;
   },
@@ -79,7 +89,19 @@ export async function createFollowUp(
       insert into public.crm_follow_ups
         (lead_id, purpose, channel, mode, status, title, body, due_at, assigned_to_id, created_by_id)
       select l.id, ${input.purpose ?? 'custom'}::public.crm_followup_purpose,
-             ${input.channel}::public.crm_followup_channel, 'remind_me',
+             ${input.channel}::public.crm_followup_channel,
+             /* ⚠️ WHATSAPP WILL NOT AUTO-SEND FREE TEXT INTO A CLOSED WINDOW, so a
+                step that would be refused is stored as one a PERSON reviews — the
+                same downgrade 187 applies to a sequence step, decided in one place
+                rather than discovered by a failed send. A single follow-up has no
+                sequence step, so it has no template to fall back on. */
+             (case
+                when ${input.mode ?? 'remind_me'} <> 'auto_send' then ${input.mode ?? 'remind_me'}
+                when ${input.channel} = 'email' then 'auto_send'
+                when ${input.channel} <> 'whatsapp' then 'remind_me'
+                when app.crm_window_is_open(l.id) then 'auto_send'
+                else 'review_first'
+              end)::public.crm_followup_mode,
              (case when ${input.dueAt}::timestamptz <= now() then 'due' else 'planned' end)::public.crm_followup_status,
              ${input.title}, ${input.body}, ${input.dueAt}::timestamptz,
              coalesce(l.owner_id, ${actorId}::uuid), ${actorId}::uuid
@@ -93,7 +115,8 @@ export async function createFollowUp(
        row still reads "Quotation check-in — overdue" is a table that lies about
        what is owed. It takes over when there is no next action, when the
        current one is already late, or when this one comes sooner. */
-    if (!input.keepNextAction) {
+    /* ⚠️ AND A MACHINE-SENT STEP IS NOT THE SALESPERSON'S NEXT ACTION (186). */
+    if (!input.keepNextAction && input.mode !== 'auto_send') {
       await tx`
         update public.crm_leads
            set next_action = ${input.title},
