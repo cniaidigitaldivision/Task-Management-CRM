@@ -336,7 +336,18 @@ export async function discardDraftAction(sequenceId: string): Promise<FollowUpRe
 export interface TemplateList {
   readonly ok: boolean;
   /** Approved first; Meta's own status on each. */
-  readonly templates: ReadonlyArray<{ name: string; language: string; status: string; category: string }>;
+  readonly templates: ReadonlyArray<{
+    name: string;
+    language: string;
+    status: string;
+    category: string;
+    /** The body as Meta stores it, for the preview in the picker. */
+    body: string;
+    /** How many {{n}} placeholders it takes — 0 can be sent as-is. */
+    variables: number;
+    /** Quick-reply buttons the client can tap. */
+    buttons: readonly string[];
+  }>;
   /** Where a person goes to write and submit one. */
   readonly managerUrl: string;
   readonly error?: string;

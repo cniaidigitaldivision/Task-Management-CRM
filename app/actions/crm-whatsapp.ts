@@ -32,6 +32,7 @@ import {
   mediaReader,
   sendMedia,
   sendReaction,
+  sendTemplate,
   sendText,
   whatsAppConfigFor,
   whatsAppMediaType,
@@ -199,6 +200,68 @@ export async function sendWhatsAppTextAction(
 
   revalidatePath(`/leads/${leadId}`);
   const thread = await crmLeadThread(user.id, leadId);
+  return result.ok ? { ok: true, thread } : { ok: false, error: result.error, thread };
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * TEMPLATES — the only way to START a conversation
+ * ----------------------------------------------------------------------------
+ * Owner, 2026-09-18: *"how can I initiate a chat with it?"*
+ *
+ * This is the answer, and until now the CRM had no button for it. A template
+ * could be SCHEDULED through the follow-up wizard and sent by the cron a few
+ * minutes later, but a salesperson looking at a conversation they cannot start
+ * had nowhere to press.
+ *
+ * ⚠️ AND IT IS NOT SUBJECT TO THE WINDOW CHECK — it is the exception the window
+ * has. `windowRefusal` deliberately is not called here: an approved template is
+ * exactly what Meta delivers when no window is open, and refusing it would close
+ * the only door there is.
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+export async function sendWhatsAppTemplateAction(input: {
+  leadId: string;
+  name: string;
+  language: string;
+  /** Values for {{1}}, {{2}}… in the order the body uses them. */
+  body?: readonly string[];
+  /** The body as the client will read it, placeholders already filled. */
+  preview?: string;
+}): Promise<WhatsAppSendResult> {
+  const user = await requireUser();
+
+  const name = input.name.trim();
+  const language = input.language.trim();
+  if (!name || !language) return { ok: false, error: 'Choose a template first.' };
+
+  const ready = await sendableLead(user.id, input.leadId);
+  if (!ready.ok) return { ok: false, error: ready.error };
+
+  const params = (input.body ?? []).map((v) => v.trim());
+  if (params.some((v) => v === '')) {
+    return { ok: false, error: 'Fill in every placeholder — Meta refuses a template with an empty one.' };
+  }
+
+  const result = await sendTemplate(ready.config, ready.phone, {
+    name,
+    language,
+    body: params.length > 0 ? params : undefined,
+  });
+
+  /* ⚠️ THE THREAD KEEPS WHAT THE CLIENT WILL SEE, not the template's name. A row
+     reading "quotation_follow_up" is meaningless to the next person to open this
+     conversation — and to the client it was a paragraph of text. */
+  await recordOutboundMessage(user.id, {
+    leadId: input.leadId,
+    wamid: result.wamid ?? null,
+    kind: 'text',
+    body: input.preview?.trim() || `Template sent: ${name}`,
+    replyToWamid: null,
+    error: result.ok ? null : (result.error ?? 'refused'),
+  });
+
+  revalidatePath(`/leads/${input.leadId}`);
+  const thread = await crmLeadThread(user.id, input.leadId);
   return result.ok ? { ok: true, thread } : { ok: false, error: result.error, thread };
 }
 

@@ -13,6 +13,52 @@
 
 ---
 
+## 💬 2026-09-18 (later) — A CONVERSATION CAN BE STARTED
+
+Owner: *"how can I initiate a chat with it? You are saying to send the quotation
+follow-up, it's active. Why can't I use that?"*
+
+**Because there was no button.** A template could be *scheduled* through the
+follow-up wizard and sent by the cron a few minutes later, but a salesperson
+looking at a conversation they cannot start had nowhere to press. Saying "send a
+template" in the previous entry described a capability the interface did not
+offer — the owner was right to push back.
+
+⚠️ **AND MY FIRST PROBE WAS WRONG.** `app.crm_project_waba` returned null and I
+nearly reported the project as unconnected. It is a **definer with an audience
+check**, and the MCP console has no `app.user_id` — so it answered null for *me*,
+not for the project. Re-run as Sarah it returns `1747354729809810`.
+`admin-sessions-cannot-test-access`, in the other direction: a session with too
+LITTLE context lies as readily as one with too much.
+
+Asked Meta directly. Six approved templates, and `quotation_follow_up` takes **no
+placeholders** — so it can be sent as-is.
+
+**`components/crm/template-picker.tsx`** opens from the warning in the composer
+strip, exactly where somebody discovers they cannot type.
+
+⚠️ **THE LIST IS READ LIVE FROM META**, never cached: a template is approved,
+paused or rejected by Meta and can change between one send and the next.
+⚠️ **WHAT CANNOT BE SENT IS SHOWN, NOT HIDDEN.** A template awaiting approval is
+the answer to *"why can I not message them yet"*; hiding it leaves somebody
+wondering where the one they submitted went.
+⚠️ **AND A TEMPLATE WITH PLACEHOLDERS IS OFFERED BUT NOT SENDABLE FROM HERE.**
+Meta refuses a send whose parameter count does not match, and this dialog has
+nowhere to type them — so it says so and points at New follow-up, which fills them
+from the lead's own details. `jaspers_market_order_confirmation_v1` takes three and
+is correctly marked; `listTemplates` counts the **highest index**, not the number of
+matches, because a body using `{{1}}` twice still takes one parameter.
+
+⚠️ **THE TEMPLATE SEND IS THE ONE PATH THE WINDOW CHECK DOES NOT GUARD.**
+`windowRefusal` is deliberately not called in `sendWhatsAppTemplateAction` — an
+approved template is exactly what Meta delivers when no window is open, and
+refusing it would close the only door there is.
+⚠️ **AND THE THREAD KEEPS WHAT THE CLIENT WILL SEE**, not the template's name: a row
+reading `quotation_follow_up` means nothing to the next person to open the
+conversation, and to the client it was a paragraph of text.
+
+---
+
 ## 🚫 2026-09-18 (later) — THE 24-HOUR WINDOW IS ENFORCED, NOT DISPLAYED
 
 Owner, with a screenshot of two messages marked *"Not delivered — Re-engagement

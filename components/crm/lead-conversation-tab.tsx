@@ -31,6 +31,7 @@ import {
 import { summariseConversationAction } from '@/app/actions/crm-conversation-summary';
 import { addNoteAction } from '@/app/actions/crm-leads';
 import { EmailComposer } from '@/components/crm/email-composer';
+import { TemplatePicker } from '@/components/crm/template-picker';
 import { AttachmentPreview, prepareFile, type PreparedFile } from '@/components/crm/whatsapp/attachments';
 import { WhatsAppComposer } from '@/components/crm/whatsapp/composer';
 import { EMOJI_FONT, preloadEmoji } from '@/components/crm/whatsapp/emoji-picker';
@@ -650,6 +651,7 @@ export function LeadConversationTab({
   /* ⚠️ THE DRAFT IS SET DURING RENDER, ONCE PER HAND-OFF, so the text is on
      screen in the same frame the dialog closes. The files need an await, so they
      go through the same `pickFiles` a drag-and-drop uses. */
+  const [templatesOpen, setTemplatesOpen] = React.useState(false);
   const [handoffSeen, setHandoffSeen] = React.useState<number | null>(null);
   if (handoff && handoff.id !== handoffSeen) {
     setHandoffSeen(handoff.id);
@@ -953,6 +955,18 @@ ${handoff.text}` : handoff.text));
       )}
 
       {/* ── Composer ────────────────────────────────────────────────── */}
+      {/* ⚠️ THE ONLY WAY TO START A CONVERSATION, and it lives where somebody
+          discovers they cannot. Owner: *"how can I initiate a chat with it?"* */}
+      {templatesOpen && (
+        <TemplatePicker
+          leadId={leadId}
+          leadName={leadName}
+          senderName={sender?.displayName ?? projectName}
+          onClose={() => setTemplatesOpen(false)}
+          onSent={(next) => setThread(next)}
+        />
+      )}
+
       {filter !== 'summary' && (
         <div className="mt-3 shrink-0">
           <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -1000,7 +1014,7 @@ ${handoff.text}` : handoff.text));
                       ) : (
                         <button
                           type="button"
-                          onClick={onReviewFollowUp}
+                          onClick={() => setTemplatesOpen(true)}
                           title="WhatsApp only delivers approved templates until the client writes again."
                           className="font-medium underline-offset-2 hover:underline"
                           style={{ color: 'var(--feedback-warning)' }}

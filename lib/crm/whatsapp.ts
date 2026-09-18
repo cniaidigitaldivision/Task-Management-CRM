@@ -341,29 +341,62 @@ export async function listTemplates(
   language: string;
   status: string;
   category: string;
+  /** The body as Meta stores it, placeholders and all — for the preview. */
+  body: string;
+  /**
+   * How many {{n}} placeholders the body has.
+   *
+   * ⚠️ A TEMPLATE WITH VARIABLES CANNOT BE SENT AS-IS. Meta refuses a send whose
+   * parameter count does not match, so a picker that offered one with no way to
+   * fill it in would produce a refusal instead of a message.
+   */
+  variables: number;
+  /** Quick-reply buttons, so the preview shows what the client can tap. */
+  buttons: readonly string[];
 }> | null> {
   const token = process.env.META_SYSTEM_USER_TOKEN?.trim();
   if (!token) return null;
 
   try {
     const response = await fetch(
-      `${API}/${apiVersion}/${wabaId}/message_templates?limit=200&fields=name,language,status,category`,
+      `${API}/${apiVersion}/${wabaId}/message_templates?limit=200&fields=name,language,status,category,components`,
       { headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(20_000) },
     );
     if (!response.ok) return null;
 
     const json = (await response.json()) as {
-      data?: Array<{ name?: string; language?: string; status?: string; category?: string }>;
+      data?: Array<{
+        name?: string;
+        language?: string;
+        status?: string;
+        category?: string;
+        components?: Array<{ type?: string; text?: string; buttons?: Array<{ text?: string; type?: string }> }>;
+      }>;
     };
     if (!json.data) return null;
 
-    return json.data.map((t) => ({
-      name: String(t.name ?? ''),
-      language: String(t.language ?? ''),
-      /* APPROVED · PENDING · REJECTED · PAUSED · DISABLED — Meta's own words. */
-      status: String(t.status ?? 'UNKNOWN'),
-      category: String(t.category ?? ''),
-    }));
+    return json.data.map((t) => {
+      const parts = t.components ?? [];
+      const body = String(parts.find((c) => c.type === 'BODY')?.text ?? '');
+      const buttons = (parts.find((c) => c.type === 'BUTTONS')?.buttons ?? [])
+        .map((b) => String(b.text ?? ''))
+        .filter(Boolean);
+      /* ⚠️ THE HIGHEST INDEX, NOT THE COUNT OF MATCHES. A body using {{1}} twice
+         takes one parameter, and counting occurrences would send two. */
+      const highest = [...body.matchAll(/\{\{\s*(\d+)\s*\}\}/g)]
+        .map((m) => Number(m[1]))
+        .reduce((a, b) => Math.max(a, b), 0);
+      return {
+        name: String(t.name ?? ''),
+        language: String(t.language ?? ''),
+        /* APPROVED · PENDING · REJECTED · PAUSED · DISABLED — Meta's own words. */
+        status: String(t.status ?? 'UNKNOWN'),
+        category: String(t.category ?? ''),
+        body,
+        variables: highest,
+        buttons,
+      };
+    });
   } catch {
     return null;
   }
