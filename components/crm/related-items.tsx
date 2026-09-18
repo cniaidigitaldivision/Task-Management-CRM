@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import {
   AlertTriangle,
   ArrowRight,
+  User,
   ArrowUpRight,
   CalendarDays,
   CalendarPlus,
@@ -343,36 +344,22 @@ export function RelatedItemsDialog({
         onMouseDown={(e) => e.stopPropagation()}
         className="relative flex h-[min(48rem,94vh)] w-full max-w-[70rem] flex-col overflow-hidden rounded-2xl border border-border-subtle bg-bg-surface shadow-2xl"
       >
-        {/* ⚠️ THE MARK AND THE NAME, ON EVERY TAB. Owner, 2026-09-17: *"the header
-            logo and the name should display right."* The business's own mark and
-            the name a client sees it under — the same pair the quotation preview
-            prints, so what is on screen here is what goes out. */}
+        {/* ⚠️ THE LEAD'S HEADER, NOT THE BUSINESS'S. The owner's reference puts a
+            plain avatar here with the client's own line under the title — the
+            business mark and name belong in the QUOTATION PREVIEW, where the
+            client sees them, and that is where *"the header logo and the name
+            should display right"* was about. Putting them up here as well made
+            this dialog look like it was addressed to us. */}
         <header className="flex shrink-0 items-center gap-3 border-b border-border-subtle px-6 py-4">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/brand/cni-ai-digital-division.png"
-            alt=""
-            className="size-11 shrink-0 rounded-xl bg-bg-subtle object-contain p-1"
-          />
+          <span className="grid size-11 shrink-0 place-items-center rounded-full bg-bg-subtle text-text-secondary">
+            <User className="size-5" aria-hidden="true" />
+          </span>
           <div className="min-w-0 flex-1">
-            <h2 className="truncate text-h3 font-semibold text-text-primary">
-              Related items
-              <span className="ml-2 text-body-sm font-normal text-text-secondary">
-                {sender?.displayName ?? lead.projectName}
-              </span>
-            </h2>
+            <h2 className="text-h3 font-semibold text-text-primary">Related items</h2>
             <p className="truncate text-body-sm text-text-secondary">
               {[lead.fullName ?? 'This lead', lead.projectName, lead.city].filter(Boolean).join(' · ')}
             </p>
           </div>
-          {sender?.displayNumber && (
-            <p className="hidden shrink-0 items-center gap-2 text-caption text-text-secondary sm:flex">
-              <span style={{ color: WA_GREEN }}>
-                <WhatsAppMark className="size-4" />
-              </span>
-              {displayPhone(sender.displayNumber)}
-            </p>
-          )}
           <button
             type="button"
             onClick={onClose}
@@ -396,12 +383,11 @@ export function RelatedItemsDialog({
               aria-selected={tab === t.key}
               onClick={() => setTab(t.key)}
               className={cn(
-                'relative flex min-w-0 flex-1 items-center justify-center gap-2 rounded-t-lg px-2 py-3.5 text-body transition-colors',
+                'relative flex min-w-0 flex-1 items-center justify-center gap-2 px-2 py-3.5 text-body transition-colors',
                 tab === t.key
                   ? 'font-semibold text-accent-primary'
-                  : 'font-medium text-text-secondary hover:bg-bg-subtle/60 hover:text-text-primary',
+                  : 'font-medium text-text-secondary hover:text-text-primary',
               )}
-              style={tab === t.key ? { background: 'color-mix(in oklab, var(--accent-primary) 7%, transparent)' } : undefined}
             >
               <t.icon className="size-5 shrink-0" />
               <span className="truncate">{t.label}</span>
@@ -509,7 +495,7 @@ function ListHead({ title, count, action }: { title: string; count: number; acti
 function Columns({ template, labels }: { template: string; labels: readonly string[] }) {
   return (
     <div
-      className="grid shrink-0 items-center gap-3 border-b border-border-subtle bg-bg-subtle/50 px-4 py-2.5 text-caption text-text-secondary"
+      className="grid shrink-0 items-center gap-4 border-b border-border-subtle bg-bg-subtle/50 px-5 py-2.5 text-caption text-text-secondary"
       style={{ gridTemplateColumns: template }}
     >
       <span />
@@ -538,7 +524,7 @@ function ListRow({
       type="button"
       onClick={onClick}
       aria-pressed={chosen}
-      className="grid w-full items-center gap-3 border-b border-border-subtle px-4 py-3.5 text-left transition-colors hover:bg-bg-subtle/60"
+      className="grid w-full items-center gap-4 border-b border-border-subtle px-5 py-3.5 text-left transition-colors hover:bg-bg-subtle/60"
       style={{ gridTemplateColumns: template, background: chosen ? ROW_ON : undefined }}
     >
       <span
@@ -1027,7 +1013,15 @@ function QuotationPdfPicker({ ctx, onClose }: { ctx: Ctx; onClose: () => void })
 
 /* ── 1 · Quotations ──────────────────────────────────────────────────────── */
 
-const Q_COLS = '18px minmax(0,0.9fr) minmax(0,1.4fr) minmax(0,1fr) auto';
+/* ⚠️ A PRICE AND A PILL ARE SIZED BY THEIR CONTENT, never by a fraction of the
+   pane. Owner, 2026-09-18: *"the properties in the appointment booking table are
+   very congested with one another."* Given `1fr`, "PKR 4,500,000" lost its last
+   digits to an ellipsis while the name column next to it had room to spare.
+   `minmax(0,max-content)` gives the number exactly what it needs and hands the
+   rest to the text columns — and it still cannot hold the table open, which is
+   what `auto` does (`truncate-in-auto-tables` in the notes). */
+const MONEY_COL = 'minmax(0,max-content)';
+const Q_COLS = `18px minmax(0,0.95fr) minmax(0,1.5fr) ${MONEY_COL} ${MONEY_COL}`;
 
 function QuotationsTab({ ctx, pickedId, onPick }: { ctx: Ctx; pickedId?: string; onPick: (id: string) => void }) {
   const { lead, items, sender, busy } = ctx;
@@ -1127,7 +1121,10 @@ function QuotationsTab({ ctx, pickedId, onPick }: { ctx: Ctx; pickedId?: string;
                         <p className="truncate text-body font-semibold text-text-primary">
                           {sender?.displayName ?? lead.projectName}
                         </p>
-                        <p className="truncate text-caption text-text-secondary">{lead.projectName}</p>
+                        {/* The line under the mark in the owner's reference. */}
+                        <p className="truncate text-caption text-text-secondary">
+                          Smarter conversations. Stronger business.
+                        </p>
                       </div>
                     </div>
                     <div className="shrink-0 text-right">
@@ -1254,10 +1251,10 @@ function QuotationsTab({ ctx, pickedId, onPick }: { ctx: Ctx; pickedId?: string;
         }
         right={
           <>
-            <Btn onClick={() => setAdding(true)}>
-              <Upload className="size-4" aria-hidden="true" />
-              Upload quotation PDF
-            </Btn>
+            {/* ⚠️ CANCEL AND ATTACH, EXACTLY AS THE REFERENCE DRAWS THEM. Uploading
+                a PDF is not a footer action — it lives on the list itself, next to
+                the quotations it adds to. */}
+            <Btn onClick={ctx.onClose}>Cancel</Btn>
             <Btn primary disabled={!chosen || busy} onClick={() => void attach()}>
               Attach selected quote
             </Btn>
@@ -1544,7 +1541,7 @@ function PropertySheetPicker({ ctx, onClose }: { ctx: Ctx; onClose: () => void }
 
 /* ── 2 · Properties ──────────────────────────────────────────────────────── */
 
-const P_COLS = '18px minmax(0,1.3fr) minmax(0,0.7fr) minmax(0,1fr) auto';
+const P_COLS = `18px minmax(0,1.5fr) minmax(0,0.6fr) ${MONEY_COL} ${MONEY_COL}`;
 
 function PropertiesTab({ ctx, pickedId, onPick, onChooseUnit }: {
   ctx: Ctx;
@@ -1751,10 +1748,7 @@ function PropertiesTab({ ctx, pickedId, onPick, onChooseUnit }: {
         note={`All records are linked to ${lead.fullName ?? 'this lead'} · Salesperson: ${lead.ownerName ?? 'Unassigned'}`}
         right={
           <>
-            <Btn onClick={() => setAddingPlots(true)}>
-              <Upload className="size-4" aria-hidden="true" />
-              Upload sheet
-            </Btn>
+            <Btn onClick={ctx.onClose}>Cancel</Btn>
             <Btn primary disabled={!chosen} onClick={() => void attach()}>
               Attach property sheet
             </Btn>
@@ -1777,7 +1771,7 @@ function Row2({ k, v }: { k: string; v: string }) {
 
 /* ── 3 · Appointments ────────────────────────────────────────────────────── */
 
-const A_COLS = '18px minmax(0,1.3fr) minmax(0,1.2fr) auto';
+const A_COLS = `18px minmax(0,1.4fr) minmax(0,1.1fr) ${MONEY_COL}`;
 
 function AppointmentsTab({ ctx, pickedId, onPick, onRecordOutcome }: {
   ctx: Ctx;
@@ -2063,7 +2057,7 @@ function AppointmentsTab({ ctx, pickedId, onPick, onRecordOutcome }: {
 
 /* ── 4 · Bookings ────────────────────────────────────────────────────────── */
 
-const B_COLS = '18px minmax(0,0.9fr) minmax(0,1.2fr) minmax(0,1fr) auto';
+const B_COLS = `18px minmax(0,0.95fr) minmax(0,1.3fr) ${MONEY_COL} ${MONEY_COL}`;
 
 function BookingsTab({ ctx, pickedId, onPick }: { ctx: Ctx; pickedId?: string; onPick: (id: string) => void }) {
   const { lead, items, busy } = ctx;
@@ -2350,10 +2344,7 @@ function BookingsTab({ ctx, pickedId, onPick }: { ctx: Ctx; pickedId?: string; o
         }
         right={
           <>
-            <Btn onClick={() => setAdding(true)}>
-              <Plus className="size-4" aria-hidden="true" />
-              Book property
-            </Btn>
+            <Btn onClick={ctx.onClose}>Cancel</Btn>
             <Btn
               primary
               disabled={!chosen || busy || chosen.status !== 'requested'}
@@ -2479,7 +2470,7 @@ function DocRow({ label, pill, tone = 'grey', action }: { label: string; pill: s
 
 /* ── 5 · Invoices ────────────────────────────────────────────────────────── */
 
-const I_COLS = '18px minmax(0,1.6fr) minmax(0,0.9fr) minmax(0,0.9fr) auto';
+const I_COLS = `18px minmax(0,1.7fr) minmax(0,0.8fr) ${MONEY_COL} ${MONEY_COL}`;
 
 function InvoicesTab({ ctx, pickedId, onPick }: { ctx: Ctx; pickedId?: string; onPick: (id: string) => void }) {
   const { lead, items, busy } = ctx;
