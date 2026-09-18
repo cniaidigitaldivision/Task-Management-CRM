@@ -9,7 +9,7 @@
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
 | **Last updated** | **2026-09-18** |
-| **Last migration applied anywhere** | **201** (applied 2026-09-18; **201 a lead's own details are correctable — the grant was missing, so no edit form could exist**; 197 requests reach the manager, 198 the receipt stamp reads its own table — **every booking update had been failing**, 199 a booking holds its plot, **200 the timeline takes what the app writes — recording an outcome had been failing for every salesperson**). CRM next: **202.** |
+| **Last migration applied anywhere** | **204** (applied 2026-09-18; **201 a lead's own details are correctable — the grant was missing, so no edit form could exist**; 197 requests reach the manager, 198 the receipt stamp reads its own table — **every booking update had been failing**, 199 a booking holds its plot, **200 the timeline takes what the app writes — recording an outcome had been failing for every salesperson**). CRM next: **205.** |
 
 ---
 
@@ -283,6 +283,76 @@ pieces.
 can stop a send is an address the lead has not got, and the page knows that
 instantly. Everything else is the server's refusal to make, in the provider's own
 words.
+
+---
+
+## ⏰ 2026-09-18 (later) — THE SENDER SENDS ON TIME · 202, 203, 204
+
+Owner: *"I have set a follow-up that will auto-send. Please check whether it will
+go at the set time."* Then: *"it's 1:01 pm but I didn't receive msg."* Then:
+*"I have set a time of 1 pm, but I received it at 1:03."*
+
+Three separate faults, found in that order, each hiding the next.
+
+### 202 · nothing ever moved a follow-up from `planned` to `due`
+
+No job, no trigger, no function — searching every body in `app` and `public` for
+the word returns nothing. `createFollowUp` writes `planned` for anything
+scheduled ahead, and **both** readers required `due`: the sender's queue (so it
+never sent) and `crmMyTodos` (so it never showed). A single follow-up set for a
+future time was **invisible for ever**, while looking scheduled in the drawer.
+
+⚠️ **SEQUENCES WERE NEVER AFFECTED, WHICH IS WHY IT SURVIVED.** 187 materialises
+each step already `due`, so every test of the scheduler exercised the path that
+worked. Both readers now ask the clock instead of the column.
+
+**And the wizard's Auto-send choice was being thrown away** — `createFollowUp`
+hard-coded `remind_me`, so every single follow-up saved as a manual reminder
+whatever the person picked.
+
+### 203 · one definition of "due" — 202 was half a fix
+
+The 13:00 run picked the row up and refused it: `"detail":"no longer due"`.
+
+⚠️ **`status = ''due''` APPEARED IN FOUR FUNCTIONS AND I CHANGED ONE.** The queue
+offered the row; `crm_followup_tokens`, `crm_followup_attachments` and
+`crm_followup_sent` all still demanded `due` exactly, so the sender was handed a
+row it was then told did not exist. It stopped at the first step — **before
+Meta** — so nothing was half-sent.
+
+A predicate copied into four places is one definition in name only. It is now
+`app.crm_followup_is_due(uuid)`, asked by all four. The next person to change
+what due means changes it once and **cannot half-change it**.
+
+### 204 · a minute's granularity, and no two senders at once
+
+Three of those minutes were the bug. But the owner was pointing at something the
+design still got wrong: **the sender ran every five minutes**, so a follow-up set
+for 1:03 would have waited until 1:05 however perfectly everything else worked.
+The picker lets somebody choose a minute; they were quietly given a five-minute
+window.
+
+So it runs **every minute** — which forces the question five minutes was hiding:
+
+⚠️ **`sendOne` SENDS TO META BEFORE IT SETTLES THE ROW.** Today's 13:00 request
+timed out at `pg_net`'s 120-second ceiling while the run kept working. At
+one-minute beats that is two runners alive at once, both reading the same row,
+**both messaging the client**. Settling twice was already refused (203) — the
+second would merely be *recorded* as a failure, after the client had it twice.
+
+A queue that hands one row to two workers is not a queue. Reading it now CLAIMS:
+`for update … skip locked`, `claimed_at` stamped in the same statement, and a
+claim older than five minutes is reclaimed so a crashed run cannot strand a
+follow-up. Settling releases it.
+
+⚠️ **AND FIVE OF THE SEVEN CRON JOBS FIRED AT MINUTE 0 TOGETHER** — the sender,
+the sequence advancer, the SLA sweep, the lead sync and the hourly follow-up
+job. That is what starved the request that timed out. They are spread across the
+minute now; nothing about their meaning changes.
+
+**Proved on the owner's own row:** `{"due":1,"sent":1,"failed":0}`, wamid
+returned, status `delivered` on their handset, follow-up `done` — and the next
+tick correctly found nothing. One message in thirty minutes, not two.
 
 ---
 
