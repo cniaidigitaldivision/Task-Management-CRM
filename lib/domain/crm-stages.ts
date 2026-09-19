@@ -97,54 +97,55 @@ interface StageMeta {
    label. `isStage()` below is what keeps the retired pair out of everything
    else. */
 const STAGES: Record<string, StageMeta> = {
-  new: { label: 'New', token: 'accent-primary', open: true },
-  contacted: { label: 'Contacted', token: 'chart-1', open: true },
-  /* 5.07 light / 6.57 dark. Was chart-3, which failed AND was the same 161°
-     green as `won` — a funnel whose third chip matched its last one. */
+  /* ── THE COLOURS, RE-MEASURED 2026-09-19 ───────────────────────────────
+     Owner: *"every stage should have a different colour. The grey is not looking
+     prominent."* Right, and the audit found more than grey. Measured through the
+     REAL chip (14% tint on bg-surface, token as ink) in both themes:
+
+       new              accent-primary   **2.73:1** — below the 4.5 floor, on the
+                                         stage every single lead starts in
+       quotation_sent   status-backlog   28% saturation — the grey
+       lost             neutral-500      20% saturation — the other grey
+       nurture / won    chart-3 / feedback-success — **BOTH hue 161**, despite the
+                                         old note here claiming each stage had
+                                         its own
+       contacted 224 / visit_scheduled 217 / quotation_sent 215 — three blues
+                                         within 9°, so the funnel read as one band
+
+     ⚠️ THE PREVIOUS FIGURES WERE TAKEN THROUGH THE BADGE COMPONENT, not
+     through this chip, which is why they read as passing. A token is only as
+     legible as the background it is actually drawn on.
+
+     The rule now: **no two ADJACENT stages share a hue family**, every stage
+     clears 4.5:1 on its own chip in BOTH themes, and the only muted colour left
+     is `nurture` — where muted is the meaning. */
+  new: { label: 'New', token: 'chart-1', open: true },                       /* 224 blue  5.64 */
+  contacted: { label: 'Contacted', token: 'chart-4', open: true },           /* 258 violet 4.95 */
   /* ⚠️ RETIRED (149). Kept so a legacy row renders a word; absent from
      STAGE_ORDER so nothing offers it. */
   follow_up: { label: 'Follow up', token: 'status-review', open: true },
-  qualified: { label: 'Qualified', token: 'chart-4', open: true },
-  /* ⚠️ THE MOST ATTENTION-HUNGRY STATE IN THE FUNNEL: the client has asked for
-     something and the clock is running on US. Takes the pink `follow_up` used to
-     wear — measured 5.07 light / 6.57 dark through the Badge, and freed when
-     that stage retired in 149. */
-  proposal_pending: { label: 'Proposal pending', token: 'status-review', open: true },
-  /* Sent, and now owed a chase. Slate reads as "out with them, waiting" — the
-     token `scheduled` wore, measured 6.24 / 6.62, freed by the same migration. */
-  quotation_sent: { label: 'Quotation sent', token: 'status-backlog', open: true },
-  /* ⚠️ THE ONE TOKEN IN THIS MAP THAT HAS NOT BEEN MEASURED THROUGH THE BADGE.
-     Every other line here carries a figure from 2026-09-10; this stage is new
-     and `status-todo` (blue) was chosen for meaning — blue is "in the diary"
-     everywhere else on the desk — not from a reading. It needs the same browser
-     check the others had before this strip is signed off, and it is flagged
-     rather than assumed because four tokens failed that check last time and all
-     four passed in dark. */
-  visit_scheduled: { label: 'Visit scheduled', token: 'status-todo', open: true },
-  /* 5.37 / 5.41. Keeps the gold this stage always had — `gold-700` is the step
-     that is legible at BOTH ends, where `accent-gold` is a fill. The palette
-     already records the same lesson one step further down:
-     `--text-gold: var(--gold-800)  ⚠️ NOT gold-500 — fails contrast on white`. */
-  visited: { label: 'Visited', token: 'gold-700', open: true },
-  /* 6.24 / 6.62. Slate reads as booked-and-waiting, and it takes the second gold
-     out of a strip that would otherwise have had two side by side. */
-  /* ⚠️ RETIRED (149) — folded into the appointment record. Same treatment. */
+  qualified: { label: 'Qualified', token: 'status-done', open: true },       /* 160 green  8.27 */
+  /* The client has asked for something and the clock is running on US. */
+  proposal_pending: { label: 'Proposal pending', token: 'status-review', open: true }, /* 330 pink 5.95 */
+  /* ⚠️ ORANGE, NOT SLATE — this was the grey the owner saw. A price is out
+     with them and owed a chase; that is not a background state. */
+  quotation_sent: { label: 'Quotation sent', token: 'chart-5', open: true }, /* 28 orange 9.01 */
+  visit_scheduled: { label: 'Visit scheduled', token: 'status-todo', open: true }, /* 217 blue 5.70 */
+  visited: { label: 'Visited', token: 'chart-6', open: true },               /* 45 gold   10.94 */
+  /* ⚠️ RETIRED (149) — folded into the appointment record. */
   scheduled: { label: 'Scheduled', token: 'status-backlog', open: true },
-  /* ⚠️ NOT `feedback-warning`, for two reasons. Semantically, negotiation is a
-     late-funnel stage, not a warning — the feedback tokens mean good/warning/
-     critical and spending one on a neutral stage leaves nothing to say "this
-     lead is in trouble" with later. And measured: feedback-warning through the
-     Badge's mix gives **4.37:1 in light**, just under the 4.5 floor. */
-  negotiation: { label: 'Negotiation', token: 'chart-2', open: true },
+  negotiation: { label: 'Negotiation', token: 'chart-2', open: true },       /* 337 pink  5.90 */
   /* ⚠️ `open: true`. A nurtured lead still counts as live and can still be won —
-     it has only stopped answering. Counting it as closed would quietly write off
-     every lead that went quiet. */
-  /* ⚠️ `chart-3`, NOT `gold-700` — `visited` already owns that, and every stage
-     needs its own hue or the funnel strip reads as one band (the colour test
-     catches exactly this). */
-  nurture: { label: 'Nurture', token: 'chart-3', open: true },
-  won: { label: 'Won', token: 'feedback-success', open: false },
-  lost: { label: 'Lost', token: 'neutral-500', open: false },
+     it has only stopped answering.
+     ⚠️ AND IT IS THE ONE STAGE THAT SHOULD BE QUIET. Parked is the meaning, so
+     the muted teal-grey is the message rather than an oversight — and at 5.21:1
+     it is still legible, which the old greys were chosen without checking. */
+  nurture: { label: 'Nurture', token: 'neutral-500', open: true },           /* 187 grey  5.21 */
+  won: { label: 'Won', token: 'feedback-success', open: false },             /* 161 green 5.57 */
+  /* ⚠️ `status-blocked`, NOT `feedback-error`: the softer red measures 4.34:1
+     on this chip in light and would have shipped just under the floor — caught
+     by testing the replacement rather than assuming a red is a red. */
+  lost: { label: 'Lost', token: 'status-blocked', open: false },             /* 0 red     5.57 */
 };
 
 export function isStage(value: string): value is CrmStage {

@@ -204,6 +204,15 @@ export interface CrmLeadRecord {
   /** call · whatsapp · email · meeting · site_visit · task. Drives the channel
    *  chip on the Next action card. */
   readonly nextActionType: string | null;
+  /**
+   * Who writes the reply on this lead — 212.
+   *
+   * ⚠️ CARRIED ON THE RECORD SO THE DRAWER CAN OFFER THE SAME CONTROL the
+   * Conversations page has. The owner opened the drawer's chat and found no
+   * dropdown: the page had it because its ROWS carry the mode and the record did
+   * not. One lead, two screens, one answer.
+   */
+  readonly agentMode: AgentMode;
 }
 
 export interface CrmLeadNote {
@@ -742,6 +751,7 @@ async function readCrmLeads(
              l.qualified_at,
              app.crm_lead_sells(l.id)::text as sells,
              l.next_action_type::text,
+             l.agent_mode::text as agent_mode,
              /* ⚠️ THE SAME LABEL THE LIST BUILDS. A second expression here would
                 render "5 Marla · A-101" on the desk and something else in the
                 drawer for the same unit, and the reader would reasonably wonder
@@ -870,6 +880,8 @@ async function readCrmLeads(
           : null,
         sells: String(row.sells ?? 'property'),
         nextActionType: (row.next_action_type as string | null) ?? null,
+        agentMode:
+          row.agent_mode === 'agent' ? 'agent' : row.agent_mode === 'suggest' ? 'suggest' : 'off',
       },
       notes: notes.get(id) ?? [],
       activity: activity.get(id) ?? [],

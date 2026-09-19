@@ -25,6 +25,7 @@ import type {
 const NOW = Date.parse('2026-09-10T09:00:00.000Z');
 
 const LEAD: CrmLeadRecord = {
+  agentMode: 'off',
   id: '955d695c-1ae8-4052-81f0-18bafea1f635',
   projectId: 'abc',
   projectName: 'Chitral Royal Homes',

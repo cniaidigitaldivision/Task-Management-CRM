@@ -31,6 +31,7 @@ import { EditLeadDetails } from '@/components/crm/edit-lead-details';
 import { RelatedItemsDialog, seedRelated } from '@/components/crm/related-items';
 import { initialsOf } from '@/components/ui/avatar';
 import type {
+  AgentMode,
   CrmLeadEvent,
   CrmLeadNote,
   CrmLeadRecord,
@@ -54,6 +55,8 @@ import {
   useConversationSummary,
 } from '@/components/crm/lead-conversation-tab';
 import { plannedSummary } from '@/lib/domain/crm-planned';
+import { setAgentModeAction } from '@/app/actions/crm-whatsapp';
+import { useToast } from '@/components/ui/toast';
 import { LeadActivityTab } from '@/components/crm/lead-activity-tab';
 import { LeadOverviewTab } from '@/components/crm/lead-overview-tab';
 import { LeadFollowUpsTab, type FollowUpComposer } from '@/components/crm/lead-followups-tab';
@@ -121,6 +124,10 @@ const TILE =
 /** The clicked row, as a record — for the frames before the server answers. */
 export function leadFromRow(row: CrmLeadRow): CrmLeadRecord {
   return {
+    /* ⚠️ `off` UNTIL THE RECORD ARRIVES. The desk row does not carry the mode,
+       and showing "AI agent" for the half-second before the real answer lands
+       would be a control claiming something untrue. */
+    agentMode: 'off',
     id: row.id,
     projectId: '',
     projectName: row.projectName ?? '',
@@ -307,7 +314,19 @@ export function LeadDrawer({
     eager: activeTab === 'conversations',
     onSummary: reportSummary,
   });
+  const toast = useToast();
   const [menuOpen, setMenuOpen] = React.useState(false);
+
+  /* ⚠️ THE CHOICE THIS FRAME, THE RECORD UNDERNEATH — the same shape the
+     Conversations page uses, and the same reason: the click must land before the
+     server answers. Dropped the moment the record itself agrees. */
+  const [agentWish, setAgentWish] = React.useState<AgentMode | null>(null);
+  const [seenMode, setSeenMode] = React.useState(lead.agentMode);
+  if (seenMode !== lead.agentMode) {
+    setSeenMode(lead.agentMode);
+    if (agentWish === lead.agentMode) setAgentWish(null);
+  }
+  const agentMode = agentWish ?? lead.agentMode;
   /* The Follow-ups tab's composer — opened from the drawer's foot, drawn in the tab. */
   const [composer, setComposer] = React.useState<FollowUpComposer>(null);
   /* ⚠️ THE STAGE DROPDOWN OPENS "Record outcome", it does not write.
@@ -722,6 +741,22 @@ export function LeadDrawer({
               viewerName={viewerName}
               projectName={lead.projectName}
               leadEmail={lead.email}
+              /* ⚠️ THE SAME CONTROL THE CONVERSATIONS PAGE HAS. Owner, 2026-09-19:
+                 *"in the drawer, there is no dropdown showing my reply,
+                 suggestion and AI agent."* One lead, two screens, one answer —
+                 and the change is optimistic here for the same reason it is
+                 there: a mode that waits for a round trip is a mode nobody
+                 trusts. */
+              agentMode={agentMode}
+              onAgentMode={(next) => {
+                const before = agentMode;
+                setAgentWish(next);
+                void setAgentModeAction(lead.id, next).then((r) => {
+                  if (r.ok) return;
+                  setAgentWish(before);
+                  toast({ tone: 'error', text: r.error ?? 'That did not save.' });
+                });
+              }}
               handoff={handoff}
               onHandoffUsed={() => setHandoff(null)}
               onReviewFollowUp={() => go('followups')}
