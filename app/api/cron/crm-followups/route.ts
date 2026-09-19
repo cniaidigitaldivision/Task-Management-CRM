@@ -46,6 +46,9 @@ export async function GET(request: Request) {
       due: results.length,
       sent: results.filter((r) => r.outcome === 'sent').length,
       failed: results.filter((r) => r.outcome === 'failed').length,
+      /* A step WhatsApp refused for a reason that passes — a template still
+         awaiting approval, a rate limit. Still alive, still due later. */
+      deferred: results.filter((r) => r.outcome === 'deferred').length,
       results,
     });
   } catch (error) {

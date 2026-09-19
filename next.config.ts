@@ -17,6 +17,33 @@ const nextConfig: NextConfig = {
   // link becomes a compile error rather than a 404 someone finds later.
   typedRoutes: true,
 
+  /**
+   * ⚠️ WITHOUT THIS, EVERY QUOTATION PDF IS REPORTED AS "NOT A PDF".
+   *
+   * Turbopack bundles `pdfjs-dist` into `.next/…/chunks/`, and pdfjs then sets up
+   * its in-process fake worker by importing `./pdf.worker.mjs` **relative to
+   * wherever it now lives** — a directory that contains no such file:
+   *
+   *     Setting up fake worker failed: "Cannot find module
+   *     '…/.next/dev/server/chunks/pdf.worker.mjs' imported from
+   *     '…/.next/dev/server/chunks/node_modules_pdfjs-dist_legacy_build_pdf_mjs_….js'"
+   *
+   * `readPdfText` catches that and reports "That file could not be opened as a
+   * PDF. Please upload the quotation as a PDF." — so a perfectly good PDF was
+   * blamed for a bundler path. Measured 2026-09-19 on the owner's own
+   * `CNI_AJ_Trading_Quotation.pdf`: 79 text items read fine from plain Node, and
+   * the identical bytes failed inside the app.
+   *
+   * Listed here, Next `require`s it from `node_modules` at runtime instead, where
+   * the worker sits beside it and resolution works.
+   *
+   * ⚠️ AND `pdf-text.ts` DELIBERATELY DOES NOT SET `GlobalWorkerOptions.workerSrc`
+   * — pointing it at a path is the other way out of this, and it breaks again the
+   * moment the file is built rather than run from source. Keep the package
+   * external and let pdfjs find its own worker.
+   */
+  serverExternalPackages: ['pdfjs-dist'],
+
   experimental: {
     /**
      * ── ⚠️ WHY LEAVING TAB, COMING BACK, AND WAITING AGAIN WAS THE DEFAULT ──

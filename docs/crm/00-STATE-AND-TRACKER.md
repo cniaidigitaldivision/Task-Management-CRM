@@ -9,7 +9,86 @@
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
 | **Last updated** | **2026-09-19** |
-| **Last migration applied anywhere** | **223** (applied 2026-09-19; **222 a client confirms their own appointment by tapping the template, 223 a first name that survives an Urdu name**; 220–221 appointments confirm and remind themselves; 219 a quotation or a booked visit warms the lead). CRM next: **224.** |
+| **Last migration applied anywhere** | **224** (applied 2026-09-19; **222 the client confirms their own appointment, 223 a first name that survives an Urdu name, 224 a refusal that will pass later waits instead of dying**; 220–221 appointments confirm and remind themselves). CRM next: **225.** |
+
+---
+
+## 🧭 2026-09-19 (later) — THE CONFIRM BUTTON IS LIVE, AND THREE THINGS IT EXPOSED
+
+The owner added both quick replies to `appointment_confirmed` and submitted it.
+**Read back from Graph: `QUICK_REPLY:"Confirm"`, `QUICK_REPLY:"Change the time"`,
+status PENDING.** The words match what 222 matches, so nothing in code changes
+when it approves.
+
+### 224 · ⚠️ A REFUSAL THAT WILL PASS LATER MUST NOT BE SETTLED
+
+Editing an approved template sends it back to PENDING, and Meta refuses a send on
+a PENDING template (132001). `crm_followup_sent` wrote **every** refusal as
+`failed`, which is terminal and retried by nothing — so any visit booked during
+the approval window, with the client's 24-hour window closed, would have had its
+confirmation refused once and **never sent, even after approval. Silently.**
+
+This is not really about the button: a rate limit on a busy morning had exactly
+the same permanent consequence. "Never" and "not yet" were being recorded
+identically. Now a retryable code (132001, 132015, 130429, 131056, 131000, 5xx,
+and any network failure) pushes the row forward 10 minutes; anything else stays
+permanent. It gives up after **8 attempts or 6 hours**, so a stale "your visit is
+tomorrow" can never crawl out of the queue. `deferred` is reported separately
+from `failed` — counting a healthy retry as a loss is its own lie.
+
+⚠️ **131047 (closed window) is deliberately NOT retryable**: the window only
+closes further, so eight retries would be eight identical refusals.
+
+**Proved live** against the sandbox with a template name Meta does not have:
+`deferred`, attempt 1, due in 10 minutes, reason kept — and not re-picked by the
+next run. 9 tests on `isRetryableRefusal`.
+
+### ⚠️ EVERY QUOTATION PDF WAS BEING BLAMED FOR A BUNDLER PATH
+
+Owner's screenshot: *"This PDF cannot be added — that file could not be opened as
+a PDF"* on `CNI_AJ_Trading_Quotation.pdf`. The file was never the problem. The
+same bytes read fine from plain Node (79 text items) and failed inside the app:
+
+    Setting up fake worker failed: "Cannot find module
+    '…/.next/dev/server/chunks/pdf.worker.mjs'"
+
+Turbopack bundles `pdfjs-dist` into `.next/…/chunks/`, where pdfjs then looks for
+its worker beside itself and finds nothing. `serverExternalPackages:
+['pdfjs-dist']` makes Next require it from `node_modules` at runtime instead.
+**A broad `catch` reported a bundler failure as "not a PDF" for who knows how
+long** — the fourth time this habit has cost this project a day.
+
+### ⚠️ AND THEN IT READ THE WRONG PRICE
+
+With the parse fixed, the owner's quotation extracted **PKR 255,000**. The
+document says:
+
+    SPECIAL PACKAGE PRICE   Total solution value   PKR 255,000
+    Special discount (30%)                       - PKR  76,500
+    FINAL QUOTED PRICE                             PKR 178,500
+
+No label matched, so it fell back to the largest figure on the page — **43% above
+the price actually quoted, about to be written onto a client's record as fact.**
+"Final quoted price" and "payable" are now labels, the **last** one wins (a price
+is negotiated down the page), and a discounted page with no stated total now
+**refuses rather than guesses**: the largest figure there is the pre-discount one
+by construction. Reads 178,500 now.
+
+### The property rule met a business that sells two different things
+
+`missingFrom` demanded a Marla, block or plot from every quotation — written when
+every quotation was a plot in Chitral. A CRM package for a towel manufacturer can
+never have one, and `crm_quotations.property_id` has **always** been nullable;
+only this check insisted. It now asks only of a document that is selling land.
+A document carrying no reference is filed under our own next `QT-` number, shown
+in the picker before Add — the money and the property are still taken from the
+paper or not at all.
+
+### ⚠️ None of this is live until the next deploy
+
+`pg_cron` triggers the **deployed** app, not a dev server. Observed during this
+work: a row this laptop deferred was then marked `failed` by production running
+the old code.
 
 ---
 

@@ -33,6 +33,23 @@ export interface QuotationFacts {
   /** "A-101" — a plot or unit code. */
   readonly plot: string | null;
   readonly validUntil: string | null;
+  /**
+   * Whether the document is quoting a PROPERTY at all.
+   *
+   * ⚠️ THE BUSINESS SELLS TWO DIFFERENT THINGS. This rule was written when
+   * every quotation was a plot in Chitral, and it demanded a Marla, block or
+   * plot from every PDF. Then the owner tried to file their own
+   * `CNI_AJ_Trading_Quotation.pdf` — a CRM package for a towel manufacturer —
+   * and was told the document was "not showing the property", which it never
+   * could. `crm_quotations.property_id` has always been nullable; only this
+   * check insisted.
+   *
+   * So a document that talks about Marla, Kanal, plots or blocks must still
+   * produce one. A document that plainly is not selling land is not asked to.
+   */
+  readonly quotesProperty: boolean;
+  /** True when the page shows a discount or a subtotal — see `extractQuotationFacts`. */
+  readonly discounted: boolean;
   /** How much text the file carried, so "no text at all" can be said plainly. */
   readonly textLength: number;
 }
@@ -40,9 +57,11 @@ export interface QuotationFacts {
 /** Everything the three rules need. Empty when the PDF has it all. */
 export function missingFrom(facts: QuotationFacts): string[] {
   const missing: string[] = [];
-  if (!facts.number) missing.push('a quotation number');
-  if (facts.amount === null) missing.push('an amount');
-  if (facts.marla === null && !facts.block && !facts.plot) missing.push('the property (Marla, block or plot)');
+  if (facts.amount === null) missing.push('a price');
+  /* ⚠️ ONLY OF A DOCUMENT THAT IS SELLING LAND — see `quotesProperty`. */
+  if (facts.quotesProperty && facts.marla === null && !facts.block && !facts.plot) {
+    missing.push('the property (Marla, block or plot)');
+  }
   return missing;
 }
 
@@ -66,17 +85,39 @@ export function extractQuotationFacts(text: string): QuotationFacts {
   /* ── The amount ────────────────────────────────────────────────────────────
      ⚠️ A LABELLED TOTAL BEATS THE BIGGEST NUMBER ON THE PAGE. A payment plan is
      full of figures, and the largest of them is not always the price — but
-     "Total", "Net" or "Quotation amount" is. Only when no label is found does
-     this fall back to the largest money-shaped number. */
-  const labelled =
-    /(?:quotation\s*amount|net\s*(?:amount|payable)|grand\s*total|total\s*(?:amount|price)?)\s*[:\-]?\s*(?:PKR|Rs\.?)?\s*([\d][\d,\s]{3,})/i.exec(flat)?.[1];
-  let amount = labelled ? toAmount(labelled) : null;
-  if (amount === null) {
+     "Total", "Net" or "Quotation amount" is.
+
+     ⚠️ AND THE *LAST* LABEL WINS, BECAUSE A PRICE IS NEGOTIATED DOWN THE PAGE.
+     Measured on the owner's own `CNI_AJ_Trading_Quotation.pdf`, which reads:
+
+         SPECIAL PACKAGE PRICE   Total solution value   PKR 255,000
+         Special discount (30%)                       - PKR  76,500
+         FINAL QUOTED PRICE                             PKR 178,500
+
+     The old rule found no label it knew and fell back to the largest figure:
+     **255,000, a price 43% higher than the document quotes**, written onto a
+     client's record as fact. "Final quoted price" and "payable" are now labels,
+     and the one nearest the bottom is the one that counts. */
+  const LABEL =
+    /(?:final\s*(?:quoted\s*)?(?:price|amount)|quotation\s*amount|net\s*(?:amount|payable|price)|amount\s*payable|total\s*payable|grand\s*total|total\s*(?:amount|price)?)\s*[:\-]?\s*(?:PKR|Rs\.?)?\s*([\d][\d,\s]{3,})/gi;
+  const labelled = [...flat.matchAll(LABEL)]
+    .map((m) => toAmount(m[1]))
+    .filter((n): n is number => n !== null);
+
+  /* A page that subtracts something has a figure on it that is NOT the price. */
+  const discounted = /\b(?:discount|less|subtotal|sub-total|before\s*discount|solution\s*value)\b/i.test(flat);
+
+  let amount = labelled.length > 0 ? labelled[labelled.length - 1] : null;
+  if (amount === null && !discounted) {
     const all = [...flat.matchAll(/(?:PKR|Rs\.?)\s*([\d][\d,\s]{3,})/gi)]
       .map((m) => toAmount(m[1]))
       .filter((n): n is number => n !== null);
     amount = all.length > 0 ? Math.max(...all) : null;
   }
+  /* ⚠️ AND WHEN A DISCOUNTED PAGE NAMES NO TOTAL, THIS REFUSES RATHER THAN
+     GUESSES. The largest figure there is the pre-discount one by construction,
+     so the fallback is not merely unreliable — it is reliably wrong. Better to
+     tell somebody the document does not state its price. */
 
   const marlaRaw = /(\d+(?:\.\d+)?)\s*marla/i.exec(flat)?.[1];
   const marla = marlaRaw ? Number(marlaRaw) : null;
@@ -112,5 +153,9 @@ export function extractQuotationFacts(text: string): QuotationFacts {
     }
   }
 
-  return { number, amount, marla, block, plot, validUntil, textLength: flat.length };
+  /* Does this document sell land at all? The words a property quotation cannot
+     avoid using, so a CRM package is not asked for a plot number. */
+  const quotesProperty = /\b(?:marla|kanal|plot|block|sq\.?\s*(?:ft|yd)|square\s*(?:feet|yards))\b/i.test(flat);
+
+  return { number, amount, marla, block, plot, validUntil, quotesProperty, discounted, textLength: flat.length };
 }

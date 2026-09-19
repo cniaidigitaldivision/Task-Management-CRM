@@ -38,6 +38,7 @@ import {
 import { withUser } from '@/lib/db/client';
 import { downloadObject, removeObject, signedUploadUrl, signedUrl } from '@/lib/storage/bucket';
 import { readPdfLines } from '@/lib/crm/pdf-text';
+import { nextQuotationNumber } from '@/lib/domain/crm-quotations';
 import { extractQuotationFacts, missingFrom, readPdfText, type QuotationFacts } from '@/lib/crm/quotation-pdf';
 import { parsePropertySheet, sheetProblem, type ParsedPlot } from '@/lib/domain/crm-property-sheet';
 
@@ -230,13 +231,16 @@ export interface PdfReading {
 
 /** "5 Marla · Block A · Plot A-101", from whatever the file actually said. */
 function unitHintOf(facts: QuotationFacts): string {
-  return [
+  const unit = [
     facts.marla !== null ? `${facts.marla} Marla` : null,
     facts.block ? `Block ${facts.block}` : null,
     facts.plot ? `Plot ${facts.plot}` : null,
   ]
     .filter(Boolean)
     .join(' · ');
+  /* ⚠️ A QUOTATION THAT SELLS NO LAND SAYS SO, rather than showing a dash that
+     reads as "this could not be read". */
+  return unit || (facts.quotesProperty ? '' : 'Not a property quotation');
 }
 
 /**
@@ -272,16 +276,46 @@ async function readUploadedQuotation(path: string): Promise<{ facts: QuotationFa
 
   const missing = missingFrom(facts);
   if (missing.length > 0) {
+    /* ⚠️ THE SENTENCE NAMES WHAT IS ACTUALLY WRONG. It used to end "…until the
+       document carries the quotation number, the property and the amount" on
+       every refusal, including a CRM quotation that will never have a property
+       and one whose only fault was a discounted page with no stated total. */
     return {
-      error: `This PDF is not showing ${missing.join(', ')}. It cannot be added to the available quotations until the document carries the quotation number, the property and the amount.`,
+      error:
+        `This PDF is not showing ${missing.join(' or ')}. ` +
+        (facts.discounted && facts.amount === null
+          ? 'It shows a discount but no final figure, and the largest number on a discounted page is not the price.'
+          : 'Add it to the document, or pick a different file.'),
     };
   }
   return { facts };
 }
 
+/**
+ * The number to file this document under.
+ *
+ * ⚠️ A DOCUMENT WITHOUT A NUMBER IS STILL A QUOTATION. The owner's own CRM
+ * quotation carries a date, a client, a scope and a price — and no reference at
+ * all, because it was written in a design tool rather than raised from here. The
+ * old rule refused it outright, which left a real quotation that had actually
+ * been sent to a real client with nowhere to live.
+ *
+ * ⚠️ AND THIS IS NOT INVENTING A FACT. `number` is NOT NULL on the row and is
+ * our filing reference, not a claim about the paper: the money, the property and
+ * the dates are still taken from the document or not at all. The picker shows
+ * the assigned number before anybody presses Add, so nobody is surprised by it.
+ */
+async function quotationReference(actorId: string, fromDocument: string | null): Promise<string> {
+  if (fromDocument) return fromDocument;
+  const used = await withUser(actorId, (tx) => tx`
+    select number from public.crm_quotations order by created_at desc limit 200
+  `);
+  return nextQuotationNumber((used as Array<Record<string, unknown>>).map((r) => String(r.number)));
+}
+
 /** What the picker shows before anybody presses Add. */
 export async function readQuotationPdfAction(leadId: string, path: string): Promise<PdfReading> {
-  await requireCrmAccess();
+  const { user } = await requireCrmAccess();
   if (!path.startsWith(`crm-quotations/${leadId}/`)) {
     return { ok: false, error: 'That file was not uploaded for this lead.' };
   }
@@ -290,7 +324,7 @@ export async function readQuotationPdfAction(leadId: string, path: string): Prom
   const { facts } = read;
   return {
     ok: true,
-    number: facts.number ?? undefined,
+    number: await quotationReference(user.id, facts.number),
     amount: facts.amount ?? undefined,
     unitHint: unitHintOf(facts),
     validUntil: facts.validUntil,
@@ -320,13 +354,13 @@ export async function addQuotationFromPdfAction(input: {
   const read = await readUploadedQuotation(input.path);
   if ('error' in read) return { ok: false, error: read.error };
   const { facts } = read;
-  if (!facts.number || facts.amount === null) {
-    return { ok: false, error: 'This PDF is not showing a quotation number and an amount.' };
+  if (facts.amount === null) {
+    return { ok: false, error: 'This PDF is not showing a price.' };
   }
 
   const written = await createQuotationFromPdf(user.id, {
     leadId: input.leadId,
-    number: facts.number,
+    number: await quotationReference(user.id, facts.number),
     amount: Math.round(facts.amount),
     validUntil: facts.validUntil,
     unitHint: unitHintOf(facts),

@@ -42,7 +42,12 @@ export interface SendReport {
   readonly followUpId: string;
   readonly leadName: string;
   readonly channel: string;
-  readonly outcome: 'sent' | 'failed';
+  /**
+   * ⚠️ `deferred` IS NOT A FAILURE AND MUST NOT BE COUNTED AS ONE. The step is
+   * still alive and still due later; a caller that reads anything-but-`sent` as
+   * a problem would report a healthy retry as a lost message.
+   */
+  readonly outcome: 'sent' | 'failed' | 'deferred';
   readonly detail: string;
 }
 
@@ -224,6 +229,41 @@ async function sendOne(row: QueueRow, token: string | undefined, apiVersion: str
              "tomorrow" on the day it sends and say the wrong thing. */
           body: row.template_values ?? templateParams(row.template_vars, values),
         });
+
+    /* ⚠️ A REFUSAL THAT WILL PASS LATER MUST NOT BE SETTLED. `crm_followup_sent`
+       writes `failed`, which is terminal and retried by nothing — so a template
+       awaiting approval (132001, exactly what editing an approved template
+       causes) would lose the client's confirmation permanently, and silently.
+       224 pushes the row forward instead, and gives up after 8 tries or 6 hours
+       so a stale "your visit is tomorrow" can never crawl out of the queue. */
+    if (!result.ok && result.retryable) {
+      const outcome = (await withAppRole((tx) => tx`
+        select app.crm_followup_defer(
+          ${row.follow_up_id}::uuid,
+          ${result.error ?? 'WhatsApp refused the message.'},
+          ${10}::integer
+        ) as outcome
+      `)) as unknown as Array<{ outcome: string | null }>;
+
+      if (outcome[0]?.outcome === 'deferred') {
+        return {
+          followUpId: row.follow_up_id,
+          leadName: name,
+          channel: row.channel,
+          outcome: 'deferred' as const,
+          detail: result.error ?? 'WhatsApp refused the message.',
+        };
+      }
+      /* 'failed' (it gave up) or null (no longer ours) — 224 has already written
+         the row, so settling it again here would overwrite its reason. */
+      return {
+        followUpId: row.follow_up_id,
+        leadName: name,
+        channel: row.channel,
+        outcome: 'failed' as const,
+        detail: result.error ?? 'WhatsApp refused the message.',
+      };
+    }
 
     return done(result.wamid ?? null, result.ok ? null : (result.error ?? 'WhatsApp refused the message.'), body, null);
   }

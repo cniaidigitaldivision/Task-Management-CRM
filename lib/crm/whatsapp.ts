@@ -102,6 +102,46 @@ export interface SendResult {
    *  actually send the client" is one of the questions this log exists for. */
   readonly mediaId?: string;
   readonly error?: string;
+  /**
+   * Meta's numeric error code, kept so a caller can tell the two kinds of
+   * refusal apart.
+   *
+   * ⚠️ "NEVER" AND "NOT YET" READ IDENTICALLY AS PROSE. 132001 (the template
+   * is not approved *yet*) and "this lead has no phone" are both a sentence
+   * saying no, and the follow-up queue used to bury both as `failed`, which is
+   * terminal. Only the number distinguishes them. `retryable` is the answer
+   * derived from it — see `isRetryableRefusal`.
+   */
+  readonly errorCode?: number;
+  /** True when trying the identical send again later could succeed. */
+  readonly retryable?: boolean;
+}
+
+/**
+ * Refusals that are about *now*, not about the message.
+ *
+ * ⚠️ EVERY OTHER CODE IS TREATED AS PERMANENT, deliberately. A retry on a
+ * genuinely broken message is not free — it is the same refusal eight times, and
+ * a "your visit is tomorrow" that finally lands the day after. The default has to
+ * be to stop, so this list stays short and each entry earns its place.
+ */
+export function isRetryableRefusal(code: number | undefined): boolean {
+  switch (code) {
+    /* The template exists but is not APPROVED at this instant — which is exactly
+       what editing an approved template does to it. It approves itself. */
+    case 132001:
+    /* Meta paused the template for quality; it resumes on its own. */
+    case 132015:
+    /* Rate limits: the business's throughput cap, and the per-recipient cap. */
+    case 130429:
+    case 131056:
+    /* Meta's own transient failure. Its name for "try again". */
+    case 131000:
+    case 500:
+      return true;
+    default:
+      return false;
+  }
 }
 
 /**
@@ -138,12 +178,15 @@ async function post(
       signal: AbortSignal.timeout(20_000),
     });
   } catch {
-    return { ok: false, error: 'WhatsApp could not be reached. Try again in a moment.' };
+    /* ⚠️ A NETWORK FAILURE IS THE MOST RETRYABLE THING THERE IS. It carries no
+       code because Meta never answered — marking it permanent would throw a
+       message away over a dropped packet. */
+    return { ok: false, error: 'WhatsApp could not be reached. Try again in a moment.', retryable: true };
   }
 
   const json = (await response.json().catch(() => ({}))) as {
     messages?: Array<{ id?: string }>;
-    error?: { message?: string; error_data?: { details?: string } };
+    error?: { message?: string; code?: number; error_data?: { details?: string } };
   };
 
   if (!response.ok || json.error) {
@@ -157,7 +200,14 @@ async function post(
        nothing: not that the client has to write first, not that a template is the
        way in. Those few are translated; everything else is passed through. */
     const detail = json.error?.error_data?.details ?? json.error?.message;
-    return { ok: false, error: explainWhatsAppRefusal(detail) ?? `WhatsApp refused the message (${response.status}).` };
+    /* ⚠️ A 5xx WITH NO CODE IS STILL META'S FAULT, not the message's. */
+    const code = json.error?.code ?? (response.status >= 500 ? 500 : undefined);
+    return {
+      ok: false,
+      error: explainWhatsAppRefusal(detail) ?? `WhatsApp refused the message (${response.status}).`,
+      errorCode: code,
+      retryable: isRetryableRefusal(code),
+    };
   }
 
   const wamid = json.messages?.[0]?.id;
