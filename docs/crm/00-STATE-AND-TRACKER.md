@@ -9,7 +9,67 @@
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
 | **Last updated** | **2026-09-18** |
-| **Last migration applied anywhere** | **207** (applied 2026-09-18; 205/206 a lead with three unanswered chases moves to Nurture, **203 one definition of due — 202 was half a fix and the 1pm send failed with "no longer due"**, 204 the sender claims a row before it sends, 207 every step keeps its own hour). CRM next: **208.** |
+| **Last migration applied anywhere** | **208** (applied 2026-09-19; **208 a reply pauses the chase at once — the pause was real but only written down when the next step fell due**; 205/206 Nurture, 203 one definition of due, 204 the sender claims a row, 207 every step keeps its own hour). CRM next: **209.** |
+
+---
+
+## ⏸️ 2026-09-19 — A REPLY NOW PAUSES THE CHASE AT ONCE · 208
+
+Owner, on **Umm e e Habiba**: *"Because she replied the conversation should be
+paused… right now I am watching in the follow-up tab: the next two follow-ups are
+still scheduled."*
+
+**The rule was never broken.** `app.crm_sequence_stop_reason` returned *"the
+client replied"* for that run the whole time, and **both** gates ask it before
+anything leaves — the engine's loop, and `crm_followups_to_send`'s own guard.
+Nothing was going to reach her.
+
+⚠️ **WHAT WAS WRONG IS WHEN THE ANSWER GETS WRITTEN DOWN.** The engine only
+examines a run whose next step is already due (`next_step_at <= now()`). Hers was
+**21 Sep 10:00**, so for 44 hours the run stayed `active` — and the Follow-ups
+tab, which reads the run, honestly drew steps 2 and 3 as *upcoming*. **A screen
+that promises what the engine will refuse is a bug even when the engine is
+right**; the reason to open that tab is to know whether the client is still being
+chased.
+
+Fixed in `crm_record_inbound_message` — the only writer of an inbound row,
+checked against `pg_proc` rather than assumed. After the insert (the stop reason
+looks for an inbound row; asked first it finds nothing) and only when the insert
+was new (Meta retries, and a redelivery must not restamp `paused_at` on a run
+somebody has since resumed).
+
+⚠️ **AND THE TRANSITION IS ONE FUNCTION NOW** — `app.crm_sequence_settle`, which
+the engine calls as well. 202 shipped as half a fix in exactly this shape.
+
+Her run was backfilled through that same function: **paused, "the client
+replied"**. Adnan Bashir's live plan was left running.
+
+---
+
+## 🚩 2026-09-19 — FOUND WHILE FIXING 208: **NURTURE CANNOT FIRE**
+
+⚠️ **I TOLD THE OWNER ON 18 SEP THAT THIS WORKED. IT DOES NOT.** Proved with a
+rolled-back probe on the natural path, not by reading:
+
+```
+PASS 1 -> state=active, next_step_at=NULL, follow_up rows=due
+PASS 2 -> state=active, next_step_at=NULL, lead stage=contacted, nurture notes=0
+```
+
+When the engine queues the **last** step it sets `next_step_at = null` and leaves
+`state = 'active'`. The loop's own filter is `next_step_at is not null`, so the
+run is never examined again — it never reaches *"every step has been sent"*, never
+becomes `stopped`, and **the Nurture branch never runs**. No run in the database
+has exhausted its steps yet, so nothing is mis-parked; the feature has simply
+never been reachable.
+
+⚠️ **206's SELF-CHECK PASSES BECAUSE ITS FIXTURE SETS `next_step_at` IN THE
+PAST** — a state the natural path never produces. A check that builds the state it
+is testing rather than reaching it is the shape to distrust.
+
+**The fix needs a number only the owner can give:** how long to wait after the
+last unanswered follow-up before parking the lead. Parking a minute after the
+final message would be wrong. Suggested default **3 days**; not implemented.
 
 ---
 
