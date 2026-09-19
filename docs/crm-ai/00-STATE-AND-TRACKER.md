@@ -15,6 +15,31 @@ is the only file in this folder that changes every session, and it is maintained
 
 ---
 
+## 🎛️ 2026-09-19 (late) — AGENT MODE IS ON THE CONVERSATIONS PAGE · 211, 212, 217
+
+Built to the owner's screenshot of Meta's own agent on WhatsApp Web:
+
+| Piece | Status |
+|---|---|
+| Composer dropdown: **My reply · Suggestions · AI agent** | ✅ built |
+| List chips: **All · AI handoff · AI responding**, with counts | ✅ built |
+| Row badges: AI HANDOFF / AI RESPONDING / AI SUGGESTS | ✅ built |
+| Handoff banner saying WHAT it could not answer | ✅ built |
+| `agent_handover` bell → `/conversations?lead=…`, rings once, says why | ✅ built (211/212) |
+| **Suggestions** — a drafted reply appears when the client spoke last | ✅ **works today** |
+| **AI agent** — writes and sends | ⏳ shown greyed; **refused by the server** until the knowledge base exists |
+
+⚠️ **217 fixed a rule 212 got wrong**, caught against the design before it
+shipped: a person sending switched ANY mode off — but in Suggestions a person
+sends every message, so the first suggested reply would have switched the mode
+off behind them. Now only `agent` steps aside.
+
+⚠️ **Not yet:** the drawer has no mode control (its lead record does not carry
+`agent_mode`); nothing calls `crm_agent_hand_over` yet, because nothing is
+answering clients. Both wait on the agent itself.
+
+---
+
 ## 🔎 2026-09-19 — META'S OWN AGENT, RESEARCHED · doc 07 §10
 
 Owner asked whether Meta's new WhatsApp AI agent is available in the API. **It
