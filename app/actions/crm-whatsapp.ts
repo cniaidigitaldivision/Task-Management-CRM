@@ -39,7 +39,7 @@ import {
 } from '@/lib/crm/whatsapp';
 import type { WhatsAppConfigResult } from '@/lib/crm/whatsapp';
 import { withUser } from '@/lib/db/client';
-import { crmLeadThread, getCrmLead } from '@/lib/db/queries/crm-leads';
+import { crmLeadThread, getCrmLead, setAgentMode, type AgentMode } from '@/lib/db/queries/crm-leads';
 import type { CrmMessage } from '@/lib/db/queries/crm-leads';
 import {
   deleteSavedReply,
@@ -570,6 +570,38 @@ export async function suggestReplyAction(
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : 'AI could not draft a reply.' };
   }
+}
+
+/* ── Who writes the reply — 212 ─────────────────────────────────────────────── */
+
+/**
+ * My reply · Suggestions · AI agent — the owner's three modes.
+ *
+ *  + W +  AI AGENT IS REFUSED HERE, NOT ONLY GREYED OUT ON SCREEN. Nothing answers a
+ * client yet: the agent needs a knowledge base saying what the business sells
+ * and what it will not promise, and none exists (`docs/crm-ai/02`). A lead set
+ * to `agent` would show "AI responding" while nobody responds — the salesperson
+ * trusts the label, the client waits, and the label is the reason. A control
+ * that claims something untrue is worse than no control, and a disabled button
+ * is only a suggestion to a request built by hand.
+ */
+export async function setAgentModeAction(
+  leadId: string,
+  mode: AgentMode,
+): Promise<{ ok: boolean; error?: string }> {
+  const { user } = await requireCrmAccess();
+  if (!UUID.test(leadId)) return { ok: false, error: 'That lead could not be found.' };
+  if (mode !== 'off' && mode !== 'suggest' && mode !== 'agent') {
+    return { ok: false, error: 'That is not a reply mode.' };
+  }
+  if (mode === 'agent') {
+    return {
+      ok: false,
+      error: 'The AI agent cannot answer clients yet — it needs the knowledge base first. Use Suggestions meanwhile.',
+    };
+  }
+  const ok = await setAgentMode(user.id, leadId, mode);
+  return ok ? { ok: true } : { ok: false, error: 'That lead is not yours to change.' };
 }
 
 /* ── Saved replies ───────────────────────────────────────────────────────── */

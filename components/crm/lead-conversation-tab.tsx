@@ -49,6 +49,8 @@ import type {
   CrmSender,
   CrmSummaryPointKind,
 } from '@/lib/db/queries/crm-leads';
+import type { AgentMode } from '@/lib/db/queries/crm-leads';
+import { AgentModeControl, SuggestedReply, modeMeta } from '@/components/crm/agent-mode';
 import { displayPhone } from '@/lib/domain/phone';
 import { cn } from '@/lib/utils';
 
@@ -220,6 +222,8 @@ export function LeadConversationTab({
   handoff,
   onHandoffUsed,
   onReviewFollowUp,
+  agentMode,
+  onAgentMode,
 }: {
   leadId: string;
   messages: readonly CrmMessage[];
@@ -266,6 +270,14 @@ export function LeadConversationTab({
   } | null;
   onHandoffUsed?: () => void;
   onReviewFollowUp: () => void;
+  /**
+   * Who writes the reply on this lead — 212. ⚠️ OPTIONAL, and the control only
+   * appears when it is given: the Conversations page carries the mode on its
+   * rows; the drawer does not yet, and a control showing a guessed mode would be
+   * worse than none.
+   */
+  agentMode?: AgentMode;
+  onAgentMode?: (next: AgentMode) => void;
 }) {
   const toast = useToast();
 
@@ -387,6 +399,18 @@ export function LeadConversationTab({
     [thread, overrides],
   );
   const everything = React.useMemo(() => [...liveThread, ...pending], [liveThread, pending]);
+
+  /* ── Suggestions (212) — the client's message the reply would answer ──────
+     ⚠️ ONLY WHEN THEY SPOKE LAST, AND ONLY ON WHATSAPP. A suggestion for a thread
+     where we spoke last would be a reply to ourselves; and pending sends have no
+     server id to ask about. */
+  const suggestFor = React.useMemo(() => {
+    if (agentMode !== 'suggest') return null;
+    const shown = liveThread.filter((m) => !m.hiddenAt);
+    const last = shown[shown.length - 1];
+    return last && last.direction === 'inbound' && last.channel === 'whatsapp' ? last : null;
+  }, [agentMode, liveThread]);
+  const [dismissedFor, setDismissedFor] = React.useState<string | null>(null);
 
   /**
    * What to put in the subject line to start with.
@@ -1061,7 +1085,27 @@ ${handoff.text}` : handoff.text));
             )}
           </div>
 
+          {composerChannel === 'whatsapp' &&
+            suggestFor &&
+            dismissedFor !== suggestFor.id &&
+            /* ⚠️ NOT WHILE THEY ARE WRITING. A draft already in the box is
+               the salesperson's own answer; offering to replace it is noise. */
+            draft.trim() === '' && (
+              <SuggestedReply
+                key={suggestFor.id}
+                message={suggestFor}
+                onDismiss={() => setDismissedFor(suggestFor.id)}
+                onUse={(reply) => {
+                  setReplyTo(suggestFor);
+                  setDraft(reply);
+                  setDismissedFor(suggestFor.id);
+                  requestAnimationFrame(() => composerInput.current?.focus());
+                }}
+              />
+            )}
+
           {composerChannel === 'whatsapp' ? (
+            <>
             <WhatsAppComposer
               disabledReason={disabledReason}
               replyTo={replyTo}
@@ -1085,6 +1129,13 @@ ${handoff.text}` : handoff.text));
               }
               inputRef={composerInput}
             />
+            {agentMode && onAgentMode && (
+              <div className="mt-2 flex items-center gap-2">
+                <AgentModeControl mode={agentMode} onChange={onAgentMode} />
+                <span className="text-caption text-text-secondary">{modeMeta(agentMode).hint}</span>
+              </div>
+            )}
+            </>
           ) : (
             /* ⚠️ THE REAL THING NOW. What stood here was a textarea whose Send
                called a function whose whole body was a toast saying "email

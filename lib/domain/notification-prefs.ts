@@ -87,6 +87,18 @@ export const PREF_DEFINITIONS: readonly PrefDefinition[] = [
       'Cannot be turned off in-app. WhatsApp only allows a free reply for 24 hours after they write — missing one costs the conversation.',
   },
   {
+    kind: 'agent_handover',
+    label: 'The assistant needs you',
+    help: 'The AI stopped in one of your conversations and says what it could not answer.',
+    group: 'your work',
+    /* ⚠️ LOCKED IN-APP, for the same reason as a reply: a handover means a client
+       asked something the assistant would not answer and is now waiting on a
+       person. Nobody else is going to answer them. */
+    locked: 'inApp',
+    lockedReason:
+      'Cannot be turned off in-app. A handover means a client is waiting on you, and nobody else will answer.',
+  },
+  {
     kind: 'lead_request',
     label: 'Requests from the sales team',
     help: 'For the sales manager: a salesperson asks for an updated quotation or an invoice correction.',

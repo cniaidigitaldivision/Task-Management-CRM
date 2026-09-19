@@ -3992,7 +3992,17 @@ export interface CrmConversation {
   readonly awaitingReply: boolean;
   /** How many messages the thread holds, for the tab counts. */
   readonly messageCount: number;
+  /** Who writes the reply here: the person, AI drafts for them, or the AI itself (212). */
+  readonly agentMode: AgentMode;
+  /**
+   * When the assistant stopped and asked for a person, and what it could not
+   * answer. ⚠️ Null unless it is waiting — a salesperson replying clears it.
+   */
+  readonly handoffAt: string | null;
+  readonly handoffReason: string | null;
 }
+
+export type AgentMode = 'off' | 'suggest' | 'agent';
 
 export async function crmConversations(
   actorId: string,
@@ -4011,7 +4021,9 @@ export async function crmConversations(
            m.channel::text as last_channel,
            m.direction::text as last_direction,
            (select count(*) from public.crm_lead_messages c
-             where c.lead_id = l.id and c.hidden_at is null) as message_count
+             where c.lead_id = l.id and c.hidden_at is null) as message_count,
+           l.agent_mode::text as agent_mode,
+           l.agent_handoff_at, l.agent_handoff_reason
       from public.crm_leads l, me
       /* The newest message on this lead, on the channel being looked at. */
       left join lateral (
@@ -4053,5 +4065,23 @@ export async function crmConversations(
       r.last_direction === 'inbound' ? 'inbound' : r.last_direction === 'outbound' ? 'outbound' : null,
     awaitingReply: r.last_direction === 'inbound',
     messageCount: Number(r.message_count ?? 0),
+    agentMode: r.agent_mode === 'agent' ? 'agent' : r.agent_mode === 'suggest' ? 'suggest' : 'off',
+    handoffAt: r.agent_handoff_at ? new Date(r.agent_handoff_at as string).toISOString() : null,
+    handoffReason: (r.agent_handoff_reason as string | null) ?? null,
   }));
+}
+
+/**
+ * Choose who writes the reply on one lead — 212's function, under the caller's
+ * own session so `crm_lead_is_visible` answers for THEM.
+ *
+ * ⚠️ FALSE, NEVER A THROW, FOR "NOT YOURS". The definer returns false for a lead
+ * the caller cannot see, and the same sentence covers "gone" — the rule the rest
+ * of this module follows.
+ */
+export async function setAgentMode(actorId: string, leadId: string, mode: AgentMode): Promise<boolean> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select app.crm_set_agent_mode(${leadId}::uuid, ${mode}) as ok
+  `);
+  return Boolean((rows as unknown as Array<{ ok: boolean }>)[0]?.ok);
 }

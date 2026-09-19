@@ -1009,6 +1009,10 @@ export const NOTIFICATION_KINDS = [
      correction from the Related items dialog. Its own kind for the same reason
      as the three above: silencing one must never silence another. */
   'lead_request',
+  /* 211/212. The assistant stopped and a client is waiting on a person. Its own
+     kind because the title carries WHAT it could not answer, and because muting
+     request chatter must never mute the one bell that means a client is stuck. */
+  'agent_handover',
 ] as const;
 
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];

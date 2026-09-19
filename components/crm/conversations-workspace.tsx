@@ -7,6 +7,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import {
   CalendarClock,
   ChevronRight,
+  CircleAlert,
   FileText,
   Mail,
   MoreVertical,
@@ -25,10 +26,13 @@ import { RecordOutcome } from '@/components/crm/record-outcome';
 import { RelatedItemsDialog, seedRelated } from '@/components/crm/related-items';
 import { EditLeadDetails } from '@/components/crm/edit-lead-details';
 import { plannedSummary } from '@/lib/domain/crm-planned';
+import { AgentBadge } from '@/components/crm/agent-mode';
+import { setAgentModeAction } from '@/app/actions/crm-whatsapp';
+import { useToast } from '@/components/ui/toast';
 import { STAGE_ORDER, stageLabel as stageName } from '@/lib/domain/crm-stages';
 import { MAIL_BLUE, WA_GREEN, WhatsAppMark } from '@/components/crm/whatsapp-mark';
 import { leadBundlesAction } from '@/app/actions/crm-lead-bundles';
-import type { CrmConversation, CrmLeadBundle } from '@/lib/db/queries/crm-leads';
+import type { AgentMode, CrmConversation, CrmLeadBundle } from '@/lib/db/queries/crm-leads';
 import { quotationStatusLabel, quotationStatusToken } from '@/lib/domain/crm-quotations';
 import { stageToken } from '@/lib/domain/crm-stages';
 import { relativeAge } from '@/lib/view/relative-age';
@@ -82,6 +86,48 @@ export function ConversationsWorkspace({
   const router = useRouter();
   const urlParams = useSearchParams();
   const [, startTransition] = React.useTransition();
+  const toast = useToast();
+
+  /* ── WHO WRITES THE REPLY, per lead (212) ─────────────────────────────────
+     ⚠️ CHANGED IN THE CLICK'S OWN FRAME, confirmed underneath (Rule Zero, law 1).
+     The rows carry the server's answer; this holds what somebody chose since, and
+     is dropped for a lead the moment the server's own row agrees — or put back
+     if the server refused. */
+  const [chosen, setChosen] = React.useState<Record<string, AgentMode>>({});
+  const [seenRows, setSeenRows] = React.useState(conversations);
+  if (seenRows !== conversations) {
+    setSeenRows(conversations);
+    setChosen((held) => {
+      const next = { ...held };
+      for (const c of conversations) if (next[c.leadId] === c.agentMode) delete next[c.leadId];
+      return next;
+    });
+  }
+  const rows = React.useMemo(
+    () =>
+      conversations.map((c) =>
+        chosen[c.leadId] === undefined
+          ? c
+          : {
+              ...c,
+              agentMode: chosen[c.leadId],
+              /* Choosing any mode by hand answers the handoff (212). */
+              handoffAt: null,
+              handoffReason: null,
+            },
+      ),
+    [conversations, chosen],
+  );
+
+  const setMode = (leadId: string, next: AgentMode) => {
+    const before = rows.find((r) => r.leadId === leadId)?.agentMode ?? 'off';
+    setChosen((held) => ({ ...held, [leadId]: next }));
+    void setAgentModeAction(leadId, next).then((r) => {
+      if (r.ok) return;
+      setChosen((held) => ({ ...held, [leadId]: before }));
+      toast({ tone: 'error', text: r.error ?? 'That did not save.' });
+    });
+  };
 
   /* ── ⚠️ THE URL RECORDS WHAT IS OPEN; IT DOES NOT DECIDE WHEN IT OPENS ────
      Law 2, and the same shape `use-panel.ts` documents. Plain state here would
@@ -132,7 +178,7 @@ export function ConversationsWorkspace({
        the bundles object, which this effect itself replaces. */
   }, [conversations]);
 
-  const active = activeId ? conversations.find((c) => c.leadId === activeId) ?? null : null;
+  const active = activeId ? rows.find((c) => c.leadId === activeId) ?? null : null;
   const bundle = activeId ? bundles[activeId] ?? null : null;
 
   /* ── ⚠️ EVERYTHING OPENS HERE, NOTHING NAVIGATES ──────────────────────────
@@ -205,7 +251,7 @@ export function ConversationsWorkspace({
 
       <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)] xl:grid-cols-[minmax(0,21rem)_minmax(0,1fr)_minmax(0,19rem)]">
         <ListPane
-          conversations={conversations}
+          conversations={rows}
           activeId={activeId}
           onOpen={open}
           typed={typed}
@@ -217,6 +263,7 @@ export function ConversationsWorkspace({
           conversation={active}
           bundle={bundle}
           viewerName={viewerName}
+          onAgentMode={(next) => active && setMode(active.leadId, next)}
           onOpenDetails={() => setPanel('details')}
           onOpenFollowUps={() => setPanel('details')}
         />
@@ -288,8 +335,6 @@ export function ConversationsWorkspace({
           leadName={active.fullName ?? 'this lead'}
           currentStage={bundle?.record.lead.stage ?? active.stage}
           proposedStage={outcomeStage}
-          /* ⚠️ THE BUNDLE WHEN IT HAS ARRIVED, THE ROW UNTIL THEN. Both carry a
-             plan; the bundle simply sees more of it. */
           /* ⚠️ ONLY WHEN THE BUNDLE HAS ARRIVED. A conversation row does not
              carry the next action or the sequence, and guessing that a lead has
              nothing planned would put the old demand back in a new place. Until
@@ -465,6 +510,42 @@ function Chip({
   );
 }
 
+/** A filter chip in the list, smaller than the page's own. */
+function ListChip({
+  on,
+  onClick,
+  dot,
+  count,
+  children,
+}: {
+  on: boolean;
+  onClick: () => void;
+  dot?: string;
+  count?: number;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={on}
+      onClick={onClick}
+      className={cn(
+        'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-caption font-medium transition-colors',
+        on
+          ? 'border-accent-primary bg-accent-primary text-white'
+          : 'border-border-default bg-bg-surface text-text-primary hover:bg-bg-subtle',
+      )}
+    >
+      {dot && <span className="size-2 rounded-full" style={{ background: dot }} aria-hidden="true" />}
+      {children}
+      {count !== undefined && count > 0 && (
+        <span className={cn('tabular-nums', on ? 'text-white/80' : 'text-text-secondary')}>{count}</span>
+      )}
+    </button>
+  );
+}
+
 /* ── 1 · The list ────────────────────────────────────────────────────────── */
 
 function ListPane({
@@ -482,9 +563,33 @@ function ListPane({
   onTyped: (v: string) => void;
   nowMs: number;
 }) {
+  /* ⚠️ ALL · AI HANDOFF · AI RESPONDING — the owner's screenshot, filtered
+     on the rows already here. A server round trip to narrow a list the page is
+     holding would be law 3 broken for nothing. */
+  const [only, setOnly] = React.useState<'all' | 'handoff' | 'agent'>('all');
+  const handoffs = conversations.filter((c) => c.handoffAt !== null).length;
+  const responding = conversations.filter((c) => c.agentMode === 'agent' && c.handoffAt === null).length;
+  const shown =
+    only === 'handoff'
+      ? conversations.filter((c) => c.handoffAt !== null)
+      : only === 'agent'
+        ? conversations.filter((c) => c.agentMode === 'agent' && c.handoffAt === null)
+        : conversations;
+
   return (
     <section className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-border-subtle bg-bg-surface">
-      <div className="shrink-0 border-b border-border-subtle p-3">
+      <div className="shrink-0 space-y-2.5 border-b border-border-subtle p-3">
+        <div role="tablist" aria-label="Filter by assistant" className="flex flex-wrap gap-1.5">
+          <ListChip on={only === 'all'} onClick={() => setOnly('all')}>
+            All
+          </ListChip>
+          <ListChip on={only === 'handoff'} onClick={() => setOnly('handoff')} dot="var(--feedback-error)" count={handoffs}>
+            AI handoff
+          </ListChip>
+          <ListChip on={only === 'agent'} onClick={() => setOnly('agent')} dot="var(--feedback-success)" count={responding}>
+            AI responding
+          </ListChip>
+        </div>
         <label className="flex items-center gap-2 rounded-xl border border-border-default bg-bg-base px-3 py-2">
           <Search className="size-4 shrink-0 text-text-secondary" aria-hidden="true" />
           <input
@@ -497,13 +602,17 @@ function ListPane({
         </label>
       </div>
 
-      {conversations.length === 0 ? (
+      {shown.length === 0 ? (
         <p className="flex flex-1 items-center justify-center px-6 py-10 text-center text-caption text-text-secondary">
-          No conversations yet. A thread appears here the moment you or the client sends something.
+          {only === 'handoff'
+            ? 'Nothing is waiting on you. When the assistant stops and asks for a person, the conversation appears here.'
+            : only === 'agent'
+              ? 'The assistant is not answering any conversation.'
+              : 'No conversations yet. A thread appears here the moment you or the client sends something.'}
         </p>
       ) : (
         <ul className="min-h-0 flex-1 overflow-y-auto">
-          {conversations.map((c) => (
+          {shown.map((c) => (
             <li key={c.leadId}>
               <button
                 type="button"
@@ -548,6 +657,11 @@ function ListPane({
                     </span>
                     <ChannelMark channel={c.lastChannel} />
                   </span>
+                  {(c.handoffAt || c.agentMode !== 'off') && (
+                    <span className="mt-1 block">
+                      <AgentBadge mode={c.agentMode} handoffAt={c.handoffAt} />
+                    </span>
+                  )}
                 </span>
               </button>
             </li>
@@ -598,12 +712,14 @@ function ThreadPane({
   viewerName,
   onOpenDetails,
   onOpenFollowUps,
+  onAgentMode,
 }: {
   conversation: CrmConversation | null;
   bundle: CrmLeadBundle | null;
   viewerName: string;
   onOpenDetails: () => void;
   onOpenFollowUps: () => void;
+  onAgentMode: (next: AgentMode) => void;
 }) {
   if (!conversation) {
     return (
@@ -650,6 +766,29 @@ function ThreadPane({
         </HeaderAction>
       </header>
 
+      {/* ⚠️ A HANDOFF IS THE LOUDEST THING ON THE SCREEN, and it says WHAT. A
+          client asked something the assistant would not answer and is waiting on
+          a person — "needs your attention" would make somebody re-read the thread
+          to find out why. Replying clears it (212). */}
+      {conversation.handoffAt && (
+        <div
+          role="alert"
+          className="flex shrink-0 items-start gap-2.5 border-b px-4 py-2.5"
+          style={{
+            borderColor: 'color-mix(in oklab, var(--feedback-error) 25%, transparent)',
+            background: 'color-mix(in oklab, var(--feedback-error) 8%, var(--bg-surface))',
+          }}
+        >
+          <CircleAlert className="mt-0.5 size-4 shrink-0 text-feedback-error" aria-hidden="true" />
+          <p className="min-w-0 flex-1 text-body-sm text-text-primary">
+            <span className="font-semibold">The assistant needs you</span>
+            {' — '}
+            {conversation.handoffReason ?? 'it stopped and is waiting for a person'}.
+            <span className="block text-caption text-text-secondary">Reply below and the conversation stays with you.</span>
+          </p>
+        </div>
+      )}
+
       {/* ⚠️ THE THREAD THAT ALREADY WORKS — see this file's header. While a
           bundle is still on its way the tab is told `loading`, so it says so
           rather than claiming the conversation is empty (law 3). */}
@@ -660,6 +799,7 @@ function ThreadPane({
           bundle={bundle}
           viewerName={viewerName}
           onOpenFollowUps={onOpenFollowUps}
+          onAgentMode={onAgentMode}
         />
       </div>
     </section>
@@ -725,11 +865,13 @@ function ThreadBody({
   bundle,
   viewerName,
   onOpenFollowUps,
+  onAgentMode,
 }: {
   conversation: CrmConversation;
   bundle: CrmLeadBundle | null;
   viewerName: string;
   onOpenFollowUps: () => void;
+  onAgentMode: (next: AgentMode) => void;
 }) {
   const messages = bundle?.messages ?? [];
   const notes = bundle?.record?.notes ?? [];
@@ -762,6 +904,8 @@ function ThreadBody({
       viewerName={viewerName}
       projectName={conversation.projectName ?? ''}
       onReviewFollowUp={onOpenFollowUps}
+      agentMode={conversation.agentMode}
+      onAgentMode={onAgentMode}
     />
   );
 }
