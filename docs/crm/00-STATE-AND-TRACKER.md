@@ -9,7 +9,37 @@
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
 | **Last updated** | **2026-09-18** |
-| **Last migration applied anywhere** | **216** (applied 2026-09-19; **214–216 the 665 old leads archived and out of every count, every lead now goes through the rota**; 213 import cutoff; 211/212 agent mode; 210 the greeting, live on demo). CRM next: **217.** |
+| **Last migration applied anywhere** | **218** (applied 2026-09-19; **218 a quotation/proposal PDF sent in the chat moves the stage, the BANT gate yields to evidence, a stale next action clears**; 217 suggestions survive a reply; 214–216 archive; 213 import cutoff). CRM next: **219.** |
+
+---
+
+## 🧭 2026-09-19 (night) — A QUOTATION SENT IN THE CHAT COUNTS · 218, AND "SUGGESTED NEXT"
+
+Owner, on **Umm e e Habiba**: *"I sent a quotation… still on Contacted"* and
+*"the next section shows overdue 18 September… something I stopped or
+cancelled."*
+
+**Found in the data:** the owner sent `CNI_AJ_Trading_Quotation.pdf` ("Quotation
+For CRM") and earlier `CNI_AI_Powered_CRM_Solution_Proposal.pdf` straight from
+the WhatsApp composer — **no quotation row**, so 209 had nothing to read. And the
+BANT gate (167) would have parked it at Contacted even with one.
+
+**218:** an outbound document/image whose name or caption says
+quotation/quote/QT-n → `quotation_sent`; "proposal" → `proposal_pending`; the
+file name is the timeline reason. The gate **yields to evidence only** and does
+not stamp `qualified_at` on that path. A finished follow-up now hands a mirrored
+next action to the next open one, or clears it; a typed one is never touched.
+
+**Backfilled exactly the two reported things:** Umm e e Habiba → Quotation Sent;
+her stale "First nudge · 18 Sep" cleared.
+
+**The Next action card** now shows what is **scheduled** (even when the field is
+empty), then up to two **Suggested next** steps with the fact each rests on
+(`crm-next-step.ts`, 17 tests, rules not a model — instant, free, never wrong
+about the facts). Same suggestion on the Conversations right pane.
+
+⚠️ **Not yet:** email attachments are not read for the words; the desk's "What is
+owed" column still shows only the stored next action, not suggestions.
 
 ---
 
