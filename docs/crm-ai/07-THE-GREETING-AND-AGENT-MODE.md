@@ -197,3 +197,82 @@ were ever built, every new lead would still get an instant, named, on-brand repl
    Royal Homes is my client. I can't use their data for testing purposes."*
    Chitral also has **no WhatsApp number connected**, so it could not send today
    in any case.
+
+---
+
+## 10 · Meta's own agent — researched 2026-09-19
+
+> Owner: *"Meta has recently launched its AI agent for WhatsApp Business. Is this
+> agent provided in the API?"*
+
+**Yes.** It is **Meta Business Agent**, announced 3 June 2026, and it is
+configured through its own **Meta Business Agent Platform API** — separate from
+the Cloud API we send on. You give it a knowledge base, "skills" that set tone and
+brand voice, and connections to your own APIs so it can take actions; it then
+"acts as the primary responder" and hands control back to your app.
+
+⚠️ **TWO DIFFERENT META ANNOUNCEMENTS ARE EASY TO CONFUSE, AND ONLY ONE IS THIS.**
+
+| | What it is |
+|---|---|
+| **Meta Business Agent** (3 Jun 2026) | The customer-facing AI. Answers questions, books appointments, qualifies leads, reroutes to a person |
+| **WhatsApp Business Tools MCP** (15 Sep 2026) | An MCP server for AI *coding* agents — creates a WABA, verifies a number, **writes message templates from a description** and reports their approval status |
+
+The second is a developer convenience, not an agent that talks to clients — but it
+is directly useful here: **the greeting template of §2 is exactly what it
+generates.** Worth trying before filling in the form by hand.
+
+### What is confirmed
+
+- Requires **Cloud API**, not the WhatsApp Business app. ✅ we are on Cloud API
+- Excluded verticals: Finance, Government, Health, Alcohol, Gambling, OTC drugs,
+  matrimony. ✅ neither property nor software is excluded
+- Paid through **WhatsApp Business Premium**; large businesses billed per token
+- Can hand control back to the business's own app
+
+### What is NOT confirmed, and must not be assumed
+
+⚠️ **"Available globally" and "available to you" are different sentences.** Meta's
+own help centre says it is *"currently only available in limited countries to
+select businesses"*, with a waitlist. **Whether Pakistan is authorised is not
+published**, and I could not confirm it.
+
+⚠️ **Language.** Meta states not all languages are supported and that the agent's
+language *is determined by the business's phone number*. Urdu and Roman Urdu — the
+languages these clients actually write in — are unconfirmed.
+
+⚠️ **The handover mechanics are undocumented publicly.** Whether our webhook still
+sees an inbound message while the agent is answering decides whether the CRM's
+thread, the 24-hour window arithmetic and `stop_on_reply` keep working at all.
+That single question has to be answered before anything is switched on.
+
+### ⚠️ And the finding that outranks all of it
+
+Read from Meta on 2026-09-19 with our own token:
+
+```
+phone number : +1 555-660-8298   verified_name: "Test Number"
+WABA         : "Test WhatsApp Business Account"   platform: CLOUD_API
+```
+
+**We are still on Meta's free sandbox number.** It reaches only a handful of
+pre-registered recipients, it shows a US number to the client, and the agent's
+language would be inferred from a `+1`. **No production agent — Meta's or ours —
+runs on this.** A real registered business number is a prerequisite for
+everything in this document, and it is a bigger blocker than the greeting
+template.
+
+### The recommendation
+
+**Join the waitlist and evaluate it — but do not wait for it, and do not hand a
+conversation to it blind.**
+
+Meta's agent answers from knowledge held at Meta. It does not know
+`crm_quotations`, the sequence engine, the stages, or the two-person discount
+rule, and **our guardrails cannot be enforced inside somebody else's model.** The
+owner's own asks — agent mode per lead, the handover bell landing on our
+Conversations page, "this quotation needs your attention" — are CRM concerns
+either way.
+
+The greeting of §3 is unaffected by any of this, needs no model, and remains the
+fastest measurable win.

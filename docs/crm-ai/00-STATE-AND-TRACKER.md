@@ -15,6 +15,33 @@ is the only file in this folder that changes every session, and it is maintained
 
 ---
 
+## 🔎 2026-09-19 — META'S OWN AGENT, RESEARCHED · doc 07 §10
+
+Owner asked whether Meta's new WhatsApp AI agent is available in the API. **It
+is** — **Meta Business Agent** (3 Jun 2026), configured through its own **Meta
+Business Agent Platform API**, separate from the Cloud API we send on. Requires
+Cloud API (we qualify); property and software are not excluded verticals.
+
+⚠️ **Not confirmed and not to be assumed:** whether **Pakistan** is authorised
+(Meta's help centre says *"limited countries to select businesses"*, waitlist),
+whether **Urdu** is supported (language is inferred from the business's phone
+number), and **whether our webhook still sees inbound messages while it answers**
+— which decides whether our thread, the 24-hour arithmetic and `stop_on_reply`
+survive at all.
+
+⚠️⚠️ **AND THE FINDING THAT OUTRANKS ALL OF IT, read from Meta with our own
+token: the project is still on the FREE SANDBOX NUMBER** — `+1 555-660-8298`,
+verified_name **"Test Number"**, on a **"Test WhatsApp Business Account"**. It
+reaches only pre-registered recipients and shows a US number to the client. **A
+real registered business number is a prerequisite for the greeting, for Meta's
+agent, and for ours** — a bigger blocker than the template.
+
+Also noted: **WhatsApp Business Tools MCP** (15 Sep 2026) connects AI coding
+agents to the platform and **writes message templates from a description** — the
+greeting template in doc 07 §2 is exactly its use case.
+
+---
+
 ## 👋 2026-09-19 (later) — THE GREETING, AGENT MODE, AND THE BELL · `07-THE-GREETING-AND-AGENT-MODE.md`
 
 Owner: *"The most important thing is a basic greeting message sent automatically
