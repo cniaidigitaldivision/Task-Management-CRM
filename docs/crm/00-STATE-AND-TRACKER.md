@@ -9,7 +9,43 @@
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
 | **Last updated** | **2026-09-18** |
-| **Last migration applied anywhere** | **212** (applied 2026-09-19; 211/212 agent mode and the handoff that rings, **210 the greeting — LIVE on the demo project, a real client now gets an instant reply**, 209 the stage moves itself, 208 a reply pauses the chase). CRM next: **213.** |
+| **Last migration applied anywhere** | **216** (applied 2026-09-19; **214–216 the 665 old leads archived and out of every count, every lead now goes through the rota**; 213 import cutoff; 211/212 agent mode; 210 the greeting, live on demo). CRM next: **217.** |
+
+---
+
+## 🗄️ 2026-09-19 — THE OLD LEADS ARE ARCHIVED; EVERY LEAD GOES THROUGH THE ROTA · 213–216
+
+Owner: *"The 665 leads, please archive them. I just manage from the desk. Don't
+count them and don't add any report on the basis of it."* And: *"Why are you
+saying leads from a campaign are not assigned? … it should pass through the
+assignment algorithm."*
+
+**215 — they were right, and it was a gap, not a decision.** Asked Postgres which
+functions use the rota: `crm_create_lead` does; **`crm_record_leads` — the Meta
+importer — never touches `owner_id`.** That is the whole reason 665 of 690 had no
+owner. Now a trigger on the TABLE, so it holds for any campaign, any platform, by
+hand — and never overwrites an owner somebody chose.
+
+**214 — archived, not deleted.** Some were contacted by hand outside the system;
+deleting them destroys the only trace. A flag with a required reason, never a
+stage — folding "predates the CRM" into `lost` would poison the report the owner
+is protecting.
+
+**216 — a flag nothing reads does nothing.** 58 app queries run as `cni_app` →
+one restrictive RLS policy. 14 counting definers run as the owner with
+**BYPASSRLS** (checked) → each reproduced from its live definition with one
+mechanical change, 20 reads narrowed, generated not typed, and the self-check
+refuses to commit if any still reads the raw table. **An archived lead that writes
+to us comes back.**
+
+| | Before | After |
+|---|---|---|
+| Chitral on the desk | 666 | **1** (665 archived, every row kept) |
+| Demo on the desk | 24 | 24 |
+| Sarah, through the app | 16 | 16, all hers |
+
+**213 — `leads_from`.** Chitral's is now set to 19 Sep 17:32, so the importer
+starts from today instead of re-walking the whole form every run.
 
 ---
 
