@@ -13,6 +13,28 @@
 
 ---
 
+## 📋 2026-09-19 — AUDIT AGAINST "CUSTOMER AND LEAD MANAGEMENT" (owner's spec sheet)
+
+Checked against the code and the live database, not memory. **35 of 60
+capabilities built; 1 of 12 features complete, 11 partial, 0 untouched.**
+
+| Feature | Built | Missing |
+|---|---|---|
+| Capture channels | Meta lead ads, manual entry | ⚠️ **WhatsApp from a new number is DROPPED** (`crm_lead_for_number` never creates a lead); website/landing-page/API intake; TikTok (not even a source value); Google; CSV/Excel import |
+| Records | leads, clients, properties (+PDF sheet import), products/services | configurable record types |
+| Fields | source, campaign, owner, consent | custom fields, tags, branch, territory |
+| Duplicates & validation | duplicate detection by phone, phone + email validation | merge |
+| Import / export | Meta import with sync-run error log; report export CSV/xlsx | file import with field mapping + error report |
+| Activity timeline | ✅ complete | — |
+| Qualification & stages | per-offer question sets (167/174), 11 stages, 4 automatic (209) | editable from settings |
+| Scoring | temperature (human, suggested), rule-based priority | computed score — deliberately waits for outcome data |
+| Assignment | rota: availability, workload, response speed, fairness — every lead since 215 | branch, territory, expertise |
+| SLA / reminders / escalation | first-response SLA alert to owner, reminders, neglect → manager, manual reassign | SLA breach → manager, automatic reassignment |
+| Flags | hot/warm/cold, duplicate, invalid (wrong contact) | ⚠️ unresponsive: Nurture exists but cannot fire (208 finding) |
+| Timing metrics | median first response, won/lost + win rate | acceptance, follow-up time, time-to-convert |
+
+---
+
 ## 🗄️ 2026-09-19 — THE OLD LEADS ARE ARCHIVED; EVERY LEAD GOES THROUGH THE ROTA · 213–216
 
 Owner: *"The 665 leads, please archive them. I just manage from the desk. Don't
