@@ -696,6 +696,8 @@ export function LeadDrawer({
               phone={phone}
               viewerName={viewerName}
               onTab={go}
+              nowMs={nowMs}
+              lastDirection={messages.length > 0 ? messages[messages.length - 1].direction : null}
             />
           )}
           {activeTab === 'conversations' && (

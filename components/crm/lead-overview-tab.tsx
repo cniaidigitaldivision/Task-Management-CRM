@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { ArrowRight, Check, Copy, FileText, Home, Mail, MapPin, Tag, User } from 'lucide-react';
+import { ArrowRight, CalendarClock, Check, Copy, FileText, Home, Mail, MapPin, Tag, User, WandSparkles } from 'lucide-react';
 
 import { QualifyPanel } from '@/components/crm/qualify-panel';
 import { WA_GREEN, WhatsAppMark } from '@/components/crm/whatsapp-mark';
@@ -14,6 +14,8 @@ import type {
 } from '@/lib/db/queries/crm-leads';
 import { activityLabel } from '@/lib/domain/crm-stages';
 import { bantQuestions, qualificationGaps } from '@/lib/domain/crm-qualification';
+import { plannedSummary } from '@/lib/domain/crm-planned';
+import { nextSteps, type NextStepAction } from '@/lib/domain/crm-next-step';
 import { sourceLabel } from '@/lib/domain/lead-source';
 import { displayPhone } from '@/lib/domain/phone';
 import { cn } from '@/lib/utils';
@@ -93,6 +95,8 @@ export function LeadOverviewTab({
   viewerName,
   onTab,
   loading = false,
+  lastDirection = null,
+  nowMs,
 }: {
   lead: CrmLeadRecord;
   notes: readonly CrmLeadNote[];
@@ -100,7 +104,11 @@ export function LeadOverviewTab({
   related: CrmLeadRelated;
   phone: string;
   viewerName: string;
-  onTab: (tab: 'conversations' | 'followups' | 'activity') => void;
+  onTab: (tab: 'conversations' | 'followups' | 'activity' | 'related') => void;
+  /** Who spoke last in the chat — the suggestions start from it. */
+  lastDirection?: 'inbound' | 'outbound' | null;
+  /** The page's clock, so "still to come" is judged the same way everywhere. */
+  nowMs: number;
   /**
    * Drawn from the clicked row while the record is on its way.
    * ⚠️ The lifecycle, the details and the next action are all real from the
@@ -138,6 +146,34 @@ export function LeadOverviewTab({
     (lead.sells as 'property' | 'service' | 'mixed') ?? 'property',
   );
   const gaps = qualificationGaps(lead);
+
+  /* ── WHAT IS COMING, AND WHAT TO DO NEXT — 2026-09-19 ─────────────────────
+     Owner: *"If I set something by myself, like follow-ups, that should be
+     displayed in the next section… AI recommendations must be shown."* Both come
+     from rows this card already holds — no round trip. */
+  const scheduled = plannedSummary({
+    nextAction: lead.nextAction,
+    nextActionAt: lead.nextActionAt,
+    sequence: related.sequence,
+    followUps: related.followUps,
+    appointments: related.appointments,
+    nowMs,
+  });
+  const suggestions = loading
+    ? []
+    : nextSteps({
+        stage: lead.stage,
+        lastDirection,
+        planned: scheduled !== null || Boolean(lead.nextAction),
+        qualificationGaps: gaps.length,
+        hasQuotation: related.quotations.length > 0,
+      });
+  const runStep = (action: NextStepAction) => {
+    if (action === 'reply') onTab('conversations');
+    else if (action === 'follow_up') onTab('followups');
+    else if (action === 'quotation') onTab('related');
+    else setEditingQualification(true);
+  };
   const answered = 4 - gaps.length;
 
   return (
@@ -336,7 +372,8 @@ export function LeadOverviewTab({
               <p className="mt-2 text-caption text-text-secondary">Loading the answers…</p>
             ) : answered === 0 ? (
               <p className="mt-2 text-caption leading-relaxed text-text-secondary">
-                Nothing asked yet — this lead cannot move past Contacted until it is.
+                Nothing asked yet — you cannot move it past Contacted by hand until
+                it is. A quotation or visit you send still moves it on its own.
               </p>
             ) : (
               <>
@@ -452,14 +489,66 @@ export function LeadOverviewTab({
                   </button>
                 )}
               </div>
+            ) : scheduled ? (
+              /* ⚠️ A FOLLOW-UP SOMEBODY SCHEDULED IS THE NEXT ACTION, even when the
+                 lead's own field is empty — which it now is whenever a copy
+                 goes stale (218). Showing "nothing planned" over a follow-up on
+                 Sunday is the complaint this card exists to answer. */
+              <div className="rounded-xl border border-accent-primary/20 bg-accent-primary/5 p-3">
+                <p className="flex items-center gap-1.5 text-micro font-semibold uppercase tracking-wide text-text-secondary">
+                  <CalendarClock className="size-3.5" aria-hidden="true" /> Scheduled
+                </p>
+                <p className="mt-1 text-body-sm font-semibold text-text-primary">{scheduled.what}</p>
+                {scheduled.at && (
+                  <p className="mt-0.5 text-caption font-medium text-text-brand">
+                    {new Date(scheduled.at).toLocaleDateString('en-GB', {
+                      weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Asia/Karachi',
+                    })}
+                    {' at '}
+                    {new Date(scheduled.at).toLocaleTimeString('en-US', {
+                      hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Karachi',
+                    })}
+                  </p>
+                )}
+              </div>
             ) : (
-              /* ⚠️ NOT "No next action" ALONE. 640 of 641 leads are in exactly
-                 this state, and it is the single commonest fault in the data — so
-                 it says what it costs. */
+              /* ⚠️ SAID ONCE, AND SHORT, WHEN SUGGESTIONS FOLLOW. The long warning
+                 stays for the lead with nothing planned AND nothing to suggest. */
               <p className="rounded-xl border border-dashed border-border-default px-3 py-2.5 text-caption leading-relaxed text-text-secondary">
-                Nothing planned. A lead with no next action is one nobody is coming
-                back to.
+                {suggestions.length > 0
+                  ? 'Nothing scheduled yet.'
+                  : 'Nothing planned. A lead with no next action is one nobody is coming back to.'}
               </p>
+            )}
+
+            {/* ── Suggested — from the lead's own record (crm-next-step.ts) ─────────
+                ⚠️ EACH ONE SAYS WHY. A suggestion with no reason is a command from
+                nowhere; with one, the salesperson can see it rests on a fact and
+                disagree with it if they know better. */}
+            {suggestions.length > 0 && (
+              <div className="mt-3">
+                <p className="flex items-center gap-1.5 text-micro font-semibold uppercase tracking-wide text-accent-primary">
+                  <WandSparkles className="size-3.5" aria-hidden="true" /> Suggested next
+                </p>
+                <ul className="mt-1.5 space-y-2">
+                  {suggestions.map((step) => (
+                    <li
+                      key={step.key}
+                      className="rounded-xl border border-border-subtle bg-bg-surface px-3 py-2.5"
+                    >
+                      <p className="text-body-sm font-semibold text-text-primary">{step.title}</p>
+                      <p className="mt-0.5 text-caption leading-snug text-text-secondary">{step.why}</p>
+                      <button
+                        type="button"
+                        onClick={() => runStep(step.action)}
+                        className="mt-2 inline-flex items-center gap-1 text-caption font-semibold text-text-brand underline-offset-2 hover:underline"
+                      >
+                        {step.cta} <ArrowRight className="size-3.5" aria-hidden="true" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
           </section>
 

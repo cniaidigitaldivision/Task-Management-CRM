@@ -201,7 +201,7 @@ export function QualifyPanel({ lead }: { lead: CrmLeadRecord }) {
             <>
               Nothing asked yet.{' '}
               <span className="text-text-primary">
-                This lead cannot move past Contacted until it is.
+                You cannot move it past Contacted by hand until it is.
               </span>
             </>
           )}
@@ -210,9 +210,9 @@ export function QualifyPanel({ lead }: { lead: CrmLeadRecord }) {
 
       {open && gaps.length > 0 && (
         <p className="mb-2.5 mt-2 rounded-lg border border-dashed border-border-default px-3 py-2 text-caption leading-relaxed text-text-secondary">
-          This lead cannot move past <strong className="text-text-primary">Contacted</strong> until
-          all four are recorded. ⚠️ <em>Didn&rsquo;t find out</em> is a valid answer — never asking
-          is not.
+          You cannot move this lead past <strong className="text-text-primary">Contacted</strong> by
+          hand until all four are recorded — a quotation or visit you send still moves it on its own.
+          ⚠️ <em>Didn&rsquo;t find out</em> is a valid answer — never asking is not.
         </p>
       )}
 

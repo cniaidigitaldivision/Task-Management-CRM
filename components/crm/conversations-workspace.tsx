@@ -17,6 +17,7 @@ import {
   Search,
   UserRound,
   Video,
+  WandSparkles,
   X,
 } from 'lucide-react';
 
@@ -26,6 +27,8 @@ import { RecordOutcome } from '@/components/crm/record-outcome';
 import { RelatedItemsDialog, seedRelated } from '@/components/crm/related-items';
 import { EditLeadDetails } from '@/components/crm/edit-lead-details';
 import { plannedSummary } from '@/lib/domain/crm-planned';
+import { nextSteps } from '@/lib/domain/crm-next-step';
+import { qualificationGaps } from '@/lib/domain/crm-qualification';
 import { AgentBadge } from '@/components/crm/agent-mode';
 import { setAgentModeAction } from '@/app/actions/crm-whatsapp';
 import { useToast } from '@/components/ui/toast';
@@ -311,8 +314,11 @@ export function ConversationsWorkspace({
                panel, and the rest open the follow-ups the same way. */
             onTab={(tab) => {
               if (tab === 'conversations') setPanel(null);
+              else if (tab === 'related') setPanel('related');
               else setPanel('details');
             }}
+            nowMs={nowMs}
+            lastDirection={active.lastDirection}
           />
         </RecordPanel>
       )}
@@ -952,6 +958,20 @@ function ContextPane({
       ?.filter((f) => f.status === 'planned' || f.status === 'due')
       .sort((a, b) => Date.parse(a.dueAt) - Date.parse(b.dueAt))[0] ?? null;
 
+  /* ⚠️ WHEN NOTHING IS SCHEDULED, SAY WHAT TO DO — the same suggestion the
+     Overview card makes, from the same function, so the two panels cannot give a
+     salesperson two different answers about one lead. */
+  const suggestion =
+    bundle && !nextFollowUp
+      ? nextSteps({
+          stage: bundle.record.lead.stage,
+          lastDirection: conversation?.lastDirection ?? null,
+          planned: Boolean(bundle.record.lead.nextAction),
+          qualificationGaps: qualificationGaps(bundle.record.lead).length,
+          hasQuotation: (related?.quotations.length ?? 0) > 0,
+        })[0] ?? null
+      : null;
+
   return (
     <aside className="hidden min-h-0 flex-col overflow-y-auto rounded-2xl border border-border-subtle bg-bg-surface xl:flex">
       <header className="flex shrink-0 items-center justify-between gap-2 border-b border-border-subtle px-4 py-3">
@@ -1059,6 +1079,14 @@ function ContextPane({
                 })}
               </span>
               <span className="block text-text-secondary">{nextFollowUp.title}</span>
+            </>
+          ) : suggestion ? (
+            <>
+              <span className="block text-text-secondary">Nothing scheduled</span>
+              <span className="mt-0.5 flex items-start gap-1 font-medium text-accent-primary">
+                <WandSparkles className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+                {suggestion.title}
+              </span>
             </>
           ) : (
             <span className="text-text-secondary">{bundle ? 'Nothing planned' : 'Loading…'}</span>
