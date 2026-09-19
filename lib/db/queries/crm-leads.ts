@@ -2230,6 +2230,11 @@ async function readCrmLeadRelatedMany(
              a.duration_minutes, a.location, a.outcome, a.owner_id
         from public.crm_appointments a
        where a.lead_id = any(${idList}::uuid[])
+         /* 225: a superseded row is history, not a visit. See crm-related.ts.
+            This read is what the Related items dialog OPENS on, so a filter it
+            does not share shows two visits for a moment and then one — the owner
+            watched that happen. */
+         and a.status <> 'rescheduled'
        order by a.lead_id, a.scheduled_at desc
     `,
     tx`
@@ -2757,6 +2762,8 @@ export async function crmDiaryAround(
       from public.crm_appointments a
       join public.crm_leads l on l.id = a.lead_id
      where a.owner_id = app.current_user_id()
+       /* 225: a superseded row is history, not a slot in the diary. */
+       and a.status <> 'rescheduled'
        and a.scheduled_at between ${aroundIso}::timestamptz - make_interval(hours => ${hours})
                               and ${aroundIso}::timestamptz + make_interval(hours => ${hours})
      order by a.scheduled_at
@@ -2859,6 +2866,9 @@ export async function crmMyAppointments(
       from public.crm_appointments a
       join public.crm_leads l on l.id = a.lead_id
      where a.owner_id = app.current_user_id()
+       /* 225: a superseded row is history, not a visit — and this is the
+          Appointments screen itself, where a ghost is counted in the totals. */
+       and a.status <> 'rescheduled'
        and a.scheduled_at >= (date_trunc('day', now() at time zone 'Asia/Karachi')
                               - make_interval(days => ${backDays})) at time zone 'Asia/Karachi'
      order by a.scheduled_at desc

@@ -13,6 +13,36 @@
 
 ---
 
+## 🧭 2026-09-19 (night) — THE SAME DISAGREEMENT, ONE LAYER UP
+
+Owner, straight after 225: *"When I click on a view with appointments, it first
+shows me the two appointments (rendering, rendering, rendering) and then shows me
+the real one."*
+
+{W} **THE SEED AND THE FULL READ MUST AGREE, OR THE PANEL CONTRADICTS ITSELF.**
+225 filtered superseded rows out of the dialog's own query and left the drawer's
+batch read — **the rows the dialog OPENS on** — unfiltered. So the instant draw
+showed two visits and the arriving read corrected it to one. Rule Zero law 3 says
+draw the panel from rows the page already holds; it only works if those rows say
+what the full read will say.
+
+Three reads were missing it, including the **Appointments screen itself** and
+`crmDiaryAround`, so the ghost was in the diary and the totals too — not just in
+that one dialog.
+
+### The guard, because this shipped twice
+
+`lib/db/__tests__/superseded-appointments.test.ts` sweeps every `select` from
+`crm_appointments` in `lib/db/queries` and fails any list that does not exclude
+superseded rows — by naming them, by an allow-list of statuses, or by reading a
+single row by id. Writes are deliberately left alone.
+
+{W} **Proved by breaking it**: removing one filter fails the test with
+`crm-leads.ts:2231 — reads crm_appointments without excluding superseded rows`. A
+grep guard that has only ever passed is not evidence of anything.
+
+---
+
 ## 🧭 2026-09-19 (night) — 225 · ONE VISIT THAT MOVES, NOT TWO VISITS
 
 Owner, on an Appointments (2) that holds one site visit: *"These are not two
