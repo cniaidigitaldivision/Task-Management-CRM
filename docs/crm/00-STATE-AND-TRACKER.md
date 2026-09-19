@@ -9,7 +9,42 @@
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
 | **Last updated** | **2026-09-18** |
-| **Last migration applied anywhere** | **210** (applied 2026-09-19; **210 a lead arriving is greeted and a template may carry a name — proved end to end on the sandbox, left OFF**; 209 the stage moves itself, 208 a reply pauses the chase at once). CRM next: **211.** |
+| **Last migration applied anywhere** | **212** (applied 2026-09-19; 211/212 agent mode and the handoff that rings, **210 the greeting — LIVE on the demo project, a real client now gets an instant reply**, 209 the stage moves itself, 208 a reply pauses the chase). CRM next: **213.** |
+
+---
+
+## 🟢 2026-09-19 — THE GREETING IS ON. A LEAD ARRIVING IS ANSWERED IN SECONDS
+
+Owner: *"template is approved lead_greeting"*. It is live on
+**Demo — Product Enquiries**, proved through `runDueFollowUps` itself rather than
+a hand-rolled call, so what was tested is the code that runs:
+
+```
+greeting run: scheduled
+sender: outcome=sent  wamid.HBgMOTIzMTIxNTMxNTExFQIAERgSRDI2OUE0RjE1...
+thread: outbound "Assalam-o-Alaikum Ali, thank you for your enquiry with CNI AI & Digital Division..."
+```
+
+⚠️ **AND NONE OF THE THREE THINGS I HAD PRE-CONFIGURED WERE RIGHT.** Read back
+from Meta rather than assumed:
+
+| | I had configured | Meta actually approved |
+|---|---|---|
+| name | `lead_greeting` | **`_lead_greeting`** (leading underscore) |
+| language | `en` | **`en_GB`** |
+| category | Utility | **Marketing** |
+
+Any one of them would have produced *"template does not exist"* on the first real
+lead — silently, because a failed step writes its refusal and moves on. **Read a
+template back from Meta before trusting a name somebody typed.**
+
+⚠️ **MARKETING, NOT UTILITY.** It sends, but marketing templates carry per-user
+frequency limits and in some regions need an opt-in. If greetings start being
+dropped for busy numbers, that is the cause — resubmit as Utility.
+
+**Settings now:** `greeting_on = true`, `_lead_greeting` / `en_GB`, variables
+`lead_first_name, company, my_first_name`. Every new lead on that project with a
+phone number is greeted at once, day or night.
 
 ---
 
