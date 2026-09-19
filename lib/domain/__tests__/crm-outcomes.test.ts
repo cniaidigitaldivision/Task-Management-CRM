@@ -136,3 +136,57 @@ describe('what the form must refuse', () => {
     }
   });
 });
+
+/* ============================================================================
+ * THE NEXT ACTION STOPS BEING COMPULSORY — 2026-09-19
+ * ----------------------------------------------------------------------------
+ * Owner: *"The next action should not be compulsory when I manually change
+ * something… maybe I have set some other follow-ups. I don't need these."*
+ * ========================================================================= */
+describe('an open lead must have something coming — not necessarily a new one', () => {
+  const base = {
+    outcome: 'interested',
+    stage: 'qualified',
+    nextActionAt: null,
+    nextAction: '',
+    lostReason: null,
+    contactConfirmed: false,
+  };
+
+  it('still asks when nothing at all is planned', () => {
+    const problems = outcomeProblems(base);
+    expect(problems.some((p) => p.includes('next action'))).toBe(true);
+  });
+
+  it('stops asking when the lead already has something scheduled', () => {
+    const problems = outcomeProblems({ ...base, alreadyPlanned: true });
+    expect(problems).toEqual([]);
+  });
+
+  it('is satisfied by a next action typed on the form, as before', () => {
+    const problems = outcomeProblems({ ...base, nextAction: 'Call Monday' });
+    expect(problems).toEqual([]);
+  });
+
+  it('asks a caller that cannot tell, because not knowing is not the same as none', () => {
+    /* `alreadyPlanned` is optional; leaving it out must behave like false. */
+    expect(outcomeProblems(base).length).toBeGreaterThan(0);
+  });
+
+  it('never asks on a lead being closed', () => {
+    expect(outcomeProblems({ ...base, stage: 'won' })).toEqual([]);
+    expect(
+      outcomeProblems({ ...base, outcome: 'not_interested', stage: 'lost', lostReason: 'no_budget' }),
+    ).toEqual([]);
+  });
+
+  it('still enforces every other requirement when a plan exists', () => {
+    /* ⚠️ A PLAN EXCUSES THE NEXT ACTION AND NOTHING ELSE. "Call later" still
+       needs its time, and a lost lead still needs its reason. */
+    const late = outcomeProblems({ ...base, outcome: 'call_later', alreadyPlanned: true });
+    expect(late.some((p) => p.toLowerCase().includes('call back'))).toBe(true);
+
+    const lost = outcomeProblems({ ...base, outcome: 'not_interested', stage: 'lost', alreadyPlanned: true });
+    expect(lost.some((p) => p.includes('reason'))).toBe(true);
+  });
+});

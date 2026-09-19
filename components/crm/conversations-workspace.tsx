@@ -24,6 +24,7 @@ import { LeadOverviewTab } from '@/components/crm/lead-overview-tab';
 import { RecordOutcome } from '@/components/crm/record-outcome';
 import { RelatedItemsDialog, seedRelated } from '@/components/crm/related-items';
 import { EditLeadDetails } from '@/components/crm/edit-lead-details';
+import { plannedSummary } from '@/lib/domain/crm-planned';
 import { STAGE_ORDER, stageLabel as stageName } from '@/lib/domain/crm-stages';
 import { MAIL_BLUE, WA_GREEN, WhatsAppMark } from '@/components/crm/whatsapp-mark';
 import { leadBundlesAction } from '@/app/actions/crm-lead-bundles';
@@ -287,6 +288,24 @@ export function ConversationsWorkspace({
           leadName={active.fullName ?? 'this lead'}
           currentStage={bundle?.record.lead.stage ?? active.stage}
           proposedStage={outcomeStage}
+          /* ⚠️ THE BUNDLE WHEN IT HAS ARRIVED, THE ROW UNTIL THEN. Both carry a
+             plan; the bundle simply sees more of it. */
+          /* ⚠️ ONLY WHEN THE BUNDLE HAS ARRIVED. A conversation row does not
+             carry the next action or the sequence, and guessing that a lead has
+             nothing planned would put the old demand back in a new place. Until
+             it lands the form asks, which is the safe direction. */
+          planned={
+            bundle
+              ? plannedSummary({
+                  nextAction: bundle.record.lead.nextAction,
+                  nextActionAt: bundle.record.lead.nextActionAt,
+                  sequence: bundle.related.sequence,
+                  followUps: bundle.related.followUps,
+                  appointments: bundle.related.appointments,
+                  nowMs,
+                })
+              : null
+          }
           onClose={() => setOutcomeStage(null)}
         />
       )}

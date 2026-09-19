@@ -53,6 +53,7 @@ import {
   LeadConversationTab,
   useConversationSummary,
 } from '@/components/crm/lead-conversation-tab';
+import { plannedSummary } from '@/lib/domain/crm-planned';
 import { LeadActivityTab } from '@/components/crm/lead-activity-tab';
 import { LeadOverviewTab } from '@/components/crm/lead-overview-tab';
 import { LeadFollowUpsTab, type FollowUpComposer } from '@/components/crm/lead-followups-tab';
@@ -886,6 +887,16 @@ export function LeadDrawer({
           leadName={lead.fullName ?? 'this lead'}
           currentStage={lead.stage}
           proposedStage={outcomeStage}
+          /* ⚠️ FROM ROWS THE DRAWER IS ALREADY HOLDING. The form must not go
+             and ask the server whether this lead has a plan; law 3. */
+          planned={plannedSummary({
+            nextAction: lead.nextAction,
+            nextActionAt: lead.nextActionAt,
+            sequence: related.sequence,
+            followUps: related.followUps,
+            appointments: related.appointments,
+            nowMs,
+          })}
           onClose={() => setOutcomeStage(null)}
         />
       )}

@@ -157,6 +157,14 @@ export function outcomeProblems(input: {
   nextAction: string | null;
   lostReason: string | null;
   contactConfirmed: boolean;
+  /**
+   * Whether this lead ALREADY has something coming — see `crm-planned.ts`.
+   *
+   * ⚠️ DEFAULTS TO FALSE, so a caller that cannot tell still gets asked. "I do
+   * not know of a plan" and "there is no plan" must behave the same way here;
+   * the expensive mistake is letting a lead through with nothing.
+   */
+  alreadyPlanned?: boolean;
 }): string[] {
   const problems: string[] = [];
   const needs = outcomeRequires(input.outcome);
@@ -179,12 +187,21 @@ export function outcomeProblems(input: {
     );
   }
 
-  /* ⚠️ THE OWNER'S OWN RULE: *"Every open lead should leave the form with a next
-     action."* Enforced here rather than in the database, because 629 existing
-     leads have none and a constraint would refuse every future update to them. */
+  /* ── ⚠️ THE RULE IS "NOTHING GOES QUIET", NOT "TYPE SOMETHING NOW" ─────────
+     The owner's original rule was *"every open lead should leave the form with a
+     next action"*, and this asked whether they had typed one — so a lead with a
+     three-step sequence running was told to invent a fourth thing.
+
+     Owner, 2026-09-19: *"The next action should not be compulsory when I manually
+     change something… maybe I have set some other follow-ups. I don't need these
+     follow-ups."* Right, and the intent survives: what must be true is that
+     SOMETHING is coming, whether it was typed here or set an hour ago.
+
+     ⚠️ Still enforced here rather than in the database — 629 existing leads have
+     no next action, and a constraint would refuse every future update to them. */
   const closing = input.stage === 'won' || input.stage === 'lost';
-  if (!closing && !input.nextAction?.trim()) {
-    problems.push('Set the next action. An open lead with nothing planned is one that goes quiet.');
+  if (!closing && !input.alreadyPlanned && !input.nextAction?.trim()) {
+    problems.push('Set the next action — nothing is scheduled for this lead yet, and one with nothing planned goes quiet.');
   }
 
   return problems;

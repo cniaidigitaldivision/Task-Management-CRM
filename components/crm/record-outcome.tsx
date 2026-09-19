@@ -34,6 +34,7 @@ import {
   outcomeRequires,
   suggestStage,
 } from '@/lib/domain/crm-outcomes';
+import type { PlannedThing } from '@/lib/domain/crm-planned';
 import { cn } from '@/lib/utils';
 
 /* ============================================================================
@@ -99,6 +100,7 @@ export function RecordOutcome({
   leadName,
   currentStage,
   proposedStage,
+  planned = null,
   onClose,
 }: {
   leadId: string;
@@ -115,6 +117,14 @@ export function RecordOutcome({
    * lead being edited, and left the filter on after a cancel.
    */
   proposedStage?: string;
+  /**
+   * What this lead ALREADY has coming, from `plannedSummary`.
+   *
+   * ⚠️ NULL MEANS "NOTHING IS SCHEDULED", and the form asks for a next action
+   * exactly as it always has. A caller that cannot work it out passes nothing and
+   * gets the old behaviour, which is the safe direction to be wrong in.
+   */
+  planned?: PlannedThing | null;
   /** Hides the dialog at once; the caller owns whether it is on screen. */
   onClose: () => void;
 }) {
@@ -137,13 +147,20 @@ export function RecordOutcome({
   const [lostReason, setLostReason] = React.useState('');
   const [note, setNote] = React.useState('');
   const [contactConfirmed, setContactConfirmed] = React.useState(false);
-  const [pauseSequence, setPauseSequence] = React.useState(true);
+  /* ⚠️ ON ONLY WHEN THE CLIENT ACTUALLY SPOKE. Owner, 2026-09-19: *"He is
+     saying to add next action again, follow-up, and pause the second."* Pausing
+     a running plan is a real decision, and defaulting it on for every outcome
+     made a salesperson who merely moved a stage stop their own chase by
+     accident. A reply is the one case where continuing would talk over somebody. */
+  const [pauseSequence, setPauseSequence] = React.useState(outcome === 'client_replied');
+  const [pauseTouched, setPauseTouched] = React.useState(false);
   const [visitLocation, setVisitLocation] = React.useState('');
   const [busy, setBusy] = React.useState(false);
 
   const pickOutcome = (next: string) => {
     setOutcome(next);
     if (!stageTouched) setStage(suggestStage(next, currentStage));
+    if (!pauseTouched) setPauseSequence(next === 'client_replied');
   };
 
   const needs = outcomeRequires(outcome);
@@ -158,6 +175,7 @@ export function RecordOutcome({
     nextAction,
     lostReason: lostReason || null,
     contactConfirmed,
+    alreadyPlanned: planned != null,
   });
   /* The owner's design marks Notes required, and it is right: an outcome with no
      words is a row in the timeline nobody can act on a week later. */
@@ -373,7 +391,19 @@ export function RecordOutcome({
             {/* ── What happens next ─────────────────────────────────────── */}
             {!closing && (
               <div>
-                <span className="mb-1.5 block text-body-sm font-semibold text-text-primary">Next action</span>
+                <span className="mb-1.5 block text-body-sm font-semibold text-text-primary">
+                  Next action{planned ? ' (optional)' : ''}
+                </span>
+                {/* ⚠️ SAID, NOT SILENTLY RELAXED. A field that stops being required
+                    with no explanation reads as a bug; and naming what is already
+                    coming is itself the answer to "do I need another one?" */}
+                {planned && (
+                  <p className="mb-2 rounded-lg bg-bg-subtle px-3 py-2 text-caption leading-relaxed text-text-secondary">
+                    Already scheduled:{' '}
+                    <span className="font-medium text-text-primary">{planned.what}</span>
+                    {planned.at ? ' · ' + formatWhen(planned.at) : ''}. Add another only if you want one.
+                  </p>
+                )}
                 <div className="flex flex-wrap items-center gap-4">
                   {([
                     ['follow_up', 'Schedule follow-up'],
@@ -466,7 +496,10 @@ export function RecordOutcome({
               <input
                 type="checkbox"
                 checked={pauseSequence}
-                onChange={(e) => setPauseSequence(e.target.checked)}
+                onChange={(e) => {
+                  setPauseTouched(true);
+                  setPauseSequence(e.target.checked);
+                }}
                 className="mt-0.5 size-4 accent-[var(--pick-mark)]"
               />
               <span className="min-w-0">
