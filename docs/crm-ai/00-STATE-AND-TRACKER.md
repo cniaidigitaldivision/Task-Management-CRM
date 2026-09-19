@@ -15,6 +15,48 @@ is the only file in this folder that changes every session, and it is maintained
 
 ---
 
+## 👋 2026-09-19 (later) — THE GREETING, AGENT MODE, AND THE BELL · `07-THE-GREETING-AND-AGENT-MODE.md`
+
+Owner: *"The most important thing is a basic greeting message sent automatically
+when a new lead arrives… an agent mode on/off radio button… the salesperson
+notified at the top, bold, like a bell… click it and it brings me to that chat.
+Is that possible?"*
+
+**Yes, and most of it exists.** The new doc has the full plan. The four findings
+that shape it:
+
+1. ⚠️ **660 of 689 leads came from Meta lead ads and NOT ONE has ever sent us a
+   WhatsApp message.** A lead-ad form is not a conversation, so **the 24-hour
+   window is shut the moment 96% of leads arrive** — the greeting must be an
+   approved TEMPLATE, as the normal case, not as a fallback.
+2. ⚠️ **There is no greeting template.** Read from Meta: only
+   `quotation_follow_up` is real; the rest are Meta's own samples. **Nothing can
+   be greeted today whatever is built.** Wording to submit is in §2. And our own
+   sender deliberately sends templates with **no parameters**, so greeting by name
+   needs that gap closed too.
+3. ✅ **The greeting needs no new sending machinery.** It is a one-step sequence
+   with delay 0, started on arrival — the engine, the window check, the claim
+   guard, the thread write and the pause-on-reply (208) are all built and proved.
+   **Tier 0, no model, and response time is the strongest conversion lever here.**
+4. ✅ **The bell is mostly built.** `notifications` already debounces one unread
+   per lead and deep-links into the chat. What is missing is an `agent_handover`
+   kind, a link to `/conversations?lead=` rather than the old drawer route, and a
+   title that says WHAT — *"agreed to the quotation"*, never *"needs attention"*.
+
+**Agent mode reconciles with `03-HANDOVER.md`:** the radio is On/Off as the owner
+wants, and **the handover is the toggle flipping itself off**. Typing into a
+thread takes over without touching it.
+
+⚠️ **Ringing is not fully possible in a browser** — audio is blocked until the
+person interacts with the page. For somebody not looking at the screen the honest
+answer is a push notification, not a sound the browser drops silently.
+
+⚠️ **And consent stays forward-only: the greeting fires for leads that arrive
+from now on, never retroactively.** 688 of 689 are `NULL`, and a backfill would
+message the whole database in one run.
+
+---
+
 ## 🗺️ 2026-09-19 — THE OWNER ASKS FOR THE AGENT ITSELF (PLANNING ONLY)
 
 > *"Can you put an AI agent here? When a new lead arrives, it will send an auto
