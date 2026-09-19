@@ -17,6 +17,7 @@ reference.
 | `08-TWELVE-STEPS.md` | **The build order.** Twelve shippable steps, four modules, and what each needs from the owner. |
 | `09-DATABASE-MANAGEMENT.md` | Growth, indexes, backups, retention, and the rules the data follows. |
 | `10-LEAD-ASSIGNMENT.md` | **How leads are handed out, and the honest answer to "is that AI?"** The four signals to add, and the one to leave out. |
+| `17-AUTOMATIC-STAGES.md` | ⭐ **How the stage stops being hand-cranked.** Six of the owner's seven examples are arithmetic, not AI; only `qualified` needs a model, and even then a person confirms. The five laws an automatic move must obey, the `contacted` rule the obvious version gets wrong, and why the next action must stop being compulsory first. |
 | `15-MY-LEADS-PHASE.md` | ⭐ **The phase in progress.** The salesperson's My leads page: every element against what exists, what must be built, what is deferred and why, and the three decisions needed before code. |
 | `14-SALES-WORKSPACE-PHASES.md` | ⭐ **The current build order.** Sarah's My sales desk and its nine rail screens, phased A–H with a dependency map and a "how to check it" the owner can run for every phase. |
 | `13-PROPERTY-AND-QUOTATION-TESTPACK.md` | The owner's property + quotation test data, arithmetic re-checked, with the four things in it that need a decision and the safety flags read as requirements. The fixture Phase 5 gets built against. |
