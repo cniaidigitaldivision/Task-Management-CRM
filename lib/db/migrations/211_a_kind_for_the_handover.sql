@@ -1,0 +1,12 @@
+-- ============================================================================
+-- 211 · A NOTIFICATION KIND FOR THE HANDOVER
+-- ----------------------------------------------------------------------------
+-- One line, and it is its own migration for a reason Postgres enforces:
+--
+--   ERROR: unsafe use of new value "agent_handover" of enum type notification_kind
+--
+--  + W +  A NEW ENUM VALUE CANNOT BE USED IN THE TRANSACTION THAT ADDED IT. 212's
+-- self-check inserts a notification of this kind, so the two cannot share a file
+-- — the same reason 205 added `nurture` and 206 was the one to use it.
+-- ============================================================================
+alter type public.notification_kind add value if not exists 'agent_handover';
