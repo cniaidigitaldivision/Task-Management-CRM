@@ -2965,6 +2965,32 @@ export async function crmBookAppointment(
  * check violation rather than a helpful refusal. The database's rule and this
  * function's behaviour are the same rule, stated once each.
  */
+/**
+ * Move an appointment — 219's function, under the caller's own session so
+ * `crm_lead_is_visible` answers for THEM.
+ */
+export async function crmRescheduleAppointment(
+  actorId: string,
+  input: {
+    appointmentId: string;
+    at: string;
+    minutes: number | null;
+    location: string | null;
+    note: string | null;
+  },
+): Promise<boolean> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select app.crm_reschedule_appointment(
+      ${input.appointmentId}::uuid,
+      ${input.at}::timestamptz,
+      ${input.minutes}::integer,
+      ${input.location},
+      ${input.note}
+    ) as ok
+  `);
+  return Boolean((rows as unknown as Array<{ ok: boolean }>)[0]?.ok);
+}
+
 export async function crmCloseAppointment(
   actorId: string,
   appointmentId: string,

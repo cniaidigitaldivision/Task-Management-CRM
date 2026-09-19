@@ -11,6 +11,7 @@ import {
   assignLead,
   crmBookAppointment,
   crmCloseAppointment,
+  crmRescheduleAppointment,
   crmAttachUnit,
   crmCreateLead,
   crmDecideQuotation,
@@ -44,7 +45,7 @@ import {
 } from '@/lib/domain/crm-qualification';
 import { OUTCOMES, outcomeProblems } from '@/lib/domain/crm-outcomes';
 import { newLeadProblems } from '@/lib/domain/crm-new-lead';
-import { appointmentKindLabel, appointmentProblems, clashesWith } from '@/lib/domain/crm-appointments';
+import { appointmentKindLabel, appointmentProblems, clashesWith, MAX_MINUTES, MIN_MINUTES } from '@/lib/domain/crm-appointments';
 import { needsApproval, quotationProblems, toRupees } from '@/lib/domain/crm-quotations';
 import { displayPhone, toE164 } from '@/lib/domain/phone';
 import { fromAddress, quotationEmail, sendLeadEmail } from '@/lib/crm/email';
@@ -1025,6 +1026,57 @@ export async function bookAppointmentAction(input: {
   }
 
   return { ok: true, id: booked.id, clash, reminded };
+}
+
+/**
+ * Move an appointment to a different time — 219.
+ *
+ * Owner, 2026-09-19: *"there is no option in the appointment tab to edit the
+ * appointment… the client is saying this time is not suitable, so please change
+ * the time… and when I reschedule, send an auto message on WhatsApp."*
+ *
+ *  + W +  IT DOES NOT TELL THE CLIENT ITSELF. 219's trigger does that, on the row
+ * changing — so a time moved from anywhere, by any screen or any future agent,
+ * is confirmed the same way. A send from this action would be one path of
+ * several, and the others would go out silently.
+ */
+export async function rescheduleAppointmentAction(input: {
+  appointmentId: string;
+  leadId: string;
+  at: string;
+  minutes?: number | null;
+  location?: string | null;
+  note?: string | null;
+}): Promise<LeadWriteResult> {
+  const user = await requireUser();
+
+  const at = Date.parse(input.at);
+  if (Number.isNaN(at)) return { ok: false, error: 'Choose a date and time.' };
+
+  /*  + W +  THE PAST IS REFUSED, and this is the one rule a reschedule needs that a
+     booking does not: the commonest reason to move an appointment is that its
+     time has already gone, so the field opens on a moment that is invalid. */
+  if (at <= Date.now()) {
+    return { ok: false, error: 'Choose a time in the future — that moment has passed.' };
+  }
+
+  const minutes = input.minutes ?? null;
+  if (minutes !== null && (minutes < MIN_MINUTES || minutes > MAX_MINUTES)) {
+    return { ok: false, error: `How long should it run? Between ${MIN_MINUTES} and ${MAX_MINUTES} minutes.` };
+  }
+
+  const moved = await crmRescheduleAppointment(user.id, {
+    appointmentId: input.appointmentId,
+    at: new Date(at).toISOString(),
+    minutes,
+    location: input.location?.trim() || null,
+    note: input.note?.trim() || null,
+  });
+  if (!moved) return { ok: false, error: NOT_YOURS };
+
+  refresh(input.leadId);
+  revalidatePath('/appointments');
+  return { ok: true };
 }
 
 export async function closeAppointmentAction(

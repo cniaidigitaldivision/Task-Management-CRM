@@ -12,7 +12,8 @@ import type {
   CrmLeadRecord,
   CrmLeadRelated,
 } from '@/lib/db/queries/crm-leads';
-import { activityLabel } from '@/lib/domain/crm-stages';
+import { activityLabel, TEMPERATURES, temperatureLabel, temperatureToken } from '@/lib/domain/crm-stages';
+import { setTemperatureAction } from '@/app/actions/crm-leads';
 import { bantQuestions, qualificationGaps } from '@/lib/domain/crm-qualification';
 import { plannedSummary } from '@/lib/domain/crm-planned';
 import { nextSteps, type NextStepAction } from '@/lib/domain/crm-next-step';
@@ -121,6 +122,7 @@ export function LeadOverviewTab({
 }) {
   const toast = useToast();
   const [editingQualification, setEditingQualification] = React.useState(false);
+  const [busy, setBusy] = React.useState(false);
 
   const steps = stepsFor(lead.sells);
   /* ⚠️ A SERVICE LEAD THAT SOMEHOW REACHED `visited` FINDS NO STEP, and -1
@@ -268,6 +270,45 @@ export function LeadOverviewTab({
           <header className="mb-3">
             <h3 className="text-body-sm font-semibold text-text-primary">Lead details</h3>
           </header>
+
+          {/* ── Temperature ─────────────────────────────────────────────────
+              Owner, 2026-09-19: *"I don't know where I, as a salesperson, can
+              change their temperature."* It existed — on the full lead page and
+              the manager's desk, and nowhere in the drawer, which is where the
+              work is actually done. Same control, same action, here too. */}
+          <div className="mb-3">
+            <p className="mb-1.5 text-caption text-text-secondary">Temperature</p>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {TEMPERATURES.map((t) => {
+                const on = lead.temperature === t;
+                return (
+                  <button
+                    key={t}
+                    type="button"
+                    disabled={busy}
+                    aria-pressed={on}
+                    onClick={() => {
+                      setBusy(true);
+                      void setTemperatureAction(lead.id, on ? null : t).then((r) => {
+                        setBusy(false);
+                        if (!r.ok) toast({ tone: 'error', text: r.error ?? 'That did not save.' });
+                      });
+                    }}
+                    className={cn(
+                      'rounded-lg border px-2.5 py-1 text-caption font-semibold transition-colors disabled:opacity-50',
+                      on ? 'border-transparent text-white' : 'border-border-default text-text-secondary hover:bg-bg-subtle',
+                    )}
+                    style={on ? { background: `var(--${temperatureToken(t)})` } : undefined}
+                  >
+                    {temperatureLabel(t)}
+                  </button>
+                );
+              })}
+              {lead.temperature === null && (
+                <span className="text-caption text-text-tertiary">Not judged yet</span>
+              )}
+            </div>
+          </div>
 
           <dl className="space-y-3">
             <Row icon={Home} label="Project / Interest" value={lead.projectName} />
