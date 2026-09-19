@@ -76,6 +76,7 @@ import type {
   RelatedFile,
 } from '@/lib/db/queries/crm-related';
 import { appointmentKindLabel } from '@/lib/domain/crm-appointments';
+import { NOT_A_PROPERTY } from '@/lib/domain/crm-quotations';
 import { displayPhone } from '@/lib/domain/phone';
 import { cn } from '@/lib/utils';
 
@@ -735,9 +736,17 @@ function Toggle({ on, disabled, onChange, label }: { on: boolean; disabled?: boo
         on ? 'bg-accent-primary' : 'bg-border-default',
       )}
     >
+      {/* ⚠️ `left-0` IS LOAD-BEARING. An absolutely positioned box with `left:auto`
+          sits at its STATIC position — where it would have landed in normal flow
+          — and a <button> centres its content, so the knob started from the far
+          side of the track and `translate-x-[22px]` pushed it clean out of it.
+          Measured in Chrome: the knob's left edge at 44px on a 44px track,
+          overflowing by its full 20px width, which is what the owner saw
+          (2026-09-19: *"the attached quotation PDF radio button is going out of
+          the UI"*). With `left-0` it travels 2px → 22px and stays inside. */}
       <span
         className={cn(
-          'absolute top-0.5 size-5 rounded-full bg-white shadow transition-transform',
+          'absolute left-0 top-0.5 size-5 rounded-full bg-white shadow transition-transform',
           on ? 'translate-x-[22px]' : 'translate-x-0.5',
         )}
       />
@@ -1135,6 +1144,20 @@ function QuotationsTab({ ctx, pickedId, onPick }: { ctx: Ctx; pickedId?: string;
     [q.propertyTitle, blockOf(q.propertyLabel)].filter(Boolean).join(' · ') || q.propertyLabel || quotedUnit(q) || '—';
 
   /**
+   * The same thing, for words a CLIENT will read — or nothing at all.
+   *
+   * ⚠️ "—" AND "NOT A PROPERTY QUOTATION" ARE NOTES TO OURSELVES. Both are honest
+   * on our own screen and absurd in a WhatsApp message: the owner's own CRM
+   * quotation produced *"Quotation QT-1044 for —: PKR 178,500."* A quotation that
+   * sells no property simply does not name one, so the client reads
+   * "Quotation QT-1044: PKR 178,500."
+   */
+  const clientUnit = (q: RelatedQuotation): string | null => {
+    const name = unitName(q);
+    return name === '—' || name === NOT_A_PROPERTY ? null : name;
+  };
+
+  /**
    * Ask which channel, then build the message for it.
    *
    * ⚠️ THE WORDING IS NOT THE SAME ON BOTH. A WhatsApp message is one line a
@@ -1144,7 +1167,7 @@ function QuotationsTab({ ctx, pickedId, onPick }: { ctx: Ctx; pickedId?: string;
    */
   const attach = () => {
     if (!chosen) return;
-    const unit = unitName(chosen);
+    const unit = clientUnit(chosen);
     const amount = money(chosen.netAmount);
     const valid = chosen.validUntil ? longDay(chosen.validUntil) : null;
     const withPdf = attachPdf && !!chosen.pdfPath;
@@ -1152,7 +1175,7 @@ function QuotationsTab({ ctx, pickedId, onPick }: { ctx: Ctx; pickedId?: string;
     ctx.attachVia(
       {
         title: 'Send this quotation',
-        summary: `${chosen.number} · ${unit} · ${amount}`,
+        summary: [chosen.number, unit, amount].filter(Boolean).join(' · '),
         files: withPdf ? 1 : 0,
       },
       async (channel) => {
@@ -1164,17 +1187,17 @@ function QuotationsTab({ ctx, pickedId, onPick }: { ctx: Ctx; pickedId?: string;
           return {
             channel,
             files,
-            text: `Quotation ${chosen.number} for ${unit}: ${amount}${valid ? `, valid until ${valid}` : ''}.`,
+            text: `Quotation ${chosen.number}${unit ? ` for ${unit}` : ''}: ${amount}${valid ? `, valid until ${valid}` : ''}.`,
           };
         }
         return {
           channel,
           files,
-          subject: `Quotation ${chosen.number} — ${unit}`,
+          subject: `Quotation ${chosen.number}${unit ? ` — ${unit}` : ''}`,
           text: [
             `Assalam-o-Alaikum ${(lead.fullName ?? '').split(' ')[0] || 'Sir/Madam'}.`,
             '',
-            `Please find our quotation ${chosen.number} for ${unit}.`,
+            `Please find our quotation ${chosen.number}${unit ? ` for ${unit}` : ''}.`,
             '',
             `Quotation amount: ${amount}${valid ? `\nValid until: ${valid}` : ''}`,
             '',

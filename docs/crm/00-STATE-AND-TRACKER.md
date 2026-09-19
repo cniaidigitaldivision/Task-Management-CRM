@@ -13,6 +13,49 @@
 
 ---
 
+## 🧭 2026-09-19 (night) — THREE THINGS THE OWNER SAW IN TWO SCREENSHOTS
+
+### ⚠️ THE TOGGLE'S KNOB WAS ENTIRELY OUTSIDE ITS TRACK
+
+*"The attached quotation PDF radio button is going out of the UI."* It was.
+`Toggle`'s knob is `absolute` with **no `left`**, so it sat at its STATIC
+position — and a `<button>` centres its content, which put the knob at the far
+side of the track before `translate-x-[22px]` pushed it clean out.
+
+Measured in Chrome with the same geometry: knob left edge at **44px on a 44px
+track, overflowing by its full 20px width**. With `left-0` it travels 2 → 22px.
+Verified in the running app on the owner's own screen: `left: 0px`, 1.8px inside
+the track, 17px inside the card.
+
+⚠️ The other three switches in this codebase all set `left` explicitly, so this
+was the only one. **An `absolute` child of a `<button>` needs an explicit `left`.**
+
+### ⚠️ ONE QUOTATION ARRIVED IN THE COMPOSER AS TWO IDENTICAL FILES
+
+*"It shows me that the same quotation's two documents are added."* The hand-off
+effect in `lead-conversation-tab.tsx` calls `pickFiles`, which **appends** — and
+it ran twice for one hand-off, two ways:
+
+1. **React Strict Mode** (Next's default in dev) mounts, unmounts and mounts
+   again, running every effect twice.
+2. `onHandoffUsed` is an inline arrow in the drawer, so it is a new function on
+   every parent render — any render between `pickFiles` starting and
+   `setHandoff(null)` committing re-ran the effect with the same hand-off.
+
+Now guarded by the hand-off's own id in a ref, the same way the draft is guarded
+during render. Proved in the live app: one chip.
+
+### And the caption read "Quotation QT-1044 for —: PKR 178,500."
+
+`unitName` falls back to `'—'`, and a quotation that sells software now carries
+`Not a property quotation` as its unit. Both are honest on our own screen and
+absurd in a client's WhatsApp. `clientUnit` returns **null** for either, and the
+message simply omits the property: *"Quotation QT-1044: PKR 178,500."* The marker
+is one exported constant (`NOT_A_PROPERTY`) because the server writes it and the
+drawer must recognise it — a copy that drifted by one character would send it.
+
+---
+
 ## 🧭 2026-09-19 (later) — THE CONFIRM BUTTON IS LIVE, AND THREE THINGS IT EXPOSED
 
 The owner added both quick replies to `appointment_confirmed` and submitted it.

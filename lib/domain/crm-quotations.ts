@@ -19,6 +19,17 @@
  * wrong.
  * ========================================================================= */
 
+/**
+ * What a quotation's "property" says when the quotation sells no property.
+ *
+ * ⚠️ ONE STRING, IN ONE PLACE, BECAUSE TWO SIDES MUST AGREE ON IT. The server
+ * writes it into `terms` when a PDF quotes software rather than land; the drawer
+ * reads it back to label the row, and — the part that matters — to know that it
+ * must NOT be repeated to a client. A copy that drifted by one character would
+ * put "Quotation QT-1044 for Not a property quotation" in somebody's WhatsApp.
+ */
+export const NOT_A_PROPERTY = 'Not a property quotation';
+
 export const QUOTATION_STATUSES = [
   'draft',
   'pending_approval',

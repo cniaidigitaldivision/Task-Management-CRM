@@ -723,12 +723,32 @@ ${handoff.text}` : handoff.text));
   React.useEffect(() => {
     pickFilesRef.current = pickFiles;
   });
+  /**
+   * ⚠️ ONCE PER HAND-OFF, AND THE EFFECT ALONE DOES NOT GUARANTEE THAT.
+   *
+   * Owner, 2026-09-19, with a screenshot of one quotation sitting in the tray as
+   * two identical chips: *"it shows me that the same quotation's two documents
+   * are added."* Two ways this effect ran twice for one hand-off:
+   *
+   *   1. React Strict Mode (Next's default in dev) mounts, unmounts and mounts
+   *      again, running every effect twice.
+   *   2. `onHandoffUsed` is an inline arrow in the drawer, so it is a NEW
+   *      function on every parent render — and any render landing between
+   *      `pickFiles` starting and `setHandoff(null)` committing re-ran this with
+   *      the same hand-off still in hand.
+   *
+   * `pickFiles` appends, so a second run is a second copy. The id is the only
+   * thing that identifies one hand-off, so the id is what is remembered.
+   */
+  const handoffUsedRef = React.useRef<number | null>(null);
   React.useEffect(() => {
     if (!handoff) return;
     /* ⚠️ THE EMAIL COMPOSER UPLOADS ITS OWN FILES, so this must not also push them
        into the WhatsApp attachment tray — they would sit ready to send on a
        channel nobody chose. */
     if (handoff.channel !== 'whatsapp') return;
+    if (handoffUsedRef.current === handoff.id) return;
+    handoffUsedRef.current = handoff.id;
     if (handoff.files.length > 0) void pickFilesRef.current(handoff.files);
     /* ⚠️ CLEARED AFTER IT IS USED. This tab unmounts when somebody switches tab;
        a hand-off left standing would be applied again on the way back. */

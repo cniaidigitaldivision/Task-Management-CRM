@@ -38,7 +38,7 @@ import {
 import { withUser } from '@/lib/db/client';
 import { downloadObject, removeObject, signedUploadUrl, signedUrl } from '@/lib/storage/bucket';
 import { readPdfLines } from '@/lib/crm/pdf-text';
-import { nextQuotationNumber } from '@/lib/domain/crm-quotations';
+import { NOT_A_PROPERTY, nextQuotationNumber } from '@/lib/domain/crm-quotations';
 import { extractQuotationFacts, missingFrom, readPdfText, type QuotationFacts } from '@/lib/crm/quotation-pdf';
 import { parsePropertySheet, sheetProblem, type ParsedPlot } from '@/lib/domain/crm-property-sheet';
 
@@ -240,7 +240,7 @@ function unitHintOf(facts: QuotationFacts): string {
     .join(' · ');
   /* ⚠️ A QUOTATION THAT SELLS NO LAND SAYS SO, rather than showing a dash that
      reads as "this could not be read". */
-  return unit || (facts.quotesProperty ? '' : 'Not a property quotation');
+  return unit || (facts.quotesProperty ? '' : NOT_A_PROPERTY);
 }
 
 /**
