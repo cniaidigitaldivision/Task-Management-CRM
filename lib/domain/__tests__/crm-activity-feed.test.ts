@@ -259,3 +259,31 @@ describe('who did it', () => {
     expect(entry.by).toBe('Automatic');
   });
 });
+
+describe('a stage that moved by itself', () => {
+  it('says what moved it, beside the two stages', () => {
+    /* 209 writes the evidence into `why`. */
+    const [entry] = buildActivityFeed({
+      activity: [event({
+        kind: 'stage_changed',
+        actorName: null,
+        detail: { from: 'new', to: 'contacted', why: 'the client replied to us' },
+      })],
+      notes: [],
+      nowMs: NOW,
+    });
+    expect(entry.detail).toContain('New → Contacted');
+    expect(entry.detail).toContain('the client replied to us');
+    expect(entry.by).toBe('Automatic');
+  });
+
+  it('says nothing extra when a person moved it', () => {
+    const [entry] = buildActivityFeed({
+      activity: [event({ kind: 'stage_changed', detail: { from: 'new', to: 'contacted' } })],
+      notes: [],
+      nowMs: NOW,
+    });
+    expect(entry.detail).toBe('New → Contacted');
+    expect(entry.by).toBe('Ume Habiba');
+  });
+});

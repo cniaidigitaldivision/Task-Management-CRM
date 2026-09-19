@@ -286,7 +286,14 @@ function fromEvent(e: FeedEvent, noteBody: (id: string | null) => string | null)
         ...base,
         mark: 'stage',
         title: 'Stage changed',
-        detail: from && to ? `${stageLabel(from)} → ${stageLabel(to)}` : text(e.outcome),
+        /* ⚠️ AND WHY, WHEN SOMETHING MOVED IT BY ITSELF — 209 writes the
+           evidence into `why`. A stage that changed on its own with no reason
+           beside it is the thing somebody argues with six months later. */
+        detail: join(
+          from && to ? `${stageLabel(from)} → ${stageLabel(to)}` : null,
+          text(d.why) ? `Moved automatically: ${text(d.why)}` : null,
+          from && to ? null : text(e.outcome),
+        ),
         opens: null,
       };
     case 'won':
