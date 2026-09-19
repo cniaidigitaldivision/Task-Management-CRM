@@ -5,7 +5,7 @@ import { describeSender } from '@/lib/email/send';
 import { sendTemplate, sendText, type WhatsAppConfig } from '@/lib/crm/whatsapp';
 import { withAppRole } from '@/lib/db/client';
 import { clientFacingName, letterSubtitle } from '@/lib/domain/crm-brand';
-import { fillTokens, templateParams } from '@/lib/domain/crm-followup-plans';
+import { fillTokens, missingTemplateParams, templateParams } from '@/lib/domain/crm-followup-plans';
 import { downloadObject } from '@/lib/storage/bucket';
 
 /* ============================================================================
@@ -182,6 +182,22 @@ async function sendOne(row: QueueRow, token: string | undefined, apiVersion: str
     /* ⚠️ INSIDE THE WINDOW, FREE TEXT. OUTSIDE IT, ONLY AN APPROVED TEMPLATE —
        and `crm_followups_to_send` has already refused the third case, so a step
        with neither never reaches here. */
+    /* ⚠️ A TEMPLATE WITH A BLANK TO FILL IS REFUSED HERE, NOT BY META. An empty
+       body parameter comes back 400 (#131008) "Required parameter is missing"
+       and the message is dropped — measured against the live API. The commonest
+       blank is the salesperson's name on a lead nobody owns yet, which is 665 of
+       690 leads, so this would have been a greeting that silently reached almost
+       nobody. Refused with the field named, so somebody can fix the step. */
+    const blanks = row.window_open ? [] : missingTemplateParams(row.template_vars, values);
+    if (blanks.length > 0) {
+      return done(
+        null,
+        `The template needs ${blanks.join(' and ')}, and this lead has none yet.`,
+        body,
+        null,
+      );
+    }
+
     const result = row.window_open
       ? await sendText(config, row.to_phone, body)
       : await sendTemplate(config, row.to_phone, {

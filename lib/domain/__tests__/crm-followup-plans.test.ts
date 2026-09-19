@@ -7,6 +7,7 @@ import {
   planTokens,
   purposeAvailability,
   stepsToRows,
+  missingTemplateParams,
   stopConditions,
   suggestedPlan,
   templateParams,
@@ -163,5 +164,35 @@ describe('templateParams — 210', () => {
        is sent unseen and must not put braces on a client's phone. */
     expect(templateParams(['unknown'], values)[0]).toBe('');
     expect(fillTokens('Hi {{unknown}}', values)).toContain('{{unknown}}');
+  });
+});
+
+describe('missingTemplateParams — 213', () => {
+  /* ⚠️ Meta returns 400 (#131008) for an empty body parameter — measured on the
+     live API. `my_first_name` is empty whenever a lead has no owner, which was
+     665 of 690 leads, so an unguarded three-variable greeting would have
+     silently reached almost nobody. */
+  const values = { lead_first_name: 'Ali', company: 'CNI AI & Digital Division', my_first_name: '' };
+
+  it('names the token a lead cannot answer', () => {
+    expect(missingTemplateParams(['lead_first_name', 'company', 'my_first_name'], values))
+      .toEqual(['my_first_name']);
+  });
+
+  it('is empty when every variable has a value', () => {
+    expect(missingTemplateParams(['lead_first_name', 'company'], values)).toEqual([]);
+  });
+
+  it('counts whitespace as missing, because Meta does too', () => {
+    expect(missingTemplateParams(['x'], { x: '   ' })).toEqual(['x']);
+  });
+
+  it('treats an unknown token as missing rather than letting it through blank', () => {
+    expect(missingTemplateParams(['nonsense'], values)).toEqual(['nonsense']);
+  });
+
+  it('is empty for a template with no variables at all', () => {
+    expect(missingTemplateParams(null, values)).toEqual([]);
+    expect(missingTemplateParams([], values)).toEqual([]);
   });
 });

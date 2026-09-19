@@ -434,6 +434,28 @@ export function planTokens(f: LeadFacts, visitWhen: string | null): Record<strin
  * is sent unseen, and "{{lead_first_name}}" arriving on a client's phone is worse
  * than a gap.
  */
+/**
+ * The token names a template asks for and this lead cannot answer — 213.
+ *
+ *  + W +  META REFUSES AN EMPTY PARAMETER. Measured against the live API on
+ * 2026-09-19: a body parameter with text "" comes back
+ * **400 (#131008) Required parameter is missing**, so the whole message is
+ * dropped. `my_first_name` is empty whenever a lead has no owner — which is
+ * **665 of 690 leads** — so a three-variable greeting would have silently
+ * reached almost nobody, with the refusal written on a follow-up row nobody
+ * reads.
+ *
+ *  + W +  SO THE SENDER ASKS FIRST AND SAYS WHICH ONE. A step that cannot be filled
+ * is a step somebody has to fix, and "(#131008) Required parameter is missing"
+ * names nothing a salesperson can act on.
+ */
+export function missingTemplateParams(
+  names: readonly string[] | null | undefined,
+  values: Record<string, string>,
+): string[] {
+  return (names ?? []).filter((n) => (values[n] ?? '').trim() === '');
+}
+
 export function templateParams(
   names: readonly string[] | null | undefined,
   values: Record<string, string>,
