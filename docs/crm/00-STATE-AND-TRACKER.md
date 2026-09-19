@@ -9,7 +9,47 @@
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
 | **Last updated** | **2026-09-18** |
-| **Last migration applied anywhere** | **209** (applied 2026-09-19; **209 the stage moves itself for the four things we already record**, 208 a reply pauses the chase at once). CRM next: **210.** |
+| **Last migration applied anywhere** | **210** (applied 2026-09-19; **210 a lead arriving is greeted and a template may carry a name — proved end to end on the sandbox, left OFF**; 209 the stage moves itself, 208 a reply pauses the chase at once). CRM next: **211.** |
+
+---
+
+## 👋 2026-09-19 — THE GREETING WORKS, ON THE SANDBOX · 210
+
+Owner: *"I want to implement everything that will be working with the sandbox. I
+have added 4 to 5 recipients… then I will move to the real business API."*
+
+**Proved end to end, not asserted.** A lead created on a registered recipient →
+the trigger made the run → the engine queued it → the queue handed over template,
+language and variable names → the parameters resolved in order →
+**Meta returned 200 `accepted` with a real wamid.**
+
+```
+queue row: template=... lang=en_US vars=["lead_first_name","company","my_first_name"] window_open=false
+parameters: ["Greeting","CNI AI & Digital Division","sale"]
+META -> 200 accepted
+```
+
+⚠️ **`window_open` WAS FALSE, WHICH IS THE WHOLE POINT.** It went as a template,
+which is the case for 96% of leads and the reason a greeting can never be free
+text.
+
+**No new sending machinery.** The greeting is a one-step sequence with delay 0,
+so the engine, the window, the claim guard (204), the thread write (190) and the
+pause-on-reply (208) are the ones already proved. One shared sequence per
+project, one run per lead.
+
+**Every safety rule is in the self-check:** OFF for every project by default · an
+INSERT trigger, so it can never reach the 688 leads whose consent is NULL · a lead
+submitted over a day ago is a **backlog import, not somebody arriving** · no
+phone, a stated no, and a second run on the same lead are refused.
+
+⚠️ **`templateParams` KEEPS AN UNKNOWN TOKEN'S SLOT** rather than dropping it.
+Meta matches parameters by POSITION, so omitting one shifts every later variable
+up — the client reads the company name where their own should be, and nothing in
+the request looks wrong.
+
+**Left OFF, pre-configured for `lead_greeting`.** The owner submits that template;
+flipping `greeting_on` is then the only step.
 
 ---
 
