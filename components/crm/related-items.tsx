@@ -15,9 +15,11 @@ import {
   FileText,
   Home,
   Info,
+  Eye,
   Loader2,
   MessageSquareText,
   Paperclip,
+  Send,
   Plus,
   PlusCircle,
   Receipt,
@@ -25,7 +27,7 @@ import {
   X,
 } from 'lucide-react';
 
-import { crmDocumentLinkAction } from '@/app/actions/crm-documents';
+import { crmDocumentLinkAction, uploadCrmDocumentAction } from '@/app/actions/crm-documents';
 import { bookAppointmentAction } from '@/app/actions/crm-leads';
 import {
   addPlotsFromSheetAction,
@@ -71,6 +73,7 @@ import type {
   RelatedInvoice,
   RelatedProperty,
   RelatedQuotation,
+  RelatedFile,
 } from '@/lib/db/queries/crm-related';
 import { appointmentKindLabel } from '@/lib/domain/crm-appointments';
 import { displayPhone } from '@/lib/domain/phone';
@@ -98,7 +101,7 @@ import { cn } from '@/lib/utils';
 /* ⚠️ FIVE TABS, as the owner drew them. A sixth "Files" tab was mine and it is
    gone: an uploaded quotation appears in Available quotations, a receipt on the
    booking or the invoice it proves — where somebody looks for it. */
-export type TabKey = 'quotations' | 'properties' | 'appointments' | 'bookings' | 'invoices';
+export type TabKey = 'quotations' | 'properties' | 'appointments' | 'bookings' | 'invoices' | 'files';
 
 type Tone = 'green' | 'grey' | 'amber' | 'blue' | 'red';
 
@@ -108,6 +111,12 @@ const TABS: ReadonlyArray<{ key: TabKey; label: string; icon: React.ComponentTyp
   { key: 'appointments', label: 'Appointments', icon: CalendarDays },
   { key: 'bookings', label: 'Bookings', icon: CalendarPlus },
   { key: 'invoices', label: 'Invoices', icon: FileText },
+  /* ⚠️ THE FILES WERE ALWAYS LOADED AND NEVER SHOWN. `RelatedItems.files` has
+     carried this lead's documents and the project's shared ones since the dialog
+     was built, and the counts strip printed how many there were — with no tab to
+     open. Owner, 2026-09-19: *"The option is available but the files (PDFs) are
+     not."* Exactly that. */
+  { key: 'files', label: 'Files', icon: Paperclip },
 ];
 
 const BLUE = 'var(--channel-email)';
@@ -485,8 +494,10 @@ export function RelatedItemsDialog({
           <AppointmentsTab ctx={ctx} pickedId={picked.appointments} onPick={pick('appointments')} onRecordOutcome={onRecordOutcome} />
         ) : tab === 'bookings' ? (
           <BookingsTab ctx={ctx} pickedId={picked.bookings} onPick={pick('bookings')} />
-        ) : (
+        ) : tab === 'invoices' ? (
           <InvoicesTab ctx={ctx} pickedId={picked.invoices} onPick={pick('invoices')} />
+        ) : (
+          <FilesTab ctx={ctx} pickedId={picked.files} onPick={pick('files')} />
         )}
       </div>
     </div>
@@ -2618,6 +2629,200 @@ function DocRow({ label, pill, tone = 'grey', action }: { label: string; pill: s
 /* ── 5 · Invoices ────────────────────────────────────────────────────────── */
 
 const I_COLS = `18px minmax(0,1.7fr) minmax(0,0.8fr) ${MONEY_COL} ${MONEY_COL}`;
+
+/* ── Files ─────────────────────────────────────────────────────────── */
+
+/**
+ * The project's shared documents and this lead's own, ready to send.
+ *
+ * Owner, 2026-09-19: *"all the quotations which I have shared or uploaded in the
+ * documentation, or the shared files of a project, should be displayed here —
+ * CRM proposal, anything. I can attach it and that will directly send it."*
+ *
+ *  + W +  THE PROJECT'S FILES COME FIRST. A brochure or a proposal belongs to the
+ * whole project and is the thing a salesperson reaches for most; a file uploaded
+ * against one lead is the exception. The query already orders them that way.
+ */
+/** "209 KB" — the size WhatsApp shows beside a document. */
+function bytes(n: number): string {
+  if (n >= 1_048_576) return `${(n / 1_048_576).toFixed(1)} MB`;
+  if (n >= 1024) return `${Math.round(n / 1024)} KB`;
+  return `${n} B`;
+}
+
+function FilesTab({ ctx, pickedId, onPick }: { ctx: Ctx; pickedId?: string; onPick: (id: string) => void }) {
+  const { lead, items, busy, toast } = ctx;
+  const list = items.files;
+  const chosen: RelatedFile | undefined = list.find((f) => f.id === pickedId) ?? list[0];
+  const inputRef = React.useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = React.useState(false);
+
+  const attach = () => {
+    if (!chosen) return;
+    const name = chosen.title.toLowerCase().endsWith('.pdf') ? chosen.title : `${chosen.title}.pdf`;
+
+    ctx.attachVia(
+      { title: 'Send this file', summary: `${chosen.title} · ${bytes(chosen.sizeBytes)}`, files: 1 },
+      async (channel) => {
+        const files = [await fileFromLink(await crmDocumentLinkAction(chosen.id), name)];
+        if (channel === 'whatsapp') return { channel, files, text: chosen.title };
+        return {
+          channel,
+          files,
+          subject: chosen.title,
+          text: [
+            `Assalam-o-Alaikum ${(lead.fullName ?? '').split(' ')[0] || 'Sir/Madam'}.`,
+            '',
+            `Please find ${chosen.title} attached.`,
+          ].join(String.fromCharCode(10)),
+        };
+      },
+    );
+  };
+
+  const upload = async (picked: File) => {
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.set('file', picked);
+      form.set('projectId', lead.projectId);
+      form.set('leadId', lead.id);
+      form.set('title', picked.name.replace(/\.[a-z0-9]+$/i, ''));
+      form.set('kind', 'other');
+      /* ⚠️ IT IS A `useActionState` ACTION, so the first argument is the
+         previous state. Called directly here because this is one upload with a
+         toast, not a form React is driving. */
+      const done = await uploadCrmDocumentAction({ ok: false }, form);
+      if (done.error) {
+        toast({ tone: 'error', text: done.error });
+        return;
+      }
+      /* Re-reads the shelf so the new file is in the list, without a page reload. */
+      await ctx.act(async () => ({ ok: true }), `${picked.name} is on the shelf.`);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <>
+      <Body
+        list={
+          list.length === 0 ? (
+            <EmptyList loading={ctx.loading}>
+              Nothing has been uploaded for {lead.projectName} or for this lead. Add a proposal, a
+              brochure or a price list and it can be sent from here.
+            </EmptyList>
+          ) : (
+            <ul className="min-h-0 flex-1 overflow-y-auto">
+              {list.map((f) => (
+                <li key={f.id}>
+                  <button
+                    type="button"
+                    onClick={() => onPick(f.id)}
+                    className="flex w-full items-center gap-3 border-b border-border-subtle px-4 py-3 text-left transition-colors"
+                    style={f.id === chosen?.id ? { background: ROW_ON } : undefined}
+                  >
+                    <FileText className="size-5 shrink-0" style={{ color: BLUE }} aria-hidden="true" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-body-sm font-medium text-text-primary">{f.title}</span>
+                      <span className="block truncate text-caption text-text-secondary">
+                        {bytes(f.sizeBytes)} · {shortDay(f.createdAt)}
+                      </span>
+                    </span>
+                    {/*  + W +  WHOSE FILE IT IS, SAID PLAINLY. A project brochure and a
+                        document uploaded for this one client are not the same
+                        thing, and sending the wrong one is the mistake. */}
+                    <span className="shrink-0 rounded-md bg-bg-subtle px-2 py-0.5 text-caption text-text-secondary">
+                      {f.leadId ? 'This lead' : 'Project'}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )
+        }
+        detail={
+          chosen ? (
+            <div className="min-h-0 flex-1 overflow-y-auto p-4">
+              <p className="text-body font-semibold text-text-primary">{chosen.title}</p>
+              <p className="mt-0.5 text-caption text-text-secondary">
+                {bytes(chosen.sizeBytes)} · {chosen.mime} · added {longDay(chosen.createdAt)}
+              </p>
+              <dl className="mt-4 space-y-2 text-caption">
+                <div className="flex gap-2">
+                  <dt className="w-24 shrink-0 text-text-secondary">Belongs to</dt>
+                  <dd className="min-w-0 text-text-primary">
+                    {chosen.leadId ? (lead.fullName ?? 'This lead') : lead.projectName}
+                  </dd>
+                </div>
+                <div className="flex gap-2">
+                  <dt className="w-24 shrink-0 text-text-secondary">Kind</dt>
+                  <dd className="min-w-0 text-text-primary">{chosen.kind.replace(/_/g, ' ')}</dd>
+                </div>
+              </dl>
+              <button
+                type="button"
+                onClick={async () => {
+                  const link = await crmDocumentLinkAction(chosen.id);
+                  if (link.url) window.open(link.url, '_blank', 'noopener,noreferrer');
+                  else toast({ tone: 'error', text: link.error ?? 'That file could not be opened.' });
+                }}
+                className="mt-4 inline-flex items-center gap-1.5 text-caption font-semibold text-text-brand underline-offset-2 hover:underline"
+              >
+                <Eye className="size-4" aria-hidden="true" /> Open it
+              </button>
+            </div>
+          ) : (
+            <Empty>Pick a file to see what it is.</Empty>
+          )
+        }
+      />
+      <Foot
+        left={
+          <>
+            <input
+              ref={inputRef}
+              type="file"
+              accept="application/pdf"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = '';
+                if (f) void upload(f);
+              }}
+            />
+            <button
+              type="button"
+              disabled={uploading || busy}
+              onClick={() => inputRef.current?.click()}
+              className="inline-flex items-center gap-2 rounded-xl border border-border-default px-3.5 py-2.5 text-body-sm font-medium text-text-primary transition-colors hover:bg-bg-subtle disabled:opacity-50"
+            >
+              {uploading ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Upload className="size-4" aria-hidden="true" />}
+              {uploading ? 'Uploading…' : 'Upload a PDF'}
+            </button>
+          </>
+        }
+        note={
+          /*  + W +  SAID HERE, BECAUSE IT IS THE ONE THING A SALESPERSON WOULD ASSUME.
+             A file on the shelf is not read by anything yet — the quotation
+             reader runs on the Quotations tab's own upload, not on this one. */
+          'Uploaded files can be sent from here. Reading what is inside them is the Quotations tab, for now.'
+        }
+        right={
+          <button
+            type="button"
+            disabled={!chosen || busy}
+            onClick={attach}
+            className="inline-flex items-center gap-2 rounded-xl bg-accent-primary px-4 py-2.5 text-body-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+          >
+            <Send className="size-4" aria-hidden="true" /> Attach and send
+          </button>
+        }
+      />
+    </>
+  );
+}
 
 function InvoicesTab({ ctx, pickedId, onPick }: { ctx: Ctx; pickedId?: string; onPick: (id: string) => void }) {
   const { lead, items, busy } = ctx;

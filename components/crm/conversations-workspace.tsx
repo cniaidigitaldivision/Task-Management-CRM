@@ -195,7 +195,7 @@ export function ConversationsWorkspace({
      write changes. */
   const [panel, setPanel] = React.useState<null | 'details' | 'related' | 'edit'>(null);
   const [relatedTab, setRelatedTab] =
-    React.useState<'quotations' | 'properties' | 'appointments' | 'bookings' | 'invoices'>('quotations');
+    React.useState<'quotations' | 'properties' | 'appointments' | 'bookings' | 'invoices' | 'files'>('quotations');
   /* The stage the dropdown was set to — Record outcome opens on it (155). */
   const [outcomeStage, setOutcomeStage] = React.useState<string | null>(null);
 
@@ -930,7 +930,7 @@ function ThreadBody({
 /* ── 3 · The lead's context ──────────────────────────────────────────────── */
 
 type PanelKey = 'details' | 'related' | 'edit';
-type RelatedTab = 'quotations' | 'properties' | 'appointments' | 'bookings' | 'invoices';
+type RelatedTab = 'quotations' | 'properties' | 'appointments' | 'bookings' | 'invoices' | 'files';
 
 function ContextPane({
   conversation,

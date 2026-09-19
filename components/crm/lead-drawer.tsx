@@ -342,7 +342,7 @@ export function LeadDrawer({
      and this opens the records themselves. */
   const [relatedOpen, setRelatedOpen] = React.useState(false);
   const [relatedTab, setRelatedTab] =
-    React.useState<'quotations' | 'properties' | 'appointments' | 'bookings' | 'invoices'>('quotations');
+    React.useState<'quotations' | 'properties' | 'appointments' | 'bookings' | 'invoices' | 'files'>('quotations');
   const [editing, setEditing] = React.useState(false);
   /* What the Related items dialog handed to the composer, if anything. */
   const [handoff, setHandoff] = React.useState<{
@@ -981,7 +981,7 @@ function Related({
   onRaiseQuotation: () => void;
   onChooseUnit: () => void;
   /** Opens the dialog, on the tab that was asked for. */
-  onOpen: (tab: 'quotations' | 'properties' | 'appointments' | 'bookings' | 'invoices') => void;
+  onOpen: (tab: 'quotations' | 'properties' | 'appointments' | 'bookings' | 'invoices' | 'files') => void;
 }) {
   const live =
     related.quotations.find((q) => !['superseded', 'rejected', 'expired'].includes(q.status)) ??
