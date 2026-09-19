@@ -245,8 +245,19 @@ export function ConversationsWorkspace({
        SECOND gutter on top of it — which is exactly the difference they saw. And
        the height now subtracts the real topbar and that padding rather than a
        `--app-header-h` variable which does not exist, so the three panes reach
-       the bottom of the window instead of stopping short. */
-    <div className="-mx-4 -my-4 flex h-[calc(100dvh-var(--topbar-height))] min-h-0 flex-col gap-3 px-4 py-4 sm:-mx-6 sm:-my-4 sm:px-6">
+       the bottom of the window instead of stopping short.
+
+       ⚠️⚠️ AND `100dvh` IS DIVIDED BY THE SCALE, OR IT STOPS 10% SHORT. Owner,
+       2026-09-19, with a screenshot: *"increase the height… to the height of this
+       whole screen."* `body` carries `zoom: 0.9` (`--ui-scale`), and a height
+       computed from the window is then DRAWN at 90% like everything else inside
+       it — so "the full window" painted as 821px of a 912px window. Measured,
+       not reasoned: at windows of 912, 1014 and 760px the old rule's bottom edge
+       landed at 821, 913 and 684; dividing by the scale lands it at 912, 1014
+       and 760, exactly. (The body itself MULTIPLIES by the scale — see
+       `app/layout.tsx` — because a length declared ON the zoomed element behaves
+       the other way round. Same zoom, opposite correction, and both measured.) */
+    <div className="-mx-4 -my-4 flex h-[calc(100dvh/var(--ui-scale)-var(--topbar-height))] min-h-0 flex-col gap-3 px-4 py-4 sm:-mx-6 sm:-my-4 sm:px-6">
       <Header channel={channel} onChannel={setChannel} total={conversations.length} />
 
       <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)] xl:grid-cols-[minmax(0,21rem)_minmax(0,1fr)_minmax(0,19rem)]">
