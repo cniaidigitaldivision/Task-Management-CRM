@@ -8,8 +8,71 @@
 | **Route** | `/leads` · `/my-leads` · `/clients` · `/lead-reports` · `/lead-overview` · nav: Growth → Campaign & Lead Desk |
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
-| **Last updated** | **2026-09-18** |
-| **Last migration applied anywhere** | **218** (applied 2026-09-19; **218 a quotation/proposal PDF sent in the chat moves the stage, the BANT gate yields to evidence, a stale next action clears**; 217 suggestions survive a reply; 214–216 archive; 213 import cutoff). CRM next: **219.** |
+| **Last updated** | **2026-09-19** |
+| **Last migration applied anywhere** | **223** (applied 2026-09-19; **222 a client confirms their own appointment by tapping the template, 223 a first name that survives an Urdu name**; 220–221 appointments confirm and remind themselves; 219 a quotation or a booked visit warms the lead). CRM next: **224.** |
+
+---
+
+## 🧭 2026-09-19 (late) — THE CLIENT CONFIRMS THEIR OWN APPOINTMENT · 222, 223
+
+Owner: *"For the appointment booked, that confirmation button should not send it
+to the client. When a client clicks Confirmed, it should automatically be
+confirmed in my system and a reminder message should be sent that our meeting is
+scheduled — a short or a very warm reminder if possible."*
+
+**The webhook was already storing the tap and ignoring it.** Meta delivers a
+template's quick reply as an ordinary inbound whose text is the button's own
+words; 184 stored it and nothing acted on it. **222** acts on it: the soonest
+upcoming appointment goes to `confirmed`, and a short warm acknowledgement is
+queued as free text — safe, because a client who just wrote to us has opened the
+24-hour window by definition. A request for a different time is **handed to the
+salesperson instead**, because only they know what else is in the diary.
+
+**Proved live, end to end**, by signing a button-tap payload with
+`META_APP_SECRET` and posting it at the running webhook: HTTP 200 → Umm e
+Habiba's 21 Sept site visit went `scheduled` → `confirmed` → the thank-you went
+out through the real queue with a real wamid, inside a minute.
+
+### ⚠️ Two bugs this turn found, neither of them the feature
+
+**1 · Marking an appointment confirmed re-sent the whole confirmation.**
+`crm_appointment_booked` treated *any* status change as a reason to announce the
+booking again — so a salesperson ticking "confirmed" by hand sent the client a
+second "your site visit is confirmed for…". A booking is re-announced when its
+**time** moves, or when it returns from cancelled. Being confirmed is not a new
+fact about when it is.
+
+**2 · ⚠️ The first matcher would have confirmed visits nobody agreed to.**
+It searched for `ok` *anywhere* in the message. "Can you b**ok** another time?"
+contains it. It now matches the **whole message** against phrases a person sends
+on purpose; bare "yes" and "ok" are deliberately absent, because a client typing
+"ok" is usually agreeing with the last thing said and we cannot tell which. A tap
+always arrives as the button's exact text, so the button path is unaffected, and
+anything unrecognised stays an ordinary message for a human — the direction that
+fails safely. Five such sentences are in the self-check.
+
+### 223 · "Shukriya Umm!"
+
+Proving 222 sent a real message calling **Umm e Habiba** "Umm" — the same mistake
+the owner already caught on the greeting (*"Who is Ali?"*). `split_part(name, ' ', 1)`
+cuts Urdu and Arabic names into fragments: *Zia ul Haq* → "Zia", *Noor ul Ain* →
+"Noor". `app.crm_first_name` keeps going while the next word is a connector
+(`e`, `ul`, `ur`, `al`…), then takes the word it joins to — and capitalises a name
+typed in lower case on an ad form, leaving connectors lower. `bin`/`bint`/`ibn`
+are deliberately **not** connectors: "Muhammad bin Qasim" is greeted as Muhammad.
+
+Exactly three functions in `app` cut at the first space; all three now use it,
+including `crm_followup_tokens`, **so every greeting and sequence message is
+fixed too**. 12 cases in the self-check, verified against every real name.
+
+### ⚠️ Waiting on the owner, in Meta
+
+`appointment_confirmed` (en_GB, APPROVED, UTILITY, 5 variables) has **no
+buttons** — read back from Graph, not assumed. The tap path cannot fire until two
+quick replies are added: **`Confirm`** and **`Change the time`**, whose exact
+words 222 matches. Editing an approved template sends it back to PENDING. **No
+code change is needed when it lands** — quick replies carry their payload from
+creation, and the send already passes body parameters only.
 
 ---
 

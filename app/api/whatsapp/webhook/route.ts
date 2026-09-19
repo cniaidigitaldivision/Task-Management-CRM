@@ -209,7 +209,7 @@ function readMedia(message: Record<string, unknown>, kind: string) {
 async function storeMessage(message: Record<string, unknown>): Promise<void> {
   const wamid = message.id as string | undefined;
   const from = message.from as string | undefined;
-  const kind = (message.type as string | undefined) ?? 'unknown';
+  let kind = (message.type as string | undefined) ?? 'unknown';
   if (!wamid || !from) return;
 
   /* ⚠️ META SENDS THE NUMBER WITHOUT A PLUS — `923121531511`. Every lead is
@@ -241,7 +241,12 @@ async function storeMessage(message: Record<string, unknown>): Promise<void> {
   if (kind === 'text') {
     body = ((message.text as Record<string, unknown> | undefined)?.body as string | undefined) ?? null;
   } else if (kind === 'button') {
+    /* ⚠️ A TAP IS TEXT. Meta calls a template's quick reply `button`, which is
+       not a value `crm_message_kind` has — so it was being stored as `unknown`,
+       the kind reserved for things we could not read, next to a body we read
+       perfectly well. It is the client's own words; it is stored as text. */
     body = ((message.button as Record<string, unknown> | undefined)?.text as string | undefined) ?? null;
+    kind = 'text';
   } else {
     const found = readMedia(message, kind);
     /* A caption IS the message text when there is one — an image with
@@ -297,6 +302,30 @@ async function storeMessage(message: Record<string, unknown>): Promise<void> {
         console.error('[whatsapp-webhook] could not keep an attachment:', error);
       }
     });
+  }
+
+  /* ⚠️ A REPLY CAN BE A DECISION, NOT JUST A MESSAGE. A quick reply on the
+     appointment template arrives here like any other inbound, and until now
+     nothing acted on it. Owner, 2026-09-19: *"When a client clicks Confirmed,
+     it should automatically be confirmed in my system and a reminder message
+     should be sent."* 222 confirms the appointment and queues a short warm
+     acknowledgement; a request for a different time goes to the salesperson,
+     because only they know what else is in the diary.
+
+     ⚠️ NOT RESTRICTED TO TAPS. A client who types "confirmed" rather than
+     tapping means the same thing, and 222 ignores anything it does not
+     recognise — so this runs on every inbound and stays quiet on almost all
+     of them.
+
+     ⚠️ AND IT NEVER FAILS THE WEBHOOK. Meta retries a non-200 for hours; the
+     message is already safely stored, so a confirmation that did not land is
+     worth a line in the log, not a redelivery of everything behind it. */
+  if (messageId && body) {
+    try {
+      await withAppRole((tx) => tx`select app.crm_act_on_reply(${messageId}::uuid)`);
+    } catch (error) {
+      console.error('[whatsapp-webhook] could not act on a reply:', error);
+    }
   }
 
   /* ⚠️ NULL IS ORDINARY, NOT A FAILURE. Somebody messaging the business
