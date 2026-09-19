@@ -9,7 +9,73 @@
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
 | **Last updated** | **2026-09-18** |
-| **Last migration applied anywhere** | **208** (applied 2026-09-19; **208 a reply pauses the chase at once — the pause was real but only written down when the next step fell due**; 205/206 Nurture, 203 one definition of due, 204 the sender claims a row, 207 every step keeps its own hour). CRM next: **209.** |
+| **Last migration applied anywhere** | **209** (applied 2026-09-19; **209 the stage moves itself for the four things we already record**, 208 a reply pauses the chase at once). CRM next: **210.** |
+
+---
+
+## 🔄 2026-09-19 — THE STAGE MOVES ITSELF · 209, AND THE NEXT ACTION LETS GO
+
+Owner: *"Manually changing each state is very hectic… When a quotation is sent,
+it will be a quotation sent status."* Plan: `docs/crm/17-AUTOMATIC-STAGES.md`.
+
+**Tier A shipped — and no model is involved in any of it:**
+
+| → Stage | Fires on |
+|---|---|
+| `contacted` | an inbound **after** one of ours, or a connected call |
+| `quotation_sent` | a quotation reaching `sent` |
+| `visit_scheduled` | a site visit booked and still to come |
+| `visited` | that visit completed |
+
+⚠️ **THE `contacted` RULE IS NOT "HAS BOTH DIRECTIONS".** A Meta lead form
+arrives as an inbound message, so **660 of 689 leads have one before we have said
+a word**. The naive rule would have called **Hina Shahzad** contacted — she
+enquired 12 Sep, we answered on the 17th, and she has never written back. The
+self-check builds that exact shape.
+
+⚠⚠ **AND THE ONE THAT WOULD HAVE BROKEN PRODUCTION:** 167's trigger refuses a
+lead entering qualified-or-beyond out of `new`/`contacted` with no BANT, raising
+CRM08. Advancing to `quotation_sent` in the same transaction that sends the
+quotation would have raised **out of the send itself** — the quotation would have
+failed because the stage could not move. Caught, with a fallback to the furthest
+stage the gate allows; the self-check asserts the insert survives.
+
+**The timeline says what moved it.** 116's trigger now carries a `why`, so the
+Activity tab reads *"New → Contacted · Moved automatically: the client replied to
+us"* — and says nothing extra when a person moved it.
+
+Backfilled: habiba minhas and Umm e e Habiba → `contacted`. Hina Shahzad
+untouched.
+
+**Still manual, deliberately:** `negotiation`, `won`, `lost` (outcomes are what
+the campaign-vs-salesperson report is computed from), `qualified` (judgement — a
+person will confirm what a model reads from the chat), and `proposal_pending`
+(**blocked: `crm_document_kind` has no `proposal`**).
+
+---
+
+## ✅ 2026-09-19 — THE NEXT ACTION STOPS BEING COMPULSORY
+
+Owner: *"The next action should not be compulsory when I manually change
+something… maybe I have set some other follow-ups. I don't need these."*
+
+⚠️ **THE RULE'S INTENT WAS RIGHT AND ITS TEST WAS WRONG.** It was written from
+the owner's own words — *"every open lead should leave the form with a next
+action"*, meaning **nothing goes quiet** — but it asked *"did you type one just
+now?"* instead of *"does this lead have anything planned?"*
+
+`lib/domain/crm-planned.ts` (14 tests) answers the right question from rows every
+screen already holds. It counts only what has **not** happened — a done
+follow-up, a paused sequence, a visit that is over and an overdue next action are
+history, and counting them would let a genuinely quiet lead through, which is the
+original bug from the other side. It names the **soonest** thing.
+
+The form says so: *"Already scheduled: Second nudge · Sun 21 Sep, 10:00 AM."*
+
+⚠️ **And "Pause active sequence" no longer defaults ON for every outcome** — a
+salesperson who merely moved a stage was stopping their own chase by accident. It
+follows the outcome now (on for *client replied*, which is the one case where
+continuing talks over somebody).
 
 ---
 
