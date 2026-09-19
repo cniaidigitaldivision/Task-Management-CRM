@@ -75,6 +75,11 @@ interface LeadSource {
   readonly portfolioName: string;
   readonly token: string | null;
   readonly expectsVaultToken: boolean;
+  /**
+   * Only take leads SUBMITTED on or after this — 213. Null takes everything,
+   * which is what every project does until somebody sets one.
+   */
+  readonly leadsFrom: Date | null;
 }
 
 async function sources(projectId: string | null): Promise<LeadSource[]> {
@@ -89,6 +94,7 @@ async function sources(projectId: string | null): Promise<LeadSource[]> {
     portfolioName: String(r.portfolio_name),
     token: r.token === null || r.token === undefined ? null : String(r.token),
     expectsVaultToken: Boolean(r.expects_vault_token),
+    leadsFrom: r.leads_from ? new Date(r.leads_from as string) : null,
   }));
 }
 
@@ -117,8 +123,9 @@ interface FormRow {
 }
 
 /** Every lead on one form, following Meta's paging to the end. */
-async function leadsForForm(formId: string, token: string): Promise<MetaLead[]> {
+async function leadsForForm(formId: string, token: string, since: Date | null): Promise<MetaLead[]> {
   const out: MetaLead[] = [];
+  const sinceMs = since ? since.getTime() : null;
 
   let next: string | null = null;
   for (let page = 0; page < MAX_PAGES; page += 1) {
@@ -137,12 +144,46 @@ async function leadsForForm(formId: string, token: string): Promise<MetaLead[]> 
              default set rather than adding to it, so omitting `field_data` here
              would silently import every future lead with no answers at all. */
           fields: 'id,created_time,platform,field_data',
+          /* ⚠️ 213 · ASK META TO STOP AT THE CUTOFF. Without this the loop
+             follows paging to the END of the form — which is how 660 leads from
+             two and three months ago arrived on the first connection. Owner:
+             *"I don't want to dump a lot of data into my database."* */
+          ...(since
+            ? {
+                filtering: JSON.stringify([
+                  { field: 'time_created', operator: 'GREATER_THAN_OR_EQUAL',
+                    value: Math.floor(since.getTime() / 1000) },
+                ]),
+              }
+            : {}),
         });
 
-    out.push(...(body.data ?? []));
+    const page = body.data ?? [];
+    /* ⚠️ AND CHECKED HERE AS WELL, WHICH IS NOT BELT AND BRACES. Graph's
+       `filtering` on this edge is undocumented for `time_created` and has to be
+       treated as a hint: if Meta ignores it we would silently import the whole
+       history again, and the only symptom would be a database somebody has to
+       clean by hand. The cutoff is decided from the row we were sent. */
+    out.push(...(sinceMs === null
+      ? page
+      : page.filter((l) => {
+          const at = Date.parse(l.created_time ?? '');
+          return Number.isNaN(at) ? false : at >= sinceMs;
+        })));
 
     next = body.paging?.next ?? null;
     if (!next) break;
+
+    /* ⚠️ STOP PAGING ONCE THE PAGE IS ENTIRELY OLDER THAN THE CUTOFF. Meta
+       returns newest first, so an older page means every page after it is older
+       too — and walking the rest costs a round trip each for nothing. */
+    if (sinceMs !== null && page.length > 0
+        && page.every((l) => {
+          const at = Date.parse(l.created_time ?? '');
+          return Number.isNaN(at) || at < sinceMs;
+        })) {
+      break;
+    }
   }
 
   return out;
@@ -193,7 +234,7 @@ export async function importLeads(
 
       const payload: LeadPayload[] = [];
       for (const form of forms) {
-        for (const lead of await leadsForForm(form.id, pageToken)) {
+        for (const lead of await leadsForForm(form.id, pageToken, source.leadsFrom)) {
           const mapped = toLeadPayload(lead, form.id);
           if (mapped) payload.push(mapped);
         }
