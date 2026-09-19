@@ -5,7 +5,7 @@ import { describeSender } from '@/lib/email/send';
 import { sendTemplate, sendText, type WhatsAppConfig } from '@/lib/crm/whatsapp';
 import { withAppRole } from '@/lib/db/client';
 import { clientFacingName, letterSubtitle } from '@/lib/domain/crm-brand';
-import { fillTokens } from '@/lib/domain/crm-followup-plans';
+import { fillTokens, templateParams } from '@/lib/domain/crm-followup-plans';
 import { downloadObject } from '@/lib/storage/bucket';
 
 /* ============================================================================
@@ -61,6 +61,8 @@ interface QueueRow {
   to_email: string | null;
   template_name: string | null;
   template_language: string;
+  /** 210 · the token names filling {{1}}, {{2}}… in Meta's own order. */
+  template_vars: string[] | null;
   document_ids: string[] | null;
   window_open: boolean;
   wa_phone_number_id: string | null;
@@ -185,10 +187,15 @@ async function sendOne(row: QueueRow, token: string | undefined, apiVersion: str
       : await sendTemplate(config, row.to_phone, {
           name: row.template_name as string,
           language: row.template_language,
-          /* ⚠️ NO PARAMETERS. A template with variables needs them in Meta's own
-             order and nothing in the plan records that order yet; Meta refuses
-             the send and the refusal is written on the step, which is the
-             honest outcome until templates carry their variables. */
+          /* ⚠️ 210 · THE STEP'S OWN ORDER, RESOLVED HERE AND NOW. The step
+             stores token NAMES, never values — a name frozen into a plan is the
+             wrong person's name the first time that plan is reused.
+
+             ⚠️ AND AN UNKNOWN TOKEN BECOMES AN EMPTY STRING, never a dropped
+             entry. Meta matches parameters by position, so omitting one would
+             shift every later variable up a slot and the client would read the
+             company name where their own should be. */
+          body: templateParams(row.template_vars, values),
         });
 
     return done(result.wamid ?? null, result.ok ? null : (result.error ?? 'WhatsApp refused the message.'), body, null);

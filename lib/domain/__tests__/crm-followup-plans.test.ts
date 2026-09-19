@@ -9,6 +9,7 @@ import {
   stepsToRows,
   stopConditions,
   suggestedPlan,
+  templateParams,
   type LeadFacts,
   type PlanStep,
 } from '@/lib/domain/crm-followup-plans';
@@ -133,5 +134,34 @@ describe('placeholders', () => {
   it('never prints an empty client name, and leaves an unknown token visible', () => {
     const out = fillTokens('Hi {{lead_first_name}} {{nope}}', planTokens(facts({ leadFirstName: '' }), null));
     expect(out).toBe('Hi Sir/Madam {{nope}}');
+  });
+});
+
+describe('templateParams — 210', () => {
+  const values = { lead_first_name: 'Ali', company: 'CNI AI & Digital Division', my_first_name: 'Sarah' };
+
+  it('returns the values in the order the step names them', () => {
+    expect(templateParams(['lead_first_name', 'company'], values)).toEqual(['Ali', 'CNI AI & Digital Division']);
+  });
+
+  it('keeps the slot of an unknown token instead of dropping it', () => {
+    /* ⚠️ THE BUG THIS EXISTS TO PREVENT. Dropping the middle one would put the
+       company into {{2}} — Meta matches by position, so the client would read
+       the wrong value with nothing in the request looking wrong. */
+    expect(templateParams(['lead_first_name', 'nonsense', 'company'], values))
+      .toEqual(['Ali', '', 'CNI AI & Digital Division']);
+  });
+
+  it('is an empty list when a template has no variables', () => {
+    expect(templateParams(null, values)).toEqual([]);
+    expect(templateParams(undefined, values)).toEqual([]);
+    expect(templateParams([], values)).toEqual([]);
+  });
+
+  it('never leaves a visible placeholder, unlike free text', () => {
+    /* fillTokens shows {{unknown}} because a person reads that draft; a template
+       is sent unseen and must not put braces on a client's phone. */
+    expect(templateParams(['unknown'], values)[0]).toBe('');
+    expect(fillTokens('Hi {{unknown}}', values)).toContain('{{unknown}}');
   });
 });

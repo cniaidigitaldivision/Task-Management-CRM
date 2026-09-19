@@ -420,6 +420,27 @@ export function planTokens(f: LeadFacts, visitWhen: string | null): Record<strin
   };
 }
 
+/**
+ * A WhatsApp template's parameters, in Meta's own order — 210.
+ *
+ *  + W +  POSITION IS EVERYTHING, AND THAT IS THE WHOLE RISK. Meta matches
+ * parameters to {{1}}, {{2}}… by their position in this array, not by name. An
+ * unknown token must therefore become an EMPTY STRING and keep its slot: drop it
+ * and every later variable shifts up one, so the client reads the company name
+ * where their own should be, and nothing about the request looks wrong.
+ *
+ *  + W +  AND IT DIFFERS FROM `fillTokens` ON PURPOSE. Free text leaves an unknown
+ * placeholder visible, because a person reading a draft should see it. A template
+ * is sent unseen, and "{{lead_first_name}}" arriving on a client's phone is worse
+ * than a gap.
+ */
+export function templateParams(
+  names: readonly string[] | null | undefined,
+  values: Record<string, string>,
+): string[] {
+  return (names ?? []).map((n) => values[n] ?? '');
+}
+
 /** ⚠️ An unknown placeholder is left visible rather than printed as nothing. */
 export function fillTokens(body: string, values: Record<string, string>): string {
   return body.replace(/\{\{\s*([a-z_]+)\s*\}\}/g, (all, key: string) => values[key] ?? all);
