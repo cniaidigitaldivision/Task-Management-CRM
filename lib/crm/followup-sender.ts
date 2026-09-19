@@ -63,6 +63,8 @@ interface QueueRow {
   template_language: string;
   /** 210 · the token names filling {{1}}, {{2}}… in Meta's own order. */
   template_vars: string[] | null;
+  /** 220 · values already resolved on the row itself — see the column's note. */
+  template_values: string[] | null;
   document_ids: string[] | null;
   window_open: boolean;
   wa_phone_number_id: string | null;
@@ -188,7 +190,11 @@ async function sendOne(row: QueueRow, token: string | undefined, apiVersion: str
        blank is the salesperson's name on a lead nobody owns yet, which is 665 of
        690 leads, so this would have been a greeting that silently reached almost
        nobody. Refused with the field named, so somebody can fix the step. */
-    const blanks = row.window_open ? [] : missingTemplateParams(row.template_vars, values);
+    const blanks = row.window_open
+      ? []
+      : row.template_values
+        ? row.template_values.flatMap((v, i) => (v.trim() === '' ? [`{{${i + 1}}}`] : []))
+        : missingTemplateParams(row.template_vars, values);
     if (blanks.length > 0) {
       return done(
         null,
@@ -211,7 +217,12 @@ async function sendOne(row: QueueRow, token: string | undefined, apiVersion: str
              entry. Meta matches parameters by position, so omitting one would
              shift every later variable up a slot and the client would read the
              company name where their own should be. */
-          body: templateParams(row.template_vars, values),
+          /* ⚠️ THE ROW'S OWN VALUES WIN. A sequence step carries token NAMES
+             because it is reused across leads; a standalone follow-up — an
+             appointment confirmation, a reminder — carries the words themselves,
+             fixed at the moment it was written. Re-deriving them would recompute
+             "tomorrow" on the day it sends and say the wrong thing. */
+          body: row.template_values ?? templateParams(row.template_vars, values),
         });
 
     return done(result.wamid ?? null, result.ok ? null : (result.error ?? 'WhatsApp refused the message.'), body, null);
