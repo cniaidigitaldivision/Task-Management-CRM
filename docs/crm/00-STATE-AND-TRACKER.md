@@ -9,7 +9,53 @@
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
 | **Last updated** | **2026-09-19** |
-| **Last migration applied anywhere** | **224** (applied 2026-09-19; **222 the client confirms their own appointment, 223 a first name that survives an Urdu name, 224 a refusal that will pass later waits instead of dying**; 220–221 appointments confirm and remind themselves). CRM next: **225.** |
+| **Last migration applied anywhere** | **225** (applied 2026-09-19; **222 the client confirms their own appointment, 223 a first name that survives an Urdu name, 224 a refusal that will pass later waits, 225 one visit that moves rather than two visits**). CRM next: **226.** |
+
+---
+
+## 🧭 2026-09-19 (night) — 225 · ONE VISIT THAT MOVES, NOT TWO VISITS
+
+Owner, on an Appointments (2) that holds one site visit: *"These are not two
+separate visits. It's one visit: first I schedule it, then the client says that
+this time is not feasible, and then I change its time… It creates two site visits
+for me in the appointment so it shouldn't be like that."*
+
+### ⚠️ TWO IMPLEMENTATIONS OF ONE IDEA HAD DRIFTED APART
+
+  · `app.crm_reschedule_appointment` (219) — **moves the row.** One visit.
+  · `rescheduleAppointment` (crm-related.ts) — marks the old row `rescheduled`
+    and **inserts a new one** with `replaces_id`. Two rows.
+
+The dialog's Reschedule button called the second. A `replaces_id` chain is a
+reasonable audit design and a bad fit for the screen a salesperson reads, which
+answers *when am I seeing this client* — one question, one answer. **225 makes the
+219 function the only rescheduling there is**, and the move is recorded in the
+row's own notes (`moved from 21 Sep, 10:00 AM`) and the timeline.
+
+### ⚠️ AND A MOVED VISIT IS NO LONGER A CONFIRMED VISIT
+
+222 lets a client tap Confirm. Moving a confirmed visit left a tick against a
+time nobody agreed to. Any move now returns the row to `scheduled`, and 220
+re-asks — proved live: the old confirmation and the old reminder both went
+`cancelled · Superseded — the appointment time changed`, and the new message
+reads *"has been moved to Thursday…"* rather than "is confirmed for", with the
+reminder re-queued for the new date. A `completed` visit is refused outright:
+that one is recorded, not moved.
+
+**Existing rows:** nothing deleted. A `rescheduled` row has a successor by
+construction, so it is history — the list and its count now skip it, which turned
+the owner's Appointments (2) into (1) showing the real 11:30 time, and a backfill
+gave each successor the note saying where it moved from.
+
+### ⚠️ "None planned" was a lie while the rows were still in flight
+
+The same screenshot shows *WhatsApp reminder · None planned* on a visit whose
+reminder was already queued for 09:30 — the dialog opens on a seed carrying
+`visitReminderAt: null` and the card believed it. It now says "Checking for a
+reminder…" until the read lands. Rule Zero, law 3.
+
+⚠️ **And a backtick in a SQL comment ended the template literal for the fourth
+time in this repo** — `tsc` blamed a line two statements away.
 
 ---
 

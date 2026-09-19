@@ -2141,14 +2141,23 @@ function AppointmentsTab({ ctx, pickedId, onPick, onRecordOutcome }: {
                   </IconTile>
                   <div className="min-w-0 flex-1">
                     <p className="text-body-sm font-semibold text-text-primary">WhatsApp reminder</p>
+                    {/* ⚠️ "NONE PLANNED" IS A LIE WHILE THE ROWS ARE STILL COMING.
+                        The seed this dialog opens on carries `visitReminderAt:
+                        null`, so until the real read lands every appointment says
+                        it has no reminder — and the owner's screenshot caught it
+                        saying exactly that about a visit whose reminder was
+                        already queued for 09:30. Rule Zero, law 3: draw what the
+                        row knows, and say "loading" about the rest. */}
                     <p className="text-caption text-text-secondary">
                       {items.visitReminderAt
                         ? `A reminder is planned for ${formatWhen(items.visitReminderAt)}.`
-                        : 'None planned — add one from Follow-ups → Appointment reminder.'}
+                        : ctx.loading
+                          ? 'Checking for a reminder…'
+                          : 'None planned — add one from Follow-ups → Appointment reminder.'}
                     </p>
                   </div>
                   <Pill tone={items.visitReminderAt ? 'green' : 'grey'}>
-                    {items.visitReminderAt ? 'Scheduled' : 'Not set'}
+                    {items.visitReminderAt ? 'Scheduled' : ctx.loading ? '…' : 'Not set'}
                   </Pill>
                 </Card>
 

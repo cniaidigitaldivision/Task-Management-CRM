@@ -240,7 +240,15 @@ export async function readLeadRelatedItems(actorId: string, leadId: string): Pro
         ) order by a.scheduled_at desc)
           from public.crm_appointments a
           left join public.crm_properties pr on pr.id = a.property_id
-         where a.lead_id = (select id from lead)), '[]'::json) as appointments,
+         where a.lead_id = (select id from lead)
+           /* ⚠️ A rescheduled ROW IS HISTORY, NOT A VISIT. One was only ever
+              written by the old two-row reschedule (225 replaced it), and every
+              one of them has a successor carrying the real time — so listing it
+              counts a single site visit twice, which is exactly what the owner
+              was looking at. The row is kept; it is just not a thing in the
+              diary any more.
+              (No backticks in here: this is inside a tagged template.) */
+           and a.status <> 'rescheduled'), '[]'::json) as appointments,
 
       coalesce((
         select json_agg(json_build_object(
@@ -741,35 +749,33 @@ export async function requestFromManager(
 /**
  * Move an appointment.
  *
- * ⚠️ A NEW ROW THAT POINTS BACK, as 152 designed `replaces_id` to be used. The old
- * one becomes `rescheduled` and keeps its time, so "they moved it twice" is still
- * visible — overwriting `scheduled_at` would erase exactly that.
+ * ⚠️ THE SAME VISIT, AT A NEW TIME — NOT A SECOND VISIT. This wrote a new row
+ * pointing back with `replaces_id` and left the old one as `rescheduled`, which
+ * put two site visits on a screen that had one. Owner, 2026-09-19: *"These are
+ * not two separate visits. It's one visit: first I schedule it, then the client
+ * says that this time is not feasible, and then I change its time."*
+ *
+ * ⚠️ AND IT GOES THROUGH `app.crm_reschedule_appointment`, WHICH ALREADY DID
+ * THIS CORRECTLY. Two implementations of one idea had drifted apart — 219's
+ * moved the row, this one split it — and the button happened to call the wrong
+ * one. 225 is now the only rescheduling there is: it records the time moved
+ * from in the notes, refuses to move a visit that already happened, and returns
+ * a confirmed visit to `scheduled` because the client never agreed to the new
+ * time.
  */
 export async function rescheduleAppointment(
   actorId: string,
   input: { appointmentId: string; scheduledAt: string },
 ): Promise<RelatedWrite> {
   return withUser(actorId, async (tx) => {
-    const old = (await tx`
-      update public.crm_appointments
-         set status = 'rescheduled', updated_at = now()
-       where id = ${input.appointmentId}::uuid
-         and status in ('scheduled', 'confirmed')
-      returning id, lead_id, project_id, property_id, kind, duration_minutes, location, notes, owner_id, is_test_data
-    `) as Array<Record<string, unknown>>;
-    const row = old[0];
-    if (!row) return { ok: false as const, error: 'Only an upcoming appointment can be moved.' };
-
-    await tx`
-      insert into public.crm_appointments
-        (lead_id, project_id, property_id, kind, status, scheduled_at, duration_minutes,
-         location, notes, owner_id, replaces_id, created_by_id, is_test_data)
-      values (${row.lead_id as string}::uuid, ${row.project_id as string}::uuid, ${(row.property_id as string | null) ?? null}::uuid,
-              ${row.kind as string}::public.crm_appointment_kind, 'scheduled', ${input.scheduledAt}::timestamptz,
-              ${row.duration_minutes as number}, ${(row.location as string | null) ?? null}, ${(row.notes as string | null) ?? null},
-              ${(row.owner_id as string | null) ?? null}::uuid, ${row.id as string}::uuid, ${actorId}::uuid,
-              ${row.is_test_data as boolean})
-    `;
+    const done = (await tx`
+      select app.crm_reschedule_appointment(
+        ${input.appointmentId}::uuid, ${input.scheduledAt}::timestamptz
+      ) as ok
+    `) as Array<{ ok: boolean }>;
+    if (!done[0]?.ok) {
+      return { ok: false as const, error: 'That appointment could not be moved — a visit that already happened is recorded, not moved.' };
+    }
     return { ok: true as const };
   });
 }
