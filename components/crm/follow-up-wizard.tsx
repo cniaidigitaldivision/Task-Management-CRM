@@ -77,6 +77,7 @@ import {
   type PlanMode,
   type PlanStep,
 } from '@/lib/domain/crm-followup-plans';
+import { templateForPurpose } from '@/lib/domain/crm-template-for-purpose';
 import { cn } from '@/lib/utils';
 
 /* ============================================================================
@@ -943,6 +944,36 @@ function Compose({
     };
   }, [step.channel, step.mode, templates, lead.id]);
 
+  /**
+   * ⚠️ THE TEMPLATE CHOOSES ITSELF, BECAUSE FORGETTING IT IS SILENT.
+   *
+   * Owner, 2026-09-20: *"most of the time, even when I am trying or I'm testing,
+   * I forget to choose the template. When a salesperson is busy with a lot of
+   * other things, how can he remember?"* The cost of forgetting is not a
+   * warning — it is a step that sits in the queue and never sends, noticed days
+   * later when the client has gone quiet. The purpose already says what the
+   * message is for, so the template is a consequence, not a second decision.
+   *
+   * ⚠️ ONLY ONTO AN EMPTY FIELD, AND ONLY ONCE PER STEP. A salesperson who
+   * chose "No template" on purpose must not have one put back by a re-render —
+   * so the step is remembered by index, and clearing the select sticks.
+   */
+  const autoTemplated = React.useRef<Set<number>>(new Set());
+  React.useEffect(() => {
+    if (!templates?.ok || step.channel !== 'whatsapp' || step.mode !== 'auto_send') return;
+    if (step.template || autoTemplated.current.has(active)) return;
+    const pick = templateForPurpose(purpose, templates.templates);
+    if (!pick) return;
+    autoTemplated.current.add(active);
+    onStep(active, { template: { name: pick.name, language: pick.language } });
+  }, [templates, step.channel, step.mode, step.template, purpose, active, onStep]);
+
+  const chosenBecause = React.useMemo(() => {
+    if (!templates?.ok || !step.template) return null;
+    const pick = templateForPurpose(purpose, templates.templates);
+    return pick && pick.name === step.template.name ? pick.because : null;
+  }, [templates, step.template, purpose]);
+
   const polish = async (mode: string) => {
     if (polishing || !step.body.trim()) return;
     setPolishing(true);
@@ -1157,6 +1188,22 @@ function Compose({
                       </option>
                     ))}
                 </select>
+                {/* ⚠️ IT SAYS WHICH ONE IT CHOSE AND WHY. A form that decides on
+                    somebody's behalf and hides it is worse than one that asks —
+                    this one shows its reasoning and the select still changes it,
+                    including back to no template at all. */}
+                {chosenBecause && (
+                  <p className="mt-1.5 text-caption text-text-secondary">
+                    Chosen for you because {chosenBecause}. Change it if you meant another.
+                  </p>
+                )}
+                {templates.ok
+                  && !step.template
+                  && templates.templates.some((t) => t.status === 'APPROVED') && (
+                  <p className="mt-1.5 text-caption" style={{ color: 'var(--feedback-warning)' }}>
+                    Nothing here matches this purpose, so this step will only send inside the 24-hour window.
+                  </p>
+                )}
                 {templates.error && <p className="mt-1.5 text-caption text-feedback-error">{templates.error}</p>}
                 {templates.ok && templates.templates.filter((t) => t.status === 'APPROVED').length === 0 && (
                   <p className="mt-1.5 text-caption text-text-secondary">
