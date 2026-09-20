@@ -32,6 +32,43 @@ import { chatgptKey } from '@/lib/ai/narrative';
 
 const MODEL = 'gpt-4o';
 
+/**
+ * What this business sells — and it is not one thing.
+ *
+ * ⚠️ THE MODEL COINED A PRODUCT THAT DOES NOT EXIST. The first extraction named
+ * every answer after **"Taskly CRM"**, a compound of two separate products,
+ * because the proposal's title said CRM and the folder said Taskly. The owner
+ * corrected it on 2026-09-20: *"That's not the Taskly CRM. We have three
+ * separate software programs."* An agent opening with an invented product name
+ * is wrong in its first sentence, and wrong in a way a client repeats back.
+ *
+ * ⚠️ AND THE MERGING IS THE COMMERCIAL MODEL, NOT A FOOTNOTE. *"If someone says
+ * that I want all these things in one software program, we can merge them."*
+ * That is the answer to "can it also do inventory?" from any conversation, so
+ * the extractor is told it rather than left to infer it from a proposal that
+ * only describes one product.
+ */
+export const PRODUCTS = {
+  taskly: 'Taskly — task and project management: teams, projects, customers, finance, monthly expenses, attendance and performance management. Paid.',
+  crm: 'CRM — lead management.',
+  erp: 'ERP — inventory management.',
+  whatsapp: 'WhatsApp Automation — WhatsApp Business API automation.',
+  any: 'the business as a whole, across all of its products',
+} as const;
+
+export type ProductKey = keyof typeof PRODUCTS;
+
+const HOUSE_RULES = `THE PRODUCTS THIS BUSINESS SELLS — each is SEPARATE software, sold on its own:
+- Taskly: ${PRODUCTS.taskly}
+- CRM: ${PRODUCTS.crm}
+- ERP: ${PRODUCTS.erp}
+- WhatsApp Automation: ${PRODUCTS.whatsapp}
+
+Any combination of them can be merged and delivered as ONE system when a client asks for that.
+
+NEVER invent a combined product name. There is no "Taskly CRM", no "Taskly ERP" and no "CRM Suite".
+Call each product by exactly the name above. This document is about ONE of them; name only that one.`;
+
 const SYSTEM = `You read a business document and turn it into a FAQ that a sales assistant may quote from.
 
 Return JSON with exactly these keys:
@@ -47,7 +84,8 @@ Rules:
 - Do NOT create entries about one named customer's own pricing, discount or contract terms. Those are that customer's terms, not facts about the business.
 - Prefer questions about: what the product is, what is included, how it works, what the process is, timelines, support, and what is explicitly excluded.
 - Answers are for WhatsApp: short, plain, no markdown, no bullet characters, no emoji.
-- 8 to 20 entries. Fewer is fine if the document is thin.`;
+- 8 to 20 entries. Fewer is fine if the document is thin.
+- Name the product exactly as the house rules name it. Never coin a combined name.`;
 
 export interface KnowledgeDraft {
   readonly question: string;
@@ -58,6 +96,31 @@ export interface KnowledgeDraft {
 export interface Extraction {
   readonly entries: readonly KnowledgeDraft[];
   readonly gaps: readonly string[];
+}
+
+/**
+ * Product names this business does not sell.
+ *
+ * ⚠️ THE PROMPT WAS TOLD NOT TO, AND IT DID ANYWAY. Two runs, with the rule
+ * stated plainly and then stated twice, both produced *"Taskly CRM"* — a
+ * compound of two separate products. The document's title says CRM, the folder
+ * says Taskly, and the model helpfully joins them. So this is checked rather
+ * than requested, for the same reason `verifyQuotes` exists: an instruction is
+ * a preference and a filter is a rule.
+ */
+const INVENTED_NAMES = /\b(taskly[-\s]+(crm|erp|whatsapp)|crm[-\s]+erp|erp[-\s]+crm|taskly\s+suite|crm\s+suite)\b/i;
+
+/** Entries naming a product that does not exist, separated from the rest. */
+export function rejectInventedProducts(
+  entries: readonly KnowledgeDraft[],
+): { kept: KnowledgeDraft[]; invented: KnowledgeDraft[] } {
+  const kept: KnowledgeDraft[] = [];
+  const invented: KnowledgeDraft[] = [];
+  for (const e of entries) {
+    if (INVENTED_NAMES.test(e.question) || INVENTED_NAMES.test(e.answer)) invented.push(e);
+    else kept.push(e);
+  }
+  return { kept, invented };
 }
 
 /** Letters and digits only, lower case — for comparing a quote to its source. */
@@ -74,6 +137,38 @@ function flatten(text: string): string {
  * double spaces, a hyphen that was a line wrap — while still catching a sentence
  * that was never there.
  */
+/** The shortest run of text that proves an answer came from the document. */
+const PROOF = 40;
+
+/**
+ * Is a long enough run of this quote actually in the document?
+ *
+ * ⚠️ DEMANDING THE WHOLE QUOTE VERBATIM FAILED IN PRACTICE, AND FAILED QUIETLY.
+ * Measured on the owner's proposal: twelve of fifteen answers rejected, and the
+ * quotes were real — the model had appended four words ("Connect an approved
+ * WhatsApp Business Platform number **to the CRM**") or tightened the
+ * punctuation. A fence that rejects four true answers for every false one is not
+ * a strict fence, it is a broken one, and the damage is invisible: it looks like
+ * a thin document.
+ *
+ * So the rule is a CONTIGUOUS RUN of 40 characters — eight to ten words that
+ * appear in the document exactly, in order. That is far more than an invented
+ * sentence ever accidentally shares with its source, and it forgives the edges,
+ * which is where a model tidies.
+ */
+function groundedIn(quote: string, haystack: string): boolean {
+  const needle = flatten(quote);
+  /* A quote of two words proves nothing — it would match almost any document. */
+  if (needle.length < 24) return false;
+  if (needle.length <= PROOF) return haystack.includes(needle);
+
+  for (let i = 0; i + PROOF <= needle.length; i += 8) {
+    if (haystack.includes(needle.slice(i, i + PROOF))) return true;
+  }
+  /* The tail, which a stride of 8 can step past. */
+  return haystack.includes(needle.slice(-PROOF));
+}
+
 export function verifyQuotes(
   entries: readonly KnowledgeDraft[],
   documentText: string,
@@ -82,9 +177,7 @@ export function verifyQuotes(
   const kept: KnowledgeDraft[] = [];
   const dropped: KnowledgeDraft[] = [];
   for (const entry of entries) {
-    const needle = flatten(entry.sourceQuote);
-    /* A quote of two words proves nothing — it would match almost any document. */
-    if (needle.length >= 12 && haystack.includes(needle)) kept.push(entry);
+    if (groundedIn(entry.sourceQuote, haystack)) kept.push(entry);
     else dropped.push(entry);
   }
   return { kept, dropped };
@@ -93,7 +186,14 @@ export function verifyQuotes(
 export async function extractKnowledge(
   documentText: string,
   about: string,
-): Promise<Extraction & { dropped: number }> {
+  /** Which of the four this document describes — named for the model, not guessed. */
+  product: ProductKey = 'any',
+): Promise<Extraction & {
+  dropped: number;
+  invented: number;
+  droppedEntries: readonly KnowledgeDraft[];
+  inventedEntries: readonly KnowledgeDraft[];
+}> {
   const key = chatgptKey();
   if (!key) throw new Error('CHATGPT_API_KEY is not set, so documents cannot be read.');
 
@@ -111,8 +211,11 @@ export async function extractKnowledge(
       temperature: 0.2,
       max_completion_tokens: 3000,
       messages: [
-        { role: 'system', content: SYSTEM },
-        { role: 'user', content: `DOCUMENT: ${about}\n\n${text}` },
+        { role: 'system', content: `${SYSTEM}\n\n${HOUSE_RULES}` },
+        {
+          role: 'user',
+          content: `THIS DOCUMENT IS ABOUT: ${PRODUCTS[product]}\nDOCUMENT: ${about}\n\n${text}`,
+        },
       ],
     }),
     signal: AbortSignal.timeout(90_000),
@@ -152,6 +255,17 @@ export async function extractKnowledge(
     .map((g) => g.trim().slice(0, 300))
     .slice(0, 12);
 
-  const { kept, dropped } = verifyQuotes(entries, documentText);
-  return { entries: kept, gaps, dropped: dropped.length };
+  const verified = verifyQuotes(entries, documentText);
+  const named = rejectInventedProducts(verified.kept);
+  return {
+    entries: named.kept,
+    gaps,
+    dropped: verified.dropped.length,
+    invented: named.invented.length,
+    /* ⚠️ RETURNED, NOT SWALLOWED. The approval screen says how many answers were
+       discarded and why — an extractor that silently keeps three of fifteen
+       looks like a thin document rather than a broken read. */
+    droppedEntries: verified.dropped,
+    inventedEntries: named.invented,
+  };
 }

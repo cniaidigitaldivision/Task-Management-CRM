@@ -9,7 +9,66 @@
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
 | **Last updated** | **2026-09-19** |
-| **Last migration applied anywhere** | **226** (applied 2026-09-20; **226 the knowledge base + per-salesperson pilot rules**; 225 one visit that moves; 224 a refusal that will pass later waits; 222/223 the client confirms, and a first name that survives Urdu). CRM next: **227.** |
+| **Last migration applied anywhere** | **227** (applied 2026-09-20; **226 the knowledge base + per-salesperson pilot rules, 227 four products that can be merged**; 225 one visit that moves; 224 a refusal that will pass later waits). CRM next: **228.** |
+
+---
+
+## 🧭 2026-09-20 — 227 · FOUR PRODUCTS, NOT ONE WITH FOUR NAMES
+
+⚠️ **THE FIRST EXTRACTION INVENTED A PRODUCT.** Every answer was about *"Taskly
+CRM"*, which does not exist. Owner: *"That's not the Taskly CRM… We have three
+separate software programs."*
+
+| Product | What it is |
+|---|---|
+| **Taskly** | tasks, projects, teams, customers, finance, monthly expenses, attendance, performance. Paid. |
+| **CRM** | lead management |
+| **ERP** | inventory management |
+| **WhatsApp Automation** | WhatsApp Business API automation |
+
+**And any combination can be merged into one system** — that is the commercial
+model, not a footnote, and it is the answer to *"can it also do inventory?"*
+whichever product the client started from.
+
+### Why this is a column and not a prompt fix
+
+Telling the model the right name fixes eleven answers and nothing else. An answer
+**belongs to a product**: *"what does it manage"* has four different true answers.
+`crm_knowledge.product` plus `crm_project_settings.product` (which product a
+campaign advertises) mean a CRM lead hears the CRM's answer, never the ERP's, and
+a campaign selling the whole range hears only what is always true — so the agent
+asks which product rather than guessing.
+
+⚠️ `crm_knowledge_for` was **dropped and recreated** with the product argument
+rather than widened, so any caller not updated fails loudly instead of quietly
+teaching the agent four products at once.
+
+### ⚠️ THREE BUGS THE SELF-CHECKS AND ONE LIVE RUN CAUGHT
+
+**1 · The uniqueness rule trimmed before normalising.** 226 wrote
+`lower(regexp_replace(btrim(question)…))`, so trailing punctuation became a
+trailing SPACE: *"What is included?"* and *"What is included"* were two different
+rows. Its own self-check caught it. Now `btrim(lower(regexp_replace(…)))`.
+
+**2 · The prompt could not stop the invented name.** Two runs, the rule stated
+plainly and then twice, both produced "Taskly CRM" — the title says CRM, the
+folder says Taskly, and the model joins them. `rejectInventedProducts` checks it
+in code, for the same reason `verifyQuotes` exists: **an instruction is a
+preference and a filter is a rule.**
+
+**3 · ⚠️ AND THE QUOTE FENCE WAS REJECTING TRUE ANSWERS.** Demanding the whole
+quote verbatim threw away **twelve of fifteen** — the quotes were real and the
+model had appended four words (*"…Business Platform number **to the CRM**"*) or
+tightened punctuation. A fence that rejects four true answers for every false one
+is broken, **and it fails looking like a thin document**. The rule is now a
+contiguous 40-character run: far more than an invented sentence shares with its
+source, and forgiving at the edges, which is where a model tidies.
+
+**Final run on the real proposal: 13 kept, 2 unverifiable, 0 invented names**, and
+every answer says "the CRM".
+
+**Seeded as drafts** (nothing sendable until approved): the four product
+definitions and the merging rule, in the owner's own words as the source.
 
 ---
 

@@ -52,6 +52,16 @@ describe('verifyQuotes', () => {
     expect(kept).toHaveLength(1);
   });
 
+  it('⚠️ keeps a quote the model tidied at the edges', () => {
+    /* Measured on the owner's proposal, 2026-09-20: twelve of fifteen answers
+       were rejected for exactly this — the model appended a few words or
+       tightened the punctuation, and demanding the whole string verbatim threw
+       away true answers. A fence that rejects four true answers for every false
+       one is broken, and it fails looking like a thin document. */
+    const tidied = 'Third-party WhatsApp/Meta messaging charges and usage-based AI/API charges are separate, where applicable, for this client.';
+    expect(verifyQuotes([draft(tidied)], DOC).kept).toHaveLength(1);
+  });
+
   it('⚠️ drops an answer the model invented a source for', () => {
     /* Plausible, in the document's own voice, and nowhere in the document. This
        is exactly the failure the fence exists to stop. */
