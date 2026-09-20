@@ -58,6 +58,11 @@ const ADMIN_NAV = [
      "clients" unreachable. Its own route reads as what it is: the owner's
      reference names "Clients & Leads" as two things. */
   '/clients',
+  /* Added 2026-09-20 with the AI agent's knowledge base. ⚠️ A TOP-LEVEL
+     ROUTE, not `/leads/knowledge`: it is scoped to a PROJECT rather than to a
+     lead, and the same answers serve every lead on that project. Like `/clients`
+     it creates no nested pair, so the prefix rule below stays unambiguous. */
+  '/knowledge',
   /* Step 4 of the nine, 2026-09-13. ⚠️ THE PAIR BELOW IS DELIBERATE AND IS NOT
      A DUPLICATE. `/lead-overview` is LIVE — computed on read, answering "what is
      wrong this morning". `/lead-reports` is FROZEN — stored whole and never

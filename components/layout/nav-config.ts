@@ -11,6 +11,7 @@ import {
   Gauge,
   KeyRound,
   LayoutDashboard,
+  BookOpen,
   ListChecks,
   Settings,
   ShieldCheck,
@@ -248,6 +249,21 @@ export const NAV_SECTIONS: readonly NavSection[] = [
         label: 'My to-dos',
         href: '/todos',
         icon: ListChecks,
+        roles: ADMIN_UP,
+        requires: 'crm',
+      },
+      {
+        /* ⚠️ A RAIL ENTRY BECAUSE ITS SCREEN DOES SOMETHING — the standing rule.
+           This one is the fence around the AI agent: the agent may state a fact
+           only if it is approved here, and everything else it hands to a person.
+           Owner, 2026-09-20: *"give me some chatbot or something like that where
+           I can guide, instruct, or give knowledge to my AI agent."*
+
+           `requires: 'crm'` like the desk: it reads a project's own documents and
+           answers, and it discloses nothing a salesperson cannot already read. */
+        label: 'What the agent knows',
+        href: '/knowledge',
+        icon: BookOpen,
         roles: ADMIN_UP,
         requires: 'crm',
       },
