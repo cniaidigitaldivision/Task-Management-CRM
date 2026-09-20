@@ -34,8 +34,23 @@ describe('templateForPurpose', () => {
     expect(templateForPurpose('quotation', REAL)?.name).toBe('quotation_follow_up');
   });
 
-  it('picks something that re-opens a quiet conversation for no_response', () => {
-    expect(templateForPurpose('no_response', REAL)?.name).toBe('quotation_follow_up');
+  it('⚠️ will not chase a silent lead with a message about a quotation', () => {
+    /* `quotation_follow_up` is the only thing in this account that looks like a
+       nudge, and its approved text reads "regarding the quotation we shared with
+       you". A lead who went quiet before any quotation existed would be sent a
+       message about a document they never received.
+       ⚠️ AND DROPPING IT FROM THE WORD LIST WAS NOT ENOUGH: the name CONTAINS
+       "follow_up", so it kept matching and this test kept passing while the rule
+       it describes was not in force. It takes an explicit exclusion. */
+    expect(templateForPurpose('no_response', REAL)).toBeNull();
+  });
+
+  it('does pick a real check-in template when the account has one', () => {
+    const better: ApprovedTemplate[] = [
+      ...REAL,
+      { name: 'lead_check_in', language: 'en_GB', status: 'APPROVED', variables: 2 },
+    ];
+    expect(templateForPurpose('no_response', better)?.name).toBe('lead_check_in');
   });
 
   it('⚠️ never offers a template Meta has not approved', () => {

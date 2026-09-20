@@ -318,10 +318,16 @@ export function FollowUpWizard({
         sequenceId: result.plan?.sequenceId ?? null,
         leadSequenceId: result.plan?.leadSequenceId ?? null,
       });
-      toast({
-        tone: 'ok',
-        text: kind === 'single' ? 'Follow-up planned.' : start ? 'Sequence started.' : 'Draft saved.',
-      });
+      /* ⚠️ A CHANGED ANSWER IS TOLD, AND IT LINGERS. "Follow-up planned" over a
+         step that will never send itself is how the owner came to ask how a
+         scheduled message could be overdue. */
+      if (result.note) toast({ tone: 'warn', text: result.note });
+      else {
+        toast({
+          tone: 'ok',
+          text: kind === 'single' ? 'Follow-up planned.' : start ? 'Sequence started.' : 'Draft saved.',
+        });
+      }
       onClose();
     } catch {
       toast({ tone: 'error', text: 'That did not save — the connection dropped.' });

@@ -1105,6 +1105,31 @@ const STATE_LOOK: Record<FollowUpState, { label: string; color: string }> = {
 
 type HistoryFilter = 'all' | 'open' | 'done' | 'cancelled';
 
+/**
+ * Whether this step sends itself, or is waiting for the salesperson.
+ *
+ * ⚠️ THE ONE FACT THE SCREEN WAS MISSING. `crm_followup_is_due` takes only
+ * `mode = 'auto_send'`; a `review_first` or `remind_me` step is a task for a
+ * person and will sit there for ever if nobody opens it. Both showed as
+ * "Scheduled", then both showed as "Overdue", and there was nothing on screen
+ * to tell them apart.
+ */
+function WhoSends({ mode }: { mode: string }) {
+  if (mode === 'auto_send') {
+    return (
+      <span className="mt-0.5 inline-flex items-center gap-1 text-caption" style={{ color: WA_GREEN }}>
+        <Send className="size-3" aria-hidden="true" /> Sends itself
+      </span>
+    );
+  }
+  return (
+    <span className="mt-0.5 inline-flex items-center gap-1 text-caption" style={{ color: PAUSED_ORANGE }}>
+      <Bell className="size-3" aria-hidden="true" />
+      {mode === 'review_first' ? 'You send it — a draft is ready' : 'Reminder for you'}
+    </span>
+  );
+}
+
 function ChannelGlyph({ channel, onAccent = false }: { channel: string; onAccent?: boolean }) {
   const style = onAccent ? undefined : { color: channel === 'whatsapp' ? WA_GREEN : channel === 'email' ? MAIL_BLUE : undefined };
   if (channel === 'whatsapp') return <span style={style}><WhatsAppMark className="size-4" /></span>;
@@ -1260,6 +1285,15 @@ function HistoryRow({
         <span className="min-w-0 flex-1">
           <span className="block truncate text-body-sm font-semibold text-text-primary">{row.title}</span>
           <span className="block truncate text-caption text-text-secondary">{detail}</span>
+          {/* ⚠️ WHO SENDS IT, SAID ON EVERY ROW. Owner, 2026-09-20: *"The
+              scheduled follow-up is at 3:30 but I didn't receive this follow-up…
+              Scheduled, then it should be sent, right? How can it be overdue?"*
+              It was `review_first`, which never sends itself — the queue only
+              takes `auto_send` — so it was a task waiting for a person and the
+              screen never said so. "Scheduled" looked identical for a message
+              that sends itself and one that waits for you, and the difference is
+              the whole question. */}
+          {!row.doneAt && <WhoSends mode={row.mode} />}
         </span>
         <span className="shrink-0 text-right">
           <Pill color={look.color}>

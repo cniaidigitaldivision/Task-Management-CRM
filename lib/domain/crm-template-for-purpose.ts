@@ -50,9 +50,25 @@ export interface TemplateChoice {
  * contain "appointment", so the more specific word has to win — otherwise a
  * reminder goes out reading "your visit is confirmed".
  */
+/*
+ * ⚠️ `quotation_follow_up` IS DELIBERATELY ABSENT FROM `no_response` AND
+ * `re_engage`. Its approved text names a quotation — "regarding the quotation we
+ * shared with you" — so a lead who went quiet before any quotation existed would
+ * be sent a message about a document they never received. It is the nearest
+ * match by name and the wrong thing to say, which is the one case where
+ * returning nothing is better: the wizard says so, and a template that fits can
+ * be approved once and used for ever.
+ */
 const INTENTS: ReadonlyArray<{
   purpose: string;
   words: readonly string[];
+  /*
+   * ⚠️ AND THE WORDS ALONE CANNOT EXPRESS IT. Dropping
+   * `quotation_follow_up` from the list below changed nothing, because its name
+   * CONTAINS `follow_up` — the test went on passing while the rule it described
+   * was not in force. A name carrying any of these is refused outright.
+   */
+  avoid?: readonly string[];
   because: string;
 }> = [
   {
@@ -67,12 +83,14 @@ const INTENTS: ReadonlyArray<{
   },
   {
     purpose: 'no_response',
-    words: ['quotation_follow_up', 'follow_up', 'followup', 'nudge', 're_engage', 'greeting'],
+    words: ['no_response', 'follow_up', 'followup', 'check_in', 'checkin', 'nudge', 're_engage', 'reengage'],
+    avoid: ['quotation', 'quote', 'appointment', 'payment', 'invoice'],
     because: 'it re-opens a conversation that went quiet',
   },
   {
     purpose: 're_engage',
-    words: ['re_engage', 'reengage', 'quotation_follow_up', 'follow_up', 'greeting'],
+    words: ['re_engage', 'reengage', 'follow_up', 'followup', 'check_in', 'checkin'],
+    avoid: ['quotation', 'quote', 'appointment', 'payment', 'invoice'],
     because: 'it re-opens a conversation that went quiet',
   },
   {
@@ -124,8 +142,12 @@ export function templateForPurpose(
   const intent = INTENTS.find((i) => i.purpose === purpose);
   if (!intent) return null;
 
+  const allowed = intent.avoid
+    ? approved.filter((t) => !intent.avoid!.some((bad) => matches(t.name, bad)))
+    : approved;
+
   for (const word of intent.words) {
-    const hits = approved.filter((t) => matches(t.name, word));
+    const hits = allowed.filter((t) => matches(t.name, word));
     if (hits.length === 0) continue;
 
     /* ⚠️ THE ONE WHOSE BLANKS WE CAN ACTUALLY FILL. A template with more

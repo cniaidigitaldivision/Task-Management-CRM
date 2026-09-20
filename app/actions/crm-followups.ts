@@ -44,7 +44,20 @@ import {
 
 export type FollowUpResult = { readonly ok: true } | { readonly ok: false; readonly error: string };
 export type PlanResult =
-  | { readonly ok: true; readonly plan: LeadPlanWritten | null }
+  | {
+      readonly ok: true;
+      readonly plan: LeadPlanWritten | null;
+      /**
+       * Set when the system could not do what was asked and did something else.
+       *
+       * ⚠️ NOT AN ERROR, AND NOT SILENCE EITHER. Choosing auto-send into a
+       * closed window with no approved template saves a step a PERSON must send.
+       * That is the right outcome and the wrong thing to say nothing about: the
+       * owner watched one sit at "Scheduled" then "Overdue" and asked how a
+       * scheduled message could be overdue.
+       */
+      readonly note?: string;
+    }
   | { readonly ok: false; readonly error: string };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -203,10 +216,25 @@ export async function createFollowUpPlanAction(input: PlanInput): Promise<PlanRe
       /* ⚠️ THE MODE THE PERSON CHOSE. It was validated above and then dropped —
          so "Auto-send" on a single follow-up saved a reminder instead. */
       mode: step.mode,
+      /* ⚠️ AND THE TEMPLATE, WHICH WAS DROPPED THE SAME WAY. Without it a
+         closed 24-hour window downgraded auto-send to "you send it" — on
+         precisely the quiet leads a follow-up exists for. */
+      template: step.template,
       keepNextAction: input.keepNextAction,
     });
     const settled = settle(written);
-    return settled.ok ? { ok: true, plan: null } : settled;
+    if (!settled.ok) return settled;
+    /* ⚠️ SAY IT WHEN THE ANSWER WAS CHANGED. Owner, 2026-09-20: *"I have
+       chosen auto-send. How could it be added to my task?"* Because the window
+       was shut and there was no approved template to open it — which nothing on
+       screen said, then or later. */
+    return {
+      ok: true,
+      plan: null,
+      note: written.downgraded
+        ? 'Saved — but this client has not messaged in 24 hours and no approved template was chosen, so WhatsApp will not let it send itself. It is waiting for you to send.'
+        : undefined,
+    };
   }
 
   /* ── A scheduler ───────────────────────────────────────────────────────── */

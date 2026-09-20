@@ -80,43 +80,75 @@ export async function createFollowUp(
      * auto-send on 2026-09-18 and asked whether it would go: it would not have.
      */
     mode?: 'remind_me' | 'review_first' | 'auto_send';
+    /**
+     * The approved template to use when the 24-hour window is shut.
+     *
+     * ⚠️ WITHOUT THIS, CHOOSING "Auto-send" QUIETLY BECAME "You send it". A
+     * single follow-up had no template parameter at all — the wizard picked one
+     * and this function never saw it — so the downgrade below fired on every
+     * quiet lead, which is exactly the lead a follow-up is for. Owner,
+     * 2026-09-20: *"I have chosen auto-send. How could it be added to my task?"*
+     */
+    template?: { name: string; language: string } | null;
     /** ⚠️ Advanced: leave the desk's Next action alone. */
     keepNextAction?: boolean;
   },
-): Promise<FollowUpWrite> {
-  return run(actorId, async (tx) => {
+): Promise<FollowUpWrite & { readonly downgraded?: boolean }> {
+  const template = input.template ?? null;
+  /* ⚠️ CARRIED OUT BESIDE THE RESULT, NOT INSIDE IT. `run` reads the callback's
+     return value as the lead id and nothing else; handing it an object would
+     make every write look successful and name a lead called "[object Object]". */
+  let downgraded = false;
+
+  const result = await run(actorId, async (tx) => {
     const rows = await tx`
       insert into public.crm_follow_ups
-        (lead_id, purpose, channel, mode, status, title, body, due_at, assigned_to_id, created_by_id)
+        (lead_id, purpose, channel, mode, status, title, body, due_at, assigned_to_id, created_by_id,
+         wa_template_name, wa_template_language)
       select l.id, ${input.purpose ?? 'custom'}::public.crm_followup_purpose,
              ${input.channel}::public.crm_followup_channel,
              /* ⚠️ WHATSAPP WILL NOT AUTO-SEND FREE TEXT INTO A CLOSED WINDOW, so a
                 step that would be refused is stored as one a PERSON reviews — the
                 same downgrade 187 applies to a sequence step, decided in one place
-                rather than discovered by a failed send. A single follow-up has no
-                sequence step, so it has no template to fall back on. */
+                rather than discovered by a failed send.
+
+                ⚠️ BUT AN APPROVED TEMPLATE IS EXACTLY THE WAY IN. The old rule
+                ended "a single follow-up has no template to fall back on", which
+                was true until 220 gave every follow-up its own template columns.
+                It stayed, and went on downgrading auto-send on every lead whose
+                window had shut. With a template, a closed window is not a reason
+                to wake somebody up. */
              (case
                 when ${input.mode ?? 'remind_me'} <> 'auto_send' then ${input.mode ?? 'remind_me'}
                 when ${input.channel} = 'email' then 'auto_send'
                 when ${input.channel} <> 'whatsapp' then 'remind_me'
                 when app.crm_window_is_open(l.id) then 'auto_send'
+                when ${template?.name ?? ''} <> '' then 'auto_send'
                 else 'review_first'
               end)::public.crm_followup_mode,
              (case when ${input.dueAt}::timestamptz <= now() then 'due' else 'planned' end)::public.crm_followup_status,
              ${input.title}, ${input.body}, ${input.dueAt}::timestamptz,
-             coalesce(l.owner_id, ${actorId}::uuid), ${actorId}::uuid
+             coalesce(l.owner_id, ${actorId}::uuid), ${actorId}::uuid,
+             ${template?.name ?? null}, ${template?.language ?? null}
         from public.crm_leads l
        where l.id = ${input.leadId}::uuid
-      returning lead_id
+      returning lead_id, mode::text as mode
     `;
-    if ((rows as unknown[]).length === 0) return null;
+    const written = (rows as unknown as Array<{ lead_id: string; mode: string }>)[0];
+    if (!written) return null;
+
+    /* ⚠️ THE CALLER IS TOLD WHEN THE ANSWER WAS CHANGED. A choice silently
+       overridden is the whole complaint: the screen said Scheduled, the queue
+       never took it, and nothing ever said why. */
+    downgraded = input.mode === 'auto_send' && written.mode !== 'auto_send';
 
     /* ⚠️ THE DESK'S "NEXT ACTION" FOLLOWS. A follow-up set for tomorrow while the
        row still reads "Quotation check-in — overdue" is a table that lies about
        what is owed. It takes over when there is no next action, when the
        current one is already late, or when this one comes sooner. */
-    /* ⚠️ AND A MACHINE-SENT STEP IS NOT THE SALESPERSON'S NEXT ACTION (186). */
-    if (!input.keepNextAction && input.mode !== 'auto_send') {
+    /* ⚠️ AND A MACHINE-SENT STEP IS NOT THE SALESPERSON'S NEXT ACTION (186) —
+       but one that was DOWNGRADED is, because a person now has to send it. */
+    if (!input.keepNextAction && written.mode !== 'auto_send') {
       await tx`
         update public.crm_leads
            set next_action = ${input.title},
@@ -130,6 +162,8 @@ export async function createFollowUp(
     }
     return input.leadId;
   });
+
+  return downgraded ? { ...result, downgraded: true } : result;
 }
 
 /**
