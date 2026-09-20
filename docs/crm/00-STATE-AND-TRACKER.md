@@ -9,7 +9,86 @@
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
 | **Last updated** | **2026-09-19** |
-| **Last migration applied anywhere** | **225** (applied 2026-09-19; **222 the client confirms their own appointment, 223 a first name that survives an Urdu name, 224 a refusal that will pass later waits, 225 one visit that moves rather than two visits**). CRM next: **226.** |
+| **Last migration applied anywhere** | **226** (applied 2026-09-20; **226 the knowledge base + per-salesperson pilot rules**; 225 one visit that moves; 224 a refusal that will pass later waits; 222/223 the client confirms, and a first name that survives Urdu). CRM next: **227.** |
+
+---
+
+## 🧭 2026-09-20 — THE AGENT GETS SOMETHING TO KNOW · 226
+
+Owner: *"any proposals, any quotations, or any document… you have to read them
+all"* and *"give me some chatbot or something like that where I can guide,
+instruct, or give knowledge to my AI agent."*
+
+### 226 · Two tables, and the separation is the safety
+
+  · `crm_knowledge` — **FACT.** Per project, each entry carrying the document and
+    the verbatim sentence it came from, an approver, and an optional expiry. The
+    agent reads it through `app.crm_knowledge_for()`, which can only ever return
+    approved AND unexpired rows — one narrow door, because a filter written at
+    each call site is one somebody forgets at one of them.
+  · `crm_pilot_rules` — **STYLE.** Per **salesperson**, as the owner asked:
+    *"In Sarah's dashboard… In the Saud dashboard he may want to deal with some
+    other way."* Capped at 12, so a prompt cannot be filled with instructions.
+
+⚠️ A style rule can never become a fact. The owner's Meta example (*"call every
+client sir or ma'am"*) is harmless; a salesperson typing *"tell them it'll be
+ready in a month"* into the same box would become a promise the agent repeats to
+everyone, sourced from nothing.
+
+### ⚠️ EVERY ANSWER CARRIES THE LINE IT CAME FROM, AND THE LINE IS CHECKED
+
+`verifyQuotes` drops any entry whose quote is not actually in the document,
+compared on letters and digits alone so a PDF's line breaks and double spaces are
+forgiven. A model told to copy verbatim mostly does; "mostly" is not a fence.
+
+### ⚠️ AND THE FENCE IMMEDIATELY CAUGHT A BUG THAT WAS NOT ITS OWN
+
+First run on `CRM Purposal.pdf`: **nine of ten answers rejected.** The quotes were
+real sentences; the SOURCE was scrambled. The proposal is **two columns**, and
+`readPdfLines` groups by baseline — so the left column's line and the right
+column's line, sharing a baseline, came out spliced:
+
+    "Capture leads from website forms, landing pages, Apply configurable
+     qualification questions and lead"
+
+Two half-thoughts joined into one that reads almost plausibly. ⚠️ **This is the
+failure mode that does not announce itself**: a PDF that cannot be opened raises;
+a PDF read in the wrong order returns confident nonsense.
+
+`lib/crm/pdf-columns.ts` finds the gutter and reads one column at a time.
+⚠️ **The first rule was "nothing may cross the gutter" and it found none on the
+real page** — measured at x=283: 27 fragments left, 29 right, exactly **one**
+crossing, a section heading. One heading is not evidence against two columns; it
+is what two columns look like. Up to 5% may span, and those are read in place.
+
+⚠️ **And one of these tests had been passing for the wrong reason** — with a
+spanning heading the old code found no gutter, fell back to single-column, and
+the heading still came out first, so the assertion held while the columns were
+spliced underneath it. It now asserts both.
+
+**Result on the real proposal:** 13 candidates → **11 verified, 2 dropped**, plus
+8 honest gaps (*pricing, delivery timeline, support, security, free trial…*) the
+document does not answer. The quotation reader is unaffected: still 178,500.
+
+### Also: the follow-up template chooses itself
+
+Owner: *"most of the time… I forget to choose the template."* The cost is a step
+that sits in the queue and never sends. `templateForPurpose` picks an approved
+template from the purpose, prefers the one with fewest blanks (an unfilled
+parameter is refused outright), never offers a PENDING one, and returns null
+rather than attaching a message about the wrong thing.
+
+### ⚠️ Decided, and the owner should know
+
+Knowledge is extracted from **project-wide** documents only. A lead's own
+quotation carries that client's negotiated price and discount — 178,500 after
+30% — and must never become a general fact the agent quotes to somebody else.
+
+### Dropped at the owner's instruction
+
+The 9am–9pm limit on the agent. Owner: *"an AI agent will work all the time…
+That is the main purpose."* Right — a client messaging at 11pm getting an answer
+at 9am is the problem the agent exists to solve.
 
 ---
 
