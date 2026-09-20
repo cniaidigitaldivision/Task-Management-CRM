@@ -64,15 +64,23 @@ function row(r: Record<string, unknown>): KnowledgeEntry {
 
 export async function knowledgeBoard(actorId: string, projectId: string): Promise<KnowledgeBoard | null> {
   return withUser(actorId, async (tx) => {
-    /* ⚠️ ONE WAVE. Rule Zero law 4 — the entries and the documents have no
-       dependency on each other, so they do not queue behind one another.
-       (Inside `withUser` they share a connection and run in series anyway, so
-       they are written as two statements, not two awaits in a chain.) */
-    const projects = (await tx`
-      select p.id, p.name from public.projects p where p.id = ${projectId}::uuid
-    `) as Array<{ id: string; name: string }>;
-    const project = projects[0];
-    if (!project) return null;
+    /* ⚠️⚠️ NOT `select … from public.projects`. THIS RETURNS ZERO ROWS FOR THE
+       PEOPLE THIS SCREEN IS FOR. `projects_select` is
+       `app.project_is_visible(id)`, which needs project MEMBERSHIP — and the
+       sales team are not members of the projects whose leads they work. Measured
+       as Sarah, 2026-09-20: a direct read of the demo project returned **0
+       rows**, so this returned null and the screen sat on "Reading this
+       project's knowledge…" for ever.
+
+       This is the same bug `listCrmProjects` carries a warning about, and the
+       same shape as the "Former member" one before it. The definer is the way to
+       read a project's name from the CRM. */
+    const named = (await tx`
+      select app.crm_project_name(${projectId}::uuid) as name,
+             app.crm_is_open_to_caller() as allowed
+    `) as Array<{ name: string | null; allowed: boolean }>;
+    if (!named[0]?.allowed || !named[0].name) return null;
+    const project = { id: projectId, name: named[0].name };
 
     const entries = (await tx`
       select k.id, k.product::text as product, k.question, k.answer,

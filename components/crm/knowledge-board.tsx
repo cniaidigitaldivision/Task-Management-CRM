@@ -56,6 +56,18 @@ export function KnowledgeBoardScreen({
   const [adding, setAdding] = React.useState(false);
   const [gaps, setGaps] = React.useState<readonly string[]>([]);
 
+  /**
+   * ⚠️ "LOADING" AND "THERE IS NOTHING" ARE DIFFERENT ANSWERS AND LOOKED THE
+   * SAME. `board === null` meant both, so when the server legitimately returned
+   * nothing the screen sat on *"Reading this project's knowledge…"* with no end
+   * — the owner watched it do exactly that. Rule Zero's honesty rule, inverted:
+   * a spinner shown for an answer that has already arrived is a lie the same way
+   * an empty state shown for data still in flight is.
+   *
+   * This is only true while a fetch is genuinely in flight.
+   */
+  const [loading, setLoading] = React.useState(false);
+
   /* ⚠️ THE URL RECORDS WHICH PROJECT IS OPEN; IT DOES NOT DECIDE WHEN IT OPENS.
      Rule Zero law 2 — the board is replaced in the click's own frame and the
      address bar catches up behind it.
@@ -76,10 +88,13 @@ export function KnowledgeBoardScreen({
   const switchProject = (id: string) => {
     if (id === chosen) return;
     setBoard(null);
+    setLoading(true);
     const next = new URLSearchParams(search.toString());
     next.set('project', id);
     router.replace(`/knowledge?${next.toString()}` as never, { scroll: false });
-    void knowledgeBoardAction(id).then((b) => setBoard(b));
+    void knowledgeBoardAction(id)
+      .then((b) => setBoard(b))
+      .finally(() => setLoading(false));
   };
 
   const refresh = React.useCallback(async () => {
@@ -176,10 +191,26 @@ export function KnowledgeBoardScreen({
         </div>
       )}
 
-      {!board ? (
+      {!board && loading ? (
         <p className="flex items-center gap-2 rounded-2xl border border-border-subtle bg-bg-surface p-6 text-body-sm text-text-secondary">
           <Loader2 className="size-4 animate-spin" aria-hidden="true" /> Reading this project&rsquo;s knowledge…
         </p>
+      ) : !board ? (
+        /* ⚠️ A REASON, NOT A SPINNER. The board is null when there is no project
+           to read or the caller may not read it — both are answers, and both
+           used to show as "Reading…" for ever. */
+        <div className="rounded-2xl border border-border-subtle bg-bg-surface p-6">
+          <p className="text-body-sm font-medium text-text-primary">
+            {projects.length === 0
+              ? 'No project is visible to you yet.'
+              : 'That project could not be opened.'}
+          </p>
+          <p className="mt-1 text-caption text-text-secondary">
+            {projects.length === 0
+              ? 'The knowledge base belongs to a project, so one has to exist before there is anything to teach the agent.'
+              : 'Pick another project above, or ask an admin whether this one is yours to work on.'}
+          </p>
+        </div>
       ) : (
         <>
           <Documents board={board} reading={reading} onRead={read} />
