@@ -3,7 +3,7 @@
 /* ============================================================================
  * READ A LEAD WITH THE MODEL — Step 11
  * ----------------------------------------------------------------------------
- * ⚠️ ON A BUTTON, NEVER ON PAGE LOAD. `07-AI-PLAN.md` is explicit about the
+ * ⚠️ ON A BUTTON, NEVER ON PAGE LOAD. 07-AI-PLAN.md is explicit about the
  * cost: *"Generating on every page load is the difference between a few dollars
  * a month and a few hundred."* With 647 leads — 627 of which nobody has ever
  * rung and which are therefore the most likely to be scrolled past — an
@@ -31,13 +31,13 @@ export interface LeadAiResult {
 export async function readLeadWithAiAction(leadId: string): Promise<LeadAiResult> {
   const user = await requireUser();
 
-  /* ⚠️ READ THROUGH `getCrmLead`, WHICH IS RLS-SCOPED. Somebody who cannot see
+  /* ⚠️ READ THROUGH getCrmLead, WHICH IS RLS-SCOPED. Somebody who cannot see
      the lead must not be able to have the model describe it to them — that
      would make this action a way around the policy protecting the lead. */
   const found = await getCrmLead(user.id, leadId);
   if (!found) return { ok: false, error: 'That lead is not available to you.' };
 
-  /* ⚠️ `getCrmLead` returns the whole record — the lead, its notes, its
+  /* ⚠️ getCrmLead returns the whole record — the lead, its notes, its
      timeline and any sibling enquiries on the same number. Only the first two
      are shown to the model: the timeline is a list of state changes the model
      cannot say anything useful about, and a sibling lead belongs to somebody
@@ -90,7 +90,12 @@ export async function readLeadWithAiAction(leadId: string): Promise<LeadAiResult
       values (
         ${leadId}::uuid,
         ${insight.summary},
-        ${JSON.stringify(insight.talkingPoints)}::jsonb,
+        /* ⚠️ tx.json(), NOT JSON.stringify()::jsonb — see crm-reports.ts.
+           Measured 2026-09-20: the one stored row held a JSON string, and the
+           reader asks Array.isArray(r.talking_points), which is false for a
+           string — so the talking points came back EMPTY and the panel showed
+           none. Silent, and indistinguishable from the model returning nothing. */
+        ${tx.json(insight.talkingPoints)},
         ${insight.draftMessage},
         ${fp},
         ${insight.model},

@@ -223,7 +223,20 @@ export async function draftKnowledge(
     /* ⚠️ ONE STATEMENT, NOT ONE PER DRAFT. Inside `withUser` every query runs in
        series on one connection, so fifteen inserts is fifteen round trips.
        `on conflict do nothing` makes re-reading a document safe — it adds what
-       is new and leaves every decision already made alone. */
+       is new and leaves every decision already made alone.
+
+       ⚠️⚠️ THREE ARRAYS, NOT ONE JSON STRING. This was written as
+       `json_to_recordset(${JSON.stringify(rows)}::json)` and it failed on the
+       owner's first click:
+
+           PostgresError: cannot call json_to_recordset on a scalar
+
+       postgres.js encodes the value it is given, and a JS string bound as json
+       arrives as a JSON *string* — a scalar — not as the array the text happens
+       to spell. The same family as the `${'now()'}` bug: everything in a hole is
+       a VALUE, and its type is decided by the driver, not by the cast written
+       after it. Arrays are the shape the driver renders natively, and `unnest`
+       zips them back into rows. */
     const written = (await tx`
       insert into public.crm_knowledge
         (project_id, product, question, answer, source_quote, source_document_id, status, created_by_id)
@@ -233,12 +246,11 @@ export async function draftKnowledge(
              ${documentId}::uuid,
              'draft',
              app.current_user_id()
-        from json_to_recordset(${JSON.stringify(drafts.map((d) => ({
-          question: d.question,
-          answer: d.answer,
-          source_quote: d.sourceQuote,
-        })))}::json)
-          as d(question text, answer text, source_quote text)
+        from unnest(
+               ${drafts.map((d) => d.question)}::text[],
+               ${drafts.map((d) => d.answer)}::text[],
+               ${drafts.map((d) => d.sourceQuote)}::text[]
+             ) as d(question, answer, source_quote)
       on conflict do nothing
       returning id
     `) as Array<{ id: string }>;

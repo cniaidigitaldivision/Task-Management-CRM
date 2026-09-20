@@ -19,7 +19,7 @@ import type { Report } from '@/lib/domain/reports';
  * CRM REPORTS — LAYER 1
  * ----------------------------------------------------------------------------
  * ── ⚠️ NO AUTHORISATION CODE HERE EITHER ───────────────────────────────────
- * Migration 128's four functions each check `app.crm_manages_project` inside
+ * Migration 128's four functions each check app.crm_manages_project inside
  * themselves, because they aggregate across leads a salesperson cannot read.
  * A salesperson gets empty rows, so a report they somehow generated would be
  * blank rather than a leak — and the insert policy refuses them anyway.
@@ -47,7 +47,7 @@ export interface StoredReport {
  * Compute one report from the live tables, shaped and ready to store.
  *
  * ⚠️ THIS IS THE ONLY PLACE THAT READS LIVE. Everything a person looks at comes
- * from `listStoredReports` / `getStoredReport`, which read the frozen copy.
+ * from listStoredReports / getStoredReport, which read the frozen copy.
  */
 export async function computeCrmReport(
   actorId: string,
@@ -101,7 +101,7 @@ export async function computeCrmReport(
             contacted: Number(r.contacted ?? 0),
             won: Number(r.won ?? 0),
             lost: Number(r.lost ?? 0),
-            /* ⚠️ NULL SURVIVES THE WHOLE WAY. `Number(null)` is 0, which would
+            /* ⚠️ NULL SURVIVES THE WHOLE WAY. Number(null) is 0, which would
                turn "we cannot say yet" into "nothing converts". */
             winRate: r.win_rate === null || r.win_rate === undefined ? null : Number(r.win_rate),
           }),
@@ -137,7 +137,7 @@ export async function computeCrmReport(
 /**
  * Freeze it.
  *
- * ⚠️ `period_from` AND `period_to` ARE NULL FOR AGEING, because it has no
+ * ⚠️ period_from AND period_to ARE NULL FOR AGEING, because it has no
  * period — it is a snapshot of the moment it was taken, and storing the caller's
  * requested range against it would make an old snapshot look like a range query.
  */
@@ -156,7 +156,14 @@ export async function storeCrmReport(
       ${kind === 'ageing' ? null : report.period.start}::date,
       ${kind === 'ageing' ? null : report.period.end}::date,
       ${report.title},
-      ${JSON.stringify(report)}::jsonb,
+      /* ⚠️ tx.json(), NOT JSON.stringify()::jsonb. postgres.js serialises a
+         jsonb parameter itself, so pre-stringifying encodes it TWICE and the
+         column holds a JSON *string*. Measured 2026-09-20: both stored reports
+         had jsonb_typeof(payload) = 'string', and the reader casts
+         row.payload as Report — so every frozen report was an object-shaped
+         lie. It never errors; it is the same bug that broke project type_fields
+         for a week (registry C-22). */
+      ${tx.json(report as never)},
       ${report.rows.length},
       ${actorId}::uuid
     )
@@ -190,7 +197,7 @@ export async function listStoredReports(
     periodTo: r.period_to ? String(r.period_to).slice(0, 10) : null,
     rowCount: Number(r.row_count ?? 0),
     generatedAt: new Date(r.generated_at as string).toISOString(),
-    /* ⚠️ A plain join to `users`, and it is the trap 121 fixed elsewhere — a
+    /* ⚠️ A plain join to users, and it is the trap 121 fixed elsewhere — a
        department manager reads one row of the staff table, so a colleague's
        report would show no author. It is tolerable HERE and nowhere else,
        because only a manager or an Admin can generate one, so the author is
