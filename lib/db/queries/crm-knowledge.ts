@@ -38,12 +38,27 @@ export interface KnowledgeBoard {
   readonly projectName: string;
   readonly entries: readonly KnowledgeEntry[];
   /** Documents this project holds, so the screen can say what there is to read. */
-  readonly documents: ReadonlyArray<{
-    readonly id: string;
-    readonly title: string;
-    readonly mime: string;
-    readonly readAt: string | null;
-  }>;
+  readonly documents: ReadonlyArray<KnowledgeDocument>;
+  /** 232 · what this campaign sells, and who answers its new leads. */
+  readonly settings: {
+    readonly product: Exclude<ProductKey, 'any'> | null;
+    readonly agentModeDefault: 'off' | 'suggest' | 'agent';
+  };
+  /** Approved, unexpired answers — the agent answers only when this is above 0. */
+  readonly approvedCount: number;
+  /** May this person change the campaign settings? A manager's call (232). */
+  readonly canManage: boolean;
+}
+
+export interface KnowledgeDocument {
+  readonly id: string;
+  readonly title: string;
+  readonly mime: string;
+  readonly kind: string;
+  readonly product: ProductKey;
+  readonly sizeBytes: number;
+  readonly createdAt: string;
+  readonly readAt: string | null;
 }
 
 function row(r: Record<string, unknown>): KnowledgeEntry {
@@ -97,16 +112,32 @@ export async function knowledgeBoard(actorId: string, projectId: string): Promis
          k.product, k.question
     `) as Array<Record<string, unknown>>;
 
+    /* ⚠️ EVERY SHARED DOCUMENT, NOT ONLY PDFs. The agent reads PDFs; the
+       drawer sends anything. Moved here from the Documents page (2026-09-21),
+       so this is now the one place a project's sales documents are kept — the
+       letterhead included, first, since every quotation prints on it. */
     const documents = (await tx`
-      select d.id, d.title, d.mime,
+      select d.id, d.title, d.mime, d.kind::text as kind, d.product::text as product,
+             d.size_bytes, d.created_at,
              (select max(k.created_at) from public.crm_knowledge k
                where k.source_document_id = d.id) as read_at
         from public.crm_documents d
        where d.project_id = ${projectId}::uuid
          and d.lead_id is null
-         and d.mime = 'application/pdf'
-       order by d.created_at desc
+       order by (d.kind = 'letterhead') desc, d.created_at desc
     `) as Array<Record<string, unknown>>;
+
+    const extra = (await tx`
+      select s.product::text as product,
+             coalesce(s.agent_mode_default::text, 'off') as agent_mode_default,
+             app.crm_agent_ready(${projectId}::uuid) as approved,
+             (app.acting_at_least('admin'::public.user_role)
+              or app.crm_manages_project(${projectId}::uuid)
+              or app.crm_manages_own_department()) as can_manage
+        from (select 1) one
+        left join public.crm_project_settings s on s.project_id = ${projectId}::uuid
+    `) as Array<Record<string, unknown>>;
+    const e = extra[0] ?? {};
 
     return {
       projectId: project.id,
@@ -116,8 +147,21 @@ export async function knowledgeBoard(actorId: string, projectId: string): Promis
         id: String(d.id),
         title: String(d.title),
         mime: String(d.mime),
+        kind: String(d.kind),
+        product: String(d.product) as ProductKey,
+        sizeBytes: Number(d.size_bytes ?? 0),
+        createdAt: new Date(String(d.created_at)).toISOString(),
         readAt: d.read_at ? new Date(String(d.read_at)).toISOString() : null,
       })),
+      settings: {
+        product: (['taskly', 'crm', 'erp', 'whatsapp'].includes(String(e.product)) ? e.product : null) as
+          Exclude<ProductKey, 'any'> | null,
+        agentModeDefault: (['off', 'suggest', 'agent'].includes(String(e.agent_mode_default))
+          ? e.agent_mode_default
+          : 'off') as 'off' | 'suggest' | 'agent',
+      },
+      approvedCount: Number(e.approved ?? 0),
+      canManage: e.can_manage === true,
     };
   });
 }
@@ -256,4 +300,33 @@ export async function draftKnowledge(
     `) as Array<{ id: string }>;
     return written.length;
   });
+}
+
+/** 232 · what a campaign sells, and who answers its new leads. */
+export async function saveAgentSettings(
+  actorId: string,
+  projectId: string,
+  product: string | null,
+  mode: 'off' | 'suggest' | 'agent',
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await withUser(actorId, (tx) => tx`
+      select app.crm_set_agent_settings(${projectId}::uuid, ${product}, ${mode})
+    `);
+    return { ok: true };
+  } catch (error) {
+    /* ⚠️ THE FUNCTION'S OWN SENTENCE. Both refusals (not a manager; the agent
+       with nothing approved) are written for a person to read. */
+    const code = (error as { code?: string }).code;
+    if (code === 'CRM95' || code === 'CRM96') return { ok: false, error: (error as Error).message };
+    throw error;
+  }
+}
+
+/** 232 · correct which product a shared document is about. */
+export async function setDocumentProduct(actorId: string, documentId: string, product: ProductKey): Promise<boolean> {
+  const rows = (await withUser(actorId, (tx) => tx`
+    select app.crm_set_document_product(${documentId}::uuid, ${product}) as ok
+  `)) as unknown as Array<{ ok: boolean }>;
+  return rows[0]?.ok === true;
 }

@@ -11,6 +11,8 @@ import {
   draftKnowledge,
   knowledgeBoard,
   PRODUCT_KEYS,
+  saveAgentSettings,
+  setDocumentProduct,
   type KnowledgeBoard,
   type ProductKey,
 } from '@/lib/db/queries/crm-knowledge';
@@ -114,24 +116,31 @@ export interface ReadDocumentResult {
 export async function readDocumentAction(input: {
   projectId: string;
   documentId: string;
-  product: string;
+  /** Omitted = the document's own product (231). */
+  product?: string;
 }): Promise<ReadDocumentResult> {
   const { user } = await requireCrmAccess();
   if (!UUID.test(input.projectId) || !UUID.test(input.documentId)) {
     return { ok: false, error: 'That document could not be found.' };
   }
-  if (!isProduct(input.product)) return { ok: false, error: 'That is not one of our products.' };
+  if (input.product !== undefined && !isProduct(input.product)) {
+    return { ok: false, error: 'That is not one of our products.' };
+  }
 
   /* ⚠️ THE PATH IS READ UNDER THE CALLER, so a document on a project they cannot
      see returns nothing rather than being read for them. */
   const rows = (await withUser(user.id, (tx) => tx`
-    select d.title, d.storage_path
+    select d.title, d.storage_path, d.mime, d.product::text as product
       from public.crm_documents d
      where d.id = ${input.documentId}::uuid
        and d.project_id = ${input.projectId}::uuid
-  `)) as Array<{ title: string; storage_path: string }>;
+  `)) as Array<{ title: string; storage_path: string; mime: string; product: string }>;
   const doc = rows[0];
   if (!doc) return { ok: false, error: 'That document could not be found.' };
+  if (doc.mime !== 'application/pdf') {
+    return { ok: false, error: 'Only PDFs can be read for answers. It can still be sent from a lead’s Files.' };
+  }
+  const product = (input.product ?? doc.product) as ProductKey;
 
   const file = await downloadObject(doc.storage_path);
   if (!file.ok) return { ok: false, error: file.message ?? 'That file could not be read back.' };
@@ -151,7 +160,7 @@ export async function readDocumentAction(input: {
 
   let read;
   try {
-    read = await extractKnowledge(text, doc.title, input.product as ExtractProduct);
+    read = await extractKnowledge(text, doc.title, product as ExtractProduct);
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : 'The document could not be read.' };
   }
@@ -160,7 +169,7 @@ export async function readDocumentAction(input: {
     user.id,
     input.projectId,
     input.documentId,
-    input.product,
+    product,
     read.entries.map((e) => ({ question: e.question, answer: e.answer, sourceQuote: e.sourceQuote })),
   );
 
@@ -172,4 +181,31 @@ export async function readDocumentAction(input: {
     invented: read.invented,
     gaps: read.gaps,
   };
+}
+
+/** 232 · what a campaign sells, and who answers its new leads. */
+export async function saveAgentSettingsAction(input: {
+  projectId: string;
+  product: string | null;
+  mode: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  const { user } = await requireCrmAccess();
+  if (!UUID.test(input.projectId)) return { ok: false, error: 'That project could not be found.' };
+  if (input.mode !== 'off' && input.mode !== 'suggest' && input.mode !== 'agent') {
+    return { ok: false, error: 'That is not a reply mode.' };
+  }
+  const product = input.product && ['taskly', 'crm', 'erp', 'whatsapp'].includes(input.product) ? input.product : null;
+  const done = await saveAgentSettings(user.id, input.projectId, product, input.mode);
+  if (done.ok) revalidatePath('/knowledge');
+  return done;
+}
+
+/** 232 · correct which product a shared document is about. */
+export async function setDocumentProductAction(documentId: string, product: string): Promise<{ ok: boolean; error?: string }> {
+  const { user } = await requireCrmAccess();
+  if (!UUID.test(documentId)) return { ok: false, error: 'That document could not be found.' };
+  if (!isProduct(product)) return { ok: false, error: 'That is not one of our products.' };
+  const ok = await setDocumentProduct(user.id, documentId, product);
+  if (ok) revalidatePath('/knowledge');
+  return ok ? { ok: true } : { ok: false, error: 'That document could not be changed.' };
 }

@@ -26,6 +26,8 @@ import { signedUrl, uploadObject } from '@/lib/storage/bucket';
 export interface UploadResult {
   readonly ok: boolean;
   readonly error?: string;
+  /** The new document — "What the agent knows" reads it straight after. */
+  readonly id?: string;
 }
 
 /* ⚠️ The bucket's own allowlist is wider than this — it takes video and zip.
@@ -84,6 +86,10 @@ export async function uploadCrmDocumentAction(
   }
 
   const leadId = str(form, 'leadId') || null;
+  /* 231 · which product it is about. Anything unrecognised is "any" — a
+     document shown to every lead is the safe mistake; one hidden is not. */
+  const productRaw = str(form, 'product');
+  const product = ['taskly', 'crm', 'erp', 'whatsapp'].includes(productRaw) ? productRaw : 'any';
   const title = str(form, 'title') || file.name;
   if (title.length > 200) {
     return { ok: false, error: 'Keep the title under 200 characters — it is what the list shows.' };
@@ -118,6 +124,7 @@ export async function uploadCrmDocumentAction(
     storagePath: path,
     mime: file.type,
     sizeBytes: file.size,
+    product,
   });
   if (!row) {
     return {
@@ -128,7 +135,8 @@ export async function uploadCrmDocumentAction(
 
   revalidatePath('/documents');
   revalidatePath('/my-leads');
-  return { ok: true };
+  revalidatePath('/knowledge');
+  return { ok: true, id: row.id };
 }
 
 /**

@@ -103,15 +103,18 @@ export async function crmRecordDocument(
     storagePath: string;
     mime: string;
     sizeBytes: number;
+    /** 231 · which product it is about; 'any' when it is not about one. */
+    product?: string;
   },
 ): Promise<{ id: string } | null> {
   const rows = await withUser(actorId, (tx) => tx`
     insert into public.crm_documents
-      (project_id, lead_id, kind, title, storage_path, mime, size_bytes, uploaded_by_id)
+      (project_id, lead_id, kind, title, storage_path, mime, size_bytes, uploaded_by_id, product)
     values (${input.projectId}::uuid, ${input.leadId}::uuid,
             ${input.kind}::public.crm_document_kind, ${input.title}::text,
             ${input.storagePath}::text, ${input.mime}::text,
-            ${input.sizeBytes}::bigint, ${actorId}::uuid)
+            ${input.sizeBytes}::bigint, ${actorId}::uuid,
+            ${input.product ?? 'any'}::public.crm_product)
     returning id
   `);
   const r = (rows as Array<Record<string, unknown>>)[0];

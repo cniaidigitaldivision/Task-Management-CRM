@@ -2,17 +2,21 @@
 
 import * as React from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Check, FileText, Loader2, Plus, RefreshCw, Sparkles, X } from 'lucide-react';
+import { Check, Eye, FileText, Loader2, Plus, RefreshCw, Sparkles, Upload, X } from 'lucide-react';
 
+import { uploadCrmDocumentAction } from '@/app/actions/crm-documents';
 import {
   addKnowledgeAction,
   decideKnowledgeAction,
   knowledgeBoardAction,
   readDocumentAction,
+  saveAgentSettingsAction,
+  setDocumentProductAction,
 } from '@/app/actions/crm-knowledge';
+import { DocumentPreview } from '@/components/crm/document-preview';
 import { PageHeader } from '@/components/ui/page-header';
 import { useToast } from '@/components/ui/toast';
-import type { KnowledgeBoard, KnowledgeEntry, ProductKey } from '@/lib/db/queries/crm-knowledge';
+import type { KnowledgeBoard, KnowledgeDocument, KnowledgeEntry, ProductKey } from '@/lib/db/queries/crm-knowledge';
 import { cn } from '@/lib/utils';
 
 /* ============================================================================
@@ -124,10 +128,12 @@ export function KnowledgeBoardScreen({
     });
   };
 
-  const read = async (documentId: string, product: ProductKey) => {
+  /* 231 · read as the product the document is filed under — chosen once, at
+     upload, not again every time it is read. */
+  const read = async (documentId: string) => {
     setReading(documentId);
     try {
-      const r = await readDocumentAction({ projectId: chosen!, documentId, product });
+      const r = await readDocumentAction({ projectId: chosen!, documentId });
       if (!r.ok) {
         toast({ tone: 'error', text: r.error ?? 'That document could not be read.' });
         return;
@@ -213,7 +219,22 @@ export function KnowledgeBoardScreen({
         </div>
       ) : (
         <>
-          <Documents board={board} reading={reading} onRead={read} />
+          <AgentSettings key={`settings-${board.projectId}`} board={board} onSaved={refresh} />
+
+          <Documents
+            key={`docs-${board.projectId}`}
+            board={board}
+            reading={reading}
+            onRead={(id) => void read(id)}
+            onUploaded={async (id, isPdf) => {
+              await refresh();
+              /* ⚠️ READ AS SOON AS IT ARRIVES. Owner: *"Once I upload the CRM
+                 the agent will read them and keep that in our knowledge."* A
+                 separate "now press Read" step is a step somebody forgets. */
+              if (isPdf) await read(id);
+              else toast({ tone: 'ok', text: 'Uploaded. It can be sent from a lead’s Files.' });
+            }}
+          />
 
           {gaps.length > 0 && <Gaps gaps={gaps} projectId={board.projectId} onWritten={refresh} onDismiss={() => setGaps([])} />}
 
@@ -261,79 +282,332 @@ export function KnowledgeBoardScreen({
   );
 }
 
-/* ---- The documents there are to read ------------------------------------ */
+/* ---- What this campaign sells, and who answers its new leads ------------ */
+
+const MODES: ReadonlyArray<{ key: 'off' | 'suggest' | 'agent'; label: string; hint: string }> = [
+  { key: 'agent', label: 'AI agent', hint: 'Answers new leads by itself, and hands over when unsure' },
+  { key: 'suggest', label: 'Suggestions', hint: 'Drafts a reply; a salesperson sends it' },
+  { key: 'off', label: 'My reply', hint: 'No AI — salespeople answer' },
+];
+
+function AgentSettings({ board, onSaved }: { board: KnowledgeBoard; onSaved: () => Promise<void> }) {
+  const toast = useToast();
+  const [product, setProduct] = React.useState<string>(board.settings.product ?? '');
+  const [mode, setMode] = React.useState(board.settings.agentModeDefault);
+  const [saving, setSaving] = React.useState(false);
+  const changed = product !== (board.settings.product ?? '') || mode !== board.settings.agentModeDefault;
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const r = await saveAgentSettingsAction({ projectId: board.projectId, product: product || null, mode });
+      if (!r.ok) {
+        toast({ tone: 'error', text: r.error ?? 'That did not save.' });
+        return;
+      }
+      toast({ tone: 'ok', text: 'Saved for every new lead on this project.' });
+      await onSaved();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const ready = board.approvedCount > 0;
+  const tint = ready ? 'var(--feedback-success)' : 'var(--feedback-warning)';
+
+  return (
+    <section className="rounded-2xl border border-border-subtle bg-bg-surface p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-body font-semibold text-text-primary">The agent for this campaign</h2>
+          {/* ⚠️ READY OR NOT, SAID IN WORDS. The agent only speaks from approved
+              answers, so "0 approved" is the difference between an agent that
+              answers and one that hands every message straight to you. */}
+          <p className="mt-0.5 text-caption text-text-secondary">
+            {ready
+              ? `Ready — it may use ${board.approvedCount} approved answer${board.approvedCount === 1 ? '' : 's'}. Anything else, it hands to a salesperson.`
+              : 'Not ready yet — approve at least one answer below and it can start.'}
+          </p>
+        </div>
+        <span
+          className="shrink-0 rounded-full px-2.5 py-1 text-caption font-semibold"
+          style={{ color: tint, background: `color-mix(in oklab, ${tint} 12%, transparent)` }}
+        >
+          {ready ? '● Ready' : '● Not ready'}
+        </span>
+      </div>
+
+      <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)]">
+        <label className="block text-caption text-text-secondary">
+          This campaign sells
+          <select
+            value={product}
+            disabled={!board.canManage}
+            onChange={(e) => setProduct(e.target.value)}
+            className="mt-1 w-full rounded-lg border border-border-default bg-bg-surface px-3 py-2 text-body-sm text-text-primary disabled:opacity-60"
+          >
+            <option value="">Work it out from each lead&rsquo;s campaign</option>
+            {PRODUCTS.filter((p) => p.key !== 'any').map((p) => (
+              <option key={p.key} value={p.key}>{p.label} — {p.hint}</option>
+            ))}
+          </select>
+        </label>
+
+        <fieldset className="min-w-0">
+          <legend className="text-caption text-text-secondary">New leads are answered by</legend>
+          <div className="mt-1 flex flex-wrap gap-2">
+            {MODES.map((m) => (
+              <button
+                key={m.key}
+                type="button"
+                disabled={!board.canManage}
+                onClick={() => setMode(m.key)}
+                aria-pressed={mode === m.key}
+                title={m.hint}
+                className={cn(
+                  'rounded-xl border px-3 py-1.5 text-body-sm transition-colors disabled:opacity-60',
+                  mode === m.key
+                    ? 'border-transparent bg-accent-primary text-white'
+                    : 'border-border-default text-text-primary hover:bg-bg-subtle',
+                )}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+          <p className="mt-1 text-caption text-text-secondary">{MODES.find((m) => m.key === mode)?.hint}</p>
+        </fieldset>
+      </div>
+
+      <div className="mt-3 flex items-center justify-between gap-3">
+        <p className="text-caption text-text-secondary">
+          {board.canManage
+            ? 'Leads already in the CRM keep their own setting — change one from its chat.'
+            : 'Only a sales manager or an admin can change these.'}
+        </p>
+        {board.canManage && (
+          <button
+            type="button"
+            disabled={!changed || saving}
+            onClick={() => void save()}
+            className="shrink-0 rounded-xl bg-accent-primary px-4 py-2 text-body-sm font-semibold text-white disabled:opacity-40"
+          >
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/* ---- The documents this project sends and the agent reads --------------- */
+
+const KINDS: ReadonlyArray<{ key: string; label: string }> = [
+  { key: 'brochure', label: 'Proposal / brochure' },
+  { key: 'quotation', label: 'Quotation' },
+  { key: 'price_list', label: 'Price list' },
+  { key: 'legal', label: 'Terms / legal' },
+  { key: 'site_plan', label: 'Plan / drawing' },
+  { key: 'other', label: 'Other' },
+  /* ⚠️ MOVED HERE WITH THE REST OF THE SHELF (2026-09-21). It prints on every
+     quotation PDF and is never sent to a client — the agent and the drawer
+     both leave it out. One per project (178's unique index). */
+  { key: 'letterhead', label: 'Letterhead (prints on quotations)' },
+];
+const kindLabel = (k: string) => KINDS.find((x) => x.key === k)?.label ?? k;
 
 function Documents({
   board,
   reading,
   onRead,
+  onUploaded,
 }: {
   board: KnowledgeBoard;
   reading: string | null;
-  onRead: (documentId: string, product: ProductKey) => void;
+  onRead: (documentId: string) => void;
+  onUploaded: (documentId: string, isPdf: boolean) => Promise<void>;
 }) {
-  const [product, setProduct] = React.useState<ProductKey>('crm');
+  const toast = useToast();
+  const fileRef = React.useRef<HTMLInputElement>(null);
+  const [picked, setPicked] = React.useState<File | null>(null);
+  const [kind, setKind] = React.useState('brochure');
+  const [product, setProduct] = React.useState<ProductKey>(board.settings.product ?? 'any');
+  const [uploading, setUploading] = React.useState(false);
+  const [viewing, setViewing] = React.useState<string | null>(null);
+  const [filter, setFilter] = React.useState<ProductKey | 'all'>('all');
+
+  const upload = async () => {
+    if (!picked) return;
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.set('file', picked);
+      form.set('projectId', board.projectId);
+      form.set('title', picked.name.replace(/\.[a-z0-9]+$/i, ''));
+      form.set('kind', kind);
+      form.set('product', product);
+      const done = await uploadCrmDocumentAction({ ok: false }, form);
+      if (!done.ok || !done.id) {
+        toast({ tone: 'error', text: done.error ?? 'That file could not be uploaded.' });
+        return;
+      }
+      const isPdf = picked.type === 'application/pdf';
+      setPicked(null);
+      if (fileRef.current) fileRef.current.value = '';
+      await onUploaded(done.id, isPdf);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const shown = board.documents.filter((d) => filter === 'all' || d.product === filter);
 
   return (
     <section className="rounded-2xl border border-border-subtle bg-bg-surface p-4">
       <h2 className="text-body font-semibold text-text-primary">Documents</h2>
+      {/* ⚠️ WHERE EACH ONE GOES, SAID BEFORE UPLOADING. The owner's own rule
+          (2026-09-21): a quotation appears in a lead's Quotations tab, every
+          other document in its Files — each for leads interested in its product. */}
       <p className="mt-0.5 text-caption text-text-secondary">
-        Reading one drafts answers from it. Every answer keeps the sentence it came from, and none of them can be
-        used until you approve it.
+        Everything a salesperson or the agent may send. Quotations appear in a lead&rsquo;s Quotations tab, everything
+        else in its Files — shown to leads interested in that product. PDFs are read into answers for you to approve.
       </p>
 
-      {board.documents.length === 0 ? (
+      {/* ── Add one ─────────────────────────────────────────────────── */}
+      <div className="mt-3 grid gap-2 rounded-xl border border-dashed border-border-default p-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,11rem)_minmax(0,10rem)_auto] sm:items-end">
+        <label className="block min-w-0 text-caption text-text-secondary">
+          File
+          <input
+            ref={fileRef}
+            type="file"
+            accept="application/pdf,image/png,image/jpeg,image/webp,.doc,.docx,.xls,.xlsx"
+            onChange={(e) => setPicked(e.target.files?.[0] ?? null)}
+            className="mt-1 block w-full text-body-sm text-text-primary file:mr-3 file:rounded-lg file:border-0 file:bg-bg-subtle file:px-3 file:py-1.5 file:text-body-sm file:text-text-primary"
+          />
+        </label>
+        <label className="block text-caption text-text-secondary">
+          What it is
+          <select value={kind} onChange={(e) => setKind(e.target.value)} className="mt-1 w-full rounded-lg border border-border-default bg-bg-surface px-2.5 py-2 text-body-sm text-text-primary">
+            {KINDS.map((k) => <option key={k.key} value={k.key}>{k.label}</option>)}
+          </select>
+        </label>
+        <label className="block text-caption text-text-secondary">
+          About
+          <select value={product} onChange={(e) => setProduct(e.target.value as ProductKey)} className="mt-1 w-full rounded-lg border border-border-default bg-bg-surface px-2.5 py-2 text-body-sm text-text-primary">
+            {PRODUCTS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+          </select>
+        </label>
+        <button
+          type="button"
+          disabled={!picked || uploading}
+          onClick={() => void upload()}
+          className="inline-flex items-center justify-center gap-2 rounded-xl bg-accent-primary px-4 py-2 text-body-sm font-semibold text-white disabled:opacity-40"
+        >
+          {uploading ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Upload className="size-4" aria-hidden="true" />}
+          {uploading ? 'Uploading…' : 'Upload'}
+        </button>
+      </div>
+
+      {/* ── Filter by product ───────────────────────────────────────── */}
+      {board.documents.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {(['all', ...PRODUCTS.map((p) => p.key)] as Array<ProductKey | 'all'>).map((k) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => setFilter(k)}
+              className={cn(
+                'rounded-full border px-2.5 py-1 text-caption transition-colors',
+                filter === k ? 'border-transparent bg-accent-primary text-white' : 'border-border-default text-text-secondary hover:bg-bg-subtle',
+              )}
+            >
+              {k === 'all' ? 'All' : productLabel(k)}{' '}
+              ({k === 'all' ? board.documents.length : board.documents.filter((d) => d.product === k).length})
+            </button>
+          ))}
+        </div>
+      )}
+
+      {shown.length === 0 ? (
         <p className="mt-3 text-body-sm text-text-secondary">
-          No shared PDFs on this project yet. Upload a proposal from a lead&rsquo;s Related items → Files.
+          {board.documents.length === 0 ? 'Nothing uploaded for this project yet.' : 'Nothing for this product yet.'}
         </p>
       ) : (
-        <>
-          <label className="mt-3 block text-caption text-text-secondary">
-            These answers are about
-            <select
-              value={product}
-              onChange={(e) => setProduct(e.target.value as ProductKey)}
-              className="ml-2 rounded-lg border border-border-default bg-bg-surface px-2.5 py-1.5 text-body-sm text-text-primary"
-            >
-              {PRODUCTS.map((p) => (
-                <option key={p.key} value={p.key}>{p.label}</option>
-              ))}
-            </select>
-          </label>
-          {/* ⚠️ THE PRODUCT IS ASKED BEFORE READING, NOT GUESSED FROM THE FILE
-              NAME. A proposal titled "CRM Solution" in a folder called Taskly is
-              how the extractor invented "Taskly CRM" in the first place. */}
-          <ul className="mt-2 divide-y divide-border-subtle">
-            {board.documents.map((d) => (
-              <li key={d.id} className="flex items-center gap-3 py-2.5">
+        <ul className="mt-2 divide-y divide-border-subtle">
+          {shown.map((d) => (
+            <li key={d.id} className="py-2.5">
+              <div className="flex flex-wrap items-center gap-3">
                 <FileText className="size-5 shrink-0 text-text-secondary" aria-hidden="true" />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-body-sm font-medium text-text-primary">{d.title}</span>
                   <span className="block text-caption text-text-secondary">
-                    {d.readAt ? 'Already read — reading again adds only what is new.' : 'Not read yet.'}
+                    {kindLabel(d.kind)}
+                    {d.mime === 'application/pdf'
+                      ? d.readAt ? ' · read into answers' : ' · not read yet'
+                      : ' · not a PDF, so not read'}
                   </span>
                 </span>
+                <ProductPicker document={d} />
                 <button
                   type="button"
-                  disabled={reading !== null}
-                  onClick={() => onRead(d.id, product)}
-                  className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-border-default px-3.5 py-2 text-body-sm font-medium text-text-primary transition-colors hover:bg-bg-subtle disabled:opacity-50"
+                  onClick={() => setViewing(viewing === d.id ? null : d.id)}
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-border-default px-3 py-1.5 text-caption font-medium text-text-primary hover:bg-bg-subtle"
                 >
-                  {reading === d.id ? (
-                    <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-                  ) : d.readAt ? (
-                    <RefreshCw className="size-4" aria-hidden="true" />
-                  ) : (
-                    <Sparkles className="size-4" aria-hidden="true" />
-                  )}
-                  {reading === d.id ? 'Reading…' : d.readAt ? 'Read again' : 'Read it'}
+                  <Eye className="size-3.5" aria-hidden="true" /> {viewing === d.id ? 'Close' : 'View'}
                 </button>
-              </li>
-            ))}
-          </ul>
-        </>
+                {d.mime === 'application/pdf' && (
+                  <button
+                    type="button"
+                    disabled={reading !== null}
+                    onClick={() => onRead(d.id)}
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-border-default px-3 py-1.5 text-caption font-medium text-text-primary hover:bg-bg-subtle disabled:opacity-50"
+                  >
+                    {reading === d.id ? (
+                      <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                    ) : d.readAt ? (
+                      <RefreshCw className="size-3.5" aria-hidden="true" />
+                    ) : (
+                      <Sparkles className="size-3.5" aria-hidden="true" />
+                    )}
+                    {reading === d.id ? 'Reading…' : d.readAt ? 'Read again' : 'Read it'}
+                  </button>
+                )}
+              </div>
+              {viewing === d.id && (
+                <div className="mt-2">
+                  <DocumentPreview documentId={d.id} mime={d.mime} title={d.title} />
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
       )}
     </section>
+  );
+}
+
+/** Which product a document is about — changeable in place. */
+function ProductPicker({ document }: { document: KnowledgeDocument }) {
+  const toast = useToast();
+  const [value, setValue] = React.useState<ProductKey>(document.product);
+  return (
+    <select
+      value={value}
+      aria-label={`What ${document.title} is about`}
+      onChange={(e) => {
+        const before = value;
+        const next = e.target.value as ProductKey;
+        setValue(next);
+        void setDocumentProductAction(document.id, next).then((r) => {
+          if (r.ok) return;
+          setValue(before);
+          toast({ tone: 'error', text: r.error ?? 'That did not save.' });
+        });
+      }}
+      className="shrink-0 rounded-lg border border-border-default bg-bg-surface px-2 py-1 text-caption text-text-primary"
+    >
+      {PRODUCTS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+    </select>
   );
 }
 

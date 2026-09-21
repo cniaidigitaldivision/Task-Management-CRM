@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   AlertTriangle,
@@ -22,7 +23,6 @@ import {
 /* ⚠️ THE CRM'S ONE IMPORT INTO THIS FILE — see `canSales` below. Deliberate,
    single, and deletable; the owner asked for sales documents to live on this
    page rather than on one of their own. */
-import { DocumentShelf } from '@/components/crm/document-shelf';
 import type { CrmDocument } from '@/lib/db/queries/crm-documents';
 import type { DocumentRow } from '@/lib/db/queries/documents';
 import type { DriveSyncRow } from '@/lib/db/queries/documents';
@@ -147,7 +147,6 @@ export function DocumentsWorkspace({
   canShare,
   canSales,
   salesDocuments,
-  salesProjects,
   nowMs,
   folders,
   library,
@@ -519,11 +518,29 @@ export function DocumentsWorkspace({
           for a Member. */}
       {activeTab === 'sales' && canSales && (
         <div role="tabpanel" id="documents-panel-sales" aria-labelledby="documents-tab-sales">
-          <DocumentShelf
-            documents={salesDocuments}
-            projects={salesProjects}
-            nowMs={nowMs}
-          />
+          {/* ⚠️ MOVED, AND SAID SO WHERE PEOPLE WILL LOOK FOR IT. Owner,
+              2026-09-21: *"I want the document that you have put on the
+              documentation page for the sales process to be put in the AI agent
+              knowledge page instead."* One place for sales documents means the
+              agent reads exactly what salespeople send. The tab stays as a
+              signpost so nobody concludes the documents were deleted. */}
+          <div className="rounded-2xl border border-border-subtle bg-bg-surface p-5">
+            <p className="text-body font-semibold text-text-primary">Sales documents have moved</p>
+            <p className="mt-1 text-body-sm text-text-secondary">
+              Proposals, quotations, brochures, price lists and the letterhead now live on{' '}
+              <span className="font-medium text-text-primary">What the agent knows</span>, one list per project —
+              where the AI agent reads them and every lead&rsquo;s drawer can send them.
+              {salesDocuments.length > 0
+                ? ` The ${salesDocuments.length} already uploaded are there.`
+                : ''}
+            </p>
+            <Link
+              href="/knowledge"
+              className="mt-3 inline-flex items-center gap-2 rounded-xl bg-accent-primary px-4 py-2.5 text-body-sm font-semibold text-white transition-opacity hover:opacity-90"
+            >
+              Open What the agent knows
+            </Link>
+          </div>
         </div>
       )}
 
