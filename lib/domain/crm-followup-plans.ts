@@ -38,6 +38,12 @@ export type FollowUpPurpose =
   | 'payment_reminder'
   | 'site_visit_checkin'
   | 're_engage'
+  /* 229 · one type for every approved template (2026-09-21). */
+  | 'proposal'
+  | 'negotiation'
+  | 'agreement'
+  | 'welcome'
+  | 'meeting_feedback'
   | 'custom';
 
 export type PlanChannel = 'whatsapp' | 'email' | 'call' | 'task';
@@ -192,6 +198,45 @@ export const PURPOSE_CARDS: readonly PurposeCard[] = [
     badge: null,
     goal: () => 'Find out whether they are still looking, without pressure.',
   },
+  /* ⚠️ 229 · A TYPE FOR EVERY APPROVED TEMPLATE. Owner, 2026-09-21: *"set every
+     follow-up with its specific template… no other excuse will be given to me
+     that any template was not present, any follow-up was not present."* Each
+     of these picks its own template by name (crm-template-for-purpose.ts). */
+  {
+    key: 'proposal',
+    label: 'Proposal follow-up',
+    blurb: 'Follow up on a proposal you shared.',
+    badge: null,
+    goal: () => 'Get a reply about the proposal — questions, changes, or a go-ahead.',
+  },
+  {
+    key: 'meeting_feedback',
+    label: 'Visit / demo feedback',
+    blurb: 'Ask how a visit or demo went.',
+    badge: null,
+    goal: () => 'Hear honestly how the visit or demo went.',
+  },
+  {
+    key: 'negotiation',
+    label: 'Negotiation follow-up',
+    blurb: 'Restart a negotiation that went quiet.',
+    badge: null,
+    goal: () => 'Get the terms moving again — what would they like adjusted?',
+  },
+  {
+    key: 'agreement',
+    label: 'Agreement ready',
+    blurb: 'Tell them the agreement is ready to review.',
+    badge: null,
+    goal: () => 'Get the agreement reviewed and signed.',
+  },
+  {
+    key: 'welcome',
+    label: 'Welcome aboard',
+    blurb: 'Welcome a client whose deal is won.',
+    badge: null,
+    goal: () => 'Start the relationship well and set up the next steps.',
+  },
   {
     key: 'custom',
     label: 'Custom',
@@ -231,6 +276,11 @@ export function purposeAvailability(purpose: FollowUpPurpose, f: LeadFacts): Ava
       return f.visitedAt
         ? { ok: true, reason: null }
         : { ok: false, reason: 'No visit has happened yet.' };
+    case 'meeting_feedback':
+      /* Feedback on a meeting nobody had is a message that makes no sense. */
+      return f.visitedAt
+        ? { ok: true, reason: null }
+        : { ok: false, reason: 'No visit, meeting or demo has happened yet.' };
     case 'payment_reminder':
       /* ⚠️ A payment reminder before anything is agreed reads as pressure from a
          business they have not bought from. The ladder is: approved → won. */
@@ -304,6 +354,11 @@ const SUBJECT: Record<FollowUpPurpose, string> = {
   payment_reminder: 'A reminder about your payment',
   site_visit_checkin: 'Thank you for visiting us',
   re_engage: 'Are you still looking?',
+  proposal: 'Your proposal from {{company}}',
+  negotiation: 'Following up on the terms we discussed',
+  agreement: 'Your agreement is ready',
+  welcome: 'Welcome to {{company}}',
+  meeting_feedback: 'How did we do?',
   custom: 'Following up',
 };
 
@@ -405,6 +460,42 @@ export function suggestedPlan(purpose: FollowUpPurpose, delivery: PlanMode = 're
           body: 'AoA {{lead_first_name}}, this is {{my_first_name}} from {{company}}. We spoke a while ago about {{project}}. Are you still looking?' },
         { day: 8, channel: WA, title: 'One more try', mode: review,
           body: 'AoA {{lead_first_name}}, no problem if the timing is wrong — tell me when to come back to you and I will.' },
+      ];
+    /* ── 229 · the new types. The WhatsApp text below is what goes when the
+       24-hour window is OPEN — free, as ordinary text. When it is shut the
+       type's own approved template goes instead. */
+    case 'proposal':
+      return [
+        { day: 1, channel: WA, title: 'Ask about the proposal', mode: review,
+          body: 'AoA {{lead_first_name}}, this is {{my_first_name}} from {{company}}. Did you get a chance to look at the proposal we shared? Happy to walk you through it or adjust anything.' },
+        { day: 3, channel: 'call', title: 'Talk it through', mode: remind,
+          body: 'WhatsApp call to go through the proposal and hear what would change their mind.' },
+        { day: 7, channel: WA, title: 'Last check', mode: review,
+          body: 'AoA {{lead_first_name}}, just checking where you have got to with the proposal. Let me know either way.' },
+      ];
+    case 'meeting_feedback':
+      return [
+        { day: 1, channel: WA, title: 'Ask for feedback', mode: review,
+          body: 'AoA {{lead_first_name}}, thank you for meeting with {{company}}. How did you find it? Your honest feedback helps us serve you better.' },
+      ];
+    case 'negotiation':
+      return [
+        { day: 1, channel: WA, title: 'Pick the terms back up', mode: review,
+          body: 'AoA {{lead_first_name}}, this is {{my_first_name}} from {{company}} following up on the terms we discussed. Is there anything you would like to adjust?' },
+        { day: 4, channel: 'call', title: 'Agree it on a call', mode: remind,
+          body: 'WhatsApp call to settle the one or two points still open.' },
+      ];
+    case 'agreement':
+      return [
+        { day: 1, channel: WA, title: 'Agreement ready', mode: review,
+          body: 'AoA {{lead_first_name}}, the agreement from {{company}} is ready for your review. Shall I send it across here?' },
+        { day: 3, channel: 'call', title: 'Walk through the agreement', mode: remind,
+          body: 'WhatsApp call to answer any question on the agreement before they sign.' },
+      ];
+    case 'welcome':
+      return [
+        { day: 1, channel: WA, title: 'Welcome aboard', mode: review,
+          body: 'AoA {{lead_first_name}}, welcome to {{company}}, and thank you for your trust. We will be in touch shortly to plan the next steps with you.' },
       ];
     case 'custom':
     default:

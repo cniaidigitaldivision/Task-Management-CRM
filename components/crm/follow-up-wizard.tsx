@@ -121,6 +121,12 @@ const PURPOSE_ICON: Record<FollowUpPurpose, React.ComponentType<{ className?: st
   payment_reminder: CreditCard,
   site_visit_checkin: MapPin,
   re_engage: Users,
+  /* 229 · the types for the rest of the approved templates. */
+  proposal: Paperclip,
+  meeting_feedback: MessageSquareText,
+  negotiation: Target,
+  agreement: Pencil,
+  welcome: Sparkles,
   custom: MoreHorizontal,
 };
 
@@ -1236,8 +1242,14 @@ function Compose({
                 {templates.ok
                   && !step.template
                   && templates.templates.some((t) => t.status === 'APPROVED') && (
+                  /* ⚠️ THE ONE TYPE WITH NO WIZARD TEMPLATE SAYS WHY, AND WHERE THE
+                     REAL ONE GOES FROM. Every other type has its own (229); the
+                     appointment reminder's template needs five details only the
+                     booking has, and the booking already sends it. */
                   <p className="mt-1.5 text-caption" style={{ color: 'var(--feedback-warning)' }}>
-                    Nothing here matches this purpose, so this step will only send inside the 24-hour window.
+                    {purpose === 'appointment_reminder'
+                      ? 'The booking already sends the approved confirmation and reminder by itself. This extra step goes only while the client’s 24-hour window is open.'
+                      : 'Nothing here matches this purpose, so this step will only send inside the 24-hour window.'}
                   </p>
                 )}
                 {templates.error && <p className="mt-1.5 text-caption text-feedback-error">{templates.error}</p>}

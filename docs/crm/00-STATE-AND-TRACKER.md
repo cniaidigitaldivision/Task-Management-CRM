@@ -9,7 +9,29 @@
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
 | **Last updated** | **2026-09-19** |
-| **Last migration applied anywhere** | **228** (applied 2026-09-21; **228 a template chosen in the wizard gets its blanks filled**; 227 four products; 226 knowledge base; 225 one visit that moves). CRM next: **229.** |
+| **Last migration applied anywhere** | **230** (applied 2026-09-21; **229 a follow-up type for every template, 230 every plan step carries its template + payment acknowledged**; 228 wizard templates filled). CRM next: **231.** |
+
+---
+
+## 🧭 2026-09-21 — 229, 230 · ALL 17 TEMPLATES APPROVED, EVERY FOLLOW-UP CARRIES ONE
+
+Owner: *"set every follow-up with its specific template… no other excuse will be
+given to me that any template was not present, any follow-up was not present, or
+whether it is not deployed."*
+
+Read back from Graph: **all 17 approved**, every blank count as the catalogue
+says.
+
+- **229** adds five follow-up types (Proposal, Visit/demo feedback, Negotiation,
+  Agreement ready, Welcome aboard) plus `payment_received`; *Custom* takes
+  `update_available`. A test proves every wizard type now has its template —
+  except a hand-made appointment reminder, whose template the booking sends.
+- **230** repaired **11 saved plan steps** — ⚠️ two *No response* plans were
+  sending `quotation_follow_up` (*"the quotation we shared"*) to silent leads —
+  and the one standalone queued follow-up. Nothing was switched to send itself.
+- **230** also sends `payment_received` when Finance records a payment on a
+  booking, for **that instalment's** amount (verified_amount going up), not the
+  running total.
 
 ---
 

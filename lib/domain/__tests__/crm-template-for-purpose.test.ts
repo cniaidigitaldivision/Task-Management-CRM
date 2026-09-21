@@ -253,7 +253,7 @@ describe('the templates the owner is about to create, 2026-09-21', () => {
   });
 });
 
-describe('the full catalogue, docs/crm/15-WHATSAPP-TEMPLATES.md', () => {
+describe('the full catalogue, docs/crm/18-WHATSAPP-TEMPLATES.md', () => {
   /* ⚠️ EVERY NAME IN THE CATALOGUE, AT ONCE. Adding templates one at a time
      hid the after_visit_check_in clash until a test tried the set together.
      Here is the whole set the owner will create; each purpose must land on its
@@ -286,8 +286,25 @@ describe('the full catalogue, docs/crm/15-WHATSAPP-TEMPLATES.md', () => {
     ['approved_offer', 'approved_offer'],
     ['payment_reminder', 'payment_reminder'],
     ['site_visit_checkin', 'after_visit_check_in'],
+    /* 229 · the types added so every approved template has one (2026-09-21). */
+    ['proposal', 'proposal_follow_up'],
+    ['negotiation', 'negotiation_follow_up'],
+    ['agreement', 'agreement_ready'],
+    ['welcome', 'welcome_onboard'],
+    ['meeting_feedback', 'meeting_feedback'],
+    ['custom', 'update_available'],
   ])('%s → %s', (purpose, expected) => {
     expect(templateForPurpose(purpose, ALL)?.name).toBe(expected);
+  });
+
+  it('⚠️ every wizard type now has a template, except the appointment reminder', async () => {
+    /* The owner's standing order: no follow-up without its template. The one
+       deliberate exception is the appointment reminder the salesperson makes by
+       hand — its five-blank template is sent by the booking flow, which fills
+       all five; from the wizard it would be refused. */
+    const { PURPOSE_CARDS } = await import('../crm-followup-plans');
+    const without = PURPOSE_CARDS.map((c) => c.key).filter((k) => !templateForPurpose(k, ALL));
+    expect(without).toEqual(['appointment_reminder']);
   });
 
   it('⚠️ a silent lead is never chased with a proposal, a negotiation or an agreement', () => {

@@ -112,8 +112,10 @@ const INTENTS: ReadonlyArray<{
   },
   {
     purpose: 'quotation',
-    words: ['quotation_follow_up', 'quotation', 'quote', 'proposal'],
-    avoid: ['appointment', 'payment', 'invoice'],
+    /* 'proposal' left this list when proposal_follow_up got its own type (229):
+       a quotation and a proposal are different documents. */
+    words: ['quotation_follow_up', 'quotation', 'quote'],
+    avoid: ['appointment', 'payment', 'invoice', 'proposal', 'negotiation'],
     because: 'it follows up a quotation',
   },
   {
@@ -161,6 +163,47 @@ const INTENTS: ReadonlyArray<{
     words: ['approved_offer', 'offer', 'quotation_follow_up'],
     avoid: ['appointment', 'payment', 'invoice'],
     because: 'it carries an approved offer',
+  },
+  /* ── 229 · a type for every approved template ─────────────────────────── */
+  {
+    purpose: 'proposal',
+    words: ['proposal_follow_up', 'proposal'],
+    avoid: ['quotation', 'negotiation', 'payment'],
+    because: 'it follows up a proposal',
+  },
+  {
+    purpose: 'negotiation',
+    words: ['negotiation_follow_up', 'negotiation'],
+    avoid: ['payment', 'appointment'],
+    because: 'it picks a negotiation back up',
+  },
+  {
+    purpose: 'agreement',
+    words: ['agreement_ready', 'agreement'],
+    avoid: ['payment', 'appointment'],
+    because: 'it says the agreement is ready',
+  },
+  {
+    purpose: 'welcome',
+    words: ['welcome_onboard', 'welcome', 'onboard'],
+    avoid: ['payment', 'appointment'],
+    because: 'it welcomes a client whose deal is won',
+  },
+  {
+    purpose: 'meeting_feedback',
+    words: ['meeting_feedback', 'feedback'],
+    avoid: ['payment', 'quotation'],
+    because: 'it asks how the visit or demo went',
+  },
+  {
+    /* ⚠️ "A CUSTOM TEMPLATE" IS THE ONE THAT SAYS NOTHING SPECIFIC. Custom text
+       cannot be pre-approved, so outside the window the client is sent
+       "there is an update for you, reply to see it" — they reply, the window
+       opens, and the custom message goes as ordinary text. */
+    purpose: 'custom',
+    words: ['update_available', 'update'],
+    avoid: ['payment', 'appointment'],
+    because: 'it opens the conversation so your own message can follow',
   },
 ];
 

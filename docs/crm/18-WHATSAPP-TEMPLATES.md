@@ -47,7 +47,7 @@ submitted as Utility and approved as Marketing.
 
 ## The master list — every template, what it does, where it stands
 
-Checked against Meta on **2026-09-21**. The last column is for the move to the
+Checked against Meta on **2026-09-21** — **all 17 approved**, categories as Meta assigned them. The last column is for the move to the
 real number: tick each one as it is approved there.
 
 | # | Template name | What it does | Where the CRM uses it | Blanks | Test account | Real number |
@@ -56,19 +56,19 @@ real number: tick each one as it is approved there.
 | 2 | `appointment_confirmed` | Confirms a booked visit, meeting, call or demo · Confirm / Change the time buttons | Booking an appointment — automatic | 5 | ✅ Approved · Utility | ☐ |
 | 3 | `appointment_reminder` | Reminds the client before the appointment | Booking an appointment — automatic | 5 | ✅ Approved · Utility | ☐ |
 | 4 | `quotation_follow_up` | Chases a quotation that got no answer | Follow-up purpose *Quotation* | 0 | ✅ Approved · Marketing | ☐ |
-| 5 | `lead_check_in` | Nudges a lead who never replied | Follow-up purpose *No response* | 2 | ⏳ Pending | ☐ |
-| 6 | `lead_details_request` | Asks for the business details a proposal needs | Follow-up purpose *Missing information* | 2 | ⏳ Pending | ☐ |
-| 7 | `payment_reminder` | Reminds that a payment is due | Follow-up purpose *Payment reminder* | 2 | ⏳ Pending | ☐ |
-| 8 | `after_visit_check_in` | Follows up after a visit, meeting or demo | Follow-up purpose *Site visit check-in* | 2 | ⏳ Pending | ☐ |
-| 9 | `update_available` | Opens a shut window for any message at all | Chosen by hand — any follow-up | 2 | ☐ To create | ☐ |
-| 10 | `lead_re_engage` | Revives a lead cold for weeks | Follow-up purpose *Re-engage* | 2 | ☐ To create | ☐ |
-| 11 | `proposal_follow_up` | Chases a proposal that got no answer | Chosen by hand | 2 | ☐ To create | ☐ |
-| 12 | `meeting_feedback` | Asks how a demo or visit went · rating buttons | Chosen by hand | 2 | ☐ To create | ☐ |
-| 13 | `negotiation_follow_up` | Restarts a stalled negotiation | Chosen by hand | 2 | ☐ To create | ☐ |
-| 14 | `agreement_ready` | Says the agreement is ready to review | Chosen by hand | 2 | ☐ To create | ☐ |
-| 15 | `welcome_onboard` | Welcomes a client whose deal is won | Chosen by hand | 2 | ☐ To create | ☐ |
-| 16 | `approved_offer` | Tells the client a revised offer was approved | Follow-up purpose *Approved offer* | 2 | ☐ To create | ☐ |
-| 17 | `payment_received` | Confirms a payment was received, with the amount | ⚠️ A trigger on recording a payment — **not built yet** | 3 | ☐ To create | ☐ |
+| 5 | `lead_check_in` | Nudges a lead who never replied | Follow-up type *No response* | 2 | ✅ Approved · Marketing | ☐ |
+| 6 | `lead_details_request` | Asks for the business details a proposal needs | Follow-up type *Missing information* | 2 | ✅ Approved · Marketing | ☐ |
+| 7 | `payment_reminder` | Reminds that a payment is due | Follow-up type *Payment reminder* | 2 | ✅ Approved · Utility | ☐ |
+| 8 | `after_visit_check_in` | Follows up after a visit, meeting or demo | Follow-up type *Site visit check-in* | 2 | ✅ Approved · Utility | ☐ |
+| 9 | `update_available` | Opens a shut window for any message at all | Follow-up type *Custom* | 2 | ✅ Approved · Marketing | ☐ |
+| 10 | `lead_re_engage` | Revives a lead cold for weeks | Follow-up type *Re-engage lead* | 2 | ✅ Approved · Marketing | ☐ |
+| 11 | `proposal_follow_up` | Chases a proposal that got no answer | Follow-up type *Proposal follow-up* | 2 | ✅ Approved · Marketing | ☐ |
+| 12 | `meeting_feedback` | Asks how a demo or visit went | Follow-up type *Visit / demo feedback* | 2 | ✅ Approved · Utility | ☐ |
+| 13 | `negotiation_follow_up` | Restarts a stalled negotiation | Follow-up type *Negotiation follow-up* | 2 | ✅ Approved · Marketing | ☐ |
+| 14 | `agreement_ready` | Says the agreement is ready to review | Follow-up type *Agreement ready* | 2 | ✅ Approved · Utility | ☐ |
+| 15 | `welcome_onboard` | Welcomes a client whose deal is won | Follow-up type *Welcome aboard* | 2 | ✅ Approved · Marketing | ☐ |
+| 16 | `approved_offer` | Tells the client a revised offer was approved | Follow-up type *Approved offer* | 2 | ✅ Approved · Marketing | ☐ |
+| 17 | `payment_received` | Thanks the client for a payment, with the amount | **Automatic** — whenever Finance records a payment on a booking (230), for that instalment's amount | 3 | ✅ Approved · Utility | ☐ |
 | — | `_lead_greeting` | Old greeting, replaced by #1 | Nothing | 3 | Approved, unused | **Do not recreate** |
 
 ⚠️ **Keep the names exactly.** #1, #2 and #3 are named inside the system itself
@@ -76,8 +76,9 @@ real number: tick each one as it is approved there.
 purpose by name. A template called `lead_greeting` instead of `lead_greeting_v2`
 on the real number would mean no new lead is ever greeted.
 
-"Chosen by hand" means the follow-up wizard lists it, but no purpose picks it
-automatically yet.
+Every follow-up type in the wizard now picks its template by itself (229) — the
+one exception is an appointment reminder made by hand, because the booking
+already sends the approved confirmation and reminder on its own.
 
 ---
 
@@ -206,9 +207,8 @@ them go through this one.
 
 | | |
 |---|---|
-| Approved and in use | 4 |
-| Submitted, waiting for Meta | 4 |
-| Still to create | **9** — 8 usable once approved, `payment_received` waiting on its trigger |
+| Approved and in use | **17 of 17** (2026-09-21) — every one wired to a follow-up type or a trigger |
+| Still to create on the test account | **none** |
 | Not needed as templates | demo booking and reminder (appointments), the negotiation itself (ordinary messages) |
 | **To create on the real number** | **17** — everything in the master table except `_lead_greeting` |
 
