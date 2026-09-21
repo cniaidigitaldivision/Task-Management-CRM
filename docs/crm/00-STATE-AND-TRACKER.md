@@ -13,6 +13,24 @@
 
 ---
 
+## 🧭 2026-09-21 — THE WHOLE TEMPLATE CATALOGUE, IN ONE PLACE
+
+`docs/crm/18-WHATSAPP-TEMPLATES.md` is now the list: 4 approved, **13 to create**,
+each pinned to its purpose by a test over the whole set at once.
+
+⚠️ **Testing the set together caught what testing one at a time did not:** a
+silent lead would have received `negotiation_follow_up` (*"following up on the
+terms we discussed"*) because "follow_up" is in four names. no_response now tries
+the specific words first and avoids every later-stage template.
+
+Decided and written down: a **demo needs no template** (it is an appointment — a
+*Demo* type would make it read "your demo"); the **negotiation itself needs
+none** (it happens inside the 24-hour window); the terms belong in a **Commercial
+Terms PDF per product**, which the agent can read. `payment_received` needs three
+blanks, so it waits on a trigger that sends it when a payment is recorded.
+
+---
+
 ## 🧭 2026-09-21 — 228 · WHY "ASK FOR THE DETAILS" GOT NO TEMPLATE, AND WHAT TO CREATE
 
 Owner created *"Ask for the details"* (missing_information) for Umm e e Habiba

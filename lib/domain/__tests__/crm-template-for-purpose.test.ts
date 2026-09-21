@@ -252,3 +252,56 @@ describe('the templates the owner is about to create, 2026-09-21', () => {
     expect(templateForPurpose('appointment_reminder', AFTER)).toBeNull();
   });
 });
+
+describe('the full catalogue, docs/crm/15-WHATSAPP-TEMPLATES.md', () => {
+  /* ⚠️ EVERY NAME IN THE CATALOGUE, AT ONCE. Adding templates one at a time
+     hid the after_visit_check_in clash until a test tried the set together.
+     Here is the whole set the owner will create; each purpose must land on its
+     own template, and a name that sounds like one thing must not answer another. */
+  const ALL: ApprovedTemplate[] = [
+    { name: 'lead_greeting_v2', language: 'en_GB', status: 'APPROVED', variables: 2 },
+    { name: 'appointment_confirmed', language: 'en_GB', status: 'APPROVED', variables: 5 },
+    { name: 'appointment_reminder', language: 'en_GB', status: 'APPROVED', variables: 5 },
+    { name: 'quotation_follow_up', language: 'en_GB', status: 'APPROVED', variables: 0 },
+    { name: 'lead_check_in', language: 'en_GB', status: 'APPROVED', variables: 2 },
+    { name: 'lead_details_request', language: 'en_GB', status: 'APPROVED', variables: 2 },
+    { name: 'lead_re_engage', language: 'en_GB', status: 'APPROVED', variables: 2 },
+    { name: 'proposal_follow_up', language: 'en_GB', status: 'APPROVED', variables: 2 },
+    { name: 'approved_offer', language: 'en_GB', status: 'APPROVED', variables: 2 },
+    { name: 'negotiation_follow_up', language: 'en_GB', status: 'APPROVED', variables: 2 },
+    { name: 'agreement_ready', language: 'en_GB', status: 'APPROVED', variables: 2 },
+    { name: 'welcome_onboard', language: 'en_GB', status: 'APPROVED', variables: 2 },
+    { name: 'after_visit_check_in', language: 'en_GB', status: 'APPROVED', variables: 2 },
+    { name: 'meeting_feedback', language: 'en_GB', status: 'APPROVED', variables: 2 },
+    { name: 'payment_reminder', language: 'en_GB', status: 'APPROVED', variables: 2 },
+    { name: 'payment_received', language: 'en_GB', status: 'APPROVED', variables: 3 },
+    { name: 'update_available', language: 'en_GB', status: 'APPROVED', variables: 2 },
+  ];
+
+  it.each([
+    ['no_response', 'lead_check_in'],
+    ['re_engage', 'lead_re_engage'],
+    ['missing_information', 'lead_details_request'],
+    ['quotation', 'quotation_follow_up'],
+    ['approved_offer', 'approved_offer'],
+    ['payment_reminder', 'payment_reminder'],
+    ['site_visit_checkin', 'after_visit_check_in'],
+  ])('%s → %s', (purpose, expected) => {
+    expect(templateForPurpose(purpose, ALL)?.name).toBe(expected);
+  });
+
+  it('⚠️ a silent lead is never chased with a proposal, a negotiation or an agreement', () => {
+    /* All three names contain "follow_up" or sound like a nudge. A lead who has
+       said nothing yet must not be told "following up on the terms we discussed". */
+    const picked = templateForPurpose('no_response', ALL)?.name;
+    expect(['proposal_follow_up', 'negotiation_follow_up', 'agreement_ready', 'welcome_onboard']).not.toContain(picked);
+  });
+
+  it('⚠️ a payment reminder is never the receipt', () => {
+    expect(templateForPurpose('payment_reminder', ALL)?.name).not.toBe('payment_received');
+  });
+
+  it('the three-blank receipt is never offered from the wizard — a trigger sends it', () => {
+    expect(fillable({ variables: 3 })).toBe(false);
+  });
+});

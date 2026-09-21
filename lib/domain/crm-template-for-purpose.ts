@@ -118,22 +118,30 @@ const INTENTS: ReadonlyArray<{
   },
   {
     purpose: 'no_response',
-    words: ['no_response', 'follow_up', 'followup', 'check_in', 'checkin', 'nudge', 're_engage', 'reengage'],
+    /* The specific words FIRST, "follow_up" last: it appears in proposal_,
+       negotiation_ and quotation_follow_up, and a lead who has said nothing must
+       not be told "following up on the terms we discussed". */
+    words: ['no_response', 'check_in', 'checkin', 'nudge', 'follow_up', 'followup'],
     /* 'visit' and 'demo' too: after_visit_check_in contains "check_in" and sorts
-       first, and a lead who never came would be thanked for their time with us. */
-    avoid: ['quotation', 'quote', 'appointment', 'payment', 'invoice', 'visit', 'demo'],
+       first, and a lead who never came would be thanked for their time with us.
+       And every template that belongs to a LATER stage of the deal. */
+    avoid: ['quotation', 'quote', 'appointment', 'payment', 'invoice', 'visit', 'demo',
+            'proposal', 'negotiation', 'offer', 'agreement', 'welcome', 'feedback', 'update', 're_engage'],
     because: 'it re-opens a conversation that went quiet',
   },
   {
     purpose: 're_engage',
-    words: ['re_engage', 'reengage', 'follow_up', 'followup', 'check_in', 'checkin'],
-    avoid: ['quotation', 'quote', 'appointment', 'payment', 'invoice', 'visit', 'demo'],
+    words: ['re_engage', 'reengage', 'check_in', 'checkin', 'follow_up', 'followup'],
+    avoid: ['quotation', 'quote', 'appointment', 'payment', 'invoice', 'visit', 'demo',
+            'proposal', 'negotiation', 'offer', 'agreement', 'welcome', 'feedback', 'update'],
     because: 'it re-opens a conversation that went quiet',
   },
   {
     purpose: 'payment_reminder',
     words: ['payment_reminder', 'payment', 'invoice', 'instalment', 'installment'],
-    avoid: ['appointment', 'visit', 'quotation'],
+    /* 'received' — the receipt is a payment template too, and thanking somebody
+       for money they have not sent is worse than the reminder never going. */
+    avoid: ['appointment', 'visit', 'quotation', 'received', 'receipt'],
     because: 'it chases a payment',
   },
   {
