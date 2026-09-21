@@ -8,8 +8,60 @@
 | **Route** | `/leads` · `/my-leads` · `/clients` · `/lead-reports` · `/lead-overview` · nav: Growth → Campaign & Lead Desk |
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
-| **Last updated** | **2026-09-19** |
-| **Last migration applied anywhere** | **230** (applied 2026-09-21; **229 a follow-up type for every template, 230 every plan step carries its template + payment acknowledged**; 228 wizard templates filled). CRM next: **231.** |
+| **Last updated** | **2026-09-21** |
+| **Last migration applied anywhere** | **233** (applied 2026-09-21; **231 the AI agent works, 232 knowledge page keeps the sales documents + campaign settings, 233 the agent sees every product and follows the client**). CRM next: **234.** |
+
+---
+
+## 🧭 2026-09-21 — 231, 232, 233 · THE AI AGENT WORKS, AND THE SALES DOCUMENTS LIVE WITH IT
+
+Owner: *"The AI agent option must be selectable and fully working… on 'give me
+more detail about the CRM' it sends the proposal and sets a follow-up… voice
+notes are handed over with a red mark and a notification."* Deployed (commits
+62e6739, 2d3d0c9, 8e964d9, 6b84e7c).
+
+**How to switch it on (per project, on "What the agent knows"):**
+1. Upload the documents — proposal / brochure, **Quotation**, price list — each
+   with the product it is about. The file name now suggests both; check them.
+2. Read each PDF and **approve** the answers (the agent states nothing else).
+3. Campaign settings: *What this campaign sells* + *New leads answered by: AI
+   agent* (managers only; refused while nothing is approved).
+4. Or per lead: the reply-mode dropdown in the conversation → *AI agent*.
+
+**What it does, per client message (webhook → `lib/crm/agent-runner.ts`):**
+waits 6 s so a burst is answered once → rules first (voice note, photo, file,
+"call me" / "baat karwa" → **handover**: red chip, bell, lead drops to
+Suggestions) → gpt-4o decides from approved answers only → replies as free text
+(the window is open) → sends at most 2 documents → sets **one** follow-up that
+**cancels itself when the client replies** (`cancel_on_reply`, 231). Messages
+it sent carry the ✦ AI mark. Hands over on: discount / price negotiation,
+ready to buy, complaints, anything not approved, a quotation when none is
+uploaded, 8 agent turns in a row.
+
+**Dry run on the owner's own demo lead (nothing sent) found three faults, all fixed in 233:**
+- "More detail about the CRM" → answered with a question and a proposal
+  follow-up, **no proposal**. Now it sends it, and code ties the follow-up to
+  what was sent (quotation sent → quotation follow-up; other file → proposal;
+  neither kept without its file).
+- A lead filed as Taskly asking about the CRM was **handed over** — it only saw
+  Taskly answers. It now sees every approved answer tagged by product; files go
+  only for the product being discussed; the product the client named last is
+  the one the lead keeps.
+- Nothing stopped the same proposal being sent twice. Now only if the client
+  did not get it / asks again (English + Roman Urdu).
+- Data: the demo's "CRM Purposal" was filed Other / All products → Proposal / CRM.
+
+**Drawer → Related items:** Quotations lists this lead's quotations **and** the
+project's ready-made quotations for the lead's product, previewed in place,
+attachable. Files shows only the lead's product (or all-products) documents,
+never quotations or the letterhead, with the same preview. The Documents page's
+Sales tab now points to "What the agent knows".
+
+⚠️ **Open for the owner:** the demo project has only 4 approved answers and no
+payment-terms answer, so "do I pay in advance?" is handed over. Write the terms
+(50% advance, delivery in stages, domain / hosting / Meta charges extra) as
+approved answers and the agent will state them. No CRM quotation is uploaded
+yet, so quotation requests are handed over.
 
 ---
 
