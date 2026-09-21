@@ -9,7 +9,27 @@
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
 | **Last updated** | **2026-09-21** |
-| **Last migration applied anywhere** | **244** (applied 2026-09-21; **244 the agent moves an appointment**; 242 office visits + a chosen time is confirmed, 243 a salesperson can confirm). CRM next: **245.** |
+| **Last migration applied anywhere** | **245** (applied 2026-09-21; **245 changing an appointment is the salespersons — 244 reversed**; 242 office visits, 243 confirm by hand). CRM next: **246.** |
+
+---
+
+## 🧭 2026-09-21 — 245 · 244 REVERSED: CHANGING AN APPOINTMENT IS THE SALESPERSON'S
+
+Owner, an hour after 244: *"the change of appointment should be … the
+salesperson's. I don't want that agent to do it automatically. Please reverse
+the changes."* Then: *"'For any change of appointment our team will contact you'
+— this type of message must be sent to the client and then handed over."*
+Deployed (15561d3).
+
+- `app.crm_agent_move` is **dropped** (245's check refuses to commit while it
+  exists). The agent hands over any request to change or cancel an appointment
+  the client already has. Booking a NEW one is unchanged.
+- ⚠️ **The holding line now fits the reason** (`holdingLine`, pure + tested):
+  an appointment change → *"Noted. For any change to your appointment, our team
+  will contact you shortly to arrange it."*; a request for a person, a discount,
+  a voice note, a photo, ready-to-buy and a complaint each have their own;
+  everything else keeps the general line. None promises anything but a person.
+- Kept from 244: the holding message itself, and "?" being an opener.
 
 ---
 
