@@ -4,6 +4,7 @@ import * as React from 'react';
 import { CalendarClock, Car, MapPin, Phone, Users } from 'lucide-react';
 
 import { closeAppointmentAction } from '@/app/actions/crm-leads';
+import { CancelAppointmentDialog } from '@/components/crm/cancel-appointment-dialog';
 import { useToast } from '@/components/ui/toast';
 import type { CrmDiaryEntry } from '@/lib/db/queries/crm-leads';
 import {
@@ -58,6 +59,8 @@ export function TodaysPlan({
      waiting for the page to come back — the row has served its purpose and
      leaving it sitting there invites a second click. */
   const [done, setDone] = React.useState<ReadonlySet<string>>(new Set());
+  /* A confirmation popup with a reason — never a one-click close (2026-09-21). */
+  const [cancelling, setCancelling] = React.useState<CrmDiaryEntry | null>(null);
 
   const live = diary.filter((a) => !done.has(a.id));
   if (live.length === 0) return null;
@@ -104,10 +107,8 @@ export function TodaysPlan({
       tone: 'ok',
       text:
         status === 'completed'
-          ? 'Recorded. Open the lead to move its stage.'
-          : status === 'no_show'
-            ? 'Marked as a no-show.'
-            : 'Cancelled.',
+          ? 'Recorded.'
+          : 'Cancelled.',
     });
   }
 
@@ -198,16 +199,18 @@ export function TodaysPlan({
                         >
                           It happened
                         </button>
+                        {/* ⚠️ NO "NO-SHOW" (2026-09-21): one stray click closed a
+                            visit. A client who did not come is a Cancel reason. */}
                         <button
                           type="button"
                           disabled={busy === a.id}
-                          onClick={() => void close(a.id, a.leadId, 'no_show', 'Did not turn up')}
+                          onClick={() => setCancelling(a)}
                           className={cn(
                             'rounded-lg px-2 py-1 text-caption font-medium text-text-secondary transition-colors hover:bg-bg-subtle',
                             busy === a.id && 'opacity-40',
                           )}
                         >
-                          No-show
+                          Cancel
                         </button>
                       </span>
                     )}
@@ -218,6 +221,13 @@ export function TodaysPlan({
           </div>
         ))}
       </div>
+      {cancelling && (
+        <CancelAppointmentDialog
+          appointment={cancelling}
+          onClose={() => setCancelling(null)}
+          onCancelled={(id) => setDone((prev) => new Set(prev).add(id))}
+        />
+      )}
     </section>
   );
 }

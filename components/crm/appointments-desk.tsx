@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { CalendarClock, Car, ClipboardCheck, MapPin, Phone, Users } from 'lucide-react';
 
 import { closeAppointmentAction } from '@/app/actions/crm-leads';
+import { CancelAppointmentDialog } from '@/components/crm/cancel-appointment-dialog';
 import { Badge } from '@/components/ui/badge';
 import { PageHeader } from '@/components/ui/page-header';
 import { useToast } from '@/components/ui/toast';
@@ -72,12 +73,12 @@ export function AppointmentsDesk({
 }) {
   const toast = useToast();
   const [busy, setBusy] = React.useState<string | null>(null);
-  /* ⚠️ THE MODE TRAVELS WITH THE ID. Two different sentences open the same box —
-     "what happened?" and "why is it being called off?" — and a boolean would have
-     the box asking the wrong question after the other button was pressed. */
-  const [writing, setWriting] = React.useState<{ id: string; mode: 'complete' | 'cancel' } | null>(
-    null,
-  );
+  /* The visit whose "what happened?" box is open. */
+  const [writing, setWriting] = React.useState<string | null>(null);
+  /* ⚠️ CANCELLING IS A CONFIRMATION POPUP WITH A REASON, NOT AN INLINE CLICK.
+     Owner, 2026-09-21, after a stray "No-show": *"There should be a cancel
+     button with a popup with the confirmation."* See cancel-appointment-dialog. */
+  const [cancelling, setCancelling] = React.useState<CrmDiaryRow | null>(null);
   const [draft, setDraft] = React.useState('');
   /* ⚠️ RECORDED ROWS MOVE, THEY DO NOT VANISH. A closed appointment is still a
      fact about the week — it changes tab rather than leaving the screen, so the
@@ -117,10 +118,10 @@ export function AppointmentsDesk({
       tone: 'ok',
       text:
         status === 'completed'
-          ? 'Recorded. Open the lead to move its stage.'
-          : status === 'no_show'
-            ? 'Marked as a no-show.'
-            : 'Cancelled.',
+          ? a.kind === 'site_visit'
+            ? 'Recorded — the lead moves to Visited.'
+            : 'Recorded.'
+          : 'Cancelled.',
     });
   }
 
@@ -162,7 +163,7 @@ export function AppointmentsDesk({
         <ul className="space-y-1.5">
           {shown.map((a) => {
             const Icon = KIND_ICON[a.kind] ?? CalendarClock;
-            const open = writing?.id === a.id;
+            const open = writing === a.id;
             const when = new Date(a.scheduledAt);
             return (
               <li
@@ -259,28 +260,20 @@ export function AppointmentsDesk({
                           type="button"
                           disabled={busy === a.id}
                           onClick={() => {
-                            setWriting({ id: a.id, mode: 'complete' });
+                            setWriting(a.id);
                             setDraft('');
                           }}
                           className="rounded-lg border border-border-subtle px-2 py-1 text-caption font-medium text-text-primary transition-colors hover:border-border-default"
                         >
                           It happened
                         </button>
+                        {/* ⚠️ NO "NO-SHOW" BUTTON (2026-09-21). One stray click on
+                            it closed a visit with no confirmation. A client who did
+                            not come is a CANCEL reason, chosen in the popup. */}
                         <button
                           type="button"
                           disabled={busy === a.id}
-                          onClick={() => void close(a, 'no_show', 'Did not turn up')}
-                          className="rounded-lg px-2 py-1 text-caption font-medium text-text-secondary transition-colors hover:bg-bg-subtle"
-                        >
-                          No-show
-                        </button>
-                        <button
-                          type="button"
-                          disabled={busy === a.id}
-                          onClick={() => {
-                            setWriting({ id: a.id, mode: 'cancel' });
-                            setDraft('');
-                          }}
+                          onClick={() => setCancelling(a)}
                           className="rounded-lg px-2 py-1 text-caption font-medium text-text-secondary transition-colors hover:bg-bg-subtle"
                         >
                           Cancel
@@ -306,15 +299,12 @@ export function AppointmentsDesk({
                       <button
                         type="button"
                         disabled={busy === a.id}
-                        onClick={() => {
-                          setWriting({ id: a.id, mode: 'cancel' });
-                          setDraft('');
-                        }}
+                        onClick={() => setCancelling(a)}
                         /* ⚠️ A CONTROL, SO IT IS HELD TO AA even though it is
                            deliberately quiet. Tertiary measured 3.94:1 in light. */
                         className="rounded-lg px-2 py-1 text-caption font-medium text-text-secondary transition-colors hover:bg-bg-subtle"
                       >
-                        Call it off
+                        Cancel
                       </button>
                     )}
                   </span>
@@ -330,9 +320,7 @@ export function AppointmentsDesk({
                       htmlFor={`outcome-${a.id}`}
                       className="text-caption font-medium text-text-secondary"
                     >
-                      {writing?.mode === 'cancel'
-                        ? `Why is the ${appointmentKindLabel(a.kind).toLowerCase()} with ${a.leadName ?? 'this lead'} being called off?`
-                        : `What happened at the ${appointmentKindLabel(a.kind).toLowerCase()} with ${a.leadName ?? 'this lead'}?`}
+                      {`What happened at the ${appointmentKindLabel(a.kind).toLowerCase()} with ${a.leadName ?? 'this lead'}?`}
                     </label>
                     <textarea
                       id={`outcome-${a.id}`}
@@ -340,11 +328,7 @@ export function AppointmentsDesk({
                       rows={2}
                       value={draft}
                       onChange={(e) => setDraft(e.target.value)}
-                      placeholder={
-                        writing?.mode === 'cancel'
-                          ? 'They asked to move it — will ring on Monday to rebook.'
-                          : 'They came with their brother, liked A-101, asked about the payment plan.'
-                      }
+                      placeholder="They came with their brother, liked A-101, asked about the payment plan."
                       className="mt-1.5 w-full resize-y rounded-lg border border-border-default bg-bg-base px-2.5 py-2 text-body-sm text-text-primary placeholder:text-text-tertiary focus:border-accent-primary focus:outline-none"
                     />
                     <div className="mt-1.5 flex flex-wrap items-center gap-2">
@@ -361,20 +345,13 @@ export function AppointmentsDesk({
                            week later, and the reason is free to capture now and
                            impossible to recover then. */
                         disabled={!draft.trim() || busy === a.id}
-                        onClick={() =>
-                          void close(
-                            a,
-                            writing?.mode === 'cancel' ? 'cancelled' : 'completed',
-                            draft.trim(),
-                          )
-                        }
+                        onClick={() => void close(a, 'completed', draft.trim())}
                         className={cn(
-                          'rounded-lg px-2.5 py-1.5 text-caption font-semibold text-white transition-opacity',
-                          writing?.mode === 'cancel' ? 'bg-feedback-error' : 'bg-accent-primary',
+                          'rounded-lg bg-accent-primary px-2.5 py-1.5 text-caption font-semibold text-white transition-opacity',
                           (!draft.trim() || busy === a.id) && 'opacity-40',
                         )}
                       >
-                        {writing?.mode === 'cancel' ? 'Call it off' : 'Record it'}
+                        Record it
                       </button>
                       <button
                         type="button"
@@ -393,6 +370,14 @@ export function AppointmentsDesk({
             );
           })}
         </ul>
+      )}
+
+      {cancelling && (
+        <CancelAppointmentDialog
+          appointment={cancelling}
+          onClose={() => setCancelling(null)}
+          onCancelled={(id) => setClosed((prev) => new Map(prev).set(id, 'cancelled'))}
+        />
       )}
 
       {/* ⚠️ THE WINDOW IS STATED RATHER THAN IMPLIED. This page is not everything

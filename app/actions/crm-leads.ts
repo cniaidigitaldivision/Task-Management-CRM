@@ -1101,8 +1101,15 @@ export async function closeAppointmentAction(
 ): Promise<LeadWriteResult> {
   const user = await requireUser();
 
-  if (!['completed', 'no_show', 'cancelled'].includes(status)) {
-    return { ok: false, error: 'That is not something an appointment can become.' };
+  /* ⚠️ DONE OR CANCELLED — NOTHING ELSE (2026-09-21). Owner, after one stray
+     click on "No-show" closed a visit: *"'Not shown' is not a scenario… It's
+     done or it cancels. Put them in the reason to cancel."* A client who did
+     not come is a cancellation with that reason. */
+  if (!['completed', 'cancelled'].includes(status)) {
+    return { ok: false, error: 'An appointment is either done or cancelled.' };
+  }
+  if (status === 'cancelled' && !outcome.trim()) {
+    return { ok: false, error: 'Say why it is being cancelled.' };
   }
 
   /* ⚠️ A COMPLETED APPOINTMENT NEEDS AN OUTCOME, and migration 152 says so with

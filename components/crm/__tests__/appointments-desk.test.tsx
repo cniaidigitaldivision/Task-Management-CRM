@@ -76,6 +76,16 @@ describe('when something has happened and nobody wrote it up', () => {
     expect(html).toContain('It happened');
   });
 
+  it('⚠️ offers Done or Cancel — never a one-click No-show', () => {
+    /* Owner, 2026-09-21, after a stray click closed a visit: *"'Not shown' is
+       not a scenario… It's done or it cancels."* A client who did not come is a
+       reason chosen inside the Cancel confirmation. */
+    const html = render(owed);
+
+    expect(html).not.toContain('No-show');
+    expect(html).toContain('Cancel');
+  });
+
   it('⚠️ does not offer a write-up on a visit that has not happened yet', () => {
     /* Offering "did not turn up" on a visit three days away is an invitation to
        close something by accident. */
@@ -93,17 +103,17 @@ describe('calling off a booked visit', () => {
        a client ringing to move tomorrow's visit left the diary uncorrectable. */
     const html = render([row({ id: 'h', scheduledAt: new Date(NOW + DAY * 3).toISOString() })]);
 
-    expect(html).toContain('Call it off');
+    expect(html).toContain('Cancel');
   });
 
   it('⚠️ does not fire on the first click', () => {
     /* The one irreversible thing on this page — a stray click cancels a real
-       client's visit. It opens the reason box instead, which is the guard Today's
-       plan gets for free by only acting on the past. */
+       client's visit. It opens a confirmation with a required reason instead
+       (cancel-appointment-dialog), which is closed on render. */
     const html = render([row({ id: 'i', scheduledAt: new Date(NOW + DAY * 3).toISOString() })]);
 
-    /* The confirming control lives inside the box, which is closed on render. */
-    expect(html).not.toContain('being called off');
+    expect(html).not.toContain('Why? (required)');
+    expect(html).not.toContain('Cancel the site visit');
   });
 });
 
