@@ -9,7 +9,46 @@
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
 | **Last updated** | **2026-09-21** |
-| **Last migration applied anywhere** | **237** (applied 2026-09-21; **235 a cancelled appointment takes its reminder, 236 the AI agent books a demo or a visit, 237 a done appointment asks how it went**; 234 no follow-up waits for review). CRM next: **238.** |
+| **Last migration applied anywhere** | **241** (applied 2026-09-21; **238 appointment numbers APPT-101+, 239/240 office visit, 241 interest recorded later asks how it went**; 235–237 appointments done or cancelled, agent booking, feedback after). CRM next: **242.** |
+
+---
+
+## 🧭 2026-09-21 — 238–241 · THE APPOINTMENTS PAGE, AS THE OWNER DESIGNED IT
+
+Owner's mock-up: four cards, a table with details on the right, related-item
+popups, notes, Schedule / Reschedule / Cancel / Record outcome, list + calendar,
+search, filters, date range, project, saved views. Deployed (6dd666d).
+
+- `/appointments` is now `components/crm/appointments-board.tsx` (+ `-parts`,
+  `appointment-schedule-dialog`, `lead-details-modal`), over ONE query
+  (`lib/db/queries/crm-appointments-board.ts`, 180 days back, ≤500 rows, owner
+  = me). Rules in `lib/domain/crm-appointment-board.ts` (statuses, cards,
+  filters, order, words) — tested. The old `appointments-desk` is gone.
+- Statuses: Needs recording (past, unrecorded — leads the list, chip on the
+  header), Confirmed (client tapped Confirm), Client confirmation needed
+  (confirmation sent, no answer), Scheduled, Completed, Cancelled.
+- Cards: Today (blue), Upcoming (green), Awaiting confirmation (orange),
+  Completed this week (gold) — colourful on the owner's request; each is a
+  filter. Filters on ONE row at xl. Saved views: presets + the person's own
+  (localStorage, read when the menu opens — never during render).
+- Buttons are state-aware (owner: "these buttons are not working" — on a
+  completed appointment all three were disabled): open → Reschedule / Cancel /
+  Record outcome (allowed early; the popup requires a note + interest);
+  completed → Edit outcome / Book another; cancelled → Book again.
+- ⚠️ MODALS ARE PORTALLED TO <body>. `<main class="reveal-children">` gives
+  each child a transform, which becomes the containing block for `fixed` — the
+  first "View lead" panel dimmed only the content area and hung off-screen.
+  View lead → `LeadDetailsModal` (sleek header + the drawer's own overview);
+  View details (row menu) → the details panel in a modal.
+- 238: `crm_appointments.ref_no` → APPT-101+ (sequence; the self-check's
+  rolled-back insert consumed 103, so the next real one is 104).
+- 239/240: `office_visit` kind — booking confirmation says "office visit",
+  done → Visited, feedback when interested; filters and every kind map.
+- 241: Edit outcome setting "interested" on a completed appointment queues the
+  feedback once (trigger now also fires on `client_interested`).
+- Reminder wording rounds: "118 minutes before" → "2 hours before".
+- Known: a Related-items "Attach" from this page opens the lead (the composer
+  lives in the lead's WhatsApp tab); the admin sees only their own diary here.
 
 ---
 
