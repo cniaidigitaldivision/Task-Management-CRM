@@ -46,9 +46,11 @@ export interface AgentBrief {
   readonly product: string | null;
   readonly clientFirstName: string;
   readonly stage: string;
-  readonly knowledge: ReadonlyArray<{ question: string; answer: string }>;
+  /** 233 · every approved answer of the project, each tagged with its product ('any' for all). */
+  readonly knowledge: ReadonlyArray<{ question: string; answer: string; product?: string }>;
   readonly pilotRules: readonly string[];
-  readonly documents: ReadonlyArray<{ id: string; title: string; kind: string; product: string }>;
+  /** `alreadySent` — this file is already in the conversation (sent by us or the agent). */
+  readonly documents: ReadonlyArray<{ id: string; title: string; kind: string; product: string; alreadySent?: boolean }>;
   readonly thread: ReadonlyArray<{ direction: string; kind: string; body: string | null; file: string | null; byAgent: boolean }>;
 }
 
@@ -85,10 +87,14 @@ HAND OVER (do not reply) when the client:
 
 When you reply:
 - State ONLY facts found in KNOWLEDGE. Never invent a price, date, timeline, discount, feature or promise.
-- If the client asks for details, a proposal or a brochure, send the matching DOCUMENTS item (by id) and schedule follow_up {"purpose":"proposal","in_days":2}.
-- If the client asks for a quotation or the price, send a DOCUMENTS item of kind "quotation" if one exists and schedule follow_up {"purpose":"quotation","in_days":2}. If none exists, hand over.
+- If the client asks for more details, more information, a proposal or a brochure about a product, and DOCUMENTS has a proposal, brochure or other document about that product (not a quotation), SEND IT NOW: put its id in "documents", say in one line that you are sending it, and schedule follow_up {"purpose":"proposal","in_days":2}. Do not ask whether they would like it — they already asked.
+- If the client asks for a quotation or the price, send a DOCUMENTS item of kind "quotation" for that product if one exists and schedule follow_up {"purpose":"quotation","in_days":2}. If none exists, hand over.
+- Never schedule a "proposal" or "quotation" follow-up without sending that document in the same answer.
 - Otherwise, to qualify the lead, ask ONE short question at a time that the conversation has not answered yet: what their business does, what they use today, how many people would use it, what problem they most want solved.
+- KNOWLEDGE and DOCUMENTS are tagged with the product they are about. Use only entries for the product the client is asking about in their latest message, plus those for all products. If they ask about a different product than CLIENT IS INTERESTED IN, answer about the one they asked about and put it in "product".
 - If you cannot tell which product they want, ask. Record it in "product" when they say.
+- If the conversation shows the client has moved on to another product, follow the conversation rather than CLIENT IS INTERESTED IN.
+- Do not send a document marked ALREADY SENT unless the client says they did not get it, cannot open it, or asks for it again. When they do, send it again with a short apology — that is not a complaint and not a reason to hand over.
 - Write in the SAME language and script the client uses (English, Urdu, or Roman Urdu). Warm, brief, professional. No markdown, no emoji, under 600 characters.
 - Do not sign with a name and never claim to be a human.
 
@@ -99,6 +105,24 @@ Return JSON with exactly these keys:
   "follow_up": {"purpose": one of "proposal","quotation","missing_information","no_response","meeting_feedback","negotiation","agreement", "in_days": 1-7} or null
   "product": "taskly","crm","erp","whatsapp" or null
   "handover_reason": short reason, or null`;
+
+/** A client asking for a file again — English and Roman Urdu. */
+const ASKS_AGAIN =
+  /\b(again|resend|re-send|once more)\b|dobara|phir se|nahi?n? mil|didn.?t (get|receive)|not (received|getting)|(can.?t|cannot|unable to) open|khul nahi/i;
+
+function productWords(key: string): string {
+  return key === 'any' ? 'all products' : key;
+}
+
+/** How a document's kind reads to the model — "brochure" alone does not say proposal. */
+const KIND_WORDS: Readonly<Record<string, string>> = {
+  brochure: 'proposal / brochure',
+  quotation: 'quotation',
+  price_list: 'price list',
+  legal: 'terms / legal',
+  site_plan: 'plan / drawing',
+  other: 'other document',
+};
 
 export function buildAgentPrompt(b: AgentBrief): string {
   const line = (m: AgentBrief['thread'][number]) => {
@@ -116,12 +140,12 @@ export function buildAgentPrompt(b: AgentBrief): string {
     '',
     'KNOWLEDGE (the only facts you may state):',
     ...(b.knowledge.length
-      ? b.knowledge.map((k, i) => `${i + 1}. Q: ${k.question}\n   A: ${k.answer}`)
+      ? b.knowledge.map((k, i) => `${i + 1}. [${productWords(k.product ?? 'any')}] Q: ${k.question}\n   A: ${k.answer}`)
       : ['(none)']),
     '',
     'DOCUMENTS (you may send these by id):',
     ...(b.documents.length
-      ? b.documents.map((d) => `- id=${d.id} | ${d.title} | kind=${d.kind} | product=${d.product}`)
+      ? b.documents.map((d) => `- id=${d.id} | ${d.title} | ${KIND_WORDS[d.kind] ?? 'other document'} | product=${productWords(d.product)}${d.alreadySent ? ' | ALREADY SENT' : ''}`)
       : ['(none)']),
     '',
     'STYLE — how to write only. These are NOT facts and must never be stated as facts:',
@@ -140,7 +164,11 @@ export function buildAgentPrompt(b: AgentBrief): string {
  * code cannot trust is a client a person should answer — which is the safe
  * direction to fail in.
  */
-export function validateDecision(raw: unknown, allowedDocumentIds: ReadonlySet<string>): AgentDecision {
+export function validateDecision(
+  raw: unknown,
+  documents: ReadonlyArray<{ readonly id: string; readonly kind: string; readonly product?: string; readonly alreadySent?: boolean }>,
+  context: { readonly leadProduct?: string | null; readonly latestClientText?: string | null } = {},
+): AgentDecision {
   const handover = (reason: string): AgentDecision => ({
     action: 'handover', reply: null, documentIds: [], followUp: null, product: null, handoverReason: reason,
   });
@@ -163,8 +191,24 @@ export function validateDecision(raw: unknown, allowedDocumentIds: ReadonlySet<s
 
   /* ⚠️ ONLY DOCUMENTS IT WAS SHOWN. An id the model made up, or one belonging to
      a different product, is dropped rather than looked up. */
-  const documentIds = (Array.isArray(r.documents) ? r.documents : [])
-    .filter((d): d is string => typeof d === 'string' && allowedDocumentIds.has(d))
+  const byId = new Map(documents.map((d) => [d.id, d]));
+  const kindOf = new Map(documents.map((d) => [d.id, d.kind]));
+  /* ⚠️ ONLY FOR THE PRODUCT BEING TALKED ABOUT. The agent now sees every
+     product's documents (233), so a CRM proposal is one wrong id away from a
+     Taskly client. A document for all products always passes; one for a
+     product passes only when that is the product of this answer — or, when the
+     answer names none, of the lead. Nothing product-specific goes to a client
+     whose interest is not known yet. */
+  const about = product ?? context.leadProduct ?? null;
+  const asksAgain = ASKS_AGAIN.test(context.latestClientText ?? '');
+  const documentIds = [...new Set((Array.isArray(r.documents) ? r.documents : [])
+    .filter((d): d is string => typeof d === 'string' && byId.has(d)))]
+    .filter((id) => {
+      const d = byId.get(id)!;
+      const forProduct = !d.product || d.product === 'any' || d.product === about;
+      /* ⚠️ NOT THE SAME FILE TWICE unless they asked for it again. */
+      return forProduct && (!d.alreadySent || asksAgain);
+    })
     .slice(0, 2);
 
   let followUp: AgentDecision['followUp'] = null;
@@ -176,6 +220,20 @@ export function validateDecision(raw: unknown, allowedDocumentIds: ReadonlySet<s
       followUp = { purpose: purpose as AgentPurpose, inDays: Math.max(1, Math.min(7, days)) };
     }
   }
+
+  /* ⚠️ THE FOLLOW-UP FOLLOWS WHAT WAS SENT, NOT WHAT THE MODEL SAID. Dry run,
+     2026-09-21: asked "more detail about the CRM", the model answered, sent no
+     file — and scheduled a proposal follow-up, which would have asked the client
+     two days later about a proposal they never received. And the owner's rule
+     the other way round: *"it will send a proposal and set a follow-up for the
+     proposal."* So a quotation sent means a quotation follow-up, any other
+     document a proposal follow-up, and neither is kept without its document. */
+  const sentQuotation = documentIds.some((id) => kindOf.get(id) === 'quotation');
+  const sentOther = documentIds.some((id) => kindOf.get(id) !== 'quotation');
+  const days = followUp?.inDays ?? 2;
+  if (sentQuotation) followUp = { purpose: 'quotation', inDays: followUp?.purpose === 'quotation' ? days : 2 };
+  else if (sentOther) followUp = { purpose: 'proposal', inDays: followUp?.purpose === 'proposal' ? days : 2 };
+  else if (followUp?.purpose === 'proposal' || followUp?.purpose === 'quotation') followUp = null;
 
   return {
     action: 'reply',
@@ -225,5 +283,6 @@ export async function decideAgentReply(brief: AgentBrief): Promise<AgentDecision
   } catch {
     parsed = null;
   }
-  return validateDecision(parsed, new Set(brief.documents.map((d) => d.id)));
+  const latest = [...brief.thread].reverse().find((m) => m.direction === 'inbound');
+  return validateDecision(parsed, brief.documents, { leadProduct: brief.product, latestClientText: latest?.body ?? null });
 }

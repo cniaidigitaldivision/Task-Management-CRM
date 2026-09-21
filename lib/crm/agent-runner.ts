@@ -3,6 +3,7 @@ import 'server-only';
 import { type AgentDecision, type AgentPurpose, decideAgentReply } from '@/lib/ai/agent-brain';
 import { withAppRole } from '@/lib/db/client';
 import { handoverBeforeModel } from '@/lib/domain/crm-agent-guard';
+import { sendableFileName } from '@/lib/domain/document-file-name';
 import { purposeLabel } from '@/lib/domain/crm-followup-plans';
 import { templateForPurpose, templateVarsFor } from '@/lib/domain/crm-template-for-purpose';
 import { listTemplates, sendMedia, sendText } from '@/lib/crm/whatsapp';
@@ -139,18 +140,27 @@ export async function runAgentOnMessage(
 
     /* ── What it may know, how to write, what it may send, what was said ── */
     const [knowledge, rules, documents, thread, named] = await withAppRole(async (tx) => [
-      await tx`select question, answer from app.crm_knowledge_for(${ctx.project_id}::uuid, ${ctx.product}::public.crm_product)`,
+      /* ⚠️ EVERY PRODUCT, TAGGED (233). A lead filed as Taskly who asks about
+         the CRM must be answered about the CRM — the dry run on 2026-09-21
+         handed exactly that client over, with the CRM proposal on the shelf.
+         agent-brain.ts decides which product's documents may go. */
+      await tx`select question, answer, product from app.crm_agent_knowledge(${ctx.project_id}::uuid)`,
       await tx`select rule from app.crm_pilot_rules_for(${ctx.owner_id}::uuid, ${ctx.project_id}::uuid)`,
-      await tx`select * from app.crm_agent_documents(${ctx.project_id}::uuid, ${ctx.product})`,
+      await tx`select * from app.crm_agent_documents(${ctx.project_id}::uuid, null)`,
       await tx`select * from app.crm_agent_thread(${ctx.lead_id}::uuid, 30)`,
       await tx`select coalesce(app.crm_first_name(${ctx.lead_name}), 'there') as first`,
     ] as const);
 
-    const knowledgeRows = knowledge as unknown as Array<{ question: string; answer: string }>;
+    const knowledgeRows = knowledge as unknown as Array<{ question: string; answer: string; product: string }>;
     if (knowledgeRows.length === 0) {
       return handOver(ctx, messageId, 'nothing is approved for the assistant to say yet', dryRun);
     }
     const docRows = documents as unknown as Array<{ id: string; title: string; kind: string; product: string; storage_path: string; mime: string; size_bytes: number }>;
+    const threadRows = thread as unknown as Array<{ direction: string; kind: string; body: string | null; media_filename: string | null; sent_by_agent: boolean }>;
+    /* A file already in this conversation, by the name it was sent under. */
+    const sentFiles = new Set(
+      threadRows.filter((m) => m.direction === 'outbound' && m.media_filename).map((m) => m.media_filename!.toLowerCase()),
+    );
 
     const decision = await decideAgentReply({
       business: ctx.business,
@@ -159,9 +169,14 @@ export async function runAgentOnMessage(
       stage: ctx.stage,
       knowledge: knowledgeRows,
       pilotRules: (rules as unknown as Array<{ rule: string }>).map((r) => r.rule),
-      documents: docRows.map((d) => ({ id: d.id, title: d.title, kind: d.kind, product: d.product })),
-      thread: (thread as unknown as Array<{ direction: string; kind: string; body: string | null; media_filename: string | null; sent_by_agent: boolean }>)
-        .map((m) => ({ direction: m.direction, kind: m.kind, body: m.body, file: m.media_filename, byAgent: m.sent_by_agent })),
+      documents: docRows.map((d) => ({
+        id: d.id,
+        title: d.title,
+        kind: d.kind,
+        product: d.product,
+        alreadySent: sentFiles.has(sendableFileName(d.title, d.mime).toLowerCase()) || sentFiles.has(d.title.toLowerCase()),
+      })),
+      thread: threadRows.map((m) => ({ direction: m.direction, kind: m.kind, body: m.body, file: m.media_filename, byAgent: m.sent_by_agent })),
     });
 
     if (dryRun) return { action: 'dry_run', decision, reason: decision.handoverReason };
@@ -190,8 +205,7 @@ export async function runAgentOnMessage(
       if (!doc) continue;
       const file = await downloadObject(doc.storage_path);
       if (!file.ok) continue;
-      const ext = doc.mime === 'application/pdf' ? '.pdf' : '';
-      const filename = doc.title.toLowerCase().endsWith(ext) ? doc.title : `${doc.title}${ext}`;
+      const filename = sendableFileName(doc.title, doc.mime);
       const media = await sendMedia(config, ctx.phone, { data: file.value.data, mime: doc.mime, filename }, null, { asDocument: true });
       await withAppRole((tx) => tx`
         select app.crm_agent_record_message(${ctx.lead_id}::uuid, ${media.wamid ?? null}, 'document', null,

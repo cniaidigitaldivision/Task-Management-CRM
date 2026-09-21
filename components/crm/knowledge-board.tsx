@@ -17,6 +17,7 @@ import { DocumentPreview } from '@/components/crm/document-preview';
 import { PageHeader } from '@/components/ui/page-header';
 import { useToast } from '@/components/ui/toast';
 import type { KnowledgeBoard, KnowledgeDocument, KnowledgeEntry, ProductKey } from '@/lib/db/queries/crm-knowledge';
+import { documentKindFromWords, productFromWords } from '@/lib/domain/crm-product-words';
 import { cn } from '@/lib/utils';
 
 /* ============================================================================
@@ -481,7 +482,17 @@ function Documents({
             ref={fileRef}
             type="file"
             accept="application/pdf,image/png,image/jpeg,image/webp,.doc,.docx,.xls,.xlsx"
-            onChange={(e) => setPicked(e.target.files?.[0] ?? null)}
+            onChange={(e) => {
+              const file = e.target.files?.[0] ?? null;
+              setPicked(file);
+              /* ⚠️ THE NAME SUGGESTS WHAT IT IS AND WHICH PRODUCT — shown in the
+                 two selects, still changeable. A CRM proposal left on "All
+                 products" would be offered to a Taskly lead. */
+              const guessedProduct = productFromWords(file?.name);
+              const guessedKind = documentKindFromWords(file?.name);
+              if (guessedProduct) setProduct(guessedProduct);
+              if (guessedKind) setKind(guessedKind);
+            }}
             className="mt-1 block w-full text-body-sm text-text-primary file:mr-3 file:rounded-lg file:border-0 file:bg-bg-subtle file:px-3 file:py-1.5 file:text-body-sm file:text-text-primary"
           />
         </label>

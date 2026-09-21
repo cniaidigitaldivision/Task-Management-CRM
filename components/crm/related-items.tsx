@@ -77,6 +77,7 @@ import type {
 } from '@/lib/db/queries/crm-related';
 import { appointmentKindLabel } from '@/lib/domain/crm-appointments';
 import { NOT_A_PROPERTY } from '@/lib/domain/crm-quotations';
+import { sendableFileName } from '@/lib/domain/document-file-name';
 import { displayPhone } from '@/lib/domain/phone';
 import { cn } from '@/lib/utils';
 
@@ -230,27 +231,9 @@ function productName(key: string): string {
   return PRODUCT_NAMES[key] ?? key;
 }
 
-const EXTENSION: Readonly<Record<string, string>> = {
-  'application/pdf': '.pdf',
-  'image/jpeg': '.jpg',
-  'image/png': '.png',
-  'image/webp': '.webp',
-  'application/msword': '.doc',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
-  'application/vnd.ms-excel': '.xls',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
-};
-
-/** ⚠️ THE CLIENT SEES THE FILE NAME. A title without an extension arrives on a
- *  phone as a file nothing will open — and a Word file must not arrive as ".pdf". */
-function sendableName(f: RelatedFile): string {
-  const ext = EXTENSION[f.mime.split(';')[0].trim().toLowerCase()] ?? '';
-  return ext && !f.title.toLowerCase().endsWith(ext) ? `${f.title}${ext}` : f.title;
-}
-
 function attachDocument(ctx: Ctx, f: RelatedFile, title: string) {
   ctx.attachVia({ title, summary: `${f.title} · ${bytes(f.sizeBytes)}`, files: 1 }, async (channel) => {
-    const files = [await fileFromLink(await crmDocumentLinkAction(f.id), sendableName(f))];
+    const files = [await fileFromLink(await crmDocumentLinkAction(f.id), sendableFileName(f.title, f.mime))];
     if (channel === 'whatsapp') return { channel, files, text: f.title };
     return {
       channel,
