@@ -9,7 +9,53 @@
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
 | **Last updated** | **2026-09-21** |
-| **Last migration applied anywhere** | **234** (applied 2026-09-21; **234 no follow-up waits for review**; 231 the AI agent works, 232 knowledge page keeps the sales documents + campaign settings, 233 the agent sees every product and follows the client). CRM next: **235.** |
+| **Last migration applied anywhere** | **237** (applied 2026-09-21; **235 a cancelled appointment takes its reminder, 236 the AI agent books a demo or a visit, 237 a done appointment asks how it went**; 234 no follow-up waits for review). CRM next: **238.** |
+
+---
+
+## 🧭 2026-09-21 — 235, 236, 237 · APPOINTMENTS: DONE OR CANCELLED, THE AGENT BOOKS, FEEDBACK AFTER
+
+Deployed (929c19d, 42d5e8a, 77c48df).
+
+**Done or cancelled — no "No-show" (235 + screens).** Owner, after a stray click
+closed a visit: *"'Not shown' is not a scenario… It's done or it cancels. Put
+them in the reason to cancel."* No-show removed from Appointments and Today's
+plan; the server accepts only completed/cancelled. **Cancel** opens a
+confirmation with reasons ("The client did not come", "asked to move it",
+"no longer interested", "we had to call it off") or free text; the client is
+not messaged. Umm e e Habiba's 11:30 visit, no-showed by accident, was put back
+in Needs recording (the owner then recorded it done).
+
+**235 — the reminder bug.** Calling off a visit before it happened left its
+reminder queued (*"a reminder that your site visit is tomorrow"*). Follow-ups
+now carry `appointment_id`; cancelling or closing an appointment cancels what
+is still waiting for it; the booking trigger's sweep only touches its own
+appointment and names the client with `crm_first_name`.
+
+**236 — the AI agent books a demo or a site visit (never a call).**
+- Shown TODAY and the salesperson's free times (`lib/domain/crm-agent-slots.ts`:
+  10–6 Mon–Sat, ≥2 h ahead, 7 days, half hours, no diary overlap; demo 45 min,
+  visit 90 min); offers two or three.
+- ⚠️ The model reports the time asked for (`time_asked`); the CODE decides if
+  it is free and books it. A reply saying "booked" for a time that is not free
+  is handed over. `crm_agent_book` re-checks the diary under an advisory lock
+  and refuses a call, <1 h notice, a second appointment, a clash.
+- The booking is an ordinary appointment: its confirmation is sent at once
+  (runDueFollowUps) and IS the reply; reminder, stage and diary follow.
+- Dry runs (nothing booked/sent): without today's date the model said
+  "tomorrow isn't available"; Roman Urdu "Saturday 12 baje" was misjudged.
+  Both fixed; one phrasing still sometimes gets offered 12:30 instead of 12:00
+  — harmless (nothing false is booked; the client picks and it books).
+- Change/cancel of a booked appointment → handover (not automated yet).
+
+**237 — done → stage + feedback, only if interested.** Owner: *"when
+appointment Done auto stage change and auto feedback followup should send — but
+only client interested then."* Recording done now requires "Client is
+interested / Not interested". Interested → `meeting_feedback` follow-up ~2 h
+later inside office hours (else next working morning 11:00), auto-send,
+cancel_on_reply. Not interested → nothing sent. A demo (meeting) now moves the
+stage like a site visit (booked → Visit scheduled, done → Visited); no project
+had meeting appointments when this changed.
 
 ---
 
