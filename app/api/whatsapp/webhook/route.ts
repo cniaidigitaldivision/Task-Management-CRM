@@ -1,6 +1,7 @@
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { after } from 'next/server';
 
+import { runAgentOnMessage } from '@/lib/crm/agent-runner';
 import { fetchMedia, mediaReader } from '@/lib/crm/whatsapp';
 import { uploadObject } from '@/lib/storage/bucket';
 
@@ -56,6 +57,10 @@ import { withAppRole } from '@/lib/db/client';
 export const dynamic = 'force-dynamic';
 /* Node, not Edge: `node:crypto` for the HMAC. */
 export const runtime = 'nodejs';
+/* ⚠️ TIME FOR THE AI AGENT, which runs in `after()` once Meta has its 200: a few
+   seconds for the rest of a burst, a model call, then the sends. Meta's own
+   acknowledgement is not held up by any of it. */
+export const maxDuration = 60;
 
 /** A real WhatsApp event is a few kilobytes. Past this it is not Meta. */
 const MAX_BODY_BYTES = 1024 * 1024;
@@ -320,12 +325,41 @@ async function storeMessage(message: Record<string, unknown>): Promise<void> {
      ⚠️ AND IT NEVER FAILS THE WEBHOOK. Meta retries a non-200 for hours; the
      message is already safely stored, so a confirmation that did not land is
      worth a line in the log, not a redelivery of everything behind it. */
+  let answered: string | null = null;
   if (messageId && body) {
     try {
-      await withAppRole((tx) => tx`select app.crm_act_on_reply(${messageId}::uuid)`);
+      const acted = (await withAppRole((tx) => tx`select app.crm_act_on_reply(${messageId}::uuid) as outcome`)) as unknown as Array<{ outcome: string | null }>;
+      answered = acted[0]?.outcome ?? null;
     } catch (error) {
       console.error('[whatsapp-webhook] could not act on a reply:', error);
     }
+  }
+
+  /* ── THE AI AGENT, for a lead whose reply mode is "AI agent" ─────────────
+     Owner, 2026-09-21: *"make them work… each and every thing should be fully
+     functional with a proper sense of the working of an AI agent."*
+
+     ⚠️ AFTER META HAS ITS 200, like the attachment copy above. The agent waits a
+     few seconds for the rest of a burst, reads, thinks and sends — none of which
+     may hold up the acknowledgement Meta retries on.
+
+     ⚠️ NOT WHEN THE MESSAGE WAS ALREADY ANSWERED. A Confirm tap on an
+     appointment is acknowledged by 222; the agent replying to it as well would
+     be the client hearing two voices.
+
+     ⚠️ AND IT RUNS FOR A VOICE NOTE OR A PHOTO TOO, with no text — that is
+     exactly when it must hand over rather than stay silent. The runner itself
+     decides whether this lead is on "AI agent"; for every other lead it returns
+     at once and writes nothing. */
+  if (messageId && !answered) {
+    const id = messageId;
+    after(async () => {
+      try {
+        await runAgentOnMessage(id);
+      } catch (error) {
+        console.error('[whatsapp-webhook] the AI agent could not run:', error);
+      }
+    });
   }
 
   /* ⚠️ NULL IS ORDINARY, NOT A FAILURE. Somebody messaging the business

@@ -1679,6 +1679,8 @@ export interface CrmMessage {
   readonly forwarded: boolean;
   /** Starred by the person reading — stars are personal. */
   readonly starred: boolean;
+  /** 231 · the AI agent wrote and sent this — shown with the ✦ AI mark. */
+  readonly sentByAgent: boolean;
 }
 
 /**
@@ -1731,6 +1733,7 @@ async function readCrmLeadThreads(
                  m.channel::text, m.subject, m.sent_by_id, m.wa_message_id, m.reply_to_wamid,
                  m.our_reaction, m.their_reaction, m.pinned_at, m.pinned_by_id,
                  m.hidden_at, m.hidden_by_id, m.delivered_at, m.read_at, m.played_at, m.forwarded,
+                 m.sent_by_agent,
                  /* ⚠️ THE NEWEST 500, NOT THE OLDEST. This ranked ascending, so a
                     conversation past 500 messages silently lost its latest ones —
                     the exact messages somebody opens a chat to read. */
@@ -1781,6 +1784,7 @@ async function readCrmLeadThreads(
       playedAt: iso(r.played_at),
       forwarded: r.forwarded === true,
       starred: !hidden && r.starred === true,
+      sentByAgent: r.sent_by_agent === true,
     });
     out.set(lead, list);
   }

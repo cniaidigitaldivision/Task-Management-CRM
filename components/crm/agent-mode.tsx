@@ -50,9 +50,12 @@ export const AGENT_MODES: readonly ModeMeta[] = [
   {
     key: 'agent',
     label: 'AI agent',
-    hint: 'AI writes and sends messages for you',
+    /* ⚠️ NO LONGER GREYED OUT (2026-09-21). The agent exists and answers only
+       from approved knowledge; the server refuses it, with the reason, on a
+       project that has none approved yet — so the label can never promise a
+       reply nobody sends. */
+    hint: 'AI answers from what you approved, and hands over when unsure',
     icon: Sparkles,
-    unavailable: 'Needs the knowledge base before it can answer clients',
   },
 ];
 
@@ -166,6 +169,46 @@ export function AgentModeControl({
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+/* ── In place of the reply box, while the agent is answering ─────────────── */
+
+/**
+ * What the reply box becomes when the chat is on "AI agent".
+ *
+ * ⚠️ TWO VOICES IN ONE CHAT IS THE FAILURE THIS PREVENTS. The owner's
+ * WhatsApp Business screenshot shows the box replaced by "Waiting for reply…"
+ * with a stop button: while the agent answers, nobody types over it. Taking
+ * over is one click, back to "My reply" — and a person sending a message by any
+ * other route switches the agent off anyway (212).
+ */
+export function AgentAtWork({ onTakeOver }: { onTakeOver: () => void }) {
+  return (
+    <div
+      className="flex items-center gap-3 rounded-2xl border px-4 py-3"
+      style={{
+        borderColor: 'color-mix(in oklab, var(--feedback-success) 45%, transparent)',
+        background: 'color-mix(in oklab, var(--feedback-success) 6%, var(--bg-surface))',
+      }}
+      role="status"
+    >
+      <Sparkles className="size-5 shrink-0" style={{ color: 'var(--feedback-success)' }} aria-hidden="true" />
+      <div className="min-w-0 flex-1">
+        <p className="text-body-sm font-medium text-text-primary">The AI agent is answering this chat</p>
+        <p className="text-caption leading-snug text-text-secondary">
+          It replies only from what you approved, and hands over to you — with a red mark and a notification — when
+          it is unsure, gets a voice note, or is asked for a person.
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={onTakeOver}
+        className="shrink-0 rounded-xl border border-border-default bg-bg-surface px-3.5 py-2 text-body-sm font-semibold text-text-primary transition-colors hover:bg-bg-subtle"
+      >
+        Take over
+      </button>
     </div>
   );
 }

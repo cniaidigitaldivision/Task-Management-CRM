@@ -577,13 +577,16 @@ export async function suggestReplyAction(
 /**
  * My reply · Suggestions · AI agent — the owner's three modes.
  *
- *  + W +  AI AGENT IS REFUSED HERE, NOT ONLY GREYED OUT ON SCREEN. Nothing answers a
- * client yet: the agent needs a knowledge base saying what the business sells
- * and what it will not promise, and none exists (`docs/crm-ai/02`). A lead set
- * to `agent` would show "AI responding" while nobody responds — the salesperson
- * trusts the label, the client waits, and the label is the reason. A control
- * that claims something untrue is worse than no control, and a disabled button
- * is only a suggestion to a request built by hand.
+ * ⚠️ AI AGENT IS ALLOWED ONCE THERE IS SOMETHING TRUE FOR IT TO SAY. It answers
+ * only from answers a person approved on "What the agent knows" (226, 231), so a
+ * project with none approved would put "AI responding" on a lead nobody answers.
+ * The check is here, not only on screen — a disabled button is only a
+ * suggestion to a request built by hand.
+ *
+ * Owner, 2026-09-21: *"The AI agent is still not selected and it still says
+ * 'Needs the knowledge base'… Now please properly go and make them work."* The
+ * agent now exists (`lib/crm/agent-runner.ts`), so the only remaining condition
+ * is the approved knowledge.
  */
 export async function setAgentModeAction(
   leadId: string,
@@ -595,10 +598,17 @@ export async function setAgentModeAction(
     return { ok: false, error: 'That is not a reply mode.' };
   }
   if (mode === 'agent') {
-    return {
-      ok: false,
-      error: 'The AI agent cannot answer clients yet — it needs the knowledge base first. Use Suggestions meanwhile.',
-    };
+    const ready = (await withUser(user.id, (tx) => tx`
+      select app.crm_agent_ready(l.project_id) as approved
+        from public.crm_leads l where l.id = ${leadId}::uuid
+    `)) as unknown as Array<{ approved: number }>;
+    if (!ready[0]) return { ok: false, error: 'That lead is not yours to change.' };
+    if (ready[0].approved === 0) {
+      return {
+        ok: false,
+        error: 'Approve at least one answer on "What the agent knows" for this project first — the agent only says what a person approved.',
+      };
+    }
   }
   const ok = await setAgentMode(user.id, leadId, mode);
   return ok ? { ok: true } : { ok: false, error: 'That lead is not yours to change.' };

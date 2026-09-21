@@ -50,7 +50,7 @@ import type {
   CrmSummaryPointKind,
 } from '@/lib/db/queries/crm-leads';
 import type { AgentMode } from '@/lib/db/queries/crm-leads';
-import { AgentModeControl, SuggestedReply, modeMeta } from '@/components/crm/agent-mode';
+import { AgentAtWork, AgentModeControl, SuggestedReply, modeMeta } from '@/components/crm/agent-mode';
 import { displayPhone } from '@/lib/domain/phone';
 import { cn } from '@/lib/utils';
 
@@ -582,7 +582,7 @@ export function LeadConversationTab({
     channel: 'whatsapp', subject: null, waMessageId: null, replyToWamid: null, ourReaction: null,
     theirReaction: null, pinnedAt: null, pinnedByName: null, hiddenAt: null, hiddenByName: null,
     deliveredAt: null, readAt: null, playedAt: null, mediaSize: null, mediaVoice: false,
-    forwarded: false, starred: false,
+    forwarded: false, starred: false, sentByAgent: false,
     ...over,
   });
 
@@ -1126,6 +1126,10 @@ ${handoff.text}` : handoff.text));
 
           {composerChannel === 'whatsapp' ? (
             <>
+            {agentMode === 'agent' && onAgentMode ? (
+              /* 231 · while the agent answers, the box is its — see AgentAtWork. */
+              <AgentAtWork onTakeOver={() => onAgentMode('off')} />
+            ) : (
             <WhatsAppComposer
               disabledReason={disabledReason}
               replyTo={replyTo}
@@ -1149,6 +1153,7 @@ ${handoff.text}` : handoff.text));
               }
               inputRef={composerInput}
             />
+            )}
             {agentMode && onAgentMode && (
               <div className="mt-2 flex items-center gap-2">
                 <AgentModeControl mode={agentMode} onChange={onAgentMode} />

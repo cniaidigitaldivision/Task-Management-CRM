@@ -8,7 +8,7 @@ const msg = (o: Partial<CrmMessage>): CrmMessage => ({
   status: 'delivered', errorDetail: null, sentByName: null, occurredAt: '2026-09-17T05:00:00.000Z', channel: 'whatsapp',
   subject: null, waMessageId: null, replyToWamid: null, ourReaction: null, theirReaction: null, pinnedAt: null,
   pinnedByName: null, hiddenAt: null, hiddenByName: null, deliveredAt: null, readAt: null, playedAt: null,
-  mediaSize: null, mediaVoice: false, forwarded: false, starred: false, ...o,
+  mediaSize: null, mediaVoice: false, forwarded: false, starred: false, sentByAgent: false, ...o,
 });
 
 describe('fillReply — one saved reply, filled for whoever uses it', () => {

@@ -203,7 +203,7 @@ function Bubble({
             color: 'var(--wa-ink)',
             boxShadow: flash ? '0 0 0 3px color-mix(in oklab, #00a884 55%, transparent)' : '0 1px 0.5px var(--wa-shadow)',
           }}
-          title={mine && message.sentByName ? `Sent by ${message.sentByName}` : undefined}
+          title={mine ? (message.sentByAgent ? 'Sent by the AI agent' : message.sentByName ? `Sent by ${message.sentByName}` : undefined) : undefined}
         >
           {first && (
             <svg aria-hidden="true" viewBox="0 1 8 12" width="8" height="12" className={cn('absolute top-0', mine ? '-right-2' : '-left-2')}>
@@ -385,6 +385,15 @@ function Stamp({ message, tone }: { message: CrmMessage; tone: 'plain' | 'light'
     <span className="flex items-center gap-[3px] text-[11px] leading-[15px]" style={{ color: tone === 'light' ? '#fff' : 'var(--wa-meta)' }}>
       {message.starred && <Star className="size-3" fill="currentColor" aria-label="Starred" />}
       {message.pinnedAt && <Pin className="size-3" aria-label="Pinned" />}
+      {/* ⚠️ THE ✦ AI MARK, as WhatsApp Business shows its own agent (the owner's
+          screenshots, 2026-09-20). A salesperson reading the thread must know
+          which words were theirs and which the agent sent on their behalf. */}
+      {message.sentByAgent && (
+        <span className="inline-flex items-center gap-0.5 font-semibold" aria-label="Sent by the AI agent">
+          <Sparkles className="size-3" aria-hidden="true" />
+          AI
+        </span>
+      )}
       <span className="tabular-nums">{timeOf(message.occurredAt)}</span>
       {mine && !message.hiddenAt && (
         pending || message.status === null ? (
