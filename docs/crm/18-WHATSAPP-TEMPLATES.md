@@ -45,6 +45,42 @@ submitted as Utility and approved as Marketing.
 
 ---
 
+## The master list — every template, what it does, where it stands
+
+Checked against Meta on **2026-09-21**. The last column is for the move to the
+real number: tick each one as it is approved there.
+
+| # | Template name | What it does | Where the CRM uses it | Blanks | Test account | Real number |
+|---|---|---|---|---|---|---|
+| 1 | `lead_greeting_v2` | Welcomes a new lead the moment they arrive | Greeting — automatic on every new lead | 2 | ✅ Approved · Marketing | ☐ |
+| 2 | `appointment_confirmed` | Confirms a booked visit, meeting, call or demo · Confirm / Change the time buttons | Booking an appointment — automatic | 5 | ✅ Approved · Utility | ☐ |
+| 3 | `appointment_reminder` | Reminds the client before the appointment | Booking an appointment — automatic | 5 | ✅ Approved · Utility | ☐ |
+| 4 | `quotation_follow_up` | Chases a quotation that got no answer | Follow-up purpose *Quotation* | 0 | ✅ Approved · Marketing | ☐ |
+| 5 | `lead_check_in` | Nudges a lead who never replied | Follow-up purpose *No response* | 2 | ⏳ Pending | ☐ |
+| 6 | `lead_details_request` | Asks for the business details a proposal needs | Follow-up purpose *Missing information* | 2 | ⏳ Pending | ☐ |
+| 7 | `payment_reminder` | Reminds that a payment is due | Follow-up purpose *Payment reminder* | 2 | ⏳ Pending | ☐ |
+| 8 | `after_visit_check_in` | Follows up after a visit, meeting or demo | Follow-up purpose *Site visit check-in* | 2 | ⏳ Pending | ☐ |
+| 9 | `update_available` | Opens a shut window for any message at all | Chosen by hand — any follow-up | 2 | ☐ To create | ☐ |
+| 10 | `lead_re_engage` | Revives a lead cold for weeks | Follow-up purpose *Re-engage* | 2 | ☐ To create | ☐ |
+| 11 | `proposal_follow_up` | Chases a proposal that got no answer | Chosen by hand | 2 | ☐ To create | ☐ |
+| 12 | `meeting_feedback` | Asks how a demo or visit went · rating buttons | Chosen by hand | 2 | ☐ To create | ☐ |
+| 13 | `negotiation_follow_up` | Restarts a stalled negotiation | Chosen by hand | 2 | ☐ To create | ☐ |
+| 14 | `agreement_ready` | Says the agreement is ready to review | Chosen by hand | 2 | ☐ To create | ☐ |
+| 15 | `welcome_onboard` | Welcomes a client whose deal is won | Chosen by hand | 2 | ☐ To create | ☐ |
+| 16 | `approved_offer` | Tells the client a revised offer was approved | Follow-up purpose *Approved offer* | 2 | ☐ To create | ☐ |
+| 17 | `payment_received` | Confirms a payment was received, with the amount | ⚠️ A trigger on recording a payment — **not built yet** | 3 | ☐ To create | ☐ |
+| — | `_lead_greeting` | Old greeting, replaced by #1 | Nothing | 3 | Approved, unused | **Do not recreate** |
+
+⚠️ **Keep the names exactly.** #1, #2 and #3 are named inside the system itself
+(the greeting plan and the booking flow), and #4–#16 are matched to their
+purpose by name. A template called `lead_greeting` instead of `lead_greeting_v2`
+on the real number would mean no new lead is ever greeted.
+
+"Chosen by hand" means the follow-up wizard lists it, but no purpose picks it
+automatically yet.
+
+---
+
 ## Already approved
 
 | Name | Blanks | What it is for |
@@ -171,5 +207,94 @@ them go through this one.
 | | |
 |---|---|
 | Approved and in use | 4 |
-| To create now | **13** — 12 usable immediately, `payment_received` waiting on its trigger |
+| Submitted, waiting for Meta | 4 |
+| Still to create | **9** — 8 usable once approved, `payment_received` waiting on its trigger |
 | Not needed as templates | demo booking and reminder (appointments), the negotiation itself (ordinary messages) |
+| **To create on the real number** | **17** — everything in the master table except `_lead_greeting` |
+
+---
+
+## Moving to the real number
+
+**Yes — every template has to exist again.** Checked on 2026-09-21: all of the
+above live on Meta's **"Test WhatsApp Business Account"** (`1747354729809810`),
+the practice account that came with the +1 555 test number. A template belongs
+to the WhatsApp Business *account*, not to the phone number, and the real number
+will sit in a real account. Nothing carries over by itself.
+
+Two ways to get them there:
+
+- **Create them again** from this document. The master table is the checklist,
+  and every wording here is copy-ready.
+- **Ask me to copy them by API.** Meta can move templates between two accounts
+  owned by the same business. Whether each one arrives already approved is
+  something to check on the day. The table is the fallback either way.
+
+⚠️ **One template to improve on the way.** `quotation_follow_up` has the
+business name typed into its text and no blanks. On the real number, create it
+with blanks under the same name:
+
+> Assalam-o-Alaikum {{1}}, this is {{2}} following up on the quotation we shared with you. Did you get a chance to review it? We would be happy to explain the payment plan or arrange a meeting.
+
+### The rest of the switch
+
+Configuration only, no code (see `sandbox-first-then-real-number`): the
+project's WhatsApp phone number id and business account id, the webhook
+subscribed on the new account, a payment method on the new account, and the
+display name approved by Meta. The business portfolio already shows as
+**verified**, which the real number needs.
+
+---
+
+## What it costs on the real number
+
+Checked 2026-09-21 against Meta's pricing documentation. **Prices change a few
+times a year — check before relying on a figure.** Meta charges per message
+*delivered*, in US dollars, by the country of the client's number. There is no
+monthly fee for the API itself when using Meta directly, as this system does.
+
+**Creating and submitting a template is free.** Only sending costs.
+
+### Pakistan (+92) today
+
+| Kind of message | Cost | Examples here |
+|---|---|---|
+| **Marketing template** | **$0.0473** each | greeting, check-in, re-engage, proposal / quotation / negotiation follow-ups, feedback |
+| **Utility template** | **$0.01** each (was $0.0054 before 1 April 2026) | appointment confirmation and reminder, payment reminder, agreement ready, welcome |
+| Utility template inside an open 24-hour window | free — **until 30 September 2026** | |
+| Normal reply inside the 24-hour window | free — **until 30 September 2026** | a salesperson or the AI agent answering |
+| Anything within 72 hours of a click on a Click-to-WhatsApp ad | free, and stays free | Click-to-WhatsApp ads only — not lead forms |
+
+### ⚠️ From 1 October 2026
+
+Normal replies inside the 24-hour window, and utility templates sent inside it,
+start being charged at the utility rate (**$0.01** in Pakistan). Each phone
+number gets **1,000 free every month**, with no carry-over. The 72-hour
+Click-to-WhatsApp window stays free.
+
+This matters for the AI agent: its replies are exactly these messages. The
+first 1,000 a month cost nothing; after that, about a cent each.
+
+### Rough monthly examples
+
+At roughly PKR 280 to the dollar (check the day's rate):
+
+| In a month | Cost |
+|---|---|
+| 100 new leads greeted + 50 chased once (Marketing) | 150 × $0.0473 ≈ **$7.10 · ≈ PKR 2,000** |
+| 30 appointments, each confirmed + reminded (Utility) | 60 × $0.01 = **$0.60 · ≈ PKR 170** |
+| 3,000 replies inside open windows, after 1 October | first 1,000 free, 2,000 × $0.01 = **$20 · ≈ PKR 5,600** |
+
+### Three ways to keep it low
+
+- **Get templates approved as Utility when they genuinely are.** Meta decides,
+  and a template it files as Marketing costs almost five times as much.
+- **Reply while the window is open.** A client who has just written can be
+  answered as normal text instead of with a template.
+- **Click-to-WhatsApp ads open 72 free hours.** A lead who starts the chat from
+  such an ad costs nothing for three days; a lead from a form doesn't get this.
+
+**Sources:** Meta for Developers, [Pricing on the WhatsApp Business Platform](https://developers.facebook.com/documentation/business-messaging/whatsapp/pricing) ·
+[YCloud — April 2026 rate update](https://www.ycloud.com/blog/whatsapp-api-message-pricing-update-effective-april-1-2026) (Pakistan utility $0.0054 → $0.01) ·
+[360dialog — service message charging from 1 October 2026](https://360dialog.com/blog/whatsapp-service-message-charging-october-2026/) (cites Meta's pricing documentation, updated 25 August 2026) ·
+marketing rate $0.0473 as published on Meta's rate card and repeated by several providers, e.g. [Ominiflow — Pakistan](https://ominiflow.com/whatsapp-api-pricing/pakistan).
