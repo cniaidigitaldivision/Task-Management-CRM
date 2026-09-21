@@ -117,3 +117,58 @@ export function socialReply(kind: SocialKind, text: string | null): string {
         : 'You’re welcome! 😊 Message us anytime you need anything.';
   }
 }
+
+/* ============================================================================
+ * WHAT THE CLIENT IS TOLD WHEN IT HANDS OVER
+ * ----------------------------------------------------------------------------
+ * Owner, 2026-09-21: *"Instead of saying [nothing], 'For any change of
+ * appointment our team will contact you' — this type of message must be sent to
+ * the client and then handed over to the same person."*
+ *
+ * One line, chosen from the reason, then the salesperson takes it. Never a
+ * promise about what will be done — only that a person is coming.
+ *
+ * ⚠️ THE REASON IS PARTLY THE MODEL'S OWN WORDS, so this matches on meaning,
+ * not on an exact string, and falls back to a line that is true of every
+ * handover.
+ * ========================================================================= */
+
+const HOLDING: ReadonlyArray<[RegExp, string]> = [
+  [
+    /appointment|visit|meeting|demo|reschedul|booking|slot|timing|time of/i,
+    'Noted. For any change to your appointment, our team will contact you shortly to arrange it.',
+  ],
+  [
+    /person|human|salesperson|colleague|call you|phone|speak to|talk to|baat|insaan/i,
+    'Of course — I am passing you to my colleague. They will message you shortly.',
+  ],
+  [
+    /discount|price|pricing|negotiat|payment terms|instal|cheaper|budget/i,
+    'Thank you — our team will get back to you on this shortly.',
+  ],
+  [
+    /voice note|audio|listen/i,
+    'Thank you for the voice note — my colleague will listen to it and reply shortly.',
+  ],
+  [
+    /photo|image|document|file|see it|cannot see/i,
+    'Thank you — my colleague will look at this and reply shortly.',
+  ],
+  [
+    /ready to buy|ready to pay|sign|book now|purchase/i,
+    'That is great to hear — our team will contact you shortly to take this forward.',
+  ],
+  [
+    /complain|upset|angry|unhappy|sorry/i,
+    'I am sorry about that. Our team will contact you shortly.',
+  ],
+];
+
+/** The one line the client gets before a person takes over. */
+export function holdingLine(reason: string | null): string {
+  const text = (reason ?? '').trim();
+  for (const [re, line] of HOLDING) {
+    if (re.test(text)) return line;
+  }
+  return 'Thank you — let me check this with my colleague. They will message you shortly.';
+}

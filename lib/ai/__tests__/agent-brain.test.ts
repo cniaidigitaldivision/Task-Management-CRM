@@ -126,14 +126,14 @@ describe('validateDecision', () => {
 
     it('books a free time, and drops any follow-up — the reminder is the follow-up', () => {
       const d = decide({ kind: 'meeting', at: '2026-09-23T15:00' }, true, OFFER, { follow_up: { purpose: 'no_response', in_days: 2 } });
-      expect(d).toMatchObject({ action: 'reply', booking: { kind: 'meeting', at: '2026-09-23T15:00', replyConfirms: true, move: false }, followUp: null });
+      expect(d).toMatchObject({ action: 'reply', booking: { kind: 'meeting', at: '2026-09-23T15:00', replyConfirms: true }, followUp: null });
     });
 
     it('⚠️ books a free time even when the model thought it was taken — the code decides', () => {
       /* Dry run: "Saturday 12 baje" came back as "not free" three times with
          12:00 listed as free. */
       const d = decide({ kind: 'site_visit', at: '2026-09-24T11:00' }, false);
-      expect(d.booking).toEqual({ kind: 'site_visit', at: '2026-09-24T11:00', replyConfirms: false, move: false });
+      expect(d.booking).toEqual({ kind: 'site_visit', at: '2026-09-24T11:00', replyConfirms: false });
     });
 
     it('keeps the reply offering other times when the time asked for is not free', () => {
@@ -153,23 +153,21 @@ describe('validateDecision', () => {
 
     it('⚠️ books an office visit when the client wants to come to our office', () => {
       expect(decide({ kind: 'office_visit', at: '2026-09-23T14:00' }, true).booking)
-        .toEqual({ kind: 'office_visit', at: '2026-09-23T14:00', replyConfirms: true, move: false });
+        .toEqual({ kind: 'office_visit', at: '2026-09-23T14:00', replyConfirms: true });
     });
 
     it('⚠️ never books a call', () => {
       expect(decide({ kind: 'call', at: '2026-09-23T15:00' }, true)).toMatchObject({ action: 'handover', booking: null });
     });
 
-    /* 244 · Owner, 2026-09-21: the client asked to change the time and the agent
-       handed over, then sat silent. A client who already has one is MOVED. */
-    it('⚠️ moves the appointment a client already has, rather than booking a second', () => {
+    /* ⚠️ Owner, 2026-09-21: *"the change of appointment should be … the
+       salesperson's. I don't want that agent to do it automatically."* So an
+       appointment the client already has is never touched, only handed over. */
+    it('⚠️ never touches an appointment the client already has', () => {
       const d = decide({ kind: 'meeting', at: '2026-09-23T15:00' }, true, { ...OFFER, existing: 'a demo on Friday 25 September at 11:00 AM' });
-      expect(d).toMatchObject({ action: 'reply', booking: { kind: 'meeting', at: '2026-09-23T15:00', move: true } });
-    });
-
-    it('a move to a time that is not free is still handed over when the reply claims it', () => {
-      const d = decide({ kind: 'meeting', at: '2026-09-27T11:00' }, true, { ...OFFER, existing: 'a demo on Friday' });
       expect(d.action).toBe('handover');
+      expect(d.booking).toBeNull();
+      expect(d.handoverReason).toMatch(/already have/);
     });
 
     it('hands over a booking where no times were offered', () => {

@@ -15,6 +15,7 @@ import {
   toKarachiLocal,
 } from '@/lib/domain/crm-agent-slots';
 import { handoverBeforeModel } from '@/lib/domain/crm-agent-guard';
+import { holdingLine } from '@/lib/domain/crm-agent-social';
 import { sendableFileName } from '@/lib/domain/document-file-name';
 import { purposeLabel } from '@/lib/domain/crm-followup-plans';
 import { templateForPurpose, templateVarsFor } from '@/lib/domain/crm-template-for-purpose';
@@ -103,21 +104,25 @@ async function log(messageId: string, action: string, reason: string | null, det
  * me check and come back to you". So every handover sends one short line first —
  * inside the 24-hour window, because the client has only just written.
  *
+ * ⚠️ THE LINE FITS THE REASON (owner, 2026-09-21): a client asking to change an
+ * appointment is told *"For any change to your appointment, our team will
+ * contact you shortly"*, not a generic sentence. `holdingLine` decides.
+ *
  * ⚠️ ONCE PER HANDOVER, NOT PER MESSAGE. `crm_agent_hand_over` is what sets
  * `agent_handoff_at`; a lead already handed over is not told again (the runner
  * stops before here on the next message anyway).
  */
-const HOLDING_LINE = 'Thank you — let me check this with my colleague. They will message you shortly.';
 
 async function handOver(ctx: Context, messageId: string, reason: string, dryRun: boolean): Promise<AgentOutcome> {
   if (!dryRun) {
     const token = process.env.META_SYSTEM_USER_TOKEN?.trim();
     if (token && ctx.phone && ctx.phone_number_id && !ctx.handoff_at) {
       const config = { phoneNumberId: ctx.phone_number_id, token, apiVersion: process.env.META_API_VERSION?.trim() || 'v26.0' };
-      const said = await sendText(config, ctx.phone, HOLDING_LINE).catch(() => null);
+      const line = holdingLine(reason);
+      const said = await sendText(config, ctx.phone, line).catch(() => null);
       if (said) {
         await withAppRole((tx) => tx`
-          select app.crm_agent_record_message(${ctx.lead_id}::uuid, ${said.wamid ?? null}, 'text', ${HOLDING_LINE},
+          select app.crm_agent_record_message(${ctx.lead_id}::uuid, ${said.wamid ?? null}, 'text', ${line},
                                               null, null, null, null, ${said.ok ? null : (said.error ?? 'refused')})
         `).catch(() => undefined);
       }
@@ -173,33 +178,30 @@ const BOOKING_WORD: Readonly<Record<AgentBookingKind, string>> = {
 };
 
 /**
- * Book it through 236's definer, or MOVE the one they already have (244) —
- * both check the diary again under a lock.
+ * Book it through 236's definer, which checks the diary again under a lock.
+ *
+ * ⚠️ IT ONLY EVER BOOKS. Moving an appointment the client already has is the
+ * salesperson's (the owner's call, 2026-09-21); the brain hands that over.
  */
 async function book(
   ctx: Context,
   kind: AgentBookingKind,
   at: string,
-  move: boolean,
 ): Promise<{ ok: true; appointmentId: string; confirmationId: string | null } | { ok: false; reason: string }> {
   const what = BOOKING_WORD[kind];
-  const doing = move ? 'move the' : 'book a';
   const atMs = parseKarachiLocal(at);
-  if (atMs === null) return { ok: false, reason: `tried to ${doing} ${what} at "${at}", which is not a time` };
+  if (atMs === null) return { ok: false, reason: `tried to book a ${what} at "${at}", which is not a time` };
   try {
-    const when = new Date(atMs).toISOString();
-    const rows = (await withAppRole((tx) =>
-      move
-        ? tx`select appointment_id, confirmation_id
-               from app.crm_agent_move(${ctx.lead_id}::uuid, ${when}::timestamptz, ${AGENT_MINUTES[kind]}::integer)`
-        : tx`select appointment_id, confirmation_id
-               from app.crm_agent_book(${ctx.lead_id}::uuid, ${kind}, ${when}::timestamptz, ${AGENT_MINUTES[kind]}::integer)`,
-    )) as unknown as Array<{ appointment_id: string; confirmation_id: string | null }>;
-    if (!rows[0]?.appointment_id) return { ok: false, reason: `tried to ${doing} ${what} and nothing was written` };
+    const rows = (await withAppRole((tx) => tx`
+      select appointment_id, confirmation_id
+        from app.crm_agent_book(${ctx.lead_id}::uuid, ${kind}, ${new Date(atMs).toISOString()}::timestamptz,
+                                ${AGENT_MINUTES[kind]}::integer)
+    `)) as unknown as Array<{ appointment_id: string; confirmation_id: string | null }>;
+    if (!rows[0]?.appointment_id) return { ok: false, reason: `tried to book a ${what} and nothing was written` };
     return { ok: true, appointmentId: rows[0].appointment_id, confirmationId: rows[0].confirmation_id };
   } catch (error) {
     const why = error instanceof Error ? error.message.slice(0, 120) : 'it was refused';
-    return { ok: false, reason: `tried to ${doing} ${what} for ${describeKarachi(atMs)}, but ${why}` };
+    return { ok: false, reason: `tried to book a ${what} for ${describeKarachi(atMs)}, but ${why}` };
   }
 }
 
@@ -315,7 +317,7 @@ export async function runAgentOnMessage(
        NOW rather than on the next minute's run — and it is the reply, so the
        client does not get "booked!" and then the same news again. */
     if (decision.booking) {
-      const made = await book(ctx, decision.booking.kind, decision.booking.at, decision.booking.move);
+      const made = await book(ctx, decision.booking.kind, decision.booking.at);
       if (!made.ok) return handOver(ctx, messageId, made.reason, false);
       if (decision.product) {
         await withAppRole((tx) => tx`select app.crm_agent_note_product(${ctx.lead_id}::uuid, ${decision.product})`);
@@ -333,7 +335,7 @@ export async function runAgentOnMessage(
         const atMs = parseKarachiLocal(decision.booking.at)!;
         const line = decision.booking.replyConfirms && decision.reply
           ? decision.reply
-          : `Your ${BOOKING_WORD[decision.booking.kind]} is ${decision.booking.move ? 'moved' : 'booked'} to ${describeKarachi(atMs)}.`;
+          : `Your ${BOOKING_WORD[decision.booking.kind]} is booked for ${describeKarachi(atMs)}.`;
         const said = await sendText(config, ctx.phone, line);
         await withAppRole((tx) => tx`
           select app.crm_agent_record_message(${ctx.lead_id}::uuid, ${said.wamid ?? null}, 'text', ${line},

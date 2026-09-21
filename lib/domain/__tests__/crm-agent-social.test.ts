@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { socialKind, socialReply } from '@/lib/domain/crm-agent-social';
+import { holdingLine, socialKind, socialReply } from '@/lib/domain/crm-agent-social';
 
 /* ============================================================================
  * THE AGENT TALKS LIKE A PERSON — owner, 2026-09-21
@@ -67,5 +67,48 @@ describe('what a person would say back', () => {
   it('answers a thank-you warmly, with a smiley', () => {
     expect(socialReply('thanks', 'thank you')).toContain('😊');
     expect(socialReply('thanks', 'shukriya')).toMatch(/shukriya/i);
+  });
+});
+
+/* ============================================================================
+ * WHAT THE CLIENT IS TOLD WHEN A PERSON TAKES OVER — owner, 2026-09-21
+ * ----------------------------------------------------------------------------
+ * *"'For any change of appointment our team will contact you' — this type of
+ * message must be sent to the client and then handed over to the same person."*
+ * ========================================================================= */
+
+describe('the holding line', () => {
+  it('⚠️ names the appointment when that is what they asked about', () => {
+    for (const reason of [
+      'Client wants to change the time of an already booked appointment.',
+      'asked about the office visit on Wednesday 23 September at 3:00 PM they already have',
+      'Client wants to cancel an appointment.',
+      'wants to reschedule the demo',
+    ]) {
+      expect(holdingLine(reason), reason).toBe(
+        'Noted. For any change to your appointment, our team will contact you shortly to arrange it.',
+      );
+    }
+  });
+
+  it('answers a request for a person by saying one is coming', () => {
+    expect(holdingLine('asked to speak to a person')).toMatch(/passing you to my colleague/);
+  });
+
+  it('never promises anything about price, only that somebody will come back', () => {
+    const line = holdingLine('Client is asking for a discount.');
+    expect(line).toMatch(/get back to you/);
+    expect(line).not.toMatch(/\d/);
+  });
+
+  it('says what it could not read, when that is the reason', () => {
+    expect(holdingLine('sent a voice note — the assistant cannot listen to it')).toMatch(/voice note/);
+    expect(holdingLine('sent a photo — the assistant cannot see it')).toMatch(/look at this/);
+  });
+
+  it('always says something, whatever the reason was', () => {
+    for (const reason of [null, '', 'the assistant was not sure how to answer', 'nothing is approved for the assistant to say yet']) {
+      expect(holdingLine(reason).length, String(reason)).toBeGreaterThan(20);
+    }
   });
 });
