@@ -65,7 +65,32 @@ function assertConfigured(): void {
   if (!connectionString) throw new Error(MISSING_URL_MESSAGE);
 }
 
-export const sql = postgres(connectionString ?? 'postgres://localhost:5432/unconfigured', {
+/* ── ⚠️ ONE POOL, KEPT ACROSS HOT RELOADS ─────────────────────────────────────
+ * Measured 2026-09-21, on the owner's laptop in Karachi against the pooler in
+ * Singapore: ONE round trip is 113ms, so a `withUser` (BEGIN, set_config,
+ * query, COMMIT) is ~450ms — and a page that makes four of those in sequence
+ * takes five seconds. That is geography, and production does not have it:
+ * Vercel runs beside the database in `sin1`.
+ *
+ * What CAN be fixed locally is paying for it twice. Two things emptied the pool
+ * between pages, and every refill is a TLS handshake per connection:
+ *
+ *   · idling. The layout's wave measured 456ms warm and 1,305ms after 25
+ *     seconds of nothing — exactly the owner's *"switching between two pages is
+ *     fine … but when I open some page it takes a lot of time."*
+ *   · every hot reload. `next dev` re-evaluates this module on each edit, which
+ *     built a NEW pool and orphaned the old one's connections.
+ *
+ * So in development the handle is cached on `globalThis` and idles for five
+ * minutes. Production keeps the short timeout and a fresh module per instance —
+ * an idle serverless function should hand its connection back, and it is beside
+ * the database anyway.
+ * ========================================================================= */
+const DEV = process.env.NODE_ENV !== 'production';
+const POOL_KEY = Symbol.for('cni.db.sql');
+type PoolHolder = { [POOL_KEY]?: ReturnType<typeof postgres> };
+
+const created = postgres(connectionString ?? 'postgres://localhost:5432/unconfigured', {
   /* ── POOL SIZE IS SMALLER IN PRODUCTION, NOT LARGER ────────────────────────
      Counter-intuitive until you count what is actually running. On a laptop
      there is one Node process, so 10 connections is 10 connections. On Vercel
@@ -82,7 +107,7 @@ export const sql = postgres(connectionString ?? 'postgres://localhost:5432/uncon
 
   /* Shorter in production for the same reason: an idle serverless instance
      should give its connection back rather than sit on it until it is frozen. */
-  idle_timeout: process.env.NODE_ENV === 'production' ? 10 : 20,
+  idle_timeout: process.env.NODE_ENV === 'production' ? 10 : 300,
   connect_timeout: 15,
 
   /* Required behind a transaction-mode pooler. Named prepared statements live
@@ -96,6 +121,8 @@ export const sql = postgres(connectionString ?? 'postgres://localhost:5432/uncon
   transform: { undefined: null },
   onnotice: () => {},
 });
+
+export const sql = DEV ? ((globalThis as PoolHolder)[POOL_KEY] ??= created) : created;
 
 /* ==========================================================================
  * THE IDENTITY CONTRACT (registry C-14)
