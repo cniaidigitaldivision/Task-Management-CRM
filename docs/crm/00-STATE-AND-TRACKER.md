@@ -9,7 +9,48 @@
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
 | **Last updated** | **2026-09-21** |
-| **Last migration applied anywhere** | **241** (applied 2026-09-21; **238 appointment numbers APPT-101+, 239/240 office visit, 241 interest recorded later asks how it went**; 235–237 appointments done or cancelled, agent booking, feedback after). CRM next: **242.** |
+| **Last migration applied anywhere** | **243** (applied 2026-09-21; **242 the agent books an office visit and a chosen time is confirmed, 243 a salesperson can confirm an appointment**; 238–241 the Appointments page). CRM next: **244.** |
+
+---
+
+## 🧭 2026-09-21 — 242, 243 · SMALL TALK, OFFICE VISITS, AND CONFIRMING BY HAND
+
+Deployed (331c27b). Three complaints from one live conversation with the agent.
+
+**1 · It could not make small talk.** *"i want to know 1 thing"* → handed over
+(*"Client wants to know something not specified yet"*); *"ammm no thats it
+thankyou"* → handed over. Owner: *"he should listen … 'Yes what do you want to
+know now?' … After the client wraps up, a thank-you message … an emoji, a
+smiley, or a thumbs up."*
+- The SYSTEM prompt now opens with **TALK LIKE A PERSON FIRST**: greet back, invite
+  an opener to go on, answer a thank-you warmly (one emoji allowed, only here).
+  "Anything not in KNOWLEDGE" is narrowed to *a specific question*.
+- ⚠️ `lib/domain/crm-agent-social.ts` is the net under the prompt: when the model
+  still hands over a message that is ONLY a greeting, an opener or a thank-you,
+  the CODE answers it (English + Roman Urdu). Whole-message rule — "ok send me
+  the quotation" is a request, not "ok". A sticker is a thumbs-up, not a file
+  the guard hands over.
+- Dry run (nothing sent): all eight cases answered warmly; "what is your refund
+  policy?" still handed over.
+
+**2 · An office meeting was booked as a "meeting" (242).** The agent may now
+book `office_visit` (60 min) beside demos (45) and site visits (90), and the
+prompt says which is which. Dry run: office → office_visit, online demo →
+meeting, plot → site_visit.
+
+**3 · A slot the client chose still said "Client confirmation needed" (242).**
+`crm_agent_book` writes **confirmed** — the client picked the time in the chat,
+which IS the confirmation. (A salesperson's own booking stays `scheduled` until
+the client taps Confirm — they chose the time, not the client.) APPT-106 was
+corrected in place: office visit, confirmed, 60 minutes, nothing re-sent.
+
+**4 · No way to confirm by hand (243).** Owner: *"There's no button … where he
+can confirm that appointment."* The details panel and the row menu now offer
+both: **Mark confirmed** (the client told me — nothing is sent) and **Ask on
+WhatsApp** (`app.crm_appointment_ask_confirm` re-queues the booking's own
+confirmation with Confirm / Change the time, and the sender runs at once so it
+goes while they watch). Refused on a past or already-recorded appointment, and
+on a client with no WhatsApp consent.
 
 ---
 
