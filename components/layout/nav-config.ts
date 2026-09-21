@@ -21,6 +21,7 @@ import {
   Workflow,
   TrendingUp,
   Radio,
+  Send,
   UserCheck,
 } from 'lucide-react';
 
@@ -236,6 +237,25 @@ export const NAV_SECTIONS: readonly NavSection[] = [
         label: 'Appointments',
         href: '/appointments',
         icon: CalendarClock,
+        roles: ADMIN_UP,
+        requires: 'crm',
+      },
+      {
+        /* ⚠️ WHAT IS OWED TODAY, and the one screen where a follow-up can be
+           read before it goes out. Owner, 2026-09-22, with a design: *"I want
+           each and every thing to be working properly, sensibly, and logically,
+           with each and every thing wired up."*
+
+           It sits beside Appointments rather than inside My leads because a
+           follow-up is owed on a clock, not on a lead — the question it answers
+           is "what must I send now", across every lead at once.
+
+           `requires: 'crm'`, and the query carries
+           `f.assigned_to_id = app.current_user_id()`: this is the caller's own
+           queue, narrowed again by 152's policies. */
+        label: 'Follow-ups',
+        href: '/follow-ups',
+        icon: Send,
         roles: ADMIN_UP,
         requires: 'crm',
       },

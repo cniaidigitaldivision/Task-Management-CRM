@@ -5,11 +5,79 @@
 | | |
 |---|---|
 | **Branch** | ⚠️ **`main`.** The CRM was merged and deployed 2026-09-12; `crm` still exists but is behind. |
-| **Route** | `/leads` · `/my-leads` · `/clients` · `/lead-reports` · `/lead-overview` · nav: Growth → Campaign & Lead Desk |
+| **Route** | `/leads` · `/my-leads` · `/conversations` · `/appointments` · `/follow-ups` · `/todos` · `/knowledge` · `/clients` · `/lead-reports` · `/lead-overview` · nav: Growth → Campaign & Lead Desk |
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
 | **Last updated** | **2026-09-22** |
 | **Last migration applied anywhere** | **245** (applied 2026-09-21; **245 changing an appointment is the salespersons — 244 reversed**; 242 office visits, 243 confirm by hand). CRM next: **246.** |
+
+---
+
+## 🧭 2026-09-22 — THE FOLLOW-UPS PAGE, AND THE AGENT'S MESSAGE LIMIT IS GONE
+
+Owner, with a design: *"I want the exact UI for this follow-up page and I want
+each and every thing to be working properly, sensibly, and logically, with each
+and every thing wired up."*
+
+### The page — `/follow-ups`, Growth → Follow-ups
+
+**One query, everything else on the client** (Rule Zero). `crmFollowUpBoard`
+returns every open follow-up plus 30 days of history, at most 400 rows, scoped
+`f.assigned_to_id = app.current_user_id()`; `crmFollowUpSequences` returns the
+runs. They leave in one wave. Cards, tabs, search, filters, saved views, the row
+selection and the details panel are all subsets of those rows — only a write
+reaches the server again.
+
+| Layer | File |
+|---|---|
+| The query and the three writes | `lib/db/queries/crm-followup-board.ts` |
+| The rules (no React, no SQL) | `lib/domain/crm-followup-board.ts` · 18 tests |
+| The actions | `app/actions/crm-followup-board.ts` |
+| The screen | `components/crm/followups-board.tsx` · 18 render tests |
+| The route | `app/(app)/follow-ups/page.tsx` |
+
+**What each control does.** The four cards filter (Due today, Overdue, Reply
+needed, Active sequences). The four tabs are **My queue** (owed NOW — never
+merely open), **Scheduled**, **Sequences**, **Completed**. The row's button is
+whatever that row actually needs (`rowAction`): Reply when the client wrote
+last, View approval when the quote is unapproved, Review + Send when it is owed,
+Preview when it is not yet due, Mark done for a call or a reminder. The menu adds
+the conversation, the lead, another follow-up, Reschedule, Mark done, Cancel and
+Stop the whole sequence — and on a closed row it offers only the three that
+still mean something, rather than four dead buttons.
+
+**The panel** carries the suggested priority *with the facts it used* ("due now
+· approved quote · no reply 20h"), the last thing either side said, the channel,
+the business sender, the related item, how it will go out (free text or the
+approved template), the message **with its tokens filled the way the sender fills
+them** and editable in place, the conditions that would stop it, and the whole
+sequence by day.
+
+**Send goes THROUGH the sender, never around it.** `sendFollowUpNowAction` makes
+the row due and then calls `runDueFollowUps`, so the 24-hour window, the template
+and the client's consent are decided in exactly one place.
+
+⚠️ **The three new writes were proved as a salesperson, not as an admin** — set
+body, reschedule, make-due — each returning its row under Sarah's own session,
+and every change put back ([[admin-sessions-cannot-test-access]]).
+
+**Owner feedback, same day:** *"which tab is selected or which tab is opened is
+not visible."* The tabs were an underline; they are now a filled segmented
+control with a count on each, which is the treatment they accepted on
+Appointments. Two things that fell out of looking at it with real rows: the
+Sequences tab counted its queued rows (0) while the card counted sequences (2) —
+both now count sequences; and a cancelled row kept its old date **in red**, which
+said a closed follow-up was late. Red is now only overdue, due now and a client
+waiting.
+
+### The agent's message limit is gone (5328ba2)
+
+Owner: *"I just want it to keep engaging the client unless the salesperson is
+available … The purpose of an AI agent is to keep engaging the client."*
+`MAX_AGENT_RUN = 8` is deleted from `lib/domain/crm-agent-guard.ts`. Nothing
+counts messages any more; `agentRunLength` survives for display only. The agent
+stops for the reasons that were always right — the client asks for a person, or
+one of the handover rules fires — and never because it has said enough.
 
 ---
 

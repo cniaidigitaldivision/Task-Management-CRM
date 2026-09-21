@@ -122,6 +122,8 @@ const ADMIN_NAV = [
   '/composer',
   /* The salesperson's own inbox — 2026-09-18. */
   '/conversations',
+  /* What is owed today, across every lead — 2026-09-22. */
+  '/follow-ups',
 ] as const;
 
 describe('activeHref', () => {
