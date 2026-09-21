@@ -31,12 +31,12 @@ import { FollowUpWizard } from '@/components/crm/follow-up-wizard';
 import { nextSteps } from '@/lib/domain/crm-next-step';
 import { qualificationGaps } from '@/lib/domain/crm-qualification';
 import { AgentBadge } from '@/components/crm/agent-mode';
-import { setAgentModeAction } from '@/app/actions/crm-whatsapp';
+import { agentStatesAction, setAgentModeAction } from '@/app/actions/crm-whatsapp';
 import { useToast } from '@/components/ui/toast';
 import { STAGE_ORDER, stageLabel as stageName } from '@/lib/domain/crm-stages';
 import { MAIL_BLUE, WA_GREEN, WhatsAppMark } from '@/components/crm/whatsapp-mark';
 import { leadBundlesAction } from '@/app/actions/crm-lead-bundles';
-import type { AgentMode, CrmConversation, CrmLeadBundle } from '@/lib/db/queries/crm-leads';
+import type { AgentMode, AgentState, CrmConversation, CrmLeadBundle } from '@/lib/db/queries/crm-leads';
 import { quotationStatusLabel, quotationStatusToken } from '@/lib/domain/crm-quotations';
 import { stageToken } from '@/lib/domain/crm-stages';
 import { relativeAge } from '@/lib/view/relative-age';
@@ -98,6 +98,51 @@ export function ConversationsWorkspace({
      is dropped for a lead the moment the server's own row agrees — or put back
      if the server refused. */
   const [chosen, setChosen] = React.useState<Record<string, AgentMode>>({});
+
+  /* ── ⚠️ WHO IS ANSWERING, KEPT LIVE (2026-09-22) ──────────────────────────
+     Owner: *"while the agent has handed over to the salesperson … on the UI it
+     is showing that AI is responding. When I refresh … I can see that the AI
+     has stopped."* The thread already polls for messages; nothing polled for
+     the MODE, so a handover the webhook made never reached an open screen.
+
+     ⚠️ THE SERVER WINS, EXCEPT WHILE A CHOICE IS IN FLIGHT. `chosen` is what
+     somebody just picked and is the truth until their write lands; after that
+     this poll is the truth, so an agent that hands itself over changes the
+     badge within five seconds without a refresh. */
+  const [live, setLive] = React.useState<Record<string, AgentState>>({});
+  const pending = React.useRef<Set<string>>(new Set());
+  const leadKey = conversations.map((c) => c.leadId).join(',');
+
+  React.useEffect(() => {
+    if (!leadKey) return;
+    let alive = true;
+    const ids = leadKey.split(',');
+    const read = async () => {
+      if (document.visibilityState !== 'visible') return;
+      const states = await agentStatesAction(ids).catch(() => []);
+      if (!alive || states.length === 0) return;
+      setLive(Object.fromEntries(states.map((st) => [st.leadId, st])));
+      /* A choice the server has caught up with stops being an override. */
+      setChosen((held) => {
+        const next = { ...held };
+        let touched = false;
+        for (const st of states) {
+          if (pending.current.has(st.leadId)) continue;
+          if (next[st.leadId] !== undefined) {
+            delete next[st.leadId];
+            touched = true;
+          }
+        }
+        return touched ? next : held;
+      });
+    };
+    void read();
+    const t = window.setInterval(read, 5_000);
+    return () => {
+      alive = false;
+      window.clearInterval(t);
+    };
+  }, [leadKey]);
   const [seenRows, setSeenRows] = React.useState(conversations);
   if (seenRows !== conversations) {
     setSeenRows(conversations);
@@ -109,28 +154,45 @@ export function ConversationsWorkspace({
   }
   const rows = React.useMemo(
     () =>
-      conversations.map((c) =>
-        chosen[c.leadId] === undefined
-          ? c
+      conversations.map((c) => {
+        /* The poll's answer, then anything chosen since — in that order. */
+        const st = live[c.leadId];
+        const base = st
+          ? { ...c, agentMode: st.agentMode, handoffAt: st.handoffAt, handoffReason: st.handoffReason }
+          : c;
+        return chosen[c.leadId] === undefined
+          ? base
           : {
-              ...c,
+              ...base,
               agentMode: chosen[c.leadId],
               /* Choosing any mode by hand answers the handoff (212). */
               handoffAt: null,
               handoffReason: null,
-            },
-      ),
-    [conversations, chosen],
+            };
+      }),
+    [conversations, chosen, live],
   );
 
   const setMode = (leadId: string, next: AgentMode) => {
     const before = rows.find((r) => r.leadId === leadId)?.agentMode ?? 'off';
     setChosen((held) => ({ ...held, [leadId]: next }));
-    void setAgentModeAction(leadId, next).then((r) => {
-      if (r.ok) return;
-      setChosen((held) => ({ ...held, [leadId]: before }));
-      toast({ tone: 'error', text: r.error ?? 'That did not save.' });
-    });
+    /* ⚠️ THE POLL MUST NOT UNDO A CHOICE MID-FLIGHT. Marked until the write
+       lands; after that the server's answer is the one that counts. */
+    pending.current.add(leadId);
+    void setAgentModeAction(leadId, next)
+      .then((r) => {
+        if (r.ok) {
+          /* Believe it at once, so the badge does not wait for the next beat. */
+          setLive((held) => ({
+            ...held,
+            [leadId]: { leadId, agentMode: next, handoffAt: null, handoffReason: null },
+          }));
+          return;
+        }
+        setChosen((held) => ({ ...held, [leadId]: before }));
+        toast({ tone: 'error', text: r.error ?? 'That did not save.' });
+      })
+      .finally(() => pending.current.delete(leadId));
   };
 
   /* ── ⚠️ THE URL RECORDS WHAT IS OPEN; IT DOES NOT DECIDE WHEN IT OPENS ────

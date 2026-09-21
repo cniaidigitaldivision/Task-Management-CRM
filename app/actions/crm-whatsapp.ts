@@ -39,7 +39,14 @@ import {
 } from '@/lib/crm/whatsapp';
 import type { WhatsAppConfigResult } from '@/lib/crm/whatsapp';
 import { withUser } from '@/lib/db/client';
-import { crmLeadThread, getCrmLead, setAgentMode, type AgentMode } from '@/lib/db/queries/crm-leads';
+import {
+  crmAgentStates,
+  crmLeadThread,
+  getCrmLead,
+  setAgentMode,
+  type AgentMode,
+  type AgentState,
+} from '@/lib/db/queries/crm-leads';
 import type { CrmMessage } from '@/lib/db/queries/crm-leads';
 import {
   deleteSavedReply,
@@ -588,6 +595,27 @@ export async function suggestReplyAction(
  * agent now exists (`lib/crm/agent-runner.ts`), so the only remaining condition
  * is the approved knowledge.
  */
+/**
+ * Who is answering each of these leads, as the database has it now.
+ *
+ * ⚠️ POLLED BESIDE THE THREAD (2026-09-22). A handover made by the webhook —
+ * the agent deciding mid-conversation that a person is needed — changed nothing
+ * on a screen that was already open, so the badge still read "AI responding"
+ * until somebody pressed refresh. RLS scopes it; a lead the caller cannot see
+ * simply is not in the answer.
+ */
+export async function agentStatesAction(leadIds: readonly string[]): Promise<AgentState[]> {
+  const { user } = await requireCrmAccess();
+  const ids = leadIds.filter((id) => UUID.test(id)).slice(0, 60);
+  if (ids.length === 0) return [];
+  try {
+    return await crmAgentStates(user.id, ids);
+  } catch {
+    /* A missed poll is retried on the next beat; it must never break the page. */
+    return [];
+  }
+}
+
 export async function setAgentModeAction(
   leadId: string,
   mode: AgentMode,

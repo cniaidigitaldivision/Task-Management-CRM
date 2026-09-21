@@ -4140,3 +4140,41 @@ export async function setAgentMode(actorId: string, leadId: string, mode: AgentM
   `);
   return Boolean((rows as unknown as Array<{ ok: boolean }>)[0]?.ok);
 }
+
+/* ============================================================================
+ * WHO IS ANSWERING, RIGHT NOW — the Conversations page's live check
+ * ----------------------------------------------------------------------------
+ * Owner, 2026-09-22: *"while the agent has handed over to the salesperson … on
+ * the UI it is showing that AI is responding. When I refresh … then I can see
+ * that the AI has stopped."*
+ *
+ * The thread already polls for new messages; nothing polled for WHO is
+ * replying, so a handover the webhook made server-side never reached an open
+ * screen. This is that read: three columns for the conversations on screen.
+ *
+ * ⚠️ ONE SMALL RLS-SCOPED READ, on the same five-second beat as the thread —
+ * never a page refresh (Rule Zero: a navigation to learn one fact is the bug
+ * this codebase was written to avoid).
+ * ========================================================================= */
+
+export interface AgentState {
+  readonly leadId: string;
+  readonly agentMode: AgentMode;
+  readonly handoffAt: string | null;
+  readonly handoffReason: string | null;
+}
+
+export async function crmAgentStates(actorId: string, leadIds: readonly string[]): Promise<AgentState[]> {
+  if (leadIds.length === 0) return [];
+  const rows = await withUser(actorId, (tx) => tx`
+    select id, agent_mode::text as agent_mode, agent_handoff_at, agent_handoff_reason
+      from public.crm_leads
+     where id = any(${leadIds as string[]}::uuid[])
+  `);
+  return (rows as Array<Record<string, unknown>>).map((r) => ({
+    leadId: String(r.id),
+    agentMode: r.agent_mode === 'agent' ? 'agent' : r.agent_mode === 'suggest' ? 'suggest' : 'off',
+    handoffAt: r.agent_handoff_at ? new Date(r.agent_handoff_at as string).toISOString() : null,
+    handoffReason: (r.agent_handoff_reason as string | null) ?? null,
+  }));
+}
