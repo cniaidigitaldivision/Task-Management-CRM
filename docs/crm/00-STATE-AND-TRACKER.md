@@ -9,7 +9,35 @@
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
 | **Last updated** | **2026-09-21** |
-| **Last migration applied anywhere** | **243** (applied 2026-09-21; **242 the agent books an office visit and a chosen time is confirmed, 243 a salesperson can confirm an appointment**; 238–241 the Appointments page). CRM next: **244.** |
+| **Last migration applied anywhere** | **244** (applied 2026-09-21; **244 the agent moves an appointment**; 242 office visits + a chosen time is confirmed, 243 a salesperson can confirm). CRM next: **245.** |
+
+---
+
+## 🧭 2026-09-21 — 244 · THE AGENT ALONE: IT MOVES AN APPOINTMENT AND NEVER GOES SILENT
+
+Owner closed the tab to watch the agent work with nobody there. The log (18:12
+to 18:15, `crm_agent_runs`): two replies, then a handover on *"can you please
+change time of appointment"*, then silence through two more client messages.
+Deployed (4c047d5).
+
+- **244 · it may MOVE the appointment a client already has** to a free time they
+  choose (`app.crm_agent_move` — its own hour is not a clash with itself; not
+  `crm_reschedule_appointment`, which asks `crm_lead_is_visible` and the agent
+  has nobody signed in). One row moves (225), keeps its number and history, ends
+  **confirmed**, and 220's trigger tells the client it *"has been moved to"* the
+  new time. **Cancelling is still handed over.**
+- **Every handover sends one line first** — *"Thank you — let me check this with
+  my colleague. They will message you shortly."* ⚠️ Silence was the real
+  complaint; the handover itself was correct. Once per handover, inside the
+  24-hour window.
+- ⚠️ **A bare "?" was answered "You're welcome! 😊" twice** — `EMOJI_ONLY`
+  matched punctuation. Punctuation alone is now an *opener*: *"I'm here — how can
+  I help?"*.
+- Dry run (nothing moved or sent): "change time" → slots around the existing
+  visit; "9pm today or 10am tomorrow" → 9pm is outside hours, 10am offered;
+  "please cancel" → handover.
+- Data: Umm e e Habiba put back on **AI agent** with the handover cleared, so the
+  owner can keep testing.
 
 ---
 
