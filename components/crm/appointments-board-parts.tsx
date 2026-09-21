@@ -119,14 +119,18 @@ export function StatCard({
       type="button"
       onClick={onClick}
       aria-pressed={active}
+      /* ⚠️ THE BORDER IS THE SELECTION, AND NOTHING ELSE. Owner, 2026-09-21:
+         *"when a card is selected, its border color should be added. Otherwise
+         no border color should be added and it will be easier to observe which
+         card is open."* So an unselected card has no coloured edge at all, and
+         the selected one has its own colour, solid — plus a lift. */
       className={cn(
-        'flex items-center gap-4 rounded-2xl border-2 px-5 py-4 text-left shadow-sm transition-[box-shadow,transform] hover:-translate-y-px hover:shadow-md',
-        active && 'ring-2 ring-offset-2 ring-offset-[var(--bg-canvas)]',
+        'flex items-center gap-4 rounded-2xl border-2 px-5 py-4 text-left transition-[box-shadow,transform,border-color] hover:-translate-y-px',
+        active ? '-translate-y-px shadow-md' : 'border-transparent shadow-sm hover:shadow-md',
       )}
       style={{
         background: `linear-gradient(135deg, ${tint(tone, 22)} 0%, ${tint(tone, 8)} 100%)`,
-        borderColor: tint(tone, 45),
-        ...(active ? ({ '--tw-ring-color': TOKEN[tone] } as React.CSSProperties) : null),
+        ...(active ? { borderColor: TOKEN[tone] } : null),
       }}
     >
       <span className="grid size-12 shrink-0 place-items-center rounded-xl shadow-sm" style={{ background: TOKEN[tone] }}>
