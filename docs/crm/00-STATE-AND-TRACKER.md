@@ -13,6 +13,31 @@
 
 ---
 
+## 🧭 2026-09-21 — DEPLOYED, AND THE FIRST TEMPLATE REMINDER FAILED UNTIL IT WAS
+
+**Production is now `61531cf`** (pushed 09:28, Vercel live 09:31:42). ⚠️ Before
+this, GitHub `main` sat **53 commits behind** at ~203 while production had been
+deployed by CLI from this machine at ~220 — so a green Vercel tick on `main` said
+nothing about what was serving. The proof used instead: the cron response gains
+a `"deferred"` key (224). First tick with it: **09:32:00**.
+
+**Umm e e Habiba's 09:30 visit reminder failed first.** Meta: *"number of
+localizable_params (0) does not match the expected number of params (5)"* — the
+old deployed code did not read stored template values, so it sent the template
+with none. ⚠️ **I had told the owner the path was proven** by a confirmation
+delivered on the 19th; that one went as FREE TEXT, because a Confirm tap had
+opened the window fifteen minutes earlier. The template branch had never run in
+production.
+
+Re-queued after the new code was confirmed live: **sent 09:33:01, delivered
+09:33:10**, two hours before the visit.
+
+Also fixed before it went: its frozen first value was `"Umm"` (written on the
+19th, before 223). It was the only queued row with a stale name. ⚠️ The lead's
+own name is typed `Umm e e Habiba` — doubled *e* — and the message copies it.
+
+---
+
 ## 🧭 2026-09-20 — 227 · FOUR PRODUCTS, NOT ONE WITH FOUR NAMES
 
 ⚠️ **THE FIRST EXTRACTION INVENTED A PRODUCT.** Every answer was about *"Taskly
