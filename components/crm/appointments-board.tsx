@@ -42,6 +42,7 @@ import {
 } from '@/components/crm/appointments-board-parts';
 import { CancelAppointmentDialog } from '@/components/crm/cancel-appointment-dialog';
 import { EditLeadDetails } from '@/components/crm/edit-lead-details';
+import { FollowUpWizard } from '@/components/crm/follow-up-wizard';
 import { LeadDetailsModal } from '@/components/crm/lead-details-modal';
 import { RecordAppointmentDialog } from '@/components/crm/record-appointment';
 import { RecordOutcome } from '@/components/crm/record-outcome';
@@ -108,6 +109,7 @@ type Dialog =
   | { kind: 'edit'; leadId: string }
   | { kind: 'related'; leadId: string; tab: TabKey }
   | { kind: 'stage'; leadId: string }
+  | { kind: 'followup'; leadId: string }
   | null;
 
 const TYPE_OPTIONS = [
@@ -248,6 +250,12 @@ export function AppointmentsBoard({
       record: () => setDialog({ kind: 'record', id: a.id }),
       editOutcome: () => setDialog({ kind: 'record', id: a.id, edit: true }),
       bookAnother: () => setDialog({ kind: 'schedule', lead }),
+      /* The SAME wizard the lead drawer opens (owner, 2026-09-21: *"The same
+         modal will appear here and the things will be the same"*). */
+      followUp: () => {
+        ensureBundle(a.leadId);
+        setDialog({ kind: 'followup', leadId: a.leadId });
+      },
     };
   };
 
@@ -262,6 +270,7 @@ export function AppointmentsBoard({
         },
       },
       { label: 'View lead', onSelect: () => openLead(a.leadId) },
+      { label: 'Add follow-up', onSelect: act.followUp },
       ...(act.live
         ? [
             { label: 'Reschedule', onSelect: act.reschedule },
@@ -294,6 +303,7 @@ export function AppointmentsBoard({
       onRecord: act.record,
       onEditOutcome: act.editOutcome,
       onBookAnother: act.bookAnother,
+      onFollowUp: act.followUp,
     };
   };
 
@@ -551,6 +561,27 @@ export function AppointmentsBoard({
         ) : (
           <Opening onClose={() => setDialog(null)} />
         ))}
+      {dialog?.kind === 'followup' &&
+        (bundles[dialog.leadId] ? (
+          <FollowUpWizard
+            lead={bundles[dialog.leadId].record.lead}
+            related={bundles[dialog.leadId].related}
+            viewerName={viewerName}
+            nowMs={nowMs}
+            onClose={() => setDialog(null)}
+            onCreated={() => {
+              const leadId = dialog.leadId;
+              setDialog(null);
+              /* The lead's next action and its record both change — re-read
+                 them underneath a screen that is already closed. The old copy
+                 stays until the new one lands, so nothing blanks. */
+              void leadBundlesAction([leadId]).then((r) => setBundles((prev) => ({ ...prev, ...r.bundles })));
+              refresh();
+            }}
+          />
+        ) : (
+          <Opening onClose={() => setDialog(null)} label="Opening the follow-up planner…" />
+        ))}
       {dialog?.kind === 'stage' && bundles[dialog.leadId] && (
         <ToBody>
           <RecordOutcome
@@ -687,6 +718,7 @@ function DetailsPanel({
   onRecord,
   onEditOutcome,
   onBookAnother,
+  onFollowUp,
   onClose,
 }: {
   a: BoardAppointment | null;
@@ -705,6 +737,7 @@ function DetailsPanel({
   onRecord: () => void;
   onEditOutcome: () => void;
   onBookAnother: () => void;
+  onFollowUp: () => void;
   /** Only in the "View details" modal. */
   onClose?: () => void;
 }) {
@@ -787,6 +820,29 @@ function DetailsPanel({
             {a.notes || 'No notes yet.'}
           </p>
         )}
+      </div>
+
+      {/* ── Follow-up — the lead's next step, and the wizard to plan one ── */}
+      <div className="mt-4 border-t border-border-subtle pt-3.5">
+        <div className="flex items-center gap-2">
+          <CalendarClock className="size-4 text-text-secondary" aria-hidden="true" />
+          <h3 className="flex-1 text-body-sm font-semibold text-text-primary">Follow-up</h3>
+        </div>
+        <div className="mt-1.5 flex flex-wrap items-center gap-2 pl-6">
+          <p className={cn('min-w-0 flex-1 text-body-sm', a.leadNextAction ? 'text-text-primary' : 'text-text-tertiary')}>
+            {a.leadNextAction
+              ? `${a.leadNextAction}${a.leadNextActionAt ? ` · ${shortDate(Date.parse(a.leadNextActionAt))}, ${dateLines(a.leadNextActionAt, nowMs).time}` : ''}`
+              : 'Nothing planned for this lead yet.'}
+          </p>
+          <button
+            type="button"
+            onClick={onFollowUp}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[0.8rem] font-semibold transition-colors hover:bg-bg-subtle"
+            style={{ borderColor: 'color-mix(in oklab, var(--accent-primary) 45%, var(--border-default))', color: 'var(--text-brand)' }}
+          >
+            <Plus className="size-3.5" aria-hidden="true" /> Schedule follow-up
+          </button>
+        </div>
       </div>
 
       {/* ⚠️ ONE LINE, AS DRAWN, and never a dead button: what is offered is what
@@ -1014,12 +1070,13 @@ function LastOutcome({ a, nowMs, onRecord }: { a: BoardAppointment; nowMs: numbe
   );
 }
 
-function Opening({ onClose }: { onClose: () => void }) {
-  return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onMouseDown={onClose}>
+function Opening({ onClose, label = 'Opening related items…' }: { onClose: () => void; label?: string }) {
+  return createPortal(
+    <div className="fixed inset-0 z-[60] grid place-items-center bg-black/40 p-4" onMouseDown={onClose}>
       <p className="flex items-center gap-2 rounded-xl bg-bg-surface px-4 py-3 text-body-sm text-text-secondary shadow-xl">
-        <Loader2 className="size-4 animate-spin" aria-hidden="true" /> Opening related items…
+        <Loader2 className="size-4 animate-spin" aria-hidden="true" /> {label}
       </p>
-    </div>
+    </div>,
+    document.body,
   );
 }

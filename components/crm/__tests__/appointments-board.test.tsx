@@ -16,6 +16,7 @@ vi.mock('@/components/crm/lead-details-modal', () => ({ LeadDetailsModal: () => 
 vi.mock('@/components/crm/related-items', () => ({ RelatedItemsDialog: () => null, seedRelated: () => ({}) }));
 vi.mock('@/components/crm/record-outcome', () => ({ RecordOutcome: () => null }));
 vi.mock('@/components/crm/edit-lead-details', () => ({ EditLeadDetails: () => null }));
+vi.mock('@/components/crm/follow-up-wizard', () => ({ FollowUpWizard: () => null }));
 vi.mock('@/components/ui/toast', () => ({ useToast: () => () => {} }));
 
 import { AppointmentsBoard } from '@/components/crm/appointments-board';
@@ -161,6 +162,19 @@ describe('never a dead button (owner, 2026-09-21: "these buttons are not working
 
   it('a cancelled one offers Book again', () => {
     expect(render([row({ id: 'x', status: 'cancelled' })])).toContain('Book again');
+  });
+});
+
+describe('a follow-up from the appointment (owner, 2026-09-21)', () => {
+  it('the details panel shows the lead’s next step and offers to schedule one', () => {
+    const html = render([row({ id: 'f', leadNextAction: 'Quotation check-in', leadNextActionAt: '2026-09-23T06:00:00.000Z' })]);
+    expect(html).toContain('Follow-up');
+    expect(html).toContain('Quotation check-in');
+    expect(html).toContain('Schedule follow-up');
+  });
+
+  it('says so when nothing is planned', () => {
+    expect(render([row({ id: 'g' })])).toContain('Nothing planned for this lead yet.');
   });
 });
 

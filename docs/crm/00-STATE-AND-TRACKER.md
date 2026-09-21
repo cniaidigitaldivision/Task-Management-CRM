@@ -47,6 +47,11 @@ search, filters, date range, project, saved views. Deployed (6dd666d).
 - 241: Edit outcome setting "interested" on a completed appointment queues the
   feedback once (trigger now also fires on `client_interested`).
 - Reminder wording rounds: "118 minutes before" → "2 hours before".
+- Only the SELECTED card has a coloured border (owner: easier to see which is
+  open). Follow-ups from here: "Add follow-up" in the row menu and a Follow-up
+  section (the lead's next step + "Schedule follow-up") in the details panel —
+  both open the SAME `FollowUpWizard` the lead drawer uses; the lead is re-read
+  after it saves.
 - Known: a Related-items "Attach" from this page opens the lead (the composer
   lives in the lead's WhatsApp tab); the admin sees only their own diary here.
 
