@@ -153,6 +153,8 @@ export interface RelatedFile {
   readonly createdAt: string;
   /** Null when it belongs to the whole project rather than this lead. */
   readonly leadId: string | null;
+  /** 231 · which product a shared document is about ('any' for all). */
+  readonly product: string;
 }
 
 export interface RelatedItems {
@@ -162,6 +164,15 @@ export interface RelatedItems {
   readonly bookings: readonly RelatedBooking[];
   readonly invoices: readonly RelatedInvoice[];
   readonly files: readonly RelatedFile[];
+  /**
+   * 231 · the project's own quotations for this lead's product — uploaded on
+   * "What the agent knows" as kind Quotation. Owner, 2026-09-21: *"If I say that
+   * I have uploaded CRM quotations, 3 quotations will be visible in the related
+   * item quotation tab."* Shown in Quotations, never in Files.
+   */
+  readonly projectQuotations: readonly RelatedFile[];
+  /** 231 · what this lead is interested in, when it is known. */
+  readonly leadProduct: string | null;
   /**
    * The next planned appointment reminder, if anybody has set one.
    * ⚠️ READ FROM THE FOLLOW-UPS, never assumed — the design shows "WhatsApp
@@ -174,9 +185,23 @@ export interface RelatedItems {
 
 const EMPTY: RelatedItems = {
   quotations: [], properties: [], appointments: [], bookings: [], invoices: [], files: [],
+  projectQuotations: [], leadProduct: null,
   visitReminderAt: null,
   canVerifyPayments: false,
 };
+
+function fileRow(f: Record<string, unknown>): RelatedFile {
+  return {
+    id: String(f.id),
+    title: String(f.title),
+    kind: String(f.kind ?? 'other'),
+    mime: String(f.mime ?? ''),
+    sizeBytes: Number(f.sizeBytes ?? 0),
+    createdAt: new Date(String(f.createdAt)).toISOString(),
+    leadId: (f.leadId as string | null) ?? null,
+    product: String(f.product ?? 'any'),
+  };
+}
 
 export async function readLeadRelatedItems(actorId: string, leadId: string): Promise<RelatedItems> {
   const rows = (await withUser(actorId, (tx) => tx`
@@ -289,15 +314,47 @@ export async function readLeadRelatedItems(actorId: string, leadId: string): Pro
 
       /* ⚠️ THIS LEAD'S FILES AND THE PROJECT'S SHARED ONES. A brochure belongs to
          the project and is as attachable as a signed quotation that belongs to
-         one person. */
+         one person.
+
+         ⚠️ 231 · AND ONLY THE PROJECT'S DOCUMENTS FOR THIS LEAD'S PRODUCT. Owner,
+         2026-09-21: *"If he is interested in a CRM then the system should be
+         smart enough to show all the CRM-related things in the files."* A
+         document filed under "all products" shows for everyone; a lead whose
+         product is not known yet sees everything rather than nothing.
+
+         ⚠️ QUOTATIONS ARE NOT FILES, and the letterhead is never sent. The owner:
+         *"These things and quotations will appear in the Quotation tab only, not
+         in Files."* (No backticks in here: this is inside a tagged template.) */
       coalesce((
         select json_agg(json_build_object(
           'id', d.id, 'title', d.title, 'kind', d.kind, 'mime', d.mime,
-          'sizeBytes', d.size_bytes, 'createdAt', d.created_at, 'leadId', d.lead_id)
+          'sizeBytes', d.size_bytes, 'createdAt', d.created_at, 'leadId', d.lead_id,
+          'product', d.product)
           order by (d.lead_id is null), d.created_at desc)
           from public.crm_documents d
          where d.project_id = (select project_id from lead)
-           and (d.lead_id = (select id from lead) or d.lead_id is null)), '[]'::json) as files,
+           and d.kind not in ('quotation', 'letterhead')
+           and (d.lead_id = (select id from lead)
+                or (d.lead_id is null
+                    and (d.product = 'any'
+                         or app.crm_lead_product((select id from lead)) is null
+                         or d.product = app.crm_lead_product((select id from lead)))))), '[]'::json) as files,
+
+      coalesce((
+        select json_agg(json_build_object(
+          'id', d.id, 'title', d.title, 'kind', d.kind, 'mime', d.mime,
+          'sizeBytes', d.size_bytes, 'createdAt', d.created_at, 'leadId', d.lead_id,
+          'product', d.product)
+          order by d.created_at desc)
+          from public.crm_documents d
+         where d.project_id = (select project_id from lead)
+           and d.lead_id is null
+           and d.kind = 'quotation'
+           and (d.product = 'any'
+                or app.crm_lead_product((select id from lead)) is null
+                or d.product = app.crm_lead_product((select id from lead)))), '[]'::json) as project_quotations,
+
+      app.crm_lead_product((select id from lead))::text as lead_product,
 
       (select min(f.due_at) from public.crm_follow_ups f
         where f.lead_id = (select id from lead)
@@ -395,15 +452,9 @@ export async function readLeadRelatedItems(actorId: string, leadId: string): Pro
       receiptPath: (b.receiptPath as string | null) ?? null,
       receiptUploadedAt: b.receiptUploadedAt ? new Date(String(b.receiptUploadedAt)).toISOString() : null,
     })),
-    files: list<Record<string, unknown>>(row.files).map((f) => ({
-      id: String(f.id),
-      title: String(f.title),
-      kind: String(f.kind ?? 'other'),
-      mime: String(f.mime ?? ''),
-      sizeBytes: num(f.sizeBytes),
-      createdAt: new Date(String(f.createdAt)).toISOString(),
-      leadId: (f.leadId as string | null) ?? null,
-    })),
+    files: list<Record<string, unknown>>(row.files).map(fileRow),
+    projectQuotations: list<Record<string, unknown>>(row.project_quotations).map(fileRow),
+    leadProduct: (row.lead_product as string | null) ?? null,
     invoices: list<Record<string, unknown>>(row.invoices).map((i) => ({
       id: String(i.id),
       number: String(i.number),

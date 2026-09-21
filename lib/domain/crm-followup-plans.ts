@@ -522,13 +522,13 @@ export function planTokens(f: LeadFacts, visitWhen: string | null): Record<strin
 /**
  * A WhatsApp template's parameters, in Meta's own order — 210.
  *
- *  + W +  POSITION IS EVERYTHING, AND THAT IS THE WHOLE RISK. Meta matches
+ * ⚠️ POSITION IS EVERYTHING, AND THAT IS THE WHOLE RISK. Meta matches
  * parameters to {{1}}, {{2}}… by their position in this array, not by name. An
  * unknown token must therefore become an EMPTY STRING and keep its slot: drop it
  * and every later variable shifts up one, so the client reads the company name
  * where their own should be, and nothing about the request looks wrong.
  *
- *  + W +  AND IT DIFFERS FROM `fillTokens` ON PURPOSE. Free text leaves an unknown
+ * ⚠️ AND IT DIFFERS FROM `fillTokens` ON PURPOSE. Free text leaves an unknown
  * placeholder visible, because a person reading a draft should see it. A template
  * is sent unseen, and "{{lead_first_name}}" arriving on a client's phone is worse
  * than a gap.
@@ -536,7 +536,7 @@ export function planTokens(f: LeadFacts, visitWhen: string | null): Record<strin
 /**
  * The token names a template asks for and this lead cannot answer — 213.
  *
- *  + W +  META REFUSES AN EMPTY PARAMETER. Measured against the live API on
+ * ⚠️ META REFUSES AN EMPTY PARAMETER. Measured against the live API on
  * 2026-09-19: a body parameter with text "" comes back
  * **400 (#131008) Required parameter is missing**, so the whole message is
  * dropped. `my_first_name` is empty whenever a lead has no owner — which is
@@ -544,7 +544,7 @@ export function planTokens(f: LeadFacts, visitWhen: string | null): Record<strin
  * reached almost nobody, with the refusal written on a follow-up row nobody
  * reads.
  *
- *  + W +  SO THE SENDER ASKS FIRST AND SAYS WHICH ONE. A step that cannot be filled
+ * ⚠️ SO THE SENDER ASKS FIRST AND SAYS WHICH ONE. A step that cannot be filled
  * is a step somebody has to fix, and "(#131008) Required parameter is missing"
  * names nothing a salesperson can act on.
  */

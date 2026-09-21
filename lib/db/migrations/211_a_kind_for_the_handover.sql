@@ -5,7 +5,7 @@
 --
 --   ERROR: unsafe use of new value "agent_handover" of enum type notification_kind
 --
---  + W +  A NEW ENUM VALUE CANNOT BE USED IN THE TRANSACTION THAT ADDED IT. 212's
+-- ⚠️ A NEW ENUM VALUE CANNOT BE USED IN THE TRANSACTION THAT ADDED IT. 212's
 -- self-check inserts a notification of this kind, so the two cannot share a file
 -- — the same reason 205 added `nurture` and 206 was the one to use it.
 -- ============================================================================

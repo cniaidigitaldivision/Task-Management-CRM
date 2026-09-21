@@ -15,7 +15,6 @@ import {
   FileText,
   Home,
   Info,
-  Eye,
   Loader2,
   MessageSquareText,
   Paperclip,
@@ -56,6 +55,7 @@ import {
   type RelatedBundle,
 } from '@/app/actions/crm-related';
 import { ChannelChoice, type Channel } from '@/components/crm/channel-choice';
+import { DocumentPreview } from '@/components/crm/document-preview';
 import { WA_GREEN, WhatsAppMark } from '@/components/crm/whatsapp-mark';
 import {
   AppointmentScheduler,
@@ -99,9 +99,10 @@ import { cn } from '@/lib/utils';
  * reads it and presses send — nothing leaves from this dialog.
  * ========================================================================= */
 
-/* ⚠️ FIVE TABS, as the owner drew them. A sixth "Files" tab was mine and it is
-   gone: an uploaded quotation appears in Available quotations, a receipt on the
-   booking or the invoice it proves — where somebody looks for it. */
+/* ⚠️ A QUOTATION IS NEVER A FILE. An uploaded quotation — this lead's, or one of
+   the project's ready-made ones — appears in Available quotations, a receipt on
+   the booking or the invoice it proves: where somebody looks for it. Files holds
+   everything else (proposals, brochures, price lists), for this lead's product. */
 export type TabKey = 'quotations' | 'properties' | 'appointments' | 'bookings' | 'invoices' | 'files';
 
 type Tone = 'green' | 'grey' | 'amber' | 'blue' | 'red';
@@ -214,6 +215,54 @@ async function fileFromLink(link: { url?: string; error?: string }, name: string
   if (!response.ok) throw new Error(`The file could not be downloaded (${response.status}).`);
   const blob = await response.blob();
   return new File([blob], name, { type: blob.type || 'application/pdf' });
+}
+
+/* ── One document, sent the same way from Files and from Quotations ───────── */
+
+const PRODUCT_NAMES: Readonly<Record<string, string>> = {
+  any: 'all products',
+  taskly: 'Taskly',
+  crm: 'CRM',
+  erp: 'ERP',
+  whatsapp: 'WhatsApp Automation',
+};
+function productName(key: string): string {
+  return PRODUCT_NAMES[key] ?? key;
+}
+
+const EXTENSION: Readonly<Record<string, string>> = {
+  'application/pdf': '.pdf',
+  'image/jpeg': '.jpg',
+  'image/png': '.png',
+  'image/webp': '.webp',
+  'application/msword': '.doc',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+  'application/vnd.ms-excel': '.xls',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+};
+
+/** ⚠️ THE CLIENT SEES THE FILE NAME. A title without an extension arrives on a
+ *  phone as a file nothing will open — and a Word file must not arrive as ".pdf". */
+function sendableName(f: RelatedFile): string {
+  const ext = EXTENSION[f.mime.split(';')[0].trim().toLowerCase()] ?? '';
+  return ext && !f.title.toLowerCase().endsWith(ext) ? `${f.title}${ext}` : f.title;
+}
+
+function attachDocument(ctx: Ctx, f: RelatedFile, title: string) {
+  ctx.attachVia({ title, summary: `${f.title} · ${bytes(f.sizeBytes)}`, files: 1 }, async (channel) => {
+    const files = [await fileFromLink(await crmDocumentLinkAction(f.id), sendableName(f))];
+    if (channel === 'whatsapp') return { channel, files, text: f.title };
+    return {
+      channel,
+      files,
+      subject: f.title,
+      text: [
+        `Assalam-o-Alaikum ${(ctx.lead.fullName ?? '').split(' ')[0] || 'Sir/Madam'}.`,
+        '',
+        `Please find ${f.title} attached. Please let me know if you have any questions.`,
+      ].join('\n'),
+    };
+  });
 }
 
 /* ── The dialog ──────────────────────────────────────────────────────────── */
@@ -889,6 +938,9 @@ export function seedRelated(lead: CrmLeadRecord, related: CrmLeadRelated): Relat
     bookings: [],
     invoices: [],
     files: [],
+    /* Not carried by the drawer — "Reading…" until the full read lands (law 3). */
+    projectQuotations: [],
+    leadProduct: null,
     visitReminderAt: null,
     canVerifyPayments: false,
     senderEmail: null,
@@ -1125,10 +1177,20 @@ const Q_COLS = `18px minmax(0,0.95fr) minmax(0,1.5fr) ${MONEY_COL} ${MONEY_COL}`
 function QuotationsTab({ ctx, pickedId, onPick }: { ctx: Ctx; pickedId?: string; onPick: (id: string) => void }) {
   const { lead, items, sender, busy } = ctx;
   const list = items.quotations;
-  const chosen: RelatedQuotation | undefined =
-    list.find((q) => q.id === pickedId) ??
-    list.find((q) => !['superseded', 'rejected', 'expired'].includes(q.status)) ??
-    list[0];
+  /* ⚠️ TWO KINDS OF QUOTATION ON ONE LIST. This lead's own (raised here, with a
+     number and an amount) and the project's ready-made ones for the product the
+     lead asked about — uploaded on "What the agent knows" as kind Quotation.
+     Owner, 2026-09-21: *"If I say that I have uploaded CRM quotations, 3
+     quotations will be visible in the related item quotation tab."* One pick
+     chooses one of them; a picked document wins over the default quotation. */
+  const shared = items.projectQuotations;
+  const pickedDoc = shared.find((d) => d.id === pickedId);
+  const chosen: RelatedQuotation | undefined = pickedDoc
+    ? undefined
+    : (list.find((q) => q.id === pickedId) ??
+      list.find((q) => !['superseded', 'rejected', 'expired'].includes(q.status)) ??
+      list[0]);
+  const chosenDoc: RelatedFile | undefined = pickedDoc ?? (chosen ? undefined : shared[0]);
   const [attachPdf, setAttachPdf] = React.useState(true);
   const [asking, setAsking] = React.useState(false);
   const [adding, setAdding] = React.useState(false);
@@ -1166,6 +1228,10 @@ function QuotationsTab({ ctx, pickedId, onPick }: { ctx: Ctx; pickedId?: string;
    * do, is how an email ends up looking like a text message.
    */
   const attach = () => {
+    if (chosenDoc) {
+      attachDocument(ctx, chosenDoc, 'Send this quotation');
+      return;
+    }
     if (!chosen) return;
     const unit = clientUnit(chosen);
     const amount = money(chosen.netAmount);
@@ -1224,17 +1290,19 @@ function QuotationsTab({ ctx, pickedId, onPick }: { ctx: Ctx; pickedId?: string;
           <>
             <ListHead
               title="Available quotations"
-              count={list.length}
+              count={list.length + shared.length}
               action={
                 <LinkText icon="upload" onClick={() => setAdding(true)}>
                   Add PDF
                 </LinkText>
               }
             />
-            {list.length === 0 ? (
+            {list.length === 0 && shared.length === 0 ? (
               <EmptyList loading={ctx.loading}>
                 No quotation has been raised for this lead yet. Raise one from the drawer, or add the quotation PDF you
-                already sent — its number, property and amount are read out of the file.
+                already sent — its number, property and amount are read out of the file. Ready-made quotations for{' '}
+                {items.leadProduct ? productName(items.leadProduct) : 'a product'} uploaded on &ldquo;What the agent
+                knows&rdquo; also appear here.
               </EmptyList>
             ) : (
               <>
@@ -1248,13 +1316,50 @@ function QuotationsTab({ ctx, pickedId, onPick }: { ctx: Ctx; pickedId?: string;
                       <StatusPill status={q.status} />
                     </ListRow>
                   ))}
+                  {shared.length > 0 && (
+                    <>
+                      {/* ⚠️ SAID AS A HEADING, NOT A PILL ON EVERY ROW. These were not
+                          raised for this client — they are the project's own, for the
+                          product this lead asked about, and they read that way. */}
+                      <p className="border-b border-border-subtle bg-bg-subtle/50 px-5 py-2 text-caption font-semibold text-text-secondary">
+                        {lead.projectName} quotations
+                        {items.leadProduct ? ` · ${productName(items.leadProduct)}` : ''}
+                      </p>
+                      {shared.map((d) => (
+                        <ListRow key={d.id} template={Q_COLS} chosen={d.id === chosenDoc?.id} onClick={() => onPick(d.id)}>
+                          <Two top={d.title} bottom={shortDay(d.createdAt)} />
+                          <Two top={productName(d.product)} bottom="Ready-made quotation" />
+                          <span className="truncate text-body-sm tabular-nums text-text-secondary">{bytes(d.sizeBytes)}</span>
+                          <Pill tone="blue">Project</Pill>
+                        </ListRow>
+                      ))}
+                    </>
+                  )}
                 </div>
               </>
             )}
           </>
         }
         detail={
-          !chosen ? (
+          chosenDoc ? (
+            <>
+              <DetailHead title="Quotation preview" />
+              <Scroll>
+                <DocumentPreview documentId={chosenDoc.id} mime={chosenDoc.mime} title={chosenDoc.title} className="h-[28rem]" />
+                <Card className="flex items-center gap-3 px-4 py-3">
+                  <IconTile tint={BLUE}>
+                    <FileText className="size-5" aria-hidden="true" />
+                  </IconTile>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-body-sm font-semibold text-text-primary">{chosenDoc.title}</p>
+                    <p className="truncate text-caption text-text-secondary">
+                      {lead.projectName} · for {productName(chosenDoc.product)} leads · {bytes(chosenDoc.sizeBytes)}
+                    </p>
+                  </div>
+                </Card>
+              </Scroll>
+            </>
+          ) : !chosen ? (
             <EmptyList loading={ctx.loading}>Nothing to preview yet.</EmptyList>
           ) : (
             <>
@@ -1393,7 +1498,7 @@ function QuotationsTab({ ctx, pickedId, onPick }: { ctx: Ctx; pickedId?: string;
       <Foot
         left={
           <div>
-            <OutlineBlue icon={MessageSquareText} onClick={() => setAsking(true)} disabled={!chosen}>
+            <OutlineBlue icon={MessageSquareText} onClick={() => setAsking(true)} disabled={!chosen && !chosenDoc}>
               Request updated quote
             </OutlineBlue>
             <p className="mt-1 pl-1 text-caption text-text-secondary">Ask for a revised quotation from the team.</p>
@@ -1405,15 +1510,18 @@ function QuotationsTab({ ctx, pickedId, onPick }: { ctx: Ctx; pickedId?: string;
                 a PDF is not a footer action — it lives on the list itself, next to
                 the quotations it adds to. */}
             <Btn onClick={ctx.onClose}>Cancel</Btn>
-            <Btn primary disabled={!chosen || busy} onClick={() => void attach()}>
+            <Btn primary disabled={(!chosen && !chosenDoc) || busy} onClick={() => void attach()}>
               Attach selected quote
             </Btn>
           </>
         }
       />
       {adding && <QuotationPdfPicker ctx={ctx} onClose={() => setAdding(false)} />}
-      {asking && chosen && (
-        <Sheet title={`Request an updated quotation · ${chosen.number}`} onClose={() => setAsking(false)}>
+      {asking && (chosen || chosenDoc) && (
+        <Sheet
+          title={`Request an updated quotation · ${chosen?.number ?? chosenDoc?.title ?? ''}`}
+          onClose={() => setAsking(false)}
+        >
           <textarea
             rows={3}
             autoFocus
@@ -1440,7 +1548,7 @@ function QuotationsTab({ ctx, pickedId, onPick }: { ctx: Ctx; pickedId?: string;
                 const result = await requestFromManagerAction({
                   leadId: lead.id,
                   kind: 'quote',
-                  subject: chosen.number,
+                  subject: chosen?.number ?? chosenDoc?.title ?? '',
                   note,
                 });
                 if (!result.ok) {
@@ -2671,7 +2779,7 @@ const I_COLS = `18px minmax(0,1.7fr) minmax(0,0.8fr) ${MONEY_COL} ${MONEY_COL}`;
  * documentation, or the shared files of a project, should be displayed here —
  * CRM proposal, anything. I can attach it and that will directly send it."*
  *
- *  + W +  THE PROJECT'S FILES COME FIRST. A brochure or a proposal belongs to the
+ * ⚠️ THE PROJECT'S FILES COME FIRST. A brochure or a proposal belongs to the
  * whole project and is the thing a salesperson reaches for most; a file uploaded
  * against one lead is the exception. The query already orders them that way.
  */
@@ -2690,26 +2798,7 @@ function FilesTab({ ctx, pickedId, onPick }: { ctx: Ctx; pickedId?: string; onPi
   const [uploading, setUploading] = React.useState(false);
 
   const attach = () => {
-    if (!chosen) return;
-    const name = chosen.title.toLowerCase().endsWith('.pdf') ? chosen.title : `${chosen.title}.pdf`;
-
-    ctx.attachVia(
-      { title: 'Send this file', summary: `${chosen.title} · ${bytes(chosen.sizeBytes)}`, files: 1 },
-      async (channel) => {
-        const files = [await fileFromLink(await crmDocumentLinkAction(chosen.id), name)];
-        if (channel === 'whatsapp') return { channel, files, text: chosen.title };
-        return {
-          channel,
-          files,
-          subject: chosen.title,
-          text: [
-            `Assalam-o-Alaikum ${(lead.fullName ?? '').split(' ')[0] || 'Sir/Madam'}.`,
-            '',
-            `Please find ${chosen.title} attached.`,
-          ].join(String.fromCharCode(10)),
-        };
-      },
-    );
+    if (chosen) attachDocument(ctx, chosen, 'Send this file');
   };
 
   const upload = async (picked: File) => {
@@ -2742,11 +2831,22 @@ function FilesTab({ ctx, pickedId, onPick }: { ctx: Ctx; pickedId?: string; onPi
         list={
           list.length === 0 ? (
             <EmptyList loading={ctx.loading}>
-              Nothing has been uploaded for {lead.projectName} or for this lead. Add a proposal, a
-              brochure or a price list and it can be sent from here.
+              Nothing has been uploaded for {lead.projectName}
+              {items.leadProduct ? ` about ${productName(items.leadProduct)}` : ''} or for this lead. Add a proposal, a
+              brochure or a price list on &ldquo;What the agent knows&rdquo; and it can be sent from here.
             </EmptyList>
           ) : (
             <ul className="min-h-0 flex-1 overflow-y-auto">
+              {/* ⚠️ SAYS WHY THE LIST IS SHORTER THAN THE PROJECT'S SHELF. Owner,
+                  2026-09-21: *"If he is interested in a CRM then the system should
+                  be smart enough to show all the CRM-related things in the files."*
+                  A salesperson who knows a Taskly brochure exists should not think
+                  it was lost. */}
+              {items.leadProduct && (
+                <li className="border-b border-border-subtle bg-bg-subtle/50 px-4 py-2 text-caption text-text-secondary">
+                  Showing {productName(items.leadProduct)} files — this lead asked about {productName(items.leadProduct)}.
+                </li>
+              )}
               {list.map((f) => (
                 <li key={f.id}>
                   <button
@@ -2762,7 +2862,7 @@ function FilesTab({ ctx, pickedId, onPick }: { ctx: Ctx; pickedId?: string; onPi
                         {bytes(f.sizeBytes)} · {shortDay(f.createdAt)}
                       </span>
                     </span>
-                    {/*  + W +  WHOSE FILE IT IS, SAID PLAINLY. A project brochure and a
+                    {/* ⚠️ WHOSE FILE IT IS, SAID PLAINLY. A project brochure and a
                         document uploaded for this one client are not the same
                         thing, and sending the wrong one is the mistake. */}
                     <span className="shrink-0 rounded-md bg-bg-subtle px-2 py-0.5 text-caption text-text-secondary">
@@ -2792,18 +2892,19 @@ function FilesTab({ ctx, pickedId, onPick }: { ctx: Ctx; pickedId?: string; onPi
                   <dt className="w-24 shrink-0 text-text-secondary">Kind</dt>
                   <dd className="min-w-0 text-text-primary">{chosen.kind.replace(/_/g, ' ')}</dd>
                 </div>
+                {!chosen.leadId && (
+                  <div className="flex gap-2">
+                    <dt className="w-24 shrink-0 text-text-secondary">For</dt>
+                    <dd className="min-w-0 text-text-primary">{productName(chosen.product)}</dd>
+                  </div>
+                )}
               </dl>
-              <button
-                type="button"
-                onClick={async () => {
-                  const link = await crmDocumentLinkAction(chosen.id);
-                  if (link.url) window.open(link.url, '_blank', 'noopener,noreferrer');
-                  else toast({ tone: 'error', text: link.error ?? 'That file could not be opened.' });
-                }}
-                className="mt-4 inline-flex items-center gap-1.5 text-caption font-semibold text-text-brand underline-offset-2 hover:underline"
-              >
-                <Eye className="size-4" aria-hidden="true" /> Open it
-              </button>
+              {/* ⚠️ THE SAME VIEW AS A QUOTATION. Owner, 2026-09-21: *"The view of
+                  the file will also be the same."* The file is shown in place; the
+                  link under it still opens it in a tab of its own. */}
+              <div className="mt-4">
+                <DocumentPreview documentId={chosen.id} mime={chosen.mime} title={chosen.title} className="h-[26rem]" />
+              </div>
             </div>
           ) : (
             <Empty>Pick a file to see what it is.</Empty>
@@ -2836,7 +2937,7 @@ function FilesTab({ ctx, pickedId, onPick }: { ctx: Ctx; pickedId?: string; onPi
           </>
         }
         note={
-          /*  + W +  SAID HERE, BECAUSE IT IS THE ONE THING A SALESPERSON WOULD ASSUME.
+          /* ⚠️ SAID HERE, BECAUSE IT IS THE ONE THING A SALESPERSON WOULD ASSUME.
              A file on the shelf is not read by anything yet — the quotation
              reader runs on the Quotations tab's own upload, not on this one. */
           'Uploaded files can be sent from here. Reading what is inside them is the Quotations tab, for now.'

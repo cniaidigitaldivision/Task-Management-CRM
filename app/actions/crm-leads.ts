@@ -1035,7 +1035,7 @@ export async function bookAppointmentAction(input: {
  * appointment… the client is saying this time is not suitable, so please change
  * the time… and when I reschedule, send an auto message on WhatsApp."*
  *
- *  + W +  IT DOES NOT TELL THE CLIENT ITSELF. 219's trigger does that, on the row
+ * ⚠️ IT DOES NOT TELL THE CLIENT ITSELF. 219's trigger does that, on the row
  * changing — so a time moved from anywhere, by any screen or any future agent,
  * is confirmed the same way. A send from this action would be one path of
  * several, and the others would go out silently.
@@ -1053,7 +1053,7 @@ export async function rescheduleAppointmentAction(input: {
   const at = Date.parse(input.at);
   if (Number.isNaN(at)) return { ok: false, error: 'Choose a date and time.' };
 
-  /*  + W +  THE PAST IS REFUSED, and this is the one rule a reschedule needs that a
+  /* ⚠️ THE PAST IS REFUSED, and this is the one rule a reschedule needs that a
      booking does not: the commonest reason to move an appointment is that its
      time has already gone, so the field opens on a moment that is invalid. */
   if (at <= Date.now()) {
