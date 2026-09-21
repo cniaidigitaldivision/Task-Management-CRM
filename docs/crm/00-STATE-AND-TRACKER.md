@@ -9,7 +9,43 @@
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
 | **Last updated** | **2026-09-21** |
-| **Last migration applied anywhere** | **233** (applied 2026-09-21; **231 the AI agent works, 232 knowledge page keeps the sales documents + campaign settings, 233 the agent sees every product and follows the client**). CRM next: **234.** |
+| **Last migration applied anywhere** | **234** (applied 2026-09-21; **234 no follow-up waits for review**; 231 the AI agent works, 232 knowledge page keeps the sales documents + campaign settings, 233 the agent sees every product and follows the client). CRM next: **235.** |
+
+---
+
+## 🧭 2026-09-21 — 234 · NO FOLLOW-UP WAITS FOR REVIEW, AND RECORD OUTCOME ASKS FOR NO NEXT ACTION
+
+Owner: *"If I am scheduling any follow-up it means that I have reviewed it and I
+am intentionally putting that follow-up. Don't put any follow-up in the review
+furthermore."* Then, recording a visit as done: *"I explicitly told you to
+exclude all next steps… 'schedule follow-up' or 'add a task' are the only
+things that should not be added."* Deployed (e7d8c04, 2631aae).
+
+**234 — review is gone:**
+- Plan engine (`crm_advance_sequences`) queues WhatsApp steps as auto-send even
+  with the window shut and no template on the step.
+- Queue (`crm_followups_to_send`) hands such steps to the sender with their
+  **purpose**; the sender picks the approved template for the purpose when it
+  goes (`templateForPurpose`, the wizard's picker). No template fits → the step
+  **fails with the reason**, never a draft.
+- Wizard: Auto-send / Remind me only. Single follow-up: no downgrade. The
+  manager's quotation-request task is a reminder.
+- Converted what was waiting: habiba minhas "First followup" **sent 15:12**
+  (lead_check_in); two Adnan Bashir demo chases **failed** — made-up number,
+  the sandbox refuses it; Faisal Rehman quotation task → reminder.
+- ⚠️ Self-check fails the migration if any function can still write
+  review_first, or anything is still waiting in it.
+
+**Record outcome:** the Next action section and the "nothing is scheduled"
+block are gone. A time is asked for only where it IS the outcome — Call later
+(call back at) and Site visit requested (visit at); No response asks for
+nothing. The server keeps the lead's own next action unless one of those times
+was given (it used to overwrite it with the empty field). Pause active sequence
+stays.
+
+⚠️ Not changed: moving a lead to Visited by hand does not mark its booked
+visit completed — recording the visit's outcome in Appointments does that (and
+moves the stage itself).
 
 ---
 
