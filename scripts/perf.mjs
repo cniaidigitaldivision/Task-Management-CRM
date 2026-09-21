@@ -94,10 +94,24 @@ async function signIn() {
   const sql = postgres(process.env.DATABASE_URL, { prepare: false, max: 1, onnotice: () => {} });
 
   try {
-    const [person] = await sql`
-      select id from public.users where email = 'sana@cni-demo.com' and is_active
-    `;
-    if (!person) throw new Error('Run `npm run seed:demo` first.');
+    /* ⚠️ THE @cni-demo.com SEED ACCOUNTS NO LONGER EXIST (checked 2026-09-04),
+       which left this script throwing "run seed:demo" at anybody who tried to
+       measure anything. It now signs in as whichever ACTIVE account PERF_EMAIL
+       names, and falls back to any active admin — the session is still minted
+       here and still revoked at the end. */
+    const wanted = process.env.PERF_EMAIL ?? null;
+    const [person] = wanted
+      ? await sql`select id, full_name from public.users where lower(email) = lower(${wanted}) and is_active`
+      : await sql`
+          select id, full_name from public.users
+           where is_active and role in ('admin', 'super_admin')
+           order by created_at limit 1`;
+    if (!person) {
+      throw new Error(
+        wanted ? `No active user for ${wanted}.` : 'No active admin to sign in as. Set PERF_EMAIL=<email>.',
+      );
+    }
+    console.log(`signed in as ${person.full_name}`);
 
     const token = randomBytes(32).toString('base64url');
     const [session] = await sql`
