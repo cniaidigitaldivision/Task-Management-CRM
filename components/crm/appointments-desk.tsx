@@ -6,6 +6,7 @@ import { CalendarClock, Car, ClipboardCheck, MapPin, Phone, Users } from 'lucide
 
 import { closeAppointmentAction } from '@/app/actions/crm-leads';
 import { CancelAppointmentDialog } from '@/components/crm/cancel-appointment-dialog';
+import { InterestChoice, interestNote } from '@/components/crm/record-appointment';
 import { Badge } from '@/components/ui/badge';
 import { PageHeader } from '@/components/ui/page-header';
 import { useToast } from '@/components/ui/toast';
@@ -80,6 +81,8 @@ export function AppointmentsDesk({
      button with a popup with the confirmation."* See cancel-appointment-dialog. */
   const [cancelling, setCancelling] = React.useState<CrmDiaryRow | null>(null);
   const [draft, setDraft] = React.useState('');
+  /* 237 · required on "done": interested schedules the feedback message. */
+  const [interested, setInterested] = React.useState<boolean | null>(null);
   /* ⚠️ RECORDED ROWS MOVE, THEY DO NOT VANISH. A closed appointment is still a
      fact about the week — it changes tab rather than leaving the screen, so the
      count somebody just watched go down is still findable under Done. */
@@ -105,7 +108,7 @@ export function AppointmentsDesk({
 
   async function close(a: CrmDiaryRow, status: string, outcome: string) {
     setBusy(a.id);
-    const result = await closeAppointmentAction(a.id, a.leadId, status, outcome);
+    const result = await closeAppointmentAction(a.id, a.leadId, status, outcome, interested);
     setBusy(null);
     if (!result.ok) {
       toast({ tone: 'error', text: result.error ?? 'That did not save.' });
@@ -118,11 +121,12 @@ export function AppointmentsDesk({
       tone: 'ok',
       text:
         status === 'completed'
-          ? a.kind === 'site_visit'
-            ? 'Recorded — the lead moves to Visited.'
-            : 'Recorded.'
+          ? interested
+            ? 'Recorded — the lead moves to Visited, and a feedback message is scheduled.'
+            : 'Recorded — the lead moves to Visited.'
           : 'Cancelled.',
     });
+    setInterested(null);
   }
 
   return (
@@ -262,6 +266,7 @@ export function AppointmentsDesk({
                           onClick={() => {
                             setWriting(a.id);
                             setDraft('');
+                            setInterested(null);
                           }}
                           className="rounded-lg border border-border-subtle px-2 py-1 text-caption font-medium text-text-primary transition-colors hover:border-border-default"
                         >
@@ -331,7 +336,11 @@ export function AppointmentsDesk({
                       placeholder="They came with their brother, liked A-101, asked about the payment plan."
                       className="mt-1.5 w-full resize-y rounded-lg border border-border-default bg-bg-base px-2.5 py-2 text-body-sm text-text-primary placeholder:text-text-tertiary focus:border-accent-primary focus:outline-none"
                     />
-                    <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                    <div className="mt-2">
+                      <InterestChoice value={interested} onChange={setInterested} />
+                      <p className="mt-1 text-caption text-text-secondary">{interestNote(interested)}</p>
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
                       <button
                         type="button"
                         /* ⚠️ REFUSED WHILE EMPTY, in the button's own state rather
@@ -344,11 +353,11 @@ export function AppointmentsDesk({
                            this visit not happen" is the question a manager asks a
                            week later, and the reason is free to capture now and
                            impossible to recover then. */
-                        disabled={!draft.trim() || busy === a.id}
+                        disabled={!draft.trim() || interested === null || busy === a.id}
                         onClick={() => void close(a, 'completed', draft.trim())}
                         className={cn(
                           'rounded-lg bg-accent-primary px-2.5 py-1.5 text-caption font-semibold text-white transition-opacity',
-                          (!draft.trim() || busy === a.id) && 'opacity-40',
+                          (!draft.trim() || interested === null || busy === a.id) && 'opacity-40',
                         )}
                       >
                         Record it

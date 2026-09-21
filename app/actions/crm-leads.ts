@@ -1098,6 +1098,8 @@ export async function closeAppointmentAction(
   leadId: string,
   status: string,
   outcome: string,
+  /** 237 · asked when it is recorded as done — true schedules the feedback message. */
+  interested: boolean | null = null,
 ): Promise<LeadWriteResult> {
   const user = await requireUser();
 
@@ -1110,6 +1112,11 @@ export async function closeAppointmentAction(
   }
   if (status === 'cancelled' && !outcome.trim()) {
     return { ok: false, error: 'Say why it is being cancelled.' };
+  }
+  /* 237 · Owner: *"auto feedback followup should send — but only client
+     interested then."* So done asks, and does not guess. */
+  if (status === 'completed' && interested === null) {
+    return { ok: false, error: 'Say whether the client is interested.' };
   }
 
   /* ⚠️ A COMPLETED APPOINTMENT NEEDS AN OUTCOME, and migration 152 says so with
@@ -1125,6 +1132,7 @@ export async function closeAppointmentAction(
     appointmentId,
     status as 'completed' | 'no_show' | 'cancelled',
     outcome.trim() || null,
+    status === 'completed' ? interested : null,
   );
   if (!done) return { ok: false, error: NOT_YOURS };
 

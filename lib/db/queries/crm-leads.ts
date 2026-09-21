@@ -3010,11 +3010,14 @@ export async function crmCloseAppointment(
   appointmentId: string,
   status: 'completed' | 'no_show' | 'cancelled',
   outcome: string | null,
+  /** 237 · true queues the feedback message; false sends nothing. */
+  interested: boolean | null = null,
 ): Promise<boolean> {
   const rows = await withUser(actorId, (tx) => tx`
     update public.crm_appointments
        set status = ${status}::public.crm_appointment_status,
            outcome = ${outcome}::text,
+           client_interested = ${interested}::boolean,
            /* ⚠️ DECIDED IN SQL, NOT INTERPOLATED. A ternary that yields the
               string now() would send it as a literal, and Postgres cannot parse
               that as a timestamp — so every completion would have failed with a

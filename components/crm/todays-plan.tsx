@@ -3,9 +3,8 @@
 import * as React from 'react';
 import { CalendarClock, Car, MapPin, Phone, Users } from 'lucide-react';
 
-import { closeAppointmentAction } from '@/app/actions/crm-leads';
 import { CancelAppointmentDialog } from '@/components/crm/cancel-appointment-dialog';
-import { useToast } from '@/components/ui/toast';
+import { RecordAppointmentDialog } from '@/components/crm/record-appointment';
 import type { CrmDiaryEntry } from '@/lib/db/queries/crm-leads';
 import {
   appointmentKindLabel,
@@ -53,14 +52,14 @@ export function TodaysPlan({
   nowMs: number;
   onOpenLead: (leadId: string) => void;
 }) {
-  const toast = useToast();
-  const [busy, setBusy] = React.useState<string | null>(null);
   /* ⚠️ Closed entries are hidden here the moment they are recorded, rather than
      waiting for the page to come back — the row has served its purpose and
      leaving it sitting there invites a second click. */
   const [done, setDone] = React.useState<ReadonlySet<string>>(new Set());
   /* A confirmation popup with a reason — never a one-click close (2026-09-21). */
   const [cancelling, setCancelling] = React.useState<CrmDiaryEntry | null>(null);
+  /* 237 · "done" asks what happened AND whether the client is interested. */
+  const [recording, setRecording] = React.useState<CrmDiaryEntry | null>(null);
 
   const live = diary.filter((a) => !done.has(a.id));
   if (live.length === 0) return null;
@@ -94,23 +93,6 @@ export function TodaysPlan({
             month: 'short',
           });
 
-  async function close(id: string, leadId: string, status: string, outcome: string) {
-    setBusy(id);
-    const result = await closeAppointmentAction(id, leadId, status, outcome);
-    setBusy(null);
-    if (!result.ok) {
-      toast({ tone: 'error', text: result.error ?? 'That did not save.' });
-      return;
-    }
-    setDone((prev) => new Set(prev).add(id));
-    toast({
-      tone: 'ok',
-      text:
-        status === 'completed'
-          ? 'Recorded.'
-          : 'Cancelled.',
-    });
-  }
 
   return (
     <section className="rounded-2xl border border-border-subtle bg-bg-surface px-4 py-3.5">
@@ -179,22 +161,12 @@ export function TodaysPlan({
                       <span className="flex shrink-0 flex-wrap items-center gap-1.5">
                         <button
                           type="button"
-                          disabled={busy === a.id}
-                          onClick={() => {
-                            /* ⚠️ The outcome is REQUIRED by the database (152) and
-                               asked for here rather than sent empty — "it
-                               happened" with nothing recorded is the same as not
-                               recording it. */
-                            const said = window.prompt(
-                              `What happened at the ${appointmentKindLabel(a.kind).toLowerCase()} with ${a.leadName ?? 'this lead'}?`,
-                            );
-                            if (said && said.trim()) {
-                              void close(a.id, a.leadId, 'completed', said.trim());
-                            }
-                          }}
+                          /* ⚠️ A POPUP, NOT window.prompt — it asks two things
+                             now (what happened, and is the client interested),
+                             and a prompt blocks the page and loses what was typed. */
+                          onClick={() => setRecording(a)}
                           className={cn(
                             'rounded-lg border border-border-subtle px-2 py-1 text-caption font-medium text-text-primary transition-colors hover:border-border-default',
-                            busy === a.id && 'opacity-40',
                           )}
                         >
                           It happened
@@ -203,11 +175,9 @@ export function TodaysPlan({
                             visit. A client who did not come is a Cancel reason. */}
                         <button
                           type="button"
-                          disabled={busy === a.id}
                           onClick={() => setCancelling(a)}
                           className={cn(
                             'rounded-lg px-2 py-1 text-caption font-medium text-text-secondary transition-colors hover:bg-bg-subtle',
-                            busy === a.id && 'opacity-40',
                           )}
                         >
                           Cancel
@@ -221,6 +191,13 @@ export function TodaysPlan({
           </div>
         ))}
       </div>
+      {recording && (
+        <RecordAppointmentDialog
+          appointment={recording}
+          onClose={() => setRecording(null)}
+          onRecorded={(id) => setDone((prev) => new Set(prev).add(id))}
+        />
+      )}
       {cancelling && (
         <CancelAppointmentDialog
           appointment={cancelling}
