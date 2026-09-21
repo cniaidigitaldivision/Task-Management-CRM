@@ -8,8 +8,41 @@
 | **Route** | `/leads` · `/my-leads` · `/clients` · `/lead-reports` · `/lead-overview` · nav: Growth → Campaign & Lead Desk |
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
-| **Last updated** | **2026-09-21** |
+| **Last updated** | **2026-09-22** |
 | **Last migration applied anywhere** | **245** (applied 2026-09-21; **245 changing an appointment is the salespersons — 244 reversed**; 242 office visits, 243 confirm by hand). CRM next: **246.** |
+
+---
+
+## 🧭 2026-09-22 — THE AGENT STOPS ESCALATING, AND THE SCREEN SEES A HANDOVER
+
+Owner, from a live conversation on their own test lead (4ce0638).
+
+**1 · It escalated simple questions.** `crm_agent_runs` shows *"Ma thori confuse
+hon CRM ko ly kr"* → handed over (*"Client is confused about CRM"*), and *"How
+much roles I will have?"* → handed over. The cause was one line of the prompt:
+*"complains, is upset, or the conversation is going badly"* — the model read
+"confused" as that.
+- The rules now carry an explicit **NEVER HAND OVER** list: confusion, "explain
+  again", "in simple words", *thora samjha dein*, broad questions ("major
+  features", "what will I get"), anything KNOWLEDGE answers in other words or in
+  Urdu, and anything answerable PARTLY (say what is known, then ask one short
+  question). Escalation is for a person, a call, a discount, a commitment, a
+  real complaint, or a hard fact nothing in KNOWLEDGE supports.
+- Dry run on the real messages (nothing sent): 6 of 12 escalated, and four of
+  those are correct (discount, call, refund policy, ready-to-buy). *"confuse
+  hon"* is answered in Roman Urdu; "how long to set up" answers **2–3 weeks**
+  from the approved entry.
+- ⚠️ *"How much roles I will have?"* still escalates, and that is the fence
+  working: nothing approved mentions roles. The remedy is an answer on **What
+  the agent knows**, not a looser prompt.
+
+**2 · A handover did not reach an open screen.** The thread has polled every 5s
+since the drawer was built, but only for MESSAGES — nothing polled for WHO is
+answering, so the badge still read "AI responding" until a refresh.
+`agentStatesAction` now reads mode, handoff and reason for the conversations on
+screen on the same beat. ⚠️ Precedence: the server wins, EXCEPT while somebody's
+own choice is in flight (`pending`), and that choice is believed immediately so
+the badge never waits for the next beat.
 
 ---
 
