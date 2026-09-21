@@ -82,7 +82,13 @@ export interface AgentDecision {
    * the model's own words say it is booked; when they do not (it misjudged a
    * free time), they are never sent — the booking's confirmation is.
    */
-  readonly booking: { readonly kind: AgentBookingKind; readonly at: string; readonly replyConfirms: boolean } | null;
+  /** 244 · `move` when the client already has one and asked to change its time. */
+  readonly booking: {
+    readonly kind: AgentBookingKind;
+    readonly at: string;
+    readonly replyConfirms: boolean;
+    readonly move: boolean;
+  } | null;
   readonly handoverReason: string | null;
 }
 
@@ -108,7 +114,7 @@ TALK LIKE A PERSON FIRST — these are never a reason to hand over:
 
 HAND OVER (do not reply) when the client:
 - asks for a person or a phone call;
-- wants to change or cancel an appointment that is already booked;
+- wants to CANCEL an appointment (changing its time is yours to do — see BOOKING);
 - asks for a discount, a lower price, custom pricing, payment terms not in KNOWLEDGE, or wants to negotiate price;
 - is ready to buy, pay or sign now;
 - complains, is upset, or the conversation is going badly;
@@ -120,7 +126,8 @@ BOOKING — a demo or a site visit, never a phone call. Follow these in order:
 3. If that time IS inside AVAILABLE TIMES: reply in one line that it is booked and set "reply_says_booked": true. Do not ask "shall I book it?".
 4. If it is NOT inside AVAILABLE TIMES (a Sunday, after office hours, a time already taken): say that time is not free, offer the two nearest listed times, and set "reply_says_booked": false. Do not hand over.
 5. The client asks for a demo or a visit without naming a time: offer two or three times from AVAILABLE TIMES and ask which suits them, written the way a person says them (Wednesday 23 September at 3:00 PM).
-6. AVAILABLE TIMES has nothing for that kind, or ALREADY BOOKED shows an appointment and they want another or a change: hand over.
+6. ALREADY BOOKED and the client wants to CHANGE that appointment's time: do exactly as above — offer free times, and when they name one that is free put it in "time_asked" with the same kind. The system MOVES the existing appointment, so say it is moved, never that it is a new one.
+7. ALREADY BOOKED and they want a SECOND appointment as well, or AVAILABLE TIMES has nothing for that kind: hand over.
 Booking replies follow the same language rule as every reply.
 
 When you reply:
@@ -173,6 +180,9 @@ function bookingBlock(b: AgentBrief): string[] {
       ...(b.booking!.lines[k].length ? b.booking!.lines[k].map((l) => `    - ${l}`) : ['    - (none this week)']),
     ]),
     `ALREADY BOOKED: ${b.booking.existing ?? 'nothing'}`,
+    ...(b.booking.existing
+      ? ['(A time named for that appointment MOVES it — the free times above already leave its own hour out.)']
+      : []),
   ];
 }
 
@@ -346,9 +356,11 @@ export function validateDecision(
       return { ...handover(`asked for a ${kind || 'booking'} the assistant does not book`), product };
     }
     const what = BOOKING_WORD[kind];
-    if (offer.existing) return { ...handover(`wants a ${what} but already has ${offer.existing}`), product };
+    /* 244 · An appointment they already have is MOVED to the time they chose;
+       the free times were worked out with its own hour left out. */
+    const move = Boolean(offer.existing);
     if (offer.starts[kind].includes(at)) {
-      booking = { kind, at, replyConfirms: says };
+      booking = { kind, at, replyConfirms: says, move };
       /* The reminder before the appointment is the follow-up now. */
       followUp = null;
     } else if (says) {

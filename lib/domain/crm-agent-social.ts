@@ -27,7 +27,12 @@ const words = (text: string) =>
     .split(/\s+/)
     .filter(Boolean);
 
+/* ⚠️ A REAL EMOJI, NOT JUST PUNCTUATION. Live, 2026-09-21: a bare "?" matched
+   this and the client was told "You're welcome! 😊" twice. Punctuation alone is
+   somebody wondering where we are — an opener, not a thank-you. */
 const EMOJI_ONLY = /^[\s\p{Extended_Pictographic}‍️\p{P}]+$/u;
+const HAS_EMOJI = /\p{Extended_Pictographic}/u;
+const PUNCT_ONLY = /^[\s\p{P}]+$/u;
 
 const FILLER = new Set([
   'amm', 'ammm', 'hmm', 'hmmm', 'umm', 'um', 'uh', 'well', 'so', 'and', 'also', 'sir', 'madam', 'maam', 'ji', 'g',
@@ -73,7 +78,8 @@ export function socialKind(text: string | null, kind = 'text'): SocialKind | nul
   if (kind !== 'text' || !text) return null;
   const raw = text.trim();
   if (!raw) return null;
-  if (EMOJI_ONLY.test(raw)) return 'thanks';
+  if (PUNCT_ONLY.test(raw)) return 'opener';
+  if (EMOJI_ONLY.test(raw) && HAS_EMOJI.test(raw)) return 'thanks';
   if (raw.length > 90) return null;
 
   const w = words(raw).filter((x) => !FILLER.has(x));
@@ -101,6 +107,9 @@ export function socialReply(kind: SocialKind, text: string | null): string {
       if (urdu || salam) return `${salam ? 'Wa alaikum assalam! ' : ''}Ji, batayein — main aap ki kya madad karun?`;
       return 'Hello! How can I help you today?';
     case 'opener':
+      if (PUNCT_ONLY.test((text ?? '').trim())) {
+        return urdu ? 'Ji, main yahin hoon — batayein, kya madad kar sakta hoon?' : 'I’m here — how can I help?';
+      }
       return urdu ? 'Ji zaroor, batayein — kya jaan’na chahte hain?' : 'Sure, what would you like to know?';
     case 'thanks':
       return urdu

@@ -35,6 +35,12 @@ describe('what counts as social', () => {
     expect(socialKind(null, 'sticker')).toBe('thanks');
   });
 
+  /* Live, 2026-09-21: a bare "?" was answered "You're welcome! 😊" — twice. */
+  it('⚠️ punctuation alone is somebody wondering where we are, not a thank-you', () => {
+    for (const t of ['?', '??', '...']) expect(socialKind(t), t).toBe('opener');
+    expect(socialReply('opener', '?')).toBe('I’m here — how can I help?');
+  });
+
   it('⚠️ a request that merely contains a social word is NOT social', () => {
     for (const t of ['ok send me the quotation', 'thanks, what is the price?', 'hi, do you have a CRM demo?', 'I want to know the price of the CRM', 'ok but can you call me', 'yes']) {
       expect(socialKind(t), t).toBeNull();
