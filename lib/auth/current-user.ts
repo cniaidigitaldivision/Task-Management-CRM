@@ -313,8 +313,21 @@ export async function requireCrmAccess(): Promise<{
   user: CurrentUser;
   department: ActingDepartment;
 }> {
-  const user = await requireEnrolledUser();
-  const department = await getCurrentDepartment();
+/* ── ⚠️ THE TWO CHECKS GO TOGETHER, NOT ONE AFTER THE OTHER ─────────────────
+ * Measured 2026-09-21 from Karachi: one round trip to the pooler in Singapore
+ * is 113ms, so each of these costs ~500ms and every protected page paid for
+ * both in series. They do not depend on each other — both need only the
+ * session, which `getCurrentUser()` memoises per request, so the second caller
+ * awaits the SAME promise rather than asking again.
+ *
+ * ⚠️ THE REFUSALS ARE UNCHANGED, and that is the part worth checking. A
+ * `redirect()` inside `requireEnrolledUser` throws; `Promise.all` propagates
+ * that throw exactly as the sequential `await` did, and the department read
+ * beside it is abandoned. `getCurrentDepartment` never throws — it fails closed
+ * to "no department", which grants nothing. So the only difference is that an
+ * unenrolled privileged session now costs one extra harmless read before it is
+ * sent to /mfa-setup. */
+  const [user, department] = await Promise.all([requireEnrolledUser(), getCurrentDepartment()]);
 
   if (!crmIsOpenTo(user, department)) {
     redirect(user.role === 'member' ? '/my-work' : '/dashboard');
@@ -351,8 +364,8 @@ export async function requireCrmReports(): Promise<{
   user: CurrentUser;
   department: ActingDepartment;
 }> {
-  const user = await requireEnrolledUser();
-  const department = await getCurrentDepartment();
+  /* Together, for the reason given on `requireCrmAccess`. */
+  const [user, department] = await Promise.all([requireEnrolledUser(), getCurrentDepartment()]);
 
   if (!crmReportsOpenTo(user, department)) {
     /* ⚠️ Somebody who can work leads but not read the reports is sent to the

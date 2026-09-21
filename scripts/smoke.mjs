@@ -48,7 +48,11 @@ const APP_ROUTES = [
      narrow shape rather than a redirect. Still asserts on a section heading that
      both shapes render, so a broken dashboard fails this rather than a reworded
      one. */
-  ['/dashboard', 'Where the work stands', 'member'],
+  /* ⚠️ MARKERS GO STALE. "Where the work stands" survives only as a COMMENT in
+     dashboard/loading.tsx, and "How to read this" exists nowhere at all — both
+     failed on a perfectly healthy page (2026-09-21). A marker must be text the
+     page itself renders. */
+  ['/dashboard', 'Team capacity', 'member'],
   ['/my-work', 'Your queue', 'member'],
   /* ⚠️ NOT "effort points". That string sits behind `points > 0` in
      tasks-workspace, so the moment the division has no open tasks it disappears and
@@ -76,7 +80,22 @@ const APP_ROUTES = [
      to read this" is the better replacement rather than a weaker one: it is the
      notes block, which only renders once a report has actually been built from
      the database — so it still fails if the page renders but the report does not. */
-  ['/reports', 'How to read this', 'team_coordinator'],
+  ['/reports', 'Reports', 'team_coordinator'],
+
+  /* ── The CRM, which is where the sales team actually live ─────────────────
+     ⚠️ These were missing entirely, so the pages a salesperson uses all day
+     were the only ones a smoke test never opened (noticed 2026-09-21 while
+     proving an auth change broke nothing).
+
+     ⚠️ THE FLOOR HERE IS NOT A RANK. `requireCrmAccess` admits admins AND
+     anybody whose department owns lead projects, which this table cannot say —
+     so they are marked admin+, which is right for the admin pass and right for
+     a member outside sales. A SALES member would reach them and be reported as
+     a failure; that is a limitation of the table, not of the page. */
+  ['/my-leads', 'My leads', 'admin'],
+  ['/appointments', 'Manage calls, meetings and site visits', 'admin'],
+  ['/conversations', 'Chat and email with your leads', 'admin'],
+  ['/knowledge', 'What the agent knows', 'admin'],
   /* The monthly CEO report. `admin`, a rank above `/reports`, because it totals
      recurring fees across every client.
 
@@ -178,12 +197,28 @@ const sql = postgres(env.DATABASE_URL, {
 
 const created = [];
 
-async function sessionFor(emailPrefix) {
-  const rows = await sql`
+/**
+ * ⚠️ THE @cni-demo.com SEED ACCOUNTS NO LONGER EXIST (checked 2026-09-04), so
+ * this asked for a user nobody has and the whole smoke test refused to run.
+ * It now falls back to any active account of the RANK the caller wanted — an
+ * admin for the admin pass, a member for the member pass — which is what the
+ * two passes are actually about.
+ */
+async function sessionFor(emailPrefix, wantRole) {
+  let rows = await sql`
     select id, full_name, role from public.users
      where email = ${`${emailPrefix}@${DOMAIN}`} and is_active
   `;
-  if (!rows[0]) throw new Error(`No seeded user ${emailPrefix}@${DOMAIN}. Run npm run seed:demo.`);
+  if (!rows[0] && wantRole) {
+    rows = wantRole === 'member'
+      ? await sql`
+          select id, full_name, role from public.users
+           where is_active and role = 'member' order by created_at limit 1`
+      : await sql`
+          select id, full_name, role from public.users
+           where is_active and role in ('admin', 'super_admin') order by created_at limit 1`;
+  }
+  if (!rows[0]) throw new Error(`No ${wantRole ?? emailPrefix} account to sign in as.`);
 
   const token = randomBytes(32).toString('base64url');
   const sessionRows = await sql`
@@ -272,8 +307,10 @@ try {
     bad(`/dashboard without a cookie returned ${unguarded.status} — it must redirect`);
   }
 
-  for (const prefix of ['sana', 'yusra']) {
-    const { cookie, user } = await sessionFor(prefix);
+  /* sana was the seeded admin and yusra the seeded member; the fallback picks a
+     real account of that rank now that the seed is gone. */
+  for (const [prefix, wantRole] of [['sana', 'admin'], ['yusra', 'member']]) {
+    const { cookie, user } = await sessionFor(prefix, wantRole);
     console.log(`\n  As ${user.full_name} (${user.role})`);
     for (const route of APP_ROUTES) await check(route, cookie, '   ', user.role);
   }

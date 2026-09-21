@@ -51,15 +51,20 @@ export default async function AppGroupLayout({ children }: { children: React.Rea
   /* FR-145: a privileged account with no verified second factor is redirected
      to enrolment here, at the boundary — not merely pointed at it by the sign-in. */
   const user = await requireEnrolledUser();
-  /* Which department is asking — migration 117. Memoised per request alongside
-     the user, and it decides only what the sidebar DRAWS: the CRM pages have
-     their own floor, and migration 118 has the real one. */
-  const department = await getCurrentDepartment();
 
-  /* Independent reads, so they go together. Four sequential round trips to
-     Supabase on every navigation is roughly 200ms of nothing happening. */
-  const [notifications, unread, projects, people, timers, today, assistantOverride] =
+  /* ── ⚠️ ONE WAVE, NOT TWO ───────────────────────────────────────────────
+     Which department is asking (migration 117) decides only what the sidebar
+     DRAWS — the CRM pages have their own floor, and 118 has the real one. It
+     needs the session and nothing else, so it goes in the SAME wave as the
+     sidebar's own reads rather than in front of them.
+
+     Measured 2026-09-21 from Karachi: a round trip to Singapore is 113ms and
+     each of these reads is ~500ms, so a wave of its own was half a second of
+     nothing happening on every navigation. */
+  const [department, [notifications, unread, projects, people, timers, today, assistantOverride]] =
     await Promise.all([
+    getCurrentDepartment(),
+    Promise.all([
     listNotifications(user.id, 12),
     countUnread(user.id),
     listProjects(user.id),
@@ -76,6 +81,7 @@ export default async function AppGroupLayout({ children }: { children: React.Rea
     /* ⚠️ In the same wave, and it is one row by primary key. It decides whether
        the floating launcher is MOUNTED AT ALL — see below. */
     assistantAccessFor(user.id),
+    ] as const),
   ]);
 
   /* Slides the session window. Deliberately not awaited into the render path —
