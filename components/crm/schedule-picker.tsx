@@ -4,7 +4,7 @@ import * as React from 'react';
 import { CalendarDays, Clock3, Globe, Send, Workflow } from 'lucide-react';
 
 /* ⚠️ THE CALENDAR IS SHARED WITH THE APPOINTMENTS TAB. One month grid, one idea
-   of which days are past, one time list — see `calendar-bits.tsx`. */
+   of which days are past, one time input (to the minute) — see `calendar-bits.tsx`. */
 import {
   DayChips,
   Field,
@@ -12,7 +12,7 @@ import {
   MonthGrid,
   PickerTab as Tab,
   sameMinute,
-  timeOptions as times,
+  TimeInput,
 } from '@/components/crm/calendar-bits';
 import { formatWhen, karachiAt, karachiParts, TZ } from '@/components/crm/when';
 import { cn } from '@/lib/utils';
@@ -190,18 +190,11 @@ export function SchedulePicker({
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-2">
               <Field label="Time" icon={Clock3}>
-                <select
-                  value={`${String(p.h).padStart(2, '0')}:${String(p.mi).padStart(2, '0')}`}
-                  onChange={(e) => {
-                    const [h, mi] = e.target.value.split(':').map(Number);
-                    set({ mode: 'at', at: karachiAt(p.y, p.m, p.d, h, mi) });
-                  }}
-                  className="w-full bg-transparent text-body-sm text-text-primary focus:outline-none"
-                >
-                  {times().map((t) => (
-                    <option key={t.value} value={t.value}>{t.label}</option>
-                  ))}
-                </select>
+                <TimeInput
+                  h={p.h}
+                  mi={p.mi}
+                  onChange={(h, mi) => set({ mode: 'at', at: karachiAt(p.y, p.m, p.d, h, mi) })}
+                />
               </Field>
               <Field label="Time zone" icon={Globe}>
                 {/* ⚠️ NOT A CHOICE. Every salesperson here works in one zone and a

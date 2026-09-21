@@ -49,20 +49,47 @@ export function hour12(h: number): string {
   return `${shown}:00 ${suffix}`;
 }
 
-/** Every half hour, which is as fine as anybody books a visit or a call. */
-export function timeOptions(): ReadonlyArray<{ value: string; label: string }> {
-  const out: Array<{ value: string; label: string }> = [];
-  for (let h = 0; h < 24; h++) {
-    for (const mi of [0, 30]) {
-      const suffix = h < 12 ? 'AM' : 'PM';
-      const shown = h % 12 === 0 ? 12 : h % 12;
-      out.push({
-        value: `${String(h).padStart(2, '0')}:${String(mi).padStart(2, '0')}`,
-        label: `${shown}:${String(mi).padStart(2, '0')} ${suffix}`,
-      });
-    }
-  }
-  return out;
+/**
+ * A time to the minute.
+ *
+ * ⚠️ IT WAS A LIST OF HALF HOURS, AND THAT WAS WRONG TWICE. Owner, 2026-09-21:
+ * *"the time is given in 30-minute increments. If I want to choose something in
+ * between, I can't… make it flexible so I can choose even a single minute."*
+ * And the list hid a second fault: a quick pick such as "in 1 hour" lands on
+ * 10:47, which was not an option, so the select showed the wrong time while
+ * the form saved the right one.
+ *
+ * The browser's own time input takes any minute, typed or picked, and shows
+ * exactly what is stored. It is used by both the follow-up start and the
+ * appointment, so the two cannot disagree about what a time looks like.
+ */
+export function TimeInput({
+  h,
+  mi,
+  onChange,
+  label = 'Time',
+}: {
+  h: number;
+  mi: number;
+  onChange: (h: number, mi: number) => void;
+  label?: string;
+}) {
+  return (
+    <input
+      type="time"
+      step={60}
+      value={`${String(h).padStart(2, '0')}:${String(mi).padStart(2, '0')}`}
+      onChange={(e) => {
+        /* ⚠️ A CLEARED FIELD IS NOT MIDNIGHT. While somebody is retyping the
+           hour the value is briefly empty; treating that as 00:00 would move the
+           appointment to the middle of the night under their cursor. */
+        const [hh, mm] = e.target.value.split(':').map(Number);
+        if (Number.isFinite(hh) && Number.isFinite(mm)) onChange(hh, mm);
+      }}
+      aria-label={label}
+      className="w-full bg-transparent text-body-sm tabular-nums text-text-primary focus:outline-none"
+    />
+  );
 }
 
 /** Which day of the week a Karachi date falls on. 0 = Sunday. */

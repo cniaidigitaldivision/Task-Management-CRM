@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { Bell, CalendarDays, ChevronDown, Clock3, Globe, Info, MapPin, Ruler, Wallet } from 'lucide-react';
 
-import { DayChips, Field, hour12, MonthGrid, PickerTab, sameMinute, timeOptions, dayOfWeek } from '@/components/crm/calendar-bits';
+import { DayChips, Field, hour12, MonthGrid, PickerTab, sameMinute, TimeInput, dayOfWeek } from '@/components/crm/calendar-bits';
 import { karachiAt, karachiParts, TZ } from '@/components/crm/when';
 import { WA_GREEN, WhatsAppMark } from '@/components/crm/whatsapp-mark';
 import { displayPhone } from '@/lib/domain/phone';
@@ -237,19 +237,11 @@ export function AppointmentScheduler({
                 </span>
               </Field>
               <Field label="Time" icon={Clock3}>
-                <select
-                  value={`${String(p.h).padStart(2, '0')}:${String(p.mi).padStart(2, '0')}`}
-                  onChange={(e) => {
-                    const [h, mi] = e.target.value.split(':').map(Number);
-                    set({ at: karachiAt(p.y, p.m, p.d, h, mi) });
-                  }}
-                  aria-label="Time"
-                  className="w-full bg-transparent text-body-sm text-text-primary focus:outline-none"
-                >
-                  {timeOptions().map((t) => (
-                    <option key={t.value} value={t.value}>{t.label}</option>
-                  ))}
-                </select>
+                <TimeInput
+                  h={p.h}
+                  mi={p.mi}
+                  onChange={(h, mi) => set({ at: karachiAt(p.y, p.m, p.d, h, mi) })}
+                />
               </Field>
               {/* ⚠️ NOT A CHOICE. Everybody here works in one zone, and a second
                   one on this screen is a second way to book the wrong hour. */}
