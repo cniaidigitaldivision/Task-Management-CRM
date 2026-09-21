@@ -10,8 +10,25 @@
  * and in the bell.
  * ========================================================================= */
 
-/** More agent messages than this since a person last wrote is too long alone. */
-export const MAX_AGENT_RUN = 8;
+/* ── ⚠️ THERE IS NO LONGER A MESSAGE LIMIT ───────────────────────────────────
+ * There was one: eight agent replies since a person last wrote, then a
+ * handover. Owner, 2026-09-22:
+ *
+ *   *"I just want it to keep engaging the client unless the salesperson is
+ *   available. I don't want to put any limit on that… The purpose of an AI
+ *   agent is to keep engaging the client. He will feel that someone is
+ *   responding to me, giving me time, and putting in effort for me."*
+ *
+ * ⚠️ AND IT CANNOT RUN AWAY WITHOUT ONE. The agent only ever acts on an INBOUND
+ * message (the webhook calls it once per client message, and a newer message
+ * supersedes an older run), so a long conversation means the client wrote that
+ * many times. There is no loop to bound — the old ceiling only ever cut a
+ * client short mid-conversation.
+ *
+ * What still stops it: everything in `handoverBeforeModel` below, and the
+ * model's own handover rules — a person, a call, a discount, a commitment, a
+ * complaint, a fact nothing approved supports.
+ * ========================================================================= */
 
 const WANTS_A_PERSON = [
   /\b(call me|give me a call|phone me|ring me)\b/i,
@@ -38,7 +55,13 @@ export interface GuardInput {
   readonly kind: string;
   readonly body: string | null;
   readonly voice: boolean;
-  /** Agent messages since a person last wrote in this thread. */
+  /**
+   * Agent messages since a person last wrote in this thread.
+   *
+   * ⚠️ KEPT, THOUGH NOTHING REFUSES ON IT ANY MORE — it is how a screen can say
+   * "the assistant has answered 14 times here" without asking the database a
+   * second question, and how a future rule would be written if one is wanted.
+   */
   readonly agentRunLength: number;
 }
 
@@ -63,8 +86,5 @@ export function handoverBeforeModel(m: GuardInput): string | null {
   const text = (m.body ?? '').trim();
   if (!text) return 'sent an empty message';
   if (WANTS_A_PERSON.some((re) => re.test(text))) return 'asked to speak to a person';
-  if (m.agentRunLength >= MAX_AGENT_RUN) {
-    return `the assistant has sent ${m.agentRunLength} messages without a person — time for a salesperson`;
-  }
   return null;
 }

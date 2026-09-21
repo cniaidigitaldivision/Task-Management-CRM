@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { handoverBeforeModel, MAX_AGENT_RUN } from '../crm-agent-guard';
+import { handoverBeforeModel } from '../crm-agent-guard';
 
 /* ============================================================================
  * WHEN THE AGENT HANDS OVER WITHOUT ASKING ANY MODEL
@@ -50,9 +50,12 @@ describe('handoverBeforeModel', () => {
     expect(handoverBeforeModel(text(msg))).toBeNull();
   });
 
-  it('⚠️ stops a long run with no person in it', () => {
-    expect(handoverBeforeModel(text('and what about reports?', MAX_AGENT_RUN - 1))).toBeNull();
-    expect(handoverBeforeModel(text('and what about reports?', MAX_AGENT_RUN))).toMatch(/without a person/);
+  it('⚠️ never stops a long conversation — that is the whole point of it', () => {
+    /* ⚠️ NO CEILING ANY MORE (owner, 2026-09-22): the agent keeps the client
+       engaged until a salesperson steps in. It only ever answers an inbound
+       message, so a long run means the client wrote that many times. */
+    expect(handoverBeforeModel(text('and what about reports?', 7))).toBeNull();
+    expect(handoverBeforeModel(text('and what about reports?', 40))).toBeNull();
   });
 
   it('hands over an empty message rather than guessing at it', () => {
