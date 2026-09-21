@@ -564,6 +564,8 @@ export async function recordOutcomeAction(
 
   const closing = input.stage === 'won' || input.stage === 'lost';
   const reason = input.stage === 'lost' ? input.lostReason : null;
+  /* A callback or a visit time is the only next action this form sets now. */
+  const setsNext = !closing && input.nextActionAt !== null && input.nextAction.trim() !== '';
 
   const moved = await withUser(user.id, async (tx) => {
     const before = await tx`
@@ -580,10 +582,22 @@ export async function recordOutcomeAction(
              last_outcome_at = now(),
              last_outcome_by_id = ${user.id}::uuid,
              /* ⚠️ A CLOSED LEAD KEEPS NO NEXT ACTION. Leaving one there puts a
-                won deal back on somebody's "due today" every morning. */
-             next_action = ${closing ? null : input.nextAction.trim()},
-             next_action_type = ${closing ? null : input.nextActionType}::public.crm_next_action_kind,
-             next_action_at = ${closing ? null : input.nextActionAt}::timestamptz
+                won deal back on somebody's "due today" every morning.
+
+                ⚠️ AND AN OPEN ONE KEEPS ITS OWN (2026-09-21). The form no longer
+                asks for a next action — the owner: *"schedule follow-up or add a
+                task are the only things that should not be added"* — so it only
+                writes one when a callback or a visit time was given. Writing the
+                empty field would wipe the next action a follow-up set. */
+             next_action = case when ${closing}::boolean then null
+                                when ${setsNext}::boolean then ${input.nextAction.trim()}
+                                else next_action end,
+             next_action_type = case when ${closing}::boolean then null
+                                     when ${setsNext}::boolean then ${input.nextActionType}::public.crm_next_action_kind
+                                     else next_action_type end,
+             next_action_at = case when ${closing}::boolean then null
+                                   when ${setsNext}::boolean then ${input.nextActionAt}::timestamptz
+                                   else next_action_at end
        where id = ${leadId}::uuid`;
 
     /* ── ⚠️ `closed_at` IS THE TRIGGER'S, NOT OURS ─────────────────────────
@@ -611,8 +625,8 @@ export async function recordOutcomeAction(
           to: input.stage,
           outcome: input.outcome,
           note: input.note.trim() || null,
-          next_action: closing ? null : input.nextAction.trim(),
-          next_action_at: closing ? null : input.nextActionAt,
+          next_action: setsNext ? input.nextAction.trim() : null,
+          next_action_at: setsNext ? input.nextActionAt : null,
         })}
       )`;
 

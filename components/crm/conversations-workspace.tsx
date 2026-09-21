@@ -26,7 +26,6 @@ import { LeadOverviewTab } from '@/components/crm/lead-overview-tab';
 import { RecordOutcome } from '@/components/crm/record-outcome';
 import { RelatedItemsDialog, seedRelated } from '@/components/crm/related-items';
 import { EditLeadDetails } from '@/components/crm/edit-lead-details';
-import { plannedSummary } from '@/lib/domain/crm-planned';
 import { nextSteps } from '@/lib/domain/crm-next-step';
 import { qualificationGaps } from '@/lib/domain/crm-qualification';
 import { AgentBadge } from '@/components/crm/agent-mode';
@@ -352,22 +351,6 @@ export function ConversationsWorkspace({
           leadName={active.fullName ?? 'this lead'}
           currentStage={bundle?.record.lead.stage ?? active.stage}
           proposedStage={outcomeStage}
-          /* ⚠️ ONLY WHEN THE BUNDLE HAS ARRIVED. A conversation row does not
-             carry the next action or the sequence, and guessing that a lead has
-             nothing planned would put the old demand back in a new place. Until
-             it lands the form asks, which is the safe direction. */
-          planned={
-            bundle
-              ? plannedSummary({
-                  nextAction: bundle.record.lead.nextAction,
-                  nextActionAt: bundle.record.lead.nextActionAt,
-                  sequence: bundle.related.sequence,
-                  followUps: bundle.related.followUps,
-                  appointments: bundle.related.appointments,
-                  nowMs,
-                })
-              : null
-          }
           onClose={() => setOutcomeStage(null)}
         />
       )}

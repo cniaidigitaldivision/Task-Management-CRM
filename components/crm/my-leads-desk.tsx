@@ -29,7 +29,6 @@ import type {
   CrmLeadRow,
   CrmProjectOption,
 } from '@/lib/db/queries/crm-leads';
-import { plannedSummary } from '@/lib/domain/crm-planned';
 import { STAGE_ORDER, stageLabel, stageToken } from '@/lib/domain/crm-stages';
 import { leadPriority, priorityLabel, priorityToken } from '@/lib/domain/lead-priority';
 import { sourceDetail, sourceLabel } from '@/lib/domain/lead-source';
@@ -813,24 +812,6 @@ export function MyLeadsDesk({
           leadName={shownRows.find((r) => r.id === outcomeFor.id)?.fullName ?? 'this lead'}
           currentStage={shownRows.find((r) => r.id === outcomeFor.id)?.stage ?? 'new'}
           proposedStage={outcomeFor.stage}
-          /* ⚠️ THE ROW KNOWS LESS THAN THE DRAWER, and that is fine: it has the
-             next action and the sequence, which is what a plan usually is. What it
-             cannot see it does not claim, so the form asks. */
-          planned={(() => {
-            const row = shownRows.find((r) => r.id === outcomeFor.id);
-            return row
-              ? plannedSummary({
-                  nextAction: row.nextAction,
-                  nextActionAt: row.nextActionAt,
-                  sequence: {
-                    state: row.sequenceState,
-                    step: row.sequenceStep ?? 0,
-                    total: row.sequenceTotal ?? 0,
-                  },
-                  nowMs,
-                })
-              : null;
-          })()}
           onClose={closeOutcome}
         />
       )}

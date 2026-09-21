@@ -106,12 +106,6 @@ describe('what the form must refuse', () => {
     expect(ok).toHaveLength(0);
   });
 
-  it('⚠️ an open lead leaving the form with nothing planned', () => {
-    /* The owner's own rule, and the one that keeps the desk honest: a lead with
-       no next action is one that goes quiet. */
-    const problems = outcomeProblems({ ...base, nextAction: '   ' });
-    expect(problems.some((p) => p.includes('next action'))).toBe(true);
-  });
 
   it('but a CLOSED lead needs no next action', () => {
     /* Requiring one on a won deal would put it back on somebody's "due today"
@@ -138,12 +132,14 @@ describe('what the form must refuse', () => {
 });
 
 /* ============================================================================
- * THE NEXT ACTION STOPS BEING COMPULSORY — 2026-09-19
+ * NO NEXT ACTION IS ASKED FOR — 2026-09-21
  * ----------------------------------------------------------------------------
- * Owner: *"The next action should not be compulsory when I manually change
- * something… maybe I have set some other follow-ups. I don't need these."*
+ * 2026-09-19: *"The next action should not be compulsory when I manually change
+ * something."* 2026-09-21, recording a visit as done: *"I explicitly told you to
+ * exclude all next steps… 'schedule follow-up' or 'add a task' are the only
+ * things that should not be added."*
  * ========================================================================= */
-describe('an open lead must have something coming — not necessarily a new one', () => {
+describe('the form never asks for a next action', () => {
   const base = {
     outcome: 'interested',
     stage: 'qualified',
@@ -153,40 +149,24 @@ describe('an open lead must have something coming — not necessarily a new one'
     contactConfirmed: false,
   };
 
-  it('still asks when nothing at all is planned', () => {
-    const problems = outcomeProblems(base);
-    expect(problems.some((p) => p.includes('next action'))).toBe(true);
+  it('⚠️ saves an open lead with nothing planned — the screenshot case: moved to Visited, "Visit done"', () => {
+    expect(outcomeProblems({ ...base, outcome: 'client_replied', stage: 'visited' })).toEqual([]);
+    expect(outcomeProblems(base)).toEqual([]);
   });
 
-  it('stops asking when the lead already has something scheduled', () => {
-    const problems = outcomeProblems({ ...base, alreadyPlanned: true });
-    expect(problems).toEqual([]);
+  it('does not ask "No response" for another attempt — this form schedules nothing', () => {
+    expect(outcomeProblems({ ...base, outcome: 'no_response', stage: 'contacted' })).toEqual([]);
   });
 
-  it('is satisfied by a next action typed on the form, as before', () => {
-    const problems = outcomeProblems({ ...base, nextAction: 'Call Monday' });
-    expect(problems).toEqual([]);
-  });
-
-  it('asks a caller that cannot tell, because not knowing is not the same as none', () => {
-    /* `alreadyPlanned` is optional; leaving it out must behave like false. */
-    expect(outcomeProblems(base).length).toBeGreaterThan(0);
-  });
-
-  it('never asks on a lead being closed', () => {
-    expect(outcomeProblems({ ...base, stage: 'won' })).toEqual([]);
-    expect(
-      outcomeProblems({ ...base, outcome: 'not_interested', stage: 'lost', lostReason: 'no_budget' }),
-    ).toEqual([]);
-  });
-
-  it('still enforces every other requirement when a plan exists', () => {
-    /* ⚠️ A PLAN EXCUSES THE NEXT ACTION AND NOTHING ELSE. "Call later" still
-       needs its time, and a lost lead still needs its reason. */
-    const late = outcomeProblems({ ...base, outcome: 'call_later', alreadyPlanned: true });
+  it('still asks for the time where the time IS the outcome', () => {
+    const late = outcomeProblems({ ...base, outcome: 'call_later' });
     expect(late.some((p) => p.toLowerCase().includes('call back'))).toBe(true);
+    const visit = outcomeProblems({ ...base, outcome: 'site_visit_requested', stage: 'visit_scheduled' });
+    expect(visit.some((p) => p.toLowerCase().includes('visit'))).toBe(true);
+  });
 
-    const lost = outcomeProblems({ ...base, outcome: 'not_interested', stage: 'lost', alreadyPlanned: true });
+  it('still needs a reason to close as lost', () => {
+    const lost = outcomeProblems({ ...base, outcome: 'not_interested', stage: 'lost' });
     expect(lost.some((p) => p.includes('reason'))).toBe(true);
   });
 });

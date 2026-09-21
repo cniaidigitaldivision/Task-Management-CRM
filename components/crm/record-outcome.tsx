@@ -34,7 +34,6 @@ import {
   outcomeRequires,
   suggestStage,
 } from '@/lib/domain/crm-outcomes';
-import type { PlannedThing } from '@/lib/domain/crm-planned';
 import { cn } from '@/lib/utils';
 
 /* ============================================================================
@@ -84,15 +83,6 @@ const OUTCOME_INK: Record<string, string> = {
   booking_confirmed: 'var(--feedback-success)',
 };
 
-const CHANNELS: ReadonlyArray<{ value: string; label: string }> = [
-  { value: 'whatsapp', label: 'WhatsApp' },
-  { value: 'call', label: 'WhatsApp call' },
-  { value: 'email', label: 'Email' },
-  { value: 'meeting', label: 'Meeting' },
-  { value: 'site_visit', label: 'Site visit' },
-  { value: 'task', label: 'Task' },
-];
-
 const MAX_NOTE = 1000;
 
 export function RecordOutcome({
@@ -100,7 +90,6 @@ export function RecordOutcome({
   leadName,
   currentStage,
   proposedStage,
-  planned = null,
   onClose,
 }: {
   leadId: string;
@@ -117,14 +106,6 @@ export function RecordOutcome({
    * lead being edited, and left the filter on after a cancel.
    */
   proposedStage?: string;
-  /**
-   * What this lead ALREADY has coming, from `plannedSummary`.
-   *
-   * ⚠️ NULL MEANS "NOTHING IS SCHEDULED", and the form asks for a next action
-   * exactly as it always has. A caller that cannot work it out passes nothing and
-   * gets the old behaviour, which is the safe direction to be wrong in.
-   */
-  planned?: PlannedThing | null;
   /** Hides the dialog at once; the caller owns whether it is on screen. */
   onClose: () => void;
 }) {
@@ -140,9 +121,7 @@ export function RecordOutcome({
     () => proposedStage ?? suggestStage('client_replied', currentStage),
   );
   const [stageTouched, setStageTouched] = React.useState(proposedStage !== undefined);
-  const [plan, setPlan] = React.useState<'follow_up' | 'task'>('follow_up');
-  const [nextAction, setNextAction] = React.useState('');
-  const [nextActionType, setNextActionType] = React.useState('whatsapp');
+  /* Only for the outcomes whose time IS the outcome — see `outcomeRequires`. */
   const [when, setWhen] = React.useState('');
   const [lostReason, setLostReason] = React.useState('');
   const [note, setNote] = React.useState('');
@@ -166,16 +145,25 @@ export function RecordOutcome({
   const needs = outcomeRequires(outcome);
   const closing = stage === 'won' || stage === 'lost';
   const atMs = when ? fromInputValue(when) : null;
-  const nextActionAt = atMs !== null ? new Date(atMs).toISOString() : '';
+  /* ⚠️ A TIME LEFT IN THE FIELD BY AN OUTCOME THAT NO LONGER ASKS FOR ONE IS
+     NOT SENT. Picking "Call later", choosing Tuesday, then switching to
+     "Interested" must not quietly book Tuesday. */
+  const timed = needs.includes('time') && !closing;
+  const nextActionAt = timed && atMs !== null ? new Date(atMs).toISOString() : '';
+  const timedAction =
+    outcome === 'call_later'
+      ? { text: 'Call back', type: 'call' }
+      : outcome === 'site_visit_requested'
+        ? { text: 'Site visit', type: 'site_visit' }
+        : null;
 
   const problems = outcomeProblems({
     outcome,
     stage,
     nextActionAt: nextActionAt || null,
-    nextAction,
+    nextAction: nextActionAt && timedAction ? timedAction.text : '',
     lostReason: lostReason || null,
     contactConfirmed,
-    alreadyPlanned: planned != null,
   });
   /* The owner's design marks Notes required, and it is right: an outcome with no
      words is a row in the timeline nobody can act on a week later. */
@@ -199,8 +187,10 @@ export function RecordOutcome({
     const result = await recordOutcomeAction(leadId, {
       outcome,
       stage,
-      nextAction,
-      nextActionType: closing || plan === 'task' ? null : nextActionType,
+      /* Nothing unless a callback or a visit time was given — and then the
+         lead's next action says so. Otherwise the lead's own is left alone. */
+      nextAction: nextActionAt && timedAction ? timedAction.text : '',
+      nextActionType: nextActionAt && timedAction ? timedAction.type : null,
       nextActionAt: nextActionAt || null,
       lostReason: stage === 'lost' ? lostReason || null : null,
       note,
@@ -388,49 +378,16 @@ export function RecordOutcome({
               />
             </label>
 
-            {/* ── What happens next ─────────────────────────────────────── */}
-            {!closing && (
+            {/* ⚠️ NO "NEXT ACTION" HERE (2026-09-21). Owner: *"this next action,
+                like 'schedule follow-up' or 'add a task,' are the only things
+                that should not be added."* A time is asked for only where it is
+                the outcome itself — when to call back, when the visit is. */}
+            {!closing && needs.includes('time') && (
               <div>
                 <span className="mb-1.5 block text-body-sm font-semibold text-text-primary">
-                  Next action{planned ? ' (optional)' : ''}
+                  {outcome === 'call_later' ? 'Call back at' : 'Visit at'} <span className="text-feedback-error">*</span>
                 </span>
-                {/* ⚠️ SAID, NOT SILENTLY RELAXED. A field that stops being required
-                    with no explanation reads as a bug; and naming what is already
-                    coming is itself the answer to "do I need another one?" */}
-                {planned && (
-                  <p className="mb-2 rounded-lg bg-bg-subtle px-3 py-2 text-caption leading-relaxed text-text-secondary">
-                    Already scheduled:{' '}
-                    <span className="font-medium text-text-primary">{planned.what}</span>
-                    {planned.at ? ' · ' + formatWhen(planned.at) : ''}. Add another only if you want one.
-                  </p>
-                )}
-                <div className="flex flex-wrap items-center gap-4">
-                  {([
-                    ['follow_up', 'Schedule follow-up'],
-                    ['task', 'Add task only'],
-                  ] as const).map(([value, label]) => (
-                    <label key={value} className="flex cursor-pointer items-center gap-2">
-                      <input
-                        type="radio"
-                        name="next-action-kind"
-                        checked={plan === value}
-                        onChange={() => setPlan(value)}
-                        className="size-4 accent-[var(--pick-mark)]"
-                      />
-                      <span className="text-body-sm text-text-primary">{label}</span>
-                    </label>
-                  ))}
-                </div>
-
-                <input
-                  type="text"
-                  value={nextAction}
-                  onChange={(e) => setNextAction(e.target.value)}
-                  placeholder={plan === 'task' ? 'What do you have to do?' : 'Call back about the corner plot'}
-                  className="mt-2 min-h-[2.4rem] w-full rounded-xl border border-border-default bg-bg-surface px-3 text-body-sm text-text-primary placeholder:text-text-tertiary focus:border-accent-primary focus:outline-none"
-                />
-
-                <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                <div className="grid gap-2 sm:grid-cols-2">
                   <Field icon={CalendarDays} label="Date">
                     <input
                       type="date"
@@ -448,25 +405,6 @@ export function RecordOutcome({
                       aria-label="Time"
                       className="w-full bg-transparent text-body-sm text-text-primary focus:outline-none"
                     />
-                  </Field>
-                  <Field
-                    icon={nextActionType === 'whatsapp' ? undefined : undefined}
-                    label="How"
-                    mark={nextActionType === 'whatsapp'}
-                  >
-                    <select
-                      value={nextActionType}
-                      onChange={(e) => setNextActionType(e.target.value)}
-                      aria-label="How"
-                      disabled={plan === 'task'}
-                      className="w-full bg-transparent text-body-sm text-text-primary focus:outline-none disabled:opacity-50"
-                    >
-                      {CHANNELS.map((c) => (
-                        <option key={c.value} value={c.value}>
-                          {c.label}
-                        </option>
-                      ))}
-                    </select>
                   </Field>
                 </div>
               </div>
@@ -537,15 +475,11 @@ export function RecordOutcome({
                 ? `Will remain ${stageLabel(currentStage)}.`
                 : `Moves from ${stageLabel(currentStage)} to ${stageLabel(stage)}.`}
             </Impact>
-            {!closing && (
-              <Impact icon={CalendarCheck} title={plan === 'task' ? 'Task created' : 'Next action created'}>
-                {atMs === null
-                  ? 'Choose a date and time below and it will be scheduled.'
-                  : plan === 'task'
-                    ? `${nextAction.trim() || 'A task'} on ${formatWhen(new Date(atMs).toISOString())}.`
-                    : `${nextAction.trim() || 'Follow-up'} on ${formatWhen(new Date(atMs).toISOString())} via ${
-                        CHANNELS.find((c) => c.value === nextActionType)?.label ?? nextActionType
-                      }.`}
+            {timed && (
+              <Impact icon={CalendarCheck} title={outcome === 'call_later' ? 'Callback booked' : 'Visit booked'}>
+                {nextActionAt
+                  ? `${outcome === 'call_later' ? 'Call back' : 'Site visit'} on ${formatWhen(nextActionAt)}.`
+                  : 'Choose the date and time and it will be booked.'}
               </Impact>
             )}
             <Impact icon={PauseCircle} title={pauseSequence ? 'Sequence paused' : 'Sequence untouched'}>

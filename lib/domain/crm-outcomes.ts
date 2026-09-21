@@ -53,8 +53,9 @@ const META: Record<CrmOutcome, OutcomeMeta> = {
     label: 'No response',
     suggests: null,
     token: 'neutral-500',
-    requires: ['time'],
-    impact: 'Keeps the stage as it is and schedules another attempt.',
+    /* 2026-09-21 · no longer asks for a time: this form schedules nothing. */
+    requires: [],
+    impact: 'Keeps the stage as it is. Any running sequence carries on unless you pause it.',
   },
   interested: {
     label: 'Interested',
@@ -157,14 +158,6 @@ export function outcomeProblems(input: {
   nextAction: string | null;
   lostReason: string | null;
   contactConfirmed: boolean;
-  /**
-   * Whether this lead ALREADY has something coming — see `crm-planned.ts`.
-   *
-   * ⚠️ DEFAULTS TO FALSE, so a caller that cannot tell still gets asked. "I do
-   * not know of a plan" and "there is no plan" must behave the same way here;
-   * the expensive mistake is letting a lead through with nothing.
-   */
-  alreadyPlanned?: boolean;
 }): string[] {
   const problems: string[] = [];
   const needs = outcomeRequires(input.outcome);
@@ -173,7 +166,7 @@ export function outcomeProblems(input: {
     problems.push(
       input.outcome === 'call_later'
         ? 'Choose when to call back — that is what "call later" means.'
-        : 'Choose a date and time for the next attempt.',
+        : 'Choose the date and time of the visit.',
     );
   }
 
@@ -187,22 +180,18 @@ export function outcomeProblems(input: {
     );
   }
 
-  /* ── ⚠️ THE RULE IS "NOTHING GOES QUIET", NOT "TYPE SOMETHING NOW" ─────────
-     The owner's original rule was *"every open lead should leave the form with a
-     next action"*, and this asked whether they had typed one — so a lead with a
-     three-step sequence running was told to invent a fourth thing.
+  /* ── ⚠️ NO NEXT ACTION IS ASKED FOR, EVER ──────────────────────────────────
+     It began as *"every open lead should leave the form with a next action"*,
+     was relaxed on 2026-09-19 to "unless something is already planned", and on
+     2026-09-21 the owner removed it outright, recording a visit as done:
 
-     Owner, 2026-09-19: *"The next action should not be compulsory when I manually
-     change something… maybe I have set some other follow-ups. I don't need these
-     follow-ups."* Right, and the intent survives: what must be true is that
-     SOMETHING is coming, whether it was typed here or set an hour ago.
+       *"I explicitly told you to exclude all next steps. Just one pause in the
+       active sequence is fine but this next action, like 'schedule follow-up'
+       or 'add a task,' are the only things that should not be added. This is
+       just to update the visit scheduler or this type of thing."*
 
-     ⚠️ Still enforced here rather than in the database — 629 existing leads have
-     no next action, and a constraint would refuse every future update to them. */
-  const closing = input.stage === 'won' || input.stage === 'lost';
-  if (!closing && !input.alreadyPlanned && !input.nextAction?.trim()) {
-    problems.push('Set the next action — nothing is scheduled for this lead yet, and one with nothing planned goes quiet.');
-  }
-
+     Follow-ups are scheduled in the follow-up wizard. This form records what
+     happened and moves the stage — and asks for a time only where the time IS
+     the outcome: a callback, or a visit being booked. */
   return problems;
 }
