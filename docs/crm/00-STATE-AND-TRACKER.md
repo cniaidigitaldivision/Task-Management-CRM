@@ -13,6 +13,49 @@
 
 ---
 
+## 🧭 2026-09-21 — WHY IT FEELS SLOW, MEASURED (AND WHAT WAS DONE)
+
+Owner: *"the system is getting very, very slow … switching between two pages
+consecutively is fine … but when I open some page it takes a lot of time."*
+Measured, not guessed (d3b1017, d25ba49).
+
+| | |
+|---|---|
+| A page's server time, localhost | 5,100–6,300 ms |
+| Its payload / download | 18 kB / **5 ms** |
+| One round trip, Karachi → the pooler in Singapore | **113 ms** |
+| One `withUser` (BEGIN, set_config, query, COMMIT = 4 trips) | **450–570 ms** |
+| The layout's wave, pool warm | 456 ms |
+| The same after 25s idle | **1,305 ms** |
+
+⚠️ **It is geography, not data** (2 appointments, 21 leads). Production runs on
+Vercel in `sin1`, beside the database, where that 113 ms is about 1 ms.
+
+Done:
+- **The dev pool stops being rebuilt.** `idle_timeout` 20s → 300s in dev and the
+  handle is cached on `globalThis`, so a pause and a hot reload no longer cost a
+  TLS handshake per connection. Measured after: 1,305 ms → **526 ms**.
+- **One fewer wave per page.** `requireCrmAccess` / `requireCrmReports` run the
+  enrolment check and the department read together; the layout puts the
+  department read in the same wave as its seven sidebar reads. Refusals are
+  unchanged — a redirect still throws through `Promise.all`, and
+  `getCurrentDepartment` fails closed.
+- ⚠️ **The A/B on dev is too noisy to quote** (a recompile put /dashboard at
+  16.8s); the saving is one ~500 ms wave, and the honest advice is to judge
+  speed on the deployed site.
+
+The smoke test was repaired to prove it (it is the "nothing broke" evidence):
+it could not run at all since its `@cni-demo.com` accounts were deleted, two
+markers were text no page renders, and it never opened the CRM. Now
+`/my-leads`, `/appointments`, `/conversations` and `/knowledge` all pass for an
+admin and are refused for a member outside sales. `npm run smoke` /
+`node scripts/perf.mjs` (PERF_EMAIL=…) both work again.
+
+⚠️ **Open for the owner:** `/security` guards at `admin` in its layout and page,
+while the smoke table says `super_admin+`. One of the two is wrong; not changed.
+
+---
+
 ## 🧭 2026-09-21 — 245 · 244 REVERSED: CHANGING AN APPOINTMENT IS THE SALESPERSON'S
 
 Owner, an hour after 244: *"the change of appointment should be … the
