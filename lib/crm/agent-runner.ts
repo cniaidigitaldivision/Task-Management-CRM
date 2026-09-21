@@ -117,14 +117,22 @@ async function bookingOffer(ownerId: string, leadId: string) {
     startMs: new Date(d.starts_at).getTime(),
     minutes: Number(d.minutes),
   }));
-  const kinds: readonly AgentBookingKind[] = ['meeting', 'site_visit'];
+  const kinds: readonly AgentBookingKind[] = ['meeting', 'office_visit', 'site_visit'];
   const starts = Object.fromEntries(
     kinds.map((k) => [k, freeStarts(nowMs, busy, AGENT_MINUTES[k])]),
   ) as Record<AgentBookingKind, number[]>;
   const coming = (existing as unknown as Array<{ kind: string; starts_at: Date }>)[0];
   return {
-    lines: { meeting: availabilityLines(starts.meeting), site_visit: availabilityLines(starts.site_visit) },
-    starts: { meeting: starts.meeting.map(toKarachiLocal), site_visit: starts.site_visit.map(toKarachiLocal) },
+    lines: {
+      meeting: availabilityLines(starts.meeting),
+      office_visit: availabilityLines(starts.office_visit),
+      site_visit: availabilityLines(starts.site_visit),
+    },
+    starts: {
+      meeting: starts.meeting.map(toKarachiLocal),
+      office_visit: starts.office_visit.map(toKarachiLocal),
+      site_visit: starts.site_visit.map(toKarachiLocal),
+    },
     existing: coming
       ? `a ${coming.kind === 'meeting' ? 'demo' : coming.kind.replace('_', ' ')} on ${describeKarachi(new Date(coming.starts_at).getTime())}`
       : null,
@@ -285,7 +293,7 @@ export async function runAgentOnMessage(
         const atMs = parseKarachiLocal(decision.booking.at)!;
         const line = decision.booking.replyConfirms && decision.reply
           ? decision.reply
-          : `Your ${decision.booking.kind === 'meeting' ? 'demo' : 'site visit'} is booked for ${describeKarachi(atMs)}.`;
+          : `Your ${decision.booking.kind === 'meeting' ? 'demo' : decision.booking.kind.replace('_', ' ')} is booked for ${describeKarachi(atMs)}.`;
         const said = await sendText(config, ctx.phone, line);
         await withAppRole((tx) => tx`
           select app.crm_agent_record_message(${ctx.lead_id}::uuid, ${said.wamid ?? null}, 'text', ${line},

@@ -116,8 +116,8 @@ describe('validateDecision', () => {
      is not working." The model is shown free times; the code checks it chose one. */
   describe('⚠️ booking a demo or a visit', () => {
     const OFFER = {
-      lines: { meeting: ['Wednesday 23 September (2026-09-23): any half hour from 10:00 AM to 4:30 PM'], site_visit: [] },
-      starts: { meeting: ['2026-09-23T15:00', '2026-09-23T15:30'], site_visit: ['2026-09-24T11:00'] },
+      lines: { meeting: ['Wednesday 23 September (2026-09-23): any half hour from 10:00 AM to 4:30 PM'], office_visit: [], site_visit: [] },
+      starts: { meeting: ['2026-09-23T15:00', '2026-09-23T15:30'], office_visit: ['2026-09-23T14:00'], site_visit: ['2026-09-24T11:00'] },
       existing: null as string | null,
       today: 'Monday 21 September 2026, 3:00 PM',
     };
@@ -149,6 +149,11 @@ describe('validateDecision', () => {
 
     it('⚠️ hands over "booked" with no time at all', () => {
       expect(decide(null, true).action).toBe('handover');
+    });
+
+    it('⚠️ books an office visit when the client wants to come to our office', () => {
+      expect(decide({ kind: 'office_visit', at: '2026-09-23T14:00' }, true).booking)
+        .toEqual({ kind: 'office_visit', at: '2026-09-23T14:00', replyConfirms: true });
     });
 
     it('⚠️ never books a call', () => {

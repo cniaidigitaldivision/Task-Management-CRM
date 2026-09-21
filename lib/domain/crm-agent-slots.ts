@@ -25,11 +25,15 @@
 
 import { OFFICE } from '@/lib/domain/crm-office-hours';
 
-export type AgentBookingKind = 'meeting' | 'site_visit';
+/* 242 · office_visit: the client comes to OUR office. Owner, 2026-09-21:
+   *"the client says 'please arrange a meeting for me in the office' … its type
+   should not be just 'meeting'. It should be 'office visit'."* */
+export type AgentBookingKind = 'meeting' | 'office_visit' | 'site_visit';
 
 /** How long each kind is booked for — the booking screen's own defaults. */
 export const AGENT_MINUTES: Readonly<Record<AgentBookingKind, number>> = {
   meeting: 45,
+  office_visit: 60,
   site_visit: 90,
 };
 

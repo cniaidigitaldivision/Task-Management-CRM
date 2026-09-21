@@ -6,6 +6,8 @@ vi.mock('@/app/actions/crm-lead-bundles', () => ({ leadBundlesAction: async () =
 vi.mock('@/app/actions/crm-appointments-board', () => ({
   saveAppointmentNotesAction: async () => ({ ok: true }),
   bookableLeadsAction: async () => [],
+  confirmAppointmentAction: async () => ({ ok: true }),
+  askClientToConfirmAction: async () => ({ ok: true, sent: true }),
 }));
 vi.mock('@/app/actions/crm-leads', () => ({
   closeAppointmentAction: async () => ({ ok: true }),
@@ -175,6 +177,32 @@ describe('a follow-up from the appointment (owner, 2026-09-21)', () => {
 
   it('says so when nothing is planned', () => {
     expect(render([row({ id: 'g' })])).toContain('Nothing planned for this lead yet.');
+  });
+});
+
+describe('confirming, from the page (owner, 2026-09-21)', () => {
+  it('an appointment the client has not confirmed offers both ways', () => {
+    const html = render([row({ id: 'w', status: 'scheduled', confirmationSent: true })]);
+    expect(html).toContain('The client has not confirmed yet');
+    expect(html).toContain('Mark confirmed');
+    expect(html).toContain('Ask again on WhatsApp');
+  });
+
+  it('one nobody has asked yet says so, and offers to ask', () => {
+    const html = render([row({ id: 'n', status: 'scheduled', confirmationSent: false })]);
+    expect(html).toContain('The client has not been asked yet');
+    expect(html).toContain('Ask on WhatsApp');
+  });
+
+  it('a confirmed one asks for nothing', () => {
+    const html = render([row({ id: 'c', status: 'confirmed' })]);
+    expect(html).not.toContain('Mark confirmed');
+    expect(html).not.toContain('has not confirmed yet');
+  });
+
+  it('a completed one asks for nothing either', () => {
+    const html = render([row({ id: 'd', status: 'completed', scheduledAt: new Date(NOW - 5 * H).toISOString() })]);
+    expect(html).not.toContain('Mark confirmed');
   });
 });
 

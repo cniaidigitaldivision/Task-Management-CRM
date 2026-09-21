@@ -53,7 +53,10 @@ export function handoverBeforeModel(m: GuardInput): string | null {
   if (m.kind === 'audio') {
     return m.voice ? 'sent a voice note — the assistant cannot listen to it' : 'sent an audio file';
   }
-  if (m.kind !== 'text') {
+  /* ⚠️ A STICKER IS A THUMBS-UP, NOT A FILE (owner, 2026-09-21: "a response to
+     a thank-you, such as any emoji, a smiley, or a thumbs up"). It goes to the
+     model like any message, and crm-agent-social answers it if the model will not. */
+  if (m.kind !== 'text' && m.kind !== 'sticker') {
     const what = KIND_WORDS[m.kind] ?? `a ${m.kind}`;
     return `sent ${what} — the assistant cannot see it`;
   }

@@ -17,6 +17,7 @@ import {
   FileText,
   Loader2,
   MapPin,
+  MessageCircleQuestion,
   Pencil,
   Plus,
   RotateCcw,
@@ -27,7 +28,11 @@ import {
 } from 'lucide-react';
 
 import { leadBundlesAction } from '@/app/actions/crm-lead-bundles';
-import { saveAppointmentNotesAction } from '@/app/actions/crm-appointments-board';
+import {
+  askClientToConfirmAction,
+  confirmAppointmentAction,
+  saveAppointmentNotesAction,
+} from '@/app/actions/crm-appointments-board';
 import { RescheduleAppointmentDialog, ScheduleAppointmentDialog } from '@/components/crm/appointment-schedule-dialog';
 import {
   CalendarMonth,
@@ -214,6 +219,43 @@ export function AppointmentsBoard({
   };
   const byId = (id: string) => rows.find((a) => a.id === id) ?? null;
 
+  /* ⚠️ 243 · CONFIRMING, AND SAYING WHICH ONE IS IN FLIGHT. Two buttons, one
+     row; a spinner on the one pressed rather than a dimmed panel. */
+  const [confirming, setConfirming] = React.useState<null | { id: string; how: 'mark' | 'ask' }>(null);
+
+  const markConfirmed = async (a: BoardAppointment) => {
+    setConfirming({ id: a.id, how: 'mark' });
+    /* The pill moves in this frame; the server follows (Rule Zero). */
+    patch(a.id, { status: 'confirmed' });
+    const r = await confirmAppointmentAction(a.id, a.leadId);
+    setConfirming(null);
+    if (!r.ok) {
+      patch(a.id, { status: a.status });
+      toast({ tone: 'error', text: r.error ?? 'That could not be confirmed.' });
+      return;
+    }
+    toast({ tone: 'ok', text: 'Confirmed. The client was not messaged.' });
+    refresh();
+  };
+
+  const askToConfirm = async (a: BoardAppointment) => {
+    setConfirming({ id: a.id, how: 'ask' });
+    const r = await askClientToConfirmAction(a.id, a.leadId);
+    setConfirming(null);
+    if (!r.ok) {
+      toast({ tone: 'error', text: r.error ?? 'That message could not be sent.' });
+      return;
+    }
+    patch(a.id, { confirmationSent: true });
+    toast({
+      tone: 'ok',
+      text: r.sent
+        ? 'Sent — the client can tap Confirm or Change the time.'
+        : 'Queued — it goes out on the next run of the sender.',
+    });
+    refresh();
+  };
+
   /* ── Notes, edited in place ───────────────────────────────────────────── */
   const [editing, setEditing] = React.useState<{ id: string; text: string } | null>(null);
   const [savingNote, setSavingNote] = React.useState(false);
@@ -256,6 +298,11 @@ export function AppointmentsBoard({
         ensureBundle(a.leadId);
         setDialog({ kind: 'followup', leadId: a.leadId });
       },
+      /* Not yet confirmed and still to come — both ways are worth offering. */
+      needsConfirming: live && s !== 'confirmed',
+      confirming: confirming?.id === a.id ? confirming.how : null,
+      markConfirmed: () => void markConfirmed(a),
+      askToConfirm: () => void askToConfirm(a),
     };
   };
 
@@ -271,6 +318,12 @@ export function AppointmentsBoard({
       },
       { label: 'View lead', onSelect: () => openLead(a.leadId) },
       { label: 'Add follow-up', onSelect: act.followUp },
+      ...(act.needsConfirming
+        ? [
+            { label: 'Mark confirmed', onSelect: act.markConfirmed },
+            { label: 'Ask client to confirm', onSelect: act.askToConfirm },
+          ]
+        : []),
       ...(act.live
         ? [
             { label: 'Reschedule', onSelect: act.reschedule },
@@ -304,6 +357,10 @@ export function AppointmentsBoard({
       onEditOutcome: act.editOutcome,
       onBookAnother: act.bookAnother,
       onFollowUp: act.followUp,
+      needsConfirming: act.needsConfirming,
+      confirming: act.confirming,
+      onMarkConfirmed: act.markConfirmed,
+      onAskToConfirm: act.askToConfirm,
     };
   };
 
@@ -719,6 +776,10 @@ function DetailsPanel({
   onEditOutcome,
   onBookAnother,
   onFollowUp,
+  needsConfirming,
+  confirming,
+  onMarkConfirmed,
+  onAskToConfirm,
   onClose,
 }: {
   a: BoardAppointment | null;
@@ -738,6 +799,11 @@ function DetailsPanel({
   onEditOutcome: () => void;
   onBookAnother: () => void;
   onFollowUp: () => void;
+  /** 243 · still to come and not confirmed by the client. */
+  needsConfirming: boolean;
+  confirming: 'mark' | 'ask' | null;
+  onMarkConfirmed: () => void;
+  onAskToConfirm: () => void;
   /** Only in the "View details" modal. */
   onClose?: () => void;
 }) {
@@ -780,6 +846,50 @@ function DetailsPanel({
         <Fact icon={User} label="Consultant" value={consultant} />
         <Fact icon={Bell} label="Reminder" value={reminderLine(a.scheduledAt, a.reminderStatus, a.reminderAt)} />
       </dl>
+
+      {/* ── 243 · Confirming, where a salesperson looks for it ───────────── */}
+      {needsConfirming && (
+        <div
+          className="mt-4 rounded-xl border px-3.5 py-3"
+          style={{
+            background: 'color-mix(in oklab, var(--feedback-warning) 8%, var(--bg-surface))',
+            borderColor: 'color-mix(in oklab, var(--feedback-warning) 30%, var(--border-default))',
+          }}
+        >
+          <p className="text-body-sm font-semibold text-text-primary">
+            {a.confirmationSent ? 'The client has not confirmed yet' : 'The client has not been asked yet'}
+          </p>
+          <p className="mt-0.5 text-caption text-text-secondary">
+            {a.confirmationSent
+              ? 'They were sent the time and have not tapped Confirm.'
+              : 'Send them the time so they can tap Confirm, or mark it yourself if they have already told you.'}
+          </p>
+          <div className="mt-2.5 flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={confirming !== null}
+              onClick={onMarkConfirmed}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-3 py-1.5 text-[0.8rem] font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+            >
+              {confirming === 'mark' ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <CheckCircle2 className="size-3.5" aria-hidden="true" />}
+              Mark confirmed
+            </button>
+            <button
+              type="button"
+              disabled={confirming !== null}
+              onClick={onAskToConfirm}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-bg-surface px-3 py-1.5 text-[0.8rem] font-semibold text-text-primary transition-colors hover:bg-bg-subtle disabled:opacity-50"
+            >
+              {confirming === 'ask' ? (
+                <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+              ) : (
+                <MessageCircleQuestion className="size-3.5" aria-hidden="true" />
+              )}
+              {a.confirmationSent ? 'Ask again on WhatsApp' : 'Ask on WhatsApp'}
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="mt-4 border-t border-border-subtle pt-3.5">
         <h3 className="text-body-sm font-semibold text-text-primary">Related items</h3>

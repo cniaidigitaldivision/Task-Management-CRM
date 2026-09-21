@@ -213,3 +213,30 @@ export async function crmSetAppointmentNotes(actorId: string, appointmentId: str
   `);
   return (rows as unknown[]).length > 0;
 }
+
+/**
+ * Mark an appointment confirmed — the client said yes, on a call or in the chat.
+ *
+ * ⚠️ AN ORDINARY UPDATE, SO RLS DECIDES (152). Nothing is sent: the client has
+ * already answered, and telling them again would be noise. Only a live
+ * appointment moves; a completed or cancelled one returns false.
+ */
+export async function crmConfirmAppointment(actorId: string, appointmentId: string): Promise<boolean> {
+  const rows = await withUser(actorId, (tx) => tx`
+    update public.crm_appointments
+       set status = 'confirmed'::public.crm_appointment_status, updated_at = now()
+     where id = ${appointmentId}::uuid
+       and status in ('scheduled', 'confirmed')
+       and scheduled_at > now()
+     returning id
+  `);
+  return (rows as unknown[]).length > 0;
+}
+
+/** Whether this caller may touch the appointment at all — RLS answers. */
+export async function crmCanSeeAppointment(actorId: string, appointmentId: string): Promise<boolean> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select 1 as ok from public.crm_appointments where id = ${appointmentId}::uuid
+  `);
+  return (rows as unknown[]).length > 0;
+}

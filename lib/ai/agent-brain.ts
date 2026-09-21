@@ -2,6 +2,7 @@ import 'server-only';
 
 import { chatgptKey } from '@/lib/ai/narrative';
 import type { AgentBookingKind } from '@/lib/domain/crm-agent-slots';
+import { socialKind, socialReply } from '@/lib/domain/crm-agent-social';
 
 /* ============================================================================
  * THE AGENT'S BRAIN — one decision per client message
@@ -100,17 +101,22 @@ Decide ONE of two things for the client's latest message(s):
   "reply"    — answer, using only KNOWLEDGE, optionally sending DOCUMENTS and scheduling one follow-up.
   "handover" — stop and pass to a person, with a short reason a salesperson can act on.
 
+TALK LIKE A PERSON FIRST — these are never a reason to hand over:
+- A greeting or small talk ("hi", "salam", "how are you"): greet back warmly and ask how you can help.
+- An opener that has not said what it wants yet ("I want to know one thing", "one more question", "can I ask something?", "are you there?"): reply in one short line inviting them to go on — "Sure, what would you like to know?" / "Of course, how can I help?".
+- A thank-you or a wrap-up ("thanks", "ok", "alright", "that's it", "no that's all", a thumbs up, a smiley, a sticker): reply with a short warm acknowledgement such as "You're welcome! 😊" or "Anytime 👍 — message us whenever you need." Mention what is already arranged if there is something (a booked meeting, a document just sent). Do not ask a new question and do not schedule a follow-up.
+
 HAND OVER (do not reply) when the client:
 - asks for a person or a phone call;
 - wants to change or cancel an appointment that is already booked;
 - asks for a discount, a lower price, custom pricing, payment terms not in KNOWLEDGE, or wants to negotiate price;
 - is ready to buy, pay or sign now;
 - complains, is upset, or the conversation is going badly;
-- asks anything whose answer is not in KNOWLEDGE.
+- asks a specific question whose answer is not in KNOWLEDGE (a greeting, a thank-you or "I want to ask something" is not such a question).
 
 BOOKING — a demo or a site visit, never a phone call. Follow these in order:
-1. A demo is kind "meeting". "Demo call", "online demo" and "presentation" are all demos. Only "call me" or "phone me" is a phone call — hand that over.
-2. WHENEVER the client names or picks a day and time for a demo or a visit, put it in "time_asked" as {"kind": "meeting" or "site_visit", "at": "YYYY-MM-DDTHH:MM"} (Karachi; "12 baje" on a working day is 12:00 noon; "3 pm" is 15:00). Fill it even if you think the time is not free — the system checks it and books it if it is.
+1. Which kind: the client coming to OUR office ("meeting in your office", "I will come to the office", "office visit") is kind "office_visit". Going out to a plot or a site is "site_visit". Anything else — a demo, an online meeting, a presentation, a "demo call" — is "meeting". Only "call me" or "phone me" is a phone call, and that is handed over.
+2. WHENEVER the client names or picks a day and time for a demo or a visit, put it in "time_asked" as {"kind": "meeting", "office_visit" or "site_visit", "at": "YYYY-MM-DDTHH:MM"} (Karachi; "12 baje" on a working day is 12:00 noon; "3 pm" is 15:00). Fill it even if you think the time is not free — the system checks it and books it if it is.
 3. If that time IS inside AVAILABLE TIMES: reply in one line that it is booked and set "reply_says_booked": true. Do not ask "shall I book it?".
 4. If it is NOT inside AVAILABLE TIMES (a Sunday, after office hours, a time already taken): say that time is not free, offer the two nearest listed times, and set "reply_says_booked": false. Do not hand over.
 5. The client asks for a demo or a visit without naming a time: offer two or three times from AVAILABLE TIMES and ask which suits them, written the way a person says them (Wednesday 23 September at 3:00 PM).
@@ -127,7 +133,7 @@ When you reply:
 - If you cannot tell which product they want, ask. Record it in "product" when they say.
 - If the conversation shows the client has moved on to another product, follow the conversation rather than CLIENT IS INTERESTED IN.
 - Do not send a document marked ALREADY SENT unless the client says they did not get it, cannot open it, or asks for it again. When they do, send it again with a short apology — that is not a complaint and not a reason to hand over.
-- Write in the SAME language and script the client uses (English, Urdu, or Roman Urdu). Warm, brief, professional. No markdown, no emoji, under 600 characters.
+- Write in the SAME language and script the client uses (English, Urdu, or Roman Urdu). Warm, brief, professional. No markdown. At most one emoji, and only in a greeting or a thank-you reply. Under 600 characters.
 - Do not sign with a name and never claim to be a human.
 
 Return JSON with exactly these keys:
@@ -136,9 +142,15 @@ Return JSON with exactly these keys:
   "documents": an array of DOCUMENTS ids to send (at most 2), or []
   "follow_up": {"purpose": one of "proposal","quotation","missing_information","no_response","meeting_feedback","negotiation","agreement", "in_days": 1-7} or null
   "product": "taskly","crm","erp","whatsapp" or null
-  "time_asked": {"kind": "meeting" or "site_visit", "at": "YYYY-MM-DDTHH:MM"} or null
+  "time_asked": {"kind": "meeting", "office_visit" or "site_visit", "at": "YYYY-MM-DDTHH:MM"} or null
   "reply_says_booked": true or false
   "handover_reason": short reason, or null`;
+
+const BOOKING_WORD: Readonly<Record<AgentBookingKind, string>> = {
+  meeting: 'demo',
+  office_visit: 'office visit',
+  site_visit: 'site visit',
+};
 
 /** 236 · what the model is told about booking — the free times, or that there are none. */
 function bookingBlock(b: AgentBrief): string[] {
@@ -146,8 +158,9 @@ function bookingBlock(b: AgentBrief): string[] {
     return ['AVAILABLE TIMES: none — you cannot book. Hand over a request for a demo or a visit.'];
   }
   const kinds: ReadonlyArray<[AgentBookingKind, string]> = [
-    ['meeting', 'Demo / meeting (45 minutes)'],
-    ['site_visit', 'Site visit (90 minutes)'],
+    ['meeting', 'Demo / online meeting (45 minutes)'],
+    ['office_visit', 'Office visit — the client comes to our office (60 minutes)'],
+    ['site_visit', 'Site visit — we meet them at the plot (90 minutes)'],
   ];
   return [
     /* ⚠️ TODAY, OR "TOMORROW" MEANS NOTHING. The first dry runs gave the model
@@ -229,12 +242,23 @@ export function validateDecision(
   context: {
     readonly leadProduct?: string | null;
     readonly latestClientText?: string | null;
+    /** 'text', 'sticker'… — a sticker is a thumbs-up, not a file. */
+    readonly latestClientKind?: string | null;
     readonly booking?: AgentBrief['booking'];
   } = {},
 ): AgentDecision {
-  const handover = (reason: string): AgentDecision => ({
-    action: 'handover', reply: null, documentIds: [], followUp: null, product: null, booking: null, handoverReason: reason,
-  });
+  /* ⚠️ A GREETING, AN OPENER OR A THANK-YOU IS NEVER HANDED OVER. Owner,
+     2026-09-21: "i want to know 1 thing" and "ammm no thats it thankyou" were
+     both passed to the salesperson. The prompt now says not to; when the model
+     does it anyway, the code answers the way a person would. */
+  const social = socialKind(context.latestClientText ?? null, context.latestClientKind ?? 'text');
+  const handover = (reason: string): AgentDecision =>
+    social
+      ? {
+          action: 'reply', reply: socialReply(social, context.latestClientText ?? null), documentIds: [], followUp: null,
+          product: null, booking: null, handoverReason: null,
+        }
+      : { action: 'handover', reply: null, documentIds: [], followUp: null, product: null, booking: null, handoverReason: reason };
   if (typeof raw !== 'object' || raw === null) return handover('the assistant could not decide what to say');
   const r = raw as Record<string, unknown>;
 
@@ -318,8 +342,10 @@ export function validateDecision(
     const at = String(asked.at ?? '').trim();
     const offer = context.booking;
     if (!offer) return { ...handover('asked to book an appointment, which the assistant cannot do for this lead'), product };
-    if (kind !== 'meeting' && kind !== 'site_visit') return { ...handover(`asked for a ${kind || 'booking'} the assistant does not book`), product };
-    const what = kind === 'meeting' ? 'demo' : 'site visit';
+    if (kind !== 'meeting' && kind !== 'site_visit' && kind !== 'office_visit') {
+      return { ...handover(`asked for a ${kind || 'booking'} the assistant does not book`), product };
+    }
+    const what = BOOKING_WORD[kind];
     if (offer.existing) return { ...handover(`wants a ${what} but already has ${offer.existing}`), product };
     if (offer.starts[kind].includes(at)) {
       booking = { kind, at, replyConfirms: says };
@@ -385,6 +411,7 @@ export async function decideAgentReply(brief: AgentBrief): Promise<AgentDecision
   return validateDecision(parsed, brief.documents, {
     leadProduct: brief.product,
     latestClientText: latest?.body ?? null,
+    latestClientKind: latest?.kind ?? 'text',
     booking: brief.booking ?? null,
   });
 }
