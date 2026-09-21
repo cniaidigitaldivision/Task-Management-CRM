@@ -91,19 +91,20 @@ export interface PlanStep {
  * sequences and delivers what may go out: free text on WhatsApp inside the
  * 24-hour window, an approved template outside it, email at any time.
  *
- * ⚠️ AND IT IS STILL NARROWED BY THE ENGINE, NEVER WIDENED. A step marked
- * auto-send that would be free text outside the window is handed back to a
- * person (`review_first`) rather than attempted — the screen says so before
- * anybody chooses it.
+ * ⚠️ NOTHING IS HANDED BACK FOR REVIEW ANY MORE (234). Owner, 2026-09-21:
+ * *"If I am scheduling any follow-up it means that I have reviewed it and I am
+ * intentionally putting that follow-up. Don't put any follow-up in the review."*
+ * Outside the window the sender uses the approved template for the step's
+ * purpose — the step's own, or the one `templateForPurpose` picks when it goes.
+ * `review_first` stays in the type only because old rows carry it.
  */
 export const DELIVERY_CHOICES: ReadonlyArray<{
   key: PlanMode;
   label: string;
   detail: string;
 }> = [
-  { key: 'remind_me', label: 'Remind me', detail: 'Set a reminder to follow up later. Nothing is sent.' },
-  { key: 'review_first', label: 'Review first', detail: 'The message is drafted and waits for you to press send.' },
   { key: 'auto_send', label: 'Auto-send', detail: 'Sent automatically at the time you choose.' },
+  { key: 'remind_me', label: 'Remind me', detail: 'Set a reminder to follow up later. Nothing is sent.' },
 ];
 
 export interface LeadFacts {
@@ -371,7 +372,7 @@ const SUBJECT: Record<FollowUpPurpose, string> = {
  * date that is not already a row — the guardrail that `lib/ai/reply-suggestion.ts`
  * learned the hard way.
  */
-export function suggestedPlan(purpose: FollowUpPurpose, delivery: PlanMode = 'review_first'): readonly PlanStep[] {
+export function suggestedPlan(purpose: FollowUpPurpose, delivery: PlanMode = 'auto_send'): readonly PlanStep[] {
   /* ⚠️ THE PLAN'S DELIVERY WINS ON A MESSAGE STEP, but a call or a task is
      always a person's — a machine cannot ring somebody. */
   const review: PlanMode = delivery;

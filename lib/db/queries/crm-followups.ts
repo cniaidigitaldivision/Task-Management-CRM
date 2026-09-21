@@ -81,6 +81,7 @@ export async function createFollowUp(
      * was written `remind_me`** however the person set it. The owner set one to
      * auto-send on 2026-09-18 and asked whether it would go: it would not have.
      */
+    /** `review_first` is accepted from an old screen and stored as auto-send (234). */
     mode?: 'remind_me' | 'review_first' | 'auto_send';
     /**
      * The approved template to use when the 24-hour window is shut.
@@ -109,24 +110,17 @@ export async function createFollowUp(
          wa_template_name, wa_template_language, wa_template_vars)
       select l.id, ${input.purpose ?? 'custom'}::public.crm_followup_purpose,
              ${input.channel}::public.crm_followup_channel,
-             /* ⚠️ WHATSAPP WILL NOT AUTO-SEND FREE TEXT INTO A CLOSED WINDOW, so a
-                step that would be refused is stored as one a PERSON reviews — the
-                same downgrade 187 applies to a sequence step, decided in one place
-                rather than discovered by a failed send.
-
-                ⚠️ BUT AN APPROVED TEMPLATE IS EXACTLY THE WAY IN. The old rule
-                ended "a single follow-up has no template to fall back on", which
-                was true until 220 gave every follow-up its own template columns.
-                It stayed, and went on downgrading auto-send on every lead whose
-                window had shut. With a template, a closed window is not a reason
-                to wake somebody up. */
+             /* ⚠️ NOTHING IS STORED FOR REVIEW (234). Owner, 2026-09-21: *"If I
+                am scheduling any follow-up it means that I have reviewed it… Don't
+                put any follow-up in the review."* A closed 24-hour window used to
+                turn auto-send into "you send it"; the sender now uses the approved
+                template for the purpose instead (the row's own, or the one it
+                picks when it goes). What cannot send — a call, a task — is a
+                reminder, which is what it always was. */
              (case
-                when ${input.mode ?? 'remind_me'} <> 'auto_send' then ${input.mode ?? 'remind_me'}
-                when ${input.channel} = 'email' then 'auto_send'
-                when ${input.channel} <> 'whatsapp' then 'remind_me'
-                when app.crm_window_is_open(l.id) then 'auto_send'
-                when ${template?.name ?? ''} <> '' then 'auto_send'
-                else 'review_first'
+                when ${input.mode ?? 'remind_me'} = 'remind_me' then 'remind_me'
+                when ${input.channel} in ('whatsapp', 'email') then 'auto_send'
+                else 'remind_me'
               end)::public.crm_followup_mode,
              (case when ${input.dueAt}::timestamptz <= now() then 'due' else 'planned' end)::public.crm_followup_status,
              ${input.title}, ${input.body}, ${input.dueAt}::timestamptz,

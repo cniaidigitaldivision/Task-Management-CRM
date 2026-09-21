@@ -759,11 +759,13 @@ export async function requestFromManager(
             ${lead.id}::uuid,
             ${input.kind === 'quote' ? 'quotation' : 'custom'}::public.crm_followup_purpose,
             'task'::public.crm_followup_channel,
-            /* ⚠️ review_first, NEVER auto_send. A person decides what a new
-               quotation says; nothing about this may be sent by machine.
+            /* ⚠️ remind_me, NEVER auto_send. A person decides what a new
+               quotation says; nothing about this may be sent by machine. It is
+               a task on the manager's list — a reminder, not a draft to review
+               (234: nothing is stored for review any more).
                (No backticks in this comment: the file is a JS template literal
                and one would end the string — backticks-break-sql-literals.) */
-            'review_first',
+            'remind_me',
             /* Due now: it is owed the moment it is asked for. The status 'due'
                is also what puts it on the manager's list; 'planned' would hide it
                until the clock caught up. */

@@ -740,7 +740,7 @@ function Purpose({
 
         <section>
           <h3 className="text-body font-semibold text-text-primary">2. How would you like to proceed?</h3>
-          <div className="mt-2 grid gap-2 sm:grid-cols-3">
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">
             {DELIVERY_CHOICES.map((d) => {
               const Icon = DELIVERY_ICON[d.key];
               return (
@@ -756,9 +756,9 @@ function Purpose({
             <p className="mt-2 flex items-start gap-2 rounded-lg bg-bg-subtle px-3 py-2 text-caption leading-relaxed text-text-secondary">
               <Zap className="mt-0.5 size-3.5 shrink-0 text-accent-primary" aria-hidden="true" />
               <span>
-                Sent by the system at the time you choose. WhatsApp only allows free text within 24 hours of the
-                client&rsquo;s last message — outside that, a step without an approved template waits for you instead.
-                Email has no such limit.
+                Sent by the system at the time you choose. Within 24 hours of the client&rsquo;s last message it goes
+                as a normal WhatsApp message; after that, as the approved template for its purpose. Email has no such
+                limit.
               </span>
             </p>
           )}
@@ -835,7 +835,7 @@ function Purpose({
         <p className="mt-0.5 text-caption text-text-secondary">
           {delivery === 'auto_send'
             ? 'These messages are sent for you. You can change every part on the next screen.'
-            : 'Prepared for you to send. You can change every part on the next screen.'}
+            : 'Set as reminders for you. You can change every part on the next screen.'}
         </p>
         <ol className="mt-3 space-y-3">
           {steps.map((s, i) => (
@@ -1191,8 +1191,8 @@ function Compose({
             </p>
             <p className="mt-0.5 text-caption leading-relaxed text-text-secondary">
               Inside 24 hours of the client&rsquo;s last message the text above is sent as it is. Outside it, WhatsApp
-              only carries a template <span className="font-medium text-text-primary">Meta has approved</span> — without
-              one, this step waits for you instead of sending.
+              only carries a template <span className="font-medium text-text-primary">Meta has approved</span> — the one
+              chosen here, or the approved template for this purpose when it sends.
             </p>
             {templates === null ? (
               <p className="mt-2 text-caption text-text-secondary">Asking Meta what this account has…</p>
@@ -1310,7 +1310,9 @@ function Compose({
 
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-caption text-text-secondary">When it falls due:</span>
-          {(['auto_send', 'review_first', 'remind_me'] as const).map((m) => (
+          {/* ⚠️ NO "DRAFT FOR ME TO SEND" (234). A follow-up somebody schedules
+              is one they have reviewed — it sends, or it is a reminder. */}
+          {(['auto_send', 'remind_me'] as const).map((m) => (
             <button
               key={m}
               type="button"
@@ -1837,7 +1839,7 @@ function Review({
             <p className="mt-0.5">
               {delivery === 'auto_send'
                 ? `Step 1 goes out on ${formatWhen(new Date(startMs).toISOString())} without anybody pressing send.`
-                : `Step 1 appears on your list on ${formatWhen(new Date(startMs).toISOString())} for you to send.`}
+                : `Step 1 appears on your list on ${formatWhen(new Date(startMs).toISOString())} as a reminder for you.`}
               {conditions.reply ? ' If the client replies before then, the plan pauses and waits for you.' : ''}
             </p>
           </div>

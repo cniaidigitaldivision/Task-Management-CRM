@@ -186,10 +186,16 @@ export async function createFollowUpPlanAction(input: PlanInput): Promise<PlanRe
     }
   }
 
+  /* ⚠️ NOTHING IS SAVED FOR REVIEW (234). Owner, 2026-09-21: *"If I am
+     scheduling any follow-up it means that I have reviewed it."* A browser still
+     open on the old dialog can post `review_first`; it becomes what it now means
+     — sent, on a channel that can send, and a reminder on one that cannot. */
   const steps = input.steps.map((s) => ({
     ...s,
     channel: s.channel as PlanChannel,
-    mode: s.mode as PlanMode,
+    mode: (s.mode === 'review_first'
+      ? (SENDABLE.includes(s.channel as never) ? 'auto_send' : 'remind_me')
+      : s.mode) as PlanMode,
   })) as PlanStep[];
   const problem = planProblem(steps);
   if (problem) return { ok: false, error: problem };
@@ -228,13 +234,7 @@ export async function createFollowUpPlanAction(input: PlanInput): Promise<PlanRe
        chosen auto-send. How could it be added to my task?"* Because the window
        was shut and there was no approved template to open it — which nothing on
        screen said, then or later. */
-    return {
-      ok: true,
-      plan: null,
-      note: written.downgraded
-        ? 'Saved — but this client has not messaged in 24 hours and no approved template was chosen, so WhatsApp will not let it send itself. It is waiting for you to send.'
-        : undefined,
-    };
+    return { ok: true, plan: null };
   }
 
   /* ── A scheduler ───────────────────────────────────────────────────────── */

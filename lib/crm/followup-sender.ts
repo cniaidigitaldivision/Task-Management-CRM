@@ -2,10 +2,11 @@ import 'server-only';
 
 import { followUpEmail, fromAddress, sendLeadEmail } from '@/lib/crm/email';
 import { describeSender } from '@/lib/email/send';
-import { sendTemplate, sendText, type WhatsAppConfig } from '@/lib/crm/whatsapp';
+import { listTemplates, sendTemplate, sendText, type WhatsAppConfig } from '@/lib/crm/whatsapp';
 import { withAppRole } from '@/lib/db/client';
 import { clientFacingName, letterSubtitle } from '@/lib/domain/crm-brand';
-import { fillTokens, missingTemplateParams, templateParams } from '@/lib/domain/crm-followup-plans';
+import { fillTokens, missingTemplateParams, purposeLabel, templateParams, type FollowUpPurpose } from '@/lib/domain/crm-followup-plans';
+import { templateForPurpose, templateVarsFor } from '@/lib/domain/crm-template-for-purpose';
 import { downloadObject } from '@/lib/storage/bucket';
 
 /* ============================================================================
@@ -75,7 +76,12 @@ interface QueueRow {
   wa_phone_number_id: string | null;
   sender_name: string;
   project_name: string;
+  /** 234 · what the follow-up is for — picks the template when the row has none. */
+  purpose: string | null;
 }
+
+/** 234 · one read of the account's templates per project per run. */
+type TemplateList = Awaited<ReturnType<typeof listTemplates>>;
 
 interface Tokens {
   lead_first: string;
@@ -105,14 +111,51 @@ export async function runDueFollowUps(limit = 25): Promise<SendReport[]> {
   const apiVersion = process.env.META_API_VERSION?.trim() || 'v26.0';
 
   const reports: SendReport[] = [];
+  const templates = new Map<string, Promise<TemplateList>>();
   for (const row of rows) {
-    const report = await sendOne(row, token, apiVersion);
+    const report = await sendOne(row, token, apiVersion, templates);
     reports.push(report);
   }
   return reports;
 }
 
-async function sendOne(row: QueueRow, token: string | undefined, apiVersion: string): Promise<SendReport> {
+/**
+ * The approved template for this follow-up's purpose, when the row carries none.
+ *
+ * ⚠️ 234 · THIS IS WHAT "REVIEW" USED TO BE. A WhatsApp step with no template on
+ * a lead that had not written for 24 hours was parked as a draft for a person.
+ * Owner, 2026-09-21: *"If I am scheduling any follow-up it means that I have
+ * reviewed it… Don't put any follow-up in the review."* So the sender asks Meta
+ * which templates are approved and picks the one for the purpose — the same
+ * picker (and the same catalogue tests) as the wizard.
+ */
+async function templateForRow(
+  row: QueueRow,
+  apiVersion: string,
+  cache: Map<string, Promise<TemplateList>>,
+): Promise<{ name: string; language: string; vars: string[] } | null> {
+  if (!row.purpose) return null;
+  let list = cache.get(row.project_id);
+  if (!list) {
+    list = (async () => {
+      const waba = (await withAppRole((tx) => tx`
+        select app.crm_project_waba(${row.project_id}::uuid) as waba
+      `)) as unknown as Array<{ waba: string | null }>;
+      return waba[0]?.waba ? listTemplates(waba[0].waba, apiVersion) : null;
+    })();
+    cache.set(row.project_id, list);
+  }
+  const templates = await list;
+  const pick = templates ? templateForPurpose(row.purpose as FollowUpPurpose, templates) : null;
+  return pick ? { name: pick.name, language: pick.language, vars: templateVarsFor(pick.variables) } : null;
+}
+
+async function sendOne(
+  row: QueueRow,
+  token: string | undefined,
+  apiVersion: string,
+  templates: Map<string, Promise<TemplateList>>,
+): Promise<SendReport> {
   const name = row.lead_name ?? 'this lead';
   const done = async (messageId: string | null, error: string | null, body: string, subject: string | null) => {
     /* ⚠️⚠️ SETTLING IS ITS OWN TRANSACTION, AND IT COMES FIRST. Written as one
@@ -186,6 +229,26 @@ async function sendOne(row: QueueRow, token: string | undefined, apiVersion: str
     }
     const config: WhatsAppConfig = { phoneNumberId: row.wa_phone_number_id, token, apiVersion };
 
+    /* ⚠️ 234 · A CLOSED WINDOW AND NO TEMPLATE ON THE ROW: pick the approved
+       template for the purpose now. If none fits, the step FAILS with the reason
+       — it is never parked for review. */
+    let template: { name: string; language: string; vars: string[] | null; values: string[] | null } | null =
+      row.template_name
+        ? { name: row.template_name, language: row.template_language, vars: row.template_vars, values: row.template_values }
+        : null;
+    if (!row.window_open && !template) {
+      const pick = await templateForRow(row, apiVersion, templates);
+      if (!pick) {
+        return done(
+          null,
+          `The client has not written in the last 24 hours, and no approved WhatsApp template fits a "${purposeLabel((row.purpose ?? 'custom') as FollowUpPurpose)}" follow-up.`,
+          body,
+          null,
+        );
+      }
+      template = { name: pick.name, language: pick.language, vars: pick.vars, values: null };
+    }
+
     /* ⚠️ INSIDE THE WINDOW, FREE TEXT. OUTSIDE IT, ONLY AN APPROVED TEMPLATE —
        and `crm_followups_to_send` has already refused the third case, so a step
        with neither never reaches here. */
@@ -195,11 +258,11 @@ async function sendOne(row: QueueRow, token: string | undefined, apiVersion: str
        blank is the salesperson's name on a lead nobody owns yet, which is 665 of
        690 leads, so this would have been a greeting that silently reached almost
        nobody. Refused with the field named, so somebody can fix the step. */
-    const blanks = row.window_open
+    const blanks = row.window_open || !template
       ? []
-      : row.template_values
-        ? row.template_values.flatMap((v, i) => (v.trim() === '' ? [`{{${i + 1}}}`] : []))
-        : missingTemplateParams(row.template_vars, values);
+      : template.values
+        ? template.values.flatMap((v, i) => (v.trim() === '' ? [`{{${i + 1}}}`] : []))
+        : missingTemplateParams(template.vars, values);
     if (blanks.length > 0) {
       return done(
         null,
@@ -209,11 +272,11 @@ async function sendOne(row: QueueRow, token: string | undefined, apiVersion: str
       );
     }
 
-    const result = row.window_open
+    const result = row.window_open || !template
       ? await sendText(config, row.to_phone, body)
       : await sendTemplate(config, row.to_phone, {
-          name: row.template_name as string,
-          language: row.template_language,
+          name: template.name,
+          language: template.language,
           /* ⚠️ 210 · THE STEP'S OWN ORDER, RESOLVED HERE AND NOW. The step
              stores token NAMES, never values — a name frozen into a plan is the
              wrong person's name the first time that plan is reused.
@@ -227,7 +290,7 @@ async function sendOne(row: QueueRow, token: string | undefined, apiVersion: str
              appointment confirmation, a reminder — carries the words themselves,
              fixed at the moment it was written. Re-deriving them would recompute
              "tomorrow" on the day it sends and say the wrong thing. */
-          body: row.template_values ?? templateParams(row.template_vars, values),
+          body: template.values ?? templateParams(template.vars, values),
         });
 
     /* ⚠️ A REFUSAL THAT WILL PASS LATER MUST NOT BE SETTLED. `crm_followup_sent`
