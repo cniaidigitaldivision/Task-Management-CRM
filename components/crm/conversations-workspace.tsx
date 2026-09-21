@@ -5,6 +5,7 @@ import type { Route } from 'next';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
+  BellPlus,
   CalendarClock,
   ChevronRight,
   CircleAlert,
@@ -26,6 +27,7 @@ import { LeadOverviewTab } from '@/components/crm/lead-overview-tab';
 import { RecordOutcome } from '@/components/crm/record-outcome';
 import { RelatedItemsDialog, seedRelated } from '@/components/crm/related-items';
 import { EditLeadDetails } from '@/components/crm/edit-lead-details';
+import { FollowUpWizard } from '@/components/crm/follow-up-wizard';
 import { nextSteps } from '@/lib/domain/crm-next-step';
 import { qualificationGaps } from '@/lib/domain/crm-qualification';
 import { AgentBadge } from '@/components/crm/agent-mode';
@@ -192,7 +194,7 @@ export function ConversationsWorkspace({
      set one of these, and the panel opens over this page — the same components
      the drawer uses, so nothing about what they do or what they are allowed to
      write changes. */
-  const [panel, setPanel] = React.useState<null | 'details' | 'related' | 'edit'>(null);
+  const [panel, setPanel] = React.useState<null | PanelKey>(null);
   const [relatedTab, setRelatedTab] =
     React.useState<'quotations' | 'properties' | 'appointments' | 'bookings' | 'invoices' | 'files'>('quotations');
   /* The stage the dropdown was set to — Record outcome opens on it (155). */
@@ -259,7 +261,12 @@ export function ConversationsWorkspace({
        and 760, exactly. (The body itself MULTIPLIES by the scale — see
        `app/layout.tsx` — because a length declared ON the zoomed element behaves
        the other way round. Same zoom, opposite correction, and both measured.) */
-    <div className="-mx-4 -my-4 flex h-[calc(100dvh/var(--ui-scale)-var(--topbar-height))] min-h-0 flex-col gap-3 px-4 py-4 sm:-mx-6 sm:-my-4 sm:px-6">
+    /* ⚠️ …AND TWO PIXELS LESS. At the 0.9 scale the calc lands a fraction of a
+       pixel past the window, which rounds up to one — and a one-pixel page gives
+       the whole window a scrollbar that scrolls nothing. Owner, 2026-09-21:
+       *"you have added the scrollbar but the scrollbar will not scroll the lead
+       content."* Measured: page 640 in a 639 window. */
+    <div className="-mx-4 -my-4 flex h-[calc(100dvh/var(--ui-scale)-var(--topbar-height)-2px)] min-h-0 flex-col gap-3 px-4 py-4 sm:-mx-6 sm:-my-4 sm:px-6">
       <Header channel={channel} onChannel={setChannel} total={conversations.length} />
 
       <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)] xl:grid-cols-[minmax(0,21rem)_minmax(0,1fr)_minmax(0,19rem)]">
@@ -334,6 +341,23 @@ export function ConversationsWorkspace({
           onRecordOutcome={() => {
             setPanel(null);
             setOutcomeStage(bundle.record.lead.stage);
+          }}
+        />
+      )}
+
+      {panel === 'followup' && active && bundle && (
+        <FollowUpWizard
+          lead={bundle.record.lead}
+          related={bundle.related}
+          viewerName={viewerName}
+          nowMs={nowMs}
+          onClose={() => setPanel(null)}
+          onCreated={() => {
+            const leadId = active.leadId;
+            setPanel(null);
+            /* The rail's "Next follow-up" is read from this lead's record — read
+               it again underneath; the fresh copy wins over the one held. */
+            void leadBundlesAction([leadId]).then((r) => setBundles((held) => ({ ...held, ...r.bundles })));
           }}
         />
       )}
@@ -912,7 +936,9 @@ function ThreadBody({
 
 /* ── 3 · The lead's context ──────────────────────────────────────────────── */
 
-type PanelKey = 'details' | 'related' | 'edit';
+/* 'followup' — the SAME wizard the lead drawer and the Appointments page open
+   (owner, 2026-09-21: *"Also add that follow-up modal over here."*). */
+type PanelKey = 'details' | 'related' | 'edit' | 'followup';
 type RelatedTab = 'quotations' | 'properties' | 'appointments' | 'bookings' | 'invoices' | 'files';
 
 function ContextPane({
@@ -956,7 +982,10 @@ function ContextPane({
       : null;
 
   return (
-    <aside className="hidden min-h-0 flex-col overflow-y-auto rounded-2xl border border-border-subtle bg-bg-surface xl:flex">
+    /* ⚠️ THE HEADING STAYS; ONLY WHAT IS UNDER IT SCROLLS. Owner, 2026-09-21:
+       *"The heading should be added from below"* — the scrollbar starts below
+       "Lead context", and the content scrolls inside it. */
+    <aside className="hidden min-h-0 flex-col overflow-hidden rounded-2xl border border-border-subtle bg-bg-surface xl:flex">
       <header className="flex shrink-0 items-center justify-between gap-2 border-b border-border-subtle px-4 py-3">
         <h2 className="text-body-sm font-semibold text-text-primary">Lead context</h2>
         <button
@@ -969,7 +998,7 @@ function ContextPane({
         </button>
       </header>
 
-      <div className="space-y-4 px-4 py-4">
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
         <div className="flex items-start gap-3">
           <Avatar name={conversation.fullName} size="lg" />
           <div className="min-w-0">
@@ -1074,6 +1103,14 @@ function ContextPane({
           ) : (
             <span className="text-text-secondary">{bundle ? 'Nothing planned' : 'Loading…'}</span>
           )}
+          <button
+            type="button"
+            onClick={() => onOpen('followup')}
+            disabled={!bundle}
+            className="mt-1 inline-flex items-center gap-1 font-semibold text-accent-primary hover:underline disabled:opacity-50"
+          >
+            <BellPlus className="size-3.5" aria-hidden="true" /> Schedule follow-up
+          </button>
         </Row>
 
         {related?.sequence && (
@@ -1101,6 +1138,9 @@ function ContextPane({
           </QuickLink>
           <QuickLink onClick={() => onOpen('details')} icon={NotebookPen}>
             Add a note
+          </QuickLink>
+          <QuickLink onClick={() => onOpen('followup')} icon={BellPlus}>
+            Schedule a follow-up
           </QuickLink>
           <QuickLink onClick={() => onOpen('related', 'appointments')} icon={CalendarClock}>
             Book an appointment

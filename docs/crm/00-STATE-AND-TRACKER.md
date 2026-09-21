@@ -52,6 +52,11 @@ search, filters, date range, project, saved views. Deployed (6dd666d).
   section (the lead's next step + "Schedule follow-up") in the details panel —
   both open the SAME `FollowUpWizard` the lead drawer uses; the lead is re-read
   after it saves.
+- Conversations (same day): the lead rail's heading stays and only its content
+  scrolls; "Schedule follow-up" under Next follow-up and "Schedule a follow-up"
+  in Quick links open the same wizard. ⚠️ The page was 1px taller than the
+  window at the 0.9 scale (640 in 639) — a page scrollbar that scrolled nothing;
+  the workspace height now subtracts 2px (measured 639 in 639 after).
 - Known: a Related-items "Attach" from this page opens the lead (the composer
   lives in the lead's WhatsApp tab); the admin sees only their own diary here.
 
