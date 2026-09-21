@@ -1,58 +1,43 @@
 import type { Metadata } from 'next';
 
-import { AppointmentsDesk } from '@/components/crm/appointments-desk';
+import { AppointmentsBoard } from '@/components/crm/appointments-board';
 import { requireCrmAccess } from '@/lib/auth/current-user';
-import {
-  APPOINTMENTS_BACK_DAYS,
-  APPOINTMENTS_LIMIT,
-  crmMyAppointments,
-} from '@/lib/db/queries/crm-leads';
+import { BOARD_BACK_DAYS, crmAppointmentBoard } from '@/lib/db/queries/crm-appointments-board';
 import { nowMs } from '@/lib/now';
 
 export const metadata: Metadata = { title: 'Appointments' };
 
 /* ============================================================================
- * APPOINTMENTS — the rail screen for Phase E
+ * APPOINTMENTS — the owner's design, 2026-09-21
  * ----------------------------------------------------------------------------
- * Owner, 2026-09-16: *"It is done but I want to implement and also build its
- * screen today so I can run it at least. Definitely I will improve its UI or
- * screen later."*
+ * ⚠️ ONE QUERY, AND NO `searchParams`. Cards, filters, saved views, the list,
+ * the calendar and the details panel are all client state over these rows
+ * (Rule Zero); only a write re-runs this page.
  *
- * ── ⚠️ ITS OWN TOP-LEVEL ROUTE, NOT `/my-leads/appointments` ───────────────
- * A nested route would inherit `/my-leads`'s page and its nine queries to render
- * a list of appointments, and the diary is not a view of the lead list. Same
- * reasoning that put `/clients` beside `/leads` rather than under it.
- *
- * ── ⚠️ ONE QUERY, AND NO `searchParams` ────────────────────────────────────
- * The tabs are client state, so this route is static in the sense that matters:
- * nothing anybody clicks on the screen re-runs it. That is deliberate — a
- * `searchParams` read here would make every tab press a full server render of
- * the page, which is the exact bug Rule Zero was written after.
- *
- * ── ⚠️ AND THERE IS NO SEPARATE ACCESS RULE HERE ───────────────────────────
- * `requireCrmAccess()` gates the door and `crm_appointments`'s own policies (152)
- * narrow the rows to the caller's own diary. The query adds `owner_id =
- * app.current_user_id()` on top, the same belt-and-braces `/my-leads` uses: RLS
- * is the boundary, the clause is the page's meaning, and a manager who can read
- * the department still sees only their own day here.
+ * ⚠️ RLS is the boundary (152); the query adds owner = me, so a manager sees
+ * their own diary here, as /my-leads does.
  * ========================================================================= */
 
 export default async function AppointmentsPage() {
   const { user } = await requireCrmAccess();
-
-  const appointments = await crmMyAppointments(user.id);
+  const appointments = await crmAppointmentBoard(user.id);
+  /* The server's clock — "past" decides Needs recording, and a laptop an hour
+     out would otherwise disagree with the render (a hydration error). */
+  const now = nowMs();
+  const from = new Date(now + 5 * 3_600_000 - BOARD_BACK_DAYS * 86_400_000).toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
 
   return (
-    <AppointmentsDesk
+    <AppointmentsBoard
       appointments={appointments}
-      backDays={APPOINTMENTS_BACK_DAYS}
-      limit={APPOINTMENTS_LIMIT}
-      /* ⚠️ THE SERVER'S CLOCK. "Past" decides which tab a row lands in, so a
-         reader whose laptop is an hour out would otherwise be shown a visit as
-         needing a write-up before it had happened — and React would report the
-         disagreement as a hydration error rather than as the clock problem it
-         is. Same rule as the desk and the client list. */
-      nowMs={nowMs()}
+      nowMs={now}
+      viewerId={user.id}
+      viewerName={user.fullName}
+      windowFrom={from}
     />
   );
 }

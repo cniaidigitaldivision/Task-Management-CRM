@@ -77,7 +77,11 @@ export function plannedSummary(input: PlannedInput): PlannedThing | null {
   for (const a of input.appointments ?? []) {
     if (!OPEN_APPOINTMENT.includes(a.status)) continue;
     if (Date.parse(a.scheduledAt) <= input.nowMs) continue;
-    found.push({ what: a.kind === 'site_visit' ? 'Site visit' : 'Appointment', at: a.scheduledAt, source: 'appointment' });
+    found.push({
+      what: a.kind === 'site_visit' ? 'Site visit' : a.kind === 'office_visit' ? 'Office visit' : 'Appointment',
+      at: a.scheduledAt,
+      source: 'appointment',
+    });
   }
 
   /* ⚠️ A SEQUENCE HAS NO DATE HERE ON PURPOSE. Its next step's moment lives on

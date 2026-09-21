@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Bell, CalendarDays, ChevronDown, Clock3, Globe, Info, MapPin, Ruler, Wallet } from 'lucide-react';
+import { Bell, Building2, CalendarDays, ChevronDown, Clock3, Globe, Info, MapPin, Ruler, Wallet } from 'lucide-react';
 
 import { DayChips, Field, hour12, MonthGrid, PickerTab, sameMinute, TimeInput, dayOfWeek } from '@/components/crm/calendar-bits';
 import { karachiAt, karachiParts, TZ } from '@/components/crm/when';
@@ -42,7 +42,7 @@ import { cn } from '@/lib/utils';
  * would promise the client a message nobody sends.
  * ========================================================================= */
 
-export type AppointmentKindKey = 'site_visit' | 'meeting' | 'call';
+export type AppointmentKindKey = 'site_visit' | 'office_visit' | 'meeting' | 'call';
 
 export interface AppointmentDraft {
   readonly kind: AppointmentKindKey;
@@ -73,6 +73,14 @@ const KINDS: ReadonlyArray<{
     minutes: 90,
     hint: 'Somebody meets the client at the plot — the location is where they are being met.',
     placeholder: 'Where to meet — site office, gate, plot number',
+  },
+  {
+    key: 'office_visit',
+    label: 'Office visit',
+    icon: Building2,
+    minutes: 60,
+    hint: 'The client comes to our office — to meet the team, see a demo, or sign.',
+    placeholder: 'Which office — e.g. Islamabad sales office',
   },
   {
     key: 'meeting',

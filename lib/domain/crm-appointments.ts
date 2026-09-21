@@ -16,7 +16,8 @@
  * That tile has been a drawing since the first design. Phase F counts these.
  * ========================================================================= */
 
-export const APPOINTMENT_KINDS = ['site_visit', 'meeting', 'call'] as const;
+/* 239 · office_visit: the client comes to our office (owner, 2026-09-21). */
+export const APPOINTMENT_KINDS = ['site_visit', 'office_visit', 'meeting', 'call'] as const;
 export type AppointmentKind = (typeof APPOINTMENT_KINDS)[number];
 
 /** Meta's word for it, and the DB enum's. */
@@ -32,6 +33,7 @@ export type AppointmentStatus = (typeof APPOINTMENT_STATUSES)[number];
 
 const KIND_LABEL: Record<AppointmentKind, string> = {
   site_visit: 'Site visit',
+  office_visit: 'Office visit',
   meeting: 'Meeting',
   call: 'Call',
 };

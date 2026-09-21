@@ -74,14 +74,21 @@ export function RecordAppointmentDialog({
   appointment,
   onClose,
   onRecorded,
+  initialNote = '',
+  initialInterested = null,
+  editing = false,
 }: {
   appointment: RecordableAppointment;
   onClose: () => void;
-  onRecorded: (id: string) => void;
+  onRecorded: (id: string, interested: boolean, note: string) => void;
+  /** 241 · "Edit outcome" on a completed appointment opens on what was recorded. */
+  initialNote?: string;
+  initialInterested?: boolean | null;
+  editing?: boolean;
 }) {
   const toast = useToast();
-  const [note, setNote] = React.useState('');
-  const [interested, setInterested] = React.useState<boolean | null>(null);
+  const [note, setNote] = React.useState(initialNote);
+  const [interested, setInterested] = React.useState<boolean | null>(initialInterested);
   const [busy, setBusy] = React.useState(false);
   const what = appointmentKindLabel(appointment.kind).toLowerCase();
   const who = appointment.leadName ?? 'this lead';
@@ -106,8 +113,17 @@ export function RecordAppointmentDialog({
       toast({ tone: 'error', text: result.error ?? 'That did not save.' });
       return;
     }
-    toast({ tone: 'ok', text: interested ? 'Recorded — a feedback message is scheduled.' : 'Recorded.' });
-    onRecorded(appointment.id);
+    toast({
+      tone: 'ok',
+      text: editing
+        ? interested && initialInterested !== true
+          ? 'Updated — a feedback message is scheduled.'
+          : 'Updated.'
+        : interested
+          ? 'Recorded — a feedback message is scheduled.'
+          : 'Recorded.',
+    });
+    onRecorded(appointment.id, interested, note.trim());
     onClose();
   };
 
@@ -126,7 +142,7 @@ export function RecordAppointmentDialog({
           </span>
           <div className="min-w-0 flex-1">
             <h2 className="text-body font-semibold text-text-primary">
-              What happened at the {what} with {who}?
+              {editing ? `Edit the outcome of the ${what} with ${who}` : `What happened at the ${what} with ${who}?`}
             </h2>
             <p className="mt-0.5 text-caption text-text-secondary">{formatWhen(appointment.scheduledAt)}</p>
           </div>
@@ -169,7 +185,7 @@ export function RecordAppointmentDialog({
             onClick={() => void record()}
             className="rounded-xl bg-accent-primary px-3.5 py-2 text-body-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40"
           >
-            {busy ? 'Recording…' : 'Record it'}
+            {busy ? 'Saving…' : editing ? 'Save' : 'Record it'}
           </button>
         </div>
       </div>

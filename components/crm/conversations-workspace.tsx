@@ -365,7 +365,7 @@ export function ConversationsWorkspace({
  * does, so there is one definition of what a lead's overview is — but it opens
  * here, which is the whole of the owner's request.
  */
-function RecordPanel({
+export function RecordPanel({
   title,
   subtitle,
   onClose,

@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { CalendarClock, Car, MapPin, Phone, Users } from 'lucide-react';
+import { Building2, CalendarClock, Car, MapPin, Phone, Users } from 'lucide-react';
 
 import { CancelAppointmentDialog } from '@/components/crm/cancel-appointment-dialog';
 import { RecordAppointmentDialog } from '@/components/crm/record-appointment';
@@ -39,6 +39,7 @@ import { cn } from '@/lib/utils';
 
 const KIND_ICON: Record<string, typeof CalendarClock> = {
   site_visit: Car,
+  office_visit: Building2,
   meeting: Users,
   call: Phone,
 };
