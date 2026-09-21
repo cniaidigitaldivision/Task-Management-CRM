@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { templateVarsFor } from '@/lib/domain/crm-template-for-purpose';
+
 import { withUser } from '../client';
 
 /* ============================================================================
@@ -89,7 +91,7 @@ export async function createFollowUp(
      * quiet lead, which is exactly the lead a follow-up is for. Owner,
      * 2026-09-20: *"I have chosen auto-send. How could it be added to my task?"*
      */
-    template?: { name: string; language: string } | null;
+    template?: { name: string; language: string; variables?: number } | null;
     /** ⚠️ Advanced: leave the desk's Next action alone. */
     keepNextAction?: boolean;
   },
@@ -104,7 +106,7 @@ export async function createFollowUp(
     const rows = await tx`
       insert into public.crm_follow_ups
         (lead_id, purpose, channel, mode, status, title, body, due_at, assigned_to_id, created_by_id,
-         wa_template_name, wa_template_language)
+         wa_template_name, wa_template_language, wa_template_vars)
       select l.id, ${input.purpose ?? 'custom'}::public.crm_followup_purpose,
              ${input.channel}::public.crm_followup_channel,
              /* ⚠️ WHATSAPP WILL NOT AUTO-SEND FREE TEXT INTO A CLOSED WINDOW, so a
@@ -129,7 +131,9 @@ export async function createFollowUp(
              (case when ${input.dueAt}::timestamptz <= now() then 'due' else 'planned' end)::public.crm_followup_status,
              ${input.title}, ${input.body}, ${input.dueAt}::timestamptz,
              coalesce(l.owner_id, ${actorId}::uuid), ${actorId}::uuid,
-             ${template?.name ?? null}, ${template?.language ?? null}
+             ${template?.name ?? null}, ${template?.language ?? null},
+             /* 228 · which values fill its blanks — resolved when it sends. */
+             ${template ? templateVarsFor(template.variables) : null}::text[]
         from public.crm_leads l
        where l.id = ${input.leadId}::uuid
       returning lead_id, mode::text as mode
@@ -383,6 +387,8 @@ export interface PlanStepRow {
   readonly onlyIfNoReply: boolean;
   readonly templateName: string | null;
   readonly templateLanguage: string | null;
+  /** 228 · token names for the template's blanks, in order; null for none. */
+  readonly templateVars: readonly string[] | null;
   /** 207 · `HH:MM` in Karachi, or null to inherit the running time. */
   readonly sendAtTime: string | null;
 }
@@ -454,13 +460,18 @@ export async function createLeadPlan(
     await tx`
       insert into public.crm_sequence_steps
         (sequence_id, step_no, channel, delay_days, purpose, title, body, mode, subject,
-         only_if_no_reply, wa_template_name, wa_template_language, send_at_time)
+         only_if_no_reply, wa_template_name, wa_template_language, send_at_time, wa_template_vars)
       select ${sequenceId}::uuid, s.step_no, s.channel::public.crm_followup_channel,
              s.delay_days, ${input.purpose}, s.title, nullif(s.body, ''),
              s.mode::public.crm_followup_mode, nullif(s.subject, ''), s.only_if_no_reply = 1,
              nullif(s.template_name, ''), nullif(s.template_language, ''),
              /* 207 · the step's own hour, or null to inherit the running time. */
-             nullif(s.send_at_time, '')::time
+             nullif(s.send_at_time, '')::time,
+             /* 228 · the names of the values the template needs, carried as one
+                comma list per step: unnest cannot zip an array of arrays unless
+                every row is the same length, and a 0-blank template has none.
+                (No backticks in here: this is inside a tagged template.) */
+             case when s.template_vars = '' then null else string_to_array(s.template_vars, ',') end
         from unnest(
                ${input.steps.map((s) => s.stepNo)}::int[],
                ${input.steps.map((s) => s.channel)}::text[],
@@ -479,9 +490,10 @@ export async function createLeadPlan(
                ${input.steps.map((s) => (s.onlyIfNoReply ? 1 : 0))}::int[],
                ${input.steps.map((s) => s.templateName ?? '')}::text[],
                ${input.steps.map((s) => s.templateLanguage ?? '')}::text[],
-               ${input.steps.map((s) => s.sendAtTime ?? '')}::text[]
+               ${input.steps.map((s) => s.sendAtTime ?? '')}::text[],
+               ${input.steps.map((s) => (s.templateVars ?? []).join(','))}::text[]
              ) as s(step_no, channel, delay_days, title, body, mode, subject, only_if_no_reply,
-                    template_name, template_language, send_at_time)
+                    template_name, template_language, send_at_time, template_vars)
     `;
 
     /* ⚠️ A DRAFT IS A PLAN WITH NOTHING RUNNING. No new state, no flag on the

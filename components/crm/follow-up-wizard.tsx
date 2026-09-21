@@ -77,7 +77,7 @@ import {
   type PlanMode,
   type PlanStep,
 } from '@/lib/domain/crm-followup-plans';
-import { templateForPurpose } from '@/lib/domain/crm-template-for-purpose';
+import { fillable, fillTemplates, templateForPurpose } from '@/lib/domain/crm-template-for-purpose';
 import { cn } from '@/lib/utils';
 
 /* ============================================================================
@@ -237,6 +237,38 @@ export function FollowUpWizard({
   const [advanced, setAdvanced] = React.useState(false);
   const [busy, setBusy] = React.useState<null | 'draft' | 'start'>(null);
 
+  /* ── The approved templates, owned HERE and not by one step ─────────────
+     ⚠️ THIS USED TO LIVE IN THE "CHANNEL & MESSAGE" STEP, AND THAT IS WHY IT
+     FAILED. Owner, 2026-09-21: a follow-up saved with no template although
+     auto-selection existed. The list comes from Meta and took seconds on the dev
+     server; clicking Next before it arrived unmounted the only code that could
+     apply it, so it landed nowhere and nothing was ever chosen. Owned by the
+     wizard, it survives every change of stage, and Save applies it once more. */
+  const [templates, setTemplates] = React.useState<TemplateList | null>(null);
+  /* Steps whose template the person cleared ON PURPOSE — never refilled. State,
+     not a ref, because it is read during render. */
+  const [cleared, setCleared] = React.useState<ReadonlySet<number>>(() => new Set());
+  const wantsTemplate = (s: PlanStep) => s.channel === 'whatsapp' && s.mode === 'auto_send';
+  const needsTemplates = steps.some(wantsTemplate);
+
+  React.useEffect(() => {
+    if (!needsTemplates || templates !== null) return;
+    let alive = true;
+    void whatsAppTemplatesAction(lead.id).then((list) => {
+      if (alive) setTemplates(list);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [needsTemplates, templates, lead.id]);
+
+  /* ⚠️ APPLIED DURING RENDER, NOT IN AN EFFECT. `fillTemplates` returns the SAME
+     array when there is nothing to fill, so this settles in one extra render —
+     and it runs whichever stage is showing. It does not mark the plan touched:
+     a template the wizard chose is not the person editing the plan. */
+  const filled = templates?.ok ? fillTemplates(steps, purpose, templates.templates, cleared) : steps;
+  if (filled !== steps) setSteps(filled);
+
   const shown = kind === 'single' ? steps.slice(0, 1) : steps;
   const problem = planProblem(shown);
   const anchors = React.useMemo<readonly EventAnchor[]>(() => {
@@ -279,6 +311,17 @@ export function FollowUpWizard({
     if (busy || problem) return;
     setBusy(start ? 'start' : 'draft');
     try {
+      /* ⚠️ THE LAST CHANCE, AND IT IS NOT OPTIONAL. If Meta's list has still not
+         arrived when Save is pressed, wait for it here and fill in what the
+         purpose implies — otherwise a fast click saves an auto-send step with no
+         template, which is exactly the follow-up the owner found sitting unsent. */
+      let list = templates;
+      if (!list && shown.some(wantsTemplate)) {
+        list = await whatsAppTemplatesAction(lead.id);
+        setTemplates(list);
+      }
+      const final = list?.ok ? fillTemplates(shown, purpose, list.templates, cleared) : shown;
+
       const result = await createFollowUpPlanAction({
         leadId: lead.id,
         kind,
@@ -291,7 +334,7 @@ export function FollowUpWizard({
         hours: schedule.hours,
         firstAt: schedule.mode === 'now' ? null : new Date(startMs).toISOString(),
         start,
-        steps: shown.map((s) => ({
+        steps: final.map((s) => ({
           day: s.day,
           /* 207 · the hour this step asked for, or null to inherit. */
           at: s.at,
@@ -312,7 +355,7 @@ export function FollowUpWizard({
         kind,
         purpose,
         name: planName.trim() || purposeLabel(purpose),
-        steps: shown,
+        steps: final,
         firstAt: result.plan?.nextStepAt ?? new Date(startMs).toISOString(),
         started: start,
         sequenceId: result.plan?.sequenceId ?? null,
@@ -429,6 +472,11 @@ export function FollowUpWizard({
               active={Math.min(active, shown.length - 1)}
               onActive={setActive}
               onStep={setStep}
+              templates={templates}
+              onClearTemplate={(i) => {
+                setCleared((c) => new Set(c).add(i));
+                setStep(i, { template: null });
+              }}
               onAdd={() => {
                 const last = steps[steps.length - 1];
                 setTouched(true);
@@ -903,6 +951,8 @@ function Compose({
   onRemove,
   single,
   startMs,
+  templates,
+  onClearTemplate,
 }: {
   lead: CrmLeadRecord;
   facts: ReturnType<typeof leadFactsFrom>;
@@ -916,14 +966,16 @@ function Compose({
   onRemove: (i: number) => void;
   single: boolean;
   startMs: number;
+  /** Owned by the wizard, so it survives this step being closed (2026-09-21). */
+  templates: TemplateList | null;
+  /** The person chose "No template" on purpose — the wizard must not refill it. */
+  onClearTemplate: (i: number) => void;
 }) {
   const toast = useToast();
   const step = steps[active] ?? steps[0];
   const writes = step.channel === 'whatsapp' || step.channel === 'email';
   const [polishing, setPolishing] = React.useState(false);
   const [docs, setDocs] = React.useState<ReadonlyArray<{ id: string; title: string; mime: string; sizeBytes: number }> | null>(null);
-  const [templates, setTemplates] = React.useState<TemplateList | null>(null);
-
   /* ⚠️ ON DEMAND, ONCE. The dialog opens without touching the network; the list
      is fetched the first time an email step is composed and kept after that. */
   React.useEffect(() => {
@@ -936,43 +988,6 @@ function Compose({
       alive = false;
     };
   }, [step.channel, docs, lead.id]);
-
-  /* ⚠️ ASKED OF META, ON DEMAND, ONCE PER DIALOG. Only shown where it matters:
-     a WhatsApp step that is meant to send itself. */
-  React.useEffect(() => {
-    if (step.channel !== 'whatsapp' || step.mode !== 'auto_send' || templates !== null) return;
-    let alive = true;
-    void whatsAppTemplatesAction(lead.id).then((list) => {
-      if (alive) setTemplates(list);
-    });
-    return () => {
-      alive = false;
-    };
-  }, [step.channel, step.mode, templates, lead.id]);
-
-  /**
-   * ⚠️ THE TEMPLATE CHOOSES ITSELF, BECAUSE FORGETTING IT IS SILENT.
-   *
-   * Owner, 2026-09-20: *"most of the time, even when I am trying or I'm testing,
-   * I forget to choose the template. When a salesperson is busy with a lot of
-   * other things, how can he remember?"* The cost of forgetting is not a
-   * warning — it is a step that sits in the queue and never sends, noticed days
-   * later when the client has gone quiet. The purpose already says what the
-   * message is for, so the template is a consequence, not a second decision.
-   *
-   * ⚠️ ONLY ONTO AN EMPTY FIELD, AND ONLY ONCE PER STEP. A salesperson who
-   * chose "No template" on purpose must not have one put back by a re-render —
-   * so the step is remembered by index, and clearing the select sticks.
-   */
-  const autoTemplated = React.useRef<Set<number>>(new Set());
-  React.useEffect(() => {
-    if (!templates?.ok || step.channel !== 'whatsapp' || step.mode !== 'auto_send') return;
-    if (step.template || autoTemplated.current.has(active)) return;
-    const pick = templateForPurpose(purpose, templates.templates);
-    if (!pick) return;
-    autoTemplated.current.add(active);
-    onStep(active, { template: { name: pick.name, language: pick.language } });
-  }, [templates, step.channel, step.mode, step.template, purpose, active, onStep]);
 
   const chosenBecause = React.useMemo(() => {
     if (!templates?.ok || !step.template) return null;
@@ -1181,7 +1196,13 @@ function Compose({
                   value={step.template ? `${step.template.name}::${step.template.language}` : ''}
                   onChange={(e) => {
                     const [name, language] = e.target.value.split('::');
-                    onStep(active, { template: name ? { name, language } : null });
+                    if (!name) {
+                      onClearTemplate(active);
+                      return;
+                    }
+                    /* 228 · how many blanks it has, so the right values are stored. */
+                    const t = templates.templates.find((x) => x.name === name && x.language === language);
+                    onStep(active, { template: { name, language, variables: t?.variables ?? 0 } });
                   }}
                   className="mt-2 w-full rounded-lg border border-border-default bg-bg-surface px-3 py-2 text-body-sm text-text-primary focus:border-accent-primary focus:outline-none"
                 >
@@ -1189,8 +1210,17 @@ function Compose({
                   {templates.templates
                     .filter((t) => t.status === 'APPROVED')
                     .map((t) => (
-                      <option key={`${t.name}::${t.language}`} value={`${t.name}::${t.language}`}>
+                      /* ⚠️ SHOWN, BUT NOT CHOOSABLE, WHEN ITS BLANKS CANNOT BE
+                         FILLED FROM HERE. Meta refuses a template sent short of
+                         values; hiding it would leave somebody wondering where
+                         their approved template went. */
+                      <option
+                        key={`${t.name}::${t.language}`}
+                        value={`${t.name}::${t.language}`}
+                        disabled={!fillable(t)}
+                      >
                         {t.name} · {t.language}
+                        {fillable(t) ? '' : ` — needs ${t.variables} details, sent by the booking flow`}
                       </option>
                     ))}
                 </select>

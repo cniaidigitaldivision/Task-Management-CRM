@@ -26,6 +26,9 @@
  * on the same morning.
  * ========================================================================= */
 
+import { templateVarsFor } from './crm-template-for-purpose';
+
+
 export type FollowUpPurpose =
   | 'no_response'
   | 'quotation'
@@ -66,7 +69,12 @@ export interface PlanStep {
    * The approved WhatsApp template this step falls back to outside the 24-hour
    * window. ⚠️ Only Meta can approve one; the dialog lists what this account has.
    */
-  readonly template: { readonly name: string; readonly language: string } | null;
+  readonly template: {
+    readonly name: string;
+    readonly language: string;
+    /** How many blanks it has, so the right token names are stored (228). */
+    readonly variables?: number;
+  } | null;
 }
 
 /**
@@ -483,6 +491,8 @@ export interface StepRow {
   readonly onlyIfNoReply: boolean;
   readonly templateName: string | null;
   readonly templateLanguage: string | null;
+  /** 228 · the token names filling the template's blanks, in order. */
+  readonly templateVars: readonly string[] | null;
 }
 
 /**
@@ -508,6 +518,7 @@ export function stepsToRows(steps: readonly PlanStep[]): readonly StepRow[] {
       onlyIfNoReply: s.onlyIfNoReply,
       templateName: s.channel === 'whatsapp' ? (s.template?.name ?? null) : null,
       templateLanguage: s.channel === 'whatsapp' ? (s.template?.language ?? null) : null,
+      templateVars: s.channel === 'whatsapp' && s.template ? templateVarsFor(s.template.variables) : null,
     };
   });
 }

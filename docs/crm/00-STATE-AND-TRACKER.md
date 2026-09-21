@@ -9,7 +9,40 @@
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
 | **Last updated** | **2026-09-19** |
-| **Last migration applied anywhere** | **227** (applied 2026-09-20; **226 the knowledge base + per-salesperson pilot rules, 227 four products that can be merged**; 225 one visit that moves; 224 a refusal that will pass later waits). CRM next: **228.** |
+| **Last migration applied anywhere** | **228** (applied 2026-09-21; **228 a template chosen in the wizard gets its blanks filled**; 227 four products; 226 knowledge base; 225 one visit that moves). CRM next: **229.** |
+
+---
+
+## 🧭 2026-09-21 — 228 · WHY "ASK FOR THE DETAILS" GOT NO TEMPLATE, AND WHAT TO CREATE
+
+Owner created *"Ask for the details"* (missing_information) for Umm e e Habiba
+and got the "window is closed" notice. The notice was right; three faults sat
+behind it.
+
+**1 · ⚠️ Auto-selection lived in one stage.** Meta's list takes seconds; clicking
+Next before it arrived unmounted the only code that could apply it. The wizard
+now owns the list, fills during render, and **Save fills once more** — awaiting
+the list if it never came.
+
+**2 · ⚠️ The matcher answered with the wrong subject.** Against the live account:
+payment_reminder → the APPOINTMENT reminder ("your site visit is…");
+missing_information and site_visit_checkin → quotation_follow_up ("regarding
+the quotation we shared"). Every intent now carries an avoid list.
+
+**3 · ⚠️ A template chosen in the wizard was sent with no values.** Blanks were
+filled only by the booking trigger (frozen words) or a seeded sequence step
+(the greeting). **228** adds `crm_follow_ups.wa_template_vars`; the wizard
+stores token names by one rule — **{{1}} client first name, {{2}} business
+name** (`TEMPLATE_FILL`) — and the sender resolves them at send time. A
+template with more blanks than that (the five-blank appointment ones, which the
+booking flow fills) is shown disabled rather than offered.
+
+**Templates to create, all en_GB, all {{1}} name / {{2}} business:**
+`lead_check_in` (no_response, re_engage) · `lead_details_request`
+(missing_information) · `payment_reminder` · `after_visit_check_in`
+(site_visit_checkin). A test pins each name to its purpose — and caught, before
+anything was created, that a silent lead would have been "thanked for their
+time" by `after_visit_check_in` (it contains "check_in" and sorts first).
 
 ---
 
