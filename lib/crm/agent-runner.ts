@@ -1,7 +1,19 @@
 import 'server-only';
 
 import { type AgentDecision, type AgentPurpose, decideAgentReply } from '@/lib/ai/agent-brain';
+import { runDueFollowUps } from '@/lib/crm/followup-sender';
 import { withAppRole } from '@/lib/db/client';
+import {
+  AGENT_MINUTES,
+  AGENT_SLOT_RULES,
+  type AgentBookingKind,
+  availabilityLines,
+  describeKarachi,
+  describeToday,
+  freeStarts,
+  parseKarachiLocal,
+  toKarachiLocal,
+} from '@/lib/domain/crm-agent-slots';
 import { handoverBeforeModel } from '@/lib/domain/crm-agent-guard';
 import { sendableFileName } from '@/lib/domain/document-file-name';
 import { purposeLabel } from '@/lib/domain/crm-followup-plans';
@@ -90,6 +102,59 @@ async function handOver(ctx: Context, messageId: string, reason: string, dryRun:
   return { action: 'handed_over', reason };
 }
 
+/**
+ * 236 · The times the agent may offer, from the salesperson's own diary, and
+ * the client's appointment still to come (it may not book a second one).
+ */
+async function bookingOffer(ownerId: string, leadId: string) {
+  const nowMs = Date.now();
+  const until = new Date(nowMs + (AGENT_SLOT_RULES.horizonDays + 1) * 86_400_000).toISOString();
+  const [diary, existing] = await withAppRole(async (tx) => [
+    await tx`select starts_at, minutes from app.crm_agent_diary(${ownerId}::uuid, now(), ${until}::timestamptz)`,
+    await tx`select kind, starts_at from app.crm_agent_lead_booked(${leadId}::uuid)`,
+  ] as const);
+  const busy = (diary as unknown as Array<{ starts_at: Date; minutes: number }>).map((d) => ({
+    startMs: new Date(d.starts_at).getTime(),
+    minutes: Number(d.minutes),
+  }));
+  const kinds: readonly AgentBookingKind[] = ['meeting', 'site_visit'];
+  const starts = Object.fromEntries(
+    kinds.map((k) => [k, freeStarts(nowMs, busy, AGENT_MINUTES[k])]),
+  ) as Record<AgentBookingKind, number[]>;
+  const coming = (existing as unknown as Array<{ kind: string; starts_at: Date }>)[0];
+  return {
+    lines: { meeting: availabilityLines(starts.meeting), site_visit: availabilityLines(starts.site_visit) },
+    starts: { meeting: starts.meeting.map(toKarachiLocal), site_visit: starts.site_visit.map(toKarachiLocal) },
+    existing: coming
+      ? `a ${coming.kind === 'meeting' ? 'demo' : coming.kind.replace('_', ' ')} on ${describeKarachi(new Date(coming.starts_at).getTime())}`
+      : null,
+    today: describeToday(nowMs),
+  };
+}
+
+/** Book it through 236's definer, which checks the diary again under a lock. */
+async function book(
+  ctx: Context,
+  kind: AgentBookingKind,
+  at: string,
+): Promise<{ ok: true; appointmentId: string; confirmationId: string | null } | { ok: false; reason: string }> {
+  const what = kind === 'meeting' ? 'demo' : 'site visit';
+  const atMs = parseKarachiLocal(at);
+  if (atMs === null) return { ok: false, reason: `tried to book a ${what} at "${at}", which is not a time` };
+  try {
+    const rows = (await withAppRole((tx) => tx`
+      select appointment_id, confirmation_id
+        from app.crm_agent_book(${ctx.lead_id}::uuid, ${kind}, ${new Date(atMs).toISOString()}::timestamptz,
+                                ${AGENT_MINUTES[kind]}::integer)
+    `)) as unknown as Array<{ appointment_id: string; confirmation_id: string | null }>;
+    if (!rows[0]?.appointment_id) return { ok: false, reason: `tried to book a ${what} and nothing was written` };
+    return { ok: true, appointmentId: rows[0].appointment_id, confirmationId: rows[0].confirmation_id };
+  } catch (error) {
+    const why = error instanceof Error ? error.message.slice(0, 120) : 'it was refused';
+    return { ok: false, reason: `tried to book a ${what} for ${describeKarachi(atMs)}, but ${why}` };
+  }
+}
+
 export async function runAgentOnMessage(
   messageId: string,
   opts: { dryRun?: boolean; debounceMs?: number } = {},
@@ -162,6 +227,11 @@ export async function runAgentOnMessage(
       threadRows.filter((m) => m.direction === 'outbound' && m.media_filename).map((m) => m.media_filename!.toLowerCase()),
     );
 
+    /* ── 236 · When it may book: the salesperson's own free times ─────────
+       Owner: *"make the build agent booking start with demo and visit. Call is
+       not working."* No owner means no diary, and then it may not book. */
+    const booking = ctx.owner_id ? await bookingOffer(ctx.owner_id, ctx.lead_id) : null;
+
     const decision = await decideAgentReply({
       business: ctx.business,
       product: ctx.product,
@@ -177,6 +247,7 @@ export async function runAgentOnMessage(
         alreadySent: sentFiles.has(sendableFileName(d.title, d.mime).toLowerCase()) || sentFiles.has(d.title.toLowerCase()),
       })),
       thread: threadRows.map((m) => ({ direction: m.direction, kind: m.kind, body: m.body, file: m.media_filename, byAgent: m.sent_by_agent })),
+      booking,
     });
 
     if (dryRun) return { action: 'dry_run', decision, reason: decision.handoverReason };
@@ -189,6 +260,41 @@ export async function runAgentOnMessage(
     const apiVersion = process.env.META_API_VERSION?.trim() || 'v26.0';
     if (!token) return handOver(ctx, messageId, 'WhatsApp is not connected on the server (no token)', false);
     const config = { phoneNumberId: ctx.phone_number_id, token, apiVersion };
+
+    /* ── 236 · A booking: made, and confirmed by the booking's own message ──
+       The appointment is an ordinary row, so its confirmation and its reminder
+       are the ones a person's booking gets (220/235). That confirmation is sent
+       NOW rather than on the next minute's run — and it is the reply, so the
+       client does not get "booked!" and then the same news again. */
+    if (decision.booking) {
+      const made = await book(ctx, decision.booking.kind, decision.booking.at);
+      if (!made.ok) return handOver(ctx, messageId, made.reason, false);
+      if (decision.product) {
+        await withAppRole((tx) => tx`select app.crm_agent_note_product(${ctx.lead_id}::uuid, ${decision.product})`);
+      }
+      let confirmed = false;
+      if (made.confirmationId) {
+        const reports = await runDueFollowUps(10).catch(() => []);
+        confirmed = reports.some((r) => r.followUpId === made.confirmationId && r.outcome === 'sent');
+      }
+      if (!confirmed) {
+        /* No confirmation went (no consent on file, or WhatsApp refused it) —
+           so the client is told here. ⚠️ The model's words only when they SAY it
+           is booked; when it misjudged a free time they say the opposite, and
+           the code's own line is sent instead. */
+        const atMs = parseKarachiLocal(decision.booking.at)!;
+        const line = decision.booking.replyConfirms && decision.reply
+          ? decision.reply
+          : `Your ${decision.booking.kind === 'meeting' ? 'demo' : 'site visit'} is booked for ${describeKarachi(atMs)}.`;
+        const said = await sendText(config, ctx.phone, line);
+        await withAppRole((tx) => tx`
+          select app.crm_agent_record_message(${ctx.lead_id}::uuid, ${said.wamid ?? null}, 'text', ${line},
+                                              null, null, null, null, ${said.ok ? null : (said.error ?? 'refused')})
+        `);
+      }
+      await log(messageId, 'replied', null, { booking: decision.booking, appointmentId: made.appointmentId, confirmed });
+      return { action: 'replied', decision };
+    }
 
     const sent = await sendText(config, ctx.phone, decision.reply ?? '');
     await withAppRole((tx) => tx`

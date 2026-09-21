@@ -6,6 +6,7 @@ import { Bell, CalendarDays, ChevronDown, Clock3, Globe, Info, MapPin, Ruler, Wa
 import { DayChips, Field, hour12, MonthGrid, PickerTab, sameMinute, TimeInput, dayOfWeek } from '@/components/crm/calendar-bits';
 import { karachiAt, karachiParts, TZ } from '@/components/crm/when';
 import { WA_GREEN, WhatsAppMark } from '@/components/crm/whatsapp-mark';
+import { OFFICE } from '@/lib/domain/crm-office-hours';
 import { displayPhone } from '@/lib/domain/phone';
 import { cn } from '@/lib/utils';
 
@@ -54,8 +55,8 @@ export interface AppointmentDraft {
   readonly remindHoursBefore: number | null;
 }
 
-/** 10 AM – 6 PM, Monday to Saturday: the office's own week. */
-export const OFFICE = { from: 10, to: 18, days: [1, 2, 3, 4, 5, 6] } as const;
+/** 10 AM – 6 PM, Monday to Saturday — one definition, shared with the AI agent's free times. */
+export { OFFICE };
 
 const KINDS: ReadonlyArray<{
   key: AppointmentKindKey;

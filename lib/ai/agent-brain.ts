@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { chatgptKey } from '@/lib/ai/narrative';
+import type { AgentBookingKind } from '@/lib/domain/crm-agent-slots';
 
 /* ============================================================================
  * THE AGENT'S BRAIN — one decision per client message
@@ -52,6 +53,21 @@ export interface AgentBrief {
   /** `alreadySent` — this file is already in the conversation (sent by us or the agent). */
   readonly documents: ReadonlyArray<{ id: string; title: string; kind: string; product: string; alreadySent?: boolean }>;
   readonly thread: ReadonlyArray<{ direction: string; kind: string; body: string | null; file: string | null; byAgent: boolean }>;
+  /**
+   * 236 · the times it may offer and book — from the salesperson's own diary
+   * (crm-agent-slots). Absent or null: it may not book, and a request for a
+   * demo or a visit is handed over.
+   */
+  readonly booking?: {
+    /** What the model reads, per kind: "Wednesday 23 September (2026-09-23): 10:00 AM to 12:30 PM". */
+    readonly lines: Readonly<Record<AgentBookingKind, readonly string[]>>;
+    /** Every allowed start, "YYYY-MM-DDTHH:MM" in Karachi — what a booking is checked against. */
+    readonly starts: Readonly<Record<AgentBookingKind, readonly string[]>>;
+    /** The client's appointment still to come, in words — or null. */
+    readonly existing: string | null;
+    /** "Monday 21 September 2026, 3:55 PM" — so "tomorrow" and "Saturday" mean something. */
+    readonly today: string;
+  } | null;
 }
 
 export interface AgentDecision {
@@ -60,6 +76,12 @@ export interface AgentDecision {
   readonly documentIds: readonly string[];
   readonly followUp: { readonly purpose: AgentPurpose; readonly inDays: number } | null;
   readonly product: 'taskly' | 'crm' | 'erp' | 'whatsapp' | null;
+  /**
+   * 236 · book this — a start the CODE found free. `replyConfirms` is whether
+   * the model's own words say it is booked; when they do not (it misjudged a
+   * free time), they are never sent — the booking's confirmation is.
+   */
+  readonly booking: { readonly kind: AgentBookingKind; readonly at: string; readonly replyConfirms: boolean } | null;
   readonly handoverReason: string | null;
 }
 
@@ -79,11 +101,21 @@ Decide ONE of two things for the client's latest message(s):
   "handover" — stop and pass to a person, with a short reason a salesperson can act on.
 
 HAND OVER (do not reply) when the client:
-- asks for a person, a call, or a meeting time you cannot confirm from KNOWLEDGE;
+- asks for a person or a phone call;
+- wants to change or cancel an appointment that is already booked;
 - asks for a discount, a lower price, custom pricing, payment terms not in KNOWLEDGE, or wants to negotiate price;
 - is ready to buy, pay or sign now;
 - complains, is upset, or the conversation is going badly;
 - asks anything whose answer is not in KNOWLEDGE.
+
+BOOKING — a demo or a site visit, never a phone call. Follow these in order:
+1. A demo is kind "meeting". "Demo call", "online demo" and "presentation" are all demos. Only "call me" or "phone me" is a phone call — hand that over.
+2. WHENEVER the client names or picks a day and time for a demo or a visit, put it in "time_asked" as {"kind": "meeting" or "site_visit", "at": "YYYY-MM-DDTHH:MM"} (Karachi; "12 baje" on a working day is 12:00 noon; "3 pm" is 15:00). Fill it even if you think the time is not free — the system checks it and books it if it is.
+3. If that time IS inside AVAILABLE TIMES: reply in one line that it is booked and set "reply_says_booked": true. Do not ask "shall I book it?".
+4. If it is NOT inside AVAILABLE TIMES (a Sunday, after office hours, a time already taken): say that time is not free, offer the two nearest listed times, and set "reply_says_booked": false. Do not hand over.
+5. The client asks for a demo or a visit without naming a time: offer two or three times from AVAILABLE TIMES and ask which suits them, written the way a person says them (Wednesday 23 September at 3:00 PM).
+6. AVAILABLE TIMES has nothing for that kind, or ALREADY BOOKED shows an appointment and they want another or a change: hand over.
+Booking replies follow the same language rule as every reply.
 
 When you reply:
 - State ONLY facts found in KNOWLEDGE. Never invent a price, date, timeline, discount, feature or promise.
@@ -104,7 +136,32 @@ Return JSON with exactly these keys:
   "documents": an array of DOCUMENTS ids to send (at most 2), or []
   "follow_up": {"purpose": one of "proposal","quotation","missing_information","no_response","meeting_feedback","negotiation","agreement", "in_days": 1-7} or null
   "product": "taskly","crm","erp","whatsapp" or null
+  "time_asked": {"kind": "meeting" or "site_visit", "at": "YYYY-MM-DDTHH:MM"} or null
+  "reply_says_booked": true or false
   "handover_reason": short reason, or null`;
+
+/** 236 · what the model is told about booking — the free times, or that there are none. */
+function bookingBlock(b: AgentBrief): string[] {
+  if (!b.booking) {
+    return ['AVAILABLE TIMES: none — you cannot book. Hand over a request for a demo or a visit.'];
+  }
+  const kinds: ReadonlyArray<[AgentBookingKind, string]> = [
+    ['meeting', 'Demo / meeting (45 minutes)'],
+    ['site_visit', 'Site visit (90 minutes)'],
+  ];
+  return [
+    /* ⚠️ TODAY, OR "TOMORROW" MEANS NOTHING. The first dry runs gave the model
+       free times but not the date, and it told a client "tomorrow isn't
+       available" with Tuesday listed as free. */
+    `TODAY: ${b.booking.today} (Karachi)`,
+    'AVAILABLE TIMES (Karachi) — you may offer and book only these:',
+    ...kinds.flatMap(([k, label]) => [
+      `  ${label}:`,
+      ...(b.booking!.lines[k].length ? b.booking!.lines[k].map((l) => `    - ${l}`) : ['    - (none this week)']),
+    ]),
+    `ALREADY BOOKED: ${b.booking.existing ?? 'nothing'}`,
+  ];
+}
 
 /** A client asking for a file again — English and Roman Urdu. */
 const ASKS_AGAIN =
@@ -148,6 +205,8 @@ export function buildAgentPrompt(b: AgentBrief): string {
       ? b.documents.map((d) => `- id=${d.id} | ${d.title} | ${KIND_WORDS[d.kind] ?? 'other document'} | product=${productWords(d.product)}${d.alreadySent ? ' | ALREADY SENT' : ''}`)
       : ['(none)']),
     '',
+    ...bookingBlock(b),
+    '',
     'STYLE — how to write only. These are NOT facts and must never be stated as facts:',
     ...(b.pilotRules.length ? b.pilotRules.map((r) => `- ${r}`) : ['- (no special instructions)']),
     '',
@@ -167,10 +226,14 @@ export function buildAgentPrompt(b: AgentBrief): string {
 export function validateDecision(
   raw: unknown,
   documents: ReadonlyArray<{ readonly id: string; readonly kind: string; readonly product?: string; readonly alreadySent?: boolean }>,
-  context: { readonly leadProduct?: string | null; readonly latestClientText?: string | null } = {},
+  context: {
+    readonly leadProduct?: string | null;
+    readonly latestClientText?: string | null;
+    readonly booking?: AgentBrief['booking'];
+  } = {},
 ): AgentDecision {
   const handover = (reason: string): AgentDecision => ({
-    action: 'handover', reply: null, documentIds: [], followUp: null, product: null, handoverReason: reason,
+    action: 'handover', reply: null, documentIds: [], followUp: null, product: null, booking: null, handoverReason: reason,
   });
   if (typeof raw !== 'object' || raw === null) return handover('the assistant could not decide what to say');
   const r = raw as Record<string, unknown>;
@@ -235,12 +298,47 @@ export function validateDecision(
   else if (sentOther) followUp = { purpose: 'proposal', inDays: followUp?.purpose === 'proposal' ? days : 2 };
   else if (followUp?.purpose === 'proposal' || followUp?.purpose === 'quotation') followUp = null;
 
+  /* ⚠️ 236 · A BOOKING ONLY AT A TIME THE CODE CALLED FREE. The model is shown
+     the free times; this checks it chose one of them, exactly. Anything else —
+     a time it invented, a call, a second appointment, booking where none was
+     offered — becomes a handover with the reason, never a guess in someone's
+     diary. */
+  /* ⚠️ THE MODEL SAYS WHICH TIME WAS ASKED FOR; THE CODE DECIDES IF IT IS FREE.
+     Dry run, 2026-09-21: asked "Saturday 12 baje" for a visit, the model three
+     times in a row said 12 was not free and offered 11:30 or 12:30 — with 12:00
+     listed as free. In English it booked it. So the model only reports the time
+     asked for, and a free one is booked whatever the model thought of it. The
+     one error left to catch is the other way: a reply telling the client
+     "booked" for a time that is not free — that is handed over. */
+  let booking: AgentDecision['booking'] = null;
+  const says = r.reply_says_booked === true;
+  const asked = r.time_asked && typeof r.time_asked === 'object' ? (r.time_asked as Record<string, unknown>) : null;
+  if (asked) {
+    const kind = String(asked.kind);
+    const at = String(asked.at ?? '').trim();
+    const offer = context.booking;
+    if (!offer) return { ...handover('asked to book an appointment, which the assistant cannot do for this lead'), product };
+    if (kind !== 'meeting' && kind !== 'site_visit') return { ...handover(`asked for a ${kind || 'booking'} the assistant does not book`), product };
+    const what = kind === 'meeting' ? 'demo' : 'site visit';
+    if (offer.existing) return { ...handover(`wants a ${what} but already has ${offer.existing}`), product };
+    if (offer.starts[kind].includes(at)) {
+      booking = { kind, at, replyConfirms: says };
+      /* The reminder before the appointment is the follow-up now. */
+      followUp = null;
+    } else if (says) {
+      return { ...handover(`the assistant was about to confirm a ${what} at ${at.replace('T', ' ')}, which is not a free time`), product };
+    }
+  } else if (says) {
+    return { ...handover('the assistant said a booking was made without saying for when'), product };
+  }
+
   return {
     action: 'reply',
     reply: reply.slice(0, 900),
     documentIds,
     followUp,
     product,
+    booking,
     handoverReason: null,
   };
 }
@@ -249,7 +347,7 @@ export async function decideAgentReply(brief: AgentBrief): Promise<AgentDecision
   const key = chatgptKey();
   if (!key) {
     return {
-      action: 'handover', reply: null, documentIds: [], followUp: null, product: null,
+      action: 'handover', reply: null, documentIds: [], followUp: null, product: null, booking: null,
       handoverReason: 'the assistant is not connected to its AI service (CHATGPT_API_KEY is missing)',
     };
   }
@@ -272,7 +370,7 @@ export async function decideAgentReply(brief: AgentBrief): Promise<AgentDecision
 
   if (!response || !response.ok) {
     return {
-      action: 'handover', reply: null, documentIds: [], followUp: null, product: null,
+      action: 'handover', reply: null, documentIds: [], followUp: null, product: null, booking: null,
       handoverReason: 'the assistant could not reach its AI service just now',
     };
   }
@@ -284,5 +382,9 @@ export async function decideAgentReply(brief: AgentBrief): Promise<AgentDecision
     parsed = null;
   }
   const latest = [...brief.thread].reverse().find((m) => m.direction === 'inbound');
-  return validateDecision(parsed, brief.documents, { leadProduct: brief.product, latestClientText: latest?.body ?? null });
+  return validateDecision(parsed, brief.documents, {
+    leadProduct: brief.product,
+    latestClientText: latest?.body ?? null,
+    booking: brief.booking ?? null,
+  });
 }

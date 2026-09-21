@@ -112,6 +112,64 @@ describe('validateDecision', () => {
     });
   });
 
+  /* 236 · Owner: "make the build agent booking start with demo and visit. Call
+     is not working." The model is shown free times; the code checks it chose one. */
+  describe('⚠️ booking a demo or a visit', () => {
+    const OFFER = {
+      lines: { meeting: ['Wednesday 23 September (2026-09-23): any half hour from 10:00 AM to 4:30 PM'], site_visit: [] },
+      starts: { meeting: ['2026-09-23T15:00', '2026-09-23T15:30'], site_visit: ['2026-09-24T11:00'] },
+      existing: null as string | null,
+      today: 'Monday 21 September 2026, 3:00 PM',
+    };
+    const decide = (time_asked: unknown, says: boolean, booking: typeof OFFER | null = OFFER, extra: Record<string, unknown> = {}) =>
+      validateDecision({ action: 'reply', reply: 'Booked.', time_asked, reply_says_booked: says, ...extra }, [], { booking });
+
+    it('books a free time, and drops any follow-up — the reminder is the follow-up', () => {
+      const d = decide({ kind: 'meeting', at: '2026-09-23T15:00' }, true, OFFER, { follow_up: { purpose: 'no_response', in_days: 2 } });
+      expect(d).toMatchObject({ action: 'reply', booking: { kind: 'meeting', at: '2026-09-23T15:00', replyConfirms: true }, followUp: null });
+    });
+
+    it('⚠️ books a free time even when the model thought it was taken — the code decides', () => {
+      /* Dry run: "Saturday 12 baje" came back as "not free" three times with
+         12:00 listed as free. */
+      const d = decide({ kind: 'site_visit', at: '2026-09-24T11:00' }, false);
+      expect(d.booking).toEqual({ kind: 'site_visit', at: '2026-09-24T11:00', replyConfirms: false });
+    });
+
+    it('keeps the reply offering other times when the time asked for is not free', () => {
+      const d = decide({ kind: 'meeting', at: '2026-09-27T11:00' }, false);
+      expect(d).toMatchObject({ action: 'reply', booking: null });
+    });
+
+    it('⚠️ hands over a reply that says "booked" for a time that is not free', () => {
+      const d = decide({ kind: 'meeting', at: '2026-09-23T21:00' }, true);
+      expect(d.action).toBe('handover');
+      expect(d.handoverReason).toMatch(/not a free time/);
+    });
+
+    it('⚠️ hands over "booked" with no time at all', () => {
+      expect(decide(null, true).action).toBe('handover');
+    });
+
+    it('⚠️ never books a call', () => {
+      expect(decide({ kind: 'call', at: '2026-09-23T15:00' }, true)).toMatchObject({ action: 'handover', booking: null });
+    });
+
+    it('⚠️ never books a second appointment for a client who has one coming', () => {
+      const d = decide({ kind: 'meeting', at: '2026-09-23T15:00' }, true, { ...OFFER, existing: 'a demo on Friday 25 September at 11:00 AM' });
+      expect(d.action).toBe('handover');
+      expect(d.handoverReason).toMatch(/already has a demo/);
+    });
+
+    it('hands over a booking where no times were offered', () => {
+      expect(decide({ kind: 'meeting', at: '2026-09-23T15:00' }, true, null).action).toBe('handover');
+    });
+
+    it('a reply with no time asked books nothing', () => {
+      expect(decide(null, false).booking).toBeNull();
+    });
+  });
+
   it('sends one document once, however often the model names it', () => {
     expect(validateDecision({ action: 'reply', reply: 'x', documents: ['doc-proposal', 'doc-proposal'] }, DOCS).documentIds)
       .toEqual(['doc-proposal']);
