@@ -9,7 +9,100 @@
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
 | **Last updated** | **2026-09-22** |
-| **Last migration applied anywhere** | **246** (applied 2026-09-22; **246 the agent can say WHEN the appointment is**; 245 changing one is still the salesperson's). CRM next: **247.** |
+| **Last migration applied anywhere** | **247** (applied 2026-09-22; **247 follow-up conditions belong to the follow-up**; 246 the agent can say when the appointment is). CRM next: **248.** |
+
+---
+
+## 🧭 2026-09-22 — THE FOLLOW-UPS PAGE, SECOND PASS: STILL CARDS, DRAWN TABS, AND REAL CONDITIONS
+
+Owner, with two screenshots.
+
+### 1 · The cards are not tabs, so they stopped behaving like them
+
+*"These are just cards to show the status. These are not tabs. I don't want
+them colorful because they are not clickable. They are just tinted and still. I
+want them in the same exact color, a white color, and these colored icons are
+fine."*
+
+One white surface for all four, colour only in the icon tile, and no button,
+no hover, no pressed state — a `StatTile` local to this page. ⚠️ `StatCard`
+was NOT changed: the Appointments cards are clickable and the owner asked for
+those to be colourful (2026-09-21), so one component serving both would have to
+be told which request it was obeying. The only coloured number is Overdue's,
+and only when it is not zero.
+
+### 2 · The tabs are their drawing
+
+*"These are tabs and I want the UI … they are highlighted and they are
+underlined. I want this type of design for this type of thing so make it
+exactly the same."*
+
+A 3px accent bar, the label in the accent colour and semibold, a hairline under
+the strip. This is the third state for these tabs: underline → filled pills
+(after *"which tab is selected … is not visible"*) → underline as drawn, made
+findable. The counts that carried the visibility in between are gone; the
+queue's own heading says how many rows are in view.
+
+### 3 · Follow-up conditions — the advanced settings dialog (247)
+
+*"These are basically follow-up checks or, you can say, advanced settings …
+Properly and logically each and everything should be wired up. Right now it
+should be set to the default, according to the default setting of follow-up,
+but if I want to change I can change it over here and it will implement
+accordingly."*
+
+⚠️ **What was true before:** the checks existed but only bound to a SEQUENCE.
+`crm_sequences` carries `stop_on_reply` / `stop_on_visit` /
+`stop_on_quotation_dead`; a ONE-OFF follow-up — most of what a salesperson
+creates by hand — got only three rules: the lead is not won/lost, they have not
+opted out, and the channel is reachable. "Do not chase somebody who has just
+replied" was a promise the screen made and only sequences kept.
+
+| Layer | What it does |
+|---|---|
+| **247** | eight nullable columns on `crm_follow_ups`; `app.crm_followup_default_conditions` (the defaults, by purpose); `app.crm_followup_conditions` (resolved + each check answered LIVE); the gate `crm_followups_to_send` applies them to **every** row; `crm_followup_defer` takes its cap and gap from the row |
+| `lib/domain/crm-followup-conditions.ts` | the words, the option lists, the live column, the verdict · 14 tests |
+| `app/actions/crm-followup-board.ts` | read and save, every field checked against its own option list |
+| `components/crm/follow-up-conditions-dialog.tsx` | the dialog, portalled, one round trip on open and one on Save |
+
+⚠️ **NULL MEANS "THE DEFAULT FOR THIS PURPOSE"**, and the dialog opens on that
+rather than copying it in. Writing the resolved value back would pin the row to
+today's default for ever — a later change to a default would then reach every
+row except the ones somebody had merely LOOKED at.
+
+⚠️ **An appointment reminder is not a chase.** "Your visit is tomorrow at 3 PM"
+must go even though the client replied and even though a visit is booked — it is
+ABOUT that booking. The purpose defaults say so, and 247's self-check refuses to
+commit if they ever stop saying it.
+
+⚠️ **Two checks are not preferences and got no column.** A closed lead and a
+stated no stay unconditional, as `crm_sequence_stop_reason` has said since 182:
+*"A closed lead and a stated no are not preferences; nothing in the dialog can
+switch them off."* Opting out is the client's instruction. The dialog shows both
+as always-on **with the reason**, rather than as a switch that quietly does
+nothing.
+
+⚠️ **"Maximum attempts" means RETRIES of a refused send**, not messages to the
+client, and the dialog says so in as many words. The defaults stay 8 attempts
+and a 10-minute gap — exactly what `crm_followup_defer` did before — so nothing
+about delivery changed until somebody changes it.
+
+**The design's "Pause and notify Sarah" and "Create a review task" are not
+built.** Nothing in this codebase can create a sales to-do (they are derived
+from lead state and have no author) and there is no notify path for this. So
+the three "If something changes" rows offer the outcomes that ARE enforceable:
+hold it / cancel it / send it anyway, and stop sales messages / stop everything.
+
+**Proved against the live database**, all inside one rolled-back transaction so
+no row was claimed and the sender could never act on the probe:
+
+| | |
+|---|---|
+| condition ON, client waiting | **not offered** for sending |
+| the same condition OFF | **offered** |
+| over the retry cap | **not offered** |
+| override cleared | falls back to the purpose default, and is offered |
+| rows left behind | **0** |
 
 ---
 

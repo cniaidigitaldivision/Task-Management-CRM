@@ -5,10 +5,20 @@ import { revalidatePath } from 'next/cache';
 import { requireCrmAccess } from '@/lib/auth/current-user';
 import { runDueFollowUps } from '@/lib/crm/followup-sender';
 import {
+  crmFollowUpConditions,
   crmMakeFollowUpDue,
   crmRescheduleFollowUp,
+  crmSaveFollowUpConditions,
   crmSetFollowUpBody,
 } from '@/lib/db/queries/crm-followup-board';
+import {
+  GAP_OPTIONS,
+  ON_OPT_OUT_OPTIONS,
+  ON_QUOTE_EXPIRED_OPTIONS,
+  ON_REPLY_OPTIONS,
+  type ConditionEdit,
+  type FollowUpConditions,
+} from '@/lib/domain/crm-followup-conditions';
 
 /* ============================================================================
  * THE FOLLOW-UPS PAGE'S OWN WRITES
@@ -97,4 +107,59 @@ export async function sendFollowUpNowAction(
 
   settle(leadId);
   return sent ? { ok: true, sent: true } : { ok: true, sent: false, error: why };
+}
+
+/* ============================================================================
+ * 247 · THE CONDITIONS DIALOG
+ * ----------------------------------------------------------------------------
+ * ⚠️ READ AND WRITE GO THROUGH THE SAME DEFINER THE SENDER USES, so what the
+ * dialog shows is what the gate will decide. Nothing here evaluates a rule.
+ * ========================================================================= */
+
+export async function followUpConditionsAction(
+  id: string,
+): Promise<{ ok: boolean; conditions?: FollowUpConditions; error?: string }> {
+  const { user } = await requireCrmAccess();
+  if (!UUID.test(id)) return { ok: false, error: 'That follow-up could not be found.' };
+  const conditions = await crmFollowUpConditions(user.id, id);
+  if (!conditions) return { ok: false, error: 'That follow-up could not be found.' };
+  return { ok: true, conditions };
+}
+
+/** ⚠️ EVERY FIELD IS CHECKED AGAINST ITS OWN OPTION LIST. A select is a hint
+    to a person and no kind of guarantee about what arrives here. */
+export async function saveFollowUpConditionsAction(
+  id: string,
+  leadId: string,
+  edit: ConditionEdit,
+): Promise<{ ok: boolean; conditions?: FollowUpConditions; error?: string }> {
+  const { user } = await requireCrmAccess();
+  if (!UUID.test(id)) return { ok: false, error: 'That follow-up could not be found.' };
+
+  const tri = (v: unknown) => (v === true || v === false ? v : null);
+  const oneOf = <T extends string>(v: unknown, options: ReadonlyArray<{ value: T }>, fallback: T): T =>
+    options.some((o) => o.value === v) ? (v as T) : fallback;
+
+  const attempts = Number(edit?.maxAttempts);
+  const gap = Number(edit?.retryGapMinutes);
+  const clean: ConditionEdit = {
+    noReply: tri(edit?.noReply),
+    quoteValid: tri(edit?.quoteValid),
+    notBooked: tri(edit?.notBooked),
+    onReply: oneOf(edit?.onReply, ON_REPLY_OPTIONS, 'hold'),
+    onOptOut: oneOf(edit?.onOptOut, ON_OPT_OUT_OPTIONS, 'stop_sales'),
+    onQuoteExpired: oneOf(edit?.onQuoteExpired, ON_QUOTE_EXPIRED_OPTIONS, 'hold'),
+    maxAttempts: Number.isFinite(attempts) ? Math.max(1, Math.min(8, Math.round(attempts))) : 8,
+    retryGapMinutes: GAP_OPTIONS.some((o) => o.value === gap) ? gap : 10,
+  };
+
+  const ok = await crmSaveFollowUpConditions(user.id, id, clean);
+  if (!ok) {
+    return { ok: false, error: 'Those conditions could not be saved — this follow-up may already have been sent.' };
+  }
+  settle(leadId);
+  /* Hand back the resolved set, so the dialog shows what the database now says
+     rather than what the screen hoped it would say. */
+  const conditions = await crmFollowUpConditions(user.id, id);
+  return { ok: true, ...(conditions ? { conditions } : {}) };
 }

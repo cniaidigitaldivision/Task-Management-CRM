@@ -15,6 +15,12 @@ vi.mock('@/app/actions/crm-followups', () => ({
   stopSequenceAction: async () => ({ ok: true }),
 }));
 vi.mock('@/components/crm/follow-up-wizard', () => ({ FollowUpWizard: () => null }));
+vi.mock('@/components/crm/follow-up-conditions-dialog', () => ({
+  FollowUpConditionsDialog: () => null,
+  ConditionsButton: ({ onClick }: { onClick: () => void }) => (
+    <button type="button" onClick={onClick}>Advanced settings</button>
+  ),
+}));
 vi.mock('@/components/ui/toast', () => ({ useToast: () => () => {} }));
 
 import { FollowUpsBoard } from '@/components/crm/followups-board';
@@ -63,6 +69,10 @@ const row = (over: Partial<BoardFollowUp> & { id: string }): BoardFollowUp => ({
   stopOnReply: true,
   stopOnVisit: true,
   stopOnQuotationDead: true,
+  condNoReply: true,
+  condQuoteValid: true,
+  condNotBooked: true,
+  conditionsChanged: 0,
   steps: [
     { stepNo: 1, day: 1, channel: 'whatsapp', title: 'Quotation check-in' },
     { stepNo: 2, day: 3, channel: 'email', title: 'Send the plan again' },
@@ -139,10 +149,15 @@ describe('the follow-ups page as it first draws', () => {
     for (const f of ['Due status', 'Purpose', 'Channel', 'Project', 'Saved view']) expect(html).toContain(f);
   });
 
-  it('⚠️ says which tab is open, in a way you can see across the room', () => {
-    /* Owner, 2026-09-22: *"which tab is selected or which tab is opened is not
-       visible"*. The open tab is filled and marked, never merely underlined. */
-    expect(html).toMatch(/aria-selected="true"[^>]*class="[^"]*bg-accent-primary/);
+  it('⚠️ says which tab is open — highlighted AND underlined', () => {
+    /* Owner, 2026-09-22, with the design: *"These are tabs … they are
+       highlighted and they are underlined."* An earlier build made them filled
+       pills after they said the selection was invisible; this is their drawing,
+       made findable — a 3px accent bar and the label in the accent colour. */
+    expect(html).toMatch(/aria-selected="true"[^>]*class="[^"]*border-b-\[3px\]/);
+    expect(html).toMatch(/aria-selected="true"[^>]*class="[^"]*border-accent-primary[^"]*text-accent-primary/);
+    /* And no other tab carries it. */
+    expect(html).toMatch(/aria-selected="false"[^>]*class="[^"]*border-transparent/);
   });
 
   it('heads the queue exactly as the design does', () => {
@@ -185,8 +200,10 @@ describe('the details panel', () => {
   it('shows the recent conversation and the conditions that would stop it', () => {
     expect(html).toContain('Recent conversation');
     expect(html).toContain('View conversation');
-    expect(html).toContain('Stop if the client replies');
+    expect(html).toContain('Only if they have not replied');
     expect(html).toContain('Consent active');
+    /* 247 · and the way into the advanced settings. */
+    expect(html).toContain('Advanced settings');
   });
 
   it('previews every step of the sequence by day', () => {
@@ -203,12 +220,13 @@ describe('the details panel', () => {
 });
 
 describe('the sequence tab and its counts', () => {
-  it('⚠️ counts sequences on the Sequences tab, so it agrees with the card', () => {
-    /* A running sequence often has no step queued at this instant. Counting rows
-       put 2 on the card and 0 on the tab showing those same two. */
+  it('⚠️ the card and the queue heading agree about how many sequences run', () => {
+    /* A running sequence often has no step queued at this instant, so counting
+       its rows put 2 on the card and 0 beside the tab that shows those same
+       two. The tabs carry no counts now (the owner's design), and the heading
+       is the one place a number appears — it must be the same number. */
     const html = paint([], [sequence({ id: 's1' }), sequence({ id: 's2', leadName: 'Hina Shahzad' })]);
-    expect(html).toContain('Active sequences');
-    expect(html).toMatch(/Sequences<\/?[^>]*>?[\s\S]{0,120}>2</);
+    expect(html).toMatch(/Active sequences<\/span>[\s\S]{0,200}>2</);
   });
 
   it('never calls a running sequence "no sequence"', () => {

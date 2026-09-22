@@ -2,6 +2,8 @@ import 'server-only';
 
 import { withUser } from '../client';
 
+import type { ConditionEdit, FollowUpConditions } from '@/lib/domain/crm-followup-conditions';
+
 /* ============================================================================
  * THE FOLLOW-UPS PAGE — one query, everything the screen shows
  * ----------------------------------------------------------------------------
@@ -63,6 +65,13 @@ export interface BoardFollowUp {
   readonly stopOnReply: boolean;
   readonly stopOnVisit: boolean;
   readonly stopOnQuotationDead: boolean;
+
+  /** 247 · this row's own conditions, with the purpose's default applied. */
+  readonly condNoReply: boolean;
+  readonly condQuoteValid: boolean;
+  readonly condNotBooked: boolean;
+  /** How many of the three somebody has set by hand rather than left default. */
+  readonly conditionsChanged: number;
   /** Every step of that sequence, for the preview: day, channel, what it says. */
   readonly steps: ReadonlyArray<{ stepNo: number; day: number; channel: string; title: string }>;
 
@@ -109,6 +118,18 @@ export async function crmFollowUpBoard(actorId: string): Promise<BoardFollowUp[]
            coalesce(q.stop_on_reply, true) as stop_on_reply,
            coalesce(q.stop_on_visit, true) as stop_on_visit,
            coalesce(q.stop_on_quotation_dead, true) as stop_on_quotation_dead,
+
+           /* 247 · THE ROW'S OWN CONDITIONS, RESOLVED.
+              ⚠️ THROUGH THE IMMUTABLE DEFAULTS FUNCTION, NOT THE FULL RESOLVER.
+              app.crm_followup_conditions answers the live checks too, which is
+              several subqueries PER ROW — fine for one row in a dialog, wrong
+              for 400 in a list (law 5). The defaults are a pure function of the
+              purpose, so this stays a scan. The live checks are the dialog's. */
+           coalesce(f.cond_no_reply, dc.no_reply) as cond_no_reply,
+           coalesce(f.cond_quote_valid, dc.quote_valid) as cond_quote_valid,
+           coalesce(f.cond_not_booked, dc.not_booked) as cond_not_booked,
+           (f.cond_no_reply is not null)::int + (f.cond_quote_valid is not null)::int
+             + (f.cond_not_booked is not null)::int as conditions_changed,
            coalesce((
              select json_agg(json_build_object(
                       'stepNo', x.step_no, 'day', x.delay_days + 1,
@@ -128,6 +149,7 @@ export async function crmFollowUpBoard(actorId: string): Promise<BoardFollowUp[]
            m.direction::text as last_message_direction, m.status::text as last_message_status
       from public.crm_follow_ups f
       join public.crm_leads l on l.id = f.lead_id
+      cross join lateral app.crm_followup_default_conditions(f.purpose::text) dc
       left join public.crm_project_settings s on s.project_id = l.project_id
       left join public.crm_lead_sequences ls on ls.id = f.lead_sequence_id
       left join public.crm_sequences q on q.id = ls.sequence_id
@@ -193,6 +215,10 @@ export async function crmFollowUpBoard(actorId: string): Promise<BoardFollowUp[]
       stopOnReply: Boolean(r.stop_on_reply),
       stopOnVisit: Boolean(r.stop_on_visit),
       stopOnQuotationDead: Boolean(r.stop_on_quotation_dead),
+      condNoReply: r.cond_no_reply === true,
+      condQuoteValid: r.cond_quote_valid === true,
+      condNotBooked: r.cond_not_booked === true,
+      conditionsChanged: Number(r.conditions_changed ?? 0),
       steps: (Array.isArray(r.steps) ? r.steps : []) as BoardFollowUp['steps'],
 
       quotationId: (r.quotation_id as string | null) ?? null,
@@ -312,6 +338,86 @@ export async function crmMakeFollowUpDue(actorId: string, id: string): Promise<b
        and status in ('planned', 'due')
        and mode = 'auto_send'
        and channel in ('whatsapp', 'email')
+     returning id
+  `);
+  return (rows as unknown[]).length > 0;
+}
+
+/* ============================================================================
+ * 247 · THE FOLLOW-UP'S OWN CONDITIONS
+ * ----------------------------------------------------------------------------
+ * ⚠️ READ THROUGH THE DEFINER, NEVER OFF THE COLUMNS. The columns are nullable
+ * on purpose — null means "the default for this purpose" — and only
+ * `app.crm_followup_conditions` knows what that resolves to. It also answers
+ * each check as it stands right now, which is what the dialog shows.
+ * ========================================================================= */
+
+export async function crmFollowUpConditions(
+  actorId: string,
+  followUpId: string,
+): Promise<FollowUpConditions | null> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select k.*
+      from public.crm_follow_ups f
+      cross join lateral app.crm_followup_conditions(f.id) k
+     where f.id = ${followUpId}::uuid
+  `);
+  const r = (rows as unknown as Array<Record<string, unknown>>)[0];
+  if (!r) return null;
+  return {
+    followUpId: String(r.follow_up_id),
+    purpose: String(r.purpose),
+    noReply: r.cond_no_reply === true,
+    quoteValid: r.cond_quote_valid === true,
+    notBooked: r.cond_not_booked === true,
+    noReplyDefault: r.no_reply_default === true,
+    quoteValidDefault: r.quote_default === true,
+    notBookedDefault: r.booked_default === true,
+    onReply: String(r.on_reply) as FollowUpConditions['onReply'],
+    onOptOut: String(r.on_opt_out) as FollowUpConditions['onOptOut'],
+    onQuoteExpired: String(r.on_quote_expired) as FollowUpConditions['onQuoteExpired'],
+    maxAttempts: Number(r.max_attempts),
+    retryGapMinutes: Number(r.retry_gap_minutes),
+    attemptsSoFar: Number(r.attempts_so_far ?? 0),
+    okNoReply: r.ok_no_reply === true,
+    okQuoteValid: r.ok_quote_valid === true,
+    okNotBooked: r.ok_not_booked === true,
+    okLeadOpen: r.ok_lead_open === true,
+    okConsent: r.ok_consent === true,
+    quotationNumber: (r.quotation_number as string | null) ?? null,
+    quotationStatus: (r.quotation_status as string | null) ?? null,
+    quoteValidUntil: r.quote_valid_until ? new Date(r.quote_valid_until as string).toISOString() : null,
+    leadStage: String(r.lead_stage),
+    bookedAt: iso(r.booked_at),
+  };
+}
+
+/**
+ * Save an override. ⚠️ `null` on a toggle CLEARS it back to the purpose's
+ * default rather than writing today's default as a fixed value — the owner's
+ * *"right now it should be set to the default"* only stays true if the row
+ * keeps saying "default" until somebody actually chooses otherwise.
+ *
+ * ⚠️ OPEN ROWS ONLY. Changing the conditions of something already sent would
+ * describe a send that did not happen that way.
+ */
+export async function crmSaveFollowUpConditions(
+  actorId: string,
+  followUpId: string,
+  e: ConditionEdit,
+): Promise<boolean> {
+  const rows = await withUser(actorId, (tx) => tx`
+    update public.crm_follow_ups
+       set cond_no_reply     = ${e.noReply},
+           cond_quote_valid  = ${e.quoteValid},
+           cond_not_booked   = ${e.notBooked},
+           on_reply          = ${e.onReply},
+           on_opt_out        = ${e.onOptOut},
+           on_quote_expired  = ${e.onQuoteExpired},
+           max_attempts      = ${Math.max(1, Math.min(8, Math.round(e.maxAttempts)))},
+           retry_gap_minutes = ${Math.max(5, Math.min(360, Math.round(e.retryGapMinutes)))},
+           updated_at = now()
+     where id = ${followUpId}::uuid and status in ('planned', 'due')
      returning id
   `);
   return (rows as unknown[]).length > 0;

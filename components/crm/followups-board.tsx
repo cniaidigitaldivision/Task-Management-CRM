@@ -36,7 +36,8 @@ import {
 } from '@/app/actions/crm-followup-board';
 import { cancelFollowUpAction, completeFollowUpAction, stopSequenceAction } from '@/app/actions/crm-followups';
 import { leadBundlesAction } from '@/app/actions/crm-lead-bundles';
-import { ink, RowMenu, StatCard, tint } from '@/components/crm/appointments-board-parts';
+import { ink, RowMenu, tint } from '@/components/crm/appointments-board-parts';
+import { ConditionsButton, FollowUpConditionsDialog } from '@/components/crm/follow-up-conditions-dialog';
 import { FollowUpWizard } from '@/components/crm/follow-up-wizard';
 import { WA_GREEN, WhatsAppMark } from '@/components/crm/whatsapp-mark';
 import { PageHeader } from '@/components/ui/page-header';
@@ -114,6 +115,46 @@ function ChannelMark({ channel }: { channel: string }) {
   );
 }
 
+/**
+ * A still status tile — white, unclickable, colour only in the icon.
+ *
+ * ⚠️ NOT `StatCard`. That one is the Appointments page's, where the owner
+ * asked for colourful cards that filter when clicked. Here they asked for the
+ * opposite, and one component serving both would have to be told which owner
+ * request it was obeying.
+ */
+function StatTile({
+  label,
+  count,
+  tone,
+  icon: Icon,
+  alarm = false,
+}: {
+  label: string;
+  count: number;
+  tone: 'blue' | 'red' | 'amber' | 'green';
+  icon: IconOf;
+  alarm?: boolean;
+}) {
+  return (
+    <div className="flex items-center gap-4 rounded-2xl border border-border-subtle bg-bg-surface px-5 py-4 shadow-sm">
+      <span className="grid size-11 shrink-0 place-items-center rounded-xl" style={{ background: tint(tone, 14) }}>
+        <Icon className="size-5" style={{ color: ink(tone) }} />
+      </span>
+      <span className="min-w-0">
+        <span className="block truncate text-body-sm font-semibold text-text-primary">{label}</span>
+        <span
+          className="block text-[1.75rem] font-bold leading-tight tabular-nums text-text-primary"
+          /* Only the count that means somebody is late carries colour. */
+          style={alarm && count > 0 ? { color: ink(tone) } : undefined}
+        >
+          {count}
+        </span>
+      </span>
+    </div>
+  );
+}
+
 /** The states that are owed now — the only ones that carry red. */
 const LATE = new Set<DisplayStatus>(['overdue', 'due_now', 'reply_needed']);
 
@@ -136,6 +177,7 @@ type Dialog =
   | { kind: 'wizard'; leadId: string }
   | { kind: 'reschedule'; id: string }
   | { kind: 'done'; id: string }
+  | { kind: 'conditions'; id: string }
   | null;
 
 export function FollowUpsBoard({
@@ -313,36 +355,35 @@ export function FollowUpsBoard({
         }
       />
 
+      {/* ⚠️ THESE ARE NOT TABS AND THEY DO NOT CLICK. Owner, 2026-09-22:
+          *"These are just cards to show the status. These are not tabs. I don't
+          want them colorful because they are not clickable. They are just
+          tinted and still. I want them in the same exact color, a white color,
+          and these colored icons are fine."* So: one white surface for all
+          four, colour only in the icon, and no button, no hover, no pressed
+          state — nothing that promises something will happen.
+          The Appointments cards ARE clickable and stay colourful, which is why
+          this is a tile of its own rather than a change to `StatCard`. */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Due today" count={counts.dueToday} tone="blue" icon={CalendarDays}
-          active={filters.due === 'today'} onClick={() => set({ due: filters.due === 'today' ? 'all' : 'today' })} />
-        <StatCard label="Overdue" count={counts.overdue} tone="red" icon={AlertCircle}
-          active={filters.due === 'overdue'} onClick={() => set({ due: filters.due === 'overdue' ? 'all' : 'overdue' })} />
-        <StatCard label="Reply needed" count={counts.replyNeeded} tone="amber" icon={MessageSquare}
-          active={tab === 'queue' && filters.q === 'reply'} onClick={() => { setTab('queue'); setFilters(NO_FILTERS); }} />
-        <StatCard label="Active sequences" count={counts.activeSequences} tone="green" icon={Layers}
-          active={tab === 'sequences'} onClick={() => setTab(tab === 'sequences' ? 'queue' : 'sequences')} />
+        <StatTile label="Due today" count={counts.dueToday} tone="blue" icon={CalendarDays} />
+        <StatTile label="Overdue" count={counts.overdue} tone="red" icon={AlertCircle} alarm />
+        <StatTile label="Reply needed" count={counts.replyNeeded} tone="amber" icon={MessageSquare} />
+        <StatTile label="Active sequences" count={counts.activeSequences} tone="green" icon={Layers} />
       </div>
 
       {/* ── Tabs ───────────────────────────────────────────────────────── */}
-      {/* ⚠️ THE OPEN TAB IS FILLED, NOT UNDERLINED. Owner, 2026-09-22: *"which
-          tab is selected or which tab is opened is not visible"* — the same
-          complaint they made about the Appointments tabs. A 2px rule under a
-          word is not enough to find at a glance, so the open one carries the
-          accent as a solid pill, which is the treatment they accepted there.
-          Each tab also says how many rows it holds, so the choice is informed
-          before it is made rather than after. */}
-      <div
-        className="inline-flex max-w-full flex-wrap gap-1 rounded-xl border border-border-default bg-bg-surface p-1"
-        role="tablist"
-        aria-label="Which follow-ups"
-      >
+      {/* ⚠️ HIGHLIGHTED AND UNDERLINED, exactly as the owner drew it on
+          2026-09-22: *"These are tabs and I want the UI … they are highlighted
+          and they are underlined. I want this type of design."*
+
+          It was an underline before, and they could not see it (*"which tab is
+          selected … is not visible"*) — so this keeps their design and makes
+          it findable: a 3px accent bar, the label in the accent colour and
+          semibold, and a hairline under the whole strip for the bar to sit on.
+          The count that carried the visibility in between is gone; the queue's
+          own heading already says how many rows are in view. */}
+      <div className="flex flex-wrap items-center gap-6 border-b border-border-subtle" role="tablist" aria-label="Which follow-ups">
         {TABS.map((t) => {
-          /* ⚠️ THE SEQUENCES TAB COUNTS SEQUENCES. Counting its rows instead
-             put "2" on the Active sequences card and "0" on the tab that
-             shows those same two — a running sequence often has no step
-             queued at this instant, and the two numbers must agree. */
-          const n = t.key === 'sequences' ? counts.activeSequences : rows.filter((r) => inTab(r, t.key, nowMs)).length;
           const on = tab === t.key;
           return (
             <button
@@ -352,19 +393,13 @@ export function FollowUpsBoard({
               aria-selected={on}
               onClick={() => setTab(t.key)}
               className={cn(
-                'inline-flex items-center gap-2 rounded-lg px-4 py-2 text-body-sm font-semibold transition-colors',
-                on ? 'bg-accent-primary text-white shadow-sm' : 'text-text-secondary hover:bg-bg-subtle hover:text-text-primary',
+                '-mb-px border-b-[3px] pb-2.5 pt-1 text-body-sm transition-colors',
+                on
+                  ? 'border-accent-primary font-semibold text-accent-primary'
+                  : 'border-transparent font-medium text-text-secondary hover:text-text-primary',
               )}
             >
               {t.label}
-              <span
-                className={cn(
-                  'grid min-w-5 place-items-center rounded-full px-1.5 text-caption font-semibold leading-5',
-                  on ? 'bg-white/25 text-white' : 'bg-bg-subtle text-text-secondary',
-                )}
-              >
-                {n}
-              </span>
             </button>
           );
         })}
@@ -466,6 +501,9 @@ export function FollowUpsBoard({
                 { label: 'Open the lead', onSelect: () => router.push(`/my-leads?lead=${f.leadId}` as Route) },
                 { label: 'Add another follow-up', onSelect: () => openLeadWizard(f.leadId) },
                 ...(isOpen(f)
+                  ? [{ label: 'Conditions…', onSelect: () => setDialog({ kind: 'conditions', id: f.id }) }]
+                  : []),
+                ...(isOpen(f)
                   ? [
                       { label: 'Reschedule', onSelect: () => setDialog({ kind: 'reschedule', id: f.id }) },
                       { label: 'Mark done', onSelect: () => setDialog({ kind: 'done', id: f.id }) },
@@ -492,6 +530,7 @@ export function FollowUpsBoard({
             onCancel={() => void cancel(selected)}
             onMarkDone={() => setDialog({ kind: 'done', id: selected.id })}
             onConversation={() => router.push(`/conversations?lead=${selected.leadId}` as Route)}
+            onConditions={() => setDialog({ kind: 'conditions', id: selected.id })}
             onSaved={(body) => patch(selected.id, { body })}
           />
         ) : (
@@ -538,6 +577,19 @@ export function FollowUpsBoard({
             setDialog(null);
             refresh();
           }}
+        />
+      )}
+      {dialog?.kind === 'conditions' && byId(dialog.id) && (
+        <FollowUpConditionsDialog
+          followUpId={dialog.id}
+          leadId={byId(dialog.id)!.leadId}
+          leadName={byId(dialog.id)!.leadName}
+          projectName={byId(dialog.id)!.projectName}
+          ownerName={byId(dialog.id)!.ownerName ?? viewerName}
+          propertyLabel={byId(dialog.id)!.propertyLabel}
+          dueAt={byId(dialog.id)!.dueAt}
+          onClose={() => setDialog(null)}
+          onSaved={refresh}
         />
       )}
       {dialog?.kind === 'done' && byId(dialog.id) && (
@@ -783,6 +835,7 @@ function DetailsPanel({
   onCancel,
   onMarkDone,
   onConversation,
+  onConditions,
   onSaved,
 }: {
   f: BoardFollowUp;
@@ -795,6 +848,7 @@ function DetailsPanel({
   onCancel: () => void;
   onMarkDone: () => void;
   onConversation: () => void;
+  onConditions: () => void;
   onSaved: (body: string) => void;
 }) {
   const toast = useToast();
@@ -1004,13 +1058,24 @@ function DetailsPanel({
       {/* ── Conditions and the sequence ─────────────────────────────────── */}
       <div className="mt-3.5 grid gap-3 sm:grid-cols-2">
         <div className="rounded-xl border border-border-subtle p-3">
-          <h4 className="text-body-sm font-semibold text-text-primary">Conditions</h4>
+          <div className="flex items-start gap-2">
+            <h4 className="flex-1 text-body-sm font-semibold text-text-primary">Conditions</h4>
+            {/* ⚠️ 247 · THE ADVANCED SETTINGS THE OWNER ASKED FOR. The card
+                names the checks in force; the dialog is where they change, and
+                where each one is read back live from the sender's own rule. */}
+            {open && <ConditionsButton onClick={onConditions} count={f.conditionsChanged || undefined} />}
+          </div>
           <ul className="mt-2 space-y-1.5">
-            <Condition on={f.sequenceRunId ? f.stopOnReply : true} text="Stop if the client replies" />
-            <Condition on={f.sequenceRunId ? f.stopOnVisit : true} text="Stop once a visit is booked" />
-            <Condition on={f.sequenceRunId ? f.stopOnQuotationDead : true} text="Stop if the quotation dies" />
+            <Condition on={f.condNoReply} text="Only if they have not replied" />
+            <Condition on={f.condQuoteValid} text="Only while the quotation is live" />
+            <Condition on={f.condNotBooked} text="Only if nothing is booked yet" />
             <Condition on={f.consent} text={f.consent ? 'Consent active' : 'No WhatsApp consent'} />
           </ul>
+          {f.conditionsChanged > 0 && (
+            <p className="mt-2 text-caption text-text-secondary">
+              {f.conditionsChanged} changed from the default for {purposeLabel(f.purpose).toLowerCase()}.
+            </p>
+          )}
         </div>
         <div className="rounded-xl border border-border-subtle p-3">
           <h4 className="text-body-sm font-semibold text-text-primary">
