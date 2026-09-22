@@ -167,9 +167,18 @@ function RepeatField({
                daily this task should generate then you have to generate daily.
                Then why are you showing this message?"* Nothing was wrong with
                the behaviour; the label had been left behind by it. */
+            /* ── ⚠️ IT SAYS WHAT IT WILL DO, BEFORE IT IS SAVED ────────────
+               Owner, 2026-09-22: *"if someone accidentally creates a task and
+               doesn't notice that it's a daily creation, there's no button to
+               stop that daily creation of tasks."* There is a button now (the
+               task's own panel), and this is the other half: the consequence is
+               stated where the choice is made, rather than discovered a week
+               later from thirteen open copies. */
             freq === 'none'
               ? 'A one-off.'
-              : 'A fresh one is created automatically at midnight and assigned to the same person — whether or not the previous one is finished.'
+              : initial
+                ? 'Choosing “Does not repeat” ends this repeat completely — no new copy will be created again.'
+                : 'A fresh copy is created automatically at midnight, for the same person, until somebody stops it. While one copy is still open, the next one waits.'
           }
         >
           <Select

@@ -9,11 +9,20 @@ import { sql } from '@/lib/db/client';
  * then set a tracker… exactly 12 AM on every day that task will be generated
  * and put in their backlog or in a to do."*
  *
+ * ── ⚠️ IT READS `task_series` NOW, NOT THE LAST COPY (migration 250) ───────
+ * This file used to reconstruct a series every night: find the newest task that
+ * still carried a rule, and copy it. Three things followed, and the team hit all
+ * three — clearing the rule on a copy did nothing (it fell back to an older
+ * one), deleting a copy did nothing, cancelling did nothing. Measured on
+ * 2026-09-22: 13 series had been switched off by hand and were still running;
+ * 19–23 generated tasks were being deleted every day and coming back.
+ *
+ * A series is a row now. It can be stopped, and stopped means stopped.
+ *
  * ── ⚠️ WHY THIS READ IS ELEVATED, AND WHAT THAT DOES NOT BUY ────────────────
  * A cron request has no session and never will, so there is no `app.user_id`
- * for RLS to filter by and every policy would be false — the read would come
- * back empty and the runner would silently do nothing every night. So this uses
- * the pooled connection directly, exactly as `listSchedulableProjects` does.
+ * for RLS to filter by. This uses the pooled connection, exactly as
+ * `listSchedulableProjects` does.
  *
  * It buys a READ of series metadata and nothing else. Every INSERT the runner
  * makes goes through `withUser(createdById)` and is admitted by `tasks_insert`
@@ -45,12 +54,9 @@ function dateOnly(value: unknown): string | null {
 
 export interface RepeatingSeries {
   readonly seriesId: string;
-  /** The most recent instance — what the next one is copied from. */
-  readonly latestTaskId: string;
   readonly recurrenceRule: string;
-  /** The anchor the rule is walked forward from. */
+  /** The day the rule is walked forward from: the last copy made, else the anchor. */
   readonly anchorDate: string | null;
-  readonly startDate: string | null;
 
   readonly title: string;
   readonly description: string | null;
@@ -64,62 +70,59 @@ export interface RepeatingSeries {
   readonly effortSize: string | null;
   readonly effortPoints: number;
   readonly timeLimitMinutes: number | null;
+  readonly statusOnCreate: string;
 
-  /** Instances still open. The runaway guard reads this. */
+  /** ⚠️ True by default: do not make another copy while one is still open. */
+  readonly oneOpenCopy: boolean;
+  /** Copies still open. The runaway guard and `oneOpenCopy` both read this. */
   readonly outstanding: number;
-  /** True when the day being generated already has an instance — cron is
-   *  at-least-once, so this is what makes a second run a no-op. */
+  /**
+   * True when this day already has a copy — **deleted and cancelled ones
+   * included**. A day somebody dealt with is a day that has happened.
+   */
   readonly hasInstanceOnDay: boolean;
 }
 
 /**
- * Every live repeating series, with the state the runner needs to decide.
+ * Every live series, with the state the runner needs to decide.
  *
- * ⚠️ `distinct on (recurrence_series_id)` ordered by due date descending picks
- * the LATEST instance per series in one pass. Ordering by `created_at` instead
- * would pick whichever row was inserted last, which is not the same thing the
- * moment somebody back-dates or edits an instance.
+ * ⚠️ `stopped_at is null` is the whole point of migration 250. A stopped series
+ * is not read, not walked and not counted.
  */
 export async function listRepeatingSeries(day: string): Promise<RepeatingSeries[]> {
   const rows = await sql`
-    with latest as (
-      select distinct on (t.recurrence_series_id)
-             t.recurrence_series_id, t.id, t.recurrence_rule, t.title, t.description,
-             t.project_id, t.other_description, t.content_kind, t.assignee_id,
-             t.created_by_id, t.priority, t.effort_size, t.effort_points,
-             t.start_date, t.due_date, t.time_limit_minutes
-        from public.tasks t
-        join public.users u on u.id = t.created_by_id
-        join public.projects p on p.id = t.project_id
-       where t.recurrence_series_id is not null
-         and t.recurrence_rule is not null
-         and not t.is_deleted
-         /* A creator who cannot write would fail one insert at a time. Skipping
-            them here makes it a visible absence rather than a run of errors —
-            the same call listSchedulableProjects makes about project owners. */
-         and u.is_active = true
-         and p.status = 'active'
-       order by t.recurrence_series_id, t.due_date desc nulls last, t.created_at desc
-    )
-    select l.*,
+    select s.id, s.recurrence_rule, s.title, s.description, s.project_id,
+           s.other_description, s.content_kind, s.assignee_id, s.created_by_id,
+           s.priority, s.effort_size, s.effort_points, s.time_limit_minutes,
+           s.status_on_create, s.one_open_copy,
+           coalesce(s.last_generated_on, s.anchor_date) as anchor_date,
            (select count(*) from public.tasks o
-             where o.recurrence_series_id = l.recurrence_series_id
+             where o.recurrence_series_id = s.id
                and not o.is_deleted
                and o.status not in ('done', 'cancelled'))::int as outstanding,
+           /* ⚠️ NOT filtered by is_deleted -- a backtick here would end the
+              template literal (see memory: backticks break SQL literals).
+              Deleting today's copy used to make the runner produce it again;
+              a deleted day is a day that happened. */
            exists (select 1 from public.tasks d
-                    where d.recurrence_series_id = l.recurrence_series_id
-                      and not d.is_deleted
+                    where d.recurrence_series_id = s.id
                       and d.due_date = ${day}::date) as has_instance_on_day
-      from latest l
-     order by l.title
+      from public.task_series s
+      join public.users u on u.id = s.created_by_id
+      join public.projects p on p.id = s.project_id
+     where s.stopped_at is null
+       /* A creator who cannot write would fail one insert at a time. Skipping
+          them here makes it a visible absence rather than a run of errors —
+          the same call listSchedulableProjects makes about project owners. */
+       and u.is_active = true
+       and p.status = 'active'
+     order by s.title
   `;
 
   return (rows as Array<Record<string, unknown>>).map((row) => ({
-    seriesId: row.recurrence_series_id as string,
-    latestTaskId: row.id as string,
+    seriesId: row.id as string,
     recurrenceRule: row.recurrence_rule as string,
-    anchorDate: dateOnly(row.due_date),
-    startDate: dateOnly(row.start_date),
+    anchorDate: dateOnly(row.anchor_date),
     title: row.title as string,
     description: (row.description as string | null) ?? null,
     projectId: row.project_id as string,
@@ -136,7 +139,25 @@ export async function listRepeatingSeries(day: string): Promise<RepeatingSeries[
       row.time_limit_minutes === null || row.time_limit_minutes === undefined
         ? null
         : Number(row.time_limit_minutes),
+    statusOnCreate: (row.status_on_create as string) ?? 'backlog',
+    oneOpenCopy: row.one_open_copy === true,
     outstanding: Number(row.outstanding ?? 0),
     hasInstanceOnDay: row.has_instance_on_day === true,
   }));
+}
+
+/**
+ * Remember that a copy was made for this day.
+ *
+ * ⚠️ Called after the insert, as the owner connection. It is what makes
+ * "delete it and it is back in the morning" stop happening: the day is recorded
+ * as generated whatever later becomes of the copy.
+ */
+export async function markSeriesGenerated(seriesId: string, day: string): Promise<void> {
+  await sql`
+    update public.task_series
+       set last_generated_on = greatest(coalesce(last_generated_on, ${day}::date), ${day}::date),
+           updated_at = now()
+     where id = ${seriesId}
+  `;
 }

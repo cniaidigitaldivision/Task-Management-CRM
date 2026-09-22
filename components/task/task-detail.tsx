@@ -34,6 +34,7 @@ import type { ShellPerson, ShellProject } from '@/components/layout/app-shell';
 import { AttachmentsPanel } from '@/components/task/attachments-panel';
 import { PlacementsPanel } from '@/components/task/placements-panel';
 import { RecommendPanel } from '@/components/task/recommend-panel';
+import { RepeatPanel } from '@/components/task/repeat-panel';
 import { TaskRelationsPanel } from '@/components/task/task-relations-panel';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge, PriorityFlag } from '@/components/ui/badge';
@@ -427,6 +428,16 @@ export function TaskDetail({
                 busy={busy}
                 onPick={(userId) => void run(() => assignTaskAction(task.id, userId))}
               />
+            )}
+
+            {/* ⚠️ THE REPEAT, AND THE BUTTON THAT STOPS IT. Owner, 2026-09-22:
+                *"if someone accidentally creates a task and doesn't notice that
+                it's a daily creation, there's no button to stop that daily
+                creation of tasks."* It sits above the blocked reason because it
+                is the more surprising thing to learn about a task you did not
+                expect to see. */}
+            {task.recurrenceRule && (
+              <RepeatPanel taskId={task.id} rule={task.recurrenceRule} onChanged={onChanged} />
             )}
 
             {task.blockedReason && (

@@ -51,7 +51,7 @@ const TASK_SELECT = (tx: Tx) => tx`
     t.start_date, t.start_time, t.due_date, t.due_time, t.completed_at,
     t.blocked_reason, t.cancelled_reason, t.assignment_override_reason,
     t.time_limit_minutes, t.time_spent_minutes, t.timer_state, t.timer_started_at,
-    t.extension_minutes_granted, t.recurrence_rule,
+    t.extension_minutes_granted, t.recurrence_rule, t.recurrence_series_id,
     t.content_kind, t.source_drive_url, t.asset_drive_url, t.published_on,
     t.created_at, t.updated_at,
     /* How many places this deliverable went, and how many of those are live.
@@ -109,6 +109,10 @@ function toTask(row: Record<string, unknown>): TaskRow {
     timerStartedAt: isoOrNull(row.timer_started_at),
     extensionMinutesGranted: Number(row.extension_minutes_granted ?? 0),
     recurrenceRule: (row.recurrence_rule as string | null) ?? null,
+    /* ⚠️ The series this copy belongs to (migration 250). Carried so the screen
+       can offer "stop repeating" from the task in front of somebody, which is
+       the control the owner found missing. */
+    recurrenceSeriesId: (row.recurrence_series_id as string | null) ?? null,
     contentKind: (row.content_kind as ContentKind | null) ?? null,
     sourceDriveUrl: (row.source_drive_url as string | null) ?? null,
     assetDriveUrl: (row.asset_drive_url as string | null) ?? null,
@@ -555,6 +559,8 @@ export interface UpdateTaskInput {
   readonly dueTime?: string | null;
   readonly timeLimitMinutes?: number | null;
   readonly recurrenceRule?: string | null;
+  /** Point this task at a series (migration 250). */
+  readonly recurrenceSeriesId?: string | null;
   readonly contentKind?: ContentKind | null;
   readonly sourceDriveUrl?: string | null;
   readonly assetDriveUrl?: string | null;
@@ -590,6 +596,7 @@ export async function updateTask(
         due_time          = case when ${has('dueTime')} then ${input.dueTime ?? null}::time else due_time end,
         time_limit_minutes = case when ${has('timeLimitMinutes')} then ${input.timeLimitMinutes ?? null}::integer else time_limit_minutes end,
         recurrence_rule   = case when ${has('recurrenceRule')} then ${input.recurrenceRule ?? null} else recurrence_rule end,
+        recurrence_series_id = case when ${has('recurrenceSeriesId')} then ${input.recurrenceSeriesId ?? null}::uuid else recurrence_series_id end,
         content_kind      = case when ${has('contentKind')} then ${input.contentKind ?? null}::public.content_kind else content_kind end,
         source_drive_url  = case when ${has('sourceDriveUrl')} then ${input.sourceDriveUrl ?? null} else source_drive_url end,
         asset_drive_url   = case when ${has('assetDriveUrl')} then ${input.assetDriveUrl ?? null} else asset_drive_url end,

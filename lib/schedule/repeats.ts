@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { listRepeatingSeries, type RepeatingSeries } from '@/lib/db/queries/repeats';
+import { listRepeatingSeries, markSeriesGenerated, type RepeatingSeries } from '@/lib/db/queries/repeats';
 import { createTask } from '@/lib/db/queries/tasks';
 import { occursOn, parseRecurrence } from '@/lib/domain/recurrence';
 import type { ContentKind } from '@/lib/domain/constants';
@@ -48,12 +48,14 @@ import type { ContentKind } from '@/lib/domain/constants';
  * schedule generator held too.
  * ========================================================================= */
 
-/* ⚠️ A RUNAWAY GUARD, NOT A POLICY. The owner chose to keep generating while a
-   person is behind, so this is deliberately far above any sane backlog: two
-   working weeks of a daily series. It exists for the case nobody intends — a
-   repeat left on a deactivated project, a series nobody has opened for a month
-   — where the alternative is a table filling one row a night, unnoticed.
-   Anybody working normally will never reach it. */
+/* ⚠️ THE BACKSTOP, NOT THE POLICY. `one_open_copy` on the series is the policy
+   now (migration 250) and it defaults to on. This is what catches a series that
+   was deliberately set to generate every day and then forgotten — a repeat left
+   on a project nobody works, filling a table one row a night.
+
+   It used to be the only limit, and it was far too generous: measured on
+   2026-09-22, Abdul Moiz had 32 open copies carrying 128 of his 132 capacity
+   points, and one series alone had 13. */
 const OUTSTANDING_LIMIT = 14;
 
 export interface RepeatOutcome {
@@ -65,10 +67,30 @@ export interface RepeatOutcome {
   readonly skipped?: string;
 }
 
-/** One series' decision, kept pure so the branches can be read at a glance. */
-function decide(series: RepeatingSeries, day: string): { create: true } | { create: false; why: string } {
+/**
+ * One series' decision, kept pure so the branches can be read at a glance.
+ *
+ * ⚠️ Exported for its test. It is where every rule the owner asked for lives —
+ * a stopped series never gets here, a day already generated is never repeated,
+ * and one open copy means one.
+ */
+export function decide(series: RepeatingSeries, day: string): { create: true } | { create: false; why: string } {
   if (series.hasInstanceOnDay) {
     return { create: false, why: 'already generated for this day' };
+  }
+
+  /* ── ⚠️ ONE OPEN COPY, UNLESS THE SERIES SAYS OTHERWISE ──────────────────
+     Owner, 2026-09-22, relaying a client: *"he daily creates that task and
+     assigns it to me. In this way they have 128 tasks … their capacity is
+     getting full."*
+
+     This narrows the 2026-09-03 instruction ("generate whether or not the
+     previous one is finished") rather than reversing it: the reason for that
+     instruction was that a person must SEE the work waiting, and they still do
+     — yesterday's copy is there, ageing, with its due date on it. What they no
+     longer get is thirteen of them, each carrying its own capacity points. */
+  if (series.oneOpenCopy && series.outstanding > 0) {
+    return { create: false, why: `${series.outstanding} copy still open — one at a time` };
   }
 
   const parsed = parseRecurrence(series.recurrenceRule);
@@ -78,7 +100,7 @@ function decide(series: RepeatingSeries, day: string): { create: true } | { crea
     return { create: false, why: `unreadable repeat rule: ${parsed.message}` };
   }
 
-  const anchor = series.anchorDate ?? series.startDate;
+  const anchor = series.anchorDate;
   if (!anchor) {
     return { create: false, why: 'the series has no date to count from' };
   }
@@ -132,11 +154,11 @@ export async function runRepeatsFor(day: string): Promise<RepeatOutcome[]> {
         projectId: item.projectId,
         otherDescription: item.otherDescription,
         assigneeId: item.assigneeId,
-        /* Backlog, not To Do. The owner said *"put in their backlog or in a to
-           do"* and left the choice open; Backlog is the honest one — nobody has
-           committed to today's copy yet, and moving it to To Do is how a person
-           says they have. */
-        status: 'backlog',
+        /* ⚠️ THE SERIES DECIDES, and it defaults to Backlog. The owner left
+           the choice open (*"put in their backlog or in a to do"*), and Backlog
+           is also the half that does not undo the capacity fix: `STATUS_META`
+           weighs Backlog at 0.25 of a task's load and To Do at 1.0. */
+        status: (item.statusOnCreate === 'todo' ? 'todo' : 'backlog') as 'todo' | 'backlog',
         priority: item.priority as 'low' | 'medium' | 'high' | 'urgent',
         /* Upper case — the enum is XS/S/M/L/XL, checked rather than guessed
            after tsc caught the lower-case spelling. */
@@ -151,6 +173,10 @@ export async function runRepeatsFor(day: string): Promise<RepeatOutcome[]> {
         recurrenceSeriesId: item.seriesId,
       });
 
+      /* ⚠️ THE DAY IS RECORDED AS GENERATED, WHATEVER BECOMES OF THE COPY.
+         Deleting or cancelling it does not bring it back tomorrow — which is
+         exactly what the team was fighting (19–23 deletions a day). */
+      await markSeriesGenerated(item.seriesId, day);
       outcomes.push({ seriesId: item.seriesId, title: item.title, createdTaskId: created.id });
     } catch (error) {
       /* ⚠️ One series' failure must not abandon the rest — the same call

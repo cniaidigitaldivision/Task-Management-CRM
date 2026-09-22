@@ -6,6 +6,15 @@ import { requireUser, stepUpIsFresh } from '@/lib/auth/current-user';
 import { withUser } from '@/lib/db/client';
 import { audit } from '@/lib/db/queries/audit';
 import { notify, record, notifySelf } from '@/lib/db/queries/feed';
+import {
+  listTaskSeries,
+  saveTaskSeries,
+  seriesOfTask,
+  setSeriesRule,
+  stopTaskSeries,
+  type SeriesCard,
+  type TaskSeries,
+} from '@/lib/db/queries/task-series';
 import { getPerson, listAvailability } from '@/lib/db/queries/people';
 import { getProject } from '@/lib/db/queries/projects';
 import { contentCountsFor } from '@/lib/db/queries/content-tracker';
@@ -727,6 +736,37 @@ export async function createTaskAction(_prev: ActionResult, form: FormData): Pro
     }
   }
 
+  /* ── ⚠️ A REPEAT IS A SERIES NOW, NOT A COLUMN ON A COPY (migration 250) ──
+     Owner, 2026-09-22: *"if someone accidentally creates a task and doesn't
+     notice that it's a daily creation, there's no button to stop that daily
+     creation of tasks."* There is one now — and this is what it stops. The
+     definition is written first and the task points at it, so stopping is one
+     row rather than an argument with every copy ever made. */
+  let seriesId: string | null = null;
+  if (repeat.rule) {
+    try {
+      seriesId = await saveTaskSeries(user.id, {
+        rule: repeat.rule,
+        title,
+        description: optional(form, 'description'),
+        projectId,
+        otherDescription: optional(form, 'otherDescription'),
+        contentKind: deliverable.contentKind ?? null,
+        assigneeId: assigneeId ?? null,
+        priority,
+        effortSize: effort.size,
+        effortPoints: effort.points,
+        timeLimitMinutes: minutesFrom(form),
+        /* ⚠️ FALLING BACK TO TODAY RATHER THAN REFUSING. A repeat with no date
+           used to be accepted happily and then never run, silently, for ever —
+           the rule is walked forward from a day, and it had none. */
+        anchorDate: dueDate ?? optional(form, 'startDate') ?? null,
+      });
+    } catch (error) {
+      return fail(readableDbError(error), 'repeatFreq');
+    }
+  }
+
   try {
     const created = await T.createTask(user.id, {
       title,
@@ -746,6 +786,7 @@ export async function createTaskAction(_prev: ActionResult, form: FormData): Pro
       timeLimitMinutes: minutesFrom(form),
       assignmentOverrideReason: overrideReason,
       recurrenceRule: repeat.rule,
+      recurrenceSeriesId: seriesId,
       ...deliverable,
     });
 
@@ -912,6 +953,44 @@ export async function updateTaskAction(_prev: ActionResult, form: FormData): Pro
       recurrenceRule: repeat.rule,
       ...deliverableFrom(form),
     });
+
+    /* ── ⚠️ THE REPEAT CONTROL MEANS THE SERIES; NOTHING ELSE ON THIS FORM DOES
+       (migrations 250, 251). Renaming one day's copy used to rename every future
+       one, because the next copy was made from the last copy — the live data
+       shows it having happened ("…, Weekly report done"). The title, dates and
+       estimate edited here stay on this copy; only the repeat reaches the
+       definition.
+
+       ⚠️ AND "DOES NOT REPEAT" STOPS THE WHOLE SERIES, which is the flaw this
+       answers: it used to clear the rule on this row alone, and the nightly
+       runner fell back to an older copy and carried on. */
+    if (task.recurrenceSeriesId) {
+      if (!repeat.rule) {
+        await stopTaskSeries(user.id, task.recurrenceSeriesId, {
+          reason: `switched off on ${task.reference}`,
+        });
+        await tellTheOtherParty(user, task, 'stopped it repeating');
+      } else if (repeat.rule !== task.recurrenceRule) {
+        await setSeriesRule(user.id, task.recurrenceSeriesId, repeat.rule);
+        await tellTheOtherParty(user, task, 'changed how often it repeats');
+      }
+    } else if (repeat.rule) {
+      const newSeries = await saveTaskSeries(user.id, {
+        rule: repeat.rule,
+        title: title || task.title,
+        description: optional(form, 'description'),
+        projectId: task.projectId,
+        otherDescription: optional(form, 'otherDescription'),
+        contentKind: deliverableFrom(form).contentKind ?? task.contentKind ?? null,
+        assigneeId: task.assigneeId,
+        priority,
+        effortSize: effort.size,
+        effortPoints: effort.points,
+        timeLimitMinutes: minutesFrom(form),
+        anchorDate: optional(form, 'dueDate') ?? task.dueDate ?? null,
+      });
+      await T.updateTask(user.id, taskId, { recurrenceSeriesId: newSeries });
+    }
 
     await withUser(user.id, (tx) =>
       record(tx, user.id, {
@@ -1880,6 +1959,12 @@ export async function logTimeAction(
  */
 function readableDbError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
+  /* ⚠️ THE REAL REASON REACHES THE SERVER LOG. Every branch below turns a
+     database complaint into a sentence a person can act on, and the fallback
+     says nothing at all — which is exactly the "catch blocks name a guessed
+     cause" trap: a refusal nobody can diagnose. The person still gets the
+     sentence; whoever is on the other end of the logs gets the truth. */
+  console.error('[tasks] refused:', message);
 
   if (message.includes('must say what the work is')) {
     return 'A task in an Other project has to say what the work actually is (BR-012).';
@@ -2020,4 +2105,84 @@ export async function purgeTasksAction(taskIds: string[]): Promise<ActionResult>
         ? undefined
         : `${purged} of ${doomed.length} were destroyed; the rest were refused by the database.`,
   };
+}
+
+/* ==========================================================================
+ * REPEATING TASKS — seeing them, and stopping them
+ * ==========================================================================
+ * Owner, 2026-09-22, relaying a client: *"he daily creates that task and
+ * assigns it to me. In this way they have 128 tasks from the last 20 days …
+ * their capacity is getting full."* Measured that day: 32 of Abdul Moiz's 33
+ * open tasks were copies, carrying 128 of his 132 capacity points.
+ * ========================================================================== */
+
+/** The series a task belongs to — so the task itself can offer to stop it. */
+export async function taskSeriesAction(taskId: string): Promise<{ series: TaskSeries | null }> {
+  const user = await requireUser();
+  return { series: await seriesOfTask(user.id, taskId) };
+}
+
+/** Every repeating task this person may see. */
+export async function taskSeriesListAction(): Promise<{ series: SeriesCard[] }> {
+  const user = await requireUser();
+  return { series: await listTaskSeries(user.id) };
+}
+
+/**
+ * Stop a repeat, for ever, from any copy of it.
+ *
+ * ⚠️ `removeUntouched` is OFFERED, NEVER ASSUMED, and it removes only copies
+ * nobody has touched — still in the status they were created in, nothing logged
+ * against them, nothing said about them. Anything somebody started, finished or
+ * commented on is their record of that day and is left alone.
+ */
+export async function stopTaskSeriesAction(
+  seriesId: string,
+  options: { removeUntouched?: boolean; reason?: string } = {},
+): Promise<ActionResult & { removed?: number }> {
+  const user = await requireUser();
+  try {
+    const { removed } = await stopTaskSeries(user.id, seriesId, {
+      reason: options.reason ?? null,
+      removeUntouched: options.removeUntouched ?? false,
+    });
+    revalidateWork();
+    return { ok: true, removed };
+  } catch (error) {
+    return fail(readableDbError(error));
+  }
+}
+
+/**
+ * Tell whoever else is on a repeating task that it changed.
+ *
+ * ⚠️ THE ASSIGNEE MAY STOP A SERIES SOMEBODY ELSE SET UP — the whole report is
+ * from the person receiving the copies, and making them ask the sender would
+ * leave them where they started. This is the counterweight: the other party is
+ * told, by name, the same way closing delegated work already tells them.
+ */
+async function tellTheOtherParty(
+  user: { id: string; fullName: string },
+  task: { id: string; title: string; assigneeId: string | null; createdById: string; projectName: string },
+  what: string,
+): Promise<void> {
+  const other = user.id === task.createdById ? task.assigneeId : task.createdById;
+  if (!other || other === user.id) return;
+  try {
+    await withUser(user.id, (tx) =>
+      notify(tx, user.id, {
+        userId: other,
+        /* `task_status_changed` rather than a new kind: this IS a change to
+           the state of somebody's work, and a kind of its own would be one more
+           switch in notification preferences for one sentence a month. */
+        kind: 'task_status_changed',
+        title: `${user.fullName} ${what}: ${task.title}`,
+        body: `On ${task.projectName}. No new copies will be created.`,
+        linkTo: '/tasks',
+        entityId: task.id,
+      }),
+    );
+  } catch {
+    /* A missed notification must not undo a repeat somebody stopped. */
+  }
 }

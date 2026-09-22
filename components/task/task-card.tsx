@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { MessageSquare, Paperclip, ListChecks, Lock } from 'lucide-react';
+import { ListChecks, Lock, MessageSquare, Paperclip, Repeat } from 'lucide-react';
 
 import { Avatar } from '@/components/ui/avatar';
 import { Badge, PriorityFlag } from '@/components/ui/badge';
@@ -128,8 +128,20 @@ export function TaskCard({
         {/* ---- Reference + title ---- */}
         <div>
           <div className="flex items-center justify-between gap-2">
-            <span className="font-mono text-micro font-semibold text-text-brand">
-              {task.reference}
+            <span className="flex min-w-0 items-center gap-1.5">
+              <span className="font-mono text-micro font-semibold text-text-brand">
+                {task.reference}
+              </span>
+              {/* ⚠️ SO A COPY LOOKS LIKE A COPY. Owner, 2026-09-22: somebody
+                  "doesn't notice that it's a daily creation" — and nothing on a
+                  card said so. The panel behind it carries the Stop button. */}
+              {task.repeatsRule && (
+                <Repeat
+                  className="size-3 shrink-0 text-text-brand"
+                  strokeWidth={2.5}
+                  aria-label="Repeats"
+                />
+              )}
             </span>
             {immovable ? (
               <Lock

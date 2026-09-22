@@ -76,6 +76,7 @@ function row(over: {
     timerStartedAt: null,
     extensionMinutesGranted: 0,
     recurrenceRule: null,
+  recurrenceSeriesId: null,
     contentKind: 'static',
     sourceDriveUrl: null,
     assetDriveUrl: null,

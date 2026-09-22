@@ -141,6 +141,8 @@ export interface TaskRow {
   readonly extensionMinutesGranted: number;
   /** An RFC 5545 subset — see lib/domain/recurrence.ts. Null for a one-off. */
   readonly recurrenceRule: string | null;
+  /** The series this copy belongs to, if it is one — `public.task_series`. */
+  readonly recurrenceSeriesId: string | null;
 
   /* ── The deliverable — migrations 033/034 ─────────────────────────────────
      `contentKind` is what makes this task countable against a package target.

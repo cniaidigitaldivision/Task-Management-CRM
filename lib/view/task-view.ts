@@ -80,6 +80,14 @@ export interface TaskView {
      False for anything still open — an open task is not "recently closed", and
      the filter must not have to special-case that. */
   readonly recentlyClosed: boolean;
+  /* ── ⚠️ SO A REPEAT IS VISIBLE WITHOUT OPENING THE EDIT FORM ─────────────
+     Owner, 2026-09-22: *"if someone accidentally creates a task and doesn't
+     notice that it's a daily creation, there's no button to stop that daily
+     creation of tasks."* Nothing on a card, a row, the board or the detail
+     panel said a task repeated — the only place it appeared was inside the edit
+     dialog, three clicks from anywhere. */
+  readonly repeatsRule: string | null;
+  readonly seriesId: string | null;
 }
 
 /** The nearest named size, for a task whose points were entered directly. */
@@ -216,5 +224,7 @@ export function toTaskView(row: TaskRow, nowMs: number): TaskView {
     contentKind: row.contentKind,
     placementUrlCount: row.placementLiveCount,
     recentlyClosed: closedRecently(row, nowMs),
+    repeatsRule: row.recurrenceRule,
+    seriesId: row.recurrenceSeriesId,
   };
 }

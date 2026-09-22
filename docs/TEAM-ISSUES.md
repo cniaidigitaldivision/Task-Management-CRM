@@ -140,8 +140,53 @@ generated instances deleted per day since 18 Sep.
    deleted**, so deleting an instance does not register.
 3. The runner never looks at status, so cancelling does not register either.
 
-**Fix:** not started — the owner is choosing between the options in
-`TASK-MANAGEMENT-STUDY.md` §6.
+**Fix — shipped 2026-09-22 (migrations 250 and 251):** a repeating task is a row
+of its own now (`public.task_series`) with a `stopped_at`, and the nightly runner
+reads that instead of guessing from the last copy.
+
+- **"Does not repeat" ends the whole series**, from any copy.
+- **A day that was deleted or cancelled counts as generated** — it never comes
+  back in the morning.
+- **One open copy by default**: while yesterday's is still open, tonight makes
+  none. Switchable per series for work that genuinely is a new job each day.
+- **A Stop repeating button on the task itself**, with the offer to remove the
+  copies nobody has started (never the ones anybody touched).
+- **The backfill stopped 19 series immediately** — the 13 people had already
+  switched off by hand, and 6 whose every copy had been deleted.
+
+Measured after: tonight's run would create **19** copies instead of 55+, with 26
+series held because a copy is still open. Proved end to end on the real screen:
+raised a daily task, the panel said "Every day", pressed Stop, the confirmation
+named it, the database recorded who stopped it, and the runner no longer sees it.
+
+---
+
+### T-07 · A leaked connection has blocked all policy DDL for ten hours — P1
+| | |
+|---|---|
+| **Reported** | found 2026-09-22 while applying migration 250 |
+| **Where** | the production database (Supabase) |
+| **Priority** | **P1** — nothing is broken for the team, but no policy can be created and Storage cannot finish an index |
+| **Status** | cause found · **needs the owner to act** |
+
+One of our connections has been **idle inside a transaction since 03:11** and
+`idle_in_transaction_session_timeout` is `0`, so nothing will ever clear it. It
+holds the virtual transaction that Supabase Storage's `CREATE INDEX CONCURRENTLY`
+has been waiting on since 05:27 — and while that build waits, **`CREATE POLICY`
+and `DROP POLICY` block on `storage.objects` anywhere in the database.**
+
+Migration 250 was written around it (its table has RLS on with no policies, and
+authorisation lives in `SECURITY DEFINER` functions instead), so the fix shipped.
+But the leak should still be cleared:
+
+```sql
+select pg_terminate_backend(<pid>);   -- the backend idle in transaction
+```
+
+I could not run it: terminating a backend on production is refused here, which is
+right — it is the owner's call. Worth doing from the Supabase SQL editor, and
+worth setting `idle_in_transaction_session_timeout` so a leak cannot last twelve
+hours again.
 
 ---
 
@@ -154,11 +199,15 @@ generated instances deleted per day since 18 Sep.
 | **Priority** | **P1** |
 | **Status** | cause found |
 
-The next instance is copied from the **latest instance**, not from a stored
-series definition, so renaming, reassigning or re-prioritising one day's task
-rewrites every future one. Visible in the data: a series raised as *"making daily
-report of all pages"* now generates as *"making daily report of all pages,
-Weekly report done"*.
+The next instance was copied from the **latest instance**, not from a stored
+definition, so renaming, reassigning or re-prioritising one day's task rewrote
+every future one. Visible in the data: a series raised as *"making daily report
+of all pages"* now generates as *"making daily report of all pages, Weekly report
+done"*.
+
+**Fixed 2026-09-22 (250, 251):** the runner reads the definition, and on the edit
+form only the *repeat* reaches the series — the title, dates and estimate stay on
+the copy in front of you.
 
 ---
 
