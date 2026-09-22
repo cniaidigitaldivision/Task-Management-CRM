@@ -96,7 +96,7 @@ const APP_ROUTES = [
   ['/appointments', 'Manage calls, meetings and site visits', 'admin'],
   ['/conversations', 'Chat and email with your leads', 'admin'],
   ['/follow-ups', 'Prioritise the next action and keep every open lead moving', 'admin'],
-  ['/knowledge', 'What the agent knows', 'admin'],
+  ['/knowledge', 'Control what the agent can say for each project', 'admin'],
   /* The monthly CEO report. `admin`, a rank above `/reports`, because it totals
      recurring fees across every client.
 

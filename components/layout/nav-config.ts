@@ -281,7 +281,8 @@ export const NAV_SECTIONS: readonly NavSection[] = [
 
            `requires: 'crm'` like the desk: it reads a project's own documents and
            answers, and it discloses nothing a salesperson cannot already read. */
-        label: 'What the agent knows',
+        /* Renamed to the owner's own title for the page, 2026-09-22. */
+        label: 'AI Knowledge',
         href: '/knowledge',
         icon: BookOpen,
         roles: ADMIN_UP,

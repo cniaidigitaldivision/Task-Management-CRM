@@ -1,11 +1,12 @@
 import type { Metadata } from 'next';
 
-import { KnowledgeBoardScreen } from '@/components/crm/knowledge-board';
+import { KnowledgeScreen } from '@/components/crm/knowledge-screen';
 import { requireCrmAccess } from '@/lib/auth/current-user';
 import { knowledgeBoard } from '@/lib/db/queries/crm-knowledge';
 import { listCrmProjects } from '@/lib/db/queries/crm-leads';
+import { nowMs } from '@/lib/now';
 
-export const metadata: Metadata = { title: 'What the agent knows' };
+export const metadata: Metadata = { title: 'AI Knowledge' };
 
 /* ============================================================================
  * WHAT THE AGENT KNOWS — the approval screen
@@ -43,9 +44,12 @@ export default async function KnowledgePage({
   const board = wanted ? await knowledgeBoard(user.id, wanted) : null;
 
   return (
-    <KnowledgeBoardScreen
+    <KnowledgeScreen
       projects={projects.map((p) => ({ id: p.id, name: p.name }))}
       board={board}
+      /* The server's clock — "expired" is decided here, and a laptop a day out
+         would otherwise disagree with the render. */
+      nowMs={nowMs()}
     />
   );
 }

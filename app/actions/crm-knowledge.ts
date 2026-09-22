@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 
 import { requireCrmAccess } from '@/lib/auth/current-user';
+import { decideAgentReply } from '@/lib/ai/agent-brain';
 import { extractKnowledge, type ProductKey as ExtractProduct } from '@/lib/ai/knowledge-extract';
 import { readPdfText } from '@/lib/crm/pdf-text';
 import {
@@ -208,4 +209,80 @@ export async function setDocumentProductAction(documentId: string, product: stri
   const ok = await setDocumentProduct(user.id, documentId, product);
   if (ok) revalidatePath('/knowledge');
   return ok ? { ok: true } : { ok: false, error: 'That document could not be changed.' };
+}
+
+/* ============================================================================
+ * 248 · ASK AS A CUSTOMER
+ * ----------------------------------------------------------------------------
+ * Owner's design, 2026-09-22: a box on the AI Knowledge page that asks the
+ * agent a question the way a client would, and shows what it would say.
+ *
+ * ⚠️ IT IS THE REAL AGENT, NOT A LOOK-UP. A search over the approved answers
+ * would pass questions the live agent fails and fail questions it passes — and
+ * the whole point of this box is to find out what a client would actually get.
+ * So it builds the same brief the runner builds and calls the same
+ * `decideAgentReply`.
+ *
+ * ⚠️ AND IT SENDS NOTHING. No lead, no WhatsApp, no run row, no follow-up:
+ * this action returns the decision and ends. The thread it passes is one
+ * imaginary inbound message.
+ *
+ * ⚠️ BOOKING IS OFF for the test, deliberately. Offering times out of a
+ * salesperson's real diary to a question nobody asked would be a confusing way
+ * to answer "can your CRM connect to WhatsApp?".
+ * ========================================================================= */
+
+export interface AskAgentResult {
+  readonly ok: boolean;
+  readonly error?: string;
+  readonly answer?: string;
+  readonly handover?: string;
+  readonly product?: string | null;
+  readonly documents?: readonly string[];
+}
+
+export async function askAgentAction(projectId: string, question: string): Promise<AskAgentResult> {
+  const { user } = await requireCrmAccess();
+  if (!UUID.test(projectId)) return { ok: false, error: 'That project could not be found.' };
+  const asked = question.trim();
+  if (!asked) return { ok: false, error: 'Type a question first.' };
+  if (asked.length > 500) return { ok: false, error: 'Keep the question under 500 characters.' };
+
+  const board = await knowledgeBoard(user.id, projectId);
+  if (!board) return { ok: false, error: 'That project could not be read.' };
+  if (board.approvedCount === 0) {
+    return {
+      ok: true,
+      handover: 'Nothing is approved for this project yet, so the agent would hand every question to a person.',
+    };
+  }
+
+  const knowledge = board.entries
+    .filter((e) => e.status === 'approved')
+    .map((e) => ({ question: e.question, answer: e.answer, product: e.product }));
+
+  const decision = await decideAgentReply({
+    business: board.projectName,
+    product: board.settings.product,
+    clientFirstName: 'there',
+    stage: 'new',
+    knowledge,
+    pilotRules: [],
+    documents: board.documents
+      .filter((d) => d.mime === 'application/pdf')
+      .map((d) => ({ id: d.id, title: d.title, kind: d.kind, product: d.product })),
+    thread: [{ direction: 'inbound', kind: 'text', body: asked, file: null, byAgent: false }],
+    booking: null,
+  });
+
+  return {
+    ok: true,
+    ...(decision.action === 'reply'
+      ? { answer: decision.reply ?? '' }
+      : { handover: decision.handoverReason ?? 'It would hand this to a salesperson.' }),
+    product: decision.product,
+    documents: decision.documentIds
+      .map((id) => board.documents.find((d) => d.id === id)?.title)
+      .filter((t): t is string => Boolean(t)),
+  };
 }

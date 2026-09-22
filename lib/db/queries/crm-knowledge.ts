@@ -46,8 +46,33 @@ export interface KnowledgeBoard {
   };
   /** Approved, unexpired answers — the agent answers only when this is above 0. */
   readonly approvedCount: number;
+  /**
+   * 248 · What the agent actually did with this project's clients, last 90
+   * days.
+   *
+   * ⚠️ THIS IS WHERE "READINESS" AND "GAPS" COME FROM, and it is the only
+   * honest source for either. A percentage invented from the number of
+   * approved answers would say a project is ready when nobody has ever asked
+   * it anything. Coverage is measured: of the questions it was given, how many
+   * it could answer from approved knowledge.
+   */
+  readonly runs: readonly AgentRun[];
   /** May this person change the campaign settings? A manager's call (232). */
   readonly canManage: boolean;
+}
+
+/** One thing the agent did, and what the client was asking about. */
+export interface AgentRun {
+  readonly id: string;
+  readonly action: string;
+  readonly reason: string | null;
+  readonly createdAt: string;
+  readonly leadId: string;
+  readonly leadName: string | null;
+  /** The product the LEAD is filed under — handovers carry no detail of their own. */
+  readonly product: ProductKey | null;
+  /** What the client had just said, so a gap can be read as a question. */
+  readonly question: string | null;
 }
 
 export interface KnowledgeDocument {
@@ -127,6 +152,22 @@ export async function knowledgeBoard(actorId: string, projectId: string): Promis
        order by (d.kind = 'letterhead') desc, d.created_at desc
     `) as Array<Record<string, unknown>>;
 
+    /* ⚠️ 90 DAYS AND 500 ROWS, and the screen says so. An unbounded read of
+       every run a project has ever had is the kind of query that is instant
+       today and a minute wide next year (law 5). */
+    const runs = (await tx`
+      select r.id, r.action, r.reason, r.created_at, r.lead_id,
+             l.full_name as lead_name, l.product::text as product,
+             (select m.body from public.crm_lead_messages m
+               where m.id = r.message_id) as question
+        from public.crm_agent_runs r
+        join public.crm_leads l on l.id = r.lead_id
+       where l.project_id = ${projectId}::uuid
+         and r.created_at >= now() - interval '90 days'
+       order by r.created_at desc
+       limit 500
+    `) as Array<Record<string, unknown>>;
+
     const extra = (await tx`
       select s.product::text as product,
              coalesce(s.agent_mode_default::text, 'off') as agent_mode_default,
@@ -160,6 +201,18 @@ export async function knowledgeBoard(actorId: string, projectId: string): Promis
           ? e.agent_mode_default
           : 'off') as 'off' | 'suggest' | 'agent',
       },
+      runs: runs.map((r) => ({
+        id: String(r.id),
+        action: String(r.action),
+        reason: (r.reason as string | null) ?? null,
+        createdAt: new Date(String(r.created_at)).toISOString(),
+        leadId: String(r.lead_id),
+        leadName: (r.lead_name as string | null) ?? null,
+        product: (PRODUCT_KEYS as readonly string[]).includes(String(r.product))
+          ? (String(r.product) as ProductKey)
+          : null,
+        question: (r.question as string | null) ?? null,
+      })),
       approvedCount: Number(e.approved ?? 0),
       canManage: e.can_manage === true,
     };

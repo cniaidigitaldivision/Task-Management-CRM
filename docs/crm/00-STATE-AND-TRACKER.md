@@ -13,6 +13,80 @@
 
 ---
 
+## 🧭 2026-09-22 — AI KNOWLEDGE: THE OWNER'S DESIGN, AND NOT ONE INVENTED NUMBER
+
+Owner, with a full design: *"I want the exact same UI, same colors, same
+design, same everything, but wired up logically with each and everything …
+Make sure that everything is properly visible, the same color is used for every
+same color, and everything is isolated. Do not disturb any working thing."*
+
+`/knowledge` is rebuilt as `components/crm/knowledge-screen.tsx`; the rail and
+the page now say **AI Knowledge**. Every action the old screen called is called
+by the new one — decide, add, read a document, upload, settings, set a
+document's product — so nothing that worked was touched.
+
+### ⚠️ Where each number on that page comes from
+
+| The design says | What it is |
+|---|---|
+| Approved answers **12** | approved, **unexpired** entries — an expired one is dropped by the agent's own door, so counting it would claim cover we do not have |
+| To review **15** | drafts |
+| Sources **2** | documents the agent can actually read (PDFs; a PNG is not a source) |
+| Knowledge gaps **4** | handovers the agent made **because nothing approved answered the client** |
+| Agent readiness **80%** | of the questions it was given, the share it answered from approved knowledge — **15 answered, 4 gaps, 79%** |
+
+⚠️ **"Readiness" is measured, not derived from how many answers exist.** A
+formula over the entry count would call a project ready when nobody has ever
+asked it anything. `coverage()` returns **null** when nothing has been asked and
+the screen says "Not asked yet" rather than printing a hopeful number.
+
+⚠️ **A gap is a real question a real client typed.** `isKnowledgeGap` keeps
+out the handovers that are somebody's JOB — a call, a discount, an appointment
+change, a decision — because counting those would push the team to approve
+answers about things they have decided a person must handle. The classifier is
+tested against **all eleven handovers this project has actually had**, not
+against sentences written to please it.
+
+⚠️ **The review queue's chip is checkable.** The design's "92% match" has no
+source in the data, so it is **"90% from source"**: the share of the drafted
+answer's own words that appear in the quoted passage. It is `null` — shown as
+"no quote" — when there is nothing to check against, and the tooltip says what
+a low number means (read it before approving, not that it is wrong).
+
+### What is deliberately not a switch
+
+*"Use approved knowledge only"* is drawn as the design draws it and is **on and
+fixed**. It is the whole fence — `app.crm_knowledge_for` returns approved,
+unexpired rows and nothing else — and a toggle would imply a way off. Same for
+*"When no answer exists → hand off to salesperson"*: that is how the agent is
+built. **Reply mode** (AI agent / Suggestions / My reply) IS real and maps to
+`crm_project_settings.agent_mode_default`, which is what a new lead starts in.
+
+### Ask as a customer
+
+Calls **the real agent** — the same brief the live runner builds and the same
+`decideAgentReply` — with the project's approved knowledge, and sends nothing:
+no lead, no WhatsApp, no run row. A look-up over the approved answers would pass
+questions the live agent fails, which is the opposite of what this box is for.
+Booking is off for the test.
+
+Proved live: 12 approved entries, 26 runs; *"Can your CRM connect to
+WhatsApp?"* → answered from approved knowledge; an off-topic question → turned
+back to the products.
+
+### One colour per meaning
+
+green = approved and working · amber = waiting for a person · blue = material
+the agent reads · red = a hole a client fell into. Cards, chips, tabs, bars and
+the dial all read from one `TONE` map, so the same thing is never two colours.
+
+⚠️ **And a fourth appearance of the heredoc trap.** Two `` word boundaries
+in the new classifier were written to disk as raw **backspace bytes (0x08)**, so
+`not in our[BS]…` could never match and four real gaps read as three. Caught by
+the test that pins the real handovers; swept out of every domain file.
+
+---
+
 ## 🧭 2026-09-22 — THE FOLLOW-UPS PAGE, THIRD PASS: NINE THINGS THE OWNER FOUND
 
 All from live use, in one sitting. Each one measured before it was changed.
