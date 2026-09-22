@@ -10,7 +10,6 @@ import {
   ListTree,
   Loader2,
   Plus,
-  Repeat,
   Sparkles,
   Timer,
   X,
@@ -36,7 +35,6 @@ import { Button, IconButton } from '@/components/ui/button';
 import { Input, Textarea } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { SKILL_WEIGHT_LABEL, STATUS_META } from '@/lib/domain/constants';
-import { describeRecurrence, parseRecurrence } from '@/lib/domain/recurrence';
 import { EXTENSION_STATUS_LABEL, formatMinutes } from '@/lib/domain/extensions';
 
 /* ============================================================================
@@ -168,8 +166,6 @@ export function TaskRelationsPanel({
     ...data.dependencies.map((d) => d.dependsOnTaskId),
   ]);
 
-  const repeat = task.recurrenceRule ? parseRecurrence(task.recurrenceRule) : null;
-
   return (
     <div className="space-y-3">
       {/* ── BR-008 · what is holding this up ─────────────────────────────── */}
@@ -192,23 +188,16 @@ export function TaskRelationsPanel({
         </div>
       )}
 
-      {/* ── Repeats ───────────────────────────────────────────────────────── */}
-      {repeat?.ok && (
-        <div className="flex items-center gap-2 rounded-xl border border-border-subtle bg-bg-surface-sunken px-3.5 py-2.5">
-          <Repeat className="h-3.5 w-3.5 text-text-tertiary" strokeWidth={2} aria-hidden="true" />
-          <p className="text-micro text-text-secondary">
-            <span className="font-semibold text-text-primary">
-              {describeRecurrence(repeat.rule)}.
-            </span>{' '}
-            {/* Same correction as task-dialog.tsx, 2026-09-03: this described
-                spawn-on-close, which the midnight runner replaced. Two screens
-                carried the sentence and both had to change — a rule stated in
-                two places is a rule that goes stale in one of them. */}
-            A fresh one is created automatically at midnight and assigned to the same person,
-            whether or not this one is finished.
-          </p>
-        </div>
-      )}
+      {/* ── ⚠️ THE REPEAT USED TO BE DESCRIBED HERE TOO, AND IT WENT STALE ────
+          The sentence read *"a fresh one is created automatically at midnight and
+          assigned to the same person, whether or not this one is finished"* —
+          true until migration 250, when one open copy at a time became the
+          default. Two screens carried the same sentence and the second was
+          already wrong once before (2026-09-03, spawn-on-close).
+
+          So it is not restated. `RepeatPanel` in the task's own detail says it
+          once, from the series itself, and carries the button that stops it. A
+          rule stated in two places is a rule that goes stale in one of them. */}
 
       {/* ── Subtasks ──────────────────────────────────────────────────────── */}
       {(data.subtasks.length > 0 || !task.parentTaskId) && (

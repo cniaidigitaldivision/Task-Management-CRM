@@ -103,7 +103,11 @@ export function RepeatPanel({
           {isStopped ? 'Stopped repeating' : said}
         </p>
         {!isStopped && series?.canManage !== false && (
-          <Button size="sm" variant="ghost" disabled={busy || !series} onClick={() => setAsking(true)}>
+          /* ⚠️ NOT disabled while the series loads (Rule Zero). The rule is
+             already on the row, so the question can be asked in this frame; only
+             the "how many copies nobody started" line waits, and it appears
+             underneath when the answer arrives. */
+          <Button size="sm" variant="ghost" disabled={busy} onClick={() => setAsking(true)}>
             <Square className="size-3.5" aria-hidden="true" /> Stop repeating
           </Button>
         )}
@@ -125,13 +129,13 @@ export function RepeatPanel({
         )}
       </p>
 
-      {asking && series && (
+      {asking && (
         <div className="mt-2.5 rounded-lg border border-border-default bg-bg-surface px-3 py-2.5">
           <p className="text-caption text-text-primary">
-            Stop “{series.title}” repeating? No copy will be created again, and the ones already here stay
-            where they are.
+            Stop {series ? `“${series.title}”` : 'this task'} repeating? No copy will be created again, and
+            the ones already here stay where they are.
           </p>
-          {series.untouchedCopies > 0 && (
+          {series && series.untouchedCopies > 0 && (
             <label className="mt-2 flex items-start gap-2 text-caption text-text-primary">
               <input
                 type="checkbox"
@@ -149,8 +153,8 @@ export function RepeatPanel({
             </label>
           )}
           <div className="mt-2.5 flex gap-2">
-            <Button size="sm" variant="danger" disabled={busy} onClick={() => void stop()}>
-              Stop repeating
+            <Button size="sm" variant="danger" disabled={busy || !series} onClick={() => void stop()}>
+              {series ? 'Stop repeating' : 'Reading this repeat…'}
             </Button>
             <Button size="sm" variant="ghost" onClick={() => setAsking(false)}>
               Keep it
