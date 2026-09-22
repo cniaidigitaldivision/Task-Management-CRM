@@ -180,11 +180,21 @@ export function DateRangeButton({
   to,
   nowMs,
   onChange,
+  align = 'left',
 }: {
   from: string;
   to: string;
   nowMs: number;
   onChange: (from: string, to: string) => void;
+  /**
+   * Which edge the panel hangs from.
+   *
+   * ⚠️ PASS 'right' WHEN THIS IS THE LAST CONTROL IN A ROW. Measured on
+   * /follow-ups, 2026-09-22: left-aligned, the 259px panel opened at x=1347 in
+   * a 1512px viewport and 94px of it was off the screen. The page shows no
+   * scrollbar for it (the shell clips horizontally), so it simply looks cut.
+   */
+  align?: 'left' | 'right';
 }) {
   const { open, setOpen, ref } = usePopover();
   const today = karachiDay(nowMs);
@@ -216,7 +226,12 @@ export function DateRangeButton({
         <span className={cn('truncate', !(from || to) && 'text-text-secondary')}>{label}</span>
       </button>
       {open && (
-        <div className="absolute left-0 top-full z-40 mt-1.5 w-72 rounded-xl border border-border-subtle bg-bg-surface p-3 shadow-lg">
+        <div
+          className={cn(
+            'absolute top-full z-40 mt-1.5 w-72 rounded-xl border border-border-subtle bg-bg-surface p-3 shadow-lg',
+            align === 'right' ? 'right-0' : 'left-0',
+          )}
+        >
           <div className="grid grid-cols-2 gap-2">
             <label className="block text-caption text-text-secondary">
               From

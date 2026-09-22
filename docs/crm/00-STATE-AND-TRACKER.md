@@ -88,6 +88,17 @@ own `DateRangeButton` for a custom range over the due date. ⚠️ The range is
 compared as **Karachi days**, not instants — "22 Sep to 22 Sep" means that whole
 day where the business is.
 
+⚠️ **AND ITS POPOVER TAUGHT THE SAME LESSON TWICE.** First the strip was
+`overflow-x-auto`, so opening the calendar clipped it and grew a scrollbar
+(*"when I click on the date range it adds a scrollbar"*) — an absolutely
+positioned panel cannot escape a scrolling ancestor, so the strip wraps instead
+of scrolling. Then, last in the row, the 259px panel opened at **x=1347 in a
+1512px viewport**: 94px off the screen, and the shell's horizontal clip meant no
+scrollbar ever said so (*"it is cutting from the right side or hiding"*). The
+owner's own suggestion fixed it — *"move this date filter to the second
+position"* — measured after: **x=771, fully visible.** `DateRangeButton` also
+gained an `align` prop for the next time one sits at an edge.
+
 **And the page opens on Scheduled** — *"by default when the page loads, the
 schedule tab should open or should be selected."* The tab is a prop with that
 default, which is also the seam a `?tab=` deep link would use and what lets a

@@ -523,8 +523,16 @@ export function FollowUpsBoard({
           So: search, one View (which carries the due statuses), purpose,
           channel, project, and a date range. `flex-nowrap` with a scroll is
           deliberate: they asked for one row, and wrapping at a narrow width
-          would break that promise rather than keep it. */}
-      <div className="-mx-1 flex items-end gap-2 overflow-x-auto px-1 pb-1">
+          would break that promise rather than keep it.
+
+          ⚠️ AND IT DOES NOT SCROLL. `overflow-x-auto` here CLIPPED the date
+          range's popover and gave the strip a scrollbar the moment it opened
+          (owner, 2026-09-22: *"when I click on the date range it adds a
+          scrollbar"*) — an absolutely positioned panel cannot escape a
+          scrolling ancestor. It wraps instead: one row at every width these
+          controls fit, and a second row rather than a clipped calendar when
+          they genuinely do not. */}
+      <div className="flex flex-wrap items-end gap-2">
         <label className={cn(CONTROL, 'flex min-w-[12rem] flex-1 items-center gap-2 px-3')}>
           <Search className="size-4 shrink-0 text-text-tertiary" aria-hidden="true" />
           <input
@@ -535,6 +543,21 @@ export function FollowUpsBoard({
             className="min-w-0 flex-1 bg-transparent placeholder:text-text-tertiary focus:outline-none"
           />
         </label>
+        {/* ⚠️ SECOND, NOT LAST. Owner, 2026-09-22: *"still when I click on the
+            date range filter, it is cutting from the right side or hiding. One
+            more possibility is to move this date filter to the second
+            position."* Measured at the end of the row: the 259px panel opened
+            at x=1347 in a 1512px viewport, so 94px of it was off the screen and
+            the shell's horizontal clip meant no scrollbar ever said so. Second
+            place gives it the whole row to open into. */}
+        <Field label="Date range">
+          <DateRangeButton
+            from={filters.from}
+            to={filters.to}
+            nowMs={nowMs}
+            onChange={(from, to) => set({ from, to })}
+          />
+        </Field>
         <Field label="View">
           <select
             aria-label="View"
@@ -584,14 +607,6 @@ export function FollowUpsBoard({
             <option value="all">All</option>
             {projects.map((x) => <option key={x} value={x}>{x}</option>)}
           </select>
-        </Field>
-        <Field label="Date range">
-          <DateRangeButton
-            from={filters.from}
-            to={filters.to}
-            nowMs={nowMs}
-            onChange={(from, to) => set({ from, to })}
-          />
         </Field>
       </div>
 
