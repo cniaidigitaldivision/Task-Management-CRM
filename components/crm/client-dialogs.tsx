@@ -531,7 +531,12 @@ const TEMPLATE = 'Name,Phone,Email,Company,City,Source,Status,Preferred channel,
   'Faisal Rehman,+92 300 1234567,faisal@example.com,Rehman Builders,Islamabad,referral,active,whatsapp,Wants a corner plot\r\n';
 
 export function downloadText(name: string, text: string, type = 'text/csv;charset=utf-8') {
-  const url = URL.createObjectURL(new Blob([text], { type }));
+  downloadBlob(name, text, type);
+}
+
+/** Text, a workbook's bytes or a PDF's — one way to hand a file to the browser. */
+export function downloadBlob(name: string, data: BlobPart, type: string) {
+  const url = URL.createObjectURL(new Blob([data], { type }));
   const a = document.createElement('a');
   a.href = url;
   a.download = name;

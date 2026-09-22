@@ -13,6 +13,115 @@
 
 ---
 
+## 🧭 2026-09-22 — CLIENTS, SECOND PASS: THE DESIGN READ OUT OF THE PNG, AND THE EXPORTS
+
+Owner, of the first build: *"If I'm saying that I need the exact same UI, it
+means you have to put each color, each icon, each styling, and everything the
+same … They are using multicolors; you didn't use them. You used mostly green
+colors … their designs are just rectangular with curved corners and very sleek.
+Your designs have just too many curves."*
+
+### ⚠️ FIRST, THE REAL CAUSE OF "BLURRED TEXT … LIKE IT IS BLASTING"
+
+`next dev` had been logging, at every start: **"Failed to download Inter from
+Google Fonts. Using a fallback font instead."** The machine cannot reach
+fonts.googleapis.com, so every screen the owner reviews was drawn in a
+size-adjusted **Arial**, while production (which fetches at build time) shipped
+Inter. Every judgement about weight and spacing was being made on the wrong
+typeface.
+
+The three faces are now **self-hosted** — the same official woff2 files, in
+`app/fonts/`, loaded with `next/font/local`. No network, no fallback, and the
+page the owner reviews is the page that ships.
+
+### The palette is sampled, not matched by eye
+
+`.clients-ui` in `styles/tokens.css` (with a dark twin) carries ~60 `--cl-*`
+tokens **read out of the reference PNG**: fills from the most common pixel of a
+flat region, ink from the most saturated pixel of a glyph (anti-aliasing lightens
+every edge, so a darkest-average reads too pale).
+
+⚠️ **Why the first build read as "mostly green":** the shared `ink()` helper is
+`color-mix(… 72%, var(--text-primary))` — it mixes 28% of the page's dark teal
+into *every* hue, so five different colours came out as five shades of one. The
+page now uses its own tokens: navy #0d1c48 ink, slate #4b638e, and a chip colour
+per status (green · blue · sky · amber · slate), five pastel avatars, and rose
+for whoever owns the client.
+
+⚠️ **And it is scoped.** Nothing outside `/clients` reads a `--cl-*` token, so
+no other screen moved.
+
+### The measurements
+
+Every size is the design's own pixel, divided by the app's 0.9 zoom:
+
+| Read from the PNG | Used |
+|---|---|
+| Column rules at x = 262 · 412 · 534 · 616 · 696 · 772 · 840 · 920 · 1030 | `grid-template-columns: 150fr 122fr 82fr 80fr 76fr 68fr 80fr 7.64rem` |
+| Row 83px, header 34px | `h-[5.76rem]`, `h-[2.36rem]` |
+| Directory 768 × panel 525 | `xl:grid-cols-[minmax(0,1.47fr)_minmax(0,1fr)]` — measured back at **770 × 774 and 524 × 774** |
+| Ink widths solved against Inter (e.g. "Faisal Rehman" 600 = 72px) | name 0.7rem, company 0.62rem, contact 0.65rem, value 0.74rem, next 0.71rem |
+| Radii 6–8px | `rounded-[0.45rem]` controls, `rounded-[0.6rem]` cards (they were 12–16px) |
+
+**The fixed height the owner asked for** — *"equal to the right side of the
+card"* — is the directory taken out of the row's flow (`xl:absolute inset-0`), so
+the preview alone sets the height and the rows scroll under a header that stays.
+
+**One line each, as the design has it:** phone · email · assigned to · preferred
+channel across one strip; the four overview metrics across one row; related
+records as small icon tiles; activity with the quotation, invoice, booking and
+WhatsApp marks the design uses.
+
+**And every row has all three buttons** (*"there is a WhatsApp button. You are
+showing just one button"*): WhatsApp, call and email are always drawn, and
+disabled with a reason when that client has no number or no address.
+
+### The exports (owner, same message)
+
+*"Don't show the export option over there in the import client … make sure that
+export would be available in Excel and PDF … For the PDF use a proper format, a
+proper table, and everything should be properly and sleekly organized."*
+
+- **Import clients** now offers exactly two things: *Import a CSV or Excel file*
+  and *Download a blank template* (an .xlsx template now, with the header row the
+  importer recognises).
+- **Export** is its own control beside the filters, and the bulk menu offers the
+  same three for the ticked rows: **Excel · CSV · PDF.**
+- `lib/view/xlsx-write.ts` — a dependency-free .xlsx: a bold white header on the
+  brand teal, frozen and filtered, money as real numbers, and ⚠️ **text always
+  written as `inlineStr`, so a client called `=HYPERLINK(…)` arrives as words.**
+- `lib/pdf/client-list-pdf.ts` — **the invoice's own letterhead**: the dark band,
+  the gold rule, the logo and the company name from `companyLetterhead()`. A4
+  landscape, a summary strip, a real table with a repeated header, zebra rows,
+  status pills, and a footer with the company contact and *Page X of Y*.
+  ⚠️ The ids come from the screen but **the rows are re-read as the caller**, so
+  a PDF can never hold a client that person may not see.
+
+⚠️ **Read back, not assumed** (the lesson of "Posts Publishe / d"): the probe
+exports all three through the real screen and reads them — 14 CSV rows, 15 xlsx
+rows through our own reader, and the PDF's text through pdf.js. That is how the
+truncated *"Last conta…"* header and *"PKR 2.1M…"* value were found and fixed.
+Urdu script still cannot render in a standard PDF font — those names come out as
+dashes there, and the CSV and Excel keep them.
+
+### Dummy data to look at it with
+
+`scripts/seed-clients-showcase.mjs` — 12 clients covering every status and
+colour, with quotations, bookings, invoices, appointments, follow-ups and
+messages. `--remove` takes all of it away.
+
+⚠️ **Only the demo project, and nothing can be sent to them.** Booking an
+appointment or a payment queues an automatic WhatsApp message, so every seeded
+lead carries `whatsapp_consent = false` (which every one of those triggers stands
+down on) and the greeting is quieted as well; follow-ups are `remind_me`, never
+`auto_send`. Numbers are `+92 300 000 00NN` (no allocated range) and emails end
+`.example`. The script **proves** it rather than claiming it: it counts queued
+auto-sends and consent afterwards and fails if either is not zero — **0 and 0.**
+
+Proved as **Sarah**: 9 of the 14 clients, her own; the admin sees 14.
+
+---
+
 ## 🧭 2026-09-22 — CLIENTS: THE OWNER'S DESIGN, BUILT ON THE MODEL THAT WAS ALREADY THERE
 
 Owner, with two designs (table and cards): *"Please create this page accordingly

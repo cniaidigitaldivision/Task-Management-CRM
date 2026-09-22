@@ -7,6 +7,7 @@ import { withUser } from '@/lib/db/client';
 import {
   crmAddClient,
   crmClientActivity,
+  crmClientBoard,
   crmClientMatches,
   crmClientOwnerChoices,
   crmUpdateClient,
@@ -16,7 +17,21 @@ import {
 } from '@/lib/db/queries/crm-client-board';
 import { crmLeadDuplicates, type CrmDuplicate } from '@/lib/db/queries/crm-leads';
 import { notify } from '@/lib/db/queries/feed';
-import { SOURCE_OPTIONS, type StoredStatus } from '@/lib/domain/crm-client-board';
+import {
+  cards as cardsOf,
+  displayStatus,
+  money,
+  nextLine,
+  phoneLabel,
+  refLabel,
+  shortDay,
+  SOURCE_OPTIONS,
+  STATUS_LOOK,
+  valueOf,
+  type StoredStatus,
+} from '@/lib/domain/crm-client-board';
+import { companyLetterhead } from '@/lib/db/queries/invoices';
+import { composeClientListPdf, type ClientPdfRow } from '@/lib/pdf/client-list-pdf';
 import { toE164 } from '@/lib/domain/phone';
 
 /* ============================================================================
@@ -338,4 +353,95 @@ export async function importClientsAction(input: {
   }
   if (added) settle();
   return { ok: failed.length === 0, added, failed };
+}
+
+/* ── The PDF export ──────────────────────────────────────────────────────────
+ * Owner, 2026-09-22: *"In the PDF the proper header should be used in the same
+ * way that we are using a header … a proper table, and everything should be
+ * properly and sleekly organized."*
+ *
+ * ⚠️ THE IDS COME FROM THE SCREEN; THE ROWS DO NOT. The board is re-read as the
+ * caller, so a PDF can only ever hold clients this person may see — a crafted
+ * list of somebody else's ids comes back as fewer rows, never as their data.
+ * The letterhead is read in the same wave (law 4).
+ * ------------------------------------------------------------------------- */
+
+const PDF_MAX = 2000;
+const PDF_TONE: Record<string, ClientPdfRow['statusTone']> = {
+  active: 'green',
+  prospect: 'blue',
+  onboarding: 'blue',
+  attention: 'amber',
+  dormant: 'grey',
+  archived: 'grey',
+};
+
+export async function exportClientsPdfAction(
+  ids: readonly string[],
+  scope: string,
+): Promise<Result<{ base64: string; count: number }>> {
+  const { user } = await requireCrmAccess();
+  const wanted = [...new Set(ids.filter((id) => UUID.test(id)))].slice(0, PDF_MAX);
+  if (!wanted.length) return { ok: false, error: 'Nothing to export — no clients were chosen.' };
+  try {
+    const [board, company] = await Promise.all([crmClientBoard(user.id), companyLetterhead(user.id)]);
+    const byId = new Map(board.map((c) => [c.id, c]));
+    const list = wanted.map((id) => byId.get(id)).filter((c): c is NonNullable<typeof c> => Boolean(c));
+    if (!list.length) return { ok: false, error: 'None of those clients are open to you any more.' };
+
+    const nowMs = Date.now();
+    const rows: ClientPdfRow[] = list.map((c) => {
+      const s = displayStatus(c, nowMs);
+      const v = valueOf(c);
+      const n = nextLine(c, nowMs);
+      return {
+        ref: refLabel(c.refNo),
+        name: c.name,
+        company: [c.company, c.city].filter(Boolean).join(', '),
+        phone: c.phoneE164 ? phoneLabel(c.phoneE164) : '',
+        email: c.email ?? '',
+        project: c.primaryProjectName ?? '',
+        owner: c.ownerName ?? '',
+        status: STATUS_LOOK[s].label,
+        statusTone: PDF_TONE[s] ?? 'grey',
+        value: v.kind === 'none' ? '-' : money(v.amount),
+        valueNote: v.kind === 'quoted' ? 'quoted' : undefined,
+        next: n.when ? `${n.text} - ${n.when}` : n.text,
+        nextLate: n.tone === 'red',
+        lastContact: c.lastContactAt ? shortDay(c.lastContactAt) : 'Never',
+      };
+    });
+
+    /* The page's own five cards, over exactly these rows. */
+    const k = cardsOf(list, nowMs);
+    const booked = list.reduce((sum, c) => sum + c.bookedValue, 0);
+    const stamp = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Karachi',
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(new Date(nowMs));
+
+    const bytes = await composeClientListPdf({
+      company,
+      title: 'Client directory',
+      generatedFor: user.fullName,
+      generatedAt: stamp,
+      scope: `${scope.slice(0, 140)} · ${list.length} record${list.length === 1 ? '' : 's'}`,
+      summary: [
+        { label: 'Clients', value: String(k.total.value) },
+        { label: 'Active', value: String(k.active.value) },
+        { label: 'Needs attention', value: String(k.attention.value) },
+        { label: 'Booked value', value: money(booked) },
+        { label: 'Outstanding', value: money(k.outstanding.value) },
+      ],
+      rows,
+    });
+    return { ok: true, base64: Buffer.from(bytes).toString('base64'), count: list.length };
+  } catch (e) {
+    console.error('[clients] PDF export failed', e);
+    return { ok: false, error: 'The PDF could not be made. The Excel and CSV exports still work.' };
+  }
 }

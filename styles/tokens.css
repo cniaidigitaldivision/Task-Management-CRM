@@ -3345,3 +3345,143 @@ body,
     display: none;
   }
 }
+
+/* ============================================================================
+ * THE CLIENTS PAGE — the owner's design, sampled, 2026-09-22
+ * ----------------------------------------------------------------------------
+ * Owner: *"If I'm saying that I need the exact same UI, it means you have to put
+ * each color, each icon, each styling, and everything the same … They are using
+ * multicolors; you didn't use them. You used mostly green colors."*
+ *
+ * ⚠️ READ OUT OF THE PNG, NOT MATCHED BY EYE. Fills are the most common pixel
+ * of a flat region; ink is the most saturated pixel of a glyph (anti-aliasing
+ * lightens every edge, so the darkest-average reads too pale). The app's shared
+ * `ink()` helper mixes 28% of the page text colour into every hue — which is
+ * exactly why the first build read as "mostly green": every colour was pulled
+ * toward the same dark teal-black.
+ *
+ * ⚠️ SCOPED TO `.clients-ui`. Nothing outside the Clients page reads these, so
+ * no other screen moves. Dark values keep the same roles: a tint behind, a
+ * strong hue in front.
+ * ========================================================================= */
+.clients-ui {
+  --cl-ink: #0d1c48;
+  --cl-soft: #4b638e;
+  --cl-mute: #6c80a4;
+  --cl-surface: #ffffff;
+  --cl-brand: #04606c;
+  --cl-brand-hover: #034f59;
+  --cl-on-brand: #ffffff;
+  --cl-brand-ink: #07596a;
+  --cl-brand-line: #3d8b95;
+  --cl-line: #dbe6ec;
+  --cl-grid: #e3ecf2;
+  --cl-head: #f3f8fa;
+  --cl-strip: #f1f7f9;
+  --cl-pick: #e9f4fe;
+  --cl-pick-line: #cde2f7;
+  --cl-card-pick: #eef7fe;
+  --cl-card-pick-line: #2d8992;
+  --cl-tile: #eaf3f5;
+  --cl-tile-ink: #064a5c;
+  --cl-pill: #dfecef;
+  --cl-wa: #0fb257;
+  --cl-phone: #13975a;
+
+  --cl-green: #17794f;
+  --cl-green-bg: #daf6e7;
+  --cl-green-dot: #10a45c;
+  --cl-green-strong: #0aa657;
+  --cl-green-soft: #e6f8ef;
+  --cl-blue: #1459c6;
+  --cl-blue-bg: #deedfd;
+  --cl-blue-dot: #1a6ef0;
+  --cl-blue-strong: #0a6cf5;
+  --cl-blue-soft: #e8f3fe;
+  --cl-sky: #1557b8;
+  --cl-sky-bg: #d5e9fd;
+  --cl-sky-dot: #1f70e2;
+  --cl-amber: #a55f18;
+  --cl-amber-bg: #fdefd4;
+  --cl-amber-dot: #f39a1c;
+  --cl-amber-strong: #f47a0c;
+  --cl-amber-soft: #fef1dc;
+  --cl-red: #c42a37;
+  --cl-red-bg: #fde8ea;
+  --cl-red-dot: #ec1c26;
+  --cl-red-strong: #ec1c26;
+  --cl-red-soft: #feeeee;
+  --cl-grey: #5b6c87;
+  --cl-grey-bg: #e1e8ee;
+  --cl-grey-dot: #6d7c93;
+  --cl-teal-soft: #e6f7f2;
+  --cl-teal-strong: #0b6560;
+
+  --cl-av-blue-bg: #dcebfd;   --cl-av-blue: #1c3fa0;
+  --cl-av-pink-bg: #fdd3e2;   --cl-av-pink: #9c1f4d;
+  --cl-av-mint-bg: #c9eee6;   --cl-av-mint: #0d6a5c;
+  --cl-av-lilac-bg: #e4ddfd;  --cl-av-lilac: #4a3aae;
+  --cl-av-peach-bg: #feebd0;  --cl-av-peach: #8a4a0c;
+  --cl-av-rose-bg: #fbb0dc;   --cl-av-rose: #5c0f3d;
+}
+
+[data-theme='dark'] .clients-ui {
+  --cl-ink: #e8f0fb;
+  --cl-soft: #a6b7d0;
+  --cl-mute: #8398b6;
+  --cl-surface: var(--bg-surface);
+  --cl-brand: #2b9aa3;
+  --cl-brand-hover: #3fb0b8;
+  --cl-on-brand: #04181b;
+  --cl-brand-ink: #6fcfd5;
+  --cl-brand-line: #3b8f97;
+  --cl-line: #26414f;
+  --cl-grid: #1d3442;
+  --cl-head: #10283a;
+  --cl-strip: #112a3a;
+  --cl-pick: #12304a;
+  --cl-pick-line: #2a5680;
+  --cl-card-pick: #11304a;
+  --cl-card-pick-line: #3fb3b8;
+  --cl-tile: #143243;
+  --cl-tile-ink: #8fd0d6;
+  --cl-pill: #1b3645;
+  --cl-wa: #2fd07a;
+  --cl-phone: #3ccf85;
+
+  --cl-green: #5fd69b;
+  --cl-green-bg: #0f3a2a;
+  --cl-green-dot: #3ccf85;
+  --cl-green-strong: #3ccf85;
+  --cl-green-soft: #10352a;
+  --cl-blue: #8ab8ff;
+  --cl-blue-bg: #13304f;
+  --cl-blue-dot: #5b9dff;
+  --cl-blue-strong: #6aa6ff;
+  --cl-blue-soft: #142f4d;
+  --cl-sky: #93c2ff;
+  --cl-sky-bg: #163a5e;
+  --cl-sky-dot: #62a6ff;
+  --cl-amber: #f5b766;
+  --cl-amber-bg: #3b2a10;
+  --cl-amber-dot: #f5a13d;
+  --cl-amber-strong: #f5a13d;
+  --cl-amber-soft: #3a2a12;
+  --cl-red: #ff8a92;
+  --cl-red-bg: #3d1a1f;
+  --cl-red-dot: #ff5a63;
+  --cl-red-strong: #ff6b73;
+  --cl-red-soft: #3a1b20;
+  --cl-grey: #a9b8cb;
+  --cl-grey-bg: #1e2f3d;
+  --cl-grey-dot: #8a9ab0;
+  --cl-teal-soft: #0f3431;
+  --cl-teal-strong: #5fd0c3;
+
+  --cl-av-blue-bg: #1b3553;   --cl-av-blue: #9cc2ff;
+  --cl-av-pink-bg: #45182b;   --cl-av-pink: #ff9dc0;
+  --cl-av-mint-bg: #103a33;   --cl-av-mint: #7fe0cf;
+  --cl-av-lilac-bg: #2a2150;  --cl-av-lilac: #b9adff;
+  --cl-av-peach-bg: #3d2a12;  --cl-av-peach: #f5c07a;
+  --cl-av-rose-bg: #4a1636;   --cl-av-rose: #ffa9d9;
+}

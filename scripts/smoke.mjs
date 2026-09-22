@@ -131,7 +131,11 @@ const APP_ROUTES = [
      of chains, or one open. */
   ['/workflow', 'one chain per type can be live', 'member'],
   ['/profile', 'Your details', 'member'],
-  ['/security', 'Security', 'super_admin'],
+  /* ⚠️ ADMIN+, not super-admin: the owner widened it on 2026-08-22 (see the
+     note on its nav entry) and the route guard, the permission matrix and
+     migration 040 all moved with it. This row alone was left behind, so the
+     smoke test reported a correct page as a failure for a month. */
+  ['/security', 'Security', 'admin'],
 ];
 
 const RANK = { super_admin: 4, admin: 3, team_coordinator: 2, member: 1 };

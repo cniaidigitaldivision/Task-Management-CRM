@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from 'next';
-import { Inter, JetBrains_Mono, Playfair_Display } from 'next/font/google';
+import localFont from 'next/font/local';
 
 import { ThemeProvider } from '@/components/brand/theme-provider';
 import { APP_NAME, DIVISION_NAME, ORGANISATION_NAME } from '@/lib/domain/constants';
@@ -7,27 +7,36 @@ import { BROWSER_THEME_COLOR, THEME_PRE_PAINT_SCRIPT } from '@/lib/theme';
 
 import './globals.css';
 
-/* Interface type — excellent at small sizes, wide weight range. */
-const inter = Inter({
-  subsets: ['latin'],
+/* ⚠️ SELF-HOSTED, NOT FETCHED. Owner, 2026-09-22, of the Clients page: *"some
+   bold boards have some blurred text … like it is blasting."* The dev server's
+   log said why: "Failed to download Inter from Google Fonts. Using a fallback
+   font instead." Every screen on the machine the owner reviews on was drawn in
+   the size-adjusted Arial fallback, while production (which fetches at build
+   time) had Inter. The same official files now live in app/fonts, so the page
+   the owner reviews and the page that ships are the same page.
+
+   Interface type — excellent at small sizes, wide weight range. */
+const inter = localFont({
+  src: './fonts/inter-latin.woff2',
+  weight: '100 900',
   variable: '--font-inter',
   display: 'swap',
 });
 
 /* Display type — echoes the serif wordmark. Page titles and auth screens only. */
-const playfair = Playfair_Display({
-  subsets: ['latin'],
+const playfair = localFont({
+  src: './fonts/playfair-display-latin.woff2',
+  weight: '500 700',
   variable: '--font-playfair',
   display: 'swap',
-  weight: ['500', '600', '700'],
 });
 
 /* Task references should read as identifiers, not prose. */
-const jetbrains = JetBrains_Mono({
-  subsets: ['latin'],
+const jetbrains = localFont({
+  src: './fonts/jetbrains-mono-latin.woff2',
+  weight: '400 500',
   variable: '--font-jetbrains',
   display: 'swap',
-  weight: ['400', '500'],
 });
 
 export const metadata: Metadata = {

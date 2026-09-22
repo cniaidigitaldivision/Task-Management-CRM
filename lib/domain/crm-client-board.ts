@@ -166,7 +166,9 @@ export function nextLine(c: ClientLike, nowMs: number): { text: string; when: st
     const day = karachiDay(Date.parse(c.nextAt));
     const today = karachiDay(nowMs);
     const when = day === today ? 'Today' : day === karachiDay(nowMs + DAY) ? 'Tomorrow' : shortDay(c.nextAt);
-    return { text: kindWord(c.nextKind, c.nextLabel), when, tone: day === today ? 'red' : 'grey' };
+    /* ⚠️ TODAY IS GREEN, AS IN THE DESIGN ("Send quotation · Today"). Red is
+       kept for what is already late, so the two never read as the same thing. */
+    return { text: kindWord(c.nextKind, c.nextLabel), when, tone: day === today ? 'green' : 'grey' };
   }
   if (a) return { text: a.text, when: null, tone: 'amber' };
   const quiet = quietDays(c, nowMs);
@@ -444,30 +446,46 @@ const cell = (v: string | number | null | undefined) => {
   return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 };
 
-export function toCsv(rows: readonly ClientLike[], nowMs: number): string {
-  const head = [
+/**
+ * The export as a table — the ONE definition of its columns, so the CSV and the
+ * Excel file can never disagree about what a column holds.
+ *
+ * ⚠️ MONEY IS A NUMBER HERE, not "PKR 4.5M": a spreadsheet has to be able to
+ * add it up. Words are for the screen and the PDF.
+ */
+export function exportTable(rows: readonly ClientLike[], nowMs: number): {
+  header: string[];
+  rows: Array<Array<string | number | null>>;
+  widths: number[];
+} {
+  const header = [
     'Client number', 'Name', 'Company', 'Phone', 'Email', 'City', 'Projects', 'Owner', 'Relationship',
     'Preferred channel', 'Source', 'Booked value (PKR)', 'Quoted value (PKR)', 'Open deals',
     'Unpaid invoices', 'Outstanding (PKR)', 'Last contact', 'Next action',
   ];
-  const lines = [head.map(cell).join(',')];
-  for (const c of rows) {
-    const n = nextLine(c, nowMs);
-    lines.push(
-      [
+  const widths = [13, 24, 22, 17, 28, 14, 26, 16, 16, 16, 15, 17, 17, 11, 14, 17, 13, 26];
+  return {
+    header,
+    widths,
+    rows: rows.map((c) => {
+      const n = nextLine(c, nowMs);
+      return [
         refLabel(c.refNo), c.name, c.company, c.phoneE164, c.email, c.city, c.projectNames.join('; '),
         c.ownerName, STATUS_LOOK[displayStatus(c, nowMs)].label,
-        c.preferredChannel ? CHANNEL_LABEL[c.preferredChannel] : '', sourceLabel(c.source),
+        c.preferredChannel ? CHANNEL_LABEL[c.preferredChannel] : null, sourceLabel(c.source),
         Math.round(c.bookedValue), Math.round(c.quotedValue), c.openDeals, c.unpaidInvoices,
-        Math.round(c.unpaidAmount), c.lastContactAt ? karachiDay(Date.parse(c.lastContactAt)) : '',
+        Math.round(c.unpaidAmount), c.lastContactAt ? karachiDay(Date.parse(c.lastContactAt)) : null,
         n.when ? `${n.text} · ${n.when}` : n.text,
-      ]
-        .map(cell)
-        .join(','),
-    );
-  }
+      ];
+    }),
+  };
+}
+
+export function toCsv(rows: readonly ClientLike[], nowMs: number): string {
+  const t = exportTable(rows, nowMs);
+  const lines = [t.header.map(cell).join(','), ...t.rows.map((r) => r.map(cell).join(','))];
   /* A BOM, so Excel opens Urdu names and "·" as UTF-8 instead of mojibake. */
-  return `﻿${lines.join('\r\n')}\r\n`;
+  return `\uFEFF${lines.join('\r\n')}\r\n`;
 }
 
 /* ── Import ─────────────────────────────────────────────────────────────── */
@@ -520,6 +538,9 @@ const HEADER_WORDS: ReadonlyArray<[ImportField, RegExp]> = [
   ['channel', /^(preferred channel|channel|contact via)$/i],
   ['notes', /^(notes?|comments?|remarks?)$/i],
 ];
+
+/** The blank template's header — every name `mapColumns` recognises, in order. */
+export const IMPORT_TEMPLATE_HEADER = ['Name', 'Phone', 'Email', 'Company', 'City', 'Source', 'Status', 'Preferred channel', 'Notes'] as const;
 
 /** Which column is which, read from the header row. */
 export function mapColumns(header: readonly string[]): Partial<Record<ImportField, number>> {
