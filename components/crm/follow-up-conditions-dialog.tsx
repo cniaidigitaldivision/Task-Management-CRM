@@ -86,6 +86,7 @@ export function FollowUpConditionsDialog({
   ownerName,
   propertyLabel,
   dueAt,
+  seed,
   onClose,
   onSaved,
 }: {
@@ -96,32 +97,46 @@ export function FollowUpConditionsDialog({
   ownerName: string | null;
   propertyLabel: string | null;
   dueAt: string;
+  /** What the list already knows \u2014 so this paints in its own frame. */
+  seed: FollowUpConditions;
   onClose: () => void;
   onSaved?: () => void;
 }) {
   const toast = useToast();
-  const [conditions, setConditions] = React.useState<FollowUpConditions | null>(null);
-  const [edit, setEdit] = React.useState<ConditionEdit | null>(null);
-  const [saved, setSaved] = React.useState<ConditionEdit | null>(null);
+  /* \u26a0\ufe0f OPENS FULL, NOT EMPTY (Rule Zero, law 3). The row on the page carries
+     every setting this dialog shows, so it starts from those and the server's
+     own answer replaces them underneath. Owner, 2026-09-22: *"the popup should
+     be instant but the data is taking a lot of time to show."* */
+  const [conditions, setConditions] = React.useState<FollowUpConditions>(seed);
+  const [edit, setEdit] = React.useState<ConditionEdit>(() => editFrom(seed));
+  const [saved, setSaved] = React.useState<ConditionEdit>(() => editFrom(seed));
   const [error, setError] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
+  /* Whether the authority has answered yet \u2014 shown as a quiet line, never as a
+     blank panel. A wrong tick would be worse than a late one. */
+  const [confirmed, setConfirmed] = React.useState(false);
 
   React.useEffect(() => {
     let alive = true;
     void followUpConditionsAction(followUpId).then((r) => {
       if (!alive) return;
       if (!r.ok || !r.conditions) {
-        setError(r.error ?? 'Those conditions could not be read.');
+        setError(r.error ?? 'Those conditions could not be re-checked just now.');
         return;
       }
+      setConfirmed(true);
       setConditions(r.conditions);
       const e = editFrom(r.conditions);
-      setEdit(e);
+      /* \u26a0\ufe0f A HALF-TYPED CHANGE IS NOT THROWN AWAY by the confirmation. Only
+         the untouched dialog takes the server's version. */
       setSaved(e);
+      setEdit((mine) => (isUnchanged(mine, saved) ? e : mine));
     });
     return () => {
       alive = false;
     };
+    /* `saved` is read through the setter's argument, so it is not a dependency. */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [followUpId]);
 
   React.useEffect(() => {
@@ -155,7 +170,7 @@ export function FollowUpConditionsDialog({
     onClose();
   };
 
-  const dirty = edit && saved ? !isUnchanged(edit, saved) : false;
+  const dirty = !isUnchanged(edit, saved);
 
   /* ⚠️ PORTALLED. The page column carries a transform (`reveal-children`),
      which becomes the containing block for anything `fixed` inside it — the
@@ -185,11 +200,6 @@ export function FollowUpConditionsDialog({
 
         {error ? (
           <p className="px-6 pb-6 text-body-sm" style={{ color: ink('red') }}>{error}</p>
-        ) : !conditions || !edit ? (
-          <div className="grid place-items-center gap-2 px-6 py-16 text-center">
-            <Loader2 className="size-5 animate-spin text-text-tertiary" aria-hidden="true" />
-            <p className="text-body-sm text-text-secondary">Reading what this follow-up is set to…</p>
-          </div>
         ) : (
           <>
             <div className="grid max-h-[calc(100dvh-16rem)] gap-4 overflow-y-auto px-6 pb-4 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
@@ -457,7 +467,11 @@ export function FollowUpConditionsDialog({
 
             <div className="flex flex-wrap items-center gap-2 border-t border-border-subtle px-6 py-4">
               <p className="min-w-0 flex-1 text-caption text-text-secondary">
-                {dirty ? 'Not saved yet.' : 'Saved. The sender checks these again when it goes out.'}
+                {dirty
+                  ? 'Not saved yet.'
+                  : confirmed
+                    ? 'Saved. The sender checks these again when it goes out.'
+                    : 'Saved. Re-checking with the server…'}
               </p>
               <button
                 type="button"
@@ -547,7 +561,7 @@ export function ConditionsButton({ onClick, count }: { onClick: () => void; coun
       className="inline-flex items-center gap-1.5 text-caption font-semibold text-text-brand hover:underline"
     >
       <CalendarClock className="size-3.5" aria-hidden="true" />
-      Conditions{typeof count === 'number' ? ` (${count})` : ''}
+      Advanced settings{typeof count === 'number' ? ` (${count})` : ''}
     </button>
   );
 }

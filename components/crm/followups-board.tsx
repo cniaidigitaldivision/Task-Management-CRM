@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { createPortal } from 'react-dom';
 import type { Route } from 'next';
 import { useRouter } from 'next/navigation';
 import {
@@ -10,6 +11,8 @@ import {
   CalendarClock,
   CalendarDays,
   Check,
+  ChevronLeft,
+  ChevronRight,
   CheckCircle2,
   Clock3,
   FileText,
@@ -18,8 +21,10 @@ import {
   Loader2,
   Mail,
   MessageSquare,
+  Pause,
   Pencil,
   Phone,
+  Play,
   Plus,
   Search,
   Send,
@@ -34,11 +39,20 @@ import {
   saveFollowUpBodyAction,
   sendFollowUpNowAction,
 } from '@/app/actions/crm-followup-board';
-import { cancelFollowUpAction, completeFollowUpAction, stopSequenceAction } from '@/app/actions/crm-followups';
+import {
+  cancelFollowUpAction,
+  completeFollowUpAction,
+  pauseSequenceAction,
+  rescheduleSequenceAction,
+  stopSequenceAction,
+} from '@/app/actions/crm-followups';
 import { leadBundlesAction } from '@/app/actions/crm-lead-bundles';
-import { ink, RowMenu, tint } from '@/components/crm/appointments-board-parts';
+import { DateRangeButton, ink, RowMenu, tint } from '@/components/crm/appointments-board-parts';
+import { EditLeadDetails } from '@/components/crm/edit-lead-details';
 import { ConditionsButton, FollowUpConditionsDialog } from '@/components/crm/follow-up-conditions-dialog';
 import { FollowUpWizard } from '@/components/crm/follow-up-wizard';
+import { LeadDetailsModal } from '@/components/crm/lead-details-modal';
+import { RelatedItemsDialog, seedRelated, type TabKey as RelatedTab } from '@/components/crm/related-items';
 import { WA_GREEN, WhatsAppMark } from '@/components/crm/whatsapp-mark';
 import { PageHeader } from '@/components/ui/page-header';
 import { useToast } from '@/components/ui/toast';
@@ -49,7 +63,6 @@ import {
   cardCounts,
   CHANNEL_OPTIONS,
   displayStatus,
-  DUE_OPTIONS,
   dueLine,
   inTab,
   isOpen,
@@ -60,10 +73,13 @@ import {
   sortForQueue,
   STATUS_LOOK,
   TABS,
+  VIEW_OPTIONS,
+  viewOf,
   type BoardFilters,
   type DisplayStatus,
   type TabKey,
 } from '@/lib/domain/crm-followup-board';
+import { seedConditions } from '@/lib/domain/crm-followup-conditions';
 import { fillTokens, purposeLabel } from '@/lib/domain/crm-followup-plans';
 import { cn } from '@/lib/utils';
 
@@ -178,6 +194,10 @@ type Dialog =
   | { kind: 'reschedule'; id: string }
   | { kind: 'done'; id: string }
   | { kind: 'conditions'; id: string }
+  | { kind: 'seq-resume'; id: string }
+  | { kind: 'lead'; leadId: string }
+  | { kind: 'related'; leadId: string; tab: RelatedTab }
+  | { kind: 'edit'; leadId: string }
   | null;
 
 export function FollowUpsBoard({
@@ -186,12 +206,14 @@ export function FollowUpsBoard({
   nowMs,
   viewerName,
   windowFrom,
+  startTab = 'scheduled',
 }: {
   followUps: readonly BoardFollowUp[];
   sequences: readonly BoardSequence[];
   nowMs: number;
   viewerName: string;
   windowFrom: string;
+  startTab?: TabKey;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -212,7 +234,19 @@ export function FollowUpsBoard({
     setOverrides((prev) => new Map(prev).set(id, { ...prev.get(id), ...p }));
   const refresh = () => startTransition(() => router.refresh());
 
-  const [tab, setTab] = React.useState<TabKey>('queue');
+  /* ⚠️ OPENS ON SCHEDULED. Owner, 2026-09-22: *"by default when the page
+     loads, the schedule tab should open or should be selected."* The prop is
+     the seam a `?tab=` deep link would use, and it is what lets a render test
+     reach a tab it cannot click. */
+  const [tab, setTab] = React.useState<TabKey>(startTab);
+  /* ⚠️ TEN A PAGE, PAGED ON THE CLIENT. Owner, 2026-09-22: *"in the completed
+     follow-ups, it should display 10 follow-ups and add pagination. Make sure
+     that pagination page switching will not take too much time … It should be
+     instant."* So the page turn is a slice of rows already in memory — no
+     round trip, no query, nothing to wait for (Rule Zero). The QUERY's own
+     ceiling is 400 rows over 30 days, which is what keeps this honest as the
+     business grows. */
+  const [page, setPage] = React.useState(0);
   const [filters, setFilters] = React.useState<BoardFilters>(NO_FILTERS);
   const set = (p: Partial<BoardFilters>) => setFilters((f) => ({ ...f, ...p }));
 
@@ -233,8 +267,24 @@ export function FollowUpsBoard({
     [rows],
   );
 
+  /* Any change to what is being looked at starts at the first page again —
+     adjusted during the render, never in an effect. */
+  const [pageKey, setPageKey] = React.useState('');
+  const key = `${tab}|${filters.q}|${filters.due}|${filters.purpose}|${filters.channel}|${filters.project}|${filters.from}|${filters.to}`;
+  if (pageKey !== key) {
+    setPageKey(key);
+    setPage(0);
+  }
+  const pages = Math.max(1, Math.ceil(shown.length / PER_PAGE));
+  const onPage = Math.min(page, pages - 1);
+  const pageRows = shown.slice(onPage * PER_PAGE, onPage * PER_PAGE + PER_PAGE);
+
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
-  const selected = shown.find((r) => r.id === selectedId) ?? shown[0] ?? null;
+  const selected = shown.find((r) => r.id === selectedId) ?? pageRows[0] ?? null;
+  /* The Sequences tab selects a sequence, not a follow-up — its own state, so
+     moving between tabs loses neither choice. */
+  const [selectedSeqId, setSelectedSeqId] = React.useState<string | null>(null);
+  const seq = sequences.find((q) => q.id === selectedSeqId) ?? sequences[0] ?? null;
 
   const [dialog, setDialog] = React.useState<Dialog>(null);
   const [bundles, setBundles] = React.useState<Record<string, CrmLeadBundle>>({});
@@ -303,6 +353,51 @@ export function FollowUpsBoard({
     refresh();
   };
 
+  const pauseSeq = async (q: BoardSequence) => {
+    setBusy(q.id);
+    const r = await pauseSequenceAction(q.id);
+    setBusy(null);
+    toast(
+      r.ok
+        ? { tone: 'ok', text: 'Paused. Nothing goes out until you resume it.' }
+        : { tone: 'error', text: r.error ?? 'That did not save.' },
+    );
+    if (r.ok) refresh();
+  };
+
+  const stopSeqById = async (id: string) => {
+    setBusy(id);
+    const r = await stopSequenceAction(id);
+    setBusy(null);
+    toast(
+      r.ok
+        ? { tone: 'ok', text: 'Sequence stopped. Nothing further will go out.' }
+        : { tone: 'error', text: r.error ?? 'That did not save.' },
+    );
+    if (r.ok) refresh();
+  };
+
+  /**
+   * The lead, in place.
+   *
+   * Owner, 2026-09-22: *"if I am on a follow-up page I want to see that
+   * relevant row data or a row detail. It should pop up here so I can see that
+   * detail and then I will close it if I don't want to go to that page."*
+   * — and separately: *"unless it is an open conversation then you will bring
+   * me to the conversation page. That's fine but for the detail of a lead it
+   * should not bring me to the lead page."*
+   *
+   * ⚠️ THE PANEL OPENS IN THIS FRAME and the bundle arrives underneath
+   * (Rule Zero, law 1) — the same `LeadDetailsModal` the Appointments page
+   * uses, so the two screens behave identically.
+   */
+  const openLead = (leadId: string) => {
+    setDialog({ kind: 'lead', leadId });
+    if (!bundles[leadId]) {
+      void leadBundlesAction([leadId]).then((r) => setBundles((prev) => ({ ...prev, ...r.bundles })));
+    }
+  };
+
   const openLeadWizard = (leadId: string) => {
     if (!bundles[leadId]) {
       void leadBundlesAction([leadId]).then((r) => setBundles((prev) => ({ ...prev, ...r.bundles })));
@@ -316,7 +411,11 @@ export function FollowUpsBoard({
         router.push(`/conversations?lead=${f.leadId}` as Route);
         break;
       case 'approval':
-        router.push(`/my-leads?lead=${f.leadId}` as Route);
+        /* ⚠️ STAYS ON THIS PAGE. Owner, 2026-09-22: *"when I want to see
+           anything, like lead information or 'Open the lead' … it should not
+           bring me to that page. It should display the basic information over
+           here."* The lead panel carries the quotation and its status. */
+        openLead(f.leadId);
         break;
       case 'review':
       case 'preview':
@@ -393,11 +492,22 @@ export function FollowUpsBoard({
               aria-selected={on}
               onClick={() => setTab(t.key)}
               className={cn(
-                '-mb-px border-b-[3px] pb-2.5 pt-1 text-body-sm transition-colors',
-                on
-                  ? 'border-accent-primary font-semibold text-accent-primary'
-                  : 'border-transparent font-medium text-text-secondary hover:text-text-primary',
+                '-mb-px pb-2.5 pt-1 text-body-sm transition-colors',
+                on ? 'font-semibold text-accent-primary' : 'font-medium text-text-secondary hover:text-text-primary',
               )}
+              /* ⚠️ THE BAR IS SET HERE, NOT IN A CLASS. Measured on the running
+                 page, 2026-09-22: the selected tab's border came out
+                 `2.22px solid rgb(211, 225, 226)` — border-subtle, the global
+                 default — while its text was correctly teal. The colour class
+                 was not winning, so the owner saw *"their underline is not
+                 visible"*. A token read straight from the variable cannot lose. */
+              style={{
+                borderBottomStyle: 'solid',
+                /* 3px measured as 2px painted at the app's 0.9 body zoom, which is
+                   what "not visible" looked like. 4px survives the rounding. */
+                borderBottomWidth: '4px',
+                borderBottomColor: on ? 'var(--accent-primary)' : 'transparent',
+              }}
             >
               {t.label}
             </button>
@@ -405,9 +515,17 @@ export function FollowUpsBoard({
         })}
       </div>
 
-      {/* ── Filters ────────────────────────────────────────────────────── */}
-      <div className="flex flex-wrap items-end gap-2.5">
-        <label className={cn(CONTROL, 'flex min-w-[13rem] flex-1 items-center gap-2 px-3')}>
+      {/* ── Filters, all on one row ─────────────────────────── */}
+      {/* ⚠️ ONE CONTROL PER QUESTION. Owner, 2026-09-22: *"due status and
+          view/saved view mostly show the same thing. For due status mark them
+          with the saved view status and add the custom range filter here"* —
+          and *"make sure that all filters will be displayed in one row."*
+          So: search, one View (which carries the due statuses), purpose,
+          channel, project, and a date range. `flex-nowrap` with a scroll is
+          deliberate: they asked for one row, and wrapping at a narrow width
+          would break that promise rather than keep it. */}
+      <div className="-mx-1 flex items-end gap-2 overflow-x-auto px-1 pb-1">
+        <label className={cn(CONTROL, 'flex min-w-[12rem] flex-1 items-center gap-2 px-3')}>
           <Search className="size-4 shrink-0 text-text-tertiary" aria-hidden="true" />
           <input
             value={filters.q}
@@ -417,69 +535,109 @@ export function FollowUpsBoard({
             className="min-w-0 flex-1 bg-transparent placeholder:text-text-tertiary focus:outline-none"
           />
         </label>
-        <Field label="Due status">
-          <select aria-label="Due status" value={filters.due} onChange={(e) => set({ due: e.target.value as BoardFilters['due'] })} className={cn(CONTROL, 'w-[8rem] px-2.5')}>
-            {DUE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        <Field label="View">
+          <select
+            aria-label="View"
+            value={viewOf(filters)}
+            onChange={(e) => {
+              const v = VIEW_OPTIONS.find((o) => o.value === e.target.value);
+              if (!v) return;
+              /* A view keeps the search and the range a person has typed. */
+              setFilters((f) => ({ ...NO_FILTERS, q: f.q, from: f.from, to: f.to, ...v.filters }));
+              if (v.tab) setTab(v.tab);
+            }}
+            className={cn(CONTROL, 'w-[11rem] shrink-0 px-2.5')}
+          >
+            {VIEW_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
           </select>
         </Field>
         <Field label="Purpose">
-          <select aria-label="Purpose" value={filters.purpose} onChange={(e) => set({ purpose: e.target.value })} className={cn(CONTROL, 'w-[10rem] px-2.5')}>
+          <select
+            aria-label="Purpose"
+            value={filters.purpose}
+            onChange={(e) => set({ purpose: e.target.value })}
+            className={cn(CONTROL, 'w-[9.5rem] shrink-0 px-2.5')}
+          >
             <option value="all">All</option>
-            {purposes.map((p) => <option key={p} value={p}>{purposeLabel(p)}</option>)}
+            {purposes.map((x) => <option key={x} value={x}>{purposeLabel(x)}</option>)}
           </select>
         </Field>
         <Field label="Channel">
-          <select aria-label="Channel" value={filters.channel} onChange={(e) => set({ channel: e.target.value })} className={cn(CONTROL, 'w-[8.5rem] px-2.5')}>
+          <select
+            aria-label="Channel"
+            value={filters.channel}
+            onChange={(e) => set({ channel: e.target.value })}
+            className={cn(CONTROL, 'w-[8rem] shrink-0 px-2.5')}
+          >
             {CHANNEL_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </Field>
         <Field label="Project">
-          <select aria-label="Project" value={filters.project} onChange={(e) => set({ project: e.target.value })} className={cn(CONTROL, 'w-[10rem] px-2.5')}>
+          <select
+            aria-label="Project"
+            value={filters.project}
+            onChange={(e) => set({ project: e.target.value })}
+            className={cn(CONTROL, 'w-[9.5rem] shrink-0 px-2.5')}
+          >
             <option value="all">All</option>
-            {projects.map((p) => <option key={p} value={p}>{p}</option>)}
+            {projects.map((x) => <option key={x} value={x}>{x}</option>)}
           </select>
         </Field>
-        <Field label="Saved view">
-          <select
-            aria-label="Saved view"
-            value={filters.due === 'overdue' ? 'overdue' : filters.q ? 'search' : 'open'}
-            onChange={(e) => {
-              const v = e.target.value;
-              if (v === 'open') { setTab('queue'); setFilters(NO_FILTERS); }
-              if (v === 'overdue') { setTab('queue'); setFilters({ ...NO_FILTERS, due: 'overdue' }); }
-              if (v === 'week') { setTab('scheduled'); setFilters({ ...NO_FILTERS, due: 'week' }); }
-              if (v === 'whatsapp') { setFilters({ ...NO_FILTERS, channel: 'whatsapp' }); }
-            }}
-            className={cn(CONTROL, 'w-[11rem] px-2.5')}
-          >
-            <option value="open">My open follow-ups</option>
-            <option value="overdue">Overdue only</option>
-            <option value="week">This week</option>
-            <option value="whatsapp">WhatsApp only</option>
-          </select>
+        <Field label="Date range">
+          <DateRangeButton
+            from={filters.from}
+            to={filters.to}
+            nowMs={nowMs}
+            onChange={(from, to) => set({ from, to })}
+          />
         </Field>
       </div>
 
-      {/* ── The queue and the details ──────────────────────────────────── */}
+      {/* ⚠️ EVERY TAB HAS THE SAME SHAPE. Owner, 2026-09-22: *"how pathetic is
+          the way you are showing that the sequences are two leads? Please show
+          them in a proper same rhythm. The others, like my queue, scheduled and
+          completed, should be displayed in the same rhythm on both the right
+          side and the left side, where the details will be displayed."*
+          The Sequences tab was a strip of little cards with nothing on the
+          right — it is a table and a details panel now, like the rest. */}
       <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,29rem)]">
         <section className="min-w-0 rounded-2xl border border-border-subtle bg-bg-surface py-4 shadow-sm">
           <div className="flex flex-wrap items-center gap-2 px-5 pb-3">
             <h2 className="text-h3 font-semibold text-text-primary">
-              {tab === 'queue' ? 'My follow-up queue' : tab === 'scheduled' ? 'Scheduled' : tab === 'sequences' ? 'In a sequence' : 'Completed'}
+              {tab === 'queue' ? 'My follow-up queue' : tab === 'scheduled' ? 'Scheduled' : tab === 'sequences' ? 'Running sequences' : 'Completed'}
             </h2>
             <span className="flex-1" />
             <span className="text-caption text-text-secondary">
               {tab === 'sequences'
-                ? `${counts.activeSequences} sequence${counts.activeSequences === 1 ? '' : 's'}${shown.length ? ` · ${shown.length} queued` : ''}`
+                ? `${sequences.length} sequence${sequences.length === 1 ? '' : 's'}`
                 : `${shown.length} follow-up${shown.length === 1 ? '' : 's'}`}
             </span>
           </div>
 
-          {tab === 'sequences' && sequences.length > 0 && (
-            <SequenceStrip sequences={sequences} onOpen={(leadId) => router.push(`/my-leads?lead=${leadId}` as Route)} />
-          )}
-
-          {shown.length === 0 ? (
+          {tab === 'sequences' ? (
+            sequences.length === 0 ? (
+              <Empty tab={tab} anyAtAll={rows.length > 0} hasSequences={false} onNew={() => setDialog({ kind: 'new' })} />
+            ) : (
+              <SequenceTable
+                sequences={sequences}
+                rows={rows}
+                nowMs={nowMs}
+                selectedId={seq?.id ?? null}
+                onSelect={setSelectedSeqId}
+                menuFor={(q) => [
+                  { label: 'Open the conversation', onSelect: () => router.push(`/conversations?lead=${q.leadId}` as Route) },
+                  { label: 'View lead details', onSelect: () => openLead(q.leadId) },
+                  ...(q.state === 'paused'
+                    ? [{ label: 'Resume it…', onSelect: () => setDialog({ kind: 'seq-resume', id: q.id }) }]
+                    : [{ label: 'Pause it', onSelect: () => void pauseSeq(q) }]),
+                  { label: 'Move the next step…', onSelect: () => setDialog({ kind: 'seq-resume', id: q.id }) },
+                  { label: 'Stop the sequence', onSelect: () => void stopSeqById(q.id), danger: true },
+                ]}
+              />
+            )
+          ) : shown.length === 0 ? (
             <Empty
               tab={tab}
               anyAtAll={rows.length > 0}
@@ -488,7 +646,7 @@ export function FollowUpsBoard({
             />
           ) : (
             <QueueTable
-              rows={shown}
+              rows={pageRows}
               nowMs={nowMs}
               selectedId={selected?.id ?? null}
               busy={busy}
@@ -498,10 +656,10 @@ export function FollowUpsBoard({
               onSend={(f) => void send(f)}
               menuFor={(f) => [
                 { label: 'Open the conversation', onSelect: () => router.push(`/conversations?lead=${f.leadId}` as Route) },
-                { label: 'Open the lead', onSelect: () => router.push(`/my-leads?lead=${f.leadId}` as Route) },
+                { label: 'View lead details', onSelect: () => openLead(f.leadId) },
                 { label: 'Add another follow-up', onSelect: () => openLeadWizard(f.leadId) },
                 ...(isOpen(f)
-                  ? [{ label: 'Conditions…', onSelect: () => setDialog({ kind: 'conditions', id: f.id }) }]
+                  ? [{ label: 'Advanced settings…', onSelect: () => setDialog({ kind: 'conditions', id: f.id }) }]
                   : []),
                 ...(isOpen(f)
                   ? [
@@ -516,9 +674,38 @@ export function FollowUpsBoard({
               ]}
             />
           )}
+
+          {tab !== 'sequences' && shown.length > PER_PAGE && (
+            <Pager
+              page={onPage}
+              pages={pages}
+              from={onPage * PER_PAGE + 1}
+              to={Math.min(shown.length, onPage * PER_PAGE + PER_PAGE)}
+              total={shown.length}
+              onPage={setPage}
+            />
+          )}
         </section>
 
-        {selected ? (
+        {tab === 'sequences' ? (
+          seq ? (
+            <SequenceDetails
+              q={seq}
+              rows={rows.filter((r) => r.sequenceRunId === seq.id)}
+              nowMs={nowMs}
+              busy={busy === seq.id}
+              onPause={() => void pauseSeq(seq)}
+              onResume={() => setDialog({ kind: 'seq-resume', id: seq.id })}
+              onStop={() => void stopSeqById(seq.id)}
+              onConversation={() => router.push(`/conversations?lead=${seq.leadId}` as Route)}
+              onLead={() => openLead(seq.leadId)}
+            />
+          ) : (
+            <aside className="grid place-items-center rounded-2xl border border-border-subtle bg-bg-surface p-6 text-center shadow-sm">
+              <p className="text-body-sm text-text-secondary">Pick a sequence to see its steps.</p>
+            </aside>
+          )
+        ) : selected ? (
           <DetailsPanel
             f={selected}
             nowMs={nowMs}
@@ -535,7 +722,9 @@ export function FollowUpsBoard({
           />
         ) : (
           <aside className="grid place-items-center rounded-2xl border border-border-subtle bg-bg-surface p-6 text-center shadow-sm">
-            <p className="text-body-sm text-text-secondary">Pick a follow-up to see what will be sent.</p>
+            <p className="text-body-sm text-text-secondary">
+              Pick a follow-up to see what will be sent, and to reach its advanced settings.
+            </p>
           </aside>
         )}
       </div>
@@ -544,6 +733,43 @@ export function FollowUpsBoard({
         Showing everything still open, and what was completed since {windowFrom}.
       </p>
 
+      {dialog?.kind === 'lead' && (
+        <LeadDetailsModal
+          leadId={dialog.leadId}
+          bundle={bundles[dialog.leadId] ?? null}
+          fallbackName={rows.find((r) => r.leadId === dialog.leadId)?.leadName ?? 'Lead'}
+          viewerName={viewerName}
+          nowMs={nowMs}
+          onClose={() => setDialog(null)}
+          onEdit={() => setDialog({ kind: 'edit', leadId: dialog.leadId })}
+          onRelated={() => setDialog({ kind: 'related', leadId: dialog.leadId, tab: 'quotations' })}
+          onElsewhere={(href) => router.push(href as Route)}
+        />
+      )}
+      {dialog?.kind === 'related' && bundles[dialog.leadId] && (
+        <RelatedItemsDialog
+          lead={bundles[dialog.leadId].record.lead}
+          sender={bundles[dialog.leadId].related.sender}
+          seed={seedRelated(bundles[dialog.leadId].record.lead, bundles[dialog.leadId].related)}
+          initialTab={dialog.tab}
+          onClose={() => setDialog({ kind: 'lead', leadId: dialog.leadId })}
+          onChooseUnit={() => setDialog({ kind: 'lead', leadId: dialog.leadId })}
+          onRecordOutcome={() => setDialog({ kind: 'lead', leadId: dialog.leadId })}
+          onAttach={() => {
+            /* A file is sent from the lead's own WhatsApp tab, where the
+               composer is — this page has none. Said, and taken there. */
+            setDialog(null);
+            toast({ tone: 'ok', text: 'Opening the conversation — attach and send it from there.' });
+            router.push(`/conversations?lead=${dialog.leadId}` as Route);
+          }}
+        />
+      )}
+      {dialog?.kind === 'edit' && bundles[dialog.leadId] && (
+        <EditLeadDetails
+          lead={bundles[dialog.leadId].record.lead}
+          onClose={() => setDialog({ kind: 'lead', leadId: dialog.leadId })}
+        />
+      )}
       {dialog?.kind === 'new' && (
         <LeadPicker
           onClose={() => setDialog(null)}
@@ -579,6 +805,17 @@ export function FollowUpsBoard({
           }}
         />
       )}
+      {dialog?.kind === 'seq-resume' && sequences.some((q) => q.id === dialog.id) && (
+        <SequenceWhenDialog
+          q={sequences.find((q) => q.id === dialog.id)!}
+          nowMs={nowMs}
+          onClose={() => setDialog(null)}
+          onMoved={() => {
+            setDialog(null);
+            refresh();
+          }}
+        />
+      )}
       {dialog?.kind === 'conditions' && byId(dialog.id) && (
         <FollowUpConditionsDialog
           followUpId={dialog.id}
@@ -588,6 +825,7 @@ export function FollowUpsBoard({
           ownerName={byId(dialog.id)!.ownerName ?? viewerName}
           propertyLabel={byId(dialog.id)!.propertyLabel}
           dueAt={byId(dialog.id)!.dueAt}
+          seed={seedConditions(byId(dialog.id)!, nowMs)}
           onClose={() => setDialog(null)}
           onSaved={refresh}
         />
@@ -746,40 +984,464 @@ function QueueTable({
   );
 }
 
-function SequenceStrip({
+/** Ten a page, and the turn is a slice of what is already here. */
+const PER_PAGE = 10;
+
+function Pager({
+  page,
+  pages,
+  from,
+  to,
+  total,
+  onPage,
+}: {
+  page: number;
+  pages: number;
+  from: number;
+  to: number;
+  total: number;
+  onPage: (n: number) => void;
+}) {
+  /* At most seven numbers, always including the first and the last. */
+  const nums: number[] = [];
+  const push = (n: number) => {
+    if (n >= 0 && n < pages && !nums.includes(n)) nums.push(n);
+  };
+  push(0);
+  for (let d = -1; d <= 1; d += 1) push(page + d);
+  push(pages - 1);
+  nums.sort((a, b) => a - b);
+
+  const step = 'grid size-8 place-items-center rounded-lg border border-border-default text-body-sm font-medium text-text-primary transition-colors hover:bg-bg-subtle disabled:opacity-40';
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-t border-border-subtle px-5 pt-3">
+      <p className="min-w-0 flex-1 text-caption text-text-secondary">
+        {from}–{to} of {total}
+      </p>
+      <button type="button" aria-label="Previous page" disabled={page === 0} onClick={() => onPage(page - 1)} className={step}>
+        <ChevronLeft className="size-4" aria-hidden="true" />
+      </button>
+      {nums.map((n, i) => (
+        <React.Fragment key={n}>
+          {i > 0 && n - nums[i - 1] > 1 && <span className="px-0.5 text-caption text-text-tertiary">…</span>}
+          <button
+            type="button"
+            aria-current={n === page ? 'page' : undefined}
+            onClick={() => onPage(n)}
+            className={cn(
+              'grid size-8 place-items-center rounded-lg text-body-sm font-semibold transition-colors',
+              n === page
+                ? 'bg-accent-primary text-white'
+                : 'border border-border-default text-text-primary hover:bg-bg-subtle',
+            )}
+          >
+            {n + 1}
+          </button>
+        </React.Fragment>
+      ))}
+      <button
+        type="button"
+        aria-label="Next page"
+        disabled={page >= pages - 1}
+        onClick={() => onPage(page + 1)}
+        className={step}
+      >
+        <ChevronRight className="size-4" aria-hidden="true" />
+      </button>
+    </div>
+  );
+}
+
+/* ── The Sequences tab, in the same shape as every other tab ─────────────── */
+
+const SEQ_COLS =
+  'minmax(0,1.45fr) minmax(0,1.3fr) minmax(0,0.7fr) minmax(0,0.95fr) minmax(0,1.05fr) minmax(0,0.75fr)';
+
+/** What a sequence is doing, in the same vocabulary the rows use. */
+function seqLook(q: BoardSequence): { label: string; tone: 'green' | 'amber' | 'blue' } {
+  if (q.state === 'paused') return { label: q.pauseReason ? `Paused · ${q.pauseReason}` : 'Paused', tone: 'amber' };
+  if (q.state === 'scheduled') return { label: 'Not started', tone: 'blue' };
+  return { label: 'Running', tone: 'green' };
+}
+
+function SequenceTable({
   sequences,
-  onOpen,
+  rows,
+  nowMs,
+  selectedId,
+  onSelect,
+  menuFor,
 }: {
   sequences: readonly BoardSequence[];
-  onOpen: (leadId: string) => void;
+  rows: readonly BoardFollowUp[];
+  nowMs: number;
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  menuFor: (q: BoardSequence) => ReadonlyArray<{ label: string; onSelect: () => void; danger?: boolean }>;
 }) {
   return (
-    <div className="mb-3 flex gap-2 overflow-x-auto px-5 pb-1">
-      {sequences.map((s) => (
-        <button
-          key={s.id}
-          type="button"
-          onClick={() => onOpen(s.leadId)}
-          className="min-w-[13rem] shrink-0 rounded-xl border border-border-subtle px-3 py-2 text-left transition-colors hover:bg-bg-subtle"
-        >
-          <span className="block truncate text-body-sm font-semibold text-text-primary">{s.leadName ?? 'Unnamed lead'}</span>
-          <span className="block truncate text-caption text-text-secondary">{s.name}</span>
-          <span className="mt-1 flex items-center gap-2">
-            <span className="text-caption font-medium text-text-primary">Step {s.step} of {s.total}</span>
-            <span
-              className="rounded-full px-1.5 py-0.5 text-caption font-medium"
-              style={
-                s.state === 'paused'
-                  ? { background: tint('amber', 14), color: ink('amber') }
-                  : { background: tint('green', 14), color: ink('green') }
-              }
+    <div>
+      <div
+        className="grid items-center gap-3 border-y border-border-subtle bg-bg-subtle/40 px-5 py-2.5 text-caption font-semibold text-text-secondary"
+        style={{ gridTemplateColumns: SEQ_COLS }}
+      >
+        <span>Lead / project</span>
+        <span>Sequence</span>
+        <span>Step</span>
+        <span>Next step</span>
+        <span>Status</span>
+        <span className="text-right">Actions</span>
+      </div>
+      <div>
+        {sequences.map((q) => {
+          const on = q.id === selectedId;
+          const look = seqLook(q);
+          const next = q.nextStepAt ? dueLine(q.nextStepAt, nowMs, 'scheduled') : null;
+          const mine = rows.filter((r) => r.sequenceRunId === q.id);
+          const sent = mine.filter((r) => r.status === 'done').length;
+          return (
+            <div
+              key={q.id}
+              role="button"
+              tabIndex={0}
+              aria-pressed={on}
+              onClick={(e) => {
+                const hit = (e.target as HTMLElement).closest('a, button, [role="menu"]');
+                if (hit && hit !== e.currentTarget) return;
+                onSelect(q.id);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && e.target === e.currentTarget) onSelect(q.id);
+              }}
+              className={cn(
+                'grid cursor-pointer items-center gap-3 border-b border-l-[3px] border-b-border-subtle px-5 py-3 transition-colors',
+                on ? 'border-l-accent-primary' : 'border-l-transparent hover:bg-bg-subtle/60',
+              )}
+              style={{ gridTemplateColumns: SEQ_COLS, background: on ? tint('blue', 6) : undefined }}
             >
-              {s.state === 'paused' ? (s.pauseReason ?? 'Paused') : 'Running'}
-            </span>
-          </span>
-        </button>
-      ))}
+              <span className="min-w-0">
+                <span className="block truncate text-body-sm font-semibold text-text-primary">
+                  {q.leadName ?? 'Unnamed lead'}
+                </span>
+                <span className="block truncate text-caption text-text-secondary">{q.projectName ?? '—'}</span>
+              </span>
+              <span className="min-w-0">
+                <span className="block truncate text-body-sm text-text-primary">{q.name}</span>
+                <span className="block truncate text-caption text-text-secondary">{purposeLabel(q.purpose)}</span>
+              </span>
+              <span className="min-w-0">
+                <span className="block text-body-sm font-semibold text-text-primary">
+                  {q.step} of {q.total}
+                </span>
+                <span className="block truncate text-caption text-text-secondary">
+                  {sent} sent
+                </span>
+              </span>
+              <span className="min-w-0">
+                {next ? (
+                  <>
+                    <span className="block truncate text-body-sm text-text-primary">{next.day}</span>
+                    {next.time && <span className="block truncate text-caption text-text-secondary">{next.time}</span>}
+                  </>
+                ) : (
+                  <span className="text-body-sm text-text-tertiary">—</span>
+                )}
+              </span>
+              <span className="min-w-0">
+                <span
+                  className="inline-flex max-w-full items-center gap-1.5 rounded-full px-2.5 py-1 text-caption font-semibold leading-tight"
+                  style={{ background: tint(look.tone, 14), color: ink(look.tone) }}
+                >
+                  <Layers className="size-3.5 shrink-0" aria-hidden="true" />
+                  <span className="truncate">{look.label}</span>
+                </span>
+              </span>
+              <span className="flex items-center justify-end">
+                <RowMenu items={menuFor(q)} label={`More for ${q.leadName ?? 'this sequence'}`} />
+              </span>
+            </div>
+          );
+        })}
+      </div>
     </div>
+  );
+}
+
+/**
+ * The right-hand column for a sequence — the same frame as `DetailsPanel`:
+ * who it is for, where it has got to, every step with what actually happened to
+ * it, and what a person can do about it.
+ */
+function SequenceDetails({
+  q,
+  rows,
+  nowMs,
+  busy,
+  onPause,
+  onResume,
+  onStop,
+  onConversation,
+  onLead,
+}: {
+  q: BoardSequence;
+  rows: readonly BoardFollowUp[];
+  nowMs: number;
+  busy: boolean;
+  onPause: () => void;
+  onResume: () => void;
+  onStop: () => void;
+  onConversation: () => void;
+  onLead: () => void;
+}) {
+  const look = seqLook(q);
+  /* The plan is on any of its rows; a run with nothing queued yet has none. */
+  const plan = rows.find((r) => r.steps.length > 0)?.steps ?? [];
+  const byStep = new Map(rows.map((r) => [r.stepNo ?? 0, r]));
+  const next = q.nextStepAt ? dueLine(q.nextStepAt, nowMs, 'scheduled') : null;
+
+  return (
+    <aside className="flex min-w-0 flex-col rounded-2xl border border-border-subtle bg-bg-surface px-5 py-4 shadow-sm">
+      <div className="flex flex-wrap items-start gap-2">
+        <h2 className="text-h3 font-semibold text-text-primary">Sequence details</h2>
+        <span className="flex-1" />
+        <span
+          className="inline-flex max-w-full items-center gap-1.5 rounded-full px-2.5 py-1 text-caption font-semibold"
+          style={{ background: tint(look.tone, 14), color: ink(look.tone) }}
+        >
+          <Layers className="size-3.5 shrink-0" aria-hidden="true" />
+          <span className="truncate">{look.label}</span>
+        </span>
+      </div>
+
+      <h3 className="mt-3 text-[1.35rem] font-bold leading-tight text-text-primary">{q.leadName ?? 'Unnamed lead'}</h3>
+      <p className="truncate text-body-sm text-text-secondary">{q.projectName ?? '—'}</p>
+
+      <div className="mt-3 flex flex-wrap items-start justify-between gap-2 border-t border-border-subtle pt-3">
+        <div className="min-w-0">
+          <p className="text-body font-semibold text-text-primary">{q.name}</p>
+          <p className="truncate text-caption text-text-secondary">{purposeLabel(q.purpose)}</p>
+        </div>
+        <div className="shrink-0 text-right">
+          <p className="text-body-sm font-semibold text-text-primary">
+            Step {q.step} of {q.total}
+          </p>
+          <p className="text-caption text-text-secondary">
+            {next ? `Next ${next.day}${next.time ? ` · ${next.time}` : ''}` : 'Nothing scheduled'}
+          </p>
+        </div>
+      </div>
+
+      {/* ── Every step, and what became of it ────────────────────── */}
+      <div className="mt-3.5 border-t border-border-subtle pt-3">
+        <h4 className="text-body-sm font-semibold text-text-primary">The plan</h4>
+        {plan.length === 0 ? (
+          <p className="mt-2 text-caption text-text-secondary">
+            No step has been queued yet, so its plan is not on this screen. Opening the lead shows the whole sequence.
+          </p>
+        ) : (
+          <ul className="mt-2 space-y-2">
+            {plan.map((st) => {
+              const row = byStep.get(st.stepNo);
+              const state = !row
+                ? { text: st.stepNo <= q.step ? 'Sent' : 'Not queued yet', tone: 'grey' as const }
+                : row.status === 'done'
+                  ? { text: 'Sent', tone: 'green' as const }
+                  : row.status === 'failed'
+                    ? { text: 'Failed', tone: 'red' as const }
+                    : row.status === 'cancelled' || row.status === 'skipped'
+                      ? { text: 'Stopped', tone: 'grey' as const }
+                      : { text: displayStatus(row, nowMs) === 'scheduled' ? 'Queued' : 'Due now', tone: 'blue' as const };
+              return (
+                <li key={st.stepNo} className="flex items-start gap-2">
+                  <span className="w-10 shrink-0 pt-1.5 text-caption font-semibold text-text-secondary">Day {st.day}</span>
+                  <ChannelMark channel={st.channel} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-caption font-medium text-text-primary">{st.title}</span>
+                    <span className="block truncate text-caption text-text-secondary">
+                      {channelLabel(st.channel)}
+                      {row?.dueAt ? ` · ${dueLine(row.dueAt, nowMs, displayStatus(row, nowMs)).day}` : ''}
+                    </span>
+                  </span>
+                  <span
+                    className="shrink-0 rounded-full px-1.5 py-0.5 text-caption font-semibold"
+                    style={{ background: tint(state.tone, 14), color: ink(state.tone) }}
+                  >
+                    {state.text}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+
+      <dl className="mt-3.5 space-y-2 border-t border-border-subtle pt-3 text-body-sm">
+        <Fact
+          icon={CalendarDays}
+          label="Started"
+          value={new Date(q.startedAt).toLocaleDateString('en-GB', {
+            day: 'numeric',
+            month: 'short',
+            year: 'numeric',
+            timeZone: 'Asia/Karachi',
+          })}
+        />
+        <Fact icon={Layers} label="Steps sent" value={`${rows.filter((r) => r.status === 'done').length} of ${q.total}`} />
+        <Fact
+          icon={MessageSquare}
+          label="Stops on"
+          value={
+            [
+              rows[0]?.stopOnReply === false ? null : 'a reply',
+              rows[0]?.stopOnVisit === false ? null : 'a booking',
+              rows[0]?.stopOnQuotationDead === false ? null : 'a dead quotation',
+            ]
+              .filter(Boolean)
+              .join(', ') || 'nothing — it runs to the end'
+          }
+        />
+      </dl>
+
+      <div className="mt-auto flex flex-wrap gap-2 pt-4 [&>button]:min-w-fit [&>button]:flex-1 [&>button]:whitespace-nowrap">
+        <button
+          type="button"
+          onClick={onConversation}
+          className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-border-default px-3 py-2.5 text-[0.8rem] font-semibold text-text-primary transition-colors hover:bg-bg-subtle"
+        >
+          <MessageSquare className="size-4" aria-hidden="true" /> Conversation
+        </button>
+        <button
+          type="button"
+          onClick={onLead}
+          className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-border-default px-3 py-2.5 text-[0.8rem] font-semibold text-text-primary transition-colors hover:bg-bg-subtle"
+        >
+          <ArrowRight className="size-4" aria-hidden="true" /> Open the lead
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onStop}
+          className="inline-flex items-center justify-center gap-1.5 rounded-xl border px-3 py-2.5 text-[0.8rem] font-semibold transition-colors hover:bg-bg-subtle disabled:opacity-50"
+          style={{ borderColor: 'color-mix(in oklab, var(--feedback-error) 55%, var(--border-default))', color: ink('red') }}
+        >
+          <Trash2 className="size-4" aria-hidden="true" /> Stop
+        </button>
+        {q.state === 'paused' ? (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onResume}
+            className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-accent-primary px-3 py-2.5 text-[0.8rem] font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+          >
+            {busy ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Play className="size-4" aria-hidden="true" />}
+            Resume
+          </button>
+        ) : (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onPause}
+            className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-accent-primary px-3 py-2.5 text-[0.8rem] font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+          >
+            {busy ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Pause className="size-4" aria-hidden="true" />}
+            Pause
+          </button>
+        )}
+      </div>
+    </aside>
+  );
+}
+
+/**
+ * When the next step should go — which is what Resume means here.
+ *
+ * ⚠️ THE SAME FUNCTION DECIDES BOTH. `rescheduleSequence` asks the engine's own
+ * stop-conditions before committing, so resuming something the engine would
+ * immediately stop is refused with the reason rather than accepted and dropped.
+ */
+function SequenceWhenDialog({
+  q,
+  nowMs,
+  onClose,
+  onMoved,
+}: {
+  q: BoardSequence;
+  nowMs: number;
+  onClose: () => void;
+  onMoved: () => void;
+}) {
+  const toast = useToast();
+  const was = fields(q.nextStepAt ?? new Date(nowMs + 86_400_000).toISOString());
+  const [date, setDate] = React.useState(was.date);
+  const [time, setTime] = React.useState(was.time === '00:00' ? '10:00' : was.time);
+  const [busy, setBusy] = React.useState(false);
+  const at = instant(date, time);
+
+  const move = async () => {
+    if (!at) return;
+    setBusy(true);
+    const r = await rescheduleSequenceAction(q.id, at);
+    setBusy(false);
+    if (!r.ok) {
+      toast({ tone: 'error', text: r.error ?? 'That could not be moved.' });
+      return;
+    }
+    toast({ tone: 'ok', text: q.state === 'paused' ? 'Resumed.' : 'The next step was moved.' });
+    onMoved();
+  };
+
+  return (
+    <Shell
+      title={q.state === 'paused' ? 'Resume this sequence' : 'Move the next step'}
+      subtitle={`${q.leadName ?? 'this lead'} · ${q.name}`}
+      onClose={onClose}
+      footer={
+        <>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-xl border border-border-default px-3.5 py-2 text-body-sm font-medium text-text-primary hover:bg-bg-subtle"
+          >
+            Leave it
+          </button>
+          <button
+            type="button"
+            disabled={busy || !at}
+            onClick={() => void move()}
+            className="inline-flex items-center gap-2 rounded-xl bg-accent-primary px-3.5 py-2 text-body-sm font-semibold text-white hover:opacity-90 disabled:opacity-40"
+          >
+            {busy && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
+            {q.state === 'paused' ? 'Resume it' : 'Move it'}
+          </button>
+        </>
+      }
+    >
+      <div className="grid gap-2.5 sm:grid-cols-2">
+        <label className="block">
+          <span className="mb-1 block text-caption font-semibold text-text-secondary">Date</span>
+          <input
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            className="w-full rounded-lg border border-border-default bg-bg-base px-2.5 py-2 text-body-sm text-text-primary"
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-caption font-semibold text-text-secondary">Time (Karachi)</span>
+          <input
+            type="time"
+            value={time}
+            onChange={(e) => setTime(e.target.value)}
+            className="w-full rounded-lg border border-border-default bg-bg-base px-2.5 py-2 text-body-sm text-text-primary"
+          />
+        </label>
+      </div>
+      <p className="mt-2.5 text-caption text-text-secondary">
+        Step {q.step + 1} of {q.total} goes at this time; the steps after it keep their own spacing.
+        {q.state === 'paused' && q.pauseReason ? ` It was paused because ${q.pauseReason.toLowerCase()}.` : ''}
+      </p>
+    </Shell>
   );
 }
 
@@ -1229,9 +1891,17 @@ function Shell({
     return () => window.removeEventListener('keydown', onKey, true);
   }, [onClose]);
 
-  return (
+  /* ⚠️ PORTALLED TO THE BODY. Measured on the running page, 2026-09-22:
+     `fixed inset-0` came out 1231×605 inside a 1512×1000 viewport, because an
+     ancestor carries `transform: matrix(1,0,0,1,0,0)` (the page's reveal
+     animation) and a transform makes that element the containing block for
+     everything `fixed` inside it. The owner saw exactly that: *"the background
+     overlay is not on the whole screen and it should not be in the center of
+     the screen. The modal should be in the center of the screen."*
+     Same trap as the "View lead" panel on 2026-09-21. */
+  const body = (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={title}>
-      <button type="button" aria-label="Close" onClick={onClose} className="absolute inset-0 bg-black/40" />
+      <button type="button" aria-label="Close" onClick={onClose} className="fixed inset-0 bg-black/45" />
       <div className="relative flex max-h-[92vh] w-full max-w-md flex-col rounded-2xl border border-border-subtle bg-bg-surface shadow-xl">
         <div className="flex items-start gap-3 border-b border-border-subtle px-5 py-4">
           <div className="min-w-0 flex-1">
@@ -1247,6 +1917,8 @@ function Shell({
       </div>
     </div>
   );
+
+  return typeof document === 'undefined' ? body : createPortal(body, document.body);
 }
 
 const KARACHI_MS = 5 * 3_600_000;
@@ -1465,11 +2137,12 @@ function LeadPicker({ onClose, onPick }: { onClose: () => void; onPick: (leadId:
 }
 
 function Opening({ onClose }: { onClose: () => void }) {
-  return (
-    <div className="fixed inset-0 z-[70] grid place-items-center bg-black/40 p-4" onMouseDown={onClose}>
+  const veil = (
+    <div className="fixed inset-0 z-[70] grid place-items-center bg-black/45 p-4" onMouseDown={onClose}>
       <p className="flex items-center gap-2 rounded-xl bg-bg-surface px-4 py-3 text-body-sm text-text-secondary shadow-xl">
         <Loader2 className="size-4 animate-spin" aria-hidden="true" /> Opening the follow-up planner…
       </p>
     </div>
   );
+  return typeof document === 'undefined' ? veil : createPortal(veil, document.body);
 }

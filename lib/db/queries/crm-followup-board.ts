@@ -72,6 +72,17 @@ export interface BoardFollowUp {
   readonly condNotBooked: boolean;
   /** How many of the three somebody has set by hand rather than left default. */
   readonly conditionsChanged: number;
+  /** What the purpose would give, so a dialog can say "default" with no round trip. */
+  readonly condNoReplyDefault: boolean;
+  readonly condQuoteValidDefault: boolean;
+  readonly condNotBookedDefault: boolean;
+  readonly onReply: string;
+  readonly onOptOut: string;
+  readonly onQuoteExpired: string;
+  readonly maxAttempts: number;
+  readonly retryGapMinutes: number;
+  /** The next visit or meeting on this lead, if any. */
+  readonly bookedAt: string | null;
   /** Every step of that sequence, for the preview: day, channel, what it says. */
   readonly steps: ReadonlyArray<{ stepNo: number; day: number; channel: string; title: string }>;
 
@@ -128,8 +139,29 @@ export async function crmFollowUpBoard(actorId: string): Promise<BoardFollowUp[]
            coalesce(f.cond_no_reply, dc.no_reply) as cond_no_reply,
            coalesce(f.cond_quote_valid, dc.quote_valid) as cond_quote_valid,
            coalesce(f.cond_not_booked, dc.not_booked) as cond_not_booked,
+           dc.no_reply as no_reply_default,
+           dc.quote_valid as quote_valid_default,
+           dc.not_booked as not_booked_default,
            (f.cond_no_reply is not null)::int + (f.cond_quote_valid is not null)::int
              + (f.cond_not_booked is not null)::int as conditions_changed,
+           /* \u26a0\ufe0f THE WHOLE SETTING, NOT A HINT OF IT. Owner, 2026-09-22:
+              *"when I click on Advanced settings, they are taking a lot of time
+              to render \u2026 It should be instant for everything."* The dialog used
+              to open and then wait on a round trip for values this query was
+              already one join away from. Law 3: never re-fetch what the page
+              already holds. */
+           coalesce(f.on_reply, 'hold') as on_reply,
+           coalesce(f.on_opt_out, 'stop_sales') as on_opt_out,
+           coalesce(f.on_quote_expired, 'hold') as on_quote_expired,
+           coalesce(f.max_attempts, 8::smallint) as max_attempts,
+           coalesce(f.retry_gap_minutes, 10::smallint) as retry_gap_minutes,
+           /* Any visit still to come \u2014 what the "nothing booked" check reads.
+              One indexed lookup per row; the live answer is still the dialog's
+              own, this only lets the first paint be right. */
+           (select min(x.scheduled_at) from public.crm_appointments x
+             where x.lead_id = f.lead_id
+               and x.status in ('scheduled', 'confirmed')
+               and x.scheduled_at >= now()) as booked_at,
            coalesce((
              select json_agg(json_build_object(
                       'stepNo', x.step_no, 'day', x.delay_days + 1,
@@ -219,6 +251,15 @@ export async function crmFollowUpBoard(actorId: string): Promise<BoardFollowUp[]
       condQuoteValid: r.cond_quote_valid === true,
       condNotBooked: r.cond_not_booked === true,
       conditionsChanged: Number(r.conditions_changed ?? 0),
+      condNoReplyDefault: r.no_reply_default === true,
+      condQuoteValidDefault: r.quote_valid_default === true,
+      condNotBookedDefault: r.not_booked_default === true,
+      onReply: String(r.on_reply),
+      onOptOut: String(r.on_opt_out),
+      onQuoteExpired: String(r.on_quote_expired),
+      maxAttempts: Number(r.max_attempts),
+      retryGapMinutes: Number(r.retry_gap_minutes),
+      bookedAt: iso(r.booked_at),
       steps: (Array.isArray(r.steps) ? r.steps : []) as BoardFollowUp['steps'],
 
       quotationId: (r.quotation_id as string | null) ?? null,

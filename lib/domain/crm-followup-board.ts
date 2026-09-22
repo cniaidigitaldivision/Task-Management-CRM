@@ -139,9 +139,61 @@ export interface BoardFilters {
   readonly purpose: string;
   readonly channel: string;
   readonly project: string;
+  /**
+   * A custom range over the due date, "YYYY-MM-DD" in Karachi; empty means open
+   * on that side. Owner, 2026-09-22: *"if I want some custom range, how many
+   * sequences or follow-ups are scheduled from this date to this date."*
+   */
+  readonly from: string;
+  readonly to: string;
 }
 
-export const NO_FILTERS: BoardFilters = { q: '', due: 'all', purpose: 'all', channel: 'all', project: 'all' };
+export const NO_FILTERS: BoardFilters = {
+  q: '',
+  due: 'all',
+  purpose: 'all',
+  channel: 'all',
+  project: 'all',
+  from: '',
+  to: '',
+};
+
+/**
+ * The saved views — ONE control, not two that said the same thing.
+ *
+ * Owner, 2026-09-22: *"due status and view/saved view mostly show the same
+ * thing. For due status mark them with the saved view status and add the custom
+ * range filter here."* So the due statuses ARE the views, and the date range is
+ * its own control beside them.
+ *
+ * `tab` is part of a view: "Overdue only" is meaningless on Completed, and a
+ * view that quietly showed nothing would read as a broken filter.
+ */
+export const VIEW_OPTIONS: ReadonlyArray<{
+  value: string;
+  label: string;
+  tab?: TabKey;
+  filters: Partial<BoardFilters>;
+}> = [
+  { value: 'open', label: 'My open follow-ups', filters: {} },
+  { value: 'overdue', label: 'Overdue only', tab: 'queue', filters: { due: 'overdue' } },
+  { value: 'today', label: 'Due today', tab: 'queue', filters: { due: 'today' } },
+  { value: 'tomorrow', label: 'Due tomorrow', tab: 'scheduled', filters: { due: 'tomorrow' } },
+  { value: 'week', label: 'This week', tab: 'scheduled', filters: { due: 'week' } },
+  { value: 'whatsapp', label: 'WhatsApp only', filters: { channel: 'whatsapp' } },
+  { value: 'email', label: 'Email only', filters: { channel: 'email' } },
+];
+
+/** Which view the current filters correspond to, so the select can show it. */
+export function viewOf(f: BoardFilters): string {
+  if (f.due === 'overdue') return 'overdue';
+  if (f.due === 'today') return 'today';
+  if (f.due === 'tomorrow') return 'tomorrow';
+  if (f.due === 'week') return 'week';
+  if (f.channel === 'whatsapp') return 'whatsapp';
+  if (f.channel === 'email') return 'email';
+  return 'open';
+}
 
 export const DUE_OPTIONS = [
   { value: 'all', label: 'All' },
@@ -168,6 +220,15 @@ export function applyFilters<T extends BoardRowLike>(rows: readonly T[], f: Boar
     if (f.purpose !== 'all' && r.purpose !== f.purpose) return false;
     if (f.channel !== 'all' && r.channel !== f.channel) return false;
     if (f.project !== 'all' && (r.projectName ?? '') !== f.project) return false;
+
+    /* ⚠️ COMPARED AS KARACHI DAYS, never as instants. A range typed as
+       "22 Sep to 22 Sep" means that whole day where the business is, and an
+       instant comparison would drop five hours of it every evening. */
+    if (f.from || f.to) {
+      const day = karachiDay(Date.parse(r.dueAt));
+      if (f.from && day < f.from) return false;
+      if (f.to && day > f.to) return false;
+    }
 
     if (f.due !== 'all') {
       const day = karachiDay(Date.parse(r.dueAt));

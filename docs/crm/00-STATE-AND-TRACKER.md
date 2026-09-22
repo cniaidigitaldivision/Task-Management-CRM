@@ -13,6 +13,88 @@
 
 ---
 
+## 🧭 2026-09-22 — THE FOLLOW-UPS PAGE, THIRD PASS: NINE THINGS THE OWNER FOUND
+
+All from live use, in one sitting. Each one measured before it was changed.
+
+**1 · The New follow-up overlay covered the column, not the screen.** *"the
+background overlay is not on the whole screen and it should not be in the center
+of the screen."* Measured: `fixed inset-0` came out **1231×605 inside a
+1512×1000 viewport**, because an ancestor carries
+`transform: matrix(1,0,0,1,0,0)` (the page's reveal animation) and a transform
+becomes the containing block for everything `fixed` inside it. `Shell` (the
+lead picker, Reschedule, Mark done) and the "Opening…" veil are portalled to
+`document.body` now. After: **1512×1000, panel centre = screen centre.**
+⚠️ Third time this trap has shipped here (the "View lead" panel, 2026-09-21).
+
+**2 · The tab underline was grey.** *"the text is highlighted but their
+underline is not visible."* Measured on the running page: the selected tab's
+border was **`2.22px solid rgb(211,225,226)`** — `border-subtle`, the global
+default — while its text was correctly teal. The colour class was not winning.
+It is an inline token now (`var(--accent-primary)`), and 4px rather than 3px
+because 3px measured as 2px painted at the app's 0.9 body zoom.
+
+**3 · "Where did you do that?"** The advanced-settings button only appears on a
+row that is still open, and their queue was empty, so nothing on screen had one.
+It is labelled **Advanced settings** now (their words), sits in the Conditions
+card and in the row menu — and see 9, which is why it is now on screen when the
+page loads.
+
+**4 · The dialog opened empty and then filled in.** *"the popup should be
+instant but the data is taking a lot of time to show. It shouldn't be like
+that."* Rule Zero law 3: the row on the page already held every setting the
+dialog shows. The board query now carries the three defaults, the three
+actions, the two limits and the next booking, `seedConditions()` turns a row
+into the dialog's whole state, and the dialog **paints from that in its own
+frame** while `app.crm_followup_conditions` still confirms underneath and
+replaces it. ⚠️ A half-typed change is not overwritten by the confirmation.
+
+**5 · "Open the lead" left the page.** *"it should not bring me to that page.
+It should display the basic information over here, like you were doing on the
+appointment page"* — and, separately, *"unless it is an open conversation then
+you will bring me to the conversation page. That's fine but for the detail of a
+lead it should not bring me to the lead page."* So **View lead details** opens
+the same `LeadDetailsModal` the Appointments page uses, with Related items and
+Edit behind it. The quotation-approval action stays on the page too. Measured
+after: clicking it leaves the URL at `/follow-ups`.
+
+**6 · The Sequences tab was a strip of cards with an empty panel beside it.**
+*"how pathetic is the way you are showing that the sequences are two leads?
+Please show them in a proper same rhythm."* It is a table now — Lead/project,
+Sequence, Step, Next step, Status, Actions — with a **details panel on the
+right** carrying the whole plan, each step marked Sent / Queued / Due now /
+Failed, what the run stops on, and Pause · Resume · Stop · Conversation ·
+View lead details.
+
+**7 · A literal `\u2014` on screen.** *"what are you showing in the next tab,
+U2014?"* ⚠️ **JSX TEXT DOES NOT INTERPRET `\uXXXX`.** A patch script wrote
+`>\u2014<` as element text, where it is five literal characters; the same escape
+inside a string or template literal is fine, which is why only one of the ten
+occurrences was visible. All of them are real characters now.
+
+**8 · Ten a page, and the page turn touches nothing.** *"in the completed
+follow-ups it should display 10 follow-ups and add pagination … it should be
+instant."* Paged on the client over rows already in memory. Measured: **0
+network requests** for a page turn. The query's own ceiling (400 rows, 30 days)
+is what keeps that honest as the business grows.
+
+**9 · One row of filters, one control per question, and a date range.** *"due
+status and view/saved view mostly show the same thing. For due status mark them
+with the saved view status and add the custom range filter here"* — and *"make
+sure that all filters will be displayed in one row."* The two selects were
+saying the same thing, so there is one **View** (which carries the due statuses
+as saved views and sets the right tab with them), plus the Appointments page's
+own `DateRangeButton` for a custom range over the due date. ⚠️ The range is
+compared as **Karachi days**, not instants — "22 Sep to 22 Sep" means that whole
+day where the business is.
+
+**And the page opens on Scheduled** — *"by default when the page loads, the
+schedule tab should open or should be selected."* The tab is a prop with that
+default, which is also the seam a `?tab=` deep link would use and what lets a
+render test reach a tab it cannot click.
+
+---
+
 ## 🧭 2026-09-22 — THE FOLLOW-UPS PAGE, SECOND PASS: STILL CARDS, DRAWN TABS, AND REAL CONDITIONS
 
 Owner, with two screenshots.

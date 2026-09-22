@@ -119,6 +119,82 @@ export function isUnchanged(a: ConditionEdit, b: ConditionEdit): boolean {
   );
 }
 
+/* ── The first paint ─────────────────────────────────────────────────────── */
+
+/** The fields a board row must carry for `seedConditions` to work. */
+export interface ConditionSeedRow {
+  readonly id: string;
+  readonly purpose: string;
+  readonly attempts: number;
+  readonly consent: boolean;
+  readonly leadStage: string;
+  readonly awaitingOurReply: boolean;
+  readonly quotationNumber: string | null;
+  readonly quotationStatus: string | null;
+  readonly quotationValidUntil: string | null;
+  readonly bookedAt: string | null;
+  readonly condNoReply: boolean;
+  readonly condQuoteValid: boolean;
+  readonly condNotBooked: boolean;
+  readonly condNoReplyDefault: boolean;
+  readonly condQuoteValidDefault: boolean;
+  readonly condNotBookedDefault: boolean;
+  readonly onReply: string;
+  readonly onOptOut: string;
+  readonly onQuoteExpired: string;
+  readonly maxAttempts: number;
+  readonly retryGapMinutes: number;
+}
+
+const DEAD_QUOTE = new Set(['expired', 'rejected', 'superseded']);
+
+/**
+ * The conditions as the LIST already knows them, so the dialog can paint in its
+ * own frame instead of opening empty and filling in.
+ *
+ * Owner, 2026-09-22: *"when I click on Advanced settings, they are taking a lot
+ * of time to render \u2026 It should be instant for everything."*
+ *
+ * \u26a0\ufe0f IT IS A SEED, NOT THE ANSWER. `app.crm_followup_conditions` stays the
+ * authority \u2014 the dialog still reads it and replaces this the moment it
+ * arrives, which is what catches a change somebody else made. What this removes
+ * is the WAIT, not the check (Rule Zero, law 3).
+ */
+export function seedConditions(r: ConditionSeedRow, nowMs: number): FollowUpConditions {
+  const quoteDead =
+    (r.quotationStatus !== null && DEAD_QUOTE.has(r.quotationStatus)) ||
+    (r.quotationValidUntil !== null && Date.parse(r.quotationValidUntil) < nowMs);
+  return {
+    followUpId: r.id,
+    purpose: r.purpose,
+    noReply: r.condNoReply,
+    quoteValid: r.condQuoteValid,
+    notBooked: r.condNotBooked,
+    noReplyDefault: r.condNoReplyDefault,
+    quoteValidDefault: r.condQuoteValidDefault,
+    notBookedDefault: r.condNotBookedDefault,
+    onReply: (['hold', 'cancel', 'send_anyway'].includes(r.onReply) ? r.onReply : 'hold') as OnReply,
+    onOptOut: (['stop_sales', 'stop_everything'].includes(r.onOptOut) ? r.onOptOut : 'stop_sales') as OnOptOut,
+    onQuoteExpired: (['hold', 'cancel', 'send_anyway'].includes(r.onQuoteExpired)
+      ? r.onQuoteExpired
+      : 'hold') as OnQuoteExpired,
+    maxAttempts: r.maxAttempts,
+    retryGapMinutes: r.retryGapMinutes,
+    attemptsSoFar: r.attempts,
+    okNoReply: !r.awaitingOurReply,
+    /* No quotation at all is not a failing check \u2014 the same way the SQL reads it. */
+    okQuoteValid: r.quotationNumber === null ? true : !quoteDead,
+    okNotBooked: r.bookedAt === null,
+    okLeadOpen: r.leadStage !== 'won' && r.leadStage !== 'lost',
+    okConsent: r.consent,
+    quotationNumber: r.quotationNumber,
+    quotationStatus: r.quotationStatus,
+    quoteValidUntil: r.quotationValidUntil,
+    leadStage: r.leadStage,
+    bookedAt: r.bookedAt,
+  };
+}
+
 /* ── The switchable checks ───────────────────────────────────────────────── */
 
 export const CONDITION_ROWS = [

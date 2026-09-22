@@ -15,6 +15,9 @@ vi.mock('@/app/actions/crm-followups', () => ({
   stopSequenceAction: async () => ({ ok: true }),
 }));
 vi.mock('@/components/crm/follow-up-wizard', () => ({ FollowUpWizard: () => null }));
+vi.mock('@/components/crm/lead-details-modal', () => ({ LeadDetailsModal: () => null }));
+vi.mock('@/components/crm/edit-lead-details', () => ({ EditLeadDetails: () => null }));
+vi.mock('@/components/crm/related-items', () => ({ RelatedItemsDialog: () => null, seedRelated: () => ({}) }));
 vi.mock('@/components/crm/follow-up-conditions-dialog', () => ({
   FollowUpConditionsDialog: () => null,
   ConditionsButton: ({ onClick }: { onClick: () => void }) => (
@@ -25,6 +28,7 @@ vi.mock('@/components/ui/toast', () => ({ useToast: () => () => {} }));
 
 import { FollowUpsBoard } from '@/components/crm/followups-board';
 import type { BoardFollowUp, BoardSequence } from '@/lib/db/queries/crm-followup-board';
+import type { TabKey } from '@/lib/domain/crm-followup-board';
 
 /* ============================================================================
  * THE FOLLOW-UPS PAGE, AS THE OWNER DREW IT (2026-09-22)
@@ -73,6 +77,15 @@ const row = (over: Partial<BoardFollowUp> & { id: string }): BoardFollowUp => ({
   condQuoteValid: true,
   condNotBooked: true,
   conditionsChanged: 0,
+  condNoReplyDefault: true,
+  condQuoteValidDefault: true,
+  condNotBookedDefault: true,
+  onReply: 'hold',
+  onOptOut: 'stop_sales',
+  onQuoteExpired: 'hold',
+  maxAttempts: 8,
+  retryGapMinutes: 10,
+  bookedAt: null,
   steps: [
     { stepNo: 1, day: 1, channel: 'whatsapp', title: 'Quotation check-in' },
     { stepNo: 2, day: 3, channel: 'email', title: 'Send the plan again' },
@@ -110,7 +123,22 @@ const sequence = (over: Partial<BoardSequence> & { id: string }): BoardSequence 
   ...over,
 });
 
-const paint = (rows: BoardFollowUp[], seqs: BoardSequence[] = []) =>
+/* ⚠️ THE PAGE ITSELF OPENS ON SCHEDULED (the owner's choice, 2026-09-22).
+   These renders name the tab they are inspecting, because a static render
+   cannot click one. */
+const paint = (rows: BoardFollowUp[], seqs: BoardSequence[] = [], startTab: TabKey = 'queue') =>
+  renderToStaticMarkup(
+    <FollowUpsBoard
+      followUps={rows}
+      sequences={seqs}
+      nowMs={NOW}
+      viewerName="Sarah Malik"
+      windowFrom="22 August 2026"
+      startTab={startTab}
+    />,
+  );
+
+const asShipped = (rows: BoardFollowUp[], seqs: BoardSequence[] = []) =>
   renderToStaticMarkup(
     <FollowUpsBoard
       followUps={rows}
@@ -146,7 +174,10 @@ describe('the follow-ups page as it first draws', () => {
 
   it('draws the four tabs and every filter', () => {
     for (const tab of ['My queue', 'Scheduled', 'Sequences', 'Completed']) expect(html).toContain(tab);
-    for (const f of ['Due status', 'Purpose', 'Channel', 'Project', 'Saved view']) expect(html).toContain(f);
+    /* ⚠️ ONE CONTROL PER QUESTION. "Due status" and "Saved view" said the
+       same thing, so there is one View now, and a date range beside it. */
+    for (const f of ['View', 'Purpose', 'Channel', 'Project', 'Date range']) expect(html).toContain(f);
+    expect(html).not.toContain('Due status');
   });
 
   it('⚠️ says which tab is open — highlighted AND underlined', () => {
@@ -154,10 +185,12 @@ describe('the follow-ups page as it first draws', () => {
        highlighted and they are underlined."* An earlier build made them filled
        pills after they said the selection was invisible; this is their drawing,
        made findable — a 3px accent bar and the label in the accent colour. */
-    expect(html).toMatch(/aria-selected="true"[^>]*class="[^"]*border-b-\[3px\]/);
-    expect(html).toMatch(/aria-selected="true"[^>]*class="[^"]*border-accent-primary[^"]*text-accent-primary/);
-    /* And no other tab carries it. */
-    expect(html).toMatch(/aria-selected="false"[^>]*class="[^"]*border-transparent/);
+    /* Measured on the running page: the class was NOT winning — the bar came
+       out `2.22px solid rgb(211,225,226)`, border-subtle, while the text was
+       correctly teal. It is an inline token now, which cannot lose. */
+    expect(html).toMatch(/aria-selected="true"[\s\S]{0,240}border-bottom-color:var\(--accent-primary\)/);
+    expect(html).toMatch(/aria-selected="true"[^>]*class="[^"]*text-accent-primary/);
+    expect(html).toMatch(/aria-selected="false"[\s\S]{0,240}border-bottom-color:transparent/);
   });
 
   it('heads the queue exactly as the design does', () => {
@@ -166,10 +199,21 @@ describe('the follow-ups page as it first draws', () => {
     }
   });
 
-  it('⚠️ opens on what is owed now, and leaves the future to Scheduled', () => {
+  it('⚠️ the queue is what is owed now, and leaves the future to Scheduled', () => {
     expect(html).toContain('Bilal Ahmed');
     expect(html).toContain('Hina Shahzad');
     expect(html).not.toContain('Sana Iqbal');
+  });
+
+  it('⚠️ but the page itself opens on Scheduled', () => {
+    /* Owner, 2026-09-22: *"by default when the page loads, the schedule tab
+       should open or should be selected."* */
+    const shipped = asShipped([
+      row({ id: 'due' }),
+      row({ id: 'later', dueAt: new Date(NOW + 48 * H).toISOString(), leadName: 'Sana Iqbal' }),
+    ]);
+    expect(shipped).toMatch(/aria-selected="true"[^>]*>Scheduled</);
+    expect(shipped).toContain('Sana Iqbal');
   });
 
   it('shows the related item and where the step sits in its sequence', () => {
@@ -232,6 +276,51 @@ describe('the sequence tab and its counts', () => {
   it('never calls a running sequence "no sequence"', () => {
     const html = paint([], [sequence({ id: 's1' })]);
     expect(html).not.toContain('No sequence is running');
+  });
+});
+
+describe('the Sequences tab, in the same rhythm as the others', () => {
+  /* Owner, 2026-09-22: *"how pathetic is the way you are showing that the
+     sequences are two leads? Please show them in a proper same rhythm … on
+     both the right side and the left side, where the details will be
+     displayed."* It was a strip of cards with an empty panel beside it. */
+  const html = paint(
+    [row({ id: '1', sequenceRunId: 'seq-1' })],
+    [sequence({ id: 'seq-1' }), sequence({ id: 'seq-2', leadName: 'Hina Shahzad', state: 'paused', pauseReason: 'the client replied' })],
+    'sequences',
+  );
+
+  it('heads a table, not a strip of cards', () => {
+    for (const col of ['Lead / project', 'Sequence', 'Step', 'Next step', 'Status', 'Actions']) {
+      expect(html).toContain(col);
+    }
+    expect(html).toContain('Running sequences');
+    expect(html).toContain('2 sequences');
+  });
+
+  it('lists every sequence with where it has got to', () => {
+    expect(html).toContain('Faisal Rehman');
+    expect(html).toContain('Hina Shahzad');
+    expect(html).toContain('Quotation chase');
+    expect(html).toMatch(/1 of 3/);
+    expect(html).toContain('the client replied');
+  });
+
+  it('⚠️ shows the selected sequence on the right, which it never did before', () => {
+    expect(html).toContain('Sequence details');
+    expect(html).toContain('The plan');
+    expect(html).toContain('Day 1');
+    expect(html).toContain('Day 7');
+    expect(html).toContain('Steps sent');
+  });
+
+  it('offers what a person can do about it', () => {
+    for (const label of ['Pause', 'Stop', 'Conversation', 'Open the lead']) expect(html).toContain(label);
+  });
+
+  it('offers Resume instead of Pause on a paused one', () => {
+    const paused = paint([], [sequence({ id: 'seq-2', state: 'paused', pauseReason: 'the client replied' })], 'sequences');
+    expect(paused).toContain('Resume');
   });
 });
 
