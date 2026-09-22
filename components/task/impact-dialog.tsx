@@ -77,6 +77,7 @@ export function ImpactDialog({
   onClose,
   onConfirm,
   busy = false,
+  extra,
 }: {
   open: boolean;
   mode: ImpactMode;
@@ -85,6 +86,13 @@ export function ImpactDialog({
   /** `reason` is only supplied for cancel, which requires one (FR-043). */
   onConfirm: (reason: string) => void;
   busy?: boolean;
+  /**
+   * One more decision this particular deletion carries — today, "and stop it
+   * repeating?" (migration 250). It belongs in THIS dialog rather than after it:
+   * deleting one copy of a daily task and being surprised by another tomorrow is
+   * the complaint the repeat work exists to answer.
+   */
+  extra?: React.ReactNode;
 }) {
   const [impact, setImpact] = React.useState<readonly TaskImpact[] | null>(null);
   const [reason, setReason] = React.useState('');
@@ -178,6 +186,8 @@ export function ImpactDialog({
       }
     >
       <div className="space-y-4">
+        {extra}
+
         {loading && (
           <p className="flex items-center gap-2 text-caption text-text-secondary">
             <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />

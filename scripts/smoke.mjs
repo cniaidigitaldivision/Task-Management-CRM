@@ -63,6 +63,9 @@ const APP_ROUTES = [
      This sentence is in the page description and renders in every state, and it
      still only appears once `listTasks` and `listProjects` have both returned. */
   ['/tasks', 'Drag a card between columns', 'member'],
+  /* Every role has it; a member sees only their own repeats, an admin the
+     division's. The needle is the sentence the page states either way. */
+  ['/repeats', 'a copy is created automatically at midnight', 'member'],
   /* Was "Ad-hoc work" — the large audit card, removed on the owner's instruction
      (*"I don't know the purpose of this whole card"*). "All projects" is the first
      filter card: it lives inside ProjectsWorkspace, so it only appears once the page

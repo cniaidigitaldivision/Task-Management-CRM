@@ -40,6 +40,22 @@ export interface TaskSeries {
   readonly canManage: boolean;
 }
 
+/**
+ * A `date` column as 'YYYY-MM-DD'.
+ *
+ * ⚠️ NOT `String(value).slice(0, 10)`. postgres.js hands a `date` back as a JS
+ * **Date** at UTC midnight, so `String(date)` is `'Tue Sep 22 2026 05:00:00
+ * GMT+0500…'` and ten characters of that is `'Tue Sep 22'`. It parses as
+ * nothing, so "next copy" silently disappeared from every row of the Repeating
+ * tasks page — caught by looking at the page, not by a test. Same helper and
+ * same reasoning as `dateOnly` in ./repeats.ts.
+ */
+function dateOnly(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  return String(value).slice(0, 10);
+}
+
 function toSeries(row: Record<string, unknown>): TaskSeries {
   return {
     id: String(row.id),
@@ -88,8 +104,8 @@ export async function listTaskSeries(actorId: string): Promise<SeriesCard[]> {
     projectName: String(row.project_name),
     priority: String(row.priority ?? 'medium'),
     effortPoints: Number(row.effort_points ?? 0),
-    anchorDate: row.anchor_date ? String(row.anchor_date).slice(0, 10) : null,
-    lastGeneratedOn: row.last_generated_on ? String(row.last_generated_on).slice(0, 10) : null,
+    anchorDate: dateOnly(row.anchor_date),
+    lastGeneratedOn: dateOnly(row.last_generated_on),
   }));
 }
 

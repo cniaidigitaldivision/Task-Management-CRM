@@ -214,14 +214,25 @@ the copy in front of you.
 ### T-03 · A repeat is invisible outside the edit dialog
 | | |
 |---|---|
-| **Reported** | found while measuring T-01 |
+| **Reported** | found while measuring T-01; sharpened by the owner asking *"where will Najmulah go to turn this off, or see which tasks are repeating?"* |
 | **Where** | /tasks — card, list, board, detail |
 | **Priority** | **P1** |
-| **Status** | cause found |
+| **Status** | **fixed · deployed 2026-09-22** |
 
-Nothing shows that a task repeats, which series it belongs to, or how many are
-open; a person cannot tell a generated task from one a colleague raised for them,
-and there is no one place to manage the 56 live series.
+Nothing showed that a task repeated, which series it belonged to, or how many
+were open — and if every copy happened to be finished, as all nine of
+Najamullah's were, there was no card to spot at all.
+
+**Now:** a **Repeating tasks** page in the rail (`/repeats`) listing every repeat
+a person is part of — how often, whose, which project, how many copies are open,
+when the next arrives — with **Stop** on each row; a ↻ mark on the card; and a
+**Stop repeating** band on the task itself.
+
+Verified as Najamullah: the rail carries it, **Running · 9** and **Stopped · 13**,
+nine Stop buttons, and "next copy 2026-09-23" on each row. Verified as Kashif on
+the real screens: Stop from the page stopped it and recorded who did it, and
+deleting a copy with *"Also stop this repeating task"* (ticked by default) both
+deleted the copy and stopped the series.
 
 ---
 

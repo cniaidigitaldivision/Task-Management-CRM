@@ -1,28 +1,29 @@
 import {
-  MessagesSquare,
   Activity,
-  ClipboardList,
   BarChart3,
+  BookOpen,
   CalendarClock,
   CalendarDays,
-  FolderKanban,
+  ClipboardList,
   Clock3,
+  FolderKanban,
   FolderOpen,
   Gauge,
   KeyRound,
   LayoutDashboard,
-  BookOpen,
   ListChecks,
+  MessagesSquare,
+  Radio,
+  Repeat,
+  Send,
   Settings,
   ShieldCheck,
   Sparkles,
+  TrendingUp,
+  UserCheck,
   Users,
   Wallet,
   Workflow,
-  TrendingUp,
-  Radio,
-  Send,
-  UserCheck,
 } from 'lucide-react';
 
 import type { Route } from 'next';
@@ -128,6 +129,17 @@ export const NAV_SECTIONS: readonly NavSection[] = [
          the sprawl the owner keeps asking to remove. It now lives as the Today
          tab inside a project's Tasks, where the work already is. */
       { label: 'Tasks', href: '/tasks', icon: CalendarClock, roles: ALL },
+      /* ── ⚠️ ONE PLACE THAT ANSWERS "WHAT KEEPS COMING BACK?" ──────────────
+         Owner, 2026-09-22: *"Can you please exactly tell me where Najmulah, in
+         his dashboard, will go to turn off this repeating task or where he can
+         see which tasks are repeating?"*
+
+         It is deliberately its own entry rather than a tab inside Tasks. A
+         repeat with no open copy — which was true of all nine of Najamullah's
+         that day — appears on no board at all, so a view that lives inside the
+         board could not have shown it. Open to everybody: the read returns only
+         the repeats that person raised, is assigned, or may see. */
+      { label: 'Repeating tasks', href: '/repeats', icon: Repeat, roles: ALL },
       /* Open to everybody: RLS decides what is in it, so a Member sees their
          own due dates and a Coordinator sees the division's. */
       { label: 'Calendar', href: '/calendar', icon: CalendarDays, roles: ALL },

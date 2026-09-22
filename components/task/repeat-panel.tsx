@@ -1,9 +1,9 @@
 'use client';
 
 import * as React from 'react';
-import { Repeat, Square } from 'lucide-react';
+import { Ban, Repeat } from 'lucide-react';
 
-import { stopTaskSeriesAction, taskSeriesAction } from '@/app/actions/tasks';
+import { stopTaskSeriesAction } from '@/app/actions/tasks';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/toast';
 import { describeRecurrence, parseRecurrence } from '@/lib/domain/recurrence';
@@ -36,32 +36,27 @@ import type { TaskSeries } from '@/lib/db/queries/task-series';
  * ========================================================================= */
 
 export function RepeatPanel({
-  taskId,
   /** From the task row — so the panel only appears for a task that repeats. */
   rule,
+  /**
+   * ⚠️ READ ONCE BY THE PANEL'S OWNER, not here. The delete dialog needs the
+   * same answer ("is this repeat still live, and how many copies has nobody
+   * started?"), and two components asking the same question separately is two
+   * chances to disagree about it.
+   */
+  series,
   onChanged,
 }: {
-  taskId: string;
   rule: string;
+  series: TaskSeries | null;
   onChanged?: () => void;
 }) {
   const toast = useToast();
-  const [series, setSeries] = React.useState<TaskSeries | null>(null);
   const [asking, setAsking] = React.useState(false);
   const [alsoRemove, setAlsoRemove] = React.useState(true);
   const [busy, setBusy] = React.useState(false);
   /* Stopped in this browser, before the server's rows catch up. */
   const [stopped, setStopped] = React.useState(false);
-
-  React.useEffect(() => {
-    let live = true;
-    void taskSeriesAction(taskId).then((r) => {
-      if (live) setSeries(r.series);
-    });
-    return () => {
-      live = false;
-    };
-  }, [taskId]);
 
   const parsed = parseRecurrence(rule);
   const said = parsed.ok ? describeRecurrence(parsed.rule) : 'Repeats';
@@ -108,7 +103,7 @@ export function RepeatPanel({
              the "how many copies nobody started" line waits, and it appears
              underneath when the answer arrives. */
           <Button size="sm" variant="ghost" disabled={busy} onClick={() => setAsking(true)}>
-            <Square className="size-3.5" aria-hidden="true" /> Stop repeating
+            <Ban className="size-3.5" aria-hidden="true" /> Stop repeating
           </Button>
         )}
       </div>

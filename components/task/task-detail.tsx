@@ -24,6 +24,8 @@ import {
   changeStatusAction,
   deleteChecklistItemAction,
   deleteTaskAction,
+  stopTaskSeriesAction,
+  taskSeriesAction,
   getTaskDetailAction,
   pauseTimerAction,
   startTimerAction,
@@ -35,6 +37,7 @@ import { AttachmentsPanel } from '@/components/task/attachments-panel';
 import { PlacementsPanel } from '@/components/task/placements-panel';
 import { RecommendPanel } from '@/components/task/recommend-panel';
 import { RepeatPanel } from '@/components/task/repeat-panel';
+import type { TaskSeries } from '@/lib/db/queries/task-series';
 import { TaskRelationsPanel } from '@/components/task/task-relations-panel';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge, PriorityFlag } from '@/components/ui/badge';
@@ -139,6 +142,12 @@ export function TaskDetail({
   const [loadedId, setLoadedId] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [confirmingDelete, setConfirmingDelete] = React.useState(false);
+  /* ── ⚠️ THE REPEAT BEHIND THIS TASK, READ ONCE ──────────────────────────
+     Both the repeat panel and the delete dialog need it: one to offer Stop, the
+     other to ask "and stop it repeating?" before somebody deletes a copy and is
+     surprised by another tomorrow. */
+  const [series, setSeries] = React.useState<TaskSeries | null>(null);
+  const [alsoStopSeries, setAlsoStopSeries] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [comment, setComment] = React.useState('');
   const [newItem, setNewItem] = React.useState('');
@@ -187,6 +196,32 @@ export function TaskDetail({
         setError('The task could not be loaded.');
         setLoadedId(taskId);
       });
+    return () => {
+      cancelled = true;
+    };
+  }, [taskId]);
+
+  /* The repeat behind this task, if it has one. Same cancellation reasoning as
+     the payload above: open one task then another, and the slower answer must
+     not land on the faster task. */
+  /* ⚠️ Cleared during render, not in the effect. Setting state in an effect body
+     causes the cascading render `react-hooks/set-state-in-effect` exists to stop,
+     and it is the same adjustment-versus-synchronisation distinction the payload
+     above documents: "the task changed" is known while rendering; "the series
+     arrived" is an external system answering. */
+  const [seriesFor, setSeriesFor] = React.useState<string | null>(taskId);
+  if (seriesFor !== taskId) {
+    setSeriesFor(taskId);
+    setSeries(null);
+    setAlsoStopSeries(true);
+  }
+
+  React.useEffect(() => {
+    if (!taskId) return;
+    let cancelled = false;
+    void taskSeriesAction(taskId).then((r) => {
+      if (!cancelled) setSeries(r.series);
+    });
     return () => {
       cancelled = true;
     };
@@ -437,7 +472,14 @@ export function TaskDetail({
                 is the more surprising thing to learn about a task you did not
                 expect to see. */}
             {task.recurrenceRule && (
-              <RepeatPanel taskId={task.id} rule={task.recurrenceRule} onChanged={onChanged} />
+              <RepeatPanel
+                rule={task.recurrenceRule}
+                series={series}
+                onChanged={() => {
+                  setSeries((s) => (s ? { ...s, stoppedAt: new Date().toISOString() } : s));
+                  onChanged();
+                }}
+              />
             )}
 
             {task.blockedReason && (
@@ -816,8 +858,34 @@ export function TaskDetail({
           taskIds={[task.id]}
           busy={busy}
           onClose={() => setConfirmingDelete(false)}
+          extra={
+            /* ⚠️ DELETING ONE COPY IS NOT STOPPING THE REPEAT, and the team spent
+               a fortnight discovering that the hard way — 19 to 23 generated
+               tasks deleted a day, back every morning. Asked here, once, with
+               the answer that is nearly always meant already chosen. */
+            series && !series.stoppedAt ? (
+              <label className="flex items-start gap-2 rounded-lg border border-border-default px-3 py-2.5 text-caption text-text-primary">
+                <input
+                  type="checkbox"
+                  checked={alsoStopSeries}
+                  onChange={(event) => setAlsoStopSeries(event.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>
+                  Also stop this repeating task.{' '}
+                  <span className="text-text-secondary">
+                    Leave it ticked and no new copy is created again. Untick it and tomorrow’s copy
+                    still arrives.
+                  </span>
+                </span>
+              </label>
+            ) : null
+          }
           onConfirm={async () => {
             setConfirmingDelete(false);
+            if (series && !series.stoppedAt && alsoStopSeries) {
+              await stopTaskSeriesAction(series.id, { reason: `deleted ${task.reference}` });
+            }
             const ok = await run(() => deleteTaskAction(task.id));
             if (ok) onClose();
           }}

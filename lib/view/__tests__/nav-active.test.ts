@@ -39,6 +39,11 @@ const ADMIN_NAV = [
      one day; it is now a tab inside a project's Tasks. Both on owner
      instruction, and this fixture is what proved the tree actually changed. */
   '/tasks',
+  /* ⚠️ Its own entry, not a tab inside Tasks (2026-09-22). A repeat whose every
+     copy is finished appears on no board — true of all nine of Najamullah's the
+     day this was built — so a view living inside the board could not have shown
+     it, and the owner's question was precisely "where does he go to see them?" */
+  '/repeats',
   '/calendar',
   '/projects',
   /* ⚠️ Added 2026-09-04 with the Trend & Engagement Studio. It sits UNDER
