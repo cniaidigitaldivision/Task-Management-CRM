@@ -69,8 +69,79 @@ and what the system actually did.
 
 ## Open
 
-*(Nothing recorded yet — the owner is about to describe them. Each one gets an
-entry above, newest first, and the tracker gets a line when it is fixed.)*
+> Full working of the task system, and how each fact below was measured:
+> **`docs/TASK-MANAGEMENT-STUDY.md`**.
+
+### T-01 · A repeating task cannot be stopped
+| | |
+|---|---|
+| **Reported** | 2026-09-22, by the owner |
+| **In their words** | *"In task creation there is a very important category. During creation you can select whether this task is one-time, a daily task, or a weekly task. For that purpose there is a very big issue."* |
+| **Where** | /tasks · the Repeats control in the create/edit dialog, and the nightly runner |
+| **Who it hits** | everyone with a repeating task — 56 live series; Najamullah 18, Abdul Moiz 13, Rafay 10, Abdullah 9 |
+| **How often** | every night |
+| **Priority** | **P0** — the team is deleting 19–23 generated tasks a day and they come back |
+| **Status** | reproduced · cause found |
+
+**Reproduced (read-only, against live data):** replaying the runner's own
+`decide()` for today shows **10 series whose newest instance has the repeat
+switched off would be created again tonight**; the live table shows 19–23
+generated instances deleted per day since 18 Sep.
+
+**Cause — three separate holes, all in the same place:**
+1. `updateTask` clears `recurrence_rule` on **one row** and leaves
+   `recurrence_series_id`; `listRepeatingSeries` then falls back to the newest
+   instance that *still* has a rule and carries on.
+2. The "already generated for this day" check counts only rows that are **not
+   deleted**, so deleting an instance does not register.
+3. The runner never looks at status, so cancelling does not register either.
+
+**Fix:** not started — the owner is choosing between the options in
+`TASK-MANAGEMENT-STUDY.md` §6.
+
+---
+
+### T-02 · A repeating series inherits yesterday's edits
+| | |
+|---|---|
+| **Reported** | found while measuring T-01 |
+| **Where** | the nightly runner |
+| **Who it hits** | every repeating series |
+| **Priority** | **P1** |
+| **Status** | cause found |
+
+The next instance is copied from the **latest instance**, not from a stored
+series definition, so renaming, reassigning or re-prioritising one day's task
+rewrites every future one. Visible in the data: a series raised as *"making daily
+report of all pages"* now generates as *"making daily report of all pages,
+Weekly report done"*.
+
+---
+
+### T-03 · A repeat is invisible outside the edit dialog
+| | |
+|---|---|
+| **Reported** | found while measuring T-01 |
+| **Where** | /tasks — card, list, board, detail |
+| **Priority** | **P1** |
+| **Status** | cause found |
+
+Nothing shows that a task repeats, which series it belongs to, or how many are
+open; a person cannot tell a generated task from one a colleague raised for them,
+and there is no one place to manage the 56 live series.
+
+---
+
+### T-04 · A repeat with no due date never generates, and never says so
+| | |
+|---|---|
+| **Reported** | found while measuring T-01 |
+| **Priority** | **P2** — a trap, not yet an incident (0 rows today) |
+| **Status** | cause found |
+
+The rule is walked forward from the due date (or start date). With neither, the
+runner skips the series silently, for ever. Nothing in the form requires a date
+when a repeat is chosen.
 
 ---
 
