@@ -9,7 +9,76 @@
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
 | **Last updated** | **2026-09-22** |
-| **Last migration applied anywhere** | **245** (applied 2026-09-21; **245 changing an appointment is the salespersons — 244 reversed**; 242 office visits, 243 confirm by hand). CRM next: **246.** |
+| **Last migration applied anywhere** | **246** (applied 2026-09-22; **246 the agent can say WHEN the appointment is**; 245 changing one is still the salesperson's). CRM next: **247.** |
+
+---
+
+## 🧭 2026-09-22 — ASKING WHEN THE APPOINTMENT IS, IS NOT ASKING TO CHANGE IT
+
+Owner, from the live thread on their own test lead: *"The client is just asking
+to confirm the appointment time … What exact appointment? It should tell the
+time. … He just wants to know. … when a client says 'Yeah I have to change some
+plan' … or 'Is this quotation right or not?' … any decision-making, then it
+should be handed over. Otherwise it should engage the client again."*
+
+**What happened**, from `crm_agent_runs` and `crm_lead_messages`:
+
+| | |
+|---|---|
+| client | *"Mujy appointment ka time confirm krna ha ?"* |
+| agent | *"Noted. For any change to your appointment, our team will contact you shortly to arrange it."* → **handed over** |
+| client | *"Mujy time pta krna ha srf"* · *"Meri aj appointment kitny bjy ha ?"* · *"Site visit"* |
+| agent | the same line again → **handed over again** |
+| the truth | an **office visit, ref 106, confirmed, Wednesday 23 September 3:00 PM** — in the model's own context the whole time |
+
+Three separate faults, each fixed where it lived:
+
+**1 · The rules told it to hand over.** The handover list said *"wants to change
+or cancel an appointment that is already booked"* and the model filed *"confirm
+the time"* under it. The list is now framed the way the owner framed it — a
+**DECISION, a CHANGE or a COMMITMENT** — with *"you decide"*, *"is this quotation
+right or not?"* and *"which one should I take?"* named explicitly, and one line
+above everything: **⚠️ ASKING IS NOT DECIDING.** A new section, **THEIR OWN
+APPOINTMENT — ASKING ABOUT IT IS NOT CHANGING IT**, tells it to answer from
+ALREADY BOOKED with the kind, the day, the date, the time and the place; to say
+what is *actually* booked when the client names the wrong kind; and to offer
+times when nothing is booked. Only move, change, cancel or a second appointment
+reaches a person.
+
+**2 · It could not have answered "where?" or "is it confirmed?" if it tried.**
+`app.crm_agent_lead_booked` returned the kind and the time only, so those had no
+answer in context — and a model with no answer hands over, correctly. **246**
+widens it to status, location and ref, and the runner's line now reads *"an
+office visit on Wednesday 23 September at 3:00 PM (confirmed)"*. The migration's
+self-check runs the definer against a real lead that has one, or says plainly
+that it could not check.
+
+**3 · The holding line was about a change either way.** `HOLDING`'s first
+pattern was `appointment|visit|meeting|demo|timing|time of`, so *any* handover
+mentioning an appointment produced *"For any change to your appointment…"*. It
+now matches a **change** (reschedule, cancel, move, second appointment); a
+question that genuinely cannot be answered gets *"… they will message you
+shortly with the exact time."* And `validateDecision`'s reason for a second
+booking says *"wants to change or add to…"* rather than *"asked about…"*, which
+is what the holding line was reading.
+
+**Dry run on the four real messages** (the real model, nothing sent):
+
+- *"Mujy appointment ka time confirm krna ha ?"* → **reply**: *"Aapki office visit
+  appointment kal, Wednesday 23 September ko 3:00 PM par hai. Site visit nahi
+  hai, balki office visit booked hai."*
+- *"Mujy time pta krna ha srf"*, *"Meri aj appointment kitny bjy ha ?"*, *"please
+  i am waiting"* → **reply**, each with the same time, each correcting "site
+  visit" to the office visit that is actually booked.
+
+**And the other side still holds** (8 of 8 as intended): *"kitny bjy ha?"*,
+*"appointment confirm ha?"* and *"CRM kya kr sakta ha?"* are answered;
+*"appointment change krni ha"*, *"cancel kr do"*, *"ya quotation theek ha ya
+nahi? aap batao"*, *"aap he decide kr lo"* and *"mujy call kro"* are handed over.
+
+⚠️ **The rules are now exported and tested.** `AGENT_SYSTEM_RULES` is asserted
+on in `lib/ai/__tests__/agent-brain.test.ts` — a prompt is behaviour here, and
+these two rules exist because they were got wrong in front of a client.
 
 ---
 

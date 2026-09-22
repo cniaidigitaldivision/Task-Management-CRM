@@ -78,16 +78,33 @@ describe('what a person would say back', () => {
  * ========================================================================= */
 
 describe('the holding line', () => {
-  it('⚠️ names the appointment when that is what they asked about', () => {
+  it('⚠️ promises to arrange it only when they asked to CHANGE it', () => {
     for (const reason of [
       'Client wants to change the time of an already booked appointment.',
-      'asked about the office visit on Wednesday 23 September at 3:00 PM they already have',
+      'wants to change or add to the office visit on Wednesday 23 September at 3:00 PM they already have',
       'Client wants to cancel an appointment.',
       'wants to reschedule the demo',
     ]) {
       expect(holdingLine(reason), reason).toBe(
         'Noted. For any change to your appointment, our team will contact you shortly to arrange it.',
       );
+    }
+  });
+
+  it('⚠️ never answers a question about the time with a line about a change', () => {
+    /* Owner, 2026-09-22, from the live thread: the client wrote *"Meri aj
+       appointment kitny bjy ha?"* and *"Mujy time pta krna ha srf"*, and was
+       told twice that we would contact them about a change. The assistant
+       answers this itself now; if it ever cannot, the line must at least be
+       about the time they asked for. */
+    for (const reason of [
+      'Client wants to confirm an appointment time.',
+      'The client is asking for confirmation of a site visit appointment.',
+      'asks what time the meeting is',
+    ]) {
+      const line = holdingLine(reason);
+      expect(line, reason).not.toMatch(/for any change/i);
+      expect(line, reason).toMatch(/exact time/);
     }
   });
 

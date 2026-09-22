@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildAgentPrompt, validateDecision } from '../agent-brain';
+import { AGENT_SYSTEM_RULES, buildAgentPrompt, validateDecision } from '../agent-brain';
 
 /* ============================================================================
  * WHAT THE AGENT IS ALLOWED TO DO WITH THE MODEL'S ANSWER
@@ -168,6 +168,13 @@ describe('validateDecision', () => {
       expect(d.action).toBe('handover');
       expect(d.booking).toBeNull();
       expect(d.handoverReason).toMatch(/already have/);
+      /* ⚠️ AND THE REASON SAYS "CHANGE", NOT "ASKED ABOUT". The old wording
+         was "asked about the demo … they already have", and `holdingLine`
+         read off it — so a client who only asked WHEN their appointment was
+         got told we would contact them about a change (owner, 2026-09-22).
+         This branch is only ever a second booking or a move. */
+      expect(d.handoverReason).toMatch(/change or add to/);
+      expect(d.handoverReason).not.toMatch(/asked about/);
     });
 
     it('hands over a booking where no times were offered', () => {
@@ -250,5 +257,36 @@ describe('buildAgentPrompt', () => {
 
   it('says so plainly when there is no knowledge, rather than leaving a gap', () => {
     expect(buildAgentPrompt({ ...brief, knowledge: [] })).toContain('(none)');
+  });
+});
+
+/* ============================================================================
+ * THE RULES THEMSELVES — the two the owner corrected in a live conversation
+ * ----------------------------------------------------------------------------
+ * A prompt is behaviour here. These pin the two rules that were got wrong on
+ * 2026-09-22, so a later edit cannot quietly drop them.
+ * ========================================================================= */
+describe('the rules given to the model', () => {
+  it('⚠️ tells it that asking about an appointment is not changing one', () => {
+    /* Owner: *"The client is just asking to confirm the appointment time …
+       What exact appointment? It should tell the time."* */
+    expect(AGENT_SYSTEM_RULES).toMatch(/THEIR OWN APPOINTMENT — ASKING ABOUT IT IS NOT CHANGING IT/);
+    expect(AGENT_SYSTEM_RULES).toMatch(/ANSWER FROM ALREADY BOOKED/);
+    expect(AGENT_SYSTEM_RULES).toMatch(/the kind, the day, the date, the time/);
+    /* And what is actually booked beats what the client called it. */
+    expect(AGENT_SYSTEM_RULES).toMatch(/tell them what is actually booked/);
+  });
+
+  it('⚠️ draws the handover line at a decision, a change or a commitment', () => {
+    /* Owner: *"when a client says … 'You have to take a decision', something
+       like 'Is this quotation right or not?' … then it should be handed over.
+       Otherwise it should engage the client again."* */
+    expect(AGENT_SYSTEM_RULES).toMatch(/wants a DECISION, a CHANGE or a COMMITMENT/);
+    expect(AGENT_SYSTEM_RULES).toMatch(/is this quotation right or not/i);
+    expect(AGENT_SYSTEM_RULES).toMatch(/ASKING IS NOT DECIDING/);
+  });
+
+  it('still keeps changing and cancelling away from the assistant', () => {
+    expect(AGENT_SYSTEM_RULES).toMatch(/Changing or cancelling an appointment is the salesperson's, never yours/);
   });
 });

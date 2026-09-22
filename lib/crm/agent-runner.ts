@@ -152,7 +152,13 @@ async function bookingOffer(ownerId: string, leadId: string) {
   const starts = Object.fromEntries(
     kinds.map((k) => [k, freeStarts(nowMs, busy, AGENT_MINUTES[k])]),
   ) as Record<AgentBookingKind, number[]>;
-  const coming = (existing as unknown as Array<{ kind: string; starts_at: Date }>)[0];
+  const coming = (existing as unknown as Array<{
+    kind: string;
+    starts_at: Date;
+    status: string;
+    location: string | null;
+    ref_no: number | null;
+  }>)[0];
   return {
     lines: {
       meeting: availabilityLines(starts.meeting),
@@ -164,8 +170,22 @@ async function bookingOffer(ownerId: string, leadId: string) {
       office_visit: starts.office_visit.map(toKarachiLocal),
       site_visit: starts.site_visit.map(toKarachiLocal),
     },
+    /* ⚠️ COMPLETE ENOUGH TO STATE, NOT JUST TO RECOGNISE. Owner, 2026-09-22:
+       *"The client is just asking to confirm the appointment time … It should
+       tell the time."* The client asked WHEN, three times, and was answered
+       about a change they never asked for — because the kind and the time were
+       all the model had, so "is it confirmed?" and "where?" had no answer in
+       context, and a model with no answer hands over, correctly. 246 widened
+       the definer; this is the sentence it becomes. */
     existing: coming
-      ? `a ${coming.kind === 'meeting' ? 'demo' : coming.kind.replace('_', ' ')} on ${describeKarachi(new Date(coming.starts_at).getTime())}`
+      ? [
+          `a ${coming.kind === 'meeting' ? 'demo' : coming.kind.replace('_', ' ')}`,
+          `on ${describeKarachi(new Date(coming.starts_at).getTime())}`,
+          coming.status === 'confirmed' ? '(confirmed)' : '(booked, not yet confirmed)',
+          coming.location ? `at ${coming.location}` : null,
+        ]
+          .filter(Boolean)
+          .join(' ')
       : null,
     today: describeToday(nowMs),
   };

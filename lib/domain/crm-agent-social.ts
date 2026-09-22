@@ -134,9 +134,21 @@ export function socialReply(kind: SocialKind, text: string | null): string {
  * ========================================================================= */
 
 const HOLDING: ReadonlyArray<[RegExp, string]> = [
+  /* ⚠️ A CHANGE, NOT ANY MENTION OF AN APPOINTMENT. This pattern used to be
+     `appointment|visit|meeting|demo|timing|time of`, so a client who asked
+     *"Meri aj appointment kitny bjy ha?"* was told, twice, that we would
+     contact them about a CHANGE they had never asked for (owner, 2026-09-22).
+     A question about an appointment is answered now — see the prompt's
+     "THEIR OWN APPOINTMENT" rule — and only a change reaches this line. */
   [
-    /appointment|visit|meeting|demo|reschedul|booking|slot|timing|time of/i,
+    /reschedul|postpone|cancel|change|add to the|move it|another time|different time|second appointment|already have|shift the|tabdeel|badal/i,
     'Noted. For any change to your appointment, our team will contact you shortly to arrange it.',
+  ],
+  /* And if it really was only a question that the assistant could not answer
+     — nothing booked, or a detail we do not hold — say THAT, not "a change". */
+  [
+    /appointment|visit|meeting|demo|booking|slot|timing|time of/i,
+    'Let me confirm your appointment details with my colleague — they will message you shortly with the exact time.',
   ],
   [
     /person|human|salesperson|colleague|call you|phone|speak to|talk to|baat|insaan/i,
