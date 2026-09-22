@@ -9,7 +9,87 @@
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
 | **Last updated** | **2026-09-22** |
-| **Last migration applied anywhere** | **248** (applied 2026-09-22; **248 deleting a source takes its answers**; 247 follow-up conditions). CRM next: **249.** |
+| **Last migration applied anywhere** | **249** (applied 2026-09-22; **249 clients become relationships**; 248 deleting a source takes its answers). CRM next: **250.** |
+
+---
+
+## 🧭 2026-09-22 — CLIENTS: THE OWNER'S DESIGN, BUILT ON THE MODEL THAT WAS ALREADY THERE
+
+Owner, with two designs (table and cards): *"Please create this page accordingly
+and make sure everything is properly working … Make sure they are isolated and
+will not break any other working thing."*
+
+### What a client is, and stays
+
+A person (`crm_clients`) linked to projects **through their leads** — migration
+111's rule, kept: one person enquiring about two things is one client.
+Visibility follows the leads (126, unchanged in meaning). Every related record —
+properties, quotations, appointments, bookings, invoices — is read through
+those leads, because each of those tables carries a `lead_id` and none a
+`client_id`.
+
+### 249
+
+- **Relationship fields on the client:** company, source, account owner,
+  preferred channel, status (prospect · onboarding · active · dormant), archive,
+  and a readable number (`CLI-01001`…). The three existing clients were
+  backfilled with their owner and source from the lead they bought on.
+- **`app.crm_client_board()`** — the page's one read. ⚠️ Law 5: 126's reader
+  calls `crm_manages_project(l.project_id)` per LEAD; this asks once per PROJECT.
+  Its self-check compares it with 126's reader per person — **admin 3 / 3,
+  salesperson 2 / 2** — and refuses to commit on any difference.
+- **`app.crm_client_activity()`** — the lead log (minus the importer's noise),
+  quotations, bookings, invoices, and conversations as one line per day.
+- **`app.crm_add_client()` / `crm_update_client()` / `crm_client_matches()`.**
+
+⚠️ **A client added by hand gets a lead, and the lead is NOT won.** Without a lead
+nobody can see them and they belong to no project. With a WON lead, a person
+typed in here would count as a sale in every lead report and would skip CRM08,
+the rule that nothing jumps to won unqualified. So the lead opens as `contacted`
+(with `first_contacted_at`, so no first-response clock), and the relationship
+status lives on the client. When they buy, the lead is marked won on the desk.
+
+⚠️⚠️ **And it is not greeted.** `crm_greet_new_lead` sends the project's WhatsApp
+greeting to any new lead with a phone. Adding an existing client — or importing
+a sheet of them — would have messaged real people a welcome; the trigger's own
+comment calls that "the single incident §5 of the guardrails is about". The
+trigger now stands down on `app.crm_quiet_insert` (injected into the live body,
+not retyped). Add client sets it unless "Send the project's WhatsApp greeting"
+is ticked (off by default); **imports are always quiet**. Proved on the demo
+project, which has WhatsApp and a greeting on, inside a rolled-back
+transaction: **quiet → 0 greeting runs, ticked → 1, left behind → 0.**
+
+⚠️ **Two traps on the way.** The live function body has **CRLF line endings**
+(it was created from a Windows file), so a pattern for `\n` alone matched
+nothing — the migration's own self-check caught it and refused. And a heredoc
+ate the backslashes of the fix; the pattern was written with `chr(92)`.
+
+### The page
+
+One query; cards, tabs, filters, table, cards view, paging, selection and the
+preview are client state over it (Rule Zero). Measured: switching to the cards
+view **0 requests**; a new client **appears in the frame it is saved** (it waited
+6 s for the refresh before — the form now hands back the row it made).
+
+| Part | Wired to |
+|---|---|
+| Five cards | **White, still, colour in the icon** (the Follow-ups decision). "From last month" only where last month can be rebuilt from dates — total and new; active / attention / outstanding carry a plain caption, never an invented trend |
+| Tabs | All · Active (incl. onboarding) · Prospects · Needs attention · Dormant · Archived, with counts |
+| Status | A person sets prospect/onboarding/active/dormant. **Needs attention is computed** — an overdue promise, an overdue invoice, or the client waiting on us — and the row says which. **Dormant is also computed** for an active client silent 45 days |
+| Search / filters | name, company, email, city, `CLI-` number, and **a phone on its digits however it is typed**; project, owner, status; More filters: source, channel, city, not contacted for N days, unpaid only |
+| Table / cards | both designs; tick, bulk, preview, conversation, row menu |
+| Bulk | set status, give to (manager-only, refusals reported by name), archive, restore, export ticked |
+| Import | CSV **and .xlsx** (a dependency-free reader — the zip read with `DecompressionStream`, tested against a real xlsx built byte by byte), columns found by their names, every row checked for problems and existing people before anything is written, 500 at a time, **one notification for the whole sheet** |
+| Export | the filtered rows as CSV with a BOM, and **a name starting `=` is written as text**, never a formula |
+| Preview | call / WhatsApp / email, owner, channel, value (booked, or quoted — labelled), open deals, last contact, next follow-up, linked project(s), five related-record tiles opening Related items on that tab, recent activity, Open related items, View full record (the lead's own modal — no navigation, per the owner) |
+| Add client | personal details, company and project, source, salesperson (the project's rota; a non-manager is offered only themselves), channel, status, notes, documents (onto the new lead), the greeting box. **Duplicates checked as it is typed** with the same cross-ownership check the Add Lead form uses, and **Save is disabled** for an existing client or an open lead on the same project — the database refuses those too |
+
+Proved end to end as **Sarah**, on the demo project, email-only: the form
+offered only "Sarah (you)", saved a prospect with a `contacted` lead marked
+"Added on the Clients page", queued **0** greetings, showed the row at once, and
+was cleaned up (0 left).
+
+The old `ClientList` component and its test are untouched and unused.
 
 ---
 
