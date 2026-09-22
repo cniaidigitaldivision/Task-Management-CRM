@@ -34,6 +34,34 @@ export interface TaskWindowParams {
   readonly range?: string;
   readonly from?: string;
   readonly to?: string;
+  /** `all` ⇒ every closed task, however old. Absent ⇒ recent completions only. */
+  readonly closed?: string;
+}
+
+/**
+ * The oldest completion the board should carry, as `YYYY-MM-DD`.
+ *
+ * ── ⚠️ THE SAME LESSON AS THE DUE WINDOW, ONE FIELD LATER (2026-09-23) ─────
+ * The board shows recent completions and hides older ones — and it was doing
+ * that in the BROWSER, over rows the server had already sent. Measured: 1,141
+ * rows read, 957 of them closed, **793 discarded before anybody saw a card**.
+ *
+ * So the same rule is applied where it costs nothing. `null` means "no bound" —
+ * the owner's All, for when somebody genuinely wants the history.
+ *
+ * ⚠️ `days` COMES FROM `SYSTEM_DEFAULTS.closedVisibleDays`, the same constant
+ * `closedRecently` reads. Two copies of that number is how the server sends a
+ * row the browser then hides, for ever, invisibly.
+ */
+export function resolveClosedSince(
+  params: TaskWindowParams,
+  today: string,
+  days: number,
+): string | undefined {
+  if (params.closed === 'all') return undefined;
+  const at = Date.parse(`${today}T00:00:00Z`);
+  if (Number.isNaN(at)) return undefined;
+  return new Date(at - days * 86_400_000).toISOString().slice(0, 10);
 }
 
 /**

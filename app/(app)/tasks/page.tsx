@@ -6,9 +6,10 @@ import { requireUser } from '@/lib/auth/current-user';
 import { listAssignablepeople } from '@/lib/db/queries/people';
 import { listProjects } from '@/lib/db/queries/projects';
 import { listTasks, taskTotals } from '@/lib/db/queries/tasks';
+import { SYSTEM_DEFAULTS } from '@/lib/domain/constants';
 import { isoDateIn, nowMs } from '@/lib/now';
 import { toTaskView } from '@/lib/view/task-view';
-import { resolveTaskWindow } from '@/lib/view/task-window';
+import { resolveClosedSince, resolveTaskWindow } from '@/lib/view/task-window';
 
 export const metadata: Metadata = { title: 'Tasks' };
 
@@ -39,6 +40,7 @@ export default async function TasksPage({
     range?: string;
     from?: string;
     to?: string;
+    closed?: string;
   }>;
 }) {
   /* ⚠️ ONE WAVE — Rule Zero, law 4 (docs/20-UI-RESPONSIVENESS.md). */
@@ -68,6 +70,14 @@ export default async function TasksPage({
   /* The rules, and the reasoning, live in lib/view/task-window.ts with a test
      per case — including the absent-versus-cleared one this got wrong first. */
   const { dueFrom, dueTo, showAll } = resolveTaskWindow(params, today);
+  /* ── ⚠️ AND THE CLOSED WINDOW, FOR THE SAME REASON (2026-09-23) ──────────
+     Owner, 2026-09-22: *"that page is very heavy … taking a lot of time to
+     render."* Measured that day: this page read **1,141 rows, 957 of them done
+     or cancelled**, and the browser then threw **793** of them away — 458 kB of
+     HTML for a board that draws a few dozen cards.
+
+     The rule was already right; it was running in the wrong place. */
+  const closedSince = resolveClosedSince(params, today, SYSTEM_DEFAULTS.closedVisibleDays);
 
   const [rows, people, projects, totals] = await Promise.all([
     listTasks(user.id, {
@@ -76,13 +86,20 @@ export default async function TasksPage({
       assigneeId: params.assignee,
       dueFrom,
       dueTo,
+      closedSince,
     }),
     listAssignablepeople(user.id),
     listProjects(user.id),
     /* ⚠️ The summary strip stays division-wide while the board is scoped — see
        `taskTotals`. Without this the cards would silently start describing only
        the visible window and change every time the date filter moved. */
-    taskTotals(user.id, { projectId: params.project, assigneeId: params.assignee }),
+    taskTotals(user.id, {
+      projectId: params.project,
+      assigneeId: params.assignee,
+      /* So the toggle can say how much history it is offering to reveal — the
+         rows themselves are no longer here to count. */
+      closedSince,
+    }),
   ]);
 
   /* `Date.now()` once, on the server, for every due label. Computing it per card
@@ -168,6 +185,9 @@ export default async function TasksPage({
            truth. Passing it makes the window URL-owned on this page; /my-work
            omits it and keeps the old in-browser filter. */
         dueWindow={{ from: dueFrom ?? '', to: dueTo ?? '', showAll }}
+        /* ⚠️ What the SERVER applied, so the toggle states the truth and the
+           count beside it is of rows nobody has been sent. */
+        closedWindow={{ showingAll: !closedSince, olderCount: totals.olderClosed }}
       />
     </div>
   );

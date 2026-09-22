@@ -163,6 +163,30 @@ export interface TaskFilter {
      layer down, where it costs nothing. */
   readonly dueFrom?: string;
   readonly dueTo?: string;
+
+  /* ── ⚠️ THE SAME ARGUMENT AGAIN, FOR CLOSED WORK (2026-09-23) ───────────
+     The due window fixed one half and left the other. Measured on the live
+     database: the default board read **1,141 rows, of which 957 were done or
+     cancelled** — and the browser then hid **793** of them, because the board
+     shows recent completions and drops older ones. A quarter of a megabyte of
+     HTML was being built, sent to Karachi, parsed and hydrated so that two
+     thirds of it could be discarded before anybody saw a card.
+
+     Owner, 2026-09-22: *"that page is very heavy … taking a lot of time to
+     render … I want this type of fast page."*
+
+     So the rule the browser was applying is applied here instead: closed work
+     stays only while it is recent. `closedSince` is a date — a task that is
+     done or cancelled is kept only if it closed on or after it. Open work is
+     untouched, whatever its age.
+
+     ⚠️ `updated_at` IS THE FALLBACK, AND IT IS AN APPROXIMATION. There is no
+     `cancelled_at` column (012 constrains `completed_at` to mean exactly
+     `status = 'done'`), so a cancelled task can only be dated by its last edit.
+     `closedRecently` in lib/view/task-view.ts makes the same compromise and
+     names it; this stays deliberately identical, because two rules that are
+     nearly the same is how a row appears on one screen and not the other. */
+  readonly closedSince?: string;
 }
 
 export async function listTasks(actorId: string, filter: TaskFilter = {}): Promise<TaskRow[]> {
@@ -186,6 +210,12 @@ export async function listTasks(actorId: string, filter: TaskFilter = {}): Promi
     }
     if (!filter.includeClosed && !filter.statuses?.length) {
       conditions.push(tx`t.status not in ('done', 'cancelled')`);
+    }
+    if (filter.closedSince) {
+      conditions.push(tx`(
+        t.status not in ('done', 'cancelled')
+        or coalesce(t.completed_at, t.updated_at) >= ${filter.closedSince}::date
+      )`);
     }
     if (filter.search?.trim()) {
       const needle = `%${filter.search.trim()}%`;
@@ -237,6 +267,16 @@ export interface TaskTotals {
   readonly done: number;
   readonly overdue: number;
   readonly activeProjects: number;
+  /**
+   * Closed work the board is NOT showing, because it closed too long ago.
+   *
+   * ⚠️ COUNTED HERE BECAUSE THE ROWS ARE NO LONGER SENT. The toggle used to say
+   * "(793 older)" by counting rows the page had already shipped — which was the
+   * whole problem. The rows stay on the server now, so the number has to come
+   * from the server too, or the button would offer to reveal something it could
+   * not say the size of.
+   */
+  readonly olderClosed: number;
 }
 
 /**
@@ -263,7 +303,10 @@ export interface TaskTotals {
  * evening, which would mark a full day of on-time work overdue every night. Same
  * trap as app.attendance_today().
  */
-export async function taskTotals(actorId: string, filter: { projectId?: string; assigneeId?: string | null } = {}): Promise<TaskTotals> {
+export async function taskTotals(
+  actorId: string,
+  filter: { projectId?: string; assigneeId?: string | null; closedSince?: string } = {},
+): Promise<TaskTotals> {
   const rows = await withUser(actorId, async (tx) => {
     const conditions = [tx`not t.is_deleted`];
     if (filter.projectId) conditions.push(tx`t.project_id = ${filter.projectId}`);
@@ -289,7 +332,12 @@ export async function taskTotals(actorId: string, filter: { projectId?: string; 
         )                                                                     as overdue,
         count(distinct t.project_id) filter (
           where t.status not in ('done', 'cancelled')
-        )                                                                     as active_projects
+        )                                                                     as active_projects,
+        count(*) filter (
+          where t.status in ('done', 'cancelled')
+            and ${filter.closedSince ?? null}::date is not null
+            and coalesce(t.completed_at, t.updated_at) < ${filter.closedSince ?? null}::date
+        )                                                                     as older_closed
       from public.tasks t
       where ${where}
     `;
@@ -302,6 +350,7 @@ export async function taskTotals(actorId: string, filter: { projectId?: string; 
     done: n(row.done),
     overdue: n(row.overdue),
     activeProjects: n(row.active_projects),
+    olderClosed: n(row.older_closed),
   };
 }
 

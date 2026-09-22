@@ -109,6 +109,7 @@ export function TasksWorkspace({
   initialProject = null,
   today,
   dueWindow,
+  closedWindow,
 }: {
   initialTasks: readonly TaskView[];
   currentUser: { id: string; name: string; role: Role };
@@ -139,6 +140,16 @@ export function TasksWorkspace({
      so there is one definition of what a due window means and no second copy to
      drift out of step. */
   dueWindow?: { readonly from: string; readonly to: string; readonly showAll: boolean };
+  /**
+   * What the SERVER decided about closed work.
+   *
+   * ⚠️ Present only on /tasks. Older completions are filtered in SQL there
+   * (2026-09-23) rather than shipped and hidden, so the toggle has to ask the
+   * server for them — and `olderCount` is how it can say what it is offering,
+   * given the rows are no longer here to count. /my-work omits this prop and
+   * keeps the old in-browser toggle.
+   */
+  closedWindow?: { readonly showingAll: boolean; readonly olderCount: number };
 }) {
   const router = useRouter();
 
@@ -190,7 +201,9 @@ export function TasksWorkspace({
      It now hides only *older* completions (`recentlyClosed`, computed on the
      server — see lib/view/task-view.ts). Pressing the toggle still reveals the
      whole history, so nothing has become unreachable. */
-  const [hideOldClosed, setHideOldClosed] = React.useState(true);
+  /* Only used when the parent does not own it — see `closedWindow`. */
+  const [hideOldClosedLocal, setHideOldClosedLocal] = React.useState(true);
+  const hideOldClosed = closedWindow ? !closedWindow.showingAll : hideOldClosedLocal;
   const [search, setSearch] = React.useState(initialSearch);
   /* ── ⚠️ A DATE RANGE, ON THIS PAGE TOO ────────────────────────────────────
      Owner, 2026-08-23: *"I want this filter in both pages — first in that task
@@ -304,6 +317,33 @@ export function TasksWorkspace({
     [router, dueWindow],
   );
 
+  /* ── ⚠️ REVEALING OLD COMPLETIONS IS A NEW QUESTION, NOT A NARROWING ─────
+     Every other control on this toolbar filters rows the page already holds, so
+     it stays in React state and answers in the same frame. This one asks for
+     rows that were deliberately NOT sent (2026-09-23) — the only honest way to
+     satisfy it is to ask the server, so it goes in the URL beside the date
+     window: refreshable, linkable, and the Back button undoes it.
+
+     ⚠️ The board is NOT blanked while that happens. `startRange` marks it
+     pending and the rows already on screen stay exactly where they are —
+     Rule Zero's "keep the old content visible while the new arrives". */
+  const setHideOldClosed = React.useCallback(
+    (next: boolean) => {
+      if (!closedWindow) {
+        setHideOldClosedLocal(next);
+        return;
+      }
+      const params = new URLSearchParams(window.location.search);
+      if (next) params.delete('closed');
+      else params.set('closed', 'all');
+      const query = params.toString();
+      startRange(() => {
+        router.replace(query ? `/tasks?${query}` : '/tasks', { scroll: false });
+      });
+    },
+    [router, closedWindow],
+  );
+
   const refreshAll = React.useCallback(() => {
     setRefreshing(true);
     setAssignee('all');
@@ -390,15 +430,19 @@ export function TasksWorkspace({
   /* What the toggle is currently keeping off the board, so the label can say a
      number instead of implying the board is everything there is. Counted over
      the same predicate the filter uses, minus the closed-work clause. */
-  const oldClosedCount = React.useMemo(
-    () =>
-      tasks.filter((t) => {
-        if (t.recentlyClosed) return false;
-        const category = STATUS_META[t.status].category;
-        return category === 'done' || category === 'cancelled';
-      }).length,
-    [tasks],
-  );
+  /* ⚠️ FROM THE SERVER WHEN THE SERVER OWNS THE WINDOW. Counting `tasks` here
+     would count the rows that are already on screen — and the whole point of
+     2026-09-23's change is that the older ones are no longer among them, so the
+     answer would always be 0 and the button would never mention the history it
+     is offering. /my-work still counts in the browser, where the rows are. */
+  const oldClosedCount = React.useMemo(() => {
+    if (closedWindow) return closedWindow.olderCount;
+    return tasks.filter((t) => {
+      if (t.recentlyClosed) return false;
+      const category = STATUS_META[t.status].category;
+      return category === 'done' || category === 'cancelled';
+    }).length;
+  }, [tasks, closedWindow]);
 
   const points = visible.reduce((sum, t) => sum + t.effortPoints, 0);
   const groups = React.useMemo(() => groupTasks(visible, groupBy), [visible, groupBy]);
