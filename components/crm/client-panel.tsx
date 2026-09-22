@@ -55,6 +55,7 @@ export function ClientPanel({
   onArchive,
   onStatus,
   onViewProject,
+  showOwner,
 }: {
   c: ClientRow;
   nowMs: number;
@@ -67,6 +68,8 @@ export function ClientPanel({
   onArchive: () => void;
   onStatus: (s: 'prospect' | 'onboarding' | 'active' | 'dormant') => void;
   onViewProject: () => void;
+  /** False when every client on this screen belongs to the person reading it. */
+  showOwner: boolean;
 }) {
   const [allActivity, setAllActivity] = React.useState(false);
   const value = valueOf(c);
@@ -88,7 +91,7 @@ export function ClientPanel({
             </h2>
             <StatusChip c={c} nowMs={nowMs} />
           </div>
-          <p className="mt-0.5 truncate text-[0.82rem]" style={{ color: cv('soft') }}>
+          <p className="mt-0.5 line-clamp-2 text-[0.78rem] leading-[1.3]" style={{ color: cv('soft') }}>
             {[c.company ?? c.primaryProjectName, c.city].filter(Boolean).join(' · ') || '—'}
           </p>
           <p className="text-[0.83rem]" style={{ color: cv('soft') }}>
@@ -124,41 +127,53 @@ export function ClientPanel({
       </div>
 
       {/* ── How to reach them — four across ─────────────────────────────── */}
-      <dl className="mt-[0.85rem] grid grid-cols-[1.3fr_1.5fr_1.1fr_1.1fr] rounded-[0.55rem] py-[0.7rem]" style={{ background: cv('strip') }}>
+      {/* ⚠️ minmax(0,…), not plain fr: an `fr` track keeps `min-width: auto`, so one
+          long email widened its own column and cut the phone number beside it. */}
+      <dl
+        className="mt-[0.85rem] grid rounded-[0.55rem] py-[0.7rem]"
+        style={{
+          background: cv('strip'),
+          gridTemplateColumns: showOwner
+            ? 'minmax(0,1.15fr) minmax(0,1.7fr) minmax(0,1fr) minmax(0,1.15fr)'
+            : 'minmax(0,1fr) minmax(0,1.7fr) minmax(0,1.1fr)',
+        }}
+      >
         <Fact label="Phone" first>
-          <span className="truncate text-[0.84rem]" style={{ color: cv('ink') }}>
+          <span className="whitespace-nowrap text-[0.78rem]" style={{ color: cv('ink') }}>
             {phoneLabel(c.phoneE164)}
           </span>
         </Fact>
         <Fact label="Email">
-          <span className="truncate text-[0.72rem]" style={{ color: cv('soft') }} title={c.email ?? undefined}>
+          <span className="truncate text-[0.6rem]" style={{ color: cv('soft') }} title={c.email ?? undefined}>
             {c.email ?? '—'}
           </span>
         </Fact>
-        <Fact label="Assigned to">
-          {c.ownerId && c.ownerName ? (
-            <span className="flex min-w-0 items-center gap-1.5">
-              <Avatar id={c.ownerId} name={c.ownerName} size="xs" owner />
-              <span className="truncate text-[0.88rem]" style={{ color: cv('ink') }}>
-                {c.ownerName}
+        {showOwner && (
+          <Fact label="Assigned to">
+            {c.ownerId && c.ownerName ? (
+              <span className="flex min-w-0 items-center gap-1.5">
+                <Avatar id={c.ownerId} name={c.ownerName} size="xs" owner />
+                <span className="truncate text-[0.78rem]" style={{ color: cv('ink') }}>
+                  {c.ownerName}
+                </span>
               </span>
-            </span>
-          ) : (
-            <span className="text-[0.88rem]" style={{ color: cv('mute') }}>
-              Nobody yet
-            </span>
-          )}
-        </Fact>
-        <Fact label="Preferred channel">
-          <span className="flex min-w-0 items-center gap-1.5 text-[0.88rem]" style={{ color: cv('ink') }}>
-            {c.preferredChannel === 'whatsapp' && (
-              <span style={{ color: cv('wa') }}>
-                <WhatsAppMark className="size-[1.15rem]" />
+            ) : (
+              <span className="text-[0.78rem]" style={{ color: cv('mute') }}>
+                Nobody yet
               </span>
             )}
-            {c.preferredChannel === 'call' && <Phone className="size-4" style={{ color: cv('phone') }} aria-hidden="true" />}
-            {c.preferredChannel === 'email' && <Mail className="size-4" style={{ color: cv('blue-strong') }} aria-hidden="true" />}
-            <span className="truncate">{c.preferredChannel ? CHANNEL_LABEL[c.preferredChannel] : 'No preference'}</span>
+          </Fact>
+        )}
+        <Fact label="Preferred channel">
+          <span className="flex min-w-0 items-center gap-1.5 whitespace-nowrap text-[0.78rem]" style={{ color: cv('ink') }}>
+            {c.preferredChannel === 'whatsapp' && (
+              <span style={{ color: cv('wa') }}>
+                <WhatsAppMark className="size-[1rem]" />
+              </span>
+            )}
+            {c.preferredChannel === 'call' && <Phone className="size-[0.95rem]" style={{ color: cv('phone') }} aria-hidden="true" />}
+            {c.preferredChannel === 'email' && <Mail className="size-[0.95rem]" style={{ color: cv('blue-strong') }} aria-hidden="true" />}
+            {c.preferredChannel ? CHANNEL_LABEL[c.preferredChannel] : 'No preference'}
           </span>
         </Fact>
       </dl>
@@ -348,14 +363,14 @@ function Metric({
   valueTone?: 'blue' | 'brand';
 }) {
   return (
-    <div className="flex min-w-0 items-center gap-[0.45rem] rounded-[0.55rem] border px-[0.45rem] py-[0.5rem]" style={{ borderColor: cv('line') }}>
-      <IconTile icon={icon} bg={cv(`${tone}-soft`)} ink={cv(`${tone}-strong`)} size="metric" />
+    <div className="flex min-w-0 items-center gap-[0.4rem] rounded-[0.55rem] border px-[0.4rem] py-[0.5rem]" style={{ borderColor: cv('line') }}>
+      <IconTile icon={icon} bg={cv(`${tone}-soft`)} ink={cv(`${tone}-strong`)} size="sm" />
       <span className="min-w-0">
-        <span className="block truncate text-[0.64rem]" style={{ color: cv('soft') }}>
+        <span className="block truncate text-[0.62rem]" style={{ color: cv('soft') }}>
           {label}
         </span>
         <span
-          className="block truncate text-[1rem] font-bold leading-tight"
+          className="block whitespace-nowrap text-[0.88rem] font-bold leading-tight"
           style={{ color: valueTone === 'blue' ? cv('blue-strong') : valueTone === 'brand' ? cv('brand-ink') : cv('ink') }}
         >
           {value}

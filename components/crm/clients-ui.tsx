@@ -60,7 +60,7 @@ export function StatusChip({
     <span
       className={cn(
         'inline-flex max-w-full items-center rounded-full font-medium leading-[1.15]',
-        small ? 'gap-[0.3rem] px-[0.45rem] py-[0.3rem] text-[0.62rem]' : 'shrink-0 gap-[0.4rem] px-[0.7rem] py-[0.28rem] text-[0.8rem]',
+        small ? 'gap-[0.25rem] px-[0.4rem] py-[0.28rem] text-[0.56rem]' : 'shrink-0 gap-[0.4rem] px-[0.7rem] py-[0.28rem] text-[0.8rem]',
         !wrap && 'whitespace-nowrap',
       )}
       style={{ background: cv(`${tone}-bg`), color: cv(tone) }}
@@ -99,7 +99,7 @@ export function Avatar({
     lg: 'size-[3.35rem] text-[1.2rem]',
     card: 'size-[3.05rem] text-[1.1rem]',
     md: 'size-[2.25rem] text-[0.84rem]',
-    row: 'size-[2.1rem] text-[0.78rem]',
+    row: 'size-[1.9rem] text-[0.7rem]',
     sm: 'size-[1.95rem] text-[0.7rem]',
     xs: 'size-[1.65rem] text-[0.6rem]',
   };
@@ -135,7 +135,7 @@ export function Square({
   size?: 'sm' | 'md';
   children: React.ReactNode;
 }) {
-  const box = size === 'sm' ? 'size-[2.15rem]' : 'size-[2.4rem]';
+  const box = size === 'sm' ? 'size-[2.05rem]' : 'size-[2.4rem]';
   const style = { borderColor: cv('line'), color: cv('ink') };
   /* ⚠️ ALWAYS DRAWN, DISABLED WHEN IT CANNOT WORK. Owner: *"You are showing
      just one button."* A client with no email still shows the email button —

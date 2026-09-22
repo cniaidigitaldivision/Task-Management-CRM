@@ -75,13 +75,13 @@ const row = (over: Partial<ClientRow> & { id: string }): ClientRow => ({
   ...over,
 });
 
-const paint = (rows: ClientRow[]) =>
+const paint = (rows: ClientRow[], viewerId = 'sarah') =>
   renderToStaticMarkup(
     <ClientsBoard
       clients={rows}
       projects={[{ id: 'p1', name: 'Chitral Royal Homes' }]}
       nowMs={NOW}
-      viewerId="sarah"
+      viewerId={viewerId}
       viewerName="Sarah Malik"
     />,
   );
@@ -111,11 +111,13 @@ describe('the Clients page as it first draws', () => {
     for (const t of ['All clients', 'Prospects', 'Needs attention', 'Dormant', 'Archived']) expect(html).toContain(t);
     expect(html).toContain('Table');
     expect(html).toContain('Cards');
-    for (const f of ['All projects', 'All owners', 'All statuses', 'More filters', 'Export']) expect(html).toContain(f);
+    /* No "All owners" here: every one of these clients is Sarah's own — see
+       "the Owner column" below. */
+    for (const f of ['All projects', 'All statuses', 'More filters', 'Export']) expect(html).toContain(f);
   });
 
   it('heads the directory as the design does', () => {
-    for (const col of ['Client / company', 'Contact', 'Linked project', 'Owner', 'Relationship', 'Value', 'Next action', 'Actions']) {
+    for (const col of ['Client / company', 'Contact', 'Linked project', 'Relationship', 'Value', 'Next action', 'Actions']) {
       expect(html).toContain(col);
     }
     expect(html).toContain('Bulk actions');
@@ -152,5 +154,58 @@ describe('an empty page', () => {
     const html = paint([]);
     expect(html).toContain('No clients yet.');
     expect(html).toContain('Pick a client to see their summary.');
+  });
+});
+
+/* ============================================================================
+ * THE FILTERS ARE THE DATA, AND THE OWNER COLUMN COMES AND GOES
+ * ----------------------------------------------------------------------------
+ * Owner, 2026-09-22: *"later on it should be dynamic data … whatever the project
+ * is, those projects will automatically be added to a filter. Is that already
+ * doing that?"* — and, of Sarah's screen: *"the owner column you can exclude
+ * because it's Sarah."*
+ * ========================================================================= */
+
+describe('the filters are built from the clients on screen', () => {
+  const many = [
+    row({ id: 'a' }),
+    row({ id: 'b', primaryProjectId: 'p2', primaryProjectName: 'Etemaad100 Group', projectNames: ['Etemaad100 Group'], city: 'Rawalpindi' }),
+    row({ id: 'c', primaryProjectId: 'p3', primaryProjectName: 'Taskly CRM', projectNames: ['Taskly CRM', 'Chitral Royal Homes'], city: 'Karachi' }),
+  ];
+
+  it('⚠️ lists every project its clients are on — nothing is hard-coded', () => {
+    const html = paint(many);
+    for (const p of ['Chitral Royal Homes', 'Etemaad100 Group', 'Taskly CRM']) {
+      expect(html).toContain(`<option value="${p}">${p}</option>`);
+    }
+  });
+
+  it('a project nobody is on yet is not offered as a filter', () => {
+    expect(paint([row({ id: 'a' })])).not.toContain('Etemaad100 Group');
+  });
+
+  /* The city list is built the same way, from `rows`, but it lives inside the
+     More filters popover — which a static render does not open. */
+});
+
+describe('the Owner column', () => {
+  const mine = [row({ id: 'a' }), row({ id: 'b', name: 'Ayesha Noor' })];
+  const shared = [...mine, row({ id: 'c', name: 'Hina Shahzad', ownerId: 'sahad', ownerName: 'Sahad' })];
+
+  it('⚠️ is gone when every client belongs to the person reading it', () => {
+    const html = paint(mine);
+    expect(html).not.toContain('>Owner<');
+    expect(html).not.toContain('All owners');
+  });
+
+  it('comes back as soon as a second person owns one', () => {
+    const html = paint(shared);
+    expect(html).toContain('>Owner<');
+    expect(html).toContain('All owners');
+    expect(html).toContain('Sahad');
+  });
+
+  it('is there for a manager, who is reading somebody else’s clients', () => {
+    expect(paint(mine, 'manager')).toContain('>Owner<');
   });
 });

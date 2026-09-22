@@ -13,6 +13,61 @@
 
 ---
 
+## 🧭 2026-09-22 — CLIENTS, THIRD PASS: NOTHING IS CUT OFF, AND THE OWNER COLUMN EARNS ITS PLACE
+
+Owner: *"PKR 85.00 in the third row for Mahnoor Qazi is not properly visible …
+make them small enough that a full quotation value, a full phone number, and a
+full email should be kept visible … each value should be displayed properly."*
+
+### The columns are a budget now, and the content sets it
+
+The reference's own widths were kept in the second pass — but that PNG was drawn
+around invented data, and `faisal@chitralroyal…` is cut off **in the design
+itself**. Real emails are longer: `arsalan@siddiqui-estates.example` needed
+**169px in a 98px cell**.
+
+So every column was measured against the longest string it must actually hold
+(`fitprobe`: for each clipped element, the font size that WOULD fit and how much
+wider its column would have to be), and the 656px between the ticks and the
+actions was re-shared — contact takes what project and owner can spare. The type
+went down one step with it (name 0.6rem, contact 0.58/0.52rem, value 0.66rem).
+
+⚠️ **And an `fr` track keeps `min-width: auto`.** In the preview panel one long
+email was widening its own column and cutting the phone number beside it — which
+is why Hira Nadeem's number was clipped while everybody else's fitted. The strip
+is `minmax(0, …fr)` now.
+
+⚠️ **Checked on every client, not the first one.** `nothing-cut.mjs` clicks all
+14 rows, reads the panel each time, then both views, and reports anything whose
+`scrollWidth` exceeds its box. **Admin 14 rows and Sarah 9: nothing cut, in the
+table, the cards or the panel.**
+
+### The Owner column comes and goes
+
+Owner: *"it's Sarah's dashboard … obviously these are all clients of Sarah so
+here this column can be excluded. Definitely in the salespersons' or executive
+sales role … maybe this column will be valuable because there will be a lot of
+salespeople."*
+
+It is **not a role check** — it is what is on the screen. When every client
+listed belongs to the person reading it, the column, the "All owners" filter and
+the panel's "Assigned to" all go, and the 70px go to the email. A manager or
+admin sees several owners and keeps all three. Sarah being given somebody else's
+client brings the column back by itself.
+
+### The filters are the data (asked, and now proved)
+
+Owner: *"later on it should be dynamic data … whatever the project is, those
+projects will automatically be added to a filter. Is that already doing that?"*
+
+It already was, and there is now a test that says so: **project, owner and city
+are built from the clients on screen** (`[...new Set(rows.flatMap(…))]`), so a
+new project appears in the filter the moment its first client does, and a project
+nobody is on is not offered. Only **Relationship** and **Source** are fixed
+lists, because both are database enums.
+
+---
+
 ## 🧭 2026-09-22 — CLIENTS, SECOND PASS: THE DESIGN READ OUT OF THE PNG, AND THE EXPORTS
 
 Owner, of the first build: *"If I'm saying that I need the exact same UI, it

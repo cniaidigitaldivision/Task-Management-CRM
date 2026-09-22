@@ -196,6 +196,17 @@ export function ClientsBoard({
   );
 
   const projectOptions = React.useMemo(() => [...new Set(rows.flatMap((c) => c.projectNames))].sort(), [rows]);
+  /* ⚠️ A COLUMN THAT SAYS THE SAME NAME ON EVERY ROW IS NOT A COLUMN.
+     Owner, 2026-09-22: *"it's Sarah's dashboard … obviously these are all clients
+     of Sarah so here this column can be excluded. Definitely in the salespersons'
+     or executive sales role … maybe this column will be valuable because there
+     will be a lot of salespeople."*
+
+     So it is not a role check — it is what is actually on the screen. A
+     salesperson sees only their own clients, so the column goes and its width is
+     given to the email; a manager or admin sees several owners and keeps it.
+     Sarah being given a second person's client brings the column back by
+     itself. */
   const ownerOptions = React.useMemo(() => {
     const m = new Map<string, string>();
     for (const c of rows) if (c.ownerId) m.set(c.ownerId, c.ownerName ?? 'Former member');
@@ -210,6 +221,8 @@ export function ClientsBoard({
     for (const c of rows) if (c.primaryProjectId) tally.set(c.primaryProjectId, (tally.get(c.primaryProjectId) ?? 0) + 1);
     return [...tally.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
   }, [filters.project, projects, rows]);
+
+  const soloOwner = ownerOptions.length <= 1 && ownerOptions.every(([id]) => id === viewerId);
 
   const cityOptions = React.useMemo(
     () => [...new Set(rows.map((c) => c.city).filter((x): x is string => Boolean(x)))].sort(),
@@ -524,14 +537,16 @@ export function ClientsBoard({
             </option>
           ))}
         </Select>
-        <Select label="Account owner" value={filters.owner} onChange={(v) => set({ owner: v })} className="h-[2.65rem] w-[12.2rem]">
-          <option value="all">All owners</option>
-          {ownerOptions.map(([id, name]) => (
-            <option key={id} value={id}>
-              {id === viewerId ? `${name} (you)` : name}
-            </option>
-          ))}
-        </Select>
+        {!soloOwner && (
+          <Select label="Account owner" value={filters.owner} onChange={(v) => set({ owner: v })} className="h-[2.65rem] w-[12.2rem]">
+            <option value="all">All owners</option>
+            {ownerOptions.map(([id, name]) => (
+              <option key={id} value={id}>
+                {id === viewerId ? `${name} (you)` : name}
+              </option>
+            ))}
+          </Select>
+        )}
         <Select label="Relationship status" value={filters.status} onChange={(v) => set({ status: v as DisplayStatus | 'all' })} className="h-[2.65rem] w-[12.2rem]">
           <option value="all">All statuses</option>
           {(['active', 'onboarding', 'prospect', 'attention', 'dormant', 'archived'] as DisplayStatus[]).map((s) => (
@@ -602,6 +617,7 @@ export function ClientsBoard({
                 <Directory
                   rows={pageRows}
                   nowMs={nowMs}
+                  showOwner={!soloOwner}
                   selectedId={selected?.id ?? null}
                   ticked={ticked}
                   onSelect={setSelectedId}
@@ -613,6 +629,7 @@ export function ClientsBoard({
                 <CardsView
                   rows={pageRows}
                   nowMs={nowMs}
+                  showOwner={!soloOwner}
                   selectedId={selected?.id ?? null}
                   ticked={ticked}
                   onSelect={setSelectedId}
@@ -640,6 +657,7 @@ export function ClientsBoard({
             onConversation={() => conversation(selected)}
             onRelated={(t) => selected.primaryLeadId && openRelated(selected.primaryLeadId, t)}
             onFullRecord={() => selected.primaryLeadId && openLead(selected.primaryLeadId)}
+            showOwner={!soloOwner}
             onArchive={() => void setArchived(selected, !selected.archivedAt)}
             onStatus={(s) => void setStatus(selected, s)}
             onViewProject={() => selected.primaryProjectId && router.push(`/my-leads?project=${selected.primaryProjectId}` as Route)}
@@ -794,12 +812,20 @@ function Tile({
 
 /* ── The table ───────────────────────────────────────────────────────────── */
 
-/* ⚠️ THE DESIGN'S OWN COLUMN WIDTHS. The faint vertical rules in the PNG were
-   found at x = 262 · 412 · 534 · 616 · 696 · 772 · 840 · 920 · 1030, so the
-   columns are 150 · 122 · 82 · 80 · 76 · 68 · 80 px with 110 px of actions —
-   written here as those numbers. The checkbox shares the first column with the
-   name, as it does there. */
-const COLS = 'minmax(0,150fr) minmax(0,122fr) minmax(0,82fr) minmax(0,80fr) minmax(0,76fr) minmax(0,68fr) minmax(0,80fr) 7.64rem';
+/* ⚠️ THE COLUMNS ARE A BUDGET, AND THE CONTENT SETS IT — not the reference.
+   The design's own rules (x = 262 · 412 · 534 · 616 · 696 · 772 · 840 · 920 ·
+   1030 → 150 · 122 · 82 · 80 · 76 · 68 · 80 px) were drawn around invented data:
+   "faisal@chitralroyal…" is cut off in the PNG itself. Owner, 2026-09-22:
+   *"a full quotation value, a full phone number, and a full email should be kept
+   visible … each value should be displayed properly."*
+
+   So each column was measured against the LONGEST real string it must hold
+   (`fitprobe`: an email needed 169px in a 98px cell) and the 656px between the
+   ticks and the actions was re-shared. Widths are the design's rhythm, moved:
+   contact takes what the project and owner columns can spare. */
+const COLS = 'minmax(0,150fr) minmax(0,156fr) minmax(0,72fr) minmax(0,70fr) minmax(0,72fr) minmax(0,64fr) minmax(0,66fr) 7.15rem';
+/* Without the owner, its 70px go where the longest strings are. */
+const COLS_SOLO = 'minmax(0,152fr) minmax(0,196fr) minmax(0,86fr) minmax(0,74fr) minmax(0,66fr) minmax(0,76fr) 7.15rem';
 const CELL = 'flex h-full min-w-0 items-center overflow-hidden px-[0.4rem]';
 
 const nextInk = (tone: string) =>
@@ -808,6 +834,7 @@ const nextInk = (tone: string) =>
 function Directory({
   rows,
   nowMs,
+  showOwner,
   selectedId,
   ticked,
   onSelect,
@@ -817,6 +844,7 @@ function Directory({
 }: {
   rows: readonly ClientRow[];
   nowMs: number;
+  showOwner: boolean;
   selectedId: string | null;
   ticked: ReadonlySet<string>;
   onSelect: (id: string) => void;
@@ -824,17 +852,18 @@ function Directory({
   onConversation: (c: ClientRow) => void;
   menuFor: (c: ClientRow) => MenuItem[];
 }) {
+  const cols = showOwner ? COLS : COLS_SOLO;
   const line = { borderColor: cv('grid') };
   return (
     <div className="min-w-[50rem]">
       <div
-        className="sticky top-0 z-10 grid h-[2.36rem] items-center border-y text-[0.68rem]"
-        style={{ gridTemplateColumns: COLS, background: cv('head'), color: cv('soft'), borderColor: cv('grid') }}
+        className="sticky top-0 z-10 grid h-[2.36rem] items-center border-y text-[0.6rem]"
+        style={{ gridTemplateColumns: cols, background: cv('head'), color: cv('soft'), borderColor: cv('grid') }}
       >
         <span className="truncate px-[0.9rem]">Client / company</span>
         <span className="truncate px-[0.5rem]">Contact</span>
         <span className="truncate px-[0.5rem]">Linked project</span>
-        <span className="truncate px-[0.5rem]">Owner</span>
+        {showOwner && <span className="truncate px-[0.5rem]">Owner</span>}
         <span className="truncate px-[0.5rem]">Relationship</span>
         <span className="truncate px-[0.5rem]">Value</span>
         <span className="truncate px-[0.5rem]">Next action</span>
@@ -860,25 +889,25 @@ function Directory({
             }}
             className="grid h-[5.76rem] cursor-pointer border-b transition-colors hover:bg-[var(--cl-head)]"
             style={{
-              gridTemplateColumns: COLS,
+              gridTemplateColumns: cols,
               ...line,
               ...(on ? { background: cv('pick'), boxShadow: `inset 0 0 0 1px ${cv('pick-line')}` } : null),
             }}
           >
-            <span className={cn(CELL, 'gap-[0.45rem] pl-[0.4rem]')} style={cell}>
+            <span className={cn(CELL, 'gap-[0.35rem] pl-[0.35rem]')} style={cell}>
               <input type="checkbox" aria-label={`Tick ${c.name}`} checked={ticked.has(c.id)} onChange={(e) => onTick(c.id, e.target.checked)} className={CHECK} style={checkStyle} />
               <Avatar id={c.id} name={c.name} size="row" />
               <span className="min-w-0">
-                <span className="block truncate text-[0.7rem] font-semibold" style={{ color: cv('ink') }}>
+                <span className="block truncate text-[0.6rem] font-semibold" style={{ color: cv('ink') }}>
                   {c.name}
                 </span>
-                <span className="line-clamp-2 text-[0.62rem] leading-[1.35]" style={{ color: cv('soft') }}>
+                <span className="line-clamp-3 text-[0.53rem] leading-[1.35]" style={{ color: cv('soft') }}>
                   {[c.company ?? c.primaryProjectName, c.city].filter(Boolean).join(', ') || '—'}
                 </span>
               </span>
             </span>
             <span className={cn(CELL, 'flex-col items-start justify-center gap-[0.45rem]')} style={cell}>
-              <span className="flex w-full min-w-0 items-center gap-[0.4rem] text-[0.65rem]" style={{ color: cv('ink') }}>
+              <span className="flex w-full min-w-0 items-center gap-[0.35rem] text-[0.58rem]" style={{ color: cv('ink') }}>
                 {c.preferredChannel === 'whatsapp' && c.phoneE164 ? (
                   <span style={{ color: cv('wa') }}>
                     <WhatsAppMark className="size-[1.05rem] shrink-0" />
@@ -888,58 +917,62 @@ function Directory({
                 )}
                 <span className="truncate">{phoneLabel(c.phoneE164)}</span>
               </span>
-              <span className="flex w-full min-w-0 items-center gap-[0.4rem] text-[0.65rem]" style={{ color: cv('soft') }}>
-                <Mail className="size-[1.05rem] shrink-0" aria-hidden="true" />
+              <span className="flex w-full min-w-0 items-center gap-[0.35rem] text-[0.52rem]" style={{ color: cv('soft') }}>
+                <Mail className="size-[0.95rem] shrink-0" aria-hidden="true" />
                 <span className="truncate" title={c.email ?? undefined}>
                   {c.email ?? '—'}
                 </span>
               </span>
             </span>
             <span className={CELL} style={cell}>
-              <span className="line-clamp-2 text-[0.72rem] leading-[1.35]" style={{ color: cv('ink') }} title={c.projectNames.join(', ')}>
+              {/* three lines: a project can be called "Demo — Product Enquiries
+                  [demo]" and the row is tall enough to say so. */}
+              <span className="line-clamp-4 text-[0.56rem] leading-[1.3]" style={{ color: cv('ink') }} title={c.projectNames.join(', ')}>
                 {c.primaryProjectName ?? '—'}
                 {c.projectNames.length > 1 && <span style={{ color: cv('soft') }}> +{c.projectNames.length - 1}</span>}
               </span>
             </span>
-            <span className={cn(CELL, 'gap-[0.5rem]')} style={cell}>
-              {c.ownerId && c.ownerName ? (
-                <>
-                  <Avatar id={c.ownerId} name={c.ownerName} size="xs" owner />
-                  <span className="line-clamp-2 break-words text-[0.72rem] leading-[1.35]" style={{ color: cv('ink') }}>
-                    {c.ownerName}
+            {showOwner && (
+              <span className={cn(CELL, 'gap-[0.5rem]')} style={cell}>
+                {c.ownerId && c.ownerName ? (
+                  <>
+                    <Avatar id={c.ownerId} name={c.ownerName} size="xs" owner />
+                    <span className="line-clamp-2 break-words text-[0.58rem] leading-[1.35]" style={{ color: cv('ink') }}>
+                      {c.ownerName}
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-[0.7rem]" style={{ color: cv('mute') }}>
+                    Nobody
                   </span>
-                </>
-              ) : (
-                <span className="text-[0.87rem]" style={{ color: cv('mute') }}>
-                  Nobody
-                </span>
-              )}
-            </span>
+                )}
+              </span>
+            )}
             <span className={CELL} style={cell}>
               <StatusChip c={c} nowMs={nowMs} wrap small />
             </span>
             <span className={cn(CELL, 'flex-col items-start justify-center')} style={cell}>
-              <span className="block max-w-full truncate text-[0.74rem] font-bold" style={{ color: cv('ink') }}>
+              <span className="block whitespace-nowrap text-[0.66rem] font-bold" style={{ color: cv('ink') }}>
                 {value.kind === 'none' ? '—' : money(value.amount)}
               </span>
               {value.kind === 'quoted' && (
-                <span className="text-[0.68rem]" style={{ color: cv('soft') }}>
+                <span className="text-[0.56rem]" style={{ color: cv('soft') }}>
                   quoted
                 </span>
               )}
             </span>
             <span className={cn(CELL, 'flex-col items-start justify-center')} style={cell}>
-              <span className="line-clamp-2 text-[0.71rem] leading-[1.4]" style={{ color: nextInk(next.tone) }}>
+              <span className="line-clamp-2 text-[0.58rem] leading-[1.4]" style={{ color: nextInk(next.tone) }}>
                 {next.text}
                 {next.when ? ' ·' : ''}
               </span>
               {next.when && (
-                <span className="block text-[0.71rem] leading-[1.4]" style={{ color: nextInk(next.tone) }}>
+                <span className="block text-[0.58rem] leading-[1.4]" style={{ color: nextInk(next.tone) }}>
                   {next.when}
                 </span>
               )}
             </span>
-            <span className={cn(CELL, 'justify-center gap-[0.3rem] px-[0.35rem]')}>
+            <span className={cn(CELL, 'justify-center gap-[0.25rem] px-[0.25rem]')}>
               <Square label={`Preview ${c.name}`} onClick={() => onSelect(c.id)} size="sm">
                 <Eye className="size-[1.15rem]" aria-hidden="true" />
               </Square>
@@ -968,6 +1001,7 @@ const RELATED: ReadonlyArray<{ key: keyof Pick<ClientRow, 'quotations' | 'proper
 function CardsView({
   rows,
   nowMs,
+  showOwner,
   selectedId,
   ticked,
   onSelect,
@@ -978,6 +1012,7 @@ function CardsView({
 }: {
   rows: readonly ClientRow[];
   nowMs: number;
+  showOwner: boolean;
   selectedId: string | null;
   ticked: ReadonlySet<string>;
   onSelect: (id: string) => void;
@@ -998,6 +1033,7 @@ function CardsView({
             key={c.id}
             c={c}
             nowMs={nowMs}
+            showOwner={showOwner}
             wide={wide}
             on={c.id === selectedId}
             ticked={ticked.has(c.id)}
@@ -1016,6 +1052,7 @@ function CardsView({
 function ClientCard({
   c,
   nowMs,
+  showOwner,
   wide,
   on,
   ticked,
@@ -1027,6 +1064,7 @@ function ClientCard({
 }: {
   c: ClientRow;
   nowMs: number;
+  showOwner: boolean;
   wide: boolean;
   on: boolean;
   ticked: boolean;
@@ -1038,7 +1076,7 @@ function ClientCard({
 }) {
   const next = nextLine(c, nowMs);
   const value = valueOf(c);
-  const counts = RELATED.filter((r) => c[r.key] > 0).slice(0, wide ? 2 : 3);
+  const counts = RELATED.filter((r) => c[r.key] > 0).slice(0, wide ? 3 : 2);
   const divider = { borderColor: cv('grid') };
   /* ⚠️ `@container` so the wide card's halves follow ITS width, not the
      window's — at 1584px it is ~850px wide, at 1280px it is not. */
@@ -1067,15 +1105,17 @@ function ClientCard({
           <input type="checkbox" aria-label={`Tick ${c.name}`} checked={ticked} onChange={(e) => onTick(e.target.checked)} className={cn(CHECK, 'mt-[0.2rem]')} style={checkStyle} />
           <Avatar id={c.id} name={c.name} size="card" />
           <span className="min-w-0 flex-1 pt-[0.1rem]">
-            <span className="block truncate text-[0.88rem] font-semibold" style={{ color: cv('ink') }}>
-              {c.name}
+            <span className="flex items-start gap-[0.5rem]">
+              <span className="min-w-0 flex-1 truncate text-[0.88rem] font-semibold" style={{ color: cv('ink') }}>
+                {c.name}
+              </span>
+              <StatusChip c={c} nowMs={nowMs} small />
+              <Kebab items={menu} label={`More for ${c.name}`} size="sm" />
             </span>
-            <span className="block truncate text-[0.8rem]" style={{ color: cv('soft') }}>
+            <span className="block truncate text-[0.78rem]" style={{ color: cv('soft') }}>
               {[c.company ?? c.primaryProjectName, c.city].filter(Boolean).join(', ') || '—'}
             </span>
           </span>
-          <StatusChip c={c} nowMs={nowMs} small />
-          <Kebab items={menu} label={`More for ${c.name}`} size="sm" />
         </div>
         <div
           className="flex items-center gap-[0.5rem] pb-[0.65rem] pl-[5.1rem] pr-[0.85rem] pt-[0.35rem] @min-[44rem]:border-l @min-[44rem]:py-[0.7rem] @min-[44rem]:pl-[0.85rem]"
@@ -1099,26 +1139,28 @@ function ClientCard({
         </div>
       </div>
 
-      {/* Owner | Value */}
-      <div className="grid grid-cols-2 border-t text-[0.84rem]" style={divider}>
-        <span className="flex min-w-0 items-center gap-[0.6rem] px-[0.85rem] py-[0.5rem]">
-          <span className="w-[3.4rem] shrink-0" style={{ color: cv('soft') }}>
-            Owner
+      {/* Owner | Value — and Value alone when every client here is the viewer's */}
+      <div className={cn('grid border-t text-[0.84rem]', showOwner && 'grid-cols-2')} style={divider}>
+        {showOwner && (
+          <span className="flex min-w-0 items-center gap-[0.6rem] px-[0.85rem] py-[0.5rem]">
+            <span className="w-[3.4rem] shrink-0" style={{ color: cv('soft') }}>
+              Owner
+            </span>
+            {c.ownerId && c.ownerName ? (
+              <>
+                <Avatar id={c.ownerId} name={c.ownerName} size="xs" owner />
+                <span className="truncate" style={{ color: cv('ink') }}>
+                  {c.ownerName}
+                </span>
+              </>
+            ) : (
+              <span style={{ color: cv('mute') }}>Nobody</span>
+            )}
           </span>
-          {c.ownerId && c.ownerName ? (
-            <>
-              <Avatar id={c.ownerId} name={c.ownerName} size="xs" owner />
-              <span className="truncate" style={{ color: cv('ink') }}>
-                {c.ownerName}
-              </span>
-            </>
-          ) : (
-            <span style={{ color: cv('mute') }}>Nobody</span>
-          )}
-        </span>
-        <span className="flex min-w-0 items-center justify-between gap-2 border-l px-[0.85rem] py-[0.5rem]" style={divider}>
+        )}
+        <span className={cn('flex min-w-0 items-center justify-between gap-2 px-[0.85rem] py-[0.5rem]', showOwner && 'border-l')} style={divider}>
           <span style={{ color: cv('soft') }}>Value</span>
-          <span className="truncate text-[0.9rem] font-bold" style={{ color: cv('ink') }}>
+          <span className="whitespace-nowrap text-[0.9rem] font-bold" style={{ color: cv('ink') }}>
             {value.kind === 'none' ? '—' : `${money(value.amount)}${value.kind === 'quoted' ? ' quoted' : ''}`}
           </span>
         </span>
@@ -1152,10 +1194,10 @@ function ClientCard({
               >
                 <IconTile icon={r.icon} bg={cv('tile')} ink={cv('tile-ink')} size="sm" />
                 <span className="min-w-0">
-                  <span className="block truncate text-[0.74rem] leading-tight" style={{ color: cv('soft') }}>
+                  <span className="block truncate text-[0.7rem] leading-tight" style={{ color: cv('soft') }}>
                     {r.label}
                   </span>
-                  <span className="block text-[0.84rem] font-semibold leading-tight" style={{ color: cv('ink') }}>
+                  <span className="block text-[0.8rem] font-semibold leading-tight" style={{ color: cv('ink') }}>
                     {c[r.key]}
                   </span>
                 </span>
