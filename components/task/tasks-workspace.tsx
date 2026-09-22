@@ -14,6 +14,7 @@ import {
   Loader2,
   RotateCw,
   User,
+  UserPlus,
 } from 'lucide-react';
 
 import { changeStatusAction, type ActionResult } from '@/app/actions/tasks';
@@ -46,6 +47,7 @@ import {
 } from '@/lib/domain/constants';
 import { evaluateTransition, transitionNeedsReason } from '@/lib/domain/task-machine';
 import { PURGE_IS_AVAILABLE } from '@/lib/capabilities';
+import { matchesRaisedBy, RAISED_BY_OPTIONS, type RaisedBy } from '@/lib/view/raised-by';
 import type { TaskView } from '@/lib/view/task-view';
 import { cn } from '@/lib/utils';
 
@@ -54,6 +56,8 @@ import { TaskDialog } from './task-dialog';
 import { TaskBoard } from './task-board';
 import { TaskDetail } from './task-detail';
 import { TaskList, groupTasks, type GroupBy } from './task-list';
+
+
 
 /* ============================================================================
  * TASKS WORKSPACE — the interactive shell around both views
@@ -183,6 +187,22 @@ export function TasksWorkspace({
      understandable that this all task and any new task created here is assigned
      to that project whose project is clicked."* That is this. */
   const [projectFilter, setProjectFilter] = React.useState<string>(initialProject ?? 'all');
+  /* ── ⚠️ WHO ASKED FOR IT, WHICH NOTHING ANSWERED ─────────────────────────
+     Owner, 2026-09-22: *"there is no option for me to see all the assigned
+     tasks … All Assigned Tasks, Any Specific Assigned Task, or Self-Created
+     Tasks. … If I say Assigned Tasks, show a further category: All Assigned
+     Tasks or Some Specific Person's Assigned Tasks."*
+
+     The toolbar answered *who does it* (Assignee) and never *who asked for it*,
+     although every row already carries `createdById`. So this is a filter over
+     rows already on the page — instant, no request.
+
+     ⚠️ THE "FURTHER CATEGORY" IS THE ASSIGNEE CONTROL, NOT A SECOND MENU.
+     "Assigned by me → Kashif" is this set to `by_me` and Assignee set to Kashif.
+     Nesting a second person-picker inside this one would put two lists of the
+     same people on the same toolbar, and the owner has asked more than once for
+     fewer places answering one question. */
+  const [raisedBy, setRaisedBy] = React.useState<RaisedBy>('all');
   /* As with `arrivedFor`: the filter above is changeable, this is not. It is
      what locks the project on the create form, so a task made from inside a
      project cannot land in a different one. */
@@ -395,6 +415,10 @@ export function TasksWorkspace({
         if (statusFilter !== 'all' && t.status !== statusFilter) return false;
         if (assignee !== 'all' && (t.assigneeId ?? 'unassigned') !== assignee) return false;
         if (projectFilter !== 'all' && t.projectId !== projectFilter) return false;
+        /* One rule, in lib/view/raised-by.ts, with a test per case. The three
+           options are each other's near-misses and a second copy here is how
+           they drift apart. */
+        if (!matchesRaisedBy(t, raisedBy, currentUser.id)) return false;
         /* Either end may be empty and means unbounded there. Undated work is
            kept whatever the range — it has no date to be outside one.
 
@@ -424,7 +448,7 @@ export function TasksWorkspace({
         }
         return true;
       }),
-    [tasks, priority, statusFilter, assignee, projectFilter, hideOldClosed, search, dueFrom, dueTo],
+    [tasks, priority, statusFilter, assignee, projectFilter, raisedBy, currentUser.id, hideOldClosed, search, dueFrom, dueTo],
   );
 
   /* What the toggle is currently keeping off the board, so the label can say a
@@ -628,6 +652,24 @@ export function TasksWorkspace({
             className="w-[11rem]"
           />
         </ToolbarGroup>
+
+        {/* ⚠️ COORDINATOR AND ABOVE ONLY. A Member assigns to nobody
+            (`canAssignTo` refuses member → member since 2026-09-03), so "what
+            did I hand out" is always empty for them — a control that can only
+            ever answer "nothing" is worse than no control. */}
+        {currentUser.role !== 'member' && (
+          <ToolbarGroup>
+            <ToolbarLabel>Raised by</ToolbarLabel>
+            <Select
+              label="Filter by who raised it"
+              icon={UserPlus}
+              value={raisedBy}
+              onChange={(event) => setRaisedBy(event.target.value as RaisedBy)}
+              options={[...RAISED_BY_OPTIONS]}
+              className="w-[11rem]"
+            />
+          </ToolbarGroup>
+        )}
 
         {/* ⚠️ There was no way to filter by project on the task board at all —
             only to search for its name as text. Owner, 2026-08-22: *"there is no

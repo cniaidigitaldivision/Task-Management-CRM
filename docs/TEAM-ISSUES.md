@@ -95,8 +95,36 @@ ones** — 1,141 rows, of which **957 are done or cancelled and 793 are hidden b
 the browser before anybody sees them**. Nothing is paged or virtualised, and the
 date filter is a full server round trip.
 
-**Fix:** `TASKS-FIX-PLAN.md` §B. Bar to hold: under **150 KB**, interactive in
-under **1.5 s**, every filter answering in its own frame.
+**⚠️ AND THAT DIAGNOSIS WAS WRONG.** Measured again on 2026-09-23 before
+changing anything: the default board reads **62 rows, not 1,141** — the earlier
+count used a due window the page does not use — and its 403 kB of HTML is
+**brotli-compressed to about 30 kB on the wire.** The payload was never the
+problem, and optimising it would have been a wasted week.
+
+**The real cause**, from the query plan: `app.task_is_visible(id)` takes the
+row's own column, so Postgres cannot hoist it — **once per row**, each call a
+sub-select on `tasks` plus three more function calls. Law 5 in CLAUDE.md.
+
+**Fixed · deployed 2026-09-23 (migration 252).** The session-wide parts became
+scalar subqueries, so they are planned as InitPlans and computed once:
+
+| | Before | After |
+|---|--:|--:|
+| The predicate over every task | **841 ms** | **2.5 ms** |
+| `/tasks` (production, from Karachi) | 3,391 ms | **718 ms** |
+| `/my-work` | 3,485 ms | **721 ms** |
+| `/profile` | 3,136 ms | **635 ms** |
+| `/tasks?range=all` | 4,222 ms | **1,059 ms** |
+
+Not one row moved: the migration walks all 16 active people and compares the old
+predicate with the new **row by row**, refusing to commit on a single difference.
+
+**What is left, and why it is not being chased:** the remaining ~700 ms measured
+from Karachi is mostly the HTTPS round trip to Singapore plus React rendering.
+The shell's own queries were measured too — they look like ~480 ms each from
+here, but that is this laptop's latency to the database, which the production
+server (same region) does not pay. Chasing it without a production-side
+measurement would be guessing, which is exactly what went wrong the first time.
 
 ---
 
@@ -110,9 +138,22 @@ under **1.5 s**, every filter answering in its own frame.
 | **Priority** | **P1** |
 | **Status** | cause found |
 
-The toolbar answers *who does it* (Assignee) but never *who asked for it*,
-although every row already carries the person who raised it — so the filter can
-be instant. Design in `TASKS-FIX-PLAN.md` §C.
+The toolbar answered *who does it* (Assignee) and never *who asked for it*.
+
+**Fixed · deployed 2026-09-23.** A **Raised by** control beside Assignee:
+*Anyone · Assigned by me · Created by me · Assigned to me*. Coordinator and above
+only — a Member assigns to nobody, so it could only ever answer "nothing" for
+them.
+
+The owner's "further category" is the **Assignee** control, not a second menu:
+*Assigned by me* + *Abdullah* is "what have I given Abdullah". Verified on the
+real screen as Kashif: 500 → 98 → 71 → 3 cards across the options, each in
+20–127 ms with no request, and *Assigned by me → Abdullah* = **43**, matching the
+database exactly. Absent for Najamullah, as intended.
+
+⚠️ The three narrowing options **partition** a person's work — no overlap, no
+gap — which a test asserts: `by_me` deliberately excludes work raised for
+oneself, or a manager checking on the team would be reading their own list back.
 
 ---
 
