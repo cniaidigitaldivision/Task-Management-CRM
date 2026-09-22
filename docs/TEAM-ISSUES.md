@@ -71,6 +71,50 @@ and what the system actually did.
 
 > Full working of the task system, and how each fact below was measured:
 > **`docs/TASK-MANAGEMENT-STUDY.md`**.
+> Every flaw, its cause, its fix and the order: **`docs/TASKS-FIX-PLAN.md`**
+> — waiting on the owner's go-ahead and their answers to its last three
+> questions.
+
+### T-05 · The task page is heavy, and a filter change is heavier — P0
+| | |
+|---|---|
+| **Reported** | 2026-09-22, by the owner |
+| **In their words** | *"that page is very heavy … taking a lot of time to render … I want this type of fast page with filter changing showing an instant change. Don't make people wait."* |
+| **Where** | /tasks — both board and list |
+| **Who it hits** | everyone; worst for admins and coordinators, who see every row |
+| **Priority** | **P0** |
+| **Status** | reproduced · cause found |
+
+**Measured on production, in a real browser, as the owner:** `/tasks` ships
+**458 KB** of HTML and is interactive after **5.5 s**; `?range=all` ships
+**1.65 MB** and 9,345 DOM nodes. The server answers in **478 ms** — the database
+is not the problem.
+
+**Cause:** the page reads every task due on or before today **including closed
+ones** — 1,141 rows, of which **957 are done or cancelled and 793 are hidden by
+the browser before anybody sees them**. Nothing is paged or virtualised, and the
+date filter is a full server round trip.
+
+**Fix:** `TASKS-FIX-PLAN.md` §B. Bar to hold: under **150 KB**, interactive in
+under **1.5 s**, every filter answering in its own frame.
+
+---
+
+### T-06 · No "what did I assign?" filter — P1
+| | |
+|---|---|
+| **Reported** | 2026-09-22, by the owner |
+| **In their words** | *"there is no option for me to see all the assigned tasks … All Assigned Tasks, Any Specific Assigned Task, or Self-Created Tasks."* |
+| **Where** | /tasks toolbar |
+| **Who it hits** | Super Admin, Admin, Team Coordinator |
+| **Priority** | **P1** |
+| **Status** | cause found |
+
+The toolbar answers *who does it* (Assignee) but never *who asked for it*,
+although every row already carries the person who raised it — so the filter can
+be instant. Design in `TASKS-FIX-PLAN.md` §C.
+
+---
 
 ### T-01 · A repeating task cannot be stopped
 | | |
