@@ -1,11 +1,17 @@
 # The CRM — Campaign & Lead Desk
 
-**If this session closed and you are picking it up cold, read `00-STATE-AND-TRACKER.md` first.**
-It says what is done, what is next, and what is blocked. Everything else here is
-reference.
+**If this session closed and you are picking it up cold, read `19-HANDOVER.md` first.**
+It is the ten-minute briefing — what exists, what is proved, what is left, how to
+check anything, and the traps. `00-STATE-AND-TRACKER.md` is the history behind
+it. Everything else here is reference.
+
+⏸️ **2026-09-22 — the CRM is paused on the owner's instruction.** The active work
+is `docs/TEAM-ISSUES.md`.
 
 | File | What it holds |
 |---|---|
+| `19-HANDOVER.md` | ⭐ **The cold start.** Read first, every time. |
+| `20-BUILDING-A-SCREEN-FROM-A-DESIGN.md` | ⭐ **How to build a screen from one of the owner's images** — sampling colours, solving type sizes, the 0.9 zoom, proving nothing is cut off, and the things the owner has already had to say once. |
 | `00-STATE-AND-TRACKER.md` | Live status. The one file that changes every session. |
 | `01-VERIFIED-FACTS.md` | What was proved against the real Meta API, with dates. Not assumptions. |
 | `02-FEATURE-MAP.md` | Every feature the owner named, plus researched ones, sorted by whether they earn their place. |

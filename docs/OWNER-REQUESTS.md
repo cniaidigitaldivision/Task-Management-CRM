@@ -9,18 +9,24 @@
 ## ▶️ PASTE THIS TO RESUME (any account, any session)
 
 ```
-Resume the CNI CRM project.
+Resume the CNI Taskly project.
 
-Read these files first, in this order:
-  1. docs/SESSION-STATE.md                     (where we stopped)
-  2. docs/OWNER-REQUESTS.md                    (my standing requests, verbatim)
-  3. docs/PROGRESS-TRACKER.md                  (done vs remaining)
-  4. docs/19-MASTER-SPECIFICATION-REGISTRY.md  (settles any doc conflict)
-  5. docs/20-IMPLEMENTATION-CONTRACTS.md §9    (build order)
+⚠️ 2026-09-22 — THE CRM IS PAUSED. The team's live problems with the system come
+first. Read, in this order:
 
-Then continue from the "NEXT ACTION" in SESSION-STATE.md §3.
-Do not restart or re-plan anything already marked complete.
-Honour every ✅ and 🔴 item in docs/OWNER-REQUESTS.md.
+  1. docs/crm/19-HANDOVER.md        ⭐ the ten-minute briefing: what exists, what
+                                      is proved, what is left, the traps
+  2. docs/TEAM-ISSUES.md            ⭐ THE ACTIVE WORK — the triage board
+  3. CLAUDE.md (repo root)          Rule Zero: the interface answers immediately
+  4. docs/OWNER-REQUESTS.md         my standing requests, in my own words
+  5. docs/crm/00-STATE-AND-TRACKER.md   the log — newest entry at the top
+
+Only when I say I am coming back to the CRM:
+  6. docs/crm/20-BUILDING-A-SCREEN-FROM-A-DESIGN.md  before ANY UI work
+  7. docs/crm/14-SALES-WORKSPACE-PHASES.md           the build order
+
+Do not restart or re-plan anything already marked done. Update
+docs/crm/00-STATE-AND-TRACKER.md every session without asking.
 ```
 
 ---
@@ -156,3 +162,37 @@ The owner's instruction, in their words:
 | O3 | **Create the Resend account** | Step 5's only external dependency. Sandbox sender `onboarding@resend.dev` needs no DNS — but only delivers to the Resend account's own address, so one person can walk the flow and the team cannot be onboarded until a real domain is verified. |
 | O4 | ~~Owner has not visually reviewed most of the UI~~ | **Session 11: reviewed in Chrome.** Login, dashboard, tasks board, task drawer, the rail hover-expand pushing the content, light and dark mode all verified by eye at 1600px. Two gaps remain: **(a)** narrow-viewport layout is unverified — Chrome on Windows will not resize below ~500px, so 375px is still untested by eye, and **(b)** HTML5 drag-and-drop cannot be driven by synthetic mouse events, so the drag was not exercised in automation. The status dropdown in the task drawer takes the same code path and was verified end to end. |
 | O5 | **Narrow-viewport pass** | Every layout uses responsive grids and the mobile drawer is -gated, but nobody has looked at it on a phone. Worth ten minutes on a real device before the team uses it. |
+
+---
+
+## 🗓️ 2026-09-22 — THE CRM SESSIONS (follow-ups, AI Knowledge, clients)
+
+Recorded verbatim, newest last. Every one of these is **done and deployed**
+unless it says otherwise. The reasoning and the measurements are in
+`docs/crm/00-STATE-AND-TRACKER.md`; the method is in
+`docs/crm/20-BUILDING-A-SCREEN-FROM-A-DESIGN.md`.
+
+| # | The owner's words | What was done | Status |
+|:--:|---|---|:--:|
+| S1 | *"The client is just asking to confirm the appointment time … any decision-making, then it should be handed over to the salesperson. Otherwise it should engage the client again."* | The agent answers "when is my appointment"; it hands over only decisions, changes and commitments | ✅ |
+| S2 | *"These are not tabs. I don't want them colorful because they are not clickable … white color, and these colored icons are fine."* | Statistic cards are white and still; colour lives in the icon. Applied on Follow-ups **and** Clients | ✅ |
+| S3 | *"They are highlighted and they are underlined."* | A selected tab carries weight, colour **and** a bar — set inline, because the class lost to the global border colour (measured) | ✅ |
+| S4 | *"The background overlay is not on the whole screen … the modal should be in the center."* | Overlays are portalled to `document.body`; a transformed ancestor was trapping `position: fixed` | ✅ |
+| S5 | *"When I click on 'Open this lead,' it shouldn't bring me to that lead page … unless it is an open conversation."* | Details open as a modal in place. Only a conversation navigates | ✅ |
+| S6 | *"It should be instant for everything."* | Rule Zero. Opening, closing, tabs, views and page turns touch no network | ✅ |
+| S7 | *"In the completed follow-ups, display 10 and add pagination … all filters in one row … custom range."* | Done, plus the date-range popover moved so it is never clipped | ✅ |
+| S8 | *"I want the exact same UI, same colors, same design … but wired up logically … isolated."* (AI Knowledge) | The page built to the design, on real data, with no invented figures | ✅ |
+| S9 | *"Knowledge health … according to the project selected."* + *"let him upload a source or delete a source … I want my agent to respond with the latest information."* | Per-project knowledge; delete a source takes its answers with it (migration 248, admin-only); multi-file upload | ✅ |
+| S10 | *"Test agent: a wider drawer with conversation preview, selected project, answer source and handoff result."* | Built | ✅ |
+| S11 | *"Here is the proposed Taskly Clients page … create this page accordingly … isolated and will not break any other working thing."* | The Clients page, on the client model that already existed (migration 249) | ✅ |
+| S12 | *"The client is basically those persons who are … buying from us."* | Confirmed and written into the model: a client is a relationship, not every lead | ✅ |
+| S13 | *"Don't show the export option in the import client … export would be available in Excel and PDF … in the PDF the proper header … a proper table."* | Import offers only import + blank template; Export is its own control with Excel · CSV · PDF; the PDF carries the invoice letterhead | ✅ |
+| S14 | *"There is a WhatsApp button. You are showing just one button."* | Every row and card draws WhatsApp, call and email — disabled with a reason when there is no number or address | ✅ |
+| S15 | *"If I'm saying that I need the exact same UI, it means you have to put each color, each icon, each styling, and everything the same … Why do I have to tell you again and again?"* | The palette is now **sampled from the image**, the type **solved from ink widths**, the grid **read from the rules in the PNG** — and the method is written down so it is not asked again | ✅ |
+| S16 | *"Some bold boards have blurred text … like it is blasting."* | The real cause: the dev server could not reach Google Fonts and drew **Arial** while production shipped Inter. All three faces are self-hosted now | ✅ |
+| S17 | *"Add some dummy data … emails, numbers and everything could be visible. I have quotations and I have invoices."* | 12 demo clients covering every status, with quotations, bookings, invoices, appointments and follow-ups — on the demo project, and proved unable to message anybody | ✅ |
+| S18 | *"PKR 85.00 … is not properly visible … make them small enough that a full quotation value, a full phone number, and a full email should be kept visible."* | Columns re-budgeted against the longest real strings; checked on every client, both views, both roles — nothing cut | ✅ |
+| S19 | *"It's Sarah's dashboard … the owner column you can exclude … in the salespersons' or executive sales role maybe this column will be valuable."* | The Owner column, its filter and "Assigned to" appear only when more than one person owns what is listed | ✅ |
+| S20 | *"Later on it should be dynamic data … whatever the project is, those projects will automatically be added to a filter. Is that already doing that?"* | It already was — project, owner and city are built from the rows. Now proved by a test | ✅ |
+| S21 | *"Document each and every thing … next time when I come back … he should know exactly what things are, how to prioritize them."* | `docs/crm/19-HANDOVER.md`, `docs/crm/20-BUILDING-A-SCREEN-FROM-A-DESIGN.md`, `docs/TEAM-ISSUES.md`, and these resume prompts | ✅ |
+| S22 | *"Right now my team and I are facing a lot of issues with the system so prioritize them … then I will come back to this CRM."* | **The CRM is paused.** The active board is `docs/TEAM-ISSUES.md` | ⏸️ active |

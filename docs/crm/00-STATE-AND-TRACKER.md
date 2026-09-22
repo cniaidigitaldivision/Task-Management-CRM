@@ -1,6 +1,14 @@
 # State & tracker
 
-**Read this first.** It is the only file here that changes every session.
+**This is the log.** It changes every session, newest entry at the top.
+
+> ⭐ **Picking this up cold? Read `19-HANDOVER.md` first** — it is the ten-minute
+> briefing: what exists, what is proved, what is left, how to check anything, and
+> which traps have already cost a day each. This file is the history behind it.
+>
+> ⏸️ **The CRM is paused (2026-09-22, the owner's instruction).** The active work
+> is `docs/TEAM-ISSUES.md` — the live problems the team is hitting. No new CRM
+> work until the owner says they are coming back to it.
 
 | | |
 |---|---|
@@ -8,8 +16,65 @@
 | **Route** | `/leads` · `/my-leads` · `/conversations` · `/appointments` · `/follow-ups` · `/todos` · `/knowledge` · `/clients` · `/lead-reports` · `/lead-overview` · nav: Growth → Campaign & Lead Desk |
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
+| **Deployed** | Every push to `main` deploys to Vercel (`sin1`) → https://taskly.aidigitaldivision.com. Head: **`14da113`**, deploy **success**. Check one with `gh api repos/cniaidigitaldivision/Task-Management-CRM/commits/<sha>/status` |
+| **Green at head** | 149 test files · 3778 tests · typecheck · lint · `scripts/smoke.mjs` |
 | **Last updated** | **2026-09-22** |
 | **Last migration applied anywhere** | **249** (applied 2026-09-22; **249 clients become relationships**; 248 deleting a source takes its answers). CRM next: **250.** |
+
+---
+
+## 🧭 2026-09-22 — EVERYTHING WRITTEN DOWN, AND THE CRM PAUSED
+
+Owner: *"Document each and every thing … Next time when I come back I instruct
+the session agent: go and read what we were doing, how much we have done, what is
+left, and everything. He should know exactly what things are, how to prioritize
+them, what things to keep in mind … He should know how to work next."* And:
+*"Right now my team and I are facing a lot of issues with the system so
+prioritize them … then I will come back to this CRM."*
+
+### Three files now carry the whole picture
+
+| File | What it is |
+|---|---|
+| **`19-HANDOVER.md`** | ⭐ The cold start — the ten-minute briefing. What the product is, the rules that outrank everything, every page and its state, the last four sessions commit by commit, the demo data, how to check anything, what is left, the open questions, and the eleven traps that have each cost a day |
+| **`20-BUILDING-A-SCREEN-FROM-A-DESIGN.md`** | ⭐ The method, written because the owner had to ask twice. Sampling colours out of the PNG, solving type sizes from ink widths, the 0.9 zoom arithmetic, `minmax(0,1fr)`, proving nothing is clipped on every row — and a table of the things the owner has already said once |
+| **`docs/TEAM-ISSUES.md`** | ⭐ The live triage board — **the active work**. Intake shape, a P0–P3 scale, where to look first by symptom, and the two rules that stop wasted work: reproduce before fixing, and prove the fix with the thing that failed |
+
+The resume prompts in `docs/SESSION-STATE.md` and `docs/OWNER-REQUESTS.md` now
+point at those three, in that order. `05-OPEN-QUESTIONS.md` gained Q20 (may a
+salesperson approve a knowledge answer), Q21 (is "Sales consultant" a role or a
+job title), Q22 (the PDF letterhead, and the Urdu limitation).
+`OWNER-REQUESTS.md` gained all 22 of this month's CRM requests, verbatim, each
+with its status.
+
+### The deploy log for this stretch
+
+Every one pushed to `main`, deployed to Vercel `sin1`, status checked.
+
+| Commit | What shipped |
+|---|---|
+| `4ce0638` | The agent stops escalating simple questions; the screen sees a hand-over |
+| `5328ba2` | The eight-message limit is gone — the agent keeps engaging |
+| `ef5bbb5` | The Follow-ups page: what is owed now, and what will be sent |
+| `dfbecab` | Asking *when* an appointment is, is not asking to change it |
+| `8ade26a` | Still cards, drawn tabs, follow-up conditions the sender obeys |
+| `3e38023` | Nine things the owner found on Follow-ups, each measured first |
+| `4b57399` | The date range opens where it can be seen |
+| `8a83047` | AI Knowledge — the owner's design, and not one invented number |
+| `c434dc0` | AI Knowledge: a policy that works, per-project knowledge, delete, test drawer |
+| `201a4b8` | Clients — the owner's design, on the model that was already there (249) |
+| `db0c12c` | Clients 2nd pass: the design read out of the PNG; Excel · CSV · PDF; self-hosted fonts |
+| `14da113` | Clients 3rd pass: nothing cut off; the Owner column earns its place |
+
+**Green at the head commit:** 149 test files · 3778 tests · typecheck · lint ·
+`scripts/smoke.mjs` · both deploys verified `success`.
+
+### ⏸️ And the CRM stops here, deliberately
+
+No new CRM work until the owner says they are coming back to it. When they do,
+`19-HANDOVER.md` §6 has the order: the **Invoices page** first (the owner has
+already named it), then the three open questions, then phase F of
+`14-SALES-WORKSPACE-PHASES.md`.
 
 ---
 

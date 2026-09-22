@@ -269,3 +269,66 @@ for them to, not because a feature needs them.
 Letting the AI read WhatsApp *conversations* (Tier C) sends far more than a
 name: what somebody can afford, their family situation, why they are moving.
 Ask that separately when it arrives. See `07-AI-PLAN.md`.
+
+---
+
+## Raised by the Clients and AI Knowledge pages — 2026-09-22
+
+These are live. Each one changes code, and none of them is a preference.
+
+### Q20 · May a salesperson approve an AI Knowledge answer?
+
+**Today they can.** `crm_knowledge_update` is `crm_is_open_to_caller`, so Sarah
+approved all 28 answers herself.
+
+An approved answer is what the agent says to a client **without a person seeing
+it first**. That is a publishing decision, and everywhere else in the CRM the
+publishing decisions belong to the manager: handing out leads, approving a
+discount, setting the agent's policy.
+
+- **(a)** Leave it — the sales team owns what the agent knows about their own
+  project, and they are the ones who hear the questions.
+- **(b)** Approving becomes manager-only; a salesperson may still *draft* an
+  answer and upload a source.
+
+*Changes:* one policy, and an "awaiting approval" state on the Knowledge page.
+
+**Recommendation: (b)**, matching every other publishing decision — but this is
+the owner's call about how much they trust the desk, not a technical one.
+
+---
+
+### Q21 · Is "Sales consultant" a real role, or a job title?
+
+It does not exist in the system. The database stores **app roles**
+(`super_admin`, `admin`, `member`) and a **department role** (`manager` /
+`member`); "Sales Consultant" appears only as free text in `users.role_title`
+and on a mock-up.
+
+- **(a)** A job title. Nothing to build.
+- **(b)** A real role between manager and salesperson — then say what it may do
+  that a salesperson may not (see several colleagues' clients? approve a
+  discount? reassign?).
+
+*Changes:* if (b), a department role, its policies, and the Owner column's rule
+on the Clients page (which today appears exactly when more than one person owns
+what is listed — so a consultant seeing a team's clients gets it automatically).
+
+---
+
+### Q22 · The PDF letterhead
+
+The client-directory PDF uses the **existing invoice letterhead** — the dark
+band, the gold rule, the logo, and the company name, address and contact from
+`system_settings → invoice_company`. The owner offered to supply a header file.
+
+- **(a)** Keep it. Every document the company sends then looks like one company,
+  and changing it later is a settings edit rather than code.
+- **(b)** A specific image — then it is a one-off asset for this report.
+
+**Recommendation: (a).**
+
+⚠️ **Whichever is chosen: Urdu script cannot be drawn by the standard PDF fonts.**
+A name written in Urdu becomes dashes in the PDF (the CSV and Excel exports keep
+it exactly). Fixing that means embedding a Unicode font with fontkit — worth
+doing only if somebody actually needs Urdu on a printed report.

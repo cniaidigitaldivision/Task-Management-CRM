@@ -9,28 +9,24 @@
 ## 1. ▶️ RESUME PROMPT — copy and paste this into a new session
 
 ```
-Resume the CNI CRM project.
+Resume the CNI Taskly project.
 
-Read these files first, in this order:
-  1. docs/SESSION-STATE.md §3 "Session 27"     (where we stopped — READ THIS ONE FIRST)
-  1a. docs/UI-REDESIGN-PLAN.md §3              (the current work — steps 1-9 done, 10 and 11 remain)
-  1b. docs/BUILD-PLAN.md                       (the 8-step checklist)
-  2. docs/OWNER-REQUESTS.md                    (my standing requests, verbatim — note R4a)
-  3. docs/PROGRESS-TRACKER.md                  (done vs remaining)
-  4. docs/19-MASTER-SPECIFICATION-REGISTRY.md  (settles any doc conflict)
-  5. docs/20-IMPLEMENTATION-CONTRACTS.md §9    (build order)
+⚠️ 2026-09-22 — THE CRM IS PAUSED. The team's live problems with the system come
+first. Read, in this order:
 
-Then continue from the "NEXT ACTION" in SESSION-STATE.md §3.
-Do not restart or re-plan anything already marked complete.
-Honour every ✅ and 🔴 item in docs/OWNER-REQUESTS.md.
+  1. docs/crm/19-HANDOVER.md        ⭐ the ten-minute briefing: what exists, what
+                                      is proved, what is left, the traps
+  2. docs/TEAM-ISSUES.md            ⭐ THE ACTIVE WORK — the triage board
+  3. CLAUDE.md (repo root)          Rule Zero: the interface answers immediately
+  4. docs/OWNER-REQUESTS.md         my standing requests, in my own words
+  5. docs/crm/00-STATE-AND-TRACKER.md   the log — newest entry at the top
 
-⚠️ The infrastructure moved on 2026-08-14 (Supabase, Vercel and GitHub all
-changed). Any entry in SESSION-STATE.md below "Session 26" describes the OLD
-setup. Session 26 wins wherever they disagree.
+Only when I say I am coming back to the CRM:
+  6. docs/crm/20-BUILDING-A-SCREEN-FROM-A-DESIGN.md  before ANY UI work
+  7. docs/crm/14-SALES-WORKSPACE-PHASES.md           the build order
 
-⚠️ Google Drive is OAuth, not a service account (changed 2026-08-16, Session 27).
-Any doc mentioning GOOGLE_SERVICE_ACCOUNT_JSON is out of date — see
-docs/GOOGLE-DRIVE-SETUP.md, which explains why the first design could not work.
+Do not restart or re-plan anything already marked done. Update
+docs/crm/00-STATE-AND-TRACKER.md every session without asking.
 ```
 
 That's all you ever need to type. Everything else is recorded in the files.
