@@ -115,6 +115,52 @@ export function isKnowledgeGap(run: RunLike): boolean {
   return IS_A_GAP.some((re) => re.test(why));
 }
 
+/* ── What THIS project is about ──────────────────────────────────────────── */
+
+/**
+ * The products actually in play for one project.
+ *
+ * ⚠️ NOT THE GLOBAL FOUR. Owner, 2026-09-22: *"I am watching that Chitral
+ * Royal Homes is still showing the knowledge health on the basis of Taskly CRM
+ * ERP. Each knowledge should be according to the project."* Chitral sells
+ * plots: it has no software product, no knowledge and no sources, and four
+ * bars about Taskly and ERP describe somebody else's business.
+ *
+ * A product counts as in play when the project says it sells it, or when one of
+ * its own answers, sources or conversations is already filed under it. An empty
+ * answer is the truthful one for a project that sells one thing.
+ */
+export function projectProducts(input: {
+  sells?: Exclude<ProductKey, 'any'> | null;
+  entries?: readonly EntryLike[];
+  documents?: readonly DocumentLike[];
+  runs?: readonly RunLike[];
+}): Array<Exclude<ProductKey, 'any'>> {
+  const seen = new Set<Exclude<ProductKey, 'any'>>();
+  if (input.sells) seen.add(input.sells);
+  for (const e of input.entries ?? []) if (e.product !== 'any') seen.add(e.product);
+  for (const d of input.documents ?? []) if (d.product !== 'any') seen.add(d.product);
+  for (const r of input.runs ?? []) if (r.product && r.product !== 'any') seen.add(r.product);
+  /* Kept in the business's own order, not the order they happened to appear. */
+  return SELLABLE.filter((k) => seen.has(k));
+}
+
+/**
+ * What the category pickers offer, for this project.
+ *
+ * ⚠️ "ALL PRODUCTS" IS THE WRONG WORDS FOR A PROJECT THAT SELLS ONE THING.
+ * With nothing else in play it reads "This project", which is what `any`
+ * actually means there.
+ */
+export function productChoices(
+  products: ReadonlyArray<Exclude<ProductKey, 'any'>>,
+): Array<{ value: ProductKey; label: string }> {
+  return [
+    { value: 'any', label: products.length > 0 ? 'All products' : 'This project' },
+    ...products.map((k) => ({ value: k as ProductKey, label: PRODUCT_LABEL[k] })),
+  ];
+}
+
 /* ── Readiness ───────────────────────────────────────────────────────────── */
 
 export interface Coverage {
@@ -135,9 +181,18 @@ export function coverage(runs: readonly RunLike[]): Coverage {
   return { answered, gaps, percent: seen === 0 ? null : Math.round((answered / seen) * 100) };
 }
 
-/** The same question, per product — the health bars. */
-export function healthByProduct(runs: readonly RunLike[]): Array<{ product: Exclude<ProductKey, 'any'>; cover: Coverage }> {
-  return SELLABLE.map((product) => ({
+/**
+ * The same question, per product — the health bars.
+ *
+ * ⚠️ OVER THE PROJECT'S OWN PRODUCTS. Given none, it returns none, and the
+ * panel says so instead of drawing four empty bars about products this project
+ * does not sell.
+ */
+export function healthByProduct(
+  runs: readonly RunLike[],
+  products: ReadonlyArray<Exclude<ProductKey, 'any'>> = SELLABLE,
+): Array<{ product: Exclude<ProductKey, 'any'>; cover: Coverage }> {
+  return products.map((product) => ({
     product,
     cover: coverage(runs.filter((r) => r.product === product)),
   }));
@@ -363,4 +418,40 @@ export function activity(
     out.push({ id: `g-${g.key}`, at: g.lastAt, kind: 'gap', text: g.question, who: g.leadName });
   }
   return out.sort((a, b) => (a.at < b.at ? 1 : -1)).slice(0, limit);
+}
+
+/* ── Where a test reply came from ──────────────────────────────────────────── */
+
+export interface Drawn {
+  readonly id: string;
+  readonly question: string;
+  readonly sourceTitle: string | null;
+  /** Share of the reply's own words found in this approved answer. */
+  readonly score: number;
+}
+
+/**
+ * The approved answers a reply is closest to — the Test agent drawer's
+ * "answer source".
+ *
+ * ⚠️ A MATCH, NOT A CLAIM ABOUT THE MODEL. The live agent does not say
+ * which entries it used, and changing its output to make it say so would put
+ * the working agent at risk for a test screen. So this compares the reply's
+ * words with each approved answer's, and the drawer calls the result "closest
+ * approved answers" — which is exactly what it is. Nothing below the
+ * threshold is shown, so an off-topic reply is not credited to an answer that
+ * merely shares a few words.
+ */
+export function closestAnswers(reply: string, entries: readonly EntryLike[], limit = 3, threshold = 35): Drawn[] {
+  const want = words(reply);
+  if (want.length === 0) return [];
+  const out: Drawn[] = [];
+  for (const e of entries) {
+    if (e.status !== 'approved') continue;
+    const have = new Set(words(`${e.question} ${e.answer}`));
+    const hit = want.filter((w) => have.has(w)).length;
+    const score = Math.round((hit / want.length) * 100);
+    if (score >= threshold) out.push({ id: e.id, question: e.question, sourceTitle: e.sourceTitle, score });
+  }
+  return out.sort((a, b) => b.score - a.score).slice(0, limit);
 }

@@ -26,6 +26,8 @@ export interface KnowledgeEntry {
   readonly answer: string;
   readonly sourceQuote: string | null;
   readonly sourceTitle: string | null;
+  /** 248 · which document it was drawn from, so deleting that document can say what goes with it. */
+  readonly sourceDocumentId: string | null;
   readonly status: 'draft' | 'approved' | 'rejected';
   readonly approvedByName: string | null;
   readonly approvedAt: string | null;
@@ -59,6 +61,12 @@ export interface KnowledgeBoard {
   readonly runs: readonly AgentRun[];
   /** May this person change the campaign settings? A manager's call (232). */
   readonly canManage: boolean;
+  /**
+   * 248 · May this person delete a source? The same rule as the table's own
+   * delete policy — admin and above — so the button is only drawn for people
+   * the database will let through.
+   */
+  readonly canDelete: boolean;
 }
 
 /** One thing the agent did, and what the client was asking about. */
@@ -94,6 +102,7 @@ function row(r: Record<string, unknown>): KnowledgeEntry {
     answer: String(r.answer),
     sourceQuote: (r.source_quote as string | null) ?? null,
     sourceTitle: (r.source_title as string | null) ?? null,
+    sourceDocumentId: (r.source_document_id as string | null) ?? null,
     status: String(r.status) as KnowledgeEntry['status'],
     approvedByName: (r.approved_by_name as string | null) ?? null,
     approvedAt: r.approved_at ? new Date(String(r.approved_at)).toISOString() : null,
@@ -124,7 +133,7 @@ export async function knowledgeBoard(actorId: string, projectId: string): Promis
 
     const entries = (await tx`
       select k.id, k.product::text as product, k.question, k.answer,
-             k.source_quote, k.status::text as status, k.approved_at, k.expires_at, k.created_at,
+             k.source_quote, k.source_document_id, k.status::text as status, k.approved_at, k.expires_at, k.created_at,
              d.title as source_title,
              u.full_name as approved_by_name
         from public.crm_knowledge k
@@ -174,7 +183,8 @@ export async function knowledgeBoard(actorId: string, projectId: string): Promis
              app.crm_agent_ready(${projectId}::uuid) as approved,
              (app.acting_at_least('admin'::public.user_role)
               or app.crm_manages_project(${projectId}::uuid)
-              or app.crm_manages_own_department()) as can_manage
+              or app.crm_manages_own_department()) as can_manage,
+             app.acting_at_least('admin'::public.user_role) as can_delete
         from (select 1) one
         left join public.crm_project_settings s on s.project_id = ${projectId}::uuid
     `) as Array<Record<string, unknown>>;
@@ -215,6 +225,7 @@ export async function knowledgeBoard(actorId: string, projectId: string): Promis
       })),
       approvedCount: Number(e.approved ?? 0),
       canManage: e.can_manage === true,
+      canDelete: e.can_delete === true,
     };
   });
 }
@@ -382,4 +393,43 @@ export async function setDocumentProduct(actorId: string, documentId: string, pr
     select app.crm_set_document_product(${documentId}::uuid, ${product}) as ok
   `)) as unknown as Array<{ ok: boolean }>;
   return rows[0]?.ok === true;
+}
+
+/**
+ * 248 · Delete a source, and (by default) every answer drawn from it.
+ *
+ * ⚠️ THE ROWS FIRST, THE FILE AFTER. `app.crm_delete_source` removes the
+ * answers, detaches the file from any follow-up step and deletes the row in one
+ * transaction, then hands back the storage path. The caller removes the object
+ * only once that has committed — so a failure in between leaves an orphaned
+ * file, never an answer or a row pointing at nothing.
+ */
+export async function deleteSource(
+  actorId: string,
+  documentId: string,
+  withAnswers: boolean,
+): Promise<
+  | { ok: true; storagePath: string; title: string; approved: number; drafts: number; steps: number }
+  | { ok: false; error: string }
+> {
+  try {
+    const rows = (await withUser(actorId, (tx) => tx`
+      select * from app.crm_delete_source(${documentId}::uuid, ${withAnswers})
+    `)) as unknown as Array<Record<string, unknown>>;
+    const r = rows[0];
+    if (!r) return { ok: false, error: 'That source no longer exists.' };
+    return {
+      ok: true,
+      storagePath: String(r.storage_path),
+      title: String(r.title),
+      approved: Number(r.approved_removed ?? 0),
+      drafts: Number(r.drafts_removed ?? 0),
+      steps: Number(r.steps_detached ?? 0),
+    };
+  } catch (error) {
+    /* ⚠️ THE FUNCTION'S OWN SENTENCE, and only for its own code. Anything else
+       is a real fault and must not be dressed up as a refusal. */
+    if ((error as { code?: string }).code === 'CR248') return { ok: false, error: (error as Error).message };
+    throw error;
+  }
 }

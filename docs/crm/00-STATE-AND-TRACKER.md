@@ -9,7 +9,100 @@
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
 | **Last updated** | **2026-09-22** |
-| **Last migration applied anywhere** | **247** (applied 2026-09-22; **247 follow-up conditions belong to the follow-up**; 246 the agent can say when the appointment is). CRM next: **248.** |
+| **Last migration applied anywhere** | **248** (applied 2026-09-22; **248 deleting a source takes its answers**; 247 follow-up conditions). CRM next: **249.** |
+
+---
+
+## 🧭 2026-09-22 — AI KNOWLEDGE, SECOND PASS: THE POLICY, EACH PROJECT'S OWN, DELETE, AND THE TEST DRAWER
+
+### 1 · "Policy is not properly working"
+
+Measured, not guessed. The reply-mode write was fine (clicking AI agent saved
+`agent` to the database) but three things made it LOOK broken:
+
+- **The project pill lagged by 2–5 seconds.** It read the board, which only
+  reloads after the write — so it said "Off" after the owner had switched to AI
+  agent. The strip now tells the page in the same frame (`onOptimistic`).
+- **Two controls looked alive and did nothing.** "Use approved knowledge only"
+  and "When no answer exists → hand off" were a drawn switch and a drawn
+  dropdown. They are real, `aria-disabled` controls now, with a lock, and
+  pressing either explains why it cannot move — they are the fence, not a
+  preference.
+- **AI agent on a project with nothing approved flashed "Active" and went back.**
+  `crm_set_agent_settings` refuses it (correctly) but the screen promised first.
+  It is refused in this frame now, with the reason — the board already knows
+  the count. Measured on Chitral before: Active → Active → Off; after: Off
+  throughout.
+
+### 2 · "Each knowledge should be according to the project"
+
+*"Chitral Royal Homes is still showing the knowledge health on the basis of
+Taskly CRM ERP."* Chitral sells plots — 683 leads, no answers, no sources, no
+product — and was drawing four bars about somebody else's business.
+`projectProducts()` returns the products actually in play for ONE project (what
+it says it sells, plus what its own answers, sources and conversations are
+filed under). The health bars, the category filter and every product picker
+follow it; a project with none says so instead of drawing empty bars, and its
+catch-all reads "This project". ⚠️ The one exception is Edit policy's "What
+this project sells", which keeps the full list — it is the control that DECIDES
+the answer, so it cannot be limited by it. Filename guesses on upload are also
+limited to the project's own products.
+
+### 3 · Delete a source (248)
+
+*"This information is old information and I want to delete it. I want my agent
+to respond with the latest information."*
+
+⚠️ **The trap a plain delete would have shipped:** `crm_knowledge.source_document_id`
+is `ON DELETE SET NULL`. Deleting the document row alone would leave every
+answer drawn from it still APPROVED, with no source — and the agent would keep
+saying the old information, the exact thing being deleted to stop.
+
+`app.crm_delete_source` does it in one transaction: the answers drawn from it
+(by default — the dialog says how many, approved and draft, and can keep them),
+the file off every follow-up step that attaches it, then the row. The file is
+removed from storage only after that commits. Admin-only, exactly as the
+table's own delete policy already was. Refuses a lead's file and a project's
+ONLY letterhead.
+
+Proved end to end through the real screen on a planted throwaway: the dialog
+said "remove the 2 answers — 1 approved and 1 waiting for review", the row was
+gone in ~170 ms, and the database had neither the source nor either answer;
+the two real sources were untouched.
+
+**And upload as many:** the upload dialog takes several files at once, names
+each from its file, and drafts answers from every PDF.
+
+⚠️ **Two faults found on the way:**
+- The upload dialog offered the kind **"proposal"**, which is not in the
+  `crm_document_kind` enum — every upload marked that way would have been
+  refused. It offers the database's own kinds now.
+- `removeObject` reported "could not be removed" for a file that was already
+  gone: Supabase answers a missing object with **HTTP 400** and `not_found` in
+  the body, so the 404 check never saw it. Already gone is done now, for every
+  caller.
+
+### 4 · The Test agent drawer
+
+*"Test agent: opens a wider test drawer with conversation preview, selected
+project, answer source and handoff result."* A 44rem drawer (measured 634px,
+full height, full-screen veil, open in 242ms): the project, what it sells, its
+approved count and reply mode; a real multi-turn conversation through
+`askAgentAction` (same brief, same model, nothing sent, no run row); and under
+each agent turn either **the closest approved answers** with their source, or
+**both sides of a hand-off** — what the salesperson is told and the exact line
+the client would receive, with "Write an answer for this".
+
+⚠️ **"Answer source" is a match and is labelled as one.** The agent does not
+report which entries it used, and changing its output would risk the live agent
+for a test screen. `closestAnswers()` compares the reply with each approved
+answer, credits nothing below 35%, and never credits a draft.
+
+⚠️ **The drawer found a live bug on its first run.** A discount question was
+answered with *"I am passing you to my colleague"* because the model's reason
+ended "…which requires a salesperson to handle", and `HOLDING` checked the
+generic person line before the topic lines. The generic line is last now; a
+discount gets "our team will get back to you on this shortly".
 
 ---
 

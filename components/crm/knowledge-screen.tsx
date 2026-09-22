@@ -9,13 +9,13 @@ import {
   BarChart3,
   Check,
   CheckCircle2,
-  ChevronDown,
   Clock3,
   Database,
   Eye,
   FileText,
   Info,
   Loader2,
+  Lock,
   MoreVertical,
   Play,
   Plus,
@@ -23,6 +23,7 @@ import {
   Search,
   Settings2,
   Sparkles,
+  Trash2,
   Upload,
   X,
 } from 'lucide-react';
@@ -32,6 +33,7 @@ import {
   addKnowledgeAction,
   askAgentAction,
   decideKnowledgeAction,
+  deleteSourceAction,
   knowledgeBoardAction,
   readDocumentAction,
   saveAgentSettingsAction,
@@ -39,6 +41,7 @@ import {
 } from '@/app/actions/crm-knowledge';
 import { ink, tint } from '@/components/crm/appointments-board-parts';
 import { DocumentPreview } from '@/components/crm/document-preview';
+import { TestAgentDrawer } from '@/components/crm/test-agent-drawer';
 import { PageHeader } from '@/components/ui/page-header';
 import { useToast } from '@/components/ui/toast';
 import type { KnowledgeBoard, KnowledgeDocument, KnowledgeEntry, ProductKey } from '@/lib/db/queries/crm-knowledge';
@@ -51,8 +54,9 @@ import {
   matches,
   NO_FILTERS,
   PRODUCT_LABEL,
+  productChoices,
+  projectProducts,
   readiness,
-  SELLABLE,
   supportScore,
   supportTone,
   TABS,
@@ -98,6 +102,11 @@ const TONE: Record<'approved' | 'review' | 'sources' | 'gaps' | 'readiness', Ton
   readiness: 'green',
 };
 
+/** What the category pickers offer, for the project on screen. */
+const ALL_PRODUCTS: ReadonlyArray<Exclude<ProductKey, 'any'>> = ['taskly', 'crm', 'erp', 'whatsapp'];
+
+type Choices = ReadonlyArray<{ value: ProductKey; label: string }>;
+
 const CONTROL =
   'h-9 rounded-xl border border-border-default bg-bg-surface text-body-sm text-text-primary transition-colors hover:border-border-strong focus:border-accent-primary focus:outline-none';
 
@@ -131,7 +140,7 @@ export function KnowledgeScreen({
   const [boards, setBoards] = React.useState<Record<string, KnowledgeBoard>>(
     first ? { [first.projectId]: first } : {},
   );
-  const board = projectId ? boards[projectId] ?? null : null;
+  const loaded = projectId ? boards[projectId] ?? null : null;
   /* ⚠️ A REF, NOT STATE. Marking "already asking" in state would be a setState
      inside the effect and a second render for nothing; the ref only exists to
      stop a second request for the same project. */
@@ -160,9 +169,24 @@ export function KnowledgeScreen({
 
   /* ── What this screen has just decided, over the server's rows ────────── */
   const [moved, setMoved] = React.useState<Record<string, KnowledgeEntry['status']>>({});
+  /* 248 · sources somebody has just deleted, gone from the screen at once,
+     and the answers taken out with them. */
+  const [gone, setGone] = React.useState<ReadonlySet<string>>(new Set());
+  const [deleting, setDeleting] = React.useState<KnowledgeDocument | null>(null);
+  const [dropped, setDropped] = React.useState<ReadonlySet<string>>(new Set());
   const entries = React.useMemo(
-    () => (board?.entries ?? []).map((e) => (moved[e.id] ? { ...e, status: moved[e.id] } : e)),
-    [board, moved],
+    () =>
+      (loaded?.entries ?? [])
+        .filter((e) => !dropped.has(e.id))
+        .map((e) => (moved[e.id] ? { ...e, status: moved[e.id] } : e)),
+    [loaded, moved, dropped],
+  );
+
+  /* ⚠️ THE BOARD AS THE SCREEN SHOWS IT — a deleted source is gone in this
+     frame, before the server has answered (Rule Zero). */
+  const board = React.useMemo(
+    () => (loaded && gone.size ? { ...loaded, documents: loaded.documents.filter((d) => !gone.has(d.id)) } : loaded),
+    [loaded, gone],
   );
 
   const [tab, setTab] = React.useState<TabKey>('overview');
@@ -175,7 +199,20 @@ export function KnowledgeScreen({
   );
   const cover = React.useMemo(() => coverage(board?.runs ?? []), [board]);
   const ready = readiness(cover.percent);
-  const health = React.useMemo(() => healthByProduct(board?.runs ?? []), [board]);
+  /* ⚠️ THIS PROJECT'S PRODUCTS, not the business's. A plots project gets no
+     bars about Taskly and ERP (owner, 2026-09-22). */
+  const products = React.useMemo(
+    () =>
+      projectProducts({
+        sells: board?.settings.product ?? null,
+        entries,
+        documents: board?.documents ?? [],
+        runs: board?.runs ?? [],
+      }),
+    [board, entries],
+  );
+  const choices = React.useMemo(() => productChoices(products), [products]);
+  const health = React.useMemo(() => healthByProduct(board?.runs ?? [], products), [board, products]);
   const gapRows = React.useMemo(() => gapsOf(board?.runs ?? []), [board]);
   const feed = React.useMemo(
     () => activity(entries, board?.documents ?? [], board?.runs ?? [], 60),
@@ -187,7 +224,50 @@ export function KnowledgeScreen({
   const sources = [...new Set(entries.map((e) => e.sourceTitle).filter((t): t is string => Boolean(t)))].sort();
 
   const [dialog, setDialog] = React.useState<'write' | 'upload' | 'policy' | null>(null);
+  const [testing, setTesting] = React.useState(false);
+  /* The reply mode the person just chose, until the board catches up. */
+  const [modeWish, setModeWish] = React.useState<'off' | 'suggest' | 'agent' | null>(null);
+  const shownMode = modeWish ?? board?.settings.agentModeDefault ?? 'off';
   const [preview, setPreview] = React.useState<KnowledgeDocument | null>(null);
+
+  const removeSource = async (d: KnowledgeDocument, withAnswers: boolean) => {
+    const drawn = (loaded?.entries ?? []).filter((e) => e.sourceDocumentId === d.id).map((e) => e.id);
+    /* ⚠️ GONE IN THIS FRAME — the source, and its answers if they go with it. */
+    setDeleting(null);
+    if (preview?.id === d.id) setPreview(null);
+    setGone((g) => new Set(g).add(d.id));
+    if (withAnswers) setDropped((x) => new Set([...x, ...drawn]));
+
+    const r = await deleteSourceAction({ documentId: d.id, withAnswers });
+    if (!r.ok) {
+      setGone((g) => {
+        const next = new Set(g);
+        next.delete(d.id);
+        return next;
+      });
+      if (withAnswers) {
+        setDropped((x) => {
+          const next = new Set(x);
+          for (const id of drawn) next.delete(id);
+          return next;
+        });
+      }
+      toast({ tone: 'error', text: r.error ?? 'That source could not be deleted.' });
+      return;
+    }
+    const took = (r.approved ?? 0) + (r.drafts ?? 0);
+    toast({
+      tone: 'ok',
+      text:
+        `Deleted “${d.title}”` +
+        (withAnswers && took > 0
+          ? ` and the ${took} answer${took === 1 ? '' : 's'} drawn from it — the agent will not say ${took === 1 ? 'it' : 'them'} again.`
+          : '.') +
+        (r.steps ? ` It was taken off ${r.steps} follow-up step${r.steps === 1 ? '' : 's'}.` : '') +
+        (r.fileLeft ? ' (The file itself could not be removed from storage.)' : ''),
+    });
+    await reload();
+  };
 
   const decide = async (e: KnowledgeEntry, status: 'approved' | 'rejected') => {
     /* ⚠️ THE ROW MOVES FIRST. Fifteen decisions is fifteen clicks, and a screen
@@ -258,12 +338,8 @@ export function KnowledgeScreen({
         </label>
         {board && (
           <>
-            <Pill tone={board.settings.agentModeDefault === 'agent' ? 'green' : 'grey'} dot>
-              {board.settings.agentModeDefault === 'agent'
-                ? 'Active'
-                : board.settings.agentModeDefault === 'suggest'
-                  ? 'Suggesting'
-                  : 'Off'}
+            <Pill tone={shownMode === 'agent' ? 'green' : shownMode === 'suggest' ? 'amber' : 'grey'} dot>
+              {shownMode === 'agent' ? 'Active' : shownMode === 'suggest' ? 'Suggesting' : 'Off'}
             </Pill>
             <span className="text-caption text-text-secondary">
               {feed[0] ? `Updated ${shortDay(feed[0].at)}` : 'No changes yet'}
@@ -295,7 +371,16 @@ export function KnowledgeScreen({
       </div>
 
       {/* ── The policy ─────────────────────────────────────────────────── */}
-      {board && <Policy board={board} onSaved={reload} onEdit={() => setDialog('policy')} editing={dialog === 'policy'} onClose={() => setDialog(null)} />}
+      {board && (
+        <Policy
+          board={board}
+          onSaved={reload}
+          onEdit={() => setDialog('policy')}
+          editing={dialog === 'policy'}
+          onClose={() => setDialog(null)}
+          onOptimistic={setModeWish}
+        />
+      )}
 
       {/* ── Tabs ───────────────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-center gap-6 border-b border-border-subtle" role="tablist" aria-label="What to look at">
@@ -361,8 +446,8 @@ export function KnowledgeScreen({
           className={cn(CONTROL, 'w-[10rem] px-2.5')}
         >
           <option value="all">All categories</option>
-          {(['any', ...SELLABLE] as ProductKey[]).map((p) => (
-            <option key={p} value={p}>{PRODUCT_LABEL[p]}</option>
+          {choices.map((c) => (
+            <option key={c.value} value={c.value}>{c.label}</option>
           ))}
         </select>
         <select
@@ -376,14 +461,15 @@ export function KnowledgeScreen({
             <option key={t} value={t}>{t}</option>
           ))}
         </select>
+        {/* ⚠️ A DRAWER, NOT A SCROLL. Owner, 2026-09-22: *"Test agent: opens a
+            wider test drawer with conversation preview, selected project,
+            answer source and handoff result."* It opens in this frame; only a
+            question asked inside it reaches the server. */}
         <button
           type="button"
-          onClick={() => {
-            setTab('overview');
-            document.getElementById('ask-as-a-customer')?.scrollIntoView({ block: 'center' });
-            document.getElementById('ask-as-a-customer')?.querySelector('input')?.focus();
-          }}
-          className="inline-flex items-center gap-2 rounded-xl border border-border-default px-3.5 py-2 text-body-sm font-semibold text-text-primary transition-colors hover:bg-bg-subtle"
+          disabled={!board}
+          onClick={() => setTesting(true)}
+          className="inline-flex items-center gap-2 rounded-xl border border-border-default px-3.5 py-2 text-body-sm font-semibold text-text-primary transition-colors hover:bg-bg-subtle disabled:opacity-40"
         >
           <Play className="size-4" aria-hidden="true" /> Test agent
         </button>
@@ -409,7 +495,7 @@ export function KnowledgeScreen({
                 ) : (
                   <ul className="divide-y divide-border-subtle">
                     {(tab === 'overview' ? review.slice(0, 3) : review).map((e) => (
-                      <ReviewRow key={e.id} entry={e} onDecide={decide} />
+                      <ReviewRow key={e.id} entry={e} choices={choices} onDecide={decide} />
                     ))}
                   </ul>
                 )}
@@ -427,7 +513,7 @@ export function KnowledgeScreen({
                 ) : (
                   <ul className="divide-y divide-border-subtle">
                     {(tab === 'overview' ? approved.slice(0, 3) : approved).map((e) => (
-                      <ApprovedRow key={e.id} entry={e} nowMs={nowMs} onDecide={decide} />
+                      <ApprovedRow key={e.id} entry={e} choices={choices} nowMs={nowMs} onDecide={decide} />
                     ))}
                   </ul>
                 )}
@@ -437,6 +523,8 @@ export function KnowledgeScreen({
             {tab === 'sources' && (
               <Sources
                 board={board}
+                choices={choices}
+                onDelete={setDeleting}
                 onPreview={setPreview}
                 onChanged={reload}
                 onUpload={() => setDialog('upload')}
@@ -520,6 +608,13 @@ export function KnowledgeScreen({
                   <span className="text-caption font-medium text-text-secondary">Agent readiness</span>
                 </span>
                 <ul className="min-w-[10rem] flex-1 space-y-2">
+                  {health.length === 0 && (
+                    <li className="text-caption text-text-secondary">
+                      {board.entries.length === 0
+                        ? 'No answers yet for this project. Upload a source or add an answer to start.'
+                        : 'Every answer here is about this project, so there is nothing to split by product.'}
+                    </li>
+                  )}
                   {health.map((h) => (
                     <li key={h.product} className="flex items-center gap-2.5">
                       <span className="w-16 shrink-0 truncate text-caption font-medium text-text-primary">
@@ -578,13 +673,18 @@ export function KnowledgeScreen({
                       >
                         <Eye className="size-3.5" aria-hidden="true" /> View
                       </button>
+                      <SourceMenu
+                        canDelete={board.canDelete}
+                        onRead={() => setTab('sources')}
+                        onDelete={() => setDeleting(d)}
+                      />
                     </li>
                   ))}
                 </ul>
               )}
             </Panel>
 
-            <AskBox board={board} />
+            <AskBox board={board} onOpenDrawer={() => setTesting(true)} />
           </div>
         </div>
       )}
@@ -592,6 +692,7 @@ export function KnowledgeScreen({
       {dialog === 'write' && board && (
         <WriteAnswer
           board={board}
+          choices={choices}
           onClose={() => setDialog(null)}
           onSaved={async () => {
             setDialog(null);
@@ -603,11 +704,31 @@ export function KnowledgeScreen({
       {dialog === 'upload' && board && (
         <UploadSource
           board={board}
+          choices={choices}
           onClose={() => setDialog(null)}
           onDone={async () => {
             setDialog(null);
             await reload();
           }}
+        />
+      )}
+      {testing && board && (
+        <TestAgentDrawer
+          board={board}
+          modeLabel={shownMode === 'agent' ? 'AI agent' : shownMode === 'suggest' ? 'Suggestions' : 'My reply'}
+          onClose={() => setTesting(false)}
+          onWriteAnswer={() => {
+            setTesting(false);
+            setDialog('write');
+          }}
+        />
+      )}
+      {deleting && board && (
+        <DeleteSource
+          doc={deleting}
+          answers={(loaded?.entries ?? []).filter((e) => e.sourceDocumentId === deleting.id)}
+          onClose={() => setDeleting(null)}
+          onConfirm={(withAnswers) => void removeSource(deleting, withAnswers)}
         />
       )}
       {preview && (
@@ -706,16 +827,21 @@ function Dial({ percent, tone }: { percent: number | null; tone: Tone }) {
     <span className="relative grid size-28 shrink-0 place-items-center">
       <svg viewBox="0 0 110 110" className="size-28 -rotate-90" aria-hidden="true">
         <circle cx="55" cy="55" r={r} fill="none" stroke="var(--bg-subtle)" strokeWidth="10" />
-        <circle
-          cx="55"
-          cy="55"
-          r={r}
-          fill="none"
-          stroke={ink(tone)}
-          strokeWidth="10"
-          strokeLinecap="round"
-          strokeDasharray={`${(shown / 100) * c} ${c}`}
-        />
+        {/* ⚠️ NO ARC AT ZERO. A zero-length dash with a round cap still paints
+            a dot, which read as a reading of "a little" on a project nobody has
+            asked anything. */}
+        {shown > 0 && (
+          <circle
+            cx="55"
+            cy="55"
+            r={r}
+            fill="none"
+            stroke={ink(tone)}
+            strokeWidth="10"
+            strokeLinecap="round"
+            strokeDasharray={`${(shown / 100) * c} ${c}`}
+          />
+        )}
       </svg>
       {/* ⚠️ THE WORD GOES UNDER THE RING, NOT INSIDE IT. "Agent readiness" was
           wider than the hole in the middle and came out as "agent readines". */}
@@ -732,9 +858,11 @@ function Dial({ percent, tone }: { percent: number | null; tone: Tone }) {
 
 function ReviewRow({
   entry,
+  choices,
   onDecide,
 }: {
   entry: KnowledgeEntry;
+  choices: Choices;
   onDecide: (e: KnowledgeEntry, status: 'approved' | 'rejected') => Promise<void>;
 }) {
   const [busy, setBusy] = React.useState(false);
@@ -813,17 +941,19 @@ function ReviewRow({
           “{entry.sourceQuote}”
         </p>
       )}
-      {editing && <EditRow entry={entry} onDone={() => setEditing(false)} />}
+      {editing && <EditRow entry={entry} choices={choices} onDone={() => setEditing(false)} />}
     </li>
   );
 }
 
 function ApprovedRow({
   entry,
+  choices,
   nowMs,
   onDecide,
 }: {
   entry: KnowledgeEntry;
+  choices: Choices;
   nowMs: number;
   onDecide: (e: KnowledgeEntry, status: 'approved' | 'rejected') => Promise<void>;
 }) {
@@ -882,13 +1012,13 @@ function ApprovedRow({
           )}
         </span>
       </div>
-      {editing && <EditRow entry={entry} onDone={() => setEditing(false)} />}
+      {editing && <EditRow entry={entry} choices={choices} onDone={() => setEditing(false)} />}
     </li>
   );
 }
 
 /** Edit the question, the answer, the product and when it goes stale. */
-function EditRow({ entry, onDone }: { entry: KnowledgeEntry; onDone: () => void }) {
+function EditRow({ entry, choices, onDone }: { entry: KnowledgeEntry; choices: Choices; onDone: () => void }) {
   const toast = useToast();
   const [question, setQuestion] = React.useState(entry.question);
   const [answer, setAnswer] = React.useState(entry.answer);
@@ -938,8 +1068,8 @@ function EditRow({ entry, onDone }: { entry: KnowledgeEntry; onDone: () => void 
             onChange={(e) => setProduct(e.target.value as ProductKey)}
             className={cn(CONTROL, 'w-[10rem] px-2.5')}
           >
-            {(['any', ...SELLABLE] as ProductKey[]).map((p) => (
-              <option key={p} value={p}>{PRODUCT_LABEL[p]}</option>
+            {choices.map((c) => (
+              <option key={c.value} value={c.value}>{c.label}</option>
             ))}
           </select>
         </label>
@@ -990,12 +1120,15 @@ function Policy({
   onEdit,
   editing,
   onClose,
+  onOptimistic,
 }: {
   board: KnowledgeBoard;
   onSaved: () => Promise<void>;
   onEdit: () => void;
   editing: boolean;
   onClose: () => void;
+  /** Tell the page at once, so the project pill does not lag the click. */
+  onOptimistic: (mode: 'off' | 'suggest' | 'agent' | null) => void;
 }) {
   const toast = useToast();
   const [mode, setMode] = React.useState(board.settings.agentModeDefault);
@@ -1010,11 +1143,31 @@ function Policy({
 
   const save = async (next: typeof mode, nextProduct: ProductKey | '' = product) => {
     if (!board.canManage) {
-      toast({ tone: 'error', text: 'Only a manager can change this.' });
+      toast({
+        tone: 'error',
+        text: 'Only a manager can change the reply mode for this project.',
+      });
+      return;
+    }
+    /* ⚠️ REFUSED HERE, NOT AFTER A ROUND TRIP. The database refuses an AI
+       agent with nothing approved to say (`crm_set_agent_settings`), and this
+       screen already knows the count — so it says so in this frame instead of
+       showing "Active" for two seconds and taking it back. Measured on Chitral
+       Royal Homes, 2026-09-22, before this: Active → Active → Off. */
+    if (next === 'agent' && board.approvedCount === 0) {
+      toast({
+        tone: 'error',
+        text: 'Nothing is approved for this project yet, so the agent would have nothing to say. Approve or add an answer first.',
+      });
       return;
     }
     setMode(next);
     setProduct(nextProduct);
+    /* ⚠️ THE WHOLE STRIP MOVES NOW, not after the round trip. The pill beside
+       the project name reads the board, which takes 2–5 seconds to come back —
+       so it still said "Off" after the owner had switched to AI agent, and the
+       policy looked broken when the write had already succeeded. */
+    onOptimistic(next);
     setBusy(true);
     const r = await saveAgentSettingsAction({
       projectId: board.projectId,
@@ -1025,36 +1178,76 @@ function Policy({
     if (!r.ok) {
       setMode(board.settings.agentModeDefault);
       setProduct(board.settings.product ?? '');
+      onOptimistic(null);
       toast({ tone: 'error', text: r.error ?? 'That did not save.' });
       return;
     }
+    toast({
+      tone: 'ok',
+      text:
+        next === 'agent'
+          ? 'New leads here are answered by the AI agent.'
+          : next === 'suggest'
+            ? 'The agent drafts a reply for you to send.'
+            : 'You answer new leads here yourself.',
+    });
     await onSaved();
+    onOptimistic(null);
   };
 
   return (
     <section className="rounded-2xl border border-border-subtle bg-bg-surface px-5 py-4 shadow-sm">
       <h2 className="text-h3 font-semibold text-text-primary">Agent response policy</h2>
       <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-3">
-        {/* ⚠️ ON, AND NOT A SWITCH. The agent may state only approved facts —
-            that is the whole fence, enforced by `app.crm_knowledge_for`, and a
-            toggle here would imply a way to turn it off. It is drawn as the
-            design draws it and says plainly that it cannot be changed. */}
-        <span className="flex items-center gap-2.5" title="The agent can only ever state approved answers. This is not a setting.">
+        {/* ⚠️ LOCKED, AND IT SAYS SO WHEN YOU PRESS IT. These two were drawn as
+            a switch and a dropdown and did nothing at all — the owner pressed
+            them and reported the policy broken, which was fair: a control that
+            looks alive and is not IS broken. They are real controls now, marked
+            disabled for assistive tech, carrying a lock, and pressing either
+            explains why it cannot move rather than swallowing the click.
+
+            Why they cannot move: the agent may state only approved, unexpired
+            answers (`app.crm_knowledge_for` returns nothing else), and when it
+            has none it hands over. That is the fence the owner asked for, not a
+            preference. */}
+        <button
+          type="button"
+          role="switch"
+          aria-checked
+          aria-disabled
+          onClick={() =>
+            toast({
+              tone: 'ok',
+              text: 'Always on: the agent may only ever say an answer somebody approved here.',
+            })
+          }
+          className="flex items-center gap-2.5 rounded-xl px-1 py-1 text-left transition-colors hover:bg-bg-subtle"
+        >
           <span className="inline-flex h-6 w-11 shrink-0 items-center rounded-full bg-accent-primary p-0.5">
             <span className="size-5 translate-x-5 rounded-full bg-white shadow-sm" />
           </span>
           <span className="text-body-sm font-medium text-text-primary">Use approved knowledge only</span>
-          <Info className="size-3.5 text-text-tertiary" aria-hidden="true" />
-        </span>
+          <Lock className="size-3.5 text-text-tertiary" aria-hidden="true" />
+        </button>
 
         <span className="hidden h-6 w-px bg-border-subtle sm:block" aria-hidden="true" />
 
         <span className="flex items-center gap-2.5">
           <span className="text-body-sm text-text-secondary">When no answer exists</span>
-          <span className={cn(CONTROL, 'inline-flex items-center gap-2 px-3 text-text-primary')}>
+          <button
+            type="button"
+            aria-disabled
+            onClick={() =>
+              toast({
+                tone: 'ok',
+                text: 'Always a hand-off: with nothing approved to say, the agent passes the client to you rather than guessing.',
+              })
+            }
+            className={cn(CONTROL, 'inline-flex items-center gap-2 px-3 text-text-primary hover:bg-bg-subtle')}
+          >
             Hand off to salesperson
-            <ChevronDown className="size-3.5 text-text-tertiary" aria-hidden="true" />
-          </span>
+            <Lock className="size-3.5 text-text-tertiary" aria-hidden="true" />
+          </button>
         </span>
 
         <span className="hidden h-6 w-px bg-border-subtle sm:block" aria-hidden="true" />
@@ -1091,8 +1284,9 @@ function Policy({
       </div>
 
       <p className="mt-2.5 text-caption text-text-secondary">
-        Draft and review items are never sent to customers.
-        {!board.canManage && ' Only a manager can change this policy.'}
+        Draft and review items are never sent to customers. The two locked settings are how the agent is built; the
+        reply mode is yours to change.
+        {!board.canManage && ' Only a manager can change it.'}
       </p>
 
       {editing && (
@@ -1106,8 +1300,11 @@ function Policy({
               className={cn(CONTROL, 'w-[12rem] px-2.5')}
             >
               <option value="">Not set</option>
-              {SELLABLE.map((p) => (
-                <option key={p} value={p}>{PRODUCT_LABEL[p]}</option>
+              {/* ⚠️ THE FULL LIST, DELIBERATELY. Everywhere else offers only the
+                  project's own products — this is the one control that DECIDES
+                  what the project sells, so it cannot be limited by the answer. */}
+              {ALL_PRODUCTS.map((k) => (
+                <option key={k} value={k}>{PRODUCT_LABEL[k]}</option>
               ))}
             </select>
           </label>
@@ -1125,14 +1322,18 @@ function Policy({
 
 function Sources({
   board,
+  choices,
   onPreview,
   onChanged,
   onUpload,
+  onDelete,
 }: {
   board: KnowledgeBoard;
+  choices: Choices;
   onPreview: (d: KnowledgeDocument) => void;
   onChanged: () => Promise<void>;
   onUpload: () => void;
+  onDelete: (d: KnowledgeDocument) => void;
 }) {
   const toast = useToast();
   const [busy, setBusy] = React.useState<string | null>(null);
@@ -1189,8 +1390,8 @@ function Sources({
                 }}
                 className={cn(CONTROL, 'w-[9rem] shrink-0 px-2.5')}
               >
-                {(['any', ...SELLABLE] as ProductKey[]).map((p) => (
-                  <option key={p} value={p}>{PRODUCT_LABEL[p]}</option>
+                {choices.map((c) => (
+                  <option key={c.value} value={c.value}>{c.label}</option>
                 ))}
               </select>
               <Pill tone={d.readAt ? 'green' : 'grey'}>{d.readAt ? `Read ${shortDay(d.readAt)}` : 'Not read'}</Pill>
@@ -1216,6 +1417,17 @@ function Sources({
                   {d.readAt ? 'Read again' : 'Read it'}
                 </button>
               )}
+              {board.canDelete && (
+                <button
+                  type="button"
+                  aria-label={`Delete ${d.title}`}
+                  onClick={() => onDelete(d)}
+                  className="grid size-8 shrink-0 place-items-center rounded-lg border transition-colors hover:bg-bg-subtle"
+                  style={{ borderColor: 'color-mix(in oklab, var(--feedback-error) 45%, var(--border-default))' }}
+                >
+                  <Trash2 className="size-4" style={{ color: ink('red') }} aria-hidden="true" />
+                </button>
+              )}
             </li>
           ))}
         </ul>
@@ -1224,9 +1436,153 @@ function Sources({
   );
 }
 
+/* ── Deleting a source ──────────────────────────────────────────────────── */
+
+function SourceMenu({
+  canDelete,
+  onRead,
+  onDelete,
+}: {
+  canDelete: boolean;
+  onRead: () => void;
+  onDelete: () => void;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef<HTMLSpanElement>(null);
+  React.useEffect(() => {
+    if (!open) return;
+    const away = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', away);
+    return () => document.removeEventListener('mousedown', away);
+  }, [open]);
+
+  return (
+    <span ref={ref} className="relative shrink-0">
+      <button
+        type="button"
+        aria-label="More"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className="grid size-8 place-items-center rounded-lg border border-border-default text-text-secondary hover:bg-bg-subtle"
+      >
+        <MoreVertical className="size-4" aria-hidden="true" />
+      </button>
+      {open && (
+        <span className="absolute right-0 top-full z-30 mt-1 w-52 overflow-hidden rounded-xl border border-border-subtle bg-bg-surface py-1 shadow-lg">
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              onRead();
+            }}
+            className="block w-full px-3 py-2 text-left text-body-sm text-text-primary hover:bg-bg-subtle"
+          >
+            Read again or change product
+          </button>
+          {canDelete ? (
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                onDelete();
+              }}
+              className="block w-full px-3 py-2 text-left text-body-sm hover:bg-bg-subtle"
+              style={{ color: ink('red') }}
+            >
+              Delete source…
+            </button>
+          ) : (
+            <span className="block px-3 py-2 text-caption text-text-secondary">Only an admin can delete a source.</span>
+          )}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/**
+ * Confirm a delete, and say exactly what goes with it.
+ *
+ * ⚠️ THE ANSWERS GO TOO, BY DEFAULT. Owner, 2026-09-22: *"This information is
+ * old information and I want to delete it. I want my agent to respond with the
+ * latest information."* An answer drawn from the document would otherwise stay
+ * approved and the agent would keep saying it — the column is ON DELETE SET
+ * NULL. The box can be unticked for the rare answer a person has since made
+ * true in their own words.
+ */
+function DeleteSource({
+  doc,
+  answers,
+  onClose,
+  onConfirm,
+}: {
+  doc: KnowledgeDocument;
+  answers: readonly KnowledgeEntry[];
+  onClose: () => void;
+  onConfirm: (withAnswers: boolean) => void;
+}) {
+  const [withAnswers, setWithAnswers] = React.useState(true);
+  const approved = answers.filter((a) => a.status === 'approved').length;
+  const drafts = answers.filter((a) => a.status === 'draft').length;
+
+  return (
+    <Shell title="Delete this source?" subtitle={doc.title} onClose={onClose}>
+      <p className="text-body-sm text-text-primary">
+        The file is removed from this project and the agent will not read it again.
+      </p>
+
+      {answers.length > 0 ? (
+        <label className="mt-3 flex items-start gap-2.5 rounded-xl border border-border-subtle p-3">
+          <input
+            type="checkbox"
+            checked={withAnswers}
+            onChange={(e) => setWithAnswers(e.target.checked)}
+            className="mt-0.5"
+          />
+          <span className="min-w-0">
+            <span className="block text-body-sm font-semibold text-text-primary">
+              Also remove the {answers.length} answer{answers.length === 1 ? '' : 's'} drawn from it
+            </span>
+            <span className="block text-caption text-text-secondary">
+              {approved} approved{drafts ? ` and ${drafts} waiting for review` : ''}.{' '}
+              {withAnswers
+                ? 'The agent will stop saying them straight away.'
+                : 'Left unticked, the approved ones stay and the agent keeps saying them, with no source behind them.'}
+            </span>
+          </span>
+        </label>
+      ) : (
+        <p className="mt-3 text-caption text-text-secondary">No answer on this page was drawn from it.</p>
+      )}
+
+      <p className="mt-3 text-caption text-text-secondary">This cannot be undone. Upload the new version to replace it.</p>
+
+      <div className="mt-4 flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-xl border border-border-default px-3.5 py-2 text-body-sm font-medium text-text-primary hover:bg-bg-subtle"
+        >
+          Keep it
+        </button>
+        <button
+          type="button"
+          onClick={() => onConfirm(withAnswers)}
+          className="inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-body-sm font-semibold text-white hover:opacity-90"
+          style={{ background: 'var(--feedback-error)' }}
+        >
+          <Trash2 className="size-4" aria-hidden="true" /> Delete source
+        </button>
+      </div>
+    </Shell>
+  );
+}
+
 /* ── Ask as a customer ───────────────────────────────────────────────────── */
 
-function AskBox({ board }: { board: KnowledgeBoard }) {
+function AskBox({ board, onOpenDrawer }: { board: KnowledgeBoard; onOpenDrawer: () => void }) {
   const [question, setQuestion] = React.useState('');
   const [busy, setBusy] = React.useState(false);
   const [result, setResult] = React.useState<Awaited<ReturnType<typeof askAgentAction>> | null>(null);
@@ -1300,6 +1656,10 @@ function AskBox({ board }: { board: KnowledgeBoard }) {
       <p className="mt-2.5 flex items-start gap-1.5 text-caption text-text-secondary">
         <Info className="mt-0.5 size-3.5 shrink-0 text-text-tertiary" aria-hidden="true" />
         No approved answer → hand off to salesperson.
+        <span className="flex-1" />
+        <button type="button" onClick={onOpenDrawer} className="shrink-0 font-semibold text-text-brand hover:underline">
+          Test a whole conversation
+        </button>
       </p>
     </section>
   );
@@ -1359,17 +1719,24 @@ function Shell({
 
 function WriteAnswer({
   board,
+  choices,
   onClose,
   onSaved,
 }: {
   board: KnowledgeBoard;
+  choices: Choices;
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
   const toast = useToast();
   const [question, setQuestion] = React.useState('');
   const [answer, setAnswer] = React.useState('');
-  const [product, setProduct] = React.useState<ProductKey>(board.settings.product ?? 'any');
+  /* The project's own product, or the catch-all — never one it does not sell. */
+  const [product, setProduct] = React.useState<ProductKey>(
+    board.settings.product && choices.some((c) => c.value === board.settings.product)
+      ? board.settings.product
+      : 'any',
+  );
   const [expires, setExpires] = React.useState('');
   const [busy, setBusy] = React.useState(false);
 
@@ -1401,7 +1768,9 @@ function WriteAnswer({
           onChange={(e) => {
             setQuestion(e.target.value);
             const guess = productFromWords(e.target.value);
-            if (guess) setProduct(guess as ProductKey);
+            /* ⚠️ Only a product THIS project has. A plots project must not have
+               an answer quietly filed under CRM because the word appeared. */
+            if (guess && choices.some((c) => c.value === guess)) setProduct(guess as ProductKey);
           }}
           placeholder="How long does deployment take?"
           className={cn(CONTROL, 'w-full px-3')}
@@ -1425,8 +1794,8 @@ function WriteAnswer({
             onChange={(e) => setProduct(e.target.value as ProductKey)}
             className={cn(CONTROL, 'w-[11rem] px-2.5')}
           >
-            {(['any', ...SELLABLE] as ProductKey[]).map((p) => (
-              <option key={p} value={p}>{PRODUCT_LABEL[p]}</option>
+            {choices.map((c) => (
+              <option key={c.value} value={c.value}>{c.label}</option>
             ))}
           </select>
         </label>
@@ -1462,89 +1831,144 @@ function WriteAnswer({
 
 function UploadSource({
   board,
+  choices,
   onClose,
   onDone,
 }: {
   board: KnowledgeBoard;
+  choices: Choices;
   onClose: () => void;
   onDone: () => Promise<void>;
 }) {
   const toast = useToast();
-  const [file, setFile] = React.useState<File | null>(null);
+  /* ⚠️ AS MANY AS THEY LIKE. Owner, 2026-09-22: *"… and upload as many."*
+     One title box when there is one file; each file's own name when there are
+     several, because nobody wants to name eight files one by one. */
+  const [files, setFiles] = React.useState<File[]>([]);
+  const [progress, setProgress] = React.useState<string | null>(null);
+  const file = files[0] ?? null;
   const [title, setTitle] = React.useState('');
-  const [product, setProduct] = React.useState<ProductKey>(board.settings.product ?? 'any');
+  /* The project's own product, or the catch-all — never one it does not sell. */
+  const [product, setProduct] = React.useState<ProductKey>(
+    board.settings.product && choices.some((c) => c.value === board.settings.product)
+      ? board.settings.product
+      : 'any',
+  );
   const [kind, setKind] = React.useState('brochure');
   const [busy, setBusy] = React.useState(false);
   const [readNow, setReadNow] = React.useState(true);
 
   const go = async () => {
-    if (!file) return;
+    if (files.length === 0) return;
     setBusy(true);
+    let uploaded = 0;
+    let drafted = 0;
+    const failed: string[] = [];
+    for (const [i, f] of files.entries()) {
+      setProgress(`Uploading ${i + 1} of ${files.length}…`);
+      const r = await uploadOne(f, files.length === 1 ? title.trim() : '');
+      if (!r.ok) {
+        failed.push(`${f.name}: ${r.error}`);
+        continue;
+      }
+      uploaded += 1;
+      drafted += r.drafted;
+    }
+    setProgress(null);
+    setBusy(false);
+    if (uploaded > 0) {
+      toast({
+        tone: failed.length ? 'error' : 'ok',
+        text:
+          `Uploaded ${uploaded} source${uploaded === 1 ? '' : 's'}` +
+          (readNow ? ` and drafted ${drafted} answer${drafted === 1 ? '' : 's'} for review` : '') +
+          (failed.length ? `. ${failed.length} failed — ${failed[0]}` : '.'),
+      });
+      await onDone();
+    } else {
+      toast({ tone: 'error', text: failed[0] ?? 'Nothing could be uploaded.' });
+    }
+  };
+
+  const uploadOne = async (f: File, named: string): Promise<{ ok: true; drafted: number } | { ok: false; error: string }> => {
     const form = new FormData();
     form.set('projectId', board.projectId);
-    form.set('title', title.trim() || file.name.replace(/\.[^.]+$/, ''));
+    form.set('title', named || f.name.replace(/\.[^.]+$/, ''));
     form.set('kind', kind);
     form.set('product', product);
-    form.set('file', file);
+    form.set('file', f);
     /* ⚠️ IT IS A `useActionState` ACTION, so the previous state comes first.
        Passing only the form silently loses the file on some builds. */
     const up = await uploadCrmDocumentAction({ ok: false }, form);
-    if (!up.ok) {
-      setBusy(false);
-      toast({ tone: 'error', text: up.error ?? 'That file could not be uploaded.' });
-      return;
-    }
-    if (readNow && up.id && file.type === 'application/pdf') {
+    if (!up.ok) return { ok: false, error: up.error ?? 'it could not be uploaded' };
+    if (readNow && up.id && f.type === 'application/pdf') {
       const r = await readDocumentAction({ projectId: board.projectId, documentId: up.id });
-      toast(
-        r.ok
-          ? { tone: 'ok', text: `Uploaded, and ${r.added ?? 0} answers drafted for review.` }
-          : { tone: 'error', text: r.error ?? 'Uploaded, but it could not be read.' },
-      );
-    } else {
-      toast({ tone: 'ok', text: 'Uploaded.' });
+      return { ok: true, drafted: r.ok ? r.added ?? 0 : 0 };
     }
-    setBusy(false);
-    await onDone();
+    return { ok: true, drafted: 0 };
   };
 
   return (
-    <Shell title="Upload a source" subtitle="A PDF the agent may draft answers from." onClose={onClose}>
+    <Shell title="Upload sources" subtitle="PDFs the agent may draft answers from — choose as many as you like." onClose={onClose}>
       <input
         type="file"
+        multiple
         accept="application/pdf,image/*,.doc,.docx,.xls,.xlsx"
         onChange={(e) => {
-          const f = e.target.files?.[0] ?? null;
-          setFile(f);
+          const list = [...(e.target.files ?? [])];
+          setFiles(list);
+          const f = list[0] ?? null;
           if (f) {
             const base = f.name.replace(/\.[^.]+$/, '');
             setTitle(base);
             const p = productFromWords(base);
-            if (p) setProduct(p as ProductKey);
+            if (p && choices.some((c) => c.value === p)) setProduct(p as ProductKey);
             const k = documentKindFromWords(base);
             if (k) setKind(k);
           }
         }}
         className="block w-full rounded-xl border border-dashed border-border-default px-3 py-6 text-body-sm text-text-secondary"
       />
-      <label className="mt-3 block">
-        <span className="mb-1 block text-caption font-semibold text-text-secondary">Title</span>
-        <input value={title} onChange={(e) => setTitle(e.target.value)} className={cn(CONTROL, 'w-full px-3')} />
-      </label>
+      {files.length > 1 ? (
+        <ul className="mt-3 max-h-36 space-y-1 overflow-y-auto rounded-xl border border-border-subtle p-2">
+          {files.map((f) => (
+            <li key={f.name} className="flex items-center gap-2 text-caption text-text-primary">
+              <FileText className="size-3.5 shrink-0 text-text-tertiary" aria-hidden="true" />
+              <span className="min-w-0 flex-1 truncate">{f.name.replace(/\.[^.]+$/, '')}</span>
+              <span className="shrink-0 text-text-secondary">{Math.max(1, Math.round(f.size / 1024))} KB</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <label className="mt-3 block">
+          <span className="mb-1 block text-caption font-semibold text-text-secondary">Title</span>
+          <input value={title} onChange={(e) => setTitle(e.target.value)} className={cn(CONTROL, 'w-full px-3')} />
+        </label>
+      )}
       <div className="mt-3 flex flex-wrap items-end gap-3">
         <label className="block">
           <span className="mb-1 block text-caption font-semibold text-text-secondary">What it is about</span>
           <select value={product} onChange={(e) => setProduct(e.target.value as ProductKey)} className={cn(CONTROL, 'w-[11rem] px-2.5')}>
-            {(['any', ...SELLABLE] as ProductKey[]).map((p) => (
-              <option key={p} value={p}>{PRODUCT_LABEL[p]}</option>
+            {choices.map((c) => (
+              <option key={c.value} value={c.value}>{c.label}</option>
             ))}
           </select>
         </label>
         <label className="block">
           <span className="mb-1 block text-caption font-semibold text-text-secondary">Kind</span>
           <select value={kind} onChange={(e) => setKind(e.target.value)} className={cn(CONTROL, 'w-[11rem] px-2.5')}>
-            {['brochure', 'proposal', 'quotation', 'price_list', 'letterhead', 'other'].map((k) => (
-              <option key={k} value={k}>{k.replace(/_/g, ' ')}</option>
+            {/* ⚠️ THE DATABASE'S OWN KINDS. This list offered "proposal", which
+                is not one, so every upload marked that way was refused. */}
+            {[
+              ['brochure', 'Brochure or proposal'],
+              ['price_list', 'Price list'],
+              ['quotation', 'Quotation'],
+              ['site_plan', 'Site plan'],
+              ['legal', 'Legal'],
+              ['letterhead', 'Letterhead'],
+              ['other', 'Other'],
+            ].map(([k, label]) => (
+              <option key={k} value={k}>{label}</option>
             ))}
           </select>
         </label>
@@ -1561,13 +1985,15 @@ function UploadSource({
         >
           Cancel
         </button>
+        {progress && <span className="mr-auto self-center text-caption text-text-secondary">{progress}</span>}
         <button
           type="button"
           disabled={busy || !file}
           onClick={() => void go()}
           className="inline-flex items-center gap-2 rounded-xl bg-accent-primary px-3.5 py-2 text-body-sm font-semibold text-white hover:opacity-90 disabled:opacity-40"
         >
-          {busy && <Loader2 className="size-4 animate-spin" aria-hidden="true" />} Upload
+          {busy && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
+          {files.length > 1 ? `Upload ${files.length} files` : 'Upload'}
         </button>
       </div>
     </Shell>

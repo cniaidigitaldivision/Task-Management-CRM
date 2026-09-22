@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   activity,
+  closestAnswers,
   counts,
   coverage,
   gaps,
@@ -9,6 +10,8 @@ import {
   isKnowledgeGap,
   matches,
   NO_FILTERS,
+  productChoices,
+  projectProducts,
   readiness,
   supportScore,
   supportTone,
@@ -263,5 +266,66 @@ describe('the activity feed', () => {
     );
     expect(feed.map((m) => m.kind)).toEqual(['approved', 'gap', 'read', 'uploaded']);
     expect(feed[0].who).toBe('Sarah');
+  });
+});
+
+describe('a project\u2019s own products', () => {
+  /* Owner, 2026-09-22: *"I am watching that Chitral Royal Homes is still
+     showing the knowledge health on the basis of Taskly CRM ERP. Each knowledge
+     should be according to the project."* Chitral sells plots: 683 leads, no
+     knowledge, no sources, no product. Four bars about Taskly and ERP describe
+     somebody else's business. */
+  const entry = (product: EntryLike['product']): EntryLike => ({
+    id: `e-${product}`, product, question: 'q', answer: 'a', sourceQuote: null, sourceTitle: null,
+    status: 'approved', approvedByName: null, approvedAt: null, expiresAt: null, createdAt: '2026-09-20T00:00:00.000Z',
+  });
+
+  it('\u26a0\ufe0f is empty for a project that sells one thing', () => {
+    expect(projectProducts({ sells: null, entries: [entry('any')], documents: [], runs: [] })).toEqual([]);
+    expect(healthByProduct([], [])).toEqual([]);
+  });
+
+  it('names what the project says it sells, and what its own rows carry', () => {
+    expect(projectProducts({ sells: 'crm', entries: [], documents: [], runs: [] })).toEqual(['crm']);
+    expect(
+      projectProducts({
+        sells: null,
+        entries: [entry('crm'), entry('taskly'), entry('any')],
+        documents: [],
+        runs: [],
+      }),
+    ).toEqual(['taskly', 'crm']);
+  });
+
+  it('\u26a0\ufe0f calls the catch-all "This project" when there is nothing to split by', () => {
+    expect(productChoices([])).toEqual([{ value: 'any', label: 'This project' }]);
+    expect(productChoices(['crm'])[0].label).toBe('All products');
+  });
+});
+
+describe('the test drawer\u2019s answer source', () => {
+  const approved = (id: string, question: string, answer: string, sourceTitle: string | null = 'CRM Proposal'): EntryLike => ({
+    id, product: 'crm', question, answer, sourceQuote: null, sourceTitle,
+    status: 'approved', approvedByName: 'Sarah', approvedAt: null, expiresAt: null, createdAt: '2026-09-20T00:00:00.000Z',
+  });
+  const entries = [
+    approved('wa', 'Can the CRM integrate with WhatsApp?', 'Yes, CRM can be integrated with WhatsApp for CRM-linked chats and communication history.'),
+    approved('time', 'How long does CRM deployment take?', 'The estimated deployment time is two to three weeks.'),
+    { ...approved('draft', 'Draft question', 'WhatsApp chats and communication history'), status: 'draft' as const },
+  ];
+
+  it('finds the approved answer a reply was drawn from', () => {
+    const d = closestAnswers('Yes, our CRM can be integrated with WhatsApp for CRM-linked chats and communication history.', entries);
+    expect(d[0].id).toBe('wa');
+    expect(d[0].sourceTitle).toBe('CRM Proposal');
+    expect(d[0].score).toBeGreaterThanOrEqual(70);
+  });
+
+  it('\u26a0\ufe0f never credits a draft \u2014 the agent cannot say one', () => {
+    expect(closestAnswers('WhatsApp chats and communication history', entries).map((x) => x.id)).not.toContain('draft');
+  });
+
+  it('\u26a0\ufe0f credits nothing to small talk, rather than the answer that shares a word', () => {
+    expect(closestAnswers('You are welcome! Anything else I can help with?', entries)).toEqual([]);
   });
 });

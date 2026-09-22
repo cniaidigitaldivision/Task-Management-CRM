@@ -151,10 +151,6 @@ const HOLDING: ReadonlyArray<[RegExp, string]> = [
     'Let me confirm your appointment details with my colleague — they will message you shortly with the exact time.',
   ],
   [
-    /person|human|salesperson|colleague|call you|phone|speak to|talk to|baat|insaan/i,
-    'Of course — I am passing you to my colleague. They will message you shortly.',
-  ],
-  [
     /discount|price|pricing|negotiat|payment terms|instal|cheaper|budget/i,
     'Thank you — our team will get back to you on this shortly.',
   ],
@@ -173,6 +169,16 @@ const HOLDING: ReadonlyArray<[RegExp, string]> = [
   [
     /complain|upset|angry|unhappy|sorry/i,
     'I am sorry about that. Our team will contact you shortly.',
+  ],
+  /* ⚠️ THE GENERIC LINE GOES LAST. The model's reasons routinely end
+     "…which requires a salesperson to handle", so while this sat above the
+     specific topics it won every time: the Test agent drawer showed a DISCOUNT
+     question answered with "I am passing you to my colleague" (2026-09-22). A
+     topic line says something true about what happens next; this one is only
+     for when the client simply asked for a person. */
+  [
+    /person|human|salesperson|colleague|call you|phone|speak to|talk to|baat|insaan/i,
+    'Of course — I am passing you to my colleague. They will message you shortly.',
   ],
 ];
 

@@ -331,6 +331,15 @@ export async function removeObject(path: string): Promise<StorageResult<null>> {
     });
 
     if (!response.ok && response.status !== 404) {
+      /* ⚠️ ALREADY GONE IS DONE. Supabase answers a missing object with HTTP
+         **400** and `"statusCode":"404","error":"not_found"` in the body (the
+         same shape the note in `readError` records for signing), so the status
+         check above never saw it. Measured deleting a source, 2026-09-22: the
+         rows went, and the screen then said the file "could not be removed"
+         when there was no file left to remove. Every caller of this wants the
+         object gone, so "it was not there" is success for all of them. */
+      const body = await response.clone().text().catch(() => '');
+      if (/NoSuchKey|"not_found"|Object not found/i.test(body)) return { ok: true, value: null };
       return { ok: false, message: await readError(response, 'The file could not be removed.') };
     }
     return { ok: true, value: null };

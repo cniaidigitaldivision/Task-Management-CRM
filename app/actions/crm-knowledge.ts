@@ -4,9 +4,12 @@ import { revalidatePath } from 'next/cache';
 
 import { requireCrmAccess } from '@/lib/auth/current-user';
 import { decideAgentReply } from '@/lib/ai/agent-brain';
+import { holdingLine } from '@/lib/domain/crm-agent-social';
+import { closestAnswers, type Drawn } from '@/lib/domain/crm-knowledge-health';
 import { extractKnowledge, type ProductKey as ExtractProduct } from '@/lib/ai/knowledge-extract';
 import { readPdfText } from '@/lib/crm/pdf-text';
 import {
+  deleteSource,
   addKnowledge,
   decideKnowledge,
   draftKnowledge,
@@ -17,7 +20,7 @@ import {
   type KnowledgeBoard,
   type ProductKey,
 } from '@/lib/db/queries/crm-knowledge';
-import { downloadObject } from '@/lib/storage/bucket';
+import { downloadObject, removeObject } from '@/lib/storage/bucket';
 import { withUser } from '@/lib/db/client';
 
 /* ============================================================================
@@ -237,11 +240,26 @@ export interface AskAgentResult {
   readonly error?: string;
   readonly answer?: string;
   readonly handover?: string;
+  /** What the client would actually be sent on a hand-off — the same line the live agent sends. */
+  readonly clientWouldSee?: string;
   readonly product?: string | null;
   readonly documents?: readonly string[];
+  /** The approved answers the reply is closest to — a match, see `closestAnswers`. */
+  readonly drawnFrom?: readonly Drawn[];
 }
 
-export async function askAgentAction(projectId: string, question: string): Promise<AskAgentResult> {
+/** One earlier turn of a test conversation. */
+export interface TestTurn {
+  readonly from: 'client' | 'agent';
+  readonly text: string;
+}
+
+export async function askAgentAction(
+  projectId: string,
+  question: string,
+  /** Earlier turns of this test, so a follow-up question has its context. */
+  history: readonly TestTurn[] = [],
+): Promise<AskAgentResult> {
   const { user } = await requireCrmAccess();
   if (!UUID.test(projectId)) return { ok: false, error: 'That project could not be found.' };
   const asked = question.trim();
@@ -271,18 +289,76 @@ export async function askAgentAction(projectId: string, question: string): Promi
     documents: board.documents
       .filter((d) => d.mime === 'application/pdf')
       .map((d) => ({ id: d.id, title: d.title, kind: d.kind, product: d.product })),
-    thread: [{ direction: 'inbound', kind: 'text', body: asked, file: null, byAgent: false }],
+    /* ⚠️ THE TEST CONVERSATION, AS THE LIVE THREAD WOULD CARRY IT. At most
+       the last twelve turns, each capped — this is a browser posting text, and
+       nothing it sends is trusted beyond being words. */
+    thread: [
+      ...history.slice(-12).map((t) => ({
+        direction: t.from === 'client' ? 'inbound' : 'outbound',
+        kind: 'text',
+        body: String(t.text ?? '').slice(0, 900),
+        file: null,
+        byAgent: t.from === 'agent',
+      })),
+      { direction: 'inbound', kind: 'text', body: asked, file: null, byAgent: false },
+    ],
     booking: null,
   });
 
+  const approvedRows = board.entries.filter((e) => e.status === 'approved');
   return {
     ok: true,
     ...(decision.action === 'reply'
-      ? { answer: decision.reply ?? '' }
-      : { handover: decision.handoverReason ?? 'It would hand this to a salesperson.' }),
+      ? { answer: decision.reply ?? '', drawnFrom: closestAnswers(decision.reply ?? '', approvedRows) }
+      : {
+          handover: decision.handoverReason ?? 'It would hand this to a salesperson.',
+          clientWouldSee: holdingLine(decision.handoverReason),
+        }),
     product: decision.product,
     documents: decision.documentIds
       .map((id) => board.documents.find((d) => d.id === id)?.title)
       .filter((t): t is string => Boolean(t)),
+  };
+}
+
+/* ============================================================================
+ * 248 · DELETE A SOURCE
+ * ----------------------------------------------------------------------------
+ * Owner, 2026-09-22: *"This information is old information and I want to
+ * delete it. I want my agent to respond with the latest information."*
+ * ========================================================================= */
+
+export interface DeleteSourceResult {
+  readonly ok: boolean;
+  readonly error?: string;
+  readonly approved?: number;
+  readonly drafts?: number;
+  readonly steps?: number;
+  /** The rows are gone but the file could not be removed from storage. */
+  readonly fileLeft?: boolean;
+}
+
+export async function deleteSourceAction(input: {
+  documentId: string;
+  withAnswers: boolean;
+}): Promise<DeleteSourceResult> {
+  const { user } = await requireCrmAccess();
+  if (!UUID.test(input.documentId)) return { ok: false, error: 'That source could not be found.' };
+
+  const done = await deleteSource(user.id, input.documentId, input.withAnswers !== false);
+  if (!done.ok) return { ok: false, error: done.error };
+
+  /* After the commit, never before — see `deleteSource`. */
+  const removed = await removeObject(done.storagePath);
+  if (!removed.ok) {
+    console.error(`[crm] source ${input.documentId} deleted but its file stayed: ${removed.message}`);
+  }
+  revalidatePath('/knowledge');
+  return {
+    ok: true,
+    approved: done.approved,
+    drafts: done.drafts,
+    steps: done.steps,
+    fileLeft: !removed.ok,
   };
 }

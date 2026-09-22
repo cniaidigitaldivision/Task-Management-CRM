@@ -112,6 +112,15 @@ describe('the holding line', () => {
     expect(holdingLine('asked to speak to a person')).toMatch(/passing you to my colleague/);
   });
 
+  it('⚠️ a topic beats the word "salesperson" in the model’s reason', () => {
+    /* Found by the Test agent drawer, 2026-09-22: a discount question got
+       "I am passing you to my colleague" because the reason ended "which
+       requires a salesperson to handle". */
+    expect(holdingLine('Client is asking for a discount, which requires a salesperson to handle.'))
+      .toMatch(/get back to you/);
+    expect(holdingLine('Client is ready to buy now and needs a salesperson.')).not.toMatch(/passing you/);
+  });
+
   it('never promises anything about price, only that somebody will come back', () => {
     const line = holdingLine('Client is asking for a discount.');
     expect(line).toMatch(/get back to you/);
