@@ -2,14 +2,28 @@ import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
   /**
-   * Where the build output goes.
+   * Where the build output goes. Normally `.next`.
    *
-   * ⚠️ NORMALLY `.next`, AND DELIBERATELY OVERRIDABLE. Running `next build`
-   * against the same directory a `next dev` is serving from leaves that dev
-   * server handing out a half-replaced build — this repository has already lost
-   * an afternoon to screenshots of UI that no longer existed. Setting
-   * `NEXT_DIST_DIR` lets a verification build run beside a live dev server
-   * without touching it. Vercel sets nothing, so production is unaffected.
+   * ⚠️ THIS IS NOT PERMISSION TO BUILD WHILE `next dev` IS RUNNING. It was
+   * added for exactly that and it DOES NOT WORK — measured here on 2026-09-23.
+   * A `next build` with `NEXT_DIST_DIR=.next-verify`, run beside the owner's
+   * live dev server, corrupted that server's CSS pipeline: Tailwind's scanner
+   * began emitting garbled class names and every route answered 500 with
+   *
+   *     ./app/globals.css:2198:25  Parsing CSS source code failed
+   *     .max-w-\[var\(--�G� nt-max\)\]      (was: --content-max)
+   *
+   * The output directories were separate; something upstream of them is not.
+   * `app/globals.css` itself was untouched and every source file on disk was
+   * valid UTF-8 — only the compiled result was damaged, which is why it looks
+   * like a source bug and is not one.
+   *
+   * ⚠️ So: STOP THE DEV SERVER BEFORE BUILDING. The recovery is to kill the dev
+   * process, delete `.next` entirely, and restart it.
+   *
+   * The variable is kept because a separate output directory is still useful on
+   * its own (a build whose artefacts you want to inspect without replacing the
+   * ones in `.next`). Vercel sets nothing, so production is unaffected.
    */
   distDir: process.env.NEXT_DIST_DIR || '.next',
 

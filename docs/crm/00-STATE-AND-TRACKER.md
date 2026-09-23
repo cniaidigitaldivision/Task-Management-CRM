@@ -87,6 +87,33 @@ many completed tasks are unverified.
   verification build can run beside a live `next dev` without replacing what it
   is serving.
 
+### ⚠️ And the verification build broke the owner's dev server
+
+Running `next build` beside their live `next dev` — with `NEXT_DIST_DIR` set,
+believing that isolated it — corrupted the dev server's CSS pipeline. Tailwind's
+scanner began emitting garbled class names and every route answered 500:
+
+```
+./app/globals.css:2198:25   Parsing CSS source code failed
+.max-w-\[var\(--�G�\1 nt-max\)\]        (was: --content-max)
+```
+
+It reads as a source bug and is not one. `app/globals.css` is 372 lines and was
+never touched; the error points at line 2198 of Tailwind's *generated* output,
+and a byte scan of every `.ts/.tsx/.css/.json/.md/.sql` file in the repo found
+**zero** invalid UTF-8 and zero replacement characters. Only the compiled result
+was damaged.
+
+**Recovery:** kill the `next dev` process, `rm -rf .next` (the whole directory,
+not just `dev/`), restart. Verified afterwards: `/login` 200, `/performance` 307
+without a cookie and the full page with one, the compiled stylesheet 225,448
+bytes with **0** U+FFFD and `content-max`, `studio-rise` and `--pf-teal` all
+present.
+
+`NEXT_DIST_DIR` is kept — a separate output directory is useful on its own — but
+its comment in `next.config.ts` now says plainly that it does NOT make building
+beside a dev server safe, because that is what was measured.
+
 **Green:** 152 test files · 3821 tests · typecheck · lint · production build.
 
 ---
