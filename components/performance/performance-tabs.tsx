@@ -180,19 +180,30 @@ export function ProjectsTab({
   projects,
   teams,
   personName,
+  ownOnly = false,
 }: {
   projects: readonly ProjectRow[];
   teams: readonly TeamRow[];
   personName: string | null;
+  /** The reader is looking at their own record, so address them directly. */
+  ownOnly?: boolean;
 }) {
   return (
     <div className="space-y-[1.25rem]">
       <Panel
-        title={personName ? `Where ${personName.split(' ')[0]}’s work goes` : 'Projects'}
+        title={
+          ownOnly
+            ? 'Where your work goes'
+            : personName
+              ? `Where ${personName.split(' ')[0]}’s work goes`
+              : 'Projects'
+        }
         description={
-          personName
-            ? 'Every project they have a task in, and what has come of it.'
-            : 'Every project with work in this scope.'
+          ownOnly
+            ? 'Every project you have a task in, and what has come of it.'
+            : personName
+              ? 'Every project they have a task in, and what has come of it.'
+              : 'Every project with work in this scope.'
         }
       >
         {projects.length === 0 ? (

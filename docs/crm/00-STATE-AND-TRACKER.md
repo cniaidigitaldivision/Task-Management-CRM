@@ -23,6 +23,34 @@
 
 ---
 
+## 🧭 2026-09-23 (later still) — A MEMBER SEES THEIR OWN PERFORMANCE
+
+Owner: *"I want the admin to be able to view this page or view this performance,
+and all the other team members can view their own performance only. Have you done
+it accordingly?"*
+
+**No — and the honest answer was no.** The page was `requireRole('team_coordinator')`,
+so a Member was redirected to `/my-work` and never saw the nav item. Now:
+
+| Role | What they get |
+|---|---|
+| super_admin / admin / team_coordinator | the whole team, filterable |
+| **member** | the same page, **locked to themselves**, titled "My performance" |
+
+⚠️ **THE LOCK IS A SERVER-SIDE OVERRIDE, NOT A HIDDEN DROPDOWN.** `personId` is
+replaced with the caller's own id before any read runs, and the same override is
+in the server actions — those are public endpoints, and hiding a pill protects
+nothing. RLS narrows it a second time, independently (ADR-003).
+
+**Verified as a real Member** (minted session, not an admin's —
+`admin-sessions-cannot-test-access`): opens the page ✓, sees own name ✓, does NOT
+see another person's name ✓, `?person=<someone else>` still shows only their own ✓,
+figures match the database (48) ✓. Admin view unchanged.
+
+**Green:** 152 test files · 3821 tests · typecheck · lint · production build.
+
+---
+
 ## 🧭 2026-09-23 (later) — EIGHT TABS, AND THE PERSON IS THE SCOPE
 
 Owner, with a photo of the live page beside the design: *"the page is not as

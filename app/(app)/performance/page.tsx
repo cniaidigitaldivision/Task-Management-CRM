@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 
 import { PerformanceBoard } from '@/components/performance/performance-board';
-import { requireRole } from '@/lib/auth/current-user';
+import { requireUser } from '@/lib/auth/current-user';
 import {
   bucketTrend,
   performanceBoard,
@@ -38,10 +38,25 @@ export const metadata: Metadata = { title: 'Performance overview' };
  * says so instead of drawing a zero. A number nobody can trace, on a page read
  * as a judgement about a named person, is the worst bug this screen could ship.
  *
- * ── SCOPE IS ROW-LEVEL SECURITY ──────────────────────────────────────────
- * `requireRole('team_coordinator')` is the floor for seeing a page about other
- * people's work at all; what a reader then sees inside it is decided by the
- * same policies the task board uses (ADR-003).
+ * ── WHO SEES WHAT — owner, 2026-09-23 ───────────────────────────────────
+ * *"I want the admin to be able to view this page or view this performance, and
+ * all the other team members can view their own performance only."*
+ *
+ * So rank no longer decides whether the page OPENS, only how wide it is:
+ *
+ *   super_admin / admin / team_coordinator → the whole team, filterable
+ *   member                                 → locked to themselves
+ *
+ * ⚠️ THE LOCK IS APPLIED ON THE SERVER, NOT BY HIDING A DROPDOWN. `personId`
+ * is overwritten with the caller's own id for a Member before any read runs, so
+ * a hand-typed `?person=<somebody-else>` is ignored rather than obeyed. The UI
+ * also hides the team and person pills, but that is a courtesy, not the rule.
+ *
+ * ⚠️ AND RLS IS STILL THE FLOOR UNDER THAT. `users_select` shows a Member one
+ * row — their own — and `tasks_select` narrows the rest (ADR-003), so even if
+ * this file forgot the override they would not read another person's figures.
+ * Two independent answers to the same question, which is the pattern migrations
+ * 117 and 252 already use.
  * ========================================================================= */
 
 const PRESETS = [
@@ -65,7 +80,10 @@ export default async function PerformancePage({
   }>;
 }) {
   /* ⚠️ ONE WAVE — Rule Zero, law 4. */
-  const [user, params] = await Promise.all([requireRole('team_coordinator'), searchParams]);
+  const [user, params] = await Promise.all([requireUser(), searchParams]);
+
+  /* A Member reads this page about themselves and nobody else. */
+  const ownOnly = user.role === 'member';
 
   const today = isoDateIn();
   const preset: Preset = (PRESETS.find((p) => p.value === params.period)?.value ??
@@ -84,8 +102,13 @@ export default async function PerformancePage({
      already drawn, so it travels in the URL with the other two. The table still
      narrows in its own frame — the board applies the choice optimistically
      while this read catches up (Rule Zero, law 2). */
-  const person = uuidOr(params.person);
-  const filters = { departmentId: team, projectId: project, personId: person };
+  /* ⚠️ THE OVERRIDE, AND IT IGNORES THE URL RATHER THAN TRUSTING IT. */
+  const person = ownOnly ? user.id : uuidOr(params.person);
+  const filters = {
+    departmentId: ownOnly ? null : team,
+    projectId: project,
+    personId: person,
+  };
   const scoped = { ...period, today };
 
   /* ⚠️ ONE WAVE, AND EVERY TAB'S DATA IN IT — Rule Zero laws 1 and 4. The
@@ -113,10 +136,11 @@ export default async function PerformancePage({
         ...period,
         preset,
         label: labelFor(period),
-        team: team ?? 'all',
+        team: ownOnly ? 'all' : (team ?? 'all'),
         project: project ?? 'all',
         person: person ?? 'all',
       }}
+      ownOnly={ownOnly}
       today={today}
       asOf={dayLabel(today)}
       /* The server's clock, so "waiting 52 hours" is not computed against a

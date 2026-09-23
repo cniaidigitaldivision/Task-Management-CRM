@@ -152,9 +152,15 @@ export const NAV_SECTIONS: readonly NavSection[] = [
          person doing" and is read on screen. Folding one into the other would
          make the export controls part of a question nobody asked while reading
          it — and the owner was explicit that the report page's export is to be
-         left alone for now. LEAD_UP: a page about other people's work has a
-         coordinator floor, and RLS narrows what is inside it. */
-      { label: 'Performance', href: '/performance', icon: BarChart3, roles: LEAD_UP },
+         left alone for now.
+
+         ⚠️ ALL, NOT LEAD_UP — owner, 2026-09-23: *"I want the admin to be able
+         to view this page ... and all the other team members can view their own
+         performance only."* A Member opens the same page locked to themselves:
+         the page forces the person filter to their own id and hides the team and
+         person pills, and RLS independently shows them nothing else. The rank no
+         longer decides WHETHER the page opens, only HOW WIDE it is. */
+      { label: 'Performance', href: '/performance', icon: BarChart3, roles: ALL },
     ],
   },
   {

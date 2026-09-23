@@ -147,6 +147,14 @@ This is the part a returning session most needs. Each row is a real commit on
 `/reports` still produces the document, and is **untouched** — the header's
 "Export report" button links there rather than growing a second exporter.
 
+- **Who sees what** (owner, 2026-09-23: *"I want the admin to be able to view
+  this page ... and all the other team members can view their own performance
+  only."*): rank decides how WIDE the page is, not whether it opens.
+  Admin / Coordinator get the whole team; a **Member gets the same page locked to
+  themselves** — titled "My performance", with the team and person filters gone.
+  ⚠️ The lock is a server-side override of `personId`, so `?person=<somebody
+  else>` is ignored, and RLS narrows it independently. Verified as a real Member:
+  own name yes, another person's name no, crafted URL no.
 - **Built to the owner's image by measurement**, per
   `20-BUILDING-A-SCREEN-FROM-A-DESIGN.md`: colours sampled out of the PNG into a
   `.perf-ui` token block, type sizes solved from **ink widths** (⚠️ see §3 of

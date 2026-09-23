@@ -146,6 +146,7 @@ export function PerformanceBoard({
   weekly,
   monthly,
   updatedAt,
+  ownOnly,
 }: {
   board: readonly PersonStat[];
   attention: readonly AttentionRow[];
@@ -162,6 +163,8 @@ export function PerformanceBoard({
   quality: QualitySummary;
   weekly: readonly BucketRow[];
   monthly: readonly BucketRow[];
+  /** A Member reads this page about themselves; the server has already scoped it. */
+  ownOnly: boolean;
   /** The server's clock, formatted — so the pill is not the browser's idea of now. */
   updatedAt: string;
 }) {
@@ -265,7 +268,7 @@ export function PerformanceBoard({
 
   return (
     <div className="perf-ui mx-auto max-w-[var(--content-max)]">
-      <Header rangeLabel={period.label} asOf={asOf} updatedAt={updatedAt} />
+      <Header rangeLabel={period.label} asOf={asOf} updatedAt={updatedAt} ownOnly={ownOnly} />
 
       {/* ── Tabs ─────────────────────────────────────────────────────────── */}
       <div
@@ -308,6 +311,7 @@ export function PerformanceBoard({
           options={[...presets]}
           onChange={(v) => setScope('period', v)}
         />
+        {!ownOnly && (
         <FilterPill
           icon={Users}
           title="Team"
@@ -319,6 +323,7 @@ export function PerformanceBoard({
           ]}
           onChange={(v) => setScope('team', v)}
         />
+        )}
         <FilterPill
           icon={Folder}
           title="Project"
@@ -330,6 +335,11 @@ export function PerformanceBoard({
           ]}
           onChange={(v) => setScope('project', v)}
         />
+        {/* ⚠️ HIDDEN, NOT DISABLED — and hiding it is not what enforces the
+            rule. The server overwrites `personId` with the caller's own id for a
+            Member before any read runs, so a hand-typed `?person=` is ignored.
+            This only keeps the screen honest about what it offers. */}
+        {!ownOnly && (
         <FilterPill
           icon={User}
           title="Person"
@@ -345,6 +355,7 @@ export function PerformanceBoard({
           ]}
           onChange={setPerson}
         />
+        )}
       </div>
 
       {chosenPerson && (
@@ -352,7 +363,9 @@ export function PerformanceBoard({
           person={chosenPerson}
           workload={workload.find((w) => w.id === chosenPerson.id) ?? null}
           rangeLabel={period.label}
-          onClear={() => setPerson('all')}
+          /* ⚠️ A MEMBER HAS NO WHOLE TEAM TO GO BACK TO. Offering the button
+             would be offering a door that opens onto the same room. */
+          onClear={ownOnly ? null : () => setPerson('all')}
         />
       )}
 
@@ -431,7 +444,14 @@ export function PerformanceBoard({
                   the owner's own words: *"his whole contribution in each
                   project"*. */}
               {chosenPerson ? (
-                <ProjectsTab projects={projects} teams={teams} personName={chosenPerson.name} />
+                <ProjectsTab
+                  projects={projects}
+                  teams={teams}
+                  /* null name = "your work", which is what a Member should read
+                     on their own page. */
+                  personName={ownOnly ? null : chosenPerson.name}
+                  ownOnly={ownOnly}
+                />
               ) : (
               <Panel
                 title="Team performance"
@@ -558,12 +578,17 @@ export function PerformanceBoard({
             monthly={monthly}
             board={working}
             picked={picked}
-            personName={chosenPerson?.name ?? null}
+            personName={ownOnly ? null : (chosenPerson?.name ?? null)}
           />
         )}
 
         {tab === 'projects' && (
-          <ProjectsTab projects={projects} teams={teams} personName={chosenPerson?.name ?? null} />
+          <ProjectsTab
+            projects={projects}
+            teams={teams}
+            personName={ownOnly ? null : (chosenPerson?.name ?? null)}
+            ownOnly={ownOnly}
+          />
         )}
 
         {tab === 'quality' && <QualityTab quality={quality} nowMs={nowMs} />}
@@ -602,10 +627,12 @@ function Header({
   rangeLabel,
   asOf,
   updatedAt,
+  ownOnly,
 }: {
   rangeLabel: string;
   asOf: string;
   updatedAt: string;
+  ownOnly: boolean;
 }) {
   return (
     <div className="flex flex-wrap items-start gap-x-[2rem] gap-y-[0.9rem]">
@@ -615,7 +642,7 @@ function Header({
             className="text-[1.95rem] font-extrabold leading-[1.1] tracking-[-0.015em]"
             style={{ color: 'var(--pf-ink)' }}
           >
-            Performance overview
+            {ownOnly ? 'My performance' : 'Performance overview'}
           </h1>
           <span
             className="inline-flex items-center gap-[0.4rem] rounded-full px-[0.72rem] py-[0.36rem] text-[0.9rem] font-semibold leading-none"
@@ -626,7 +653,9 @@ function Header({
           </span>
         </div>
         <p className="mt-[0.35rem] text-[1.07rem] leading-[1.35]" style={{ color: 'var(--pf-soft)' }}>
-          Understand the work. See the evidence. Decide the next step.
+          {ownOnly
+            ? 'Your work, your deadlines, and the evidence behind both.'
+            : 'Understand the work. See the evidence. Decide the next step.'}
         </p>
       </div>
 
@@ -1439,7 +1468,7 @@ function PersonHeader({
   person: PersonStat;
   workload: WorkloadRow | null;
   rangeLabel: string;
-  onClear: () => void;
+  onClear: (() => void) | null;
 }) {
   const facts = [person.roleTitle, workload?.departmentName].filter(Boolean) as string[];
   return (
@@ -1474,18 +1503,20 @@ function PersonHeader({
         />
       </span>
 
-      <button
-        type="button"
-        onClick={onClear}
-        className="ml-auto inline-flex items-center gap-[0.45rem] whitespace-nowrap rounded-[0.7rem] border px-[0.95rem] py-[0.65rem] text-[0.85rem] font-semibold leading-none"
-        style={{
-          background: 'var(--pf-surface)',
-          borderColor: 'var(--pf-field-line)',
-          color: 'var(--pf-ink)',
-        }}
-      >
-        Back to the whole team
-      </button>
+      {onClear && (
+        <button
+          type="button"
+          onClick={onClear}
+          className="ml-auto inline-flex items-center gap-[0.45rem] whitespace-nowrap rounded-[0.7rem] border px-[0.95rem] py-[0.65rem] text-[0.85rem] font-semibold leading-none"
+          style={{
+            background: 'var(--pf-surface)',
+            borderColor: 'var(--pf-field-line)',
+            color: 'var(--pf-ink)',
+          }}
+        >
+          Back to the whole team
+        </button>
+      )}
     </section>
   );
 }

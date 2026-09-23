@@ -71,7 +71,7 @@ export interface InsightScope {
 export async function performanceInsightAction(scope: InsightScope): Promise<PerformanceInsight> {
   const { user } = await requireRoleAndUser();
   try {
-    const sheet = await buildFactSheet(user.id, scope);
+    const sheet = await buildFactSheet(user.id, allowedScope(scope, user));
     const narrative = await writeNarrative(sheet);
     return { ok: true, narrative, factSheet: sheet };
   } catch (error) {
@@ -86,13 +86,27 @@ export async function performanceInsightAction(scope: InsightScope): Promise<Per
   }
 }
 
+/**
+ * Who is asking, and how wide their answer may be.
+ *
+ * ⚠️ A MEMBER MAY ASK, BUT ONLY ABOUT THEMSELVES. Owner, 2026-09-23: *"all
+ * the other team members can view their own performance only."* Their scope is
+ * overwritten with their own id here, so a crafted `personId` naming somebody
+ * else is ignored — a server action is a public endpoint, and the page hiding a
+ * dropdown protects nothing on its own.
+ */
 async function requireRoleAndUser() {
-  /* ⚠️ A COORDINATOR'S FLOOR, and RLS decides the rest. Somebody below that has
-     no business reading a page about other people's work; what a Coordinator
-     then sees inside it is narrowed by the same policies the task board uses. */
-  await requireRole('team_coordinator');
   const user = await requireUser();
-  return { user };
+  if (user.role !== 'member') await requireRole('team_coordinator');
+  return { user, ownOnly: user.role === 'member' };
+}
+
+/** The scope this caller is allowed, whatever they asked for. */
+function allowedScope<T extends { personId?: string | null }>(
+  scope: T,
+  user: { id: string; role: string },
+): T {
+  return user.role === 'member' ? { ...scope, personId: user.id } : scope;
 }
 
 /**
@@ -270,11 +284,13 @@ export async function personPerformanceAction(
   personId: string,
   period: { from: string; to: string },
 ): Promise<PersonPayload> {
-  const { user } = await requireRoleAndUser();
+  const { user, ownOnly } = await requireRoleAndUser();
+  /* ⚠️ A MEMBER OPENS THEMSELVES, whichever id arrived. */
+  const who = ownOnly ? user.id : personId;
   try {
     const [detail, previousCompleted] = await Promise.all([
-      personDetail(user.id, personId, period),
-      completedInWindow(user.id, previousWindow(period.from, period.to), personId),
+      personDetail(user.id, who, period),
+      completedInWindow(user.id, previousWindow(period.from, period.to), who),
     ]);
     return { ok: true, detail, previousCompleted };
   } catch (error) {
