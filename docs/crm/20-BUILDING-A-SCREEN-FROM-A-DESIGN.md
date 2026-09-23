@@ -95,6 +95,36 @@ Do this for a dozen strings across the page — title, card label, card figure,
 tab, table header, row name, secondary line, button. You get the design's whole
 type scale in one pass, and it is not a matter of opinion afterwards.
 
+### ⚠️ WIDTH, NOT HEIGHT. Measuring the glyph's height is wrong every time
+
+The Performance page (2026-09-23) was built by measuring **cap heights** — the
+number of ink rows a capital letter occupies — and solving the size from those.
+Every string came out **20–35% too large**, and the page shipped its first
+build with six labels cut off:
+
+| String | Cap-height guess | Solved from ink width | Error |
+|---|---|---|---|
+| "Performance overview" | 2.29rem | **1.95rem** | +17% |
+| "On-time delivery" | 1.18rem | **0.86rem** | +37% |
+| "Completed" (table head) | 1.04rem | **0.77rem** | +35% |
+| "Taskly AI · Performance insights" | 1.49rem | **1.27rem** | +17% |
+
+Three reasons it cannot work, and they compound:
+
+1. **Anti-aliasing adds rows.** A soft edge above and below every glyph is one to
+   two pixels of ink that belong to no letter, on a cap that is only 12 tall.
+2. **Ascenders and descenders are invisible in a box.** A crop chosen to hold
+   "Designer" also holds the tail of the *g*, so the "cap height" is really the
+   full em.
+3. **The cap-height ratio is a property of the typeface.** Solving a size from it
+   assumes the image was drawn in *this* font at *this* weight. A width
+   measured through a canvas in the app's own resolved font assumes nothing.
+
+A width is 60–450 pixels of signal; a height is 10–24. Use the width. The script
+that does it is `psolve2.mjs` in the session scratchpad: it loads `/login`
+(unauthenticated, but the real compiled stylesheet and the real self-hosted
+fonts), waits for `document.fonts.ready`, and solves every string in one pass.
+
 ---
 
 ## 4 · Find the real geometry
@@ -141,6 +171,13 @@ longest real string needs, and re-share the width:
 
 Then step the type down and move width from the columns that have slack to the
 ones that do not. Keep the proportions; change the numbers.
+
+**And the same trap catches FIGURES, not just names.** The Performance reference
+writes "18 verified · 6 unverified" under its Completed card. Real totals here
+are `5 verified · 131 unverified` — three digits where the design has one, in a
+card 199px wide. Restating it as `5 of 136 verified` is the same fact, shorter,
+and keeps the design's line. Look at what the longest REAL value is before
+copying a caption's wording.
 
 **A column that repeats the same value on every row is not a column.** On a
 salesperson's screen every client is theirs, so the Owner column, its filter and
@@ -195,6 +232,7 @@ Do not make them say these again.
 | *"Don't show the export option in the import client"* | A menu offers one idea. Import imports; export is its own control |
 | *"In the PDF use a proper format, a proper table"* | Reuse the invoice letterhead: the same band, rule, logo and company details |
 | *"Add some dummy data so I can view the exact same layout, all the colors, status"* | Ship a seed that covers **every** state the design shows, on the demo project, and prove it cannot message anybody |
+| *"I want this performance page UI to be exactly the same as you see in the screenshot"* | The same instruction, on a second page. It is the whole of §§2–6 again — and the fastest way to obey it is to run those steps before showing anything, not after being told |
 
 ---
 

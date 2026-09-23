@@ -2,6 +2,18 @@ import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
   /**
+   * Where the build output goes.
+   *
+   * ⚠️ NORMALLY `.next`, AND DELIBERATELY OVERRIDABLE. Running `next build`
+   * against the same directory a `next dev` is serving from leaves that dev
+   * server handing out a half-replaced build — this repository has already lost
+   * an afternoon to screenshots of UI that no longer existed. Setting
+   * `NEXT_DIST_DIR` lets a verification build run beside a live dev server
+   * without touching it. Vercel sets nothing, so production is unaffected.
+   */
+  distDir: process.env.NEXT_DIST_DIR || '.next',
+
+  /**
    * Hosts permitted to load dev-server resources cross-origin.
    *
    * Development only — Next.js ignores this in production builds. It exists so

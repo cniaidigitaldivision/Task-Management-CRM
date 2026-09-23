@@ -3485,3 +3485,130 @@ body,
   --cl-av-peach-bg: #3d2a12;  --cl-av-peach: #f5c07a;
   --cl-av-rose-bg: #4a1636;   --cl-av-rose: #ffa9d9;
 }
+
+/* ============================================================================
+ * TEAM PERFORMANCE — the owner's reference, sampled 2026-09-23
+ * ----------------------------------------------------------------------------
+ * Owner: *"I want this performance page UI to be exactly the same as you see in
+ * the screenshot."*
+ *
+ * ── ⚠️ SAMPLED FROM THE PNG, NOT MIXED FROM THE THEME ─────────────────────
+ * This is the fix the Clients page needed twice. `ink()` in performance-ui.tsx
+ * used to mix 28% of the page's text colour into every hue, which is why that
+ * screen came out "mostly green" when the design was multicoloured. Every value
+ * below is the measured colour of a flat region (fills: the most common pixel)
+ * or of a glyph core (ink: the mean of the darkest pixels) in the reference
+ * image, so a hue arrives on screen as the hue that was drawn.
+ *
+ * ── ⚠️ SCOPED TO `.perf-ui` ───────────────────────────────────────────────
+ * Nothing outside /performance reads these, so no other screen moves. The dark
+ * twin keeps the ROLES, not the values: a tint behind, a strong hue in front.
+ * ========================================================================= */
+.perf-ui {
+  --pf-page: #f8fafc;
+  --pf-surface: #ffffff;
+  --pf-ink: #0a1034;
+  --pf-body: #2b3550;
+  --pf-soft: #44567a;
+  --pf-mute: #7c86a1;
+  --pf-faint: #616e91;
+  /* The card label and its sub-line, sampled from the reference: a shade darker
+     than --pf-soft, which is why the design's figures read as a headline and
+     the surrounding words do not compete with them. */
+  --pf-label: #2c4064;
+  --pf-sub: #58658a;
+  --pf-line: #e6ecf3;
+  --pf-grid: #eef2f7;
+  --pf-head: #f6f9fa;
+  --pf-field: #ffffff;
+  --pf-field-line: #dde4ed;
+  --pf-strip: #f2f4f7;
+
+  --pf-teal: #00736f;
+  --pf-teal-hover: #005e5a;
+  --pf-on-teal: #ffffff;
+  /* ⚠️ ON A FILL THAT IS DARK IN BOTH THEMES — the solid overdue disc and the
+     "Prepare follow-up task" button. `--pf-on-teal` cannot serve here: it flips
+     to near-black in the dark theme, because the dark teal it sits on is light.
+     Using it on the violet button printed #04181c on #4e49a6. */
+  --pf-on-solid: #ffffff;
+  --pf-link: #0a6285;
+  --pf-mint: #d1f9ee;
+  --pf-mint-ink: #0a5e58;
+
+  --pf-green-bg: #aff8e3;
+  --pf-green: #0e9b6e;
+  --pf-blue-bg: #d0e1fd;
+  --pf-blue: #1a6fdd;
+  --pf-amber-bg: #fce9be;
+  --pf-amber: #c8820a;
+  --pf-red: #ee5148;
+  --pf-red-ink: #ef5350;
+  --pf-red-bg: #fde7e5;
+
+  --pf-violet: #2a1d94;
+  --pf-violet-chip: #4731a7;
+  --pf-violet-deep: #3e3b85;
+  --pf-violet-head: #ebe6fe;
+  --pf-violet-card: #f2effe;
+  --pf-violet-chip-bg: #f1edfe;
+  --pf-violet-line: #ded7fb;
+
+  --pf-mint-card: #eefbf7;
+  --pf-mint-line: #cdefe4;
+  --pf-amber-card: #fef7ea;
+  --pf-amber-line: #f7e3bd;
+
+  --pf-shadow: 0 1px 2px rgb(15 23 42 / 0.04), 0 1px 3px rgb(15 23 42 / 0.05);
+}
+
+[data-theme='dark'] .perf-ui {
+  --pf-page: var(--bg-base);
+  --pf-surface: var(--bg-surface);
+  --pf-ink: #e9eefb;
+  --pf-body: #cbd6ea;
+  --pf-soft: #a4b4d0;
+  --pf-mute: #7d8dab;
+  --pf-faint: #8b9ab7;
+  --pf-label: #b9c6de;
+  --pf-sub: #9aa9c4;
+  --pf-line: #24324a;
+  --pf-grid: #1e2b40;
+  --pf-head: #16212f;
+  --pf-field: #141d2b;
+  --pf-field-line: #2b3a52;
+  --pf-strip: #18222f;
+
+  --pf-teal: #2b9aa3;
+  --pf-teal-hover: #35b0ba;
+  --pf-on-teal: #04181c;
+  --pf-on-solid: #ffffff;
+  --pf-link: #62c2dd;
+  --pf-mint: #123c3a;
+  --pf-mint-ink: #7fe0d4;
+
+  --pf-green-bg: #103a33;
+  --pf-green: #52d5ab;
+  --pf-blue-bg: #14294a;
+  --pf-blue: #7ab1f5;
+  --pf-amber-bg: #3a2b0f;
+  --pf-amber: #f0b64a;
+  --pf-red: #f4736c;
+  --pf-red-ink: #ff8a83;
+  --pf-red-bg: #3c1b1a;
+
+  --pf-violet: #c3b4ff;
+  --pf-violet-chip: #c9bcff;
+  --pf-violet-deep: #4e49a6;
+  --pf-violet-head: #221c44;
+  --pf-violet-card: #1d1838;
+  --pf-violet-chip-bg: #241e46;
+  --pf-violet-line: #352c60;
+
+  --pf-mint-card: #0f2b28;
+  --pf-mint-line: #1c443f;
+  --pf-amber-card: #2a2011;
+  --pf-amber-line: #453413;
+
+  --pf-shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 1px 3px rgb(0 0 0 / 0.25);
+}

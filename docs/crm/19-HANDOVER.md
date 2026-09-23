@@ -138,8 +138,42 @@ This is the part a returning session most needs. Each row is a real commit on
 | `201a4b8` | **The Clients page** — the owner's design, on the client model that already existed (migration 249) |
 | `db0c12c` | Clients, 2nd pass: the design read out of the PNG; exports in Excel, CSV and PDF; self-hosted fonts |
 | `14da113` | Clients, 3rd pass: nothing is cut off; the Owner column appears only when it means something |
+| `593f571` | **Team performance** — one page for how a person is actually doing |
+| _(head)_ | Performance, 2nd pass: the owner's reference, matched by measurement |
 
-### The Clients page in detail (the current state of the art here)
+### The Performance page in detail (2026-09-23)
+
+`/performance`, Coordinator-and-above. It answers *"how is this person doing"*;
+`/reports` still produces the document, and is **untouched** — the header's
+"Export report" button links there rather than growing a second exporter.
+
+- **Built to the owner's image by measurement**, per
+  `20-BUILDING-A-SCREEN-FROM-A-DESIGN.md`: colours sampled out of the PNG into a
+  `.perf-ui` token block, type sizes solved from **ink widths** (⚠️ see §3 of
+  that doc — the first build solved them from cap heights and every string came
+  out 20–35% too large), lengths divided by the 0.9 zoom.
+- **The pill says "Live data".** The reference's says "Sample data"; same pill,
+  same place, true word, because every figure is read from the database.
+- **A gap never looks like a zero.** No deadline in the period shows `—`, not
+  `0%`; a strip names how many completed tasks are unverified.
+- **The four filters are the data** — period, team (9 live departments), project
+  (18 with tasks), person. ⚠️ Projects are filtered on `is_draft`, **not**
+  `deleted_at`: migration 053 adds that column and has never been applied.
+- **Only the period, team and project touch the server.** The person filter, the
+  tabs, the selection and the drawer are client state (Rule Zero laws 1–3); the
+  three that re-read rows go through the URL under `useTransition`, so the old
+  table dims rather than disappearing.
+- **The AI panel is right before any model is called.** Its four blocks are
+  computed from the figures on the page; asking replaces the sentence with
+  gpt-4o's prose and never supplies a figure. `verifyFigures` still reports any
+  number the model wrote that is not in the fact sheet, and an evidence link is
+  shown only while the prose still names what the link opens.
+- **Compare, Projects & teams, Assessments and Reports tabs** say what they will
+  hold and which of them the data already supports. Assessments is the one that
+  genuinely cannot be built yet — a self-review is written by a person, so it
+  needs a table of its own.
+
+### The Clients page in detail
 
 A **client** is a person we have a relationship with — somebody who is buying:
 quotations, invoices, bookings. They are linked to projects **through their
@@ -187,6 +221,19 @@ the RLS is checked.
 ---
 
 ## 6 · What is left
+
+⚠️ **First: `docs/TEAM-ISSUES.md`.** The CRM is paused (§8).
+
+**Waiting on the owner's designs** — the Performance tabs. The owner said the
+other tab images are coming; the page says so on screen rather than pretending
+they are built.
+
+| Tab | Data ready? |
+|---|---|
+| Compare | Yes — every figure exists per person and per project |
+| Projects & teams | Yes — a grouping of what Overview already reads |
+| Assessments | **No.** Needs a table: an assessment is written by people |
+| Reports | `/reports` already exports CSV, Excel and PDF, unchanged |
 
 Nothing on the Clients page is outstanding. These are the honest next items,
 in the order they are worth doing **once the owner returns to the CRM**:
@@ -295,6 +342,8 @@ Every one of these is real, and most are invisible until something is wrong.
 | **`fr` grid tracks keep `min-width: auto`** | One long email widened its own column and cut the phone number beside it. | `minmax(0, 1fr)`, always. |
 | **A fixed overlay inside `space-y-*`** | The page shifts and grows a scrollbar when a panel opens. | Render overlays outside the column, portalled to `document.body` — a transformed ancestor also traps `position: fixed`. |
 | **Live function bodies are CRLF** | A migration that injects into `pg_get_functiondef` with `\n` matches nothing. | Use `\r?\n` — and have the migration check its own injection afterwards. |
+| **A cap height is not a type size** | Every string on the Performance page came out 20–35% too large, and six labels shipped clipped. | Solve the size from the string's **ink WIDTH** through a canvas in the app's own resolved font. A width is 60–450px of signal; a height is 10–24, and anti-aliasing owns two of them. |
+| **`--pf-on-teal` flips in the dark theme** | White ink on the violet button became `#04181c` — correctly, since the dark teal it was named for is light. | Ink on a fill that is dark in **both** themes needs its own token (`--pf-on-solid`). |
 | **Python heredocs eat regex escapes** | `\b` became a literal backspace inside a `.ts` file; tests failed for a reason the source did not show. | Write the script to a `.py` file and build backslashes with `chr(92)`. |
 | **Supabase returns 400 for a missing object** | A delete "fails" although the object was never there. | Read the body: `not_found` / `NoSuchKey` is a success. |
 | **An admin session cannot test access** | One membership-predicate bug shipped seven times. | Check every change as **Sarah** (a salesperson) as well as an admin. |
@@ -317,6 +366,7 @@ Every one of these is real, and most are invisible until something is wrong.
 | `docs/crm/14-SALES-WORKSPACE-PHASES.md` | The build order for the sales workspace (phases A–H) |
 | `docs/crm/12-LIFECYCLE-SPEC.md` | The owner's own lifecycle research, measured against what the system does |
 | `docs/crm/03-DATA-MODEL.md` · `09-DATABASE-MANAGEMENT.md` | The tables and the rules they follow |
+| `docs/TASK-MANAGEMENT-STUDY.md` · `docs/TASKS-FIX-PLAN.md` | How tasks actually work, and the flaws found in them |
 | `CLAUDE.md` (repo root) | **Rule Zero.** Outranks everything |
 | `docs/20-UI-RESPONSIVENESS.md` | The measurements behind Rule Zero |
 | `docs/18-DESIGN-SYSTEM-AND-BRANDING.md` | Tokens, type and the brand |

@@ -56,6 +56,16 @@ export interface InsightScope {
   readonly to: string;
   /** A named person, or null for the whole team. */
   readonly personId?: string | null;
+  /**
+   * What the manager typed into the ask box, or one of the four quick prompts.
+   *
+   * ⚠️ IT IS APPENDED TO THE FACT SHEET, NOT SENT AS A SECOND TURN. The sheet
+   * is the only thing `verifyFigures` reads the reply back against, so a
+   * question carried outside it would let the model answer with a figure this
+   * page could not check. It is also truncated: the box is a question, not a
+   * channel for pasting a prompt at somebody else's model.
+   */
+  readonly question?: string | null;
 }
 
 export async function performanceInsightAction(scope: InsightScope): Promise<PerformanceInsight> {
@@ -120,6 +130,17 @@ async function buildFactSheet(actorId: string, scope: InsightScope): Promise<str
   lines.push('- Leave and availability. Nothing is recorded, so absence cannot be distinguished from a quiet week.');
   lines.push('- Reasons for a missed deadline. Deadline CHANGES are recorded with who made them; the cause is not.');
   lines.push('- Written review feedback. Almost no comments exist, so quality cannot be judged from what reviewers said.');
+
+  const question = (scope.question ?? '').trim().slice(0, 400);
+  if (question) {
+    lines.push('');
+    lines.push(`THE MANAGER ASKS: ${question}`);
+    lines.push(
+      'Answer that question directly in headline and summary, using only the figures above. ' +
+        'If the fact sheet does not contain what the question needs, say plainly that it is not recorded. ' +
+        'Fill strengths, risks and recommendations as usual.',
+    );
+  }
 
   return lines.join('\n');
 }

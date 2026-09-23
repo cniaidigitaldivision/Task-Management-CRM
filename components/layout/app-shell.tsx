@@ -168,6 +168,9 @@ const PRIMARY_ACTIONS: Readonly<Record<string, PrimaryAction | null>> = {
   /* Explicitly nothing. Written out rather than left to the fallback so that the
      absence is a decision on the record, not an oversight. */
   '/workload': null,
+  /* The page carries its own "Assign task" button, in the place the owner's
+     reference puts it. A second one up here would be the same action twice. */
+  '/performance': null,
   '/reports': null,
   '/monthly-report': null,
   '/settings': null,

@@ -17,9 +17,77 @@
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
 | **Deployed** | Every push to `main` deploys to Vercel (`sin1`) → https://taskly.aidigitaldivision.com. Head: **`14da113`**, deploy **success**. Check one with `gh api repos/cniaidigitaldivision/Task-Management-CRM/commits/<sha>/status` |
-| **Green at head** | 149 test files · 3778 tests · typecheck · lint · `scripts/smoke.mjs` |
-| **Last updated** | **2026-09-22** |
+| **Green at head** | 152 test files · 3821 tests · typecheck · lint · `scripts/smoke.mjs` |
+| **Last updated** | **2026-09-23** |
 | **Last migration applied anywhere** | **249** (applied 2026-09-22; **249 clients become relationships**; 248 deleting a source takes its answers). CRM next: **250.** |
+
+---
+
+## 🧭 2026-09-23 — THE PERFORMANCE PAGE, BUILT TO THE IMAGE
+
+Owner: *"Hey first of all I want this performance page UI to be exactly the same
+as you see in the screenshot."* — the same sentence the Clients page needed, on
+the page built the day before.
+
+### What the first build got wrong, and how it was found
+
+It was not colour this time. It was **size**: every string on the page was 20–35%
+too large, because the type scale had been solved from measured **cap heights**
+instead of ink widths. Six labels were cut off — "On-time delivery", "Awaiting
+review", "Open overdue", "Check delay reasons" and two card captions — and every
+table header wrapped to two lines.
+
+The clipping audit from `20-BUILDING-A-SCREEN-FROM-A-DESIGN.md` §6 found all of
+them in one pass; solving each size from its reference ink width through a canvas
+in the app's own resolved font fixed them, and the audit now returns **zero**
+clipped strings. That trap is written up in §3 of the method doc, with the four
+measurements that show the error.
+
+### What the page is now
+
+| | |
+|---|---|
+| **Title** | "Performance overview" with the violet **AI assisted** pill |
+| **Header** | **Assign task** (solid teal → `/tasks`) · **Export report** (outlined → `/reports`, which is untouched) · the date range and an **as-of** day from the SERVER's clock |
+| **Filters** | Four icon-led pills: period, team, project, person — all four built from the database (9 departments, 18 projects), none hard-coded |
+| **Cards** | Four, with large circular badges; the overdue one is a solid red disc inside a pale halo, exactly as the reference draws it |
+| **Table** | Avatars, a **Verified** column, and a Next-action link that is read from that person's own flagged work — "Resolve blocker" appears because they have a blocked task |
+| **AI panel** | The full violet card: four icon-led blocks, an evidence strip, "AI can help with", an ask box and two chips |
+
+### The pill says "Live data", not "Sample data"
+
+Same pill, same place, same green dot — the reference's word replaced, because
+every figure is read from the database. Where nothing is recorded the page says
+so: `—` rather than `0%` when nothing had a deadline, and a strip that names how
+many completed tasks are unverified.
+
+### Three things worth keeping
+
+- **The four AI blocks are drawn before any model is called.** Each is computed
+  from the figures already on the page, so the panel is right on first paint and
+  stays right when the key is missing or the call fails. Asking replaces the
+  SENTENCE with the model's prose; it never supplies the figure.
+- **An evidence link must point at what the sentence above it says.** Measured on
+  a live gpt-4o answer: the prose praised Rafay while the link opened Abdullah.
+  The link is now shown only while the two still agree.
+- **`--pf-on-solid`, a white that does not flip.** `--pf-on-teal` inverts in the
+  dark theme (correctly — dark teal is light), which printed `#04181c` on the
+  violet button. Ink that sits on a fill that is dark in *both* themes needs its
+  own token.
+
+### Also
+
+- `performanceBoard` and `workNeedingAttention` take department and project
+  filters; `performanceFilterOptions` builds the two dropdowns from live rows.
+  ⚠️ It filters projects on `is_draft`, **not** `deleted_at` — migration 053 adds
+  that column and has never been applied, so the obvious predicate fails 42703.
+- URL filters are validated as UUIDs before they reach a query; a junk `?team=`
+  would otherwise fail the whole page with 22P02.
+- `next.config.ts` gained `distDir: process.env.NEXT_DIST_DIR || '.next'`, so a
+  verification build can run beside a live `next dev` without replacing what it
+  is serving.
+
+**Green:** 152 test files · 3821 tests · typecheck · lint · production build.
 
 ---
 

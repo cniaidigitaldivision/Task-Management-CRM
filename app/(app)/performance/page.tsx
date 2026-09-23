@@ -1,36 +1,37 @@
 import type { Metadata } from 'next';
 
 import { PerformanceBoard } from '@/components/performance/performance-board';
-import { PageHeader } from '@/components/ui/page-header';
 import { requireRole } from '@/lib/auth/current-user';
 import {
-  completedInWindow,
   performanceBoard,
+  performanceFilterOptions,
   workNeedingAttention,
 } from '@/lib/db/queries/performance';
 import { isoDateIn, nowMs } from '@/lib/now';
 
-export const metadata: Metadata = { title: 'Team performance' };
+export const metadata: Metadata = { title: 'Performance overview' };
 
 /* ============================================================================
  * TEAM PERFORMANCE
  * ----------------------------------------------------------------------------
  * Owner, 2026-09-23: *"I want to create a team performance page where I can see
  * … a single person's performance: his whole history, what he has done today
- * and yesterday, how his performance is going … every chitta-batta."*
+ * and yesterday, how his performance is going … every chitta-batta."* And, of
+ * the reference image: *"I want this performance page UI to be exactly the same
+ * as you see in the screenshot."*
  *
  * ── ⚠️ THE EXISTING REPORTS PAGE IS UNTOUCHED ────────────────────────────
  * *"For right now I don't want to change the export of the report page."* So
  * `/reports` and its CSV / Excel / PDF exports are exactly as they were; this is
- * a new screen beside it. The two answer different questions — Reports produces
- * a document, this one answers "how is this person doing".
+ * a new screen beside it, and the header's "Export report" button links to it
+ * rather than growing a second exporter to keep in step with the first.
  *
  * ── ⚠️ NO INVENTED FIGURES, AND THAT IS NOT A STYLE CHOICE HERE ──────────
- * The reference image carries a "Sample data" badge. This page never will:
- * every figure is read from `tasks`, `activity_log`, `attendance_days` and
- * `attachments`, and where nothing is recorded the screen says so instead of
- * drawing a zero. A number nobody can trace, on a page read as a judgement
- * about a named person, is the worst bug this screen could ship with.
+ * The reference carries a "Sample data" badge. This page keeps the badge and
+ * changes the word: every figure is read from `tasks`, `activity_log`,
+ * `attendance_days` and `attachments`, and where nothing is recorded the screen
+ * says so instead of drawing a zero. A number nobody can trace, on a page read
+ * as a judgement about a named person, is the worst bug this screen could ship.
  *
  * ── SCOPE IS ROW-LEVEL SECURITY ──────────────────────────────────────────
  * `requireRole('team_coordinator')` is the floor for seeing a page about other
@@ -51,55 +52,60 @@ type Preset = (typeof PRESETS)[number]['value'];
 export default async function PerformancePage({
   searchParams,
 }: {
-  searchParams: Promise<{ period?: string }>;
+  searchParams: Promise<{ period?: string; team?: string; project?: string }>;
 }) {
   /* ⚠️ ONE WAVE — Rule Zero, law 4. */
   const [user, params] = await Promise.all([requireRole('team_coordinator'), searchParams]);
 
   const today = isoDateIn();
-  const preset: Preset = (PRESETS.find((p) => p.value === params.period)?.value ?? 'this_week') as Preset;
+  const preset: Preset = (PRESETS.find((p) => p.value === params.period)?.value ??
+    'this_week') as Preset;
   const period = resolvePeriod(preset, today);
 
-  const [board, attention, previousCompleted] = await Promise.all([
-    performanceBoard(user.id, { ...period, today }),
-    workNeedingAttention(user.id, today),
-    completedInWindow(user.id, previousWindow(period)),
+  /* ⚠️ THE FILTERS ARE VALIDATED AS UUIDs BEFORE THEY REACH A QUERY. A junk
+     `?team=` would otherwise reach Postgres as a cast and fail the whole page
+     with 22P02 — the filter belongs to the URL, so anybody can type into it. */
+  const team = uuidOr(params.team);
+  const project = uuidOr(params.project);
+
+  const [board, attention, options] = await Promise.all([
+    performanceBoard(user.id, { ...period, today }, { departmentId: team, projectId: project }),
+    workNeedingAttention(user.id, today, { departmentId: team, projectId: project }),
+    performanceFilterOptions(user.id),
   ]);
 
-  const anyMeasured = board.some((p) => p.judged > 0);
-
   return (
-    <div className="mx-auto max-w-[var(--content-max)] space-y-5">
-      <PageHeader
-        eyebrow="Team"
-        title="Team performance"
-        description={
-          <>
-            Understand the work. See the evidence. Decide the next step.{' '}
-            {anyMeasured ? (
-              <>Every figure here is read from the record — nothing is estimated.</>
-            ) : (
-              <>
-                Nothing in this period had a deadline, so on-time delivery is not measurable — the
-                page says that rather than showing a zero.
-              </>
-            )}
-          </>
-        }
-      />
-      <PerformanceBoard
-        board={board}
-        attention={attention}
-        period={{ ...period, preset, label: labelFor(period) }}
-        today={today}
-        /* The server's clock, so "waiting 52 hours" is not computed against a
-           browser that may be on another day. */
-        nowMs={nowMs()}
-        previousCompleted={previousCompleted}
-        presets={[...PRESETS]}
-      />
-    </div>
+    <PerformanceBoard
+      board={board}
+      attention={attention}
+      period={{
+        ...period,
+        preset,
+        label: labelFor(period),
+        team: team ?? 'all',
+        project: project ?? 'all',
+      }}
+      today={today}
+      asOf={dayLabel(today)}
+      /* The server's clock, so "waiting 52 hours" is not computed against a
+         browser that may be on another day. */
+      nowMs={nowMs()}
+      presets={[...PRESETS]}
+      options={options}
+      updatedAt={new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Asia/Karachi',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      }).format(new Date(nowMs()))}
+    />
   );
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function uuidOr(value: string | undefined): string | null {
+  return value && UUID.test(value) ? value : null;
 }
 
 /**
@@ -129,23 +135,30 @@ function resolvePeriod(preset: Preset, today: string): { from: string; to: strin
   return { from: `${today.slice(0, 7)}-01`, to: today };
 }
 
-/** The window of the same length immediately before it — for the comparison. */
-function previousWindow(period: { from: string; to: string }): { from: string; to: string } {
-  const a = Date.parse(`${period.from}T00:00:00Z`);
-  const b = Date.parse(`${period.to}T00:00:00Z`);
-  const span = Math.max(b - a, 0) + 86_400_000;
-  return {
-    from: new Date(a - span).toISOString().slice(0, 10),
-    to: new Date(b - span).toISOString().slice(0, 10),
-  };
+/** "23 Sep" — the right-hand half of the reference's date line. */
+function dayLabel(iso: string): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
 }
 
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/**
+ * "21 – 23 Sep 2026", the way the reference writes it.
+ *
+ * ⚠️ SPELLED OUT RATHER THAN LEFT TO `toLocaleDateString`. en-GB gives
+ * "Sept" for this one month, which is four characters where every other month
+ * is three; en-US fixes the abbreviation and puts the month first. Neither is
+ * the format on the design, so the three parts are assembled here.
+ */
 function labelFor(period: { from: string; to: string }): string {
-  const fmt = (iso: string) =>
-    new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-GB', {
-      timeZone: 'UTC',
-      day: 'numeric',
-      month: 'short',
-    });
-  return period.from === period.to ? fmt(period.from) : `${fmt(period.from)} – ${fmt(period.to)}`;
+  const parts = (iso: string) => {
+    const d = new Date(`${iso}T00:00:00Z`);
+    return { day: d.getUTCDate(), month: MONTHS[d.getUTCMonth()], year: d.getUTCFullYear() };
+  };
+  const a = parts(period.from);
+  const b = parts(period.to);
+  if (period.from === period.to) return `${b.day} ${b.month} ${b.year}`;
+  const left = a.month === b.month && a.year === b.year ? `${a.day}` : `${a.day} ${a.month}`;
+  return `${left} – ${b.day} ${b.month} ${b.year}`;
 }

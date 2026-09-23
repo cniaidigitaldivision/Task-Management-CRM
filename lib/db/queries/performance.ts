@@ -23,6 +23,20 @@ import { withUser } from '@/lib/db/client';
  * already made twice on other pages.
  * ========================================================================= */
 
+/**
+ * The three things the filter row on the page narrows by.
+ *
+ * ⚠️ NULL MEANS "ALL", AND IT IS COMPARED IN SQL, NOT BRANCHED IN JS. Building
+ * two versions of a statement is how a filter ends up applied to one CTE and
+ * forgotten in the next — which on this page would show a department's people
+ * beside the whole division's overdue count.
+ */
+export interface PerfFilters {
+  /** `users.department_id` — the reference calls this "All teams". */
+  readonly departmentId?: string | null;
+  readonly projectId?: string | null;
+}
+
 export interface PersonStat {
   readonly id: string;
   readonly name: string;
@@ -56,7 +70,10 @@ export interface PersonStat {
 export async function performanceBoard(
   actorId: string,
   period: { from: string; to: string; today: string },
+  filters: PerfFilters = {},
 ): Promise<PersonStat[]> {
+  const departmentId = filters.departmentId ?? null;
+  const projectId = filters.projectId ?? null;
   const rows = await withUser(actorId, (tx) => tx`
     with done_in_period as (
       select t.assignee_id, t.id, t.due_date, t.completed_at, t.effort_points,
@@ -66,6 +83,7 @@ export async function performanceBoard(
          and t.status = 'done'
          and t.completed_at is not null
          and (t.completed_at at time zone 'Asia/Karachi')::date between ${period.from}::date and ${period.to}::date
+         and (${projectId}::uuid is null or t.project_id = ${projectId}::uuid)
     ),
     /* ── ⚠️ as materialized, AND IT IS THE DIFFERENCE BETWEEN 8.7s AND 246ms ──
        Went through review on its way to done — the evidence a second pair of
@@ -88,6 +106,7 @@ export async function performanceBoard(
              count(*) filter (where t.status = 'in_review')::int as awaiting_review
         from public.tasks t
        where not t.is_deleted and t.status not in ('done', 'cancelled')
+         and (${projectId}::uuid is null or t.project_id = ${projectId}::uuid)
        group by t.assignee_id
     )
     select u.id, u.full_name, u.role_title, u.role::text as role, u.avatar_url,
@@ -105,6 +124,7 @@ export async function performanceBoard(
       left join reviewed r on r.entity_id = d.id
       left join open_now o on o.assignee_id = u.id
      where u.is_active
+       and (${departmentId}::uuid is null or u.department_id = ${departmentId}::uuid)
      group by u.id, u.full_name, u.role_title, u.role, u.avatar_url, u.weekly_capacity_points
      order by completed desc, u.full_name
   `);
@@ -144,7 +164,14 @@ export interface AttentionRow {
   readonly statusSince: string | null;
 }
 
-export async function workNeedingAttention(actorId: string, today: string, limit = 12): Promise<AttentionRow[]> {
+export async function workNeedingAttention(
+  actorId: string,
+  today: string,
+  filters: PerfFilters = {},
+  limit = 12,
+): Promise<AttentionRow[]> {
+  const departmentId = filters.departmentId ?? null;
+  const projectId = filters.projectId ?? null;
   const rows = await withUser(actorId, (tx) => tx`
     select t.id, t.reference, t.title, t.status::text as status, t.due_date,
            t.blocked_reason, t.assignee_id, u.full_name as assignee_name, u.avatar_url,
@@ -166,6 +193,11 @@ export async function workNeedingAttention(actorId: string, today: string, limit
          or (t.due_date is not null and t.due_date <= ${today}::date)
          or t.assignee_id is null
        )
+       and (${projectId}::uuid is null or t.project_id = ${projectId}::uuid)
+       /* ⚠️ The DEPARTMENT of the person who holds it. An unassigned task has
+          no department, so it stays out of a filtered view rather than being
+          shown to every team as theirs. */
+       and (${departmentId}::uuid is null or u.department_id = ${departmentId}::uuid)
      order by
        case t.status when 'blocked' then 0 when 'in_review' then 1 else 2 end,
        t.due_date nulls last
@@ -341,6 +373,57 @@ export async function completedInWindow(
        and (${personId ?? null}::uuid is null or t.assignee_id = ${personId ?? null}::uuid)
   `);
   return Number((rows as Array<Record<string, unknown>>)[0]?.n ?? 0);
+}
+
+/* ── What the filter row is allowed to offer ─────────────────────────────── */
+
+export interface FilterOptions {
+  readonly teams: ReadonlyArray<{ id: string; name: string }>;
+  readonly projects: ReadonlyArray<{ id: string; name: string }>;
+}
+
+/**
+ * The teams and projects that actually have work, for the two dropdowns.
+ *
+ * ⚠️ BUILT FROM THE DATA, NEVER A LIST IN THE CODE. The owner asked this of the
+ * Clients page in the same words — *"whatever the project is, those projects
+ * will automatically be added to a filter"* — and the answer has to hold here
+ * too: a department nobody is in, or an archived project, is not an option
+ * somebody can pick and then wonder why the page is empty.
+ *
+ * ⚠️ ONE WAVE. Two selects, one round trip — Rule Zero, law 4.
+ */
+export async function performanceFilterOptions(actorId: string): Promise<FilterOptions> {
+  const [teams, projects] = await withUser(actorId, async (tx) => {
+    const t = tx`
+      select d.id, d.name
+        from public.departments d
+       where exists (select 1 from public.users u
+                      where u.department_id = d.id and u.is_active)
+       order by d.sort_order, d.name
+    `;
+    const p = tx`
+      select p.id, p.name
+        from public.projects p
+       /* ⚠️ NOT deleted_at is null. Migration 053 adds that column and has
+          never been applied — the live table has no such column, so the query
+          fails with 42703. is_draft is what actually exists.
+          (No backticks in here — they would end the template literal.) */
+       where not coalesce(p.is_draft, false)
+         and exists (select 1 from public.tasks x
+                      where x.project_id = p.id and not x.is_deleted)
+       order by p.name
+    `;
+    /* ⚠️ INSIDE ONE withUser, so both run on the one connection that has
+       `app.user_id` set. Promise.all here does NOT parallelise — a transaction
+       runs its statements in series — it simply avoids two awaits in a chain. */
+    return Promise.all([t, p]);
+  });
+
+  return {
+    teams: (teams as Array<Record<string, unknown>>).map((r) => ({ id: String(r.id), name: String(r.name) })),
+    projects: (projects as Array<Record<string, unknown>>).map((r) => ({ id: String(r.id), name: String(r.name) })),
+  };
 }
 
 /**

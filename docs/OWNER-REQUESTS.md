@@ -21,8 +21,10 @@ first. Read, in this order:
   4. docs/OWNER-REQUESTS.md         my standing requests, in my own words
   5. docs/crm/00-STATE-AND-TRACKER.md   the log — newest entry at the top
 
+Before ANY work on a screen I gave you a picture of:
+  6. docs/crm/20-BUILDING-A-SCREEN-FROM-A-DESIGN.md  — measure, do not eyeball
+
 Only when I say I am coming back to the CRM:
-  6. docs/crm/20-BUILDING-A-SCREEN-FROM-A-DESIGN.md  before ANY UI work
   7. docs/crm/14-SALES-WORKSPACE-PHASES.md           the build order
 
 Do not restart or re-plan anything already marked done. Update
@@ -196,3 +198,26 @@ unless it says otherwise. The reasoning and the measurements are in
 | S20 | *"Later on it should be dynamic data … whatever the project is, those projects will automatically be added to a filter. Is that already doing that?"* | It already was — project, owner and city are built from the rows. Now proved by a test | ✅ |
 | S21 | *"Document each and every thing … next time when I come back … he should know exactly what things are, how to prioritize them."* | `docs/crm/19-HANDOVER.md`, `docs/crm/20-BUILDING-A-SCREEN-FROM-A-DESIGN.md`, `docs/TEAM-ISSUES.md`, and these resume prompts | ✅ |
 | S22 | *"Right now my team and I are facing a lot of issues with the system so prioritize them … then I will come back to this CRM."* | **The CRM is paused.** The active board is `docs/TEAM-ISSUES.md` | ⏸️ active |
+
+---
+
+## 🗓️ 2026-09-23 — TASKS, AND THE TEAM PERFORMANCE PAGE
+
+| # | The owner's words | What was done | Status |
+|:--:|---|---|:--:|
+| S23 | *"In task creation there is a very important category … one-time, a daily task, or a weekly task. For that purpose there is a very big issue … if someone accidentally creates a task and doesn't notice that it's a daily creation, there's no button to stop that daily creation."* | `public.task_series` (migration 250): a repeat is a row that can be **stopped**. A **Repeating tasks** page lists every series with its rule, its next copy and a stop button. The backfill stopped 19 runaway series | ✅ |
+| S24 | *"First list out all the flaws and how you will correct them … once I say 'go ahead' then you will implement."* | `docs/TASKS-FIX-PLAN.md`, written and approved before a line was changed. ⚠️ One of my own findings in it was **wrong** — I claimed the board ships 1,141 tasks; re-measuring showed 62 rows and ≈30 KB on the wire. The correction is in the plan and in the commit | ✅ |
+| S25 | *"There is no option for me to see all the assigned tasks … All Assigned Tasks, Any Specific Assigned Task, or Self-Created Tasks."* | A **Raised by** filter on `/tasks`, answered from rows already on the page | ✅ |
+| S26 | *"Where will Najmulah, in his dashboard, go to turn off this repeating task?"* | Two places, and both were built for it: **Tasks → Repeating tasks** in the rail, and the repeat panel inside any copy of the task | ✅ |
+| S27 | *"I want to create a team performance page … a single person's performance: his whole history, what he has done today and yesterday … every chitta-batta … plus here I also want AI assessments."* | `/performance`, Coordinator-and-above: four figures, the team table, work requiring attention, a person drawer with their day, their quality, their work and their whole log, and a gpt-4o assessment written from a fact sheet | ✅ |
+| S28 | *"For right now I don't want to change the export of the report page but I want to change the UI."* | `/reports` and every export are **untouched**. The new page sits beside it; its "Export report" button links there | ✅ |
+| S29 | *"Hey first of all I want this performance page UI to be exactly the same as you see in the screenshot."* | Rebuilt by measurement, not by eye: colours sampled from the PNG, type solved from ink widths, lengths divided by the 0.9 zoom. ⚠️ The first build solved sizes from **cap heights** and every string came out 20–35% too large — six labels shipped clipped. Written up in `20-BUILDING-A-SCREEN-FROM-A-DESIGN.md` §3 so it is not repeated | ✅ |
+| S30 | *"I'm sharing with you a different image for just Performance but there is a tab that I will share with you later."* | The other five tabs say what they will hold and which of them the data already supports. **Waiting on the images** | ⏳ |
+
+### The one place this page deliberately differs from the image
+
+The reference carries a **"Sample data"** badge. The page keeps the badge, the
+place and the green dot, and changes the word to **"Live data"** — because every
+figure on it is read from the database. Where nothing is recorded it says so
+(`—`, not `0%`) rather than drawing a zero. On a page read as a judgement about
+a named person, a figure nobody can trace is the worst thing it could ship.
