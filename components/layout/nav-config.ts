@@ -144,6 +144,17 @@ export const NAV_SECTIONS: readonly NavSection[] = [
          own due dates and a Coordinator sees the division's. */
       { label: 'Calendar', href: '/calendar', icon: CalendarDays, roles: ALL },
       { label: 'Workload', href: '/workload', icon: Gauge, roles: LEAD_UP },
+      /* ── ⚠️ ITS OWN ENTRY, BESIDE REPORTS RATHER THAN INSIDE IT ───────────
+         Owner, 2026-09-23: *"I want to create a team performance page … I want
+         to know or see a single person's performance."*
+
+         Reports produces a DOCUMENT for a period; this answers "how is this
+         person doing" and is read on screen. Folding one into the other would
+         make the export controls part of a question nobody asked while reading
+         it — and the owner was explicit that the report page's export is to be
+         left alone for now. LEAD_UP: a page about other people's work has a
+         coordinator floor, and RLS narrows what is inside it. */
+      { label: 'Performance', href: '/performance', icon: BarChart3, roles: LEAD_UP },
     ],
   },
   {

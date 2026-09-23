@@ -107,6 +107,9 @@ const ADMIN_NAV = [
      were given; what differs by rank is what the page builds, on the server. */
   '/finance',
   '/workload',
+  /* Its own entry beside Reports, 2026-09-23 — a page answering "how is this
+     person doing", where Reports produces a document. */
+  '/performance',
   '/documents',
   /* Added 2026-08-25 with the attendance feature. Open to every role: what
      differs by rank is the CONTENTS of the page, not whether it is offered. */

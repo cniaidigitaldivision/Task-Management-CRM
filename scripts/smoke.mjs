@@ -77,6 +77,7 @@ const APP_ROUTES = [
      this fails if the calendar breaks rather than merely if its wording changes. */
   ['/calendar', 'Mon', 'member'],
   ['/workload', 'Person by person', 'team_coordinator'],
+  ['/performance', 'Understand the work', 'team_coordinator'],
   ['/team', 'Everybody', 'admin'],
   /* CHANGE-PLAN 5.1 replaced the four fixed panels with selectable report types,
      so the old marker text ("Where the effort is going") no longer exists. "How
