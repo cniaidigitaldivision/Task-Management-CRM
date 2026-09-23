@@ -3,9 +3,14 @@ import type { Metadata } from 'next';
 import { PerformanceBoard } from '@/components/performance/performance-board';
 import { requireRole } from '@/lib/auth/current-user';
 import {
+  bucketTrend,
   performanceBoard,
   performanceFilterOptions,
+  projectContribution,
+  qualitySummary,
+  teamContribution,
   workNeedingAttention,
+  workloadRows,
 } from '@/lib/db/queries/performance';
 import { isoDateIn, nowMs } from '@/lib/now';
 
@@ -52,7 +57,12 @@ type Preset = (typeof PRESETS)[number]['value'];
 export default async function PerformancePage({
   searchParams,
 }: {
-  searchParams: Promise<{ period?: string; team?: string; project?: string }>;
+  searchParams: Promise<{
+    period?: string;
+    team?: string;
+    project?: string;
+    person?: string;
+  }>;
 }) {
   /* ⚠️ ONE WAVE — Rule Zero, law 4. */
   const [user, params] = await Promise.all([requireRole('team_coordinator'), searchParams]);
@@ -67,12 +77,33 @@ export default async function PerformancePage({
      with 22P02 — the filter belongs to the URL, so anybody can type into it. */
   const team = uuidOr(params.team);
   const project = uuidOr(params.project);
+  /* ⚠️ THE PERSON IS PART OF THE SCOPE, NOT A CLIENT-SIDE ROW FILTER.
+     Owner: *"If someone is clicked specifically then his whole history, his
+     whole performance, his whole contribution in each project ... will be
+     displayed."* Tabs that need per-person rows cannot be answered from what is
+     already drawn, so it travels in the URL with the other two. The table still
+     narrows in its own frame — the board applies the choice optimistically
+     while this read catches up (Rule Zero, law 2). */
+  const person = uuidOr(params.person);
+  const filters = { departmentId: team, projectId: project, personId: person };
+  const scoped = { ...period, today };
 
-  const [board, attention, options] = await Promise.all([
-    performanceBoard(user.id, { ...period, today }, { departmentId: team, projectId: project }),
-    workNeedingAttention(user.id, today, { departmentId: team, projectId: project }),
-    performanceFilterOptions(user.id),
-  ]);
+  /* ⚠️ ONE WAVE, AND EVERY TAB'S DATA IN IT — Rule Zero laws 1 and 4. The
+     tabs are client state, so switching one must not touch the network; that is
+     only true if what they need is already here. Each read is bounded by the
+     period and the scope, so this is seven small statements, not seven scans. */
+  const [board, attention, options, projects, teams, workload, quality, weekly, monthly] =
+    await Promise.all([
+      performanceBoard(user.id, scoped, filters),
+      workNeedingAttention(user.id, today, filters),
+      performanceFilterOptions(user.id),
+      projectContribution(user.id, scoped, filters),
+      teamContribution(user.id, scoped, filters),
+      workloadRows(user.id, scoped, filters),
+      qualitySummary(user.id, scoped, filters),
+      bucketTrend(user.id, 'week', filters),
+      bucketTrend(user.id, 'month', filters),
+    ]);
 
   return (
     <PerformanceBoard
@@ -84,6 +115,7 @@ export default async function PerformancePage({
         label: labelFor(period),
         team: team ?? 'all',
         project: project ?? 'all',
+        person: person ?? 'all',
       }}
       today={today}
       asOf={dayLabel(today)}
@@ -92,6 +124,12 @@ export default async function PerformancePage({
       nowMs={nowMs()}
       presets={[...PRESETS]}
       options={options}
+      projects={projects}
+      teams={teams}
+      workload={workload}
+      quality={quality}
+      weekly={weekly}
+      monthly={monthly}
       updatedAt={new Intl.DateTimeFormat('en-GB', {
         timeZone: 'Asia/Karachi',
         hour: '2-digit',

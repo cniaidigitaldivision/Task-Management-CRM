@@ -187,6 +187,40 @@ when a second person's client appears.
 
 ---
 
+## 5a · ⚠️ Find the width the owner actually reads at — it is not yours
+
+The Performance page was verified at 1672px and shipped with wrapped card labels
+and truncated names, because the owner runs **Windows at 125% display scaling**:
+their CSS viewport is **1535px**. Nothing about that is visible in a screenshot
+until you measure it.
+
+**Derive it from their own screenshot.** Measure one string's ink width in their
+image, and the same string in a 1:1 render of the same page. The ratio is their
+device scale:
+
+```
+owner "Performance overview" ink : 383px
+mine at 1:1                      : 306px      → 1.25×  → 1919 / 1.25 = 1535 CSS px
+```
+
+Then sweep. A layout is not verified at one width; it is verified across the ones
+people use — 1366, 1440, 1535, 1600, 1672, 1920 — checking at each for wrapped
+text, clipped text and a horizontal scrollbar.
+
+⚠️ **Two traps inside that audit, both of which reported confident nonsense:**
+
+- `range.getClientRects()` returns one rect **per text node**, not per line, so
+  `{a} · {b}` looked like three lines. Count DISTINCT rect tops.
+- An `Avatar`'s `sr-only` label is deliberately 1px wide and therefore always
+  "clipped". Skip `sr-only` rather than widening it.
+
+And when something genuinely does not fit, take the pixels back from padding,
+gaps and icon sizes **before** shortening the design's own wording. The overdue
+card needed 6px; it came from 0.05rem of padding, 0.05rem of gap and 3% off the
+badge, and the reference's words survived.
+
+---
+
 ## 6 · Prove it, on every row
 
 One row fitting is not the page fitting: `PKR 2.1M` fitted in the first row while

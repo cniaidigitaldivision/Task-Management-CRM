@@ -35,6 +35,16 @@ export interface PerfFilters {
   /** `users.department_id` — the reference calls this "All teams". */
   readonly departmentId?: string | null;
   readonly projectId?: string | null;
+  /**
+   * One person, or null for everybody.
+   *
+   * Owner, 2026-09-23: *"If someone is clicked specifically then his whole
+   * history, his whole performance, his whole contribution in each project, and
+   * his whole assessment over time and over the month will be displayed."* So
+   * the person is part of the SCOPE, not a way of hiding rows already drawn:
+   * every read below narrows to them.
+   */
+  readonly personId?: string | null;
 }
 
 export interface PersonStat {
@@ -74,6 +84,7 @@ export async function performanceBoard(
 ): Promise<PersonStat[]> {
   const departmentId = filters.departmentId ?? null;
   const projectId = filters.projectId ?? null;
+  const personId = filters.personId ?? null;
   const rows = await withUser(actorId, (tx) => tx`
     with done_in_period as (
       select t.assignee_id, t.id, t.due_date, t.completed_at, t.effort_points,
@@ -125,6 +136,7 @@ export async function performanceBoard(
       left join open_now o on o.assignee_id = u.id
      where u.is_active
        and (${departmentId}::uuid is null or u.department_id = ${departmentId}::uuid)
+       and (${personId}::uuid is null or u.id = ${personId}::uuid)
      group by u.id, u.full_name, u.role_title, u.role, u.avatar_url, u.weekly_capacity_points
      order by completed desc, u.full_name
   `);
@@ -172,6 +184,7 @@ export async function workNeedingAttention(
 ): Promise<AttentionRow[]> {
   const departmentId = filters.departmentId ?? null;
   const projectId = filters.projectId ?? null;
+  const personId = filters.personId ?? null;
   const rows = await withUser(actorId, (tx) => tx`
     select t.id, t.reference, t.title, t.status::text as status, t.due_date,
            t.blocked_reason, t.assignee_id, u.full_name as assignee_name, u.avatar_url,
@@ -198,6 +211,7 @@ export async function workNeedingAttention(
           no department, so it stays out of a filtered view rather than being
           shown to every team as theirs. */
        and (${departmentId}::uuid is null or u.department_id = ${departmentId}::uuid)
+       and (${personId}::uuid is null or t.assignee_id = ${personId}::uuid)
      order by
        case t.status when 'blocked' then 0 when 'in_review' then 1 else 2 end,
        t.due_date nulls last
@@ -424,6 +438,422 @@ export async function performanceFilterOptions(actorId: string): Promise<FilterO
     teams: (teams as Array<Record<string, unknown>>).map((r) => ({ id: String(r.id), name: String(r.name) })),
     projects: (projects as Array<Record<string, unknown>>).map((r) => ({ id: String(r.id), name: String(r.name) })),
   };
+}
+
+/* ============================================================================
+ * THE TABS — one read each, all bounded by the scope on screen
+ * ----------------------------------------------------------------------------
+ * Owner, 2026-09-23: *"Their project and team will display which project they
+ * are working on and which team they are working in. The workload tab shows how
+ * much workload is on it ... the compare page will compare their performance
+ * against month-wise performance."*
+ *
+ * Every one of these takes the same `PerfFilters`, so a person, a team or a
+ * project narrows the whole page rather than one panel of it.
+ * ========================================================================= */
+
+/** What one project got out of the people in scope. */
+export interface ProjectRow {
+  readonly id: string;
+  readonly name: string;
+  readonly assigned: number;
+  readonly completed: number;
+  readonly onTime: number;
+  readonly judged: number;
+  readonly overdue: number;
+  readonly openNow: number;
+  readonly people: number;
+}
+
+export async function projectContribution(
+  actorId: string,
+  period: { from: string; to: string; today: string },
+  filters: PerfFilters = {},
+): Promise<ProjectRow[]> {
+  const departmentId = filters.departmentId ?? null;
+  const projectId = filters.projectId ?? null;
+  const personId = filters.personId ?? null;
+
+  const rows = await withUser(actorId, (tx) => tx`
+    select p.id, p.name,
+           count(t.id)::int as assigned,
+           count(t.id) filter (
+             where t.status = 'done' and t.completed_at is not null
+               and (t.completed_at at time zone 'Asia/Karachi')::date
+                   between ${period.from}::date and ${period.to}::date
+           )::int as completed,
+           count(t.id) filter (
+             where t.status = 'done' and t.completed_at is not null
+               and (t.completed_at at time zone 'Asia/Karachi')::date
+                   between ${period.from}::date and ${period.to}::date
+               and t.due_date is not null
+               and (t.completed_at at time zone 'Asia/Karachi')::date <= t.due_date
+           )::int as on_time,
+           count(t.id) filter (
+             where t.status = 'done' and t.completed_at is not null
+               and (t.completed_at at time zone 'Asia/Karachi')::date
+                   between ${period.from}::date and ${period.to}::date
+               and t.due_date is not null
+           )::int as judged,
+           count(t.id) filter (
+             where t.status not in ('done', 'cancelled')
+               and t.due_date is not null and t.due_date < ${period.today}::date
+           )::int as overdue,
+           count(t.id) filter (where t.status not in ('done', 'cancelled'))::int as open_now,
+           count(distinct t.assignee_id)::int as people
+      from public.projects p
+      join public.tasks t on t.project_id = p.id and not t.is_deleted
+      left join public.users u on u.id = t.assignee_id
+     where (${projectId}::uuid is null or p.id = ${projectId}::uuid)
+       and (${personId}::uuid is null or t.assignee_id = ${personId}::uuid)
+       and (${departmentId}::uuid is null or u.department_id = ${departmentId}::uuid)
+     group by p.id, p.name
+    having count(t.id) > 0
+     order by completed desc, open_now desc, p.name
+  `);
+
+  return (rows as Array<Record<string, unknown>>).map((r) => ({
+    id: String(r.id),
+    name: String(r.name),
+    assigned: Number(r.assigned ?? 0),
+    completed: Number(r.completed ?? 0),
+    onTime: Number(r.on_time ?? 0),
+    judged: Number(r.judged ?? 0),
+    overdue: Number(r.overdue ?? 0),
+    openNow: Number(r.open_now ?? 0),
+    people: Number(r.people ?? 0),
+  }));
+}
+
+/** A department, and what its people are carrying. */
+export interface TeamRow {
+  readonly id: string;
+  readonly name: string;
+  readonly people: number;
+  readonly completed: number;
+  readonly openNow: number;
+  readonly overdue: number;
+}
+
+export async function teamContribution(
+  actorId: string,
+  period: { from: string; to: string; today: string },
+  filters: PerfFilters = {},
+): Promise<TeamRow[]> {
+  const projectId = filters.projectId ?? null;
+  const personId = filters.personId ?? null;
+
+  const rows = await withUser(actorId, (tx) => tx`
+    select d.id, d.name,
+           count(distinct u.id)::int as people,
+           count(t.id) filter (
+             where t.status = 'done' and t.completed_at is not null
+               and (t.completed_at at time zone 'Asia/Karachi')::date
+                   between ${period.from}::date and ${period.to}::date
+           )::int as completed,
+           count(t.id) filter (where t.status not in ('done', 'cancelled'))::int as open_now,
+           count(t.id) filter (
+             where t.status not in ('done', 'cancelled')
+               and t.due_date is not null and t.due_date < ${period.today}::date
+           )::int as overdue
+      from public.departments d
+      join public.users u on u.department_id = d.id and u.is_active
+      left join public.tasks t on t.assignee_id = u.id and not t.is_deleted
+       and (${projectId}::uuid is null or t.project_id = ${projectId}::uuid)
+     where (${personId}::uuid is null or u.id = ${personId}::uuid)
+     group by d.id, d.name, d.sort_order
+    having count(distinct u.id) > 0
+     order by d.sort_order, d.name
+  `);
+
+  return (rows as Array<Record<string, unknown>>).map((r) => ({
+    id: String(r.id),
+    name: String(r.name),
+    people: Number(r.people ?? 0),
+    completed: Number(r.completed ?? 0),
+    openNow: Number(r.open_now ?? 0),
+    overdue: Number(r.overdue ?? 0),
+  }));
+}
+
+/** What one person is carrying right now, against what they can carry. */
+export interface WorkloadRow {
+  readonly id: string;
+  readonly name: string;
+  readonly roleTitle: string | null;
+  readonly role: string;
+  readonly avatarUrl: string | null;
+  readonly departmentName: string | null;
+  readonly openNow: number;
+  readonly overdue: number;
+  readonly dueToday: number;
+  readonly inReview: number;
+  readonly blocked: number;
+  readonly openPoints: number;
+  readonly weeklyCapacityPoints: number;
+  readonly maxConcurrentTasks: number;
+  readonly completed: number;
+}
+
+export async function workloadRows(
+  actorId: string,
+  period: { from: string; to: string; today: string },
+  filters: PerfFilters = {},
+): Promise<WorkloadRow[]> {
+  const departmentId = filters.departmentId ?? null;
+  const projectId = filters.projectId ?? null;
+  const personId = filters.personId ?? null;
+
+  const rows = await withUser(actorId, (tx) => tx`
+    select u.id, u.full_name, u.role_title, u.role::text as role, u.avatar_url,
+           u.weekly_capacity_points, u.max_concurrent_tasks,
+           d.name as department_name,
+           count(t.id) filter (where t.status not in ('done', 'cancelled'))::int as open_now,
+           count(t.id) filter (
+             where t.status not in ('done', 'cancelled')
+               and t.due_date is not null and t.due_date < ${period.today}::date
+           )::int as overdue,
+           count(t.id) filter (
+             where t.status not in ('done', 'cancelled') and t.due_date = ${period.today}::date
+           )::int as due_today,
+           count(t.id) filter (where t.status = 'in_review')::int as in_review,
+           count(t.id) filter (where t.status = 'blocked')::int as blocked,
+           coalesce(sum(t.effort_points) filter (
+             where t.status not in ('done', 'cancelled')
+           ), 0)::int as open_points,
+           count(t.id) filter (
+             where t.status = 'done' and t.completed_at is not null
+               and (t.completed_at at time zone 'Asia/Karachi')::date
+                   between ${period.from}::date and ${period.to}::date
+           )::int as completed
+      from public.users u
+      left join public.departments d on d.id = u.department_id
+      left join public.tasks t on t.assignee_id = u.id and not t.is_deleted
+       and (${projectId}::uuid is null or t.project_id = ${projectId}::uuid)
+     where u.is_active
+       and (${departmentId}::uuid is null or u.department_id = ${departmentId}::uuid)
+       and (${personId}::uuid is null or u.id = ${personId}::uuid)
+     group by u.id, u.full_name, u.role_title, u.role, u.avatar_url,
+              u.weekly_capacity_points, u.max_concurrent_tasks, d.name
+     order by open_now desc, u.full_name
+  `);
+
+  return (rows as Array<Record<string, unknown>>).map((r) => ({
+    id: String(r.id),
+    name: String(r.full_name),
+    roleTitle: (r.role_title as string | null) ?? null,
+    role: String(r.role),
+    avatarUrl: (r.avatar_url as string | null) ?? null,
+    departmentName: (r.department_name as string | null) ?? null,
+    openNow: Number(r.open_now ?? 0),
+    overdue: Number(r.overdue ?? 0),
+    dueToday: Number(r.due_today ?? 0),
+    inReview: Number(r.in_review ?? 0),
+    blocked: Number(r.blocked ?? 0),
+    openPoints: Number(r.open_points ?? 0),
+    weeklyCapacityPoints: Number(r.weekly_capacity_points ?? 0),
+    maxConcurrentTasks: Number(r.max_concurrent_tasks ?? 0),
+    completed: Number(r.completed ?? 0),
+  }));
+}
+
+/* ── Quality ─────────────────────────────────────────────────────────────── */
+
+export interface ReviewRow {
+  readonly taskId: string;
+  readonly reference: string;
+  readonly title: string;
+  readonly projectName: string;
+  readonly ownerName: string | null;
+  readonly ownerAvatarUrl: string | null;
+  readonly submittedAt: string | null;
+}
+
+export interface QualitySummary {
+  readonly completed: number;
+  readonly reviewed: number;
+  readonly resubmitted: number;
+  readonly reopened: number;
+  /** Closures made by the person who did the work. */
+  readonly selfClosed: number;
+  /** Closures made by somebody else — the only real evidence of a second look. */
+  readonly closedByOther: number;
+  readonly queue: readonly ReviewRow[];
+}
+
+/**
+ * How the work was checked, and by whom.
+ *
+ * ⚠️ THE HONEST HEADLINE HERE IS THAT REVIEW IS BARELY USED. Measured on the
+ * live database, 5 of 917 closures were made by somebody other than the person
+ * who did the work. A "first-pass acceptance rate" computed over that would be
+ * a number with nothing behind it, so this returns the raw counts and the tab
+ * says what they mean rather than dressing them as a score.
+ */
+export async function qualitySummary(
+  actorId: string,
+  period: { from: string; to: string; today: string },
+  filters: PerfFilters = {},
+): Promise<QualitySummary> {
+  const departmentId = filters.departmentId ?? null;
+  const projectId = filters.projectId ?? null;
+  const personId = filters.personId ?? null;
+
+  const [counts, queue] = await withUser(actorId, async (tx) => {
+    const c = tx`
+      with done_in as (
+        select t.id, t.assignee_id
+          from public.tasks t
+          left join public.users u on u.id = t.assignee_id
+         where not t.is_deleted and t.status = 'done' and t.completed_at is not null
+           and (t.completed_at at time zone 'Asia/Karachi')::date
+               between ${period.from}::date and ${period.to}::date
+           and (${projectId}::uuid is null or t.project_id = ${projectId}::uuid)
+           and (${personId}::uuid is null or t.assignee_id = ${personId}::uuid)
+           and (${departmentId}::uuid is null or u.department_id = ${departmentId}::uuid)
+      ),
+      /* as materialized for the reason in performanceBoard: inlined, these are
+         re-evaluated once per completed task. */
+      submitted as materialized (
+        select a.entity_id, count(*)::int as times
+          from public.activity_log a
+         where a.entity_type = 'task' and a.action = 'in_review'
+         group by a.entity_id
+      ),
+      reopened as materialized (
+        select distinct a.entity_id
+          from public.activity_log a
+         where a.entity_type = 'task'
+           and a.action in ('todo', 'in_progress', 'backlog')
+           and exists (
+             select 1 from public.activity_log d
+              where d.entity_type = 'task' and d.entity_id = a.entity_id
+                and d.action = 'done' and d.created_at < a.created_at
+           )
+      ),
+      closer as materialized (
+        select distinct on (a.entity_id) a.entity_id, a.actor_id
+          from public.activity_log a
+         where a.entity_type = 'task' and a.action = 'done'
+         order by a.entity_id, a.created_at desc
+      )
+      select count(*)::int as completed,
+             count(*) filter (where s.entity_id is not null)::int as reviewed,
+             count(*) filter (where s.times > 1)::int as resubmitted,
+             count(*) filter (where r.entity_id is not null)::int as reopened,
+             count(*) filter (
+               where c.actor_id is not null and c.actor_id = d.assignee_id
+             )::int as self_closed,
+             count(*) filter (
+               where c.actor_id is not null and c.actor_id <> d.assignee_id
+             )::int as closed_by_other
+        from done_in d
+        left join submitted s on s.entity_id = d.id
+        left join reopened r on r.entity_id = d.id
+        left join closer c on c.entity_id = d.id
+    `;
+    const q = tx`
+      select t.id, t.reference, t.title, p.name as project_name,
+             u.full_name as owner_name, u.avatar_url,
+             (select max(a.created_at) from public.activity_log a
+               where a.entity_type = 'task' and a.entity_id = t.id
+                 and a.action = 'in_review') as submitted_at
+        from public.tasks t
+        join public.projects p on p.id = t.project_id
+        left join public.users u on u.id = t.assignee_id
+       where not t.is_deleted and t.status = 'in_review'
+         and (${projectId}::uuid is null or t.project_id = ${projectId}::uuid)
+         and (${personId}::uuid is null or t.assignee_id = ${personId}::uuid)
+         and (${departmentId}::uuid is null or u.department_id = ${departmentId}::uuid)
+       order by submitted_at nulls last
+       limit 25
+    `;
+    /* One connection, two statements — a transaction runs them in series, so
+       this is not parallelism, only the absence of a second round trip. */
+    return Promise.all([c, q]);
+  });
+
+  const row = (counts as Array<Record<string, unknown>>)[0] ?? {};
+  return {
+    completed: Number(row.completed ?? 0),
+    reviewed: Number(row.reviewed ?? 0),
+    resubmitted: Number(row.resubmitted ?? 0),
+    reopened: Number(row.reopened ?? 0),
+    selfClosed: Number(row.self_closed ?? 0),
+    closedByOther: Number(row.closed_by_other ?? 0),
+    queue: (queue as Array<Record<string, unknown>>).map((r) => ({
+      taskId: String(r.id),
+      reference: String(r.reference),
+      title: String(r.title),
+      projectName: String(r.project_name),
+      ownerName: (r.owner_name as string | null) ?? null,
+      ownerAvatarUrl: (r.avatar_url as string | null) ?? null,
+      submittedAt: r.submitted_at ? new Date(r.submitted_at as string).toISOString() : null,
+    })),
+  };
+}
+
+/* ── Compare, over time ──────────────────────────────────────────────────── */
+
+export interface BucketRow {
+  /** "2026-W38" or "2026-09". */
+  readonly bucket: string;
+  readonly startsOn: string | null;
+  readonly completed: number;
+  readonly onTime: number;
+  readonly judged: number;
+}
+
+/**
+ * Completed work per week or per month, for the trend on the Compare tab.
+ *
+ * ⚠️ WEEKS ARE THE HONEST UNIT HERE, AND THE TAB SAYS WHY. The owner asked for
+ * *"month-wise performance"*; measured on the live database, every completed
+ * task falls between 2026-09-02 and 2026-09-22 — one month, so a month-wise
+ * chart is a single bar. The same range is four real weeks (121, 261, 411 and
+ * 146 tasks), which is a trend somebody can act on. Both are offered; the
+ * screen states what the record actually covers.
+ */
+export async function bucketTrend(
+  actorId: string,
+  by: 'week' | 'month',
+  filters: PerfFilters = {},
+  limit = 12,
+): Promise<BucketRow[]> {
+  const departmentId = filters.departmentId ?? null;
+  const projectId = filters.projectId ?? null;
+  const personId = filters.personId ?? null;
+  const pattern = by === 'week' ? 'IYYY-"W"IW' : 'YYYY-MM';
+
+  const rows = await withUser(actorId, (tx) => tx`
+    select to_char((t.completed_at at time zone 'Asia/Karachi'), ${pattern}) as bucket,
+           min((t.completed_at at time zone 'Asia/Karachi')::date) as starts_on,
+           count(*)::int as completed,
+           count(*) filter (
+             where t.due_date is not null
+               and (t.completed_at at time zone 'Asia/Karachi')::date <= t.due_date
+           )::int as on_time,
+           count(*) filter (where t.due_date is not null)::int as judged
+      from public.tasks t
+      left join public.users u on u.id = t.assignee_id
+     where not t.is_deleted and t.status = 'done' and t.completed_at is not null
+       and (${projectId}::uuid is null or t.project_id = ${projectId}::uuid)
+       and (${personId}::uuid is null or t.assignee_id = ${personId}::uuid)
+       and (${departmentId}::uuid is null or u.department_id = ${departmentId}::uuid)
+     group by 1
+     order by 1 desc
+     limit ${limit}
+  `);
+
+  return (rows as Array<Record<string, unknown>>)
+    .map((r) => ({
+      bucket: String(r.bucket),
+      startsOn: dateOnly(r.starts_on),
+      completed: Number(r.completed ?? 0),
+      onTime: Number(r.on_time ?? 0),
+      judged: Number(r.judged ?? 0),
+    }))
+    .reverse();
 }
 
 /**

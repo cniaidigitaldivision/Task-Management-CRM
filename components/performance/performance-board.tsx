@@ -12,7 +12,6 @@ import {
   Check,
   Clock3,
   Download,
-  FileSearch,
   FileText,
   Folder,
   Info,
@@ -30,9 +29,25 @@ import {
 
 import { performanceInsightAction } from '@/app/actions/performance';
 import { PersonDrawer } from '@/components/performance/person-drawer';
+import {
+  CompareTab,
+  ProjectsTab,
+  QualityTab,
+  ReportsTab,
+  WorkloadTab,
+} from '@/components/performance/performance-tabs';
 import { FilterPill, Nothing, Panel, StatCard } from '@/components/performance/performance-ui';
 import { Avatar } from '@/components/ui/avatar';
-import type { AttentionRow, FilterOptions, PersonStat } from '@/lib/db/queries/performance';
+import type {
+  AttentionRow,
+  BucketRow,
+  FilterOptions,
+  PersonStat,
+  ProjectRow,
+  QualitySummary,
+  TeamRow,
+  WorkloadRow,
+} from '@/lib/db/queries/performance';
 import type { Narrative } from '@/lib/ai/narrative';
 import { attentionFor, rate } from '@/lib/domain/performance';
 
@@ -77,13 +92,25 @@ import { attentionFor, rate } from '@/lib/domain/performance';
  * prose, and that call is the only thing here that visibly waits.
  * ========================================================================= */
 
-export type TabKey = 'overview' | 'people' | 'compare' | 'projects' | 'assessments' | 'reports';
+export type TabKey =
+  | 'overview'
+  | 'people'
+  | 'compare'
+  | 'projects'
+  | 'quality'
+  | 'workload'
+  | 'assessments'
+  | 'reports';
 
+/* The order and the wording are the owner's later reference images, which add
+   Quality and Workload between "Projects & teams" and "Assessments". */
 const TABS: ReadonlyArray<{ key: TabKey; label: string }> = [
   { key: 'overview', label: 'Overview' },
   { key: 'people', label: 'People' },
   { key: 'compare', label: 'Compare' },
   { key: 'projects', label: 'Projects & teams' },
+  { key: 'quality', label: 'Quality' },
+  { key: 'workload', label: 'Workload' },
   { key: 'assessments', label: 'Assessments' },
   { key: 'reports', label: 'Reports' },
 ];
@@ -95,6 +122,7 @@ export interface PerformanceScope {
   readonly preset: string;
   readonly team: string;
   readonly project: string;
+  readonly person: string;
 }
 
 type Flagged = ReadonlyArray<{
@@ -111,6 +139,12 @@ export function PerformanceBoard({
   nowMs,
   presets,
   options,
+  projects,
+  teams,
+  workload,
+  quality,
+  weekly,
+  monthly,
   updatedAt,
 }: {
   board: readonly PersonStat[];
@@ -122,6 +156,12 @@ export function PerformanceBoard({
   nowMs: number;
   presets: ReadonlyArray<{ value: string; label: string }>;
   options: FilterOptions;
+  projects: readonly ProjectRow[];
+  teams: readonly TeamRow[];
+  workload: readonly WorkloadRow[];
+  quality: QualitySummary;
+  weekly: readonly BucketRow[];
+  monthly: readonly BucketRow[];
   /** The server's clock, formatted — so the pill is not the browser's idea of now. */
   updatedAt: string;
 }) {
@@ -130,9 +170,38 @@ export function PerformanceBoard({
   const [tab, setTab] = React.useState<TabKey>('overview');
   const [openPerson, setOpenPerson] = React.useState<PersonStat | null>(null);
   const [picked, setPicked] = React.useState<ReadonlySet<string>>(new Set());
-  /* ⚠️ CLIENT STATE, NOT THE URL. Narrowing to one person only hides rows that
-     are already on the page — Rule Zero, law 3. */
-  const [person, setPerson] = React.useState<string>('all');
+
+  /* ── ⚠️ THE PERSON IS THE URL'S, AND THE SCREEN DOES NOT WAIT FOR IT ──────
+     It was client state while it only hid rows already drawn. It cannot be now:
+     the owner asked that choosing somebody change every tab, and Projects,
+     Quality and Workload need rows nobody has fetched yet.
+
+     So it follows Rule Zero law 2 — the wish applies THIS frame and the URL
+     catches up behind it. The table filters instantly; the per-person panels
+     fill in when the read lands.
+
+     ⚠️ A plain useState here would be a back-button bug: state does not
+     rewind, so Back would drop the parameter while the page still believed the
+     person was chosen. The URL stays authoritative and the wish is dropped the
+     moment the two agree. */
+  const urlPerson = period.person;
+  const [wish, setWish] = React.useState<string | undefined>(undefined);
+  if (wish !== undefined && wish === urlPerson) setWish(undefined);
+
+  /* ⚠️ TWO VALUES, AND THE DIFFERENCE BETWEEN THEM IS HONESTY.
+
+     `person` is the wish: it applies this frame and narrows the rows ALREADY ON
+     THE PAGE — the team table and the attention list. That is free and true.
+
+     `settled` is the one the server has answered for. Anything that needs rows
+     nobody has fetched — the person header, and the per-project breakdown that
+     replaces the team table — keys off this instead. Measured before it was
+     split: picking somebody swapped the panel to "Where Abdul's work goes" and
+     listed all 18 projects, because the only project rows in hand were the
+     team's. A heading that names a person over somebody else's data is worse
+     than a moment of the old view. */
+  const person = wish ?? urlPerson;
+  const settled = urlPerson;
 
   const working = React.useMemo(
     () => board.filter((p) => p.completed > 0 || p.openNow > 0),
@@ -177,7 +246,22 @@ export function PerformanceBoard({
     );
   };
 
-  const chosenPerson = board.find((p) => p.id === person) ?? null;
+  /* The board is already narrowed to them when one is chosen, so this finds
+     them; `workload` is only consulted for the pill's label, because it is the
+     one list that still holds everybody. */
+  const chosenPerson = settled === 'all' ? null : (board.find((p) => p.id === settled) ?? null);
+  const chosenName =
+    chosenPerson?.name ?? workload.find((w) => w.id === person)?.name ?? null;
+
+  const setPerson = (value: string) => {
+    setWish(value);
+    const params = new URLSearchParams(window.location.search);
+    if (value === 'all') params.delete('person');
+    else params.set('person', value);
+    startScope(() =>
+      router.replace(`/performance?${params.toString()}` as Route, { scroll: false }),
+    );
+  };
 
   return (
     <div className="perf-ui mx-auto max-w-[var(--content-max)]">
@@ -249,15 +333,28 @@ export function PerformanceBoard({
         <FilterPill
           icon={User}
           title="Person"
-          label={chosenPerson ? `Person: ${chosenPerson.name}` : 'Person: All'}
+          label={chosenName ? `Person: ${chosenName}` : 'Person: All'}
           value={person}
+          /* ⚠️ FROM `workload`, NOT `board`. Once a person is chosen the board
+             read is narrowed to them, so building this list from it would leave
+             the dropdown holding one name and no way back to anybody else.
+             `workload` carries every active person in the team/project scope. */
           options={[
             { value: 'all', label: 'Person: All' },
-            ...board.map((p) => ({ value: p.id, label: p.name })),
+            ...workload.map((w) => ({ value: w.id, label: w.name })),
           ]}
           onChange={setPerson}
         />
       </div>
+
+      {chosenPerson && (
+        <PersonHeader
+          person={chosenPerson}
+          workload={workload.find((w) => w.id === chosenPerson.id) ?? null}
+          rangeLabel={period.label}
+          onClear={() => setPerson('all')}
+        />
+      )}
 
       {/* ⚠️ THE OLD ROWS STAY, DIMMED. Never blank a table somebody is reading
           in order to wait for the same table with fewer rows in it. */}
@@ -327,6 +424,15 @@ export function PerformanceBoard({
                 />
               </div>
 
+              {/* ⚠️ A ONE-ROW "TEAM PERFORMANCE" TABLE IS NOT AN ANSWER. Once a
+                  person is chosen the board read is narrowed to them, so this
+                  table would be a single row repeating the four cards above it.
+                  Their Overview shows where their work actually goes instead —
+                  the owner's own words: *"his whole contribution in each
+                  project"*. */}
+              {chosenPerson ? (
+                <ProjectsTab projects={projects} teams={teams} personName={chosenPerson.name} />
+              ) : (
               <Panel
                 title="Team performance"
                 description="Select a person to inspect their work"
@@ -363,6 +469,7 @@ export function PerformanceBoard({
                   />
                 )}
               </Panel>
+              )}
 
               <Panel title="Work requiring attention">
                 {flagged.length === 0 ? (
@@ -445,9 +552,38 @@ export function PerformanceBoard({
           </Panel>
         )}
 
-        {(tab === 'compare' || tab === 'projects' || tab === 'assessments' || tab === 'reports') && (
-          <ComingTab tab={tab} picked={picked.size} />
+        {tab === 'compare' && (
+          <CompareTab
+            weekly={weekly}
+            monthly={monthly}
+            board={working}
+            picked={picked}
+            personName={chosenPerson?.name ?? null}
+          />
         )}
+
+        {tab === 'projects' && (
+          <ProjectsTab projects={projects} teams={teams} personName={chosenPerson?.name ?? null} />
+        )}
+
+        {tab === 'quality' && <QualityTab quality={quality} nowMs={nowMs} />}
+
+        {tab === 'workload' && <WorkloadTab rows={workload} />}
+
+        {tab === 'assessments' && (
+          <AssessmentsTab
+            scope={{ from: period.from, to: period.to, personId: person === 'all' ? null : person }}
+            totals={totals}
+            best={bestDeliverer(rows)}
+            stalledCount={stalled(flagged)}
+            firstBlocker={flagged.find((f) => f.why.kind === 'blocked') ?? flagged[0] ?? null}
+            onOpenPerson={setOpenPerson}
+            anyone={rows[0] ?? board[0] ?? null}
+            personName={chosenPerson?.name ?? null}
+          />
+        )}
+
+        {tab === 'reports' && <ReportsTab board={rows} periodLabel={period.label} />}
       </div>
 
       <PersonDrawer
@@ -1282,51 +1418,166 @@ function stalled(flagged: Flagged): number {
   return flagged.filter((f) => f.why.kind === 'awaiting_review').length;
 }
 
-/* ── The tabs whose design has not arrived yet ───────────────────────────── */
 
-const WAITING: Record<string, { what: string; ready: string }> = {
-  compare: {
-    what: 'Person against person, and one person across projects.',
-    ready:
-      'The figures behind it already exist — completed, verified, on time, overdue, per person and per project.',
-  },
-  projects: {
-    what: 'Team against team, and a project’s whole delivery record.',
-    ready: 'Every task already carries its project, so this is a grouping of what the Overview reads.',
-  },
-  assessments: {
-    what: 'Self-review, manager evaluation, the employee’s response, agreed goals and follow-up dates.',
-    ready:
-      'Nothing is recorded for this yet — it needs a table of its own, because an assessment is written by people rather than derived from tasks.',
-  },
-  reports: {
-    what: 'Configurable PDF and Excel reports, comparisons and saved templates.',
-    ready: 'The existing Reports page already exports CSV, Excel and PDF, and is unchanged.',
-  },
-};
+/* ── The person header — the owner's second reference image ──────────────── */
 
-function ComingTab({ tab, picked }: { tab: string; picked: number }) {
-  const x = WAITING[tab];
+/**
+ * Who the page is about, when it is about one person.
+ *
+ * ⚠️ THE FACTS ON IT ARE THE ONES WE HOLD. The reference writes "Product
+ * Designer | Design | Based in London"; this system records a free-text job
+ * title and a department, and no location at all. It shows the two it has
+ * rather than inventing the third — and the department is the structured one a
+ * rule could be written against, not the title.
+ */
+function PersonHeader({
+  person,
+  workload,
+  rangeLabel,
+  onClear,
+}: {
+  person: PersonStat;
+  workload: WorkloadRow | null;
+  rangeLabel: string;
+  onClear: () => void;
+}) {
+  const facts = [person.roleTitle, workload?.departmentName].filter(Boolean) as string[];
   return (
-    <Panel title="Waiting on your design" description="Built when the reference image for this tab arrives">
-      <div
-        className="space-y-[0.5rem] border-t px-[1.22rem] py-[1.15rem] text-[0.88rem]"
-        style={{ borderColor: 'var(--pf-grid)' }}
+    <section
+      className="mt-[1.1rem] flex flex-wrap items-center gap-x-[1.6rem] gap-y-[0.9rem] rounded-[0.95rem] border px-[1.22rem] py-[1rem]"
+      style={{
+        background: 'var(--pf-surface)',
+        borderColor: 'var(--pf-line)',
+        boxShadow: 'var(--pf-shadow)',
+      }}
+    >
+      <span className="flex min-w-0 items-center gap-[0.9rem]">
+        <Avatar name={person.name} src={person.avatarUrl} size="xl" />
+        <span className="min-w-0">
+          <span className="block truncate text-[1.25rem] font-bold leading-[1.25]" style={{ color: 'var(--pf-ink)' }}>
+            {person.name}
+          </span>
+          <span className="block truncate text-[0.86rem]" style={{ color: 'var(--pf-soft)' }}>
+            {facts.length > 0 ? facts.join('  |  ') : person.role.replace('_', ' ')}
+          </span>
+        </span>
+      </span>
+
+      <span className="flex flex-wrap items-center gap-x-[1.6rem] gap-y-[0.6rem]">
+        <HeaderFact label="Period" value={rangeLabel} />
+        <HeaderFact label="Completed" value={String(person.completed)} />
+        <HeaderFact label="Open now" value={String(person.openNow)} />
+        <HeaderFact
+          label="Overdue"
+          value={String(person.overdue)}
+          tone={person.overdue > 0 ? 'var(--pf-red-ink)' : undefined}
+        />
+      </span>
+
+      <button
+        type="button"
+        onClick={onClear}
+        className="ml-auto inline-flex items-center gap-[0.45rem] whitespace-nowrap rounded-[0.7rem] border px-[0.95rem] py-[0.65rem] text-[0.85rem] font-semibold leading-none"
+        style={{
+          background: 'var(--pf-surface)',
+          borderColor: 'var(--pf-field-line)',
+          color: 'var(--pf-ink)',
+        }}
       >
-        <p style={{ color: 'var(--pf-ink)' }}>{x.what}</p>
-        {/* ⚠️ SAYING WHICH PART IS DATA AND WHICH IS DESIGN. The owner said the
-            other tabs' images are coming; what they cannot know from outside is
-            that most of the data is already here and one of them genuinely is
-            not. Saying so is the difference between "not built" and "cannot be
-            built from what we record". */}
-        <p style={{ color: 'var(--pf-soft)' }}>{x.ready}</p>
-        {tab === 'compare' && picked > 1 && (
-          <p className="flex items-center gap-[0.5rem] pt-[0.3rem]" style={{ color: 'var(--pf-soft)' }}>
-            <FileSearch className="size-[1rem]" aria-hidden="true" />
-            {picked} people are selected on the Overview and will be the ones compared here.
+        Back to the whole team
+      </button>
+    </section>
+  );
+}
+
+function HeaderFact({ label, value, tone }: { label: string; value: string; tone?: string }) {
+  return (
+    <span className="block">
+      <span className="block text-[0.74rem] leading-[1.3]" style={{ color: 'var(--pf-mute)' }}>
+        {label}
+      </span>
+      <span
+        className="block text-[0.95rem] font-semibold tabular-nums leading-[1.3]"
+        style={{ color: tone ?? 'var(--pf-ink)' }}
+      >
+        {value}
+      </span>
+    </span>
+  );
+}
+
+/* ── Assessments ─────────────────────────────────────────────────────────── */
+
+/**
+ * The written assessment, full width.
+ *
+ * ⚠️ THIS IS THE SAME PANEL AS THE OVERVIEW'S, NOT A SECOND ONE. One place
+ * builds the fact sheet and one place enforces `unverifiedFigures`; a second
+ * copy would be a second thing to keep honest.
+ *
+ * ⚠️ AND A FORMAL ASSESSMENT IS NOT THIS. Self-review, a manager's evaluation,
+ * the employee's response and agreed goals are written by people and this
+ * system records none of them — that needs a table of its own. The tab says so
+ * rather than letting an AI summary stand in for a review somebody signed.
+ */
+function AssessmentsTab({
+  scope,
+  totals,
+  best,
+  stalledCount,
+  firstBlocker,
+  onOpenPerson,
+  anyone,
+  personName,
+}: {
+  scope: { from: string; to: string; personId: string | null };
+  totals: Totals;
+  best: PersonStat | null;
+  stalledCount: number;
+  firstBlocker: Flagged[number] | null;
+  onOpenPerson: (p: PersonStat) => void;
+  anyone: PersonStat | null;
+  personName: string | null;
+}) {
+  return (
+    <div className="grid items-start gap-[1.3rem] min-[1500px]:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+      <InsightPanel
+        scope={scope}
+        totals={totals}
+        best={best}
+        stalledCount={stalledCount}
+        firstBlocker={firstBlocker}
+        onOpenPerson={onOpenPerson}
+        anyone={anyone}
+      />
+      <Panel
+        title="Formal assessments"
+        description={
+          personName
+            ? `Reviews recorded for ${personName.split(' ')[0]}.`
+            : 'Reviews recorded against a person.'
+        }
+      >
+        <div
+          className="space-y-[0.7rem] border-t px-[1.22rem] py-[1.15rem] text-[0.88rem] leading-[1.5]"
+          style={{ borderColor: 'var(--pf-grid)' }}
+        >
+          <p style={{ color: 'var(--pf-ink)' }}>
+            Nothing is recorded yet, and this is the one part of the page that cannot be derived
+            from the work.
           </p>
-        )}
-      </div>
-    </Panel>
+          <p style={{ color: 'var(--pf-soft)' }}>
+            A self-review, a manager&rsquo;s evaluation, the employee&rsquo;s response, the goals
+            agreed and the date they are revisited are all written by people. Tasks cannot supply
+            them, so this needs a table of its own — and until it exists, the assessment beside this
+            one is a reading of the record, not a review anybody has signed.
+          </p>
+          <p style={{ color: 'var(--pf-soft)' }}>
+            Say the word and it is a migration and a form: version, period, status, the two written
+            sides, agreed goals with baselines and targets, and a follow-up date.
+          </p>
+        </div>
+      </Panel>
+    </div>
   );
 }

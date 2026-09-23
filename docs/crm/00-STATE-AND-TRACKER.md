@@ -23,6 +23,70 @@
 
 ---
 
+## 🧭 2026-09-23 (later) — EIGHT TABS, AND THE PERSON IS THE SCOPE
+
+Owner, with a photo of the live page beside the design: *"the page is not as
+sleek as I want ... When I select that person, the whole team performance
+overview, people, and all that will be displayed ... his whole history, his
+whole performance, his whole contribution in each project."*
+
+### First: it was being read at a width I never tested
+
+They run Windows at **125% display scaling**, so their CSS viewport is **1535px**,
+not the 1672px the design was drawn at. Two things break there and nowhere else:
+the stat cards had 106px of text room and needed 112, and the table's numeric
+columns were copied from the design at fixed widths — 692px of a 756px column,
+leaving Person 64px and truncating every name and role. Both are now budgeted
+against the column they actually get; swept at 1366/1440/1535/1600/1672/1920
+with nothing wrapped, nothing clipped and no horizontal scrollbar.
+
+⚠️ **Derive the owner's viewport from their screenshot before trusting it.**
+Measure one string's ink in their image and the same string in a 1:1 render; the
+ratio is their device scale. Theirs was 383/306 = 1.25.
+
+### Then: the tabs are real, and the person scopes all of them
+
+| Tab | What it reads |
+|---|---|
+| **Overview** | the four figures, the team table, work needing attention, the AI panel |
+| **People** | the roster with completed / open / overdue each |
+| **Compare** | completed per **week** and per month, and person against person |
+| **Projects & teams** | every project with work in scope; every department and what it carries |
+| **Quality** | review coverage, second pair of eyes, sent back, reopened, and the review queue |
+| **Workload** | open / due today / overdue / in review, and points open against weekly capacity |
+| **Assessments** | the written AI assessment, beside an honest note that a signed review needs a table |
+| **Reports** | the period in one line, and the way into `/reports`, which is untouched |
+
+Choosing a person narrows **all seven reads** and adds a header card with their
+name, title, department, period and figures.
+
+### Three things the data forced, and the screen says all of them
+
+- **Compare counts in weeks.** Every completed task falls between 2026-09-02 and
+  09-22 — one month, so month-wise is a single bar. The same range is four real
+  weeks (121, 261, 411, 146). By month is still offered and says why it is flat.
+- **Quality cannot print a first-pass score.** 5 of 917 closures were made by
+  somebody other than the person who did the work. The tab reports that as the
+  headline rather than dressing it as a percentage, because a low score and an
+  unused process are not the same finding.
+- **No reviewer exists on a task.** The reference has a Reviewer column; nothing
+  in the schema fills it. The queue shows who is waiting instead, and says so.
+
+### Rule Zero, measured
+
+- Picking a person filters the table in **its own frame** (1 row at 80ms) — the
+  wish applies now, the URL catches up behind it.
+- Switching a tab: **0 network calls**. Every tab's rows arrive in the one wave.
+- ⚠️ **And the optimistic value is not allowed to lie.** It first swapped the
+  panel to *"Where Abdul's work goes"* over all 18 projects, because those were
+  the only project rows in hand. The wish now drives only what can be derived
+  from rows already drawn; anything needing a new read waits for the URL.
+
+**Green:** 152 test files · 3821 tests · typecheck · lint · production build (run
+with the dev server stopped — see the entry below).
+
+---
+
 ## 🧭 2026-09-23 — THE PERFORMANCE PAGE, BUILT TO THE IMAGE
 
 Owner: *"Hey first of all I want this performance page UI to be exactly the same
