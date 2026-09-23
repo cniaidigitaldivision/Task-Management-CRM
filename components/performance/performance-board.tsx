@@ -266,10 +266,17 @@ export function PerformanceBoard({
         style={{ opacity: pending ? 0.55 : 1 }}
         aria-busy={pending}
       >
+        {/* ⚠️ SPLIT AT 1500px, NOT AT xl (1280). Between those two widths the
+            main column is ~650px and four stat cards cannot sit in it without
+            wrapping their labels — which is exactly what the owner saw. Below
+            1500 the AI panel goes underneath at full width instead. */}
         {tab === 'overview' && (
-          <div className="grid items-start gap-[1.3rem] xl:grid-cols-[minmax(0,1.575fr)_minmax(0,1fr)]">
+          <div className="grid items-start gap-[1.3rem] min-[1500px]:grid-cols-[minmax(0,1.575fr)_minmax(0,1fr)]">
             <div className="min-w-0 space-y-[1.25rem]">
-              <div className="grid grid-cols-2 gap-[0.7rem] lg:grid-cols-4">
+              {/* auto-fit against a real minimum, so the four cards sit in one
+                  row wherever one row fits and fall to two-up where it does not,
+                  instead of shrinking until the text breaks. */}
+              <div className="grid grid-cols-[repeat(auto-fit,minmax(11.4rem,1fr))] gap-[0.7rem]">
                 <StatCard
                   label="Completed"
                   value={String(totals.completed)}
@@ -555,7 +562,7 @@ function PeopleTable({
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[46rem] table-fixed border-collapse">
+      <table className="w-full min-w-[40rem] table-fixed border-collapse">
         <thead>
           <tr
             className="whitespace-nowrap border-y text-[0.76rem]"
@@ -565,7 +572,7 @@ function PeopleTable({
               color: 'var(--pf-soft)',
             }}
           >
-            <th className="w-[3.33rem] py-[0.72rem] pl-[1.22rem] text-left">
+            <th className="w-[3.1rem] py-[0.72rem] pl-[1.22rem] text-left">
               <input
                 type="checkbox"
                 aria-label="Select everybody"
@@ -575,20 +582,27 @@ function PeopleTable({
                 style={{ accentColor: 'var(--pf-teal)' }}
               />
             </th>
+            {/* ⚠️ PERSON IS THE FLEXIBLE COLUMN AND THE NUMERIC ONES ARE BUDGETED
+                AGAINST THEIR HEADERS, not against the design's screenshot. Sized
+                from the reference alone they totalled 692px of a 756px column and
+                left Person 64px — every name and role truncated ("Graphic Desi…",
+                "Social Media…"), which is what the owner photographed. A number
+                column only ever holds "20 of 48"; the name is the part that has
+                to be readable. */}
             <th className="py-[0.72rem] text-left font-medium">Person</th>
-            <th className="w-[8.26rem] py-[0.72rem] text-center font-medium">Completed</th>
+            <th className="w-[6.6rem] py-[0.72rem] text-center font-medium">Completed</th>
             {/* ⚠️ "Verified" IS THE REFERENCE'S WORD FOR `reviewed` — a second
                 pair of eyes saw it on its way to done. The title attribute says
                 so, because "verified" could be read as a stronger claim. */}
             <th
-              className="w-[7.2rem] py-[0.72rem] text-center font-medium"
+              className="w-[6.2rem] py-[0.72rem] text-center font-medium"
               title="Went through review on its way to done"
             >
               Verified
             </th>
-            <th className="w-[6.8rem] py-[0.72rem] text-center font-medium">On time</th>
-            <th className="w-[6.9rem] py-[0.72rem] text-center font-medium">Overdue</th>
-            <th className="w-[10.8rem] py-[0.72rem] pr-[1.22rem] text-left font-medium">Next action</th>
+            <th className="w-[6.4rem] py-[0.72rem] text-center font-medium">On time</th>
+            <th className="w-[6.2rem] py-[0.72rem] text-center font-medium">Overdue</th>
+            <th className="w-[11rem] py-[0.72rem] pr-[1.22rem] text-left font-medium">Next action</th>
           </tr>
         </thead>
         <tbody>
@@ -697,7 +711,7 @@ function nextActionFor(p: PersonStat, mine: Flagged): string {
 function AttentionTable({ rows }: { rows: Flagged }) {
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[42rem] table-fixed border-collapse">
+      <table className="w-full min-w-[38rem] table-fixed border-collapse">
         <thead>
           <tr
             className="whitespace-nowrap border-y text-[0.76rem]"
@@ -707,10 +721,17 @@ function AttentionTable({ rows }: { rows: Flagged }) {
               color: 'var(--pf-soft)',
             }}
           >
+            {/* Task is the flexible one here for the same reason — a task title
+                is the thing somebody reads the row for. */}
             <th className="py-[0.72rem] pl-[1.22rem] text-left font-medium">Task</th>
-            <th className="w-[13.1rem] py-[0.72rem] text-left font-medium">Owner</th>
-            <th className="w-[16.4rem] py-[0.72rem] text-left font-medium">Issue</th>
-            <th className="w-[10.8rem] py-[0.72rem] pr-[1.22rem] text-left font-medium">Next action</th>
+            <th className="w-[10.5rem] py-[0.72rem] text-left font-medium">Owner</th>
+            {/* ⚠️ WIDE ENOUGH FOR THE LONGEST STRING WE GENERATE. "Awaiting
+                reviewer · 426h" needs 162px; the column carries that plus the
+                icon, the gap and the padding. A BLOCKED REASON is free text a
+                person typed and can be any length — that one truncates, and the
+                whole of it is in the cell's title. */}
+            <th className="w-[13.2rem] py-[0.72rem] text-left font-medium">Issue</th>
+            <th className="w-[11rem] py-[0.72rem] pr-[1.22rem] text-left font-medium">Next action</th>
           </tr>
         </thead>
         <tbody>
@@ -1161,7 +1182,12 @@ function Insight({
   const t = INSIGHT_TONE[tone];
   return (
     <div
-      className="flex items-start gap-[1.2rem] rounded-[0.8rem] border px-[1.15rem] py-[0.88rem]"
+      /* ⚠️ WRAPS RATHER THAN SQUEEZING. The aside is 524px at the design width
+         and 480px at the owner's; at 480 the button beside "Recommended next
+         action" pushed that heading onto two lines. Allowing the row to wrap
+         moves the button under the text instead, which keeps the heading whole
+         at every width. */
+      className="flex flex-wrap items-start gap-x-[1.2rem] gap-y-[0.7rem] rounded-[0.8rem] border px-[1.15rem] py-[0.88rem]"
       style={{ background: t.card, borderColor: t.line }}
     >
       <span
@@ -1170,7 +1196,7 @@ function Insight({
       >
         <Icon className="size-[1.4rem]" style={{ color: t.icon }} aria-hidden="true" />
       </span>
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 basis-[13rem]">
         <p className="text-[0.94rem] font-bold leading-[1.3]" style={{ color: t.title }}>
           {title}
         </p>

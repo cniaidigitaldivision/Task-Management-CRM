@@ -66,7 +66,7 @@ export function StatCard({
 }) {
   return (
     <div
-      className="flex items-start gap-[1.11rem] rounded-[0.95rem] border px-[0.9rem] py-[1.4rem]"
+      className="flex items-start gap-[0.8rem] rounded-[0.95rem] border px-[0.7rem] py-[1.4rem]"
       style={{
         background: 'var(--pf-surface)',
         borderColor: 'var(--pf-line)',
@@ -74,7 +74,7 @@ export function StatCard({
       }}
     >
       <span
-        className="grid size-[2.78rem] shrink-0 place-items-center rounded-full"
+        className="grid size-[2.6rem] shrink-0 place-items-center rounded-full"
         style={{ background: toneBg(tone) }}
       >
         {tone === 'red' ? (
@@ -102,6 +102,12 @@ export function StatCard({
         )}
       </span>
       <span className="min-w-0 flex-1">
+        {/* ⚠️ THE LABEL MUST NOT WRAP, AND MUST NOT BE CUT EITHER. The owner
+            runs at 125% display scaling — a 1535px CSS viewport, not the 1672
+            the design was drawn at — and at that width "On-time delivery" broke
+            onto a second line and the row of cards lost its rhythm. The card is
+            now budgeted against the narrower column (see the grid that holds
+            it), and the row drops to two-up rather than squeezing further. */}
         <span
           className="block text-[0.845rem] font-semibold leading-[1.3]"
           style={{ color: 'var(--pf-label)' }}
@@ -126,7 +132,11 @@ export function StatCard({
             the grid keeps all four cards the same height. */}
         {sub && (
           <span
-            className="mt-[0.3rem] block text-[0.79rem] leading-[1.35]"
+            /* ⚠️ BUDGETED, NOT GUESSED. At the owner's 1535px viewport the card
+               gives its text 106px and "Check delay reasons" needed 112. The 6px
+               came back from the padding, the gap and 3% off the badge — so the
+               design's own wording survives instead of being shortened to fit. */
+            className="mt-[0.3rem] block text-[0.73rem] leading-[1.35]"
             style={{ color: 'var(--pf-sub)' }}
           >
             {sub}
