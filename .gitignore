@@ -88,3 +88,7 @@ secrets/
 
 # CLI deploy transcript, written by scripts and by hand. Not source.
 deploy.log
+
+# The detached `next dev` log, when the server is started outside a terminal.
+.next-dev.log
+.next-dev.log.err
