@@ -256,7 +256,7 @@ export interface HistoryEntry {
    * complete" is always the person's own action; what a manager wants beside it
    * is who put the work there in the first place.
    */
-  readonly sourceKind: 'repeat' | 'self' | 'coordinator' | 'admin' | 'teammate' | 'unknown';
+  readonly sourceKind: 'self' | 'coordinator' | 'admin' | 'teammate' | 'unknown';
   readonly sourceName: string | null;
   /** Set when the task is a copy from a repeat — "FREQ=DAILY;INTERVAL=1". */
   readonly recurrenceRule: string | null;
@@ -325,7 +325,6 @@ export async function personDetail(
              cb.full_name as source_name, t.recurrence_rule,
              case
                when t.id is null then 'unknown'
-               when t.recurrence_series_id is not null or t.recurrence_rule is not null then 'repeat'
                when t.created_by_id is null then 'unknown'
                when t.created_by_id = t.assignee_id then 'self'
                when cb.role in ('admin', 'super_admin') then 'admin'
@@ -943,8 +942,18 @@ export interface LedgerRow {
   readonly projectName: string;
   readonly createdByName: string | null;
   readonly createdByAvatarUrl: string | null;
-  readonly sourceKind: 'repeat' | 'self' | 'coordinator' | 'admin' | 'teammate' | 'unknown';
-  /** "FREQ=DAILY;INTERVAL=1" when this copy came from a repeat. */
+  /**
+    * Who created or assigned it. Nothing else.
+    *
+    * ⚠️ A REPEAT IS NOT A SOURCE. Owner, 2026-09-24: *"Why do you put this all
+    * in the daily rotation sources? ... I want to see just whether this task is
+    * created by himself or assigned by me, my admin, or a super admin or a team
+    * coordinator."* A repeating task still HAS a creator — whoever set the
+    * series up — and letting "repeat" win buried that answer on 183 of one
+    * person's 254 tasks. The repeat travels beside it in `recurrenceRule`.
+    */
+  readonly sourceKind: 'self' | 'coordinator' | 'admin' | 'teammate' | 'unknown';
+  /** "FREQ=DAILY;INTERVAL=1" when this copy came from a repeat. A separate fact. */
   readonly recurrenceRule: string | null;
   readonly ownerId: string | null;
   readonly ownerName: string | null;
@@ -995,14 +1004,7 @@ export async function taskLedger(
              p.id as project_id, p.name as project_name,
              cb.full_name as created_by_name, cb.avatar_url as created_by_avatar,
              u.id as owner_id, u.full_name as owner_name, u.avatar_url as owner_avatar,
-             /* ⚠️ A REPEAT COPY IS NOT "SELF-CREATED". Owner, 2026-09-24:
-                *"mark it as a daily created rotation ... so we exactly know
-                that this task is created daily."* 596 of 1,241 tasks here were
-                generated from a series, 550 of them daily. Counting those as
-                self-created is how one person reads as 100% self-directed when
-                the engine made the work. Repeat wins over every other source. */
              case
-               when t.recurrence_series_id is not null or t.recurrence_rule is not null then 'repeat'
                when t.created_by_id is null then 'unknown'
                when t.created_by_id = t.assignee_id then 'self'
                when cb.role in ('admin', 'super_admin') then 'admin'
@@ -1186,7 +1188,13 @@ export async function taskLedgerDetail(actorId: string, taskId: string): Promise
  * ========================================================================= */
 
 export interface TaskSources {
-  /** Generated from a repeat series, not typed out by anybody that day. */
+  /**
+   * How many of these are copies of a repeat.
+   *
+   * ⚠️ IT IS NOT ONE OF THE BUCKETS BELOW. Every task is counted once by WHO
+   * raised it; this says how many of them also happen to repeat, which is a
+   * different question and must not eat the answer to the first one.
+   */
   readonly repeat: number;
   readonly self: number;
   readonly coordinator: number;
@@ -1207,13 +1215,15 @@ export async function assignmentSources(
 
   const rows = await withUser(actorId, (tx) => tx`
     select case
-             when t.recurrence_series_id is not null or t.recurrence_rule is not null then 'repeat'
              when t.created_by_id is null then 'unknown'
              when t.created_by_id = t.assignee_id then 'self'
              when cb.role in ('admin', 'super_admin') then 'admin'
              when cb.role = 'team_coordinator' then 'coordinator'
              else 'teammate' end as source,
-           count(*)::int as n
+           count(*)::int as n,
+           count(*) filter (
+             where t.recurrence_series_id is not null or t.recurrence_rule is not null
+           )::int as repeats
       from public.tasks t
       left join public.users cb on cb.id = t.created_by_id
       left join public.users u on u.id = t.assignee_id
@@ -1232,8 +1242,11 @@ export async function assignmentSources(
   `);
 
   const by: Record<string, number> = {};
-  for (const r of rows as Array<Record<string, unknown>>) by[String(r.source)] = Number(r.n ?? 0);
-  const repeat = by.repeat ?? 0;
+  let repeat = 0;
+  for (const r of rows as Array<Record<string, unknown>>) {
+    by[String(r.source)] = Number(r.n ?? 0);
+    repeat += Number(r.repeats ?? 0);
+  }
   const self = by.self ?? 0;
   const coordinator = by.coordinator ?? 0;
   const admin = by.admin ?? 0;
@@ -1246,7 +1259,8 @@ export async function assignmentSources(
     admin,
     teammate,
     unknown,
-    total: repeat + self + coordinator + admin + teammate + unknown,
+    /* ⚠️ `repeat` is deliberately NOT in this sum — it overlaps every bucket. */
+    total: self + coordinator + admin + teammate + unknown,
   };
 }
 

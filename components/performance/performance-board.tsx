@@ -49,6 +49,7 @@ import type {
   ProjectRow,
   QualitySummary,
   HistoryEntry,
+  LedgerRow,
   TaskSources,
   TeamRow,
   WorkloadRow,
@@ -155,6 +156,8 @@ export function PerformanceBoard({
   workTotal,
   sources,
   history,
+  ledger,
+  ledgerTotal,
   updatedAt,
   ownOnly,
 }: {
@@ -178,6 +181,8 @@ export function PerformanceBoard({
   /** Only read when one person is open — null for the team view. */
   sources: TaskSources | null;
   history: readonly HistoryEntry[];
+  ledger: readonly LedgerRow[];
+  ledgerTotal: number;
   /** A Member reads this page about themselves; the server has already scoped it. */
   ownOnly: boolean;
   /** The server's clock, formatted — so the pill is not the browser's idea of now. */
@@ -312,6 +317,8 @@ export function PerformanceBoard({
           workTotal={workTotal}
           history={history}
           sources={sources}
+          ledger={ledger}
+          ledgerTotal={ledgerTotal}
           quality={quality}
           weekly={weekly}
           monthly={monthly}

@@ -8,6 +8,7 @@ import {
   performanceBoard,
   performanceFilterOptions,
   personDetail,
+  taskLedger,
   projectContribution,
   qualitySummary,
   teamContribution,
@@ -131,6 +132,7 @@ export default async function PerformancePage({
     work,
     sources,
     detail,
+    ledger,
   ] = await Promise.all([
       performanceBoard(user.id, scoped, filters),
       workNeedingAttention(user.id, today, filters),
@@ -152,6 +154,9 @@ export default async function PerformancePage({
          for there. */
       person ? assignmentSources(user.id, scoped, filters) : Promise.resolve(null),
       person ? personDetail(user.id, person, period) : Promise.resolve(null),
+      /* The ledger is the person record's Tasks tab; the team view never draws
+         it, so it is not paid for there. */
+      person ? taskLedger(user.id, scoped, filters) : Promise.resolve(null),
     ]);
 
   return (
@@ -184,6 +189,8 @@ export default async function PerformancePage({
       workTotal={work.total}
       sources={sources}
       history={detail?.history ?? []}
+      ledger={ledger?.rows ?? []}
+      ledgerTotal={ledger?.total ?? 0}
       updatedAt={new Intl.DateTimeFormat('en-GB', {
         timeZone: 'Asia/Karachi',
         hour: '2-digit',

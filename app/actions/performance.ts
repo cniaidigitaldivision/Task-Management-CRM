@@ -4,6 +4,8 @@ import { requireRole, requireUser } from '@/lib/auth/current-user';
 import {
   completedInWindow,
   dailyTaskForms,
+  taskLedgerDetail,
+  type LedgerDetail,
   performanceBoard,
   personDetail,
   type FormTaskRow,
@@ -518,5 +520,35 @@ export async function exportTaskFormsAction(scope: {
   } catch (error) {
     console.error('[performance] task form export failed', error);
     return { ok: false, error: 'The form could not be made. Nothing was changed.' };
+  }
+}
+
+
+/* ── One task, for the ledger's right-hand panel ─────────────────────────── */
+
+export interface LedgerDetailPayload {
+  readonly ok: boolean;
+  readonly error?: string;
+  readonly detail?: LedgerDetail;
+}
+
+/**
+ * The timeline, files and comments for one task.
+ *
+ * ⚠️ THE ONLY THING THE LEDGER FETCHES ON A CLICK. Everything the row shows is
+ * already on the page; this is the part a row genuinely could not know (Rule
+ * Zero, law 3). RLS decides whether the caller may see the task at all, so a
+ * crafted id returns somebody else's task only if they could already open it.
+ */
+export async function taskLedgerDetailAction(taskId: string): Promise<LedgerDetailPayload> {
+  const { user } = await requireRoleAndUser();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(taskId)) {
+    return { ok: false, error: 'That task id is not valid.' };
+  }
+  try {
+    return { ok: true, detail: await taskLedgerDetail(user.id, taskId) };
+  } catch (error) {
+    console.error('[performance] ledger detail failed', error);
+    return { ok: false, error: 'That task could not be read.' };
   }
 }
