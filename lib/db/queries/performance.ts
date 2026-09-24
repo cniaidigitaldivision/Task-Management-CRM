@@ -256,8 +256,10 @@ export interface HistoryEntry {
    * complete" is always the person's own action; what a manager wants beside it
    * is who put the work there in the first place.
    */
-  readonly sourceKind: 'self' | 'coordinator' | 'admin' | 'teammate' | 'unknown';
+  readonly sourceKind: 'repeat' | 'self' | 'coordinator' | 'admin' | 'teammate' | 'unknown';
   readonly sourceName: string | null;
+  /** Set when the task is a copy from a repeat — "FREQ=DAILY;INTERVAL=1". */
+  readonly recurrenceRule: string | null;
 }
 
 export interface PersonTask {
@@ -320,9 +322,10 @@ export async function personDetail(
     withUser(actorId, (tx) => tx`
       select a.created_at, a.action, a.summary, a.entity_id, a.before, a.after,
              t.reference, t.title, t.description, p.name as project_name,
-             cb.full_name as source_name,
+             cb.full_name as source_name, t.recurrence_rule,
              case
                when t.id is null then 'unknown'
+               when t.recurrence_series_id is not null or t.recurrence_rule is not null then 'repeat'
                when t.created_by_id is null then 'unknown'
                when t.created_by_id = t.assignee_id then 'self'
                when cb.role in ('admin', 'super_admin') then 'admin'
@@ -387,6 +390,7 @@ export async function personDetail(
       after: h.after ?? null,
       sourceKind: String(h.source_kind ?? 'unknown') as HistoryEntry['sourceKind'],
       sourceName: (h.source_name as string | null) ?? null,
+      recurrenceRule: (h.recurrence_rule as string | null) ?? null,
     })),    moves: (moves as Array<Record<string, unknown>>).map((r) => ({
       taskId: String(r.entity_id),
       action: String(r.action),
@@ -909,6 +913,262 @@ export async function bucketTrend(
 }
 
 /* ============================================================================
+ * THE TASK LEDGER — the owner's reference, 2026-09-24
+ * ----------------------------------------------------------------------------
+ * *"I want that when I'm a team member, when an admin or super admin wants to
+ * view that task, all the filters should be working properly ... when I click
+ * on that row, that row turns light green. On the right side you can see a
+ * sleek way to represent all the information relevant to all of that."*
+ *
+ * ── ⚠️ THREE BOXES IN THE REFERENCE CANNOT BE FILLED, AND SAY SO ──────────
+ * Measured before anything was drawn:
+ *
+ *   "Reason for change"              nobody is ever asked why a date moved
+ *   "Original vs latest assigner"    0 of 126 `updated` log rows touch the
+ *                                    assignee, so a reassignment is not recorded
+ *   "Done unverified"                the owner removed the word "verified"
+ *                                    an hour before sending this image
+ *
+ * The date MOVE itself is real — it is in the log's before/after — so the panel
+ * shows the move and says the reason was never captured, instead of printing a
+ * plausible one.
+ * ========================================================================= */
+
+export interface LedgerRow {
+  readonly taskId: string;
+  readonly reference: string;
+  readonly title: string;
+  readonly description: string | null;
+  readonly projectId: string;
+  readonly projectName: string;
+  readonly createdByName: string | null;
+  readonly createdByAvatarUrl: string | null;
+  readonly sourceKind: 'repeat' | 'self' | 'coordinator' | 'admin' | 'teammate' | 'unknown';
+  /** "FREQ=DAILY;INTERVAL=1" when this copy came from a repeat. */
+  readonly recurrenceRule: string | null;
+  readonly ownerId: string | null;
+  readonly ownerName: string | null;
+  readonly ownerAvatarUrl: string | null;
+  readonly status: string;
+  readonly priority: string;
+  readonly dueDate: string | null;
+  readonly completedOn: string | null;
+  readonly evidenceCount: number;
+  readonly commentCount: number;
+}
+
+/**
+ * Every task in scope, with who raised it and who holds it.
+ *
+ * ⚠️ THE COUNTS ARE SUBQUERIES, NOT JOINS. Joining `attachments` and `comments`
+ * and grouping would multiply the rows before it counted them — the classic way
+ * to report four files as sixteen.
+ */
+export async function taskLedger(
+  actorId: string,
+  period: { from: string; to: string; today: string },
+  filters: PerfFilters = {},
+  limit = 200,
+): Promise<{ rows: LedgerRow[]; total: number }> {
+  const departmentId = filters.departmentId ?? null;
+  const projectId = filters.projectId ?? null;
+  const personId = filters.personId ?? null;
+
+  const [rows, counted] = await withUser(actorId, async (tx) => {
+    const where = tx`
+         not t.is_deleted
+     and (${projectId}::uuid is null or t.project_id = ${projectId}::uuid)
+     and (${personId}::uuid is null or t.assignee_id = ${personId}::uuid)
+     and (${departmentId}::uuid is null or u.department_id = ${departmentId}::uuid)
+     and (
+           t.status not in ('done', 'cancelled')
+        or (t.completed_at is not null
+            and (t.completed_at at time zone 'Asia/Karachi')::date
+                between ${period.from}::date and ${period.to}::date)
+     )
+    `;
+    const r = tx`
+      select t.id, t.reference, t.title, t.description,
+             t.status::text as status, t.priority::text as priority,
+             t.due_date,
+             (t.completed_at at time zone 'Asia/Karachi')::date as completed_on,
+             p.id as project_id, p.name as project_name,
+             cb.full_name as created_by_name, cb.avatar_url as created_by_avatar,
+             u.id as owner_id, u.full_name as owner_name, u.avatar_url as owner_avatar,
+             /* ⚠️ A REPEAT COPY IS NOT "SELF-CREATED". Owner, 2026-09-24:
+                *"mark it as a daily created rotation ... so we exactly know
+                that this task is created daily."* 596 of 1,241 tasks here were
+                generated from a series, 550 of them daily. Counting those as
+                self-created is how one person reads as 100% self-directed when
+                the engine made the work. Repeat wins over every other source. */
+             case
+               when t.recurrence_series_id is not null or t.recurrence_rule is not null then 'repeat'
+               when t.created_by_id is null then 'unknown'
+               when t.created_by_id = t.assignee_id then 'self'
+               when cb.role in ('admin', 'super_admin') then 'admin'
+               when cb.role = 'team_coordinator' then 'coordinator'
+               else 'teammate' end as source_kind,
+             t.recurrence_rule,
+             (select count(*) from public.attachments a where a.task_id = t.id)::int as evidence_count,
+             (select count(*) from public.comments c where c.task_id = t.id)::int as comment_count
+        from public.tasks t
+        join public.projects p on p.id = t.project_id
+        left join public.users u on u.id = t.assignee_id
+        left join public.users cb on cb.id = t.created_by_id
+       where ${where}
+       order by
+         case t.status
+           when 'blocked' then 0 when 'in_review' then 1 when 'in_progress' then 2
+           when 'revisions' then 3 when 'todo' then 4 when 'backlog' then 5 else 6 end,
+         t.due_date nulls last, t.reference
+       limit ${limit}
+    `;
+    const c = tx`
+      select count(*)::int as n
+        from public.tasks t
+        left join public.users u on u.id = t.assignee_id
+       where ${where}
+    `;
+    return Promise.all([r, c]);
+  });
+
+  return {
+    rows: (rows as Array<Record<string, unknown>>).map((r) => ({
+      taskId: String(r.id),
+      reference: String(r.reference),
+      title: String(r.title),
+      description: (r.description as string | null) ?? null,
+      projectId: String(r.project_id),
+      projectName: String(r.project_name),
+      createdByName: (r.created_by_name as string | null) ?? null,
+      createdByAvatarUrl: (r.created_by_avatar as string | null) ?? null,
+      sourceKind: String(r.source_kind) as LedgerRow['sourceKind'],
+      recurrenceRule: (r.recurrence_rule as string | null) ?? null,
+      ownerId: (r.owner_id as string | null) ?? null,
+      ownerName: (r.owner_name as string | null) ?? null,
+      ownerAvatarUrl: (r.owner_avatar as string | null) ?? null,
+      status: String(r.status),
+      priority: String(r.priority),
+      dueDate: dateOnly(r.due_date),
+      completedOn: dateOnly(r.completed_on),
+      evidenceCount: Number(r.evidence_count ?? 0),
+      commentCount: Number(r.comment_count ?? 0),
+    })),
+    total: Number((counted as Array<Record<string, unknown>>)[0]?.n ?? 0),
+  };
+}
+
+/* ── One task, in full — the right-hand panel ────────────────────────────── */
+
+export interface LedgerEvent {
+  readonly at: string;
+  readonly action: string;
+  readonly summary: string;
+  readonly actorName: string | null;
+}
+
+export interface LedgerFile {
+  readonly id: string;
+  readonly fileName: string;
+  readonly mimeType: string | null;
+  readonly sizeBytes: number | null;
+  readonly uploadedByName: string | null;
+  readonly at: string;
+}
+
+export interface LedgerComment {
+  readonly id: string;
+  readonly body: string;
+  readonly authorName: string | null;
+  readonly at: string;
+}
+
+export interface LedgerDetail {
+  readonly timeline: LedgerEvent[];
+  readonly files: LedgerFile[];
+  readonly comments: LedgerComment[];
+  /** The first and last due dates the log ever saw, when it moved at all. */
+  readonly originalDue: string | null;
+  readonly revisedDue: string | null;
+}
+
+/**
+ * The timeline, the files and the comments for one task.
+ *
+ * ⚠️ FETCHED WHEN A ROW IS OPENED, NOT FOR ALL 200. The list carries what the
+ * row shows; this is the part a row genuinely could not know (Rule Zero, law 3).
+ */
+export async function taskLedgerDetail(actorId: string, taskId: string): Promise<LedgerDetail> {
+  const [events, files, comments] = await withUser(actorId, async (tx) => {
+    const e = tx`
+      select a.created_at, a.action, a.summary, a.before, a.after,
+             au.full_name as actor_name
+        from public.activity_log a
+        left join public.users au on au.id = a.actor_id
+       where a.entity_type = 'task' and a.entity_id = ${taskId}::uuid
+       order by a.created_at
+       limit 120
+    `;
+    const f = tx`
+      select a.id, a.file_name, a.mime_type, a.size_bytes, a.created_at,
+             ub.full_name as uploaded_by_name
+        from public.attachments a
+        left join public.users ub on ub.id = a.uploaded_by_id
+       where a.task_id = ${taskId}::uuid
+       order by a.created_at desc
+       limit 40
+    `;
+    const c = tx`
+      select c.id, c.body, c.created_at, au.full_name as author_name
+        from public.comments c
+        left join public.users au on au.id = c.author_id
+       where c.task_id = ${taskId}::uuid
+       order by c.created_at
+       limit 40
+    `;
+    return Promise.all([e, f, c]);
+  });
+
+  const raw = events as Array<Record<string, unknown>>;
+
+  /* ⚠️ THE DATE MOVE IS REAL EVEN THOUGH THE REASON IS NOT. `updated` rows carry
+     before/after; the first and last dueDate they mention are the original and
+     the revised one. Nothing anywhere records WHY. */
+  const dues: string[] = [];
+  for (const r of raw) {
+    for (const side of [r.before, r.after]) {
+      const d = (side as { dueDate?: unknown } | null)?.dueDate;
+      if (typeof d === 'string' && d.length >= 10) dues.push(d.slice(0, 10));
+    }
+  }
+
+  return {
+    timeline: raw.map((r) => ({
+      at: new Date(r.created_at as string).toISOString(),
+      action: String(r.action),
+      summary: String(r.summary ?? ''),
+      actorName: (r.actor_name as string | null) ?? null,
+    })),
+    files: (files as Array<Record<string, unknown>>).map((r) => ({
+      id: String(r.id),
+      fileName: String(r.file_name),
+      mimeType: (r.mime_type as string | null) ?? null,
+      sizeBytes: r.size_bytes === null ? null : Number(r.size_bytes),
+      uploadedByName: (r.uploaded_by_name as string | null) ?? null,
+      at: new Date(r.created_at as string).toISOString(),
+    })),
+    comments: (comments as Array<Record<string, unknown>>).map((r) => ({
+      id: String(r.id),
+      body: String(r.body ?? ''),
+      authorName: (r.author_name as string | null) ?? null,
+      at: new Date(r.created_at as string).toISOString(),
+    })),
+    originalDue: dues.length > 1 ? dues[0] : null,
+    revisedDue: dues.length > 1 ? dues[dues.length - 1] : null,
+  };
+}
+
+/* ============================================================================
  * WHERE SOMEBODY'S WORK COMES FROM — owner, 2026-09-24
  * ----------------------------------------------------------------------------
  * The individual record's "Assignment accountability": self-created,
@@ -926,6 +1186,8 @@ export async function bucketTrend(
  * ========================================================================= */
 
 export interface TaskSources {
+  /** Generated from a repeat series, not typed out by anybody that day. */
+  readonly repeat: number;
   readonly self: number;
   readonly coordinator: number;
   readonly admin: number;
@@ -945,6 +1207,7 @@ export async function assignmentSources(
 
   const rows = await withUser(actorId, (tx) => tx`
     select case
+             when t.recurrence_series_id is not null or t.recurrence_rule is not null then 'repeat'
              when t.created_by_id is null then 'unknown'
              when t.created_by_id = t.assignee_id then 'self'
              when cb.role in ('admin', 'super_admin') then 'admin'
@@ -970,18 +1233,20 @@ export async function assignmentSources(
 
   const by: Record<string, number> = {};
   for (const r of rows as Array<Record<string, unknown>>) by[String(r.source)] = Number(r.n ?? 0);
+  const repeat = by.repeat ?? 0;
   const self = by.self ?? 0;
   const coordinator = by.coordinator ?? 0;
   const admin = by.admin ?? 0;
   const teammate = by.teammate ?? 0;
   const unknown = by.unknown ?? 0;
   return {
+    repeat,
     self,
     coordinator,
     admin,
     teammate,
     unknown,
-    total: self + coordinator + admin + teammate + unknown,
+    total: repeat + self + coordinator + admin + teammate + unknown,
   };
 }
 
