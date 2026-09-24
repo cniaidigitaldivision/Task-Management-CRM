@@ -93,6 +93,17 @@ export function PerformanceHistory({
   const [records, setRecords] = React.useState<readonly Assessment[]>(assessments);
   const [pickedStart, setPickedStart] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(false);
+  const recordRef = React.useRef<HTMLDivElement>(null);
+
+  /* ⚠️ THE CLICK HAS TO CHANGE SOMETHING THE READER CAN SEE. Owner, 2026-09-25:
+     *"when I click on the Write option it's not working."* It was selecting the
+     period correctly — and the three cards it fills sit below the fold on a
+     table six rows long, so from the reader's chair nothing happened at all.
+     Selecting and scrolling are one action, not two. */
+  const pick = (row: PeriodRow) => {
+    setPickedStart(row.startsOn);
+    recordRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   /* ⚠️ THE SERVER'S ANSWER WINS WHEN IT ARRIVES, and until then the page keeps
      what it has. Blanking a table somebody is reading to show a spinner is the
@@ -135,12 +146,22 @@ export function PerformanceHistory({
         rows={rows}
         picked={picked}
         records={records}
-        onPick={(r) => setPickedStart(r.startsOn)}
+        onPick={pick}
       />
 
       {picked && (
-        <div className="grid items-start gap-[1.1rem] min-[1500px]:grid-cols-[minmax(0,1.15fr)_minmax(0,1.15fr)_minmax(0,0.8fr)]">
+        /* ⚠️ `key` ON EACH CARD, NOT JUST A COMMENT SAYING SO. Without it the
+           form state is created once and never again: picking a second period
+           left the first period's words sitting under the second period's
+           heading, and an empty period looked as though the button had done
+           nothing. The comment inside AssessmentCard claimed this was keyed
+           before it was. */
+        <div
+          ref={recordRef}
+          className="grid scroll-mt-[1.5rem] items-start gap-[1.1rem] min-[1500px]:grid-cols-[minmax(0,1.15fr)_minmax(0,1.15fr)_minmax(0,0.8fr)]"
+        >
           <AssessmentCard
+            key={`a-${picked.startsOn}-${record?.id ?? 'new'}`}
             person={person}
             viewer={viewer}
             period={picked}
@@ -150,6 +171,7 @@ export function PerformanceHistory({
             onTab={onTab}
           />
           <FollowUpCard
+            key={`f-${picked.startsOn}-${record?.id ?? 'new'}`}
             person={person}
             period={picked}
             record={record}
@@ -498,7 +520,7 @@ function PeriodTable({
                 <th className="py-[0.72rem] text-right font-medium">On-time completed</th>
                 <th className="py-[0.72rem] text-right font-medium">Overdue at cutoff</th>
                 <th className="w-[9rem] py-[0.72rem] pl-[1.5rem] text-left font-medium">Assessment</th>
-                <th className="w-[6.5rem] py-[0.72rem] pr-[1.22rem] text-right font-medium">Record</th>
+                <th className="w-[9.5rem] py-[0.72rem] pr-[1.22rem] text-right font-medium">Record</th>
               </tr>
             </thead>
             <tbody>
@@ -560,17 +582,28 @@ function PeriodTable({
                       </span>
                     </td>
                     <td className="pr-[1.22rem] text-right">
+                      {/* ⚠️ A BUTTON THAT SAYS WHAT IT OPENS. Owner, 2026-09-25:
+                          *"I don't know what Write is about ... there should be
+                          a Record Write button, not clickable in the same way as
+                          the Draft."* "Write" alone read as a column heading; the
+                          status beside it is a chip and does nothing. This is the
+                          only control in the row, and it is drawn like one. */}
                       <button
                         type="button"
                         onClick={() => onPick(r)}
-                        className="rounded-[0.55rem] border px-[0.7rem] py-[0.4rem] text-[0.79rem] font-semibold leading-none"
-                        style={{
-                          background: on ? 'var(--pf-surface)' : 'var(--pf-field)',
-                          borderColor: 'var(--pf-field-line)',
-                          color: 'var(--pf-ink)',
-                        }}
+                        className="inline-flex items-center gap-[0.4rem] rounded-[0.55rem] px-[0.75rem] py-[0.45rem] text-[0.79rem] font-semibold leading-none"
+                        style={
+                          state
+                            ? {
+                                background: 'var(--pf-surface)',
+                                border: '1px solid var(--pf-field-line)',
+                                color: 'var(--pf-ink)',
+                              }
+                            : { background: 'var(--pf-teal)', color: 'var(--pf-on-teal)' }
+                        }
                       >
-                        {state ? 'Open' : 'Write'}
+                        <FileText className="size-[0.85rem]" aria-hidden="true" />
+                        {state ? 'Open record' : 'Write record'}
                       </button>
                     </td>
                   </tr>

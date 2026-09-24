@@ -41,6 +41,8 @@ import {
 import { FilterPill, Nothing, Panel, StatCard } from '@/components/performance/performance-ui';
 import { Avatar } from '@/components/ui/avatar';
 import { Dialog } from '@/components/ui/dialog';
+import type { Goal, GoalCheckin, GoalComment } from '@/lib/db/queries/goals';
+import type { ReviewCounts, ReviewRow } from '@/lib/db/queries/reviews';
 import type {
   Assessment,
   AttentionRow,
@@ -167,6 +169,11 @@ export function PerformanceBoard({
   viewer,
   periods,
   assessments,
+  goals,
+  goalCheckins,
+  goalComments,
+  reviewQueue,
+  reviewCounts,
 }: {
   board: readonly PersonStat[];
   attention: readonly AttentionRow[];
@@ -200,6 +207,12 @@ export function PerformanceBoard({
   /** The Performance history tab's six periods, and what was written about them. */
   periods: readonly PeriodRow[];
   assessments: readonly Assessment[];
+  /** The Goals tab, and the Reviews tab. Read only when a person is open. */
+  goals: readonly Goal[];
+  goalCheckins: readonly GoalCheckin[];
+  goalComments: readonly GoalComment[];
+  reviewQueue: readonly ReviewRow[];
+  reviewCounts: ReviewCounts;
   /** The server's clock, formatted — so the pill is not the browser's idea of now. */
   updatedAt: string;
 }) {
@@ -338,6 +351,11 @@ export function PerformanceBoard({
           viewer={viewer}
           periods={periods}
           assessments={assessments}
+          goals={goals}
+          goalCheckins={goalCheckins}
+          goalComments={goalComments}
+          reviewQueue={reviewQueue}
+          reviewCounts={reviewCounts}
           quality={quality}
           weekly={weekly}
           monthly={monthly}

@@ -19,6 +19,8 @@ import {
   workNeedingAttention,
   workloadRows,
 } from '@/lib/db/queries/performance';
+import { goalActivity, goalsFor } from '@/lib/db/queries/goals';
+import { reviewCounts, reviewQueue } from '@/lib/db/queries/reviews';
 import { isoDateIn, nowMs } from '@/lib/now';
 
 export const metadata: Metadata = { title: 'Performance overview' };
@@ -138,6 +140,10 @@ export default async function PerformancePage({
     ledger,
     periods,
     assessments,
+    goals,
+    goalTalk,
+    reviewRows,
+    reviewTotals,
   ] = await Promise.all([
       performanceBoard(user.id, scoped, filters),
       workNeedingAttention(user.id, today, filters),
@@ -168,6 +174,13 @@ export default async function PerformancePage({
          set to. */
       person ? periodHistory(user.id, person, 'week', today) : Promise.resolve(null),
       person ? assessmentsFor(user.id, person) : Promise.resolve(null),
+      /* ⚠️ THE GOALS AND REVIEWS TABS, IN THE SAME WAVE. Both are client state
+         once they arrive, so switching to either costs no round trip — Rule
+         Zero, laws 1 and 4. Neither is read at all for the team view. */
+      person ? goalsFor(user.id, person) : Promise.resolve(null),
+      person ? goalActivity(user.id, person) : Promise.resolve(null),
+      person ? reviewQueue(user.id, person) : Promise.resolve(null),
+      person ? reviewCounts(user.id, person) : Promise.resolve(null),
     ]);
 
   /* ⚠️ THE ROW THAT OPENS BY DEFAULT COSTS NO ROUND TRIP. The ledger opens on
@@ -199,6 +212,11 @@ export default async function PerformancePage({
       viewer={{ id: user.id, name: user.fullName }}
       periods={periods ?? []}
       assessments={assessments ?? []}
+      goals={goals ?? []}
+      goalCheckins={goalTalk?.checkins ?? []}
+      goalComments={goalTalk?.comments ?? []}
+      reviewQueue={reviewRows ?? []}
+      reviewCounts={reviewTotals ?? { awaiting: 0, changesRequested: 0, approvedThisMonth: 0, doneThisMonth: 0 }}
       today={today}
       asOf={dayLabel(today)}
       /* The server's clock, so "waiting 52 hours" is not computed against a

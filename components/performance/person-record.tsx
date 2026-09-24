@@ -14,7 +14,6 @@ import {
   Download,
   FilePlus2,
   Folder,
-  Info,
   Paperclip,
   PauseCircle,
   Pencil,
@@ -33,9 +32,13 @@ import {
 } from 'lucide-react';
 
 import { ActivityHistory } from '@/components/performance/activity-history';
+import { GoalsTab } from '@/components/performance/goals-tab';
 import { PerformanceHistory } from '@/components/performance/performance-history';
+import { ReviewsTab } from '@/components/performance/reviews-tab';
+import type { Goal, GoalCheckin, GoalComment } from '@/lib/db/queries/goals';
+import type { ReviewCounts, ReviewRow } from '@/lib/db/queries/reviews';
 import { dayWord } from '@/lib/view/activity';
-import { Caveat, QualityTab } from '@/components/performance/performance-tabs';
+import { Caveat } from '@/components/performance/performance-tabs';
 import { TaskLedger } from '@/components/performance/task-ledger';
 import { FilterPill, Nothing, Panel, StatCard } from '@/components/performance/performance-ui';
 import { Avatar } from '@/components/ui/avatar';
@@ -107,6 +110,11 @@ export interface PersonRecordProps {
   readonly viewer: { id: string; name: string };
   readonly periods: readonly PeriodRow[];
   readonly assessments: readonly Assessment[];
+  readonly goals: readonly Goal[];
+  readonly goalCheckins: readonly GoalCheckin[];
+  readonly goalComments: readonly GoalComment[];
+  readonly reviewQueue: readonly ReviewRow[];
+  readonly reviewCounts: ReviewCounts;
   readonly sources: TaskSources;
   readonly quality: QualitySummary;
   readonly weekly: readonly BucketRow[];
@@ -252,9 +260,27 @@ export function PersonRecord(p: PersonRecordProps) {
           />
         )}
 
-        {tab === 'reviews' && <QualityTab quality={p.quality} nowMs={p.nowMs} />}
+        {tab === 'reviews' && (
+          <ReviewsTab
+            person={{ id: p.person.id, name: p.person.name }}
+            viewer={p.viewer}
+            queue={p.reviewQueue}
+            counts={p.reviewCounts}
+            nowMs={p.nowMs}
+            onOpenTask={p.onOpenTask}
+          />
+        )}
 
-        {tab === 'goals' && <GoalsTab name={p.person.name} />}
+        {tab === 'goals' && (
+          <GoalsTab
+            person={{ id: p.person.id, name: p.person.name }}
+            viewer={p.viewer}
+            goals={p.goals}
+            checkins={p.goalCheckins}
+            comments={p.goalComments}
+            today={p.today}
+          />
+        )}
       </div>
     </div>
   );
@@ -1038,50 +1064,6 @@ function RecentActivity({
   );
 }
 
-/* ── Goals ───────────────────────────────────────────────────────────────── */
-
-/**
- * The one tab that cannot be derived.
- *
- * ⚠️ A GOAL IS AGREED, NOT COMPUTED. The reference draws baselines, targets,
- * due dates, evidence and a check-in history; every one of those is written by
- * two people in a conversation. Tasks cannot supply them. Drawing an empty
- * frame would suggest the feature exists and is broken; this says what it needs.
- */
-function GoalsTab({ name }: { name: string }) {
-  return (
-    <Panel title="Goals & development" description={`Agreed with ${first(name)}, and reviewed against.`}>
-      <div
-        className="space-y-[0.75rem] border-t px-[1.22rem] py-[1.15rem] text-[0.88rem] leading-[1.5]"
-        style={{ borderColor: 'var(--pf-grid)' }}
-      >
-        <p style={{ color: 'var(--pf-ink)' }}>
-          Nothing is recorded, and this is the one part of the record that cannot be read from the
-          work.
-        </p>
-        <p style={{ color: 'var(--pf-soft)' }}>
-          A goal has a baseline, a target, a due date, the evidence that would settle it and a
-          follow-up date — and all five are agreed between a person and their manager. Tasks cannot
-          supply any of them, so this needs a table of its own.
-        </p>
-        <p className="flex items-start gap-[0.6rem]" style={{ color: 'var(--pf-faint)' }}>
-          <Info className="mt-[0.15rem] size-[1rem] shrink-0" aria-hidden="true" />
-          Say the word and it is one migration and one form: goal, baseline, target, due date,
-          evidence, status, owner, and the dates it was agreed and last checked in.
-        </p>
-      </div>
-    </Panel>
-  );
-}
-
-/**
- * Which team they belong to — and it fills the gap the owner pointed at.
- *
- * ⚠️ THE DEPARTMENT, NOT THE JOB TITLE. Migration 117 exists precisely because
- * `role_title` is free text with three spellings of "sales"; the department is
- * the structured field, and it is the one a rule can be written against. The
- * title is shown beside it as a label, which is all it is.
- */
 function TeamBelonging({
   team,
   role,
