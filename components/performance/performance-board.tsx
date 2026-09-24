@@ -38,6 +38,7 @@ import {
 } from '@/components/performance/performance-tabs';
 import { FilterPill, Nothing, Panel, StatCard } from '@/components/performance/performance-ui';
 import { Avatar } from '@/components/ui/avatar';
+import { Dialog } from '@/components/ui/dialog';
 import type {
   AttentionRow,
   BucketRow,
@@ -1653,6 +1654,20 @@ function AssessmentsTab({
  *
  * ⚠️ AND IT IS A REAL DIALOG, NOT A NAVIGATION. Opening and closing it touches
  * no network (Rule Zero, law 1); only pressing Export does.
+ *
+ * ── ⚠️ IT USES THE APP'S `Dialog`, AND THE FIRST VERSION DID NOT ──────────
+ * Hand-rolled as a `fixed inset-0` overlay it OPENED BELOW THE FOLD and the
+ * owner reported "nothing appears". The cause is the trap CLAUDE.md already
+ * names: the shell's `.reveal-children` animation ends on `transform: none`
+ * with `fill-mode: both`, which computes to an identity matrix — and ANY
+ * transform on an ancestor makes it the containing block for `position:
+ * fixed`. So `inset-0` filled the 1540px page container, not the 712px
+ * viewport, and centred the card at y≈832.
+ *
+ * `components/ui/dialog.tsx` is built on the native `<dialog>` element, which
+ * the browser puts in the TOP LAYER — outside the containing block entirely.
+ * That is why every other modal in this app was unaffected, and it is why this
+ * one no longer hand-rolls its own.
  */
 function ExportDialog({
   from,
@@ -1699,33 +1714,44 @@ function ExportDialog({
   const bad = !Number.isFinite(days) || days < 1;
 
   return (
-    <div
-      className="fixed inset-0 z-50 grid place-items-center p-[1rem]"
-      style={{ background: 'rgb(8 18 24 / 0.45)' }}
-      role="dialog"
-      aria-modal="true"
-      aria-label="Export the task assignment form"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
+    <Dialog
+      open
+      onClose={onClose}
+      title="Task assignment form"
+      description="One sheet per person per day, on the CNI Islamabad form, with the signature blocks left blank to sign by hand."
+      size="sm"
+      footer={
+        <div className="flex items-center justify-end gap-[0.6rem]">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-[0.7rem] px-[0.95rem] py-[0.7rem] text-[0.86rem] font-semibold leading-none"
+            style={{ color: 'var(--pf-soft)' }}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void run()}
+            disabled={bad || state.kind === 'working'}
+            className="inline-flex items-center gap-[0.5rem] rounded-[0.7rem] px-[1.05rem] py-[0.72rem] text-[0.86rem] font-semibold leading-none disabled:opacity-50"
+            style={{ background: 'var(--pf-teal)', color: 'var(--pf-on-solid)' }}
+          >
+            {state.kind === 'working' ? (
+              <>
+                <Loader2 className="size-[1rem] animate-spin" aria-hidden="true" /> Building…
+              </>
+            ) : (
+              <>
+                <Download className="size-[1rem]" aria-hidden="true" /> Export PDF
+              </>
+            )}
+          </button>
+        </div>
+      }
     >
-      <div
-        className="w-full max-w-[26rem] rounded-[0.95rem] border p-[1.35rem]"
-        style={{
-          background: 'var(--pf-surface)',
-          borderColor: 'var(--pf-line)',
-          boxShadow: '0 12px 40px rgb(8 18 24 / 0.25)',
-        }}
-      >
-        <h2 className="text-[1.15rem] font-bold leading-[1.25]" style={{ color: 'var(--pf-ink)' }}>
-          Task assignment form
-        </h2>
-        <p className="mt-[0.3rem] text-[0.86rem] leading-[1.45]" style={{ color: 'var(--pf-soft)' }}>
-          One sheet per person per day, on the CNI Islamabad form, with the signature blocks left
-          blank to sign by hand.
-        </p>
-
-        <div className="mt-[1.1rem] grid grid-cols-2 gap-[0.8rem]">
+      <div className="perf-ui">
+        <div className="grid grid-cols-2 gap-[0.8rem]">
           {([
             ['From', start, setStart],
             ['To', end, setEnd],
@@ -1775,36 +1801,8 @@ function ExportDialog({
             {state.error}
           </p>
         )}
-
-        <div className="mt-[1.2rem] flex items-center justify-end gap-[0.6rem]">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-[0.7rem] px-[0.95rem] py-[0.7rem] text-[0.86rem] font-semibold leading-none"
-            style={{ color: 'var(--pf-soft)' }}
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={() => void run()}
-            disabled={bad || state.kind === 'working'}
-            className="inline-flex items-center gap-[0.5rem] rounded-[0.7rem] px-[1.05rem] py-[0.72rem] text-[0.86rem] font-semibold leading-none disabled:opacity-50"
-            style={{ background: 'var(--pf-teal)', color: 'var(--pf-on-solid)' }}
-          >
-            {state.kind === 'working' ? (
-              <>
-                <Loader2 className="size-[1rem] animate-spin" aria-hidden="true" /> Building…
-              </>
-            ) : (
-              <>
-                <Download className="size-[1rem]" aria-hidden="true" /> Export PDF
-              </>
-            )}
-          </button>
-        </div>
       </div>
-    </div>
+    </Dialog>
   );
 }
 
