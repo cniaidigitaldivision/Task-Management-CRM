@@ -23,6 +23,56 @@
 
 ---
 
+## 🧭 2026-09-24 (end of day) — "VERIFIED" IS NOT A WORD THIS PRODUCT HAS
+
+Owner: *"There is no term you can say 'verified' ... you can say in the review
+how many tasks are in a review and how many tasks are done ... Definitely the
+person who assigns the task will review that task."*
+
+**The word came from the reference image, not from the product**, and it implied
+a check nobody performs. It is gone from every screen. A task is **done**, or it
+is **in review** because somebody asked for one.
+
+| Was | Is |
+|---|---|
+| "Verified" card | **In review** |
+| "Completed work verification" bar | **Done and in review** — done / in review / still open |
+| "Verified" table column | **In review** (what is sitting there now) |
+| "Review coverage" + "Second pair of eyes" | **In review now** + **Done** |
+| "N completed tasks are unverified" | "N tasks are in review. The person who assigned each one reviews it." |
+
+### ⚠️ And the owner's rule made the reviewer derivable after all
+
+Yesterday this page said *"no reviewer is assigned to a task anywhere in this
+system"*. That was true of the schema and wrong about the product: **the person
+who assigned the task reviews it**, and `created_by_id` names them. The review
+queue now has a **Who reviews it** column.
+
+⚠️ It says **Self-raised** rather than printing the person's own name when they
+raised it themselves — 1,011 of 1,105 tasks here, so on most rows there is
+genuinely nobody else. Dressing a self-check as an independent one would be the
+same failure the word "verified" was.
+
+### The individual record, second pass
+
+- **Recent activity / Activity history** gained what the owner asked for: an
+  **icon** per activity, the task's own **title** as the detail (the log's
+  summary just repeated the reference beside it), the **project**, and a
+  **Source** column naming who put the work there — Self-created, or
+  *Coordinator · Name* / *Admin · Name*.
+- **Assessment context** was two sentences tall beside a nine-row table. It now
+  states four facts, and both rows use `items-stretch` so a short panel no longer
+  leaves a hole beside a long one.
+- **Work across projects** is capped at the 8 busiest, with a line saying so —
+  it was the tallest thing on the page and everything beside it had to match.
+- The gap under **Assignment accountability** is filled with the thing the owner
+  asked for: **which team they belong to** (AI & Digital), their role, what is
+  open, what is overdue, and who reviews their work.
+
+**Green:** 152 test files · 3821 tests · typecheck · lint · production build.
+
+---
+
 ## 🧭 2026-09-24 (later still) — THE INDIVIDUAL RECORD
 
 Owner sent a design for what a manager sees after picking one person, and was

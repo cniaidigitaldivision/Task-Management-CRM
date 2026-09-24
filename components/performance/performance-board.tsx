@@ -239,7 +239,12 @@ export function PerformanceBoard({
     const judged = rows.reduce((n, p) => n + p.judged, 0);
     const overdue = rows.reduce((n, p) => n + p.overdue, 0);
     const awaiting = rows.reduce((n, p) => n + p.awaitingReview, 0);
-    return { completed, reviewed, onTime, judged, overdue, awaiting, unverified: completed - reviewed };
+    /* ⚠️ NO "unverified". Owner, 2026-09-24: *"There is no term you can say
+       'verified' ... please exclude it."* A task is done, or it is in review.
+       `reviewed` stays as the count that WENT THROUGH review on its way to
+       done, because that is a real event in the log — it is just never called
+       verification on screen. */
+    return { completed, reviewed, onTime, judged, overdue, awaiting };
   }, [rows]);
 
   const otRate = rate(totals.onTime, totals.judged);
@@ -497,14 +502,10 @@ export function PerformanceBoard({
                 <StatCard
                   label="Completed"
                   value={String(totals.completed)}
-                  /* ⚠️ SHORT ENOUGH FOR THE REFERENCE'S CARD. Its own line
-                     reads "18 verified · 6 unverified" and only fits because those
-                     are one- and two-digit figures; ours reach three, so the same
-                     fact is stated as a fraction rather than being cut off. */
                   sub={
                     totals.completed === 0
                       ? 'Nothing closed yet'
-                      : `${totals.reviewed} of ${totals.completed} verified`
+                      : `${totals.reviewed} went through review`
                   }
                   tone="green"
                   icon={Check}
@@ -909,14 +910,15 @@ function PeopleTable({
                 to be readable. */}
             <th className="py-[0.72rem] text-left font-medium">Person</th>
             <th className="w-[6.6rem] py-[0.72rem] text-center font-medium">Completed</th>
-            {/* ⚠️ "Verified" IS THE REFERENCE'S WORD FOR `reviewed` — a second
-                pair of eyes saw it on its way to done. The title attribute says
-                so, because "verified" could be read as a stronger claim. */}
+            {/* ⚠️ "In review", NOT "Verified". The reference used the second
+                word and the owner removed it: there is no verification step in
+                this product. This column is what is sitting in review RIGHT NOW,
+                which is the thing a manager can act on. */}
             <th
-              className="w-[6.2rem] py-[0.72rem] text-center font-medium"
-              title="Went through review on its way to done"
+              className="w-[6.8rem] py-[0.72rem] text-center font-medium"
+              title="Submitted and waiting on a reviewer right now"
             >
-              Verified
+              In review
             </th>
             <th className="w-[6.4rem] py-[0.72rem] text-center font-medium">On time</th>
             <th className="w-[6.2rem] py-[0.72rem] text-center font-medium">Overdue</th>
@@ -972,7 +974,7 @@ function PeopleTable({
                   {p.completed}
                 </td>
                 <td className="text-center text-[0.87rem] tabular-nums" style={{ color: 'var(--pf-body)' }}>
-                  {p.reviewed}
+                  {p.awaitingReview}
                 </td>
                 <td className="text-center text-[0.87rem] tabular-nums" style={{ color: 'var(--pf-body)' }}>
                   {/* ⚠️ "—", NOT "0 of 0". Nothing they finished had a deadline. */}
@@ -1150,7 +1152,6 @@ interface Totals {
   readonly judged: number;
   readonly overdue: number;
   readonly awaiting: number;
-  readonly unverified: number;
 }
 
 function InsightPanel({
@@ -1198,7 +1199,7 @@ function InsightPanel({
   const summary =
     n?.summary.join(' ') ??
     [
-      `${totals.completed} ${totals.completed === 1 ? 'task' : 'tasks'} completed; ${totals.reviewed} verified.`,
+      `${totals.completed} ${totals.completed === 1 ? 'task' : 'tasks'} done; ${totals.awaiting} in review.`,
       totals.overdue > 0 ? `${totals.overdue} remain overdue.` : 'Nothing is past its date.',
       totals.awaiting > 0
         ? `${totals.awaiting} ${totals.awaiting === 1 ? 'submission is' : 'submissions are'} waiting on a reviewer.`
@@ -1360,9 +1361,9 @@ function InsightPanel({
         >
           <Info className="mt-[0.1rem] size-[1.1rem] shrink-0" aria-hidden="true" />
           <span>
-            {totals.unverified > 0
-              ? `Quality assessment is incomplete: ${totals.unverified} completed ${totals.unverified === 1 ? 'task is' : 'tasks are'} unverified.`
-              : 'Every completed task in this period went through review.'}
+            {totals.awaiting > 0
+              ? `${totals.awaiting} ${totals.awaiting === 1 ? 'task is' : 'tasks are'} in review. The person who assigned each one is the one who reviews it.`
+              : 'Nothing is waiting on a review right now.'}
           </span>
         </div>
 

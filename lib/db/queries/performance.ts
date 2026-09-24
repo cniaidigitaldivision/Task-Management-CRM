@@ -241,9 +241,21 @@ export interface HistoryEntry {
   readonly summary: string;
   readonly taskId: string | null;
   readonly reference: string | null;
+  readonly title: string | null;
   readonly projectName: string | null;
   readonly before: unknown;
   readonly after: unknown;
+  /**
+   * Where the task came from — the owner's "Source", 2026-09-24:
+   * *"Source means 'Assigned by someone' or 'Self-created' ... whether it's an
+   * admin, super admin, or team coordinator who assigned that activity."*
+   *
+   * ⚠️ IT DESCRIBES THE TASK, NOT THE LOG LINE. A row saying "marked
+   * complete" is always the person's own action; what a manager wants beside it
+   * is who put the work there in the first place.
+   */
+  readonly sourceKind: 'self' | 'coordinator' | 'admin' | 'teammate' | 'unknown';
+  readonly sourceName: string | null;
 }
 
 export interface PersonTask {
@@ -305,10 +317,19 @@ export async function personDetail(
     `),
     withUser(actorId, (tx) => tx`
       select a.created_at, a.action, a.summary, a.entity_id, a.before, a.after,
-             t.reference, p.name as project_name
+             t.reference, t.title, p.name as project_name,
+             cb.full_name as source_name,
+             case
+               when t.id is null then 'unknown'
+               when t.created_by_id is null then 'unknown'
+               when t.created_by_id = t.assignee_id then 'self'
+               when cb.role in ('admin', 'super_admin') then 'admin'
+               when cb.role = 'team_coordinator' then 'coordinator'
+               else 'teammate' end as source_kind
         from public.activity_log a
         left join public.tasks t on t.id = a.entity_id and a.entity_type = 'task'
         left join public.projects p on p.id = t.project_id
+        left join public.users cb on cb.id = t.created_by_id
        where a.actor_id = ${personId}
          and a.created_at >= ${period.from}::date
          and a.created_at < (${period.to}::date + 1)
@@ -351,17 +372,19 @@ export async function personDetail(
       attachments: Number(r.attachments ?? 0),
       placements: Number(r.placements ?? 0),
     })),
-    history: (history as Array<Record<string, unknown>>).map((r) => ({
-      at: new Date(r.created_at as string).toISOString(),
-      action: String(r.action),
-      summary: String(r.summary ?? ''),
-      taskId: (r.entity_id as string | null) ?? null,
-      reference: (r.reference as string | null) ?? null,
-      projectName: (r.project_name as string | null) ?? null,
-      before: r.before ?? null,
-      after: r.after ?? null,
-    })),
-    moves: (moves as Array<Record<string, unknown>>).map((r) => ({
+    history: (history as Array<Record<string, unknown>>).map((h) => ({
+      at: new Date(h.created_at as string).toISOString(),
+      action: String(h.action),
+      summary: String(h.summary ?? ''),
+      taskId: (h.entity_id as string | null) ?? null,
+      reference: (h.reference as string | null) ?? null,
+      title: (h.title as string | null) ?? null,
+      projectName: (h.project_name as string | null) ?? null,
+      before: h.before ?? null,
+      after: h.after ?? null,
+      sourceKind: String(h.source_kind ?? 'unknown') as HistoryEntry['sourceKind'],
+      sourceName: (h.source_name as string | null) ?? null,
+    })),    moves: (moves as Array<Record<string, unknown>>).map((r) => ({
       taskId: String(r.entity_id),
       action: String(r.action),
       actorId: (r.actor_id as string | null) ?? null,
@@ -667,16 +690,35 @@ export interface ReviewRow {
   readonly ownerName: string | null;
   readonly ownerAvatarUrl: string | null;
   readonly submittedAt: string | null;
+  /**
+   * Who reviews it.
+   *
+   * ⚠️ THE PERSON WHO ASSIGNED IT — the owner's rule, 2026-09-24: *"Definitely
+   * the person who assigns the task will review that task."* Nothing in the
+   * schema names a reviewer, but `created_by_id` names who handed the work out,
+   * and that is the same person under this rule.
+   *
+   * ⚠️ NULL WHEN THEY RAISED IT THEMSELVES. 1,011 of 1,105 tasks here were
+   * raised by the person who then did them, so on most rows there is nobody
+   * else to review it. Printing their own name as the reviewer would dress a
+   * self-check up as an independent one.
+   */
+  readonly reviewerName: string | null;
+  readonly selfRaised: boolean;
 }
 
 export interface QualitySummary {
+  /** Reached done in the period. */
   readonly completed: number;
+  /** Went through review on the way there. */
   readonly reviewed: number;
+  /** Sitting in review right now. */
+  readonly inReview: number;
   readonly resubmitted: number;
   readonly reopened: number;
   /** Closures made by the person who did the work. */
   readonly selfClosed: number;
-  /** Closures made by somebody else — the only real evidence of a second look. */
+  /** Closures made by somebody else. */
   readonly closedByOther: number;
   readonly queue: readonly ReviewRow[];
 }
@@ -755,12 +797,15 @@ export async function qualitySummary(
     const q = tx`
       select t.id, t.reference, t.title, p.name as project_name,
              u.full_name as owner_name, u.avatar_url,
+             cb.full_name as reviewer_name,
+             (t.created_by_id is not null and t.created_by_id = t.assignee_id) as self_raised,
              (select max(a.created_at) from public.activity_log a
                where a.entity_type = 'task' and a.entity_id = t.id
                  and a.action = 'in_review') as submitted_at
         from public.tasks t
         join public.projects p on p.id = t.project_id
         left join public.users u on u.id = t.assignee_id
+        left join public.users cb on cb.id = t.created_by_id
        where not t.is_deleted and t.status = 'in_review'
          and (${projectId}::uuid is null or t.project_id = ${projectId}::uuid)
          and (${personId}::uuid is null or t.assignee_id = ${personId}::uuid)
@@ -774,9 +819,11 @@ export async function qualitySummary(
   });
 
   const row = (counts as Array<Record<string, unknown>>)[0] ?? {};
+  const queueRows = queue as Array<Record<string, unknown>>;
   return {
     completed: Number(row.completed ?? 0),
     reviewed: Number(row.reviewed ?? 0),
+    inReview: queueRows.length,
     resubmitted: Number(row.resubmitted ?? 0),
     reopened: Number(row.reopened ?? 0),
     selfClosed: Number(row.self_closed ?? 0),
@@ -789,6 +836,8 @@ export async function qualitySummary(
       ownerName: (r.owner_name as string | null) ?? null,
       ownerAvatarUrl: (r.avatar_url as string | null) ?? null,
       submittedAt: r.submitted_at ? new Date(r.submitted_at as string).toISOString() : null,
+      selfRaised: Boolean(r.self_raised),
+      reviewerName: r.self_raised ? null : ((r.reviewer_name as string | null) ?? null),
     })),
   };
 }

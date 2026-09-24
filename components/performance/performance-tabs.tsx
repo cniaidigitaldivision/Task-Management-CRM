@@ -423,31 +423,42 @@ export function WorkloadTab({ rows }: { rows: readonly WorkloadRow[] }) {
 
 /* ── Quality ─────────────────────────────────────────────────────────────── */
 
+/**
+ * Reviews — and there is no "verified" in it.
+ *
+ * ⚠️ Owner, 2026-09-24: *"There is no term you can say 'verified' ... you can
+ * say in the review how many tasks are in a review and how many tasks are
+ * done."* So this counts what is IN review, what went THROUGH review, and what
+ * is done. The reviewer is the person who assigned the task — the owner's own
+ * rule, and the only reviewer the schema can name.
+ */
 export function QualityTab({ quality, nowMs }: { quality: QualitySummary; nowMs: number }) {
-  const { completed, reviewed, reopened, resubmitted, selfClosed, closedByOther, queue } = quality;
-  const coverage = rate(reviewed, completed);
-  const secondPair = rate(closedByOther, selfClosed + closedByOther);
+  const { completed, reviewed, inReview, reopened, resubmitted, queue } = quality;
+  const wentThrough = rate(reviewed, completed);
+  const selfRaised = queue.filter((q) => q.selfRaised).length;
 
   return (
     <div className="space-y-[1.25rem]">
       <div className="grid grid-cols-[repeat(auto-fit,minmax(11.4rem,1fr))] gap-[0.7rem]">
         <StatCard
-          label="Review coverage"
-          value={coverage.value === null ? '—' : `${coverage.value}%`}
-          sub={completed === 0 ? 'Nothing completed yet' : `${reviewed} of ${completed} submitted`}
+          label="In review now"
+          value={num(inReview)}
+          sub={inReview === 0 ? 'Nothing is waiting' : 'Submitted and waiting on a reviewer'}
           tone="blue"
-          icon={CheckCircle2}
+          icon={Users}
         />
         <StatCard
-          label="Second pair of eyes"
-          value={secondPair.value === null ? '—' : `${secondPair.value}%`}
+          label="Done"
+          value={num(completed)}
           sub={
-            selfClosed + closedByOther === 0
-              ? 'Nothing closed yet'
-              : `${closedByOther} of ${selfClosed + closedByOther} closed by another`
+            completed === 0
+              ? 'Nothing closed in this period'
+              : wentThrough.value === null
+                ? 'Reached done in the period'
+                : `${reviewed} of them went through review`
           }
-          tone="amber"
-          icon={Users}
+          tone="green"
+          icon={CheckCircle2}
         />
         <StatCard
           label="Sent back"
@@ -473,11 +484,12 @@ export function QualityTab({ quality, nowMs }: { quality: QualitySummary; nowMs:
             <Grid
               head={[
                 { label: 'Task' },
-                { label: 'Owner', w: '10.5rem' },
-                { label: 'Waiting', w: '7.5rem' },
-                { label: 'Action', w: '8.5rem' },
+                { label: 'Who did it', w: '10rem' },
+                { label: 'Who reviews it', w: '10.5rem' },
+                { label: 'Waiting', w: '6.4rem' },
+                { label: 'Action', w: '8rem' },
               ]}
-              minWidth="34rem"
+              minWidth="42rem"
             >
               {queue.map((r) => {
                 const hours = r.submittedAt
@@ -502,6 +514,18 @@ export function QualityTab({ quality, nowMs }: { quality: QualitySummary; nowMs:
                         </span>
                       ) : (
                         <span style={{ color: 'var(--pf-mute)' }}>Nobody</span>
+                      )}
+                    </Cell>
+                    {/* ⚠️ THE ASSIGNER REVIEWS IT — the owner's rule. When they
+                        raised it themselves there is nobody else, and saying so
+                        is the finding: most work here is self-raised. */}
+                    <Cell title={r.selfRaised ? 'They raised this task themselves' : undefined}>
+                      {r.reviewerName ? (
+                        <span className="block truncate" style={{ color: 'var(--pf-ink)' }}>
+                          {r.reviewerName}
+                        </span>
+                      ) : (
+                        <span style={{ color: 'var(--pf-amber)' }}>Self-raised</span>
                       )}
                     </Cell>
                     <Cell>
@@ -531,9 +555,10 @@ export function QualityTab({ quality, nowMs }: { quality: QualitySummary; nowMs:
                 can name is whoever eventually moved it, after the fact. Drawing
                 the column with a guess in it would be worse than not having it. */}
             <Caveat>
-              No reviewer is assigned to a task anywhere in this system, so this queue shows who is
-              waiting rather than who owes the review. Adding a reviewer would need a field on the
-              task.
+              The reviewer is whoever assigned the task.
+              {selfRaised > 0
+                ? ` ${selfRaised} of these ${queue.length} were raised by the same person who did them, so there is nobody else to review those.`
+                : ''}
             </Caveat>
           </>
         )}
@@ -546,18 +571,19 @@ export function QualityTab({ quality, nowMs }: { quality: QualitySummary; nowMs:
       <Panel title="What these figures can and cannot tell you">
         <div className="space-y-[0.7rem] border-t px-[1.22rem] py-[1.15rem] text-[0.88rem] leading-[1.5]" style={{ borderColor: 'var(--pf-grid)' }}>
           <p style={{ color: 'var(--pf-ink)' }}>
-            {closedByOther === 0
-              ? 'Every task in this scope was closed by the person who did it. That is not a bad score — it means review is not being used, so quality cannot be measured from the record at all.'
-              : `${closedByOther} of ${selfClosed + closedByOther} closures in this scope were made by somebody other than the person who did the work.`}
+            A task enters review when somebody asks for one, and the person who assigned it is the
+            one who reviews it. {reviewed} of {completed} tasks done in this period went through
+            review on the way.
           </p>
           <p style={{ color: 'var(--pf-soft)' }}>
-            A first-pass acceptance rate needs reviews to compute from. Until work is routinely
-            submitted and closed by a second person, the honest reading of this tab is how much of
-            the work is being checked at all — which is the “Second pair of eyes” figure above.
+            Most work in this division is raised by the same person who does it, so for those tasks
+            there is nobody else to review them — that is a fact about how work is handed out, not a
+            score against anybody.
           </p>
           <p style={{ color: 'var(--pf-soft)' }}>
-            Written review feedback is not recorded either: there are almost no comments on tasks, so
-            nothing here can say <em>why</em> something was sent back.
+            Written feedback is not recorded: there are almost no comments on tasks, so nothing here
+            can say <em>why</em> something was sent back. {resubmitted > 0 ? `${resubmitted} were submitted more than once.` : ''}{' '}
+            {reopened > 0 ? `${reopened} were reopened after being closed.` : ''}
           </p>
         </div>
       </Panel>

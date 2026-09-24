@@ -8,17 +8,26 @@ import {
   BarChart3,
   CalendarDays,
   CheckCircle2,
+  Circle,
+  CircleDot,
   Clock3,
   Download,
+  FilePlus2,
   Folder,
   Info,
+  Paperclip,
+  PauseCircle,
+  Pencil,
   Plus,
+  RotateCcw,
+  Send,
   ShieldCheck,
   Sparkles,
   TriangleAlert,
   User,
   UserCog,
   Users,
+  XCircle,
 } from 'lucide-react';
 
 import { Caveat, CompareTab, QualityTab, WorkPanel } from '@/components/performance/performance-tabs';
@@ -111,8 +120,15 @@ export function PersonRecord(p: PersonRecordProps) {
      between the two screens. The reference writes "(26 of 54 completed)"; the
      wording here follows the arithmetic instead. */
   const otRate = rate(p.person.onTime, p.person.judged);
-  const verified = p.person.reviewed;
-  const unverified = Math.max(0, p.person.completed - verified);
+
+  /* ── ⚠️ THERE IS NO "VERIFIED" IN THIS SYSTEM ──────────────────────────
+     Owner, 2026-09-24: *"There is no term you can say 'verified' ... you can
+     say in the review how many tasks are in a review and how many tasks are
+     done."* The word came from the reference image, not from the product, and
+     it implied a check nobody performs. A task is DONE, or it is IN REVIEW
+     because somebody asked for one. Those are the two words. */
+  const inReview = p.person.awaitingReview;
+  const done = p.person.completed;
 
   return (
     <div>
@@ -185,7 +201,7 @@ export function PersonRecord(p: PersonRecordProps) {
 
       <div className="mt-[1.1rem]">
         {tab === 'overview' && (
-          <Overview {...p} otRate={otRate} verified={verified} unverified={unverified} onTab={setTab} />
+          <Overview {...p} otRate={otRate} inReview={inReview} done={done} onTab={setTab} />
         )}
 
         {tab === 'tasks' && (
@@ -305,13 +321,13 @@ function HeadButton({
 function Overview(
   p: PersonRecordProps & {
     otRate: ReturnType<typeof rate>;
-    verified: number;
-    unverified: number;
+    inReview: number;
+    done: number;
     onTab: (t: RecordTab) => void;
   },
 ) {
-  const { person, otRate, verified, unverified } = p;
-  const pct = person.completed > 0 ? Math.round((verified / person.completed) * 100) : 0;
+  const { person, otRate, inReview, done } = p;
+  const openNow = person.openNow;
 
   return (
     <div className="space-y-[1.25rem]">
@@ -324,16 +340,12 @@ function Overview(
           icon={CheckCircle2}
         />
         <StatCard
-          label="Verified"
-          value={num(verified)}
-          /* ⚠️ NEVER "0%" WHEN THE COUNT IS NOT ZERO. 1 of 221 rounds to 0
-             and read as "none", which is a different finding. */
+          label="In review"
+          value={num(inReview)}
           sub={
-            verified === 0
-              ? 'None went through review'
-              : pct === 0
-                ? `${verified} of ${person.completed} — under 1%`
-                : `${pct}% of what they closed`
+            inReview === 0
+              ? 'Nothing is waiting on a review'
+              : `Submitted and waiting on a reviewer`
           }
           tone="blue"
           icon={ShieldCheck}
@@ -366,56 +378,31 @@ function Overview(
         without a deadline, is not in that percentage — see Open overdue for what is still owed.
       </Caveat>
 
-      <div className="grid items-start gap-[1.25rem] min-[1500px]:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
-        <Panel title="Completed work verification">
+      {/* ⚠️ items-stretch, NOT items-start. Owner, 2026-09-24: *"the assessment
+          content should increase its height and be properly adjusted ... there
+          is a white space over there."* With items-start each panel was only as
+          tall as its own content, so the short one left a hole beside the long
+          one. Stretching makes the row a row. */}
+      <div className="grid items-stretch gap-[1.25rem] min-[1500px]:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+        <Panel title="Done and in review" description="Where their work stands right now.">
           <div className="border-t px-[1.22rem] py-[1.15rem]" style={{ borderColor: 'var(--pf-grid)' }}>
-            {person.completed === 0 ? (
+            {done + openNow === 0 ? (
               <p className="text-[0.88rem]" style={{ color: 'var(--pf-soft)' }}>
-                Nothing was completed in this period, so there is nothing to verify.
+                They have no work in this period.
               </p>
             ) : (
               <>
-                <div
-                  className="flex h-[1.6rem] w-full overflow-hidden rounded-[0.4rem]"
-                  role="img"
-                  aria-label={`${unverified} unverified, ${verified} verified`}
-                >
-                  {unverified > 0 && (
-                    <span
-                      className="grid place-items-center text-[0.78rem] font-semibold"
-                      style={{
-                        width: `${(unverified / person.completed) * 100}%`,
-                        background: 'var(--pf-red-bg)',
-                        color: 'var(--pf-red-ink)',
-                      }}
-                    >
-                      {unverified}
-                    </span>
-                  )}
-                  {verified > 0 && (
-                    <span
-                      className="grid place-items-center text-[0.78rem] font-semibold"
-                      style={{
-                        width: `${(verified / person.completed) * 100}%`,
-                        background: 'var(--pf-green-bg)',
-                        color: 'var(--pf-green)',
-                      }}
-                    >
-                      {verified}
-                    </span>
-                  )}
-                </div>
+                {/* Done, in review, and still open — the three states that
+                    actually exist, in one bar. */}
+                <ReviewBar done={done} inReview={inReview} open={Math.max(0, openNow - inReview)} />
                 <div className="mt-[0.8rem] flex flex-wrap items-center gap-x-[1.6rem] gap-y-[0.4rem] text-[0.86rem]">
-                  <Legend colour="var(--pf-red)" label="Unverified" value={unverified} />
-                  <Legend colour="var(--pf-green)" label="Verified" value={verified} />
+                  <Legend colour="var(--pf-green)" label="Done" value={done} />
+                  <Legend colour="var(--pf-blue)" label="In review" value={inReview} />
+                  <Legend colour="var(--pf-amber)" label="Still open" value={Math.max(0, openNow - inReview)} />
                 </div>
-                {/* ⚠️ THE REFERENCE SAYS THIS AND IT MATTERS MOST HERE. On this
-                    database 1,011 of 1,105 tasks were raised and closed by the
-                    same person; a red bar must not read as an accusation. */}
                 <p className="mt-[0.7rem] text-[0.82rem]" style={{ color: 'var(--pf-faint)' }}>
-                  Unverified does not mean rejected — it means nobody else checked it. Review is
-                  barely used across this division, so this is a fact about the process, not about
-                  this person.
+                  A task goes into review when somebody asks for one. The person who assigned it is
+                  the one who reviews it — see the Reviews tab for who owes what.
                 </p>
               </>
             )}
@@ -424,13 +411,13 @@ function Overview(
 
         <AssessmentContext
           person={person}
-          verified={verified}
+          inReview={inReview}
           onViewCompleted={() => p.onTab('tasks')}
           onInspectOverdue={() => p.onTab('tasks')}
         />
       </div>
 
-      <div className="grid items-start gap-[1.25rem] min-[1500px]:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+      <div className="grid items-stretch gap-[1.25rem] min-[1500px]:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
         <Panel
           title="Work across projects"
           description={`Every project ${first(person.name)} has a task in.`}
@@ -438,14 +425,61 @@ function Overview(
           {p.projects.length === 0 ? (
             <Nothing>No project has a task for them in this scope.</Nothing>
           ) : (
-            <ProjectRows rows={p.projects} />
+            /* ⚠️ THE EIGHT BUSIEST, NOT ALL OF THEM. The table was the tallest
+               thing on the page and every panel beside it had to match; the
+               rest are on the Projects tab, and the line below says so. */
+            <>
+              <ProjectRows rows={p.projects.slice(0, 8)} />
+              {p.projects.length > 8 && (
+                <Caveat>
+                  Showing the 8 busiest of {p.projects.length} projects they have a task in.
+                </Caveat>
+              )}
+            </>
           )}
         </Panel>
 
-        <AssignmentAccountability sources={p.sources} onView={() => p.onTab('tasks')} />
+        <AssignmentAccountability
+          sources={p.sources}
+          onView={() => p.onTab('tasks')}
+          team={p.workload?.departmentName ?? null}
+          role={person.roleTitle}
+          openNow={person.openNow}
+          overdue={person.overdue}
+        />
       </div>
 
       <RecentActivity history={p.history.slice(0, 8)} onAll={() => p.onTab('activity')} />
+    </div>
+  );
+}
+
+/** Done / in review / still open, proportionally. */
+function ReviewBar({ done, inReview, open }: { done: number; inReview: number; open: number }) {
+  const total = done + inReview + open;
+  if (total === 0) return null;
+  const seg = [
+    { n: done, bg: 'var(--pf-green-bg)', ink: 'var(--pf-green)' },
+    { n: inReview, bg: 'var(--pf-blue-bg)', ink: 'var(--pf-blue)' },
+    { n: open, bg: 'var(--pf-amber-bg)', ink: 'var(--pf-amber)' },
+  ];
+  return (
+    <div
+      className="flex h-[1.6rem] w-full overflow-hidden rounded-[0.4rem]"
+      role="img"
+      aria-label={`${done} done, ${inReview} in review, ${open} still open`}
+    >
+      {seg.map((x, i) =>
+        x.n > 0 ? (
+          <span
+            key={i}
+            className="grid place-items-center overflow-hidden text-[0.78rem] font-semibold"
+            style={{ width: `${(x.n / total) * 100}%`, background: x.bg, color: x.ink }}
+          >
+            {x.n}
+          </span>
+        ) : null,
+      )}
     </div>
   );
 }
@@ -517,25 +551,34 @@ function ProjectRows({ rows }: { rows: readonly ProjectRow[] }) {
 
 function AssessmentContext({
   person,
-  verified,
+  inReview,
   onViewCompleted,
   onInspectOverdue,
 }: {
   person: PersonStat;
-  verified: number;
+  inReview: number;
   onViewCompleted: () => void;
   onInspectOverdue: () => void;
 }) {
   /* ⚠️ STATED FROM THE FIGURES, NOT ASKED OF A MODEL. This strip is context, and
      it has to be right on first paint; the written assessment lives on the team
      page's Assessments tab, where it is explicitly a model's words. */
+  /* ⚠️ MORE LINES BECAUSE THERE IS MORE TO SAY, not to fill a box. Each one is
+     a figure already on the page, restated as the thing a manager would act on;
+     the panel was two sentences tall beside a nine-row table. */
   const lines = [
-    `${person.completed} ${person.completed === 1 ? 'task' : 'tasks'} marked complete; ${
-      verified === 0 ? 'none independently verified' : `${verified} independently verified`
+    `${person.completed} ${person.completed === 1 ? 'task' : 'tasks'} done; ${
+      inReview === 0 ? 'nothing waiting on a review' : `${inReview} waiting on a review`
     }.`,
     person.overdue > 0
       ? `Investigate ${person.overdue} overdue ${person.overdue === 1 ? 'task' : 'tasks'} by cause and original commitment.`
       : 'Nothing of theirs is past its due date.',
+    person.judged > 0
+      ? `Of the work that carried a deadline, ${person.onTime} of ${person.judged} landed on time.`
+      : 'None of their completed work carried a deadline, so timeliness cannot be judged.',
+    person.openNow > 0
+      ? `${person.openNow} still open, of which ${person.overdue} have already passed their date.`
+      : 'They are carrying nothing open right now.',
   ];
 
   return (
@@ -571,7 +614,7 @@ function AssessmentContext({
             className="rounded-[0.62rem] px-[0.95rem] py-[0.65rem] text-[0.84rem] font-semibold leading-none"
             style={{ background: 'var(--pf-teal)', color: 'var(--pf-on-solid)' }}
           >
-            View {person.completed} completed
+            View {person.completed} done
           </button>
           <button
             type="button"
@@ -596,9 +639,17 @@ function AssessmentContext({
 function AssignmentAccountability({
   sources,
   onView,
+  team,
+  role,
+  openNow,
+  overdue,
 }: {
   sources: TaskSources;
   onView: () => void;
+  team: string | null;
+  role: string | null;
+  openNow: number;
+  overdue: number;
 }) {
   const cards = [
     { icon: User, label: 'Self-created', value: sources.self, tone: 'var(--pf-blue-bg)', ink: 'var(--pf-blue)' },
@@ -608,8 +659,11 @@ function AssignmentAccountability({
   const share = (n: number) => (sources.total > 0 ? Math.round((n / sources.total) * 100) : 0);
 
   return (
-    <Panel title="Assignment accountability" description="Who put this work on them.">
-      <div className="border-t px-[1.22rem] py-[1.15rem]" style={{ borderColor: 'var(--pf-grid)' }}>
+    <Panel title="Assignment accountability" description="Who put this work on them." className="flex flex-col">
+      <div
+        className="flex flex-1 flex-col border-t px-[1.22rem] py-[1.15rem]"
+        style={{ borderColor: 'var(--pf-grid)' }}
+      >
         {sources.total === 0 ? (
           <p className="text-[0.88rem]" style={{ color: 'var(--pf-soft)' }}>
             No task in this scope, so there is nothing to attribute.
@@ -687,6 +741,15 @@ function AssignmentAccountability({
               Read from who raised each task, against that person&rsquo;s rank today. A coordinator
               later promoted would make their older assignments read as admin-assigned.
             </p>
+
+            {/* ⚠️ THE OWNER ASKED FOR THIS SPACE TO BE USED. The projects table
+                beside this panel is long and this one is short, leaving a gap
+                at the bottom: *"instead of a white space you can also add over
+                here: which team it belongs to, like AI digital team."* */}
+            {/* flex-1: the panel is stretched to match the projects table
+                beside it, and this block takes the slack rather than leaving it
+                empty at the bottom — the owner's second note. */}
+            <TeamBelonging team={team} role={role} openNow={openNow} overdue={overdue} />
           </>
         )}
       </div>
@@ -696,22 +759,52 @@ function AssignmentAccountability({
 
 /* ── Activity ────────────────────────────────────────────────────────────── */
 
-const ACTIVITY_WORD: Record<string, string> = {
-  created: 'Task created',
-  done: 'Marked complete',
-  in_review: 'Review requested',
-  in_progress: 'Work started',
-  revisions: 'Changes requested',
-  blocked: 'Marked blocked',
-  todo: 'Moved to not started',
-  backlog: 'Moved to backlog',
-  cancelled: 'Cancelled',
-  updated: 'Task edited',
-  attachment_added: 'File attached',
-  attachment_removed: 'File removed',
-  'task.handoff': 'Handed over',
-  'task.placement_recorded': 'Placement recorded',
+/* ⚠️ EVERY ACTIVITY CARRIES ITS OWN ICON AND TONE — the owner asked for the
+   icon, and the tone is what makes a column of them readable at a glance:
+   green finished it, blue asked for a review, red stopped it. */
+const ACTIVITY_LOOK: Record<
+  string,
+  { label: string; icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>; tone: string; bg: string }
+> = {
+  created: { label: 'Task created', icon: FilePlus2, tone: 'var(--pf-blue)', bg: 'var(--pf-blue-bg)' },
+  done: { label: 'Marked complete', icon: CheckCircle2, tone: 'var(--pf-green)', bg: 'var(--pf-green-bg)' },
+  in_review: { label: 'Review requested', icon: Send, tone: 'var(--pf-blue)', bg: 'var(--pf-blue-bg)' },
+  in_progress: { label: 'Work started', icon: CircleDot, tone: 'var(--pf-amber)', bg: 'var(--pf-amber-bg)' },
+  revisions: { label: 'Changes requested', icon: RotateCcw, tone: 'var(--pf-amber)', bg: 'var(--pf-amber-bg)' },
+  blocked: { label: 'Marked blocked', icon: PauseCircle, tone: 'var(--pf-red-ink)', bg: 'var(--pf-red-bg)' },
+  todo: { label: 'Moved to not started', icon: Circle, tone: 'var(--pf-soft)', bg: 'var(--pf-strip)' },
+  backlog: { label: 'Moved to backlog', icon: Circle, tone: 'var(--pf-soft)', bg: 'var(--pf-strip)' },
+  cancelled: { label: 'Cancelled', icon: XCircle, tone: 'var(--pf-soft)', bg: 'var(--pf-strip)' },
+  updated: { label: 'Task edited', icon: Pencil, tone: 'var(--pf-soft)', bg: 'var(--pf-strip)' },
+  attachment_added: { label: 'File attached', icon: Paperclip, tone: 'var(--pf-green)', bg: 'var(--pf-green-bg)' },
+  attachment_removed: { label: 'File removed', icon: Paperclip, tone: 'var(--pf-soft)', bg: 'var(--pf-strip)' },
+  'task.handoff': { label: 'Handed over', icon: Users, tone: 'var(--pf-violet)', bg: 'var(--pf-violet-chip-bg)' },
+  'task.placement_recorded': { label: 'Placement recorded', icon: CheckCircle2, tone: 'var(--pf-green)', bg: 'var(--pf-green-bg)' },
 };
+
+const FALLBACK = { label: '', icon: Circle, tone: 'var(--pf-soft)', bg: 'var(--pf-strip)' };
+
+/**
+ * Who put this work on them.
+ *
+ * ⚠️ THE RANK IS NAMED, NOT JUST THE PERSON. Owner: *"Someone should mention
+ * whether it's an admin, super admin, or team coordinator who assigned that
+ * activity."* The rank is read today — the same caveat the accountability panel
+ * carries.
+ */
+function sourceLabel(h: HistoryEntry): { text: string; tone: string } {
+  if (h.sourceKind === 'self') return { text: 'Self-created', tone: 'var(--pf-soft)' };
+  if (h.sourceKind === 'admin')
+    return { text: h.sourceName ? `Admin · ${h.sourceName}` : 'Admin-assigned', tone: 'var(--pf-violet)' };
+  if (h.sourceKind === 'coordinator')
+    return {
+      text: h.sourceName ? `Coordinator · ${h.sourceName}` : 'Coordinator-assigned',
+      tone: 'var(--pf-green)',
+    };
+  if (h.sourceKind === 'teammate')
+    return { text: h.sourceName ? `Teammate · ${h.sourceName}` : 'Teammate-assigned', tone: 'var(--pf-blue)' };
+  return { text: 'Not recorded', tone: 'var(--pf-mute)' };
+}
 
 function stamp(iso: string): string {
   return new Date(iso).toLocaleString('en-GB', {
@@ -728,56 +821,78 @@ function stamp(iso: string): string {
 function ActivityTable({ history }: { history: readonly HistoryEntry[] }) {
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[42rem] table-fixed border-collapse">
+      <table className="w-full min-w-[52rem] table-fixed border-collapse">
         <thead>
           <tr
             className="whitespace-nowrap border-y text-[0.76rem]"
             style={{ background: 'var(--pf-head)', borderColor: 'var(--pf-grid)', color: 'var(--pf-soft)' }}
           >
-            <th className="w-[11.5rem] py-[0.72rem] pl-[1.22rem] text-left font-medium">Date &amp; time</th>
-            <th className="w-[11rem] py-[0.72rem] text-left font-medium">Activity</th>
+            <th className="w-[10.4rem] py-[0.72rem] pl-[1.22rem] text-left font-medium">Date &amp; time</th>
+            <th className="w-[11.4rem] py-[0.72rem] text-left font-medium">Activity</th>
             <th className="py-[0.72rem] text-left font-medium">Details</th>
-            <th className="w-[11rem] py-[0.72rem] pr-[1.22rem] text-left font-medium">Project</th>
+            <th className="w-[10rem] py-[0.72rem] text-left font-medium">Project</th>
+            <th className="w-[11.4rem] py-[0.72rem] pr-[1.22rem] text-left font-medium">Source</th>
           </tr>
         </thead>
         <tbody>
-          {history.map((h, i) => (
-            <tr
-              key={`${h.at}-${i}`}
-              className="border-b last:border-0"
-              style={{ borderColor: 'var(--pf-grid)', height: '3.1rem' }}
-            >
-              <td
-                className="pl-[1.22rem] pr-[0.6rem] text-[0.84rem] tabular-nums"
-                style={{ color: 'var(--pf-body)' }}
+          {history.map((h, i) => {
+            const look = ACTIVITY_LOOK[h.action] ?? { ...FALLBACK, label: h.action };
+            const src = sourceLabel(h);
+            /* The task's own title is the detail worth reading; the log's
+               summary ("moved CLI-2785 to Done") repeats the row beside it. */
+            const detail = h.title ?? h.summary;
+            return (
+              <tr
+                key={`${h.at}-${i}`}
+                className="border-b last:border-0"
+                style={{ borderColor: 'var(--pf-grid)', height: '3.35rem' }}
               >
-                {stamp(h.at)}
-              </td>
-              <td className="pr-[0.6rem] text-[0.87rem]" style={{ color: 'var(--pf-ink)' }}>
-                <span className="block truncate">{ACTIVITY_WORD[h.action] ?? h.action}</span>
-              </td>
-              <td
-                className="pr-[0.6rem] text-[0.87rem]"
-                style={{ color: 'var(--pf-body)' }}
-                title={`${h.reference ?? ''} ${h.summary}`.trim()}
-              >
-                {/* ⚠️ THE REFERENCE IS ONLY PREFIXED WHEN THE SUMMARY LACKS IT.
-                    The log already writes "moved CLI-2785 to Done", so adding
-                    it in front printed the same code twice in one cell. */}
-                <span className="block truncate">
-                  {h.reference && !h.summary.includes(h.reference) ? `${h.reference} · ` : ''}
-                  {h.summary}
-                </span>
-              </td>
-              <td
-                className="pr-[1.22rem] text-[0.84rem]"
-                style={{ color: 'var(--pf-soft)' }}
-                title={h.projectName ?? ''}
-              >
-                <span className="block truncate">{h.projectName ?? '—'}</span>
-              </td>
-            </tr>
-          ))}
+                <td
+                  className="pl-[1.22rem] pr-[0.6rem] text-[0.82rem] tabular-nums"
+                  style={{ color: 'var(--pf-body)' }}
+                >
+                  {stamp(h.at)}
+                </td>
+                <td className="pr-[0.6rem] text-[0.86rem]">
+                  <span className="flex min-w-0 items-center gap-[0.55rem]">
+                    <span
+                      className="grid size-[1.55rem] shrink-0 place-items-center rounded-full"
+                      style={{ background: look.bg }}
+                    >
+                      <look.icon className="size-[0.88rem]" style={{ color: look.tone }} aria-hidden="true" />
+                    </span>
+                    <span className="min-w-0 flex-1 truncate" style={{ color: 'var(--pf-ink)' }}>
+                      {look.label}
+                    </span>
+                  </span>
+                </td>
+                <td
+                  className="pr-[0.6rem] text-[0.86rem]"
+                  style={{ color: 'var(--pf-body)' }}
+                  title={[h.reference, h.title, h.summary].filter(Boolean).join(' · ')}
+                >
+                  <span className="block truncate">{detail}</span>
+                  {h.reference && (
+                    <span className="block truncate text-[0.72rem]" style={{ color: 'var(--pf-mute)' }}>
+                      {h.reference}
+                    </span>
+                  )}
+                </td>
+                <td
+                  className="pr-[0.6rem] text-[0.84rem]"
+                  style={{ color: 'var(--pf-soft)' }}
+                  title={h.projectName ?? ''}
+                >
+                  <span className="block truncate">{h.projectName ?? '—'}</span>
+                </td>
+                <td className="pr-[1.22rem] text-[0.84rem]" title={src.text}>
+                  <span className="block truncate font-medium" style={{ color: src.tone }}>
+                    {src.text}
+                  </span>
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -883,5 +998,79 @@ function GoalsTab({ name }: { name: string }) {
         </p>
       </div>
     </Panel>
+  );
+}
+
+/**
+ * Which team they belong to — and it fills the gap the owner pointed at.
+ *
+ * ⚠️ THE DEPARTMENT, NOT THE JOB TITLE. Migration 117 exists precisely because
+ * `role_title` is free text with three spellings of "sales"; the department is
+ * the structured field, and it is the one a rule can be written against. The
+ * title is shown beside it as a label, which is all it is.
+ */
+function TeamBelonging({
+  team,
+  role,
+  openNow,
+  overdue,
+}: {
+  team: string | null;
+  role: string | null;
+  openNow: number;
+  overdue: number;
+}) {
+  return (
+    <div
+      className="mt-[1rem] flex flex-1 flex-col rounded-[0.8rem] border px-[1rem] py-[0.9rem]"
+      style={{ borderColor: 'var(--pf-line)', background: 'var(--pf-strip)' }}
+    >
+      <span className="flex items-center gap-[0.6rem]">
+        <span
+          className="grid size-[1.8rem] shrink-0 place-items-center rounded-full"
+          style={{ background: 'var(--pf-green-bg)' }}
+        >
+          <Users className="size-[0.95rem]" style={{ color: 'var(--pf-green)' }} aria-hidden="true" />
+        </span>
+        <span className="min-w-0">
+          <span className="block text-[0.76rem]" style={{ color: 'var(--pf-mute)' }}>
+            Team
+          </span>
+          <span
+            className="block truncate text-[0.95rem] font-semibold leading-[1.3]"
+            style={{ color: 'var(--pf-ink)' }}
+          >
+            {team ?? 'No team on their record'}
+          </span>
+        </span>
+      </span>
+      <dl className="mt-[0.8rem] grid flex-1 content-start grid-cols-2 gap-x-[1rem] gap-y-[0.7rem] text-[0.82rem]">
+        <Fact label="Role" value={role ?? '—'} />
+        <Fact label="Open now" value={String(openNow)} />
+        <Fact
+          label="Overdue"
+          value={String(overdue)}
+          tone={overdue > 0 ? 'var(--pf-red-ink)' : undefined}
+        />
+        <Fact label="Reviews go to" value="Whoever assigned it" />
+      </dl>
+    </div>
+  );
+}
+
+function Fact({ label, value, tone }: { label: string; value: string; tone?: string }) {
+  return (
+    <div className="min-w-0">
+      <dt className="truncate text-[0.74rem]" style={{ color: 'var(--pf-mute)' }}>
+        {label}
+      </dt>
+      <dd
+        className="truncate font-semibold"
+        style={{ color: tone ?? 'var(--pf-ink)' }}
+        title={value}
+      >
+        {value}
+      </dd>
+    </div>
   );
 }
