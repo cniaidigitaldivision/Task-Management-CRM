@@ -23,6 +23,63 @@
 
 ---
 
+## 🧭 2026-09-24 — THE OFFICE'S OWN TASK ASSIGNMENT FORM, EXPORTED
+
+Owner sent the paper form (`TASK ASSIGNMENT FORM / CNI OFFICE, ISLAMABAD`) as a
+PDF and asked for it from the Performance page: *"Every person can download or
+export their daily task in this template ... you will show that today's tasks
+are: these ones are completed, these are left, these are overdue."*
+
+⚠️ **The first attempt to share it came through as the Performance overview PNG
+again.** I said so rather than guessing at the columns; the owner then sent the
+real PDF and it read cleanly.
+
+### What it prints
+
+The office's own sheet, on the company letterhead: Name / Department /
+Designation, Assigned By, Assigned Date, the three Priority boxes with one
+ticked, then the numbered table, then the four signature blocks — **drawn
+empty**, because *"the signature will be done by hand"*.
+
+Beyond the paper form, and each for a stated reason:
+
+| Added | Why |
+|---|---|
+| **Assigned By** per row | *"One task is definitely assigned by only one person ... just print the name."* A DAY can still come from several people, so the header says "Various (n people - see rows)" and the rows carry the name. A task somebody raised for themselves reads **Self**. |
+| **Priority** per row | The header's three boxes describe the sheet; a day can hold a High task and a Low one. `urgent` ticks High — the enum has four values and the form has three boxes. |
+| **Completed / Left / Overdue** strip | The owner asked for exactly those three words. ⚠️ "Overdue" is not a status — it is open with a date that has passed, judged against the day the sheet is for, so it is computed rather than looked up. |
+| Reference + project under each title | So a printed row can be found again in the system. |
+
+### What counts as "today's tasks"
+
+Due that day, **or** completed that day, **or** still open and due before it. The
+third is the one worth stating: an overdue task is still on your plate today,
+which is what a daily submission to an officer is for.
+
+### Ten rows is the paper's limit, not ours
+
+*"If it goes to the next page, go in there ... whether it's a 10-page or a
+1-page, no problem."* Measured: 30 of 209 person-days exceed ten tasks and the
+busiest is 21. The table runs on, numbering continues, each page is numbered,
+and the signature blocks are never orphaned onto a page with no tasks above them.
+
+### Verified by reading the PDF back, not by trusting the code
+
+`read-the-pdf-back` is in memory for a reason. Generated through the real UI:
+
+- **admin, 17 Sept: 15 pages**, everybody; **member, same day: 2 pages**, only
+  themselves — the access rule from yesterday carries into the export, and it is
+  re-applied in the action because a server action is a public endpoint.
+- Abdul Moiz's sheet: header correct, Medium ticked, "Completed 19 · Left 10 ·
+  Overdue 7", rows 1–21 on page 1 and 22–29 continuing on page 2 under a
+  "(continued)" header, signature blocks present and blank.
+- A range longer than 31 days is refused with the reason, rather than building a
+  document nobody can read.
+
+**Green:** 152 test files · 3821 tests · typecheck · lint · production build.
+
+---
+
 ## 🧭 2026-09-23 (later still) — A MEMBER SEES THEIR OWN PERFORMANCE
 
 Owner: *"I want the admin to be able to view this page or view this performance,

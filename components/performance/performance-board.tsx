@@ -27,7 +27,7 @@ import {
   Users,
 } from 'lucide-react';
 
-import { performanceInsightAction } from '@/app/actions/performance';
+import { exportTaskFormsAction, performanceInsightAction } from '@/app/actions/performance';
 import { PersonDrawer } from '@/components/performance/person-drawer';
 import {
   CompareTab,
@@ -173,6 +173,7 @@ export function PerformanceBoard({
   const [tab, setTab] = React.useState<TabKey>('overview');
   const [openPerson, setOpenPerson] = React.useState<PersonStat | null>(null);
   const [picked, setPicked] = React.useState<ReadonlySet<string>>(new Set());
+  const [exporting, setExporting] = React.useState(false);
 
   /* ── ⚠️ THE PERSON IS THE URL'S, AND THE SCREEN DOES NOT WAIT FOR IT ──────
      It was client state while it only hid rows already drawn. It cannot be now:
@@ -268,7 +269,29 @@ export function PerformanceBoard({
 
   return (
     <div className="perf-ui mx-auto max-w-[var(--content-max)]">
-      <Header rangeLabel={period.label} asOf={asOf} updatedAt={updatedAt} ownOnly={ownOnly} />
+      <Header
+        rangeLabel={period.label}
+        asOf={asOf}
+        updatedAt={updatedAt}
+        ownOnly={ownOnly}
+        onExport={() => setExporting(true)}
+      />
+
+      {exporting && (
+        <ExportDialog
+          from={period.from}
+          to={period.to}
+          today={today}
+          ownOnly={ownOnly}
+          personName={chosenName}
+          scope={{
+            personId: person === 'all' ? null : person,
+            departmentId: period.team === 'all' ? null : period.team,
+            projectId: period.project === 'all' ? null : period.project,
+          }}
+          onClose={() => setExporting(false)}
+        />
+      )}
 
       {/* ── Tabs ─────────────────────────────────────────────────────────── */}
       <div
@@ -628,11 +651,13 @@ function Header({
   asOf,
   updatedAt,
   ownOnly,
+  onExport,
 }: {
   rangeLabel: string;
   asOf: string;
   updatedAt: string;
   ownOnly: boolean;
+  onExport: () => void;
 }) {
   return (
     <div className="flex flex-wrap items-start gap-x-[2rem] gap-y-[0.9rem]">
@@ -672,8 +697,9 @@ function Header({
           <Plus className="size-[1.05rem]" aria-hidden="true" />
           Assign task
         </Link>
-        <Link
-          href={'/reports' as Route}
+        <button
+          type="button"
+          onClick={onExport}
           className="inline-flex items-center gap-[0.5rem] rounded-[0.7rem] border px-[1.05rem] py-[0.85rem] text-[0.87rem] font-semibold leading-none"
           style={{
             background: 'var(--pf-surface)',
@@ -683,8 +709,8 @@ function Header({
           }}
         >
           <Download className="size-[1.05rem]" aria-hidden="true" />
-          Export report
-        </Link>
+          Export task form
+        </button>
       </div>
 
       <div className="ml-auto text-right">
@@ -1610,5 +1636,191 @@ function AssessmentsTab({
         </div>
       </Panel>
     </div>
+  );
+}
+
+
+/* ── The task assignment form export — owner, 2026-09-24 ─────────────────── */
+
+/**
+ * Pick the days, get the office's own form.
+ *
+ * ⚠️ IT OPENS ON TODAY, NOT ON THE PAGE'S PERIOD. *"You just imagine that every
+ * day every team member exports his task list from here and submits it to the
+ * officer."* That is the daily case, so it is the default; the two date fields
+ * are there because the owner also asked for *"a date calendar or a date range
+ * there that we can select"*.
+ *
+ * ⚠️ AND IT IS A REAL DIALOG, NOT A NAVIGATION. Opening and closing it touches
+ * no network (Rule Zero, law 1); only pressing Export does.
+ */
+function ExportDialog({
+  from,
+  to,
+  today,
+  ownOnly,
+  personName,
+  scope,
+  onClose,
+}: {
+  from: string;
+  to: string;
+  today: string;
+  ownOnly: boolean;
+  personName: string | null;
+  scope: { personId: string | null; departmentId: string | null; projectId: string | null };
+  onClose: () => void;
+}) {
+  const [start, setStart] = React.useState(today);
+  const [end, setEnd] = React.useState(today);
+  const [state, setState] = React.useState<
+    { kind: 'idle' } | { kind: 'working' } | { kind: 'failed'; error: string }
+  >({ kind: 'idle' });
+
+  const run = async () => {
+    setState({ kind: 'working' });
+    const r = await exportTaskFormsAction({ from: start, to: end, ...scope });
+    if (!r.ok || !r.base64) {
+      setState({ kind: 'failed', error: r.error ?? 'The form could not be made.' });
+      return;
+    }
+    /* A data: URL, so nothing has to be written to a server to be downloaded. */
+    const a = document.createElement('a');
+    a.href = `data:application/pdf;base64,${r.base64}`;
+    a.download = r.fileName ?? 'task-assignment-form.pdf';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    onClose();
+  };
+
+  const days =
+    Math.round((Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86_400_000) + 1;
+  const bad = !Number.isFinite(days) || days < 1;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-center p-[1rem]"
+      style={{ background: 'rgb(8 18 24 / 0.45)' }}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Export the task assignment form"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div
+        className="w-full max-w-[26rem] rounded-[0.95rem] border p-[1.35rem]"
+        style={{
+          background: 'var(--pf-surface)',
+          borderColor: 'var(--pf-line)',
+          boxShadow: '0 12px 40px rgb(8 18 24 / 0.25)',
+        }}
+      >
+        <h2 className="text-[1.15rem] font-bold leading-[1.25]" style={{ color: 'var(--pf-ink)' }}>
+          Task assignment form
+        </h2>
+        <p className="mt-[0.3rem] text-[0.86rem] leading-[1.45]" style={{ color: 'var(--pf-soft)' }}>
+          One sheet per person per day, on the CNI Islamabad form, with the signature blocks left
+          blank to sign by hand.
+        </p>
+
+        <div className="mt-[1.1rem] grid grid-cols-2 gap-[0.8rem]">
+          {([
+            ['From', start, setStart],
+            ['To', end, setEnd],
+          ] as const).map(([label, value, set]) => (
+            <label key={label} className="block">
+              <span className="block text-[0.76rem] font-medium" style={{ color: 'var(--pf-soft)' }}>
+                {label}
+              </span>
+              <input
+                type="date"
+                value={value}
+                max={today}
+                onChange={(e) => set(e.target.value)}
+                className="mt-[0.3rem] h-[2.6rem] w-full rounded-[0.6rem] border px-[0.7rem] text-[0.87rem] outline-none"
+                style={{
+                  background: 'var(--pf-field)',
+                  borderColor: 'var(--pf-field-line)',
+                  color: 'var(--pf-ink)',
+                }}
+              />
+            </label>
+          ))}
+        </div>
+
+        <div className="mt-[0.7rem] flex flex-wrap gap-[0.4rem]">
+          {/* The two the owner actually described: today, and the page's period. */}
+          <Chip onClick={() => { setStart(today); setEnd(today); }}>Today</Chip>
+          <Chip onClick={() => { setStart(from); setEnd(to); }}>This period</Chip>
+        </div>
+
+        <p className="mt-[0.9rem] text-[0.82rem] leading-[1.45]" style={{ color: 'var(--pf-faint)' }}>
+          {ownOnly
+            ? 'Your own tasks only.'
+            : personName
+              ? `${personName} only.`
+              : 'Everybody the filters are showing.'}{' '}
+          {bad
+            ? 'The To date is before the From date.'
+            : `${days} day${days === 1 ? '' : 's'}. A day with no task is not printed.`}
+        </p>
+
+        {state.kind === 'failed' && (
+          <p
+            className="mt-[0.8rem] rounded-[0.6rem] px-[0.9rem] py-[0.65rem] text-[0.84rem]"
+            style={{ background: 'var(--pf-red-bg)', color: 'var(--pf-red-ink)' }}
+          >
+            {state.error}
+          </p>
+        )}
+
+        <div className="mt-[1.2rem] flex items-center justify-end gap-[0.6rem]">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-[0.7rem] px-[0.95rem] py-[0.7rem] text-[0.86rem] font-semibold leading-none"
+            style={{ color: 'var(--pf-soft)' }}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void run()}
+            disabled={bad || state.kind === 'working'}
+            className="inline-flex items-center gap-[0.5rem] rounded-[0.7rem] px-[1.05rem] py-[0.72rem] text-[0.86rem] font-semibold leading-none disabled:opacity-50"
+            style={{ background: 'var(--pf-teal)', color: 'var(--pf-on-solid)' }}
+          >
+            {state.kind === 'working' ? (
+              <>
+                <Loader2 className="size-[1rem] animate-spin" aria-hidden="true" /> Building…
+              </>
+            ) : (
+              <>
+                <Download className="size-[1rem]" aria-hidden="true" /> Export PDF
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Chip({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded-[0.6rem] border px-[0.7rem] py-[0.45rem] text-[0.78rem] leading-none"
+      style={{
+        background: 'var(--pf-violet-chip-bg)',
+        borderColor: 'var(--pf-violet-line)',
+        color: 'var(--pf-violet-chip)',
+      }}
+    >
+      {children}
+    </button>
   );
 }

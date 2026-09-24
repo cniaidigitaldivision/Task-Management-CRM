@@ -3,11 +3,19 @@
 import { requireRole, requireUser } from '@/lib/auth/current-user';
 import {
   completedInWindow,
+  dailyTaskForms,
   performanceBoard,
   personDetail,
+  type FormTaskRow,
   type PersonDetail,
   type PersonStat,
 } from '@/lib/db/queries/performance';
+import { companyLetterhead } from '@/lib/db/queries/invoices';
+import {
+  composeTaskAssignmentForms,
+  type FormRow,
+  type TaskFormSheet,
+} from '@/lib/pdf/task-assignment-form';
 import { writeNarrative, type Narrative } from '@/lib/ai/narrative';
 import {
   dayAccount,
@@ -303,4 +311,212 @@ export async function personPerformanceAction(
 export async function performanceNowAction(): Promise<{ nowMs: number; today: string }> {
   await requireRoleAndUser();
   return { nowMs: nowMs(), today: isoDateIn() };
+}
+
+
+/* ============================================================================
+ * THE DAILY TASK ASSIGNMENT FORM — owner, 2026-09-24
+ * ----------------------------------------------------------------------------
+ * *"Every person can download or export their daily task in this template from
+ * the performance page ... you will show that today's tasks are: these ones are
+ * completed, these are left, these are overdue."*
+ *
+ * ── ⚠️ THE SCOPE IS THE CALLER'S, NOT THE ARGUMENT'S ─────────────────────
+ * A Member exports themselves whatever the request says — the same override the
+ * page applies, repeated here because a server action is a public endpoint.
+ * ========================================================================= */
+
+export interface FormExport {
+  readonly ok: boolean;
+  readonly error?: string;
+  readonly base64?: string;
+  readonly sheets?: number;
+  readonly fileName?: string;
+}
+
+/** The paper form offers three boxes; the system has four priorities. */
+const PRIORITY_BOX: Record<string, 'High' | 'Medium' | 'Low'> = {
+  urgent: 'High',
+  high: 'High',
+  medium: 'Medium',
+  low: 'Low',
+};
+
+const PRIORITY_WORD: Record<string, string> = {
+  urgent: 'Urgent',
+  high: 'High',
+  medium: 'Medium',
+  low: 'Low',
+};
+
+/**
+ * How a row reads in "Progress on Task".
+ *
+ * ⚠️ OVERDUE IS A FACT ABOUT THE DAY, NOT A STATUS. Nothing in the database is
+ * "overdue" — it is open with a due date that has passed, judged against the
+ * day the sheet is for. The owner asked for that word on the sheet, so it is
+ * computed here rather than looked up.
+ */
+function progressOf(row: FormTaskRow, day: string): { progress: string; tone: FormRow['tone'] } {
+  if (row.status === 'done') {
+    return { progress: row.completedOn === day ? 'Completed today' : 'Completed', tone: 'green' };
+  }
+  if (row.status === 'cancelled') return { progress: 'Cancelled', tone: 'grey' };
+  if (row.dueDate && row.dueDate < day) return { progress: 'Overdue', tone: 'red' };
+  if (row.status === 'blocked') return { progress: 'Blocked', tone: 'red' };
+  if (row.status === 'in_review') return { progress: 'In review', tone: 'amber' };
+  if (row.status === 'in_progress') return { progress: 'In progress', tone: 'amber' };
+  if (row.status === 'revisions') return { progress: 'In revision', tone: 'amber' };
+  return { progress: 'Not started', tone: 'amber' };
+}
+
+const dayLabel = (iso: string) =>
+  new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-GB', {
+    timeZone: 'UTC',
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+
+const shortDay = (iso: string | null) =>
+  iso
+    ? new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-GB', {
+        timeZone: 'UTC',
+        day: '2-digit',
+        month: 'short',
+        year: '2-digit',
+      })
+    : '-';
+
+/** A whole month of sheets for sixteen people is already ~500 pages. */
+const MAX_DAYS = 31;
+
+export async function exportTaskFormsAction(scope: {
+  from: string;
+  to: string;
+  personId?: string | null;
+  departmentId?: string | null;
+  projectId?: string | null;
+}): Promise<FormExport> {
+  const { user, ownOnly } = await requireRoleAndUser();
+
+  const from = scope.from;
+  const span = Math.round(
+    (Date.parse(`${scope.to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000,
+  );
+  if (!Number.isFinite(span) || span < 0) {
+    return { ok: false, error: 'That date range is not valid.' };
+  }
+  if (span + 1 > MAX_DAYS) {
+    return {
+      ok: false,
+      error: `That range is ${span + 1} days. Export up to ${MAX_DAYS} days at a time — a longer range makes a document nobody can read.`,
+    };
+  }
+
+  try {
+    const [forms, company] = await Promise.all([
+      dailyTaskForms(
+        user.id,
+        { from, to: scope.to },
+        {
+          personId: ownOnly ? user.id : (scope.personId ?? null),
+          departmentId: ownOnly ? null : (scope.departmentId ?? null),
+          projectId: scope.projectId ?? null,
+        },
+      ),
+      companyLetterhead(user.id),
+    ]);
+
+    /* ⚠️ A PERSON-DAY WITH NO TASKS GETS NO SHEET. `dailyTaskForms` only returns
+       days that have rows, so an empty Sunday is absent rather than printed as
+       a blank form somebody has to throw away. */
+    const sheets: TaskFormSheet[] = forms.map((f) => {
+      const rows: FormRow[] = f.rows.map((r) => {
+        const p = progressOf(r, f.day);
+        return {
+          reference: `${r.reference}  ·  ${r.projectName}`,
+          description: r.title,
+          /* One task has exactly one assigner — the owner's point. When that is
+             the person themselves, say so instead of printing their own name. */
+          assignedBy: r.selfRaised ? 'Self' : (r.assignedByName ?? '-'),
+          priority: PRIORITY_WORD[r.priority] ?? r.priority,
+          startDate: shortDay(r.startDate),
+          endDate: shortDay(r.dueDate),
+          progress: p.progress,
+          tone: p.tone,
+        };
+      });
+
+      const given = f.rows.filter((r) => !r.selfRaised && r.assignedByName);
+      const names = [...new Set(given.map((r) => r.assignedByName as string))];
+      /* The header's single "Assigned By" holds when a day came from one person;
+         when it did not, the rows carry it and the header says so. */
+      const assignedBy =
+        names.length === 1
+          ? names[0]
+          : names.length === 0
+            ? 'Self-raised'
+            : `Various (${names.length} people - see rows)`;
+
+      const boxes = [...new Set(f.rows.map((r) => PRIORITY_BOX[r.priority]).filter(Boolean))];
+      const order: Array<'High' | 'Medium' | 'Low'> = ['High', 'Medium', 'Low'];
+      const priority = order.find((b) => boxes.includes(b)) ?? null;
+
+      const completed = f.rows.filter((r) => r.status === 'done').length;
+      const overdue = f.rows.filter(
+        (r) => r.status !== 'done' && r.status !== 'cancelled' && r.dueDate && r.dueDate < f.day,
+      ).length;
+      const remaining = f.rows.filter(
+        (r) => r.status !== 'done' && r.status !== 'cancelled',
+      ).length;
+
+      return {
+        name: f.personName,
+        department: f.department ?? '-',
+        designation: f.designation ?? '-',
+        assignedBy,
+        assignedDate: dayLabel(f.day),
+        priority,
+        dayLabel: dayLabel(f.day),
+        rows,
+        completed,
+        remaining,
+        overdue,
+      };
+    });
+
+    if (sheets.length === 0) {
+      return {
+        ok: false,
+        error: 'Nothing was due, completed or outstanding in that range, so there is no form to print.',
+      };
+    }
+
+    const bytes = await composeTaskAssignmentForms({
+      company,
+      generatedFor: user.fullName,
+      generatedAt: new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Asia/Karachi',
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      }).format(new Date()),
+      sheets,
+    });
+
+    const one = sheets.length === 1 ? `-${sheets[0].name.replace(/\s+/g, '-')}` : '';
+    return {
+      ok: true,
+      base64: Buffer.from(bytes).toString('base64'),
+      sheets: sheets.length,
+      fileName: `task-assignment-form${one}-${from}${from === scope.to ? '' : `_to_${scope.to}`}.pdf`,
+    };
+  } catch (error) {
+    console.error('[performance] task form export failed', error);
+    return { ok: false, error: 'The form could not be made. Nothing was changed.' };
+  }
 }

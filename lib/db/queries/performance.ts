@@ -856,6 +856,157 @@ export async function bucketTrend(
     .reverse();
 }
 
+/* ============================================================================
+ * THE DAILY TASK ASSIGNMENT FORM — owner, 2026-09-24
+ * ----------------------------------------------------------------------------
+ * *"Every person can download or export their daily task in this template from
+ * the performance page and this is the daily task list ... you will show that
+ * today's tasks are: these ones are completed, these are left, these are
+ * overdue."*
+ *
+ * The paper form is `TASK ASSIGNMENT FORM / CNI OFFICE, ISLAMABAD`: one person
+ * per sheet, ten numbered rows, then signature blocks for the individual, HOD,
+ * C.O.O and C.E.O.
+ *
+ * ── ⚠️ WHAT COUNTS AS "TODAY'S TASKS" ────────────────────────────────────
+ * A task is on somebody's sheet for day D when ANY of these is true:
+ *
+ *   · it is due on D                      — today's list
+ *   · it was completed on D               — what they finished
+ *   · it is still open and was due before D — carried over, still owed
+ *
+ * The third is the one worth stating: an overdue task is still on your plate
+ * today, and the owner asked for exactly that word on the sheet. It means the
+ * same task appears on each day's sheet until it is closed, which is what a
+ * daily submission to an officer is for.
+ * ========================================================================= */
+
+export interface FormTaskRow {
+  readonly reference: string;
+  readonly title: string;
+  readonly assignedByName: string | null;
+  /** True when they raised it themselves rather than being given it. */
+  readonly selfRaised: boolean;
+  readonly priority: string;
+  readonly startDate: string | null;
+  /** Set when `start_date` is empty and this is the day it was created instead. */
+  readonly startIsCreated: boolean;
+  readonly dueDate: string | null;
+  readonly status: string;
+  readonly completedOn: string | null;
+  readonly projectName: string;
+}
+
+export interface TaskForm {
+  readonly personId: string;
+  readonly personName: string;
+  readonly department: string | null;
+  readonly designation: string | null;
+  /** The day this sheet is for, `YYYY-MM-DD`. */
+  readonly day: string;
+  readonly rows: readonly FormTaskRow[];
+}
+
+/**
+ * One sheet per person per day across the range.
+ *
+ * ⚠️ ONE STATEMENT FOR THE WHOLE RANGE, NOT ONE PER DAY. A week for sixteen
+ * people is 112 sheets; asking per sheet would be 112 round trips to Singapore.
+ * The days are generated in SQL and joined against the tasks once.
+ *
+ * ⚠️ AND IT IS BOUNDED. `limitDays` caps the range so a hand-typed date cannot
+ * ask for a year of sheets in one request.
+ */
+export async function dailyTaskForms(
+  actorId: string,
+  range: { from: string; to: string },
+  filters: PerfFilters = {},
+): Promise<TaskForm[]> {
+  const departmentId = filters.departmentId ?? null;
+  const projectId = filters.projectId ?? null;
+  const personId = filters.personId ?? null;
+
+  const rows = await withUser(actorId, (tx) => tx`
+    with days as (
+      select d::date as day
+        from generate_series(${range.from}::date, ${range.to}::date, interval '1 day') as d
+    ),
+    people as (
+      select u.id, u.full_name, u.role_title, d.name as department_name
+        from public.users u
+        left join public.departments d on d.id = u.department_id
+       where u.is_active
+         and (${departmentId}::uuid is null or u.department_id = ${departmentId}::uuid)
+         and (${personId}::uuid is null or u.id = ${personId}::uuid)
+    )
+    select p.id as person_id, p.full_name, p.role_title, p.department_name,
+           dy.day,
+           t.reference, t.title, t.priority::text as priority, t.status::text as status,
+           t.start_date, t.due_date, t.created_at,
+           (t.completed_at at time zone 'Asia/Karachi')::date as completed_on,
+           pr.name as project_name,
+           t.created_by_id, t.assignee_id,
+           cb.full_name as created_by_name
+      from people p
+      cross join days dy
+      join public.tasks t
+        on t.assignee_id = p.id
+       and not t.is_deleted
+       and (${projectId}::uuid is null or t.project_id = ${projectId}::uuid)
+       and (
+             t.due_date = dy.day
+          or (t.completed_at at time zone 'Asia/Karachi')::date = dy.day
+          or (t.status not in ('done', 'cancelled')
+              and t.due_date is not null and t.due_date < dy.day)
+       )
+      join public.projects pr on pr.id = t.project_id
+      left join public.users cb on cb.id = t.created_by_id
+     order by p.full_name, dy.day,
+              case t.status when 'done' then 2 else 1 end,
+              t.due_date nulls last, t.reference
+  `);
+
+  const byKey = new Map<string, TaskForm & { rows: FormTaskRow[] }>();
+  for (const r of rows as Array<Record<string, unknown>>) {
+    const day = dateOnly(r.day) ?? '';
+    const key = `${String(r.person_id)}|${day}`;
+    let form = byKey.get(key);
+    if (!form) {
+      form = {
+        personId: String(r.person_id),
+        personName: String(r.full_name),
+        department: (r.department_name as string | null) ?? null,
+        designation: (r.role_title as string | null) ?? null,
+        day,
+        rows: [],
+      };
+      byKey.set(key, form);
+    }
+    const start = dateOnly(r.start_date);
+    form.rows.push({
+      reference: String(r.reference),
+      title: String(r.title),
+      /* ⚠️ ONE TASK, ONE ASSIGNER \u2014 the owner's own words. `created_by_id` is
+         who raised it, and when that is the assignee they gave it to
+         themselves, which the sheet says rather than printing their own name
+         back at them. */
+      assignedByName: (r.created_by_name as string | null) ?? null,
+      selfRaised: String(r.created_by_id ?? '') === String(r.assignee_id ?? ''),
+      priority: String(r.priority),
+      startDate: start ?? dateOnly(r.created_at),
+      startIsCreated: start === null,
+      dueDate: dateOnly(r.due_date),
+      status: String(r.status),
+      completedOn: dateOnly(r.completed_on),
+      projectName: String(r.project_name),
+    });
+  }
+
+  return [...byKey.values()].sort(
+    (a, b) => a.personName.localeCompare(b.personName) || a.day.localeCompare(b.day),
+  );
+}
+
 /**
  * `date`/`timestamptz` as `YYYY-MM-DD`.
  *
