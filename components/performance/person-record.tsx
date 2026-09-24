@@ -33,14 +33,17 @@ import {
 } from 'lucide-react';
 
 import { ActivityHistory } from '@/components/performance/activity-history';
+import { PerformanceHistory } from '@/components/performance/performance-history';
 import { dayWord } from '@/lib/view/activity';
-import { Caveat, CompareTab, QualityTab } from '@/components/performance/performance-tabs';
+import { Caveat, QualityTab } from '@/components/performance/performance-tabs';
 import { TaskLedger } from '@/components/performance/task-ledger';
 import { FilterPill, Nothing, Panel, StatCard } from '@/components/performance/performance-ui';
 import { Avatar } from '@/components/ui/avatar';
 import type {
+  Assessment,
   BucketRow,
   HistoryEntry,
+  PeriodRow,
   PersonStat,
   ProjectRow,
   LedgerDetail,
@@ -101,6 +104,9 @@ export interface PersonRecordProps {
   readonly ledger: readonly LedgerRow[];
   readonly ledgerTotal: number;
   readonly ledgerSeed: { id: string; detail: LedgerDetail } | null;
+  readonly viewer: { id: string; name: string };
+  readonly periods: readonly PeriodRow[];
+  readonly assessments: readonly Assessment[];
   readonly sources: TaskSources;
   readonly quality: QualitySummary;
   readonly weekly: readonly BucketRow[];
@@ -235,12 +241,14 @@ export function PersonRecord(p: PersonRecordProps) {
         )}
 
         {tab === 'history' && (
-          <CompareTab
+          <PerformanceHistory
+            person={{ id: p.person.id, name: p.person.name }}
+            viewer={p.viewer}
+            periods={p.periods}
+            assessments={p.assessments}
             weekly={p.weekly}
             monthly={p.monthly}
-            board={[p.person]}
-            picked={new Set()}
-            personName={p.person.name}
+            onTab={setTab}
           />
         )}
 

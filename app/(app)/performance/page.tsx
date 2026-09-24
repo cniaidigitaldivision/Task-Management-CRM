@@ -7,6 +7,8 @@ import {
   bucketTrend,
   performanceBoard,
   performanceFilterOptions,
+  assessmentsFor,
+  periodHistory,
   personDetail,
   taskLedger,
   taskLedgerDetail,
@@ -134,6 +136,8 @@ export default async function PerformancePage({
     sources,
     detail,
     ledger,
+    periods,
+    assessments,
   ] = await Promise.all([
       performanceBoard(user.id, scoped, filters),
       workNeedingAttention(user.id, today, filters),
@@ -158,6 +162,12 @@ export default async function PerformancePage({
       /* The ledger is the person record's Tasks tab; the team view never draws
          it, so it is not paid for there. */
       person ? taskLedger(user.id, scoped, filters) : Promise.resolve(null),
+      /* ⚠️ THE PERFORMANCE HISTORY TAB'S TWO READS. `periodHistory` generates
+         its own periods rather than reading the page's, because the tab is a
+         HISTORY — it shows the last six weeks whatever window the filter is
+         set to. */
+      person ? periodHistory(user.id, person, 'week', today) : Promise.resolve(null),
+      person ? assessmentsFor(user.id, person) : Promise.resolve(null),
     ]);
 
   /* ⚠️ THE ROW THAT OPENS BY DEFAULT COSTS NO ROUND TRIP. The ledger opens on
@@ -183,6 +193,12 @@ export default async function PerformancePage({
         person: person ?? 'all',
       }}
       ownOnly={ownOnly}
+      /* ⚠️ WHO IS ASKING, not just what they may see. The Performance history
+         tab refuses to let somebody write an assessment about themselves, and
+         it can only refuse if it knows who they are. */
+      viewer={{ id: user.id, name: user.fullName }}
+      periods={periods ?? []}
+      assessments={assessments ?? []}
       today={today}
       asOf={dayLabel(today)}
       /* The server's clock, so "waiting 52 hours" is not computed against a

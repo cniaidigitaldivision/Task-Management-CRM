@@ -1317,7 +1317,7 @@ export async function assignmentSources(
        and (${projectId}::uuid is null or t.project_id = ${projectId}::uuid)
        and (${personId}::uuid is null or t.assignee_id = ${personId}::uuid)
        and (${departmentId}::uuid is null or u.department_id = ${departmentId}::uuid)
-       /* Raised in the window, or still open \u2014 the same shape the rest of the
+       /* Raised in the window, or still open — the same shape the rest of the
           page uses, so the figures agree with the cards above them. */
        and (
              (t.created_at at time zone 'Asia/Karachi')::date
@@ -1351,14 +1351,310 @@ export async function assignmentSources(
 }
 
 /* ============================================================================
- * THE EVENTS BEHIND THE AI SUMMARY \u2014 owner, 2026-09-24
+ * PERFORMANCE HISTORY — the owner's reference, 2026-09-24
+ * ----------------------------------------------------------------------------
+ * A bar per period, a table of periods, and the assessment written about one.
+ *
+ * ── ⚠️ THE PERIODS ARE GENERATED, NOT GROUPED ─────────────────────────────
+ * `bucketTrend` groups completed tasks by week, so a week in which somebody
+ * finished nothing simply does not exist — the chart closes the gap and a bad
+ * week reads as if it never happened. Here the weeks come from
+ * `generate_series` and the counts are attached to them, so an empty week is a
+ * zero bar, which is the truth.
+ *
+ * ── ⚠️ "OVERDUE AT CUTOFF" IS AS AT THE PERIOD'S END, NOT TODAY ───────────
+ * The whole point of a historical table is that each row says what was true
+ * THEN. A count of what is overdue now, repeated down the column, would be the
+ * same number six times and would silently rewrite history every morning.
+ *
+ * ── ⚠️ "REVIEWED", NOT "VERIFIED" ─────────────────────────────────────────
+ * Owner, 2026-09-24: *"There is no term you can say 'verified' ... the person
+ * who assigns the task will review that task."* So a task counts as reviewed
+ * when SOMEBODY OTHER THAN THE PERSON DOING IT closed it or sent it back.
+ *
+ * ⚠️ AND MEASURED FIRST, THE ANSWER IS ALMOST ALWAYS ZERO. Across 1,251 live
+ * tasks: 61 were ever put into review, 0 were ever sent back, and 36 were closed
+ * by someone else. That is not a reason to drop the column — it is the column
+ * telling a manager that review is not happening, which is worth knowing.
+ * ========================================================================= */
+
+export interface PeriodRow {
+  /** "2026-W38" or "2026-09". */
+  readonly bucket: string;
+  readonly startsOn: string;
+  readonly endsOn: string;
+  readonly completed: number;
+  /** Closed or sent back by somebody other than the person doing the work. */
+  readonly reviewed: number;
+  readonly onTime: number;
+  /** Completed tasks that HAD a due date — the only ones on-time can judge. */
+  readonly judged: number;
+  /** Open and past its date as at the end of this period. */
+  readonly overdueAtCutoff: number;
+  /** The assessment written about this period, when there is one. */
+  readonly assessmentId: string | null;
+  readonly assessmentState: 'draft' | 'reviewed' | 'published' | null;
+}
+
+export async function periodHistory(
+  actorId: string,
+  personId: string,
+  by: 'week' | 'month',
+  today: string,
+  count = 6,
+): Promise<PeriodRow[]> {
+  const unit = by === 'week' ? 'week' : 'month';
+  const label = by === 'week' ? 'IYYY-"W"IW' : 'YYYY-MM';
+  const one = `1 ${unit}`;
+  const back = `${count - 1} ${unit}`;
+
+  const rows = await withUser(actorId, (tx) => tx`
+    with periods as (
+      select d::date as ps,
+             (d + ${one}::interval - interval '1 day')::date as pe
+        from generate_series(
+               date_trunc(${unit}, ${today}::date) - ${back}::interval,
+               date_trunc(${unit}, ${today}::date),
+               ${one}::interval
+             ) d
+    )
+    select to_char(periods.ps, ${label}) as bucket,
+           periods.ps as starts_on,
+           periods.pe as ends_on,
+           m.completed, m.reviewed, m.on_time, m.judged, m.overdue_at_cutoff,
+           a.id as assessment_id, a.state::text as assessment_state
+      from periods
+      cross join lateral (
+        select
+          count(*) filter (where f.done_in)::int as completed,
+          count(*) filter (where f.done_in and t.due_date is not null)::int as judged,
+          count(*) filter (
+            where f.done_in and t.due_date is not null
+              and (t.completed_at at time zone 'Asia/Karachi')::date <= t.due_date
+          )::int as on_time,
+          /* Somebody other than the doer closed it or sent it back. */
+          count(*) filter (
+            where f.done_in and exists (
+              select 1 from public.activity_log al
+               where al.entity_type = 'task' and al.entity_id = t.id
+                 and al.action in ('done', 'revisions')
+                 and al.actor_id is distinct from t.assignee_id
+            )
+          )::int as reviewed,
+          /* As at the period's END, not today. */
+          count(*) filter (
+            where t.status <> 'cancelled'
+              and t.due_date is not null and t.due_date < periods.pe
+              and (t.completed_at is null
+                   or (t.completed_at at time zone 'Asia/Karachi')::date > periods.pe)
+          )::int as overdue_at_cutoff
+          from public.tasks t
+          cross join lateral (
+            select t.status = 'done' and t.completed_at is not null
+               and (t.completed_at at time zone 'Asia/Karachi')::date
+                   between periods.ps and periods.pe as done_in
+          ) f
+         where t.assignee_id = ${personId} and not t.is_deleted
+      ) m
+      left join public.performance_assessments a
+             on a.subject_id = ${personId}
+            and a.period_start = periods.ps
+            and a.period_end = periods.pe
+     order by periods.ps
+  `);
+
+  return (rows as Array<Record<string, unknown>>).map((r) => ({
+    bucket: String(r.bucket),
+    startsOn: dateOnly(r.starts_on) ?? '',
+    endsOn: dateOnly(r.ends_on) ?? '',
+    completed: Number(r.completed ?? 0),
+    reviewed: Number(r.reviewed ?? 0),
+    onTime: Number(r.on_time ?? 0),
+    judged: Number(r.judged ?? 0),
+    overdueAtCutoff: Number(r.overdue_at_cutoff ?? 0),
+    assessmentId: (r.assessment_id as string | null) ?? null,
+    assessmentState: (r.assessment_state as PeriodRow['assessmentState']) ?? null,
+  }));
+}
+
+/* ── The assessment itself ───────────────────────────────────────────────── */
+
+export interface Assessment {
+  readonly id: string;
+  readonly subjectId: string;
+  readonly periodKind: 'week' | 'month';
+  readonly periodStart: string;
+  readonly periodEnd: string;
+  readonly reviewerId: string | null;
+  readonly reviewerName: string | null;
+  readonly state: 'draft' | 'reviewed' | 'published';
+  readonly strengths: string;
+  readonly improvementAreas: string;
+  readonly employeeResponse: string;
+  readonly goal: string;
+  readonly acceptance: readonly string[];
+  readonly baseline: string;
+  readonly target: string;
+  readonly reviewDate: string | null;
+  readonly ownerId: string | null;
+  readonly ownerName: string | null;
+  readonly support: string;
+  readonly updatedAt: string;
+  readonly publishedAt: string | null;
+}
+
+/**
+ * Every assessment on this person that the caller may see.
+ *
+ * ⚠️ THE POLICY DECIDES, NOT THIS FUNCTION. A Member reading their own record
+ * gets only the published ones because `performance_assessments_select` says so
+ * — there is no `and state = 'published'` here to forget, or to get wrong in a
+ * second place.
+ */
+export async function assessmentsFor(actorId: string, personId: string): Promise<Assessment[]> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select a.*, r.full_name as reviewer_name, o.full_name as owner_name
+      from public.performance_assessments a
+      left join public.users r on r.id = a.reviewer_id
+      left join public.users o on o.id = a.owner_id
+     where a.subject_id = ${personId}
+     order by a.period_start desc
+     limit 60
+  `);
+
+  return (rows as Array<Record<string, unknown>>).map((r) => ({
+    id: String(r.id),
+    subjectId: String(r.subject_id),
+    periodKind: String(r.period_kind) as 'week' | 'month',
+    periodStart: dateOnly(r.period_start) ?? '',
+    periodEnd: dateOnly(r.period_end) ?? '',
+    reviewerId: (r.reviewer_id as string | null) ?? null,
+    reviewerName: (r.reviewer_name as string | null) ?? null,
+    state: String(r.state) as Assessment['state'],
+    strengths: String(r.strengths ?? ''),
+    improvementAreas: String(r.improvement_areas ?? ''),
+    employeeResponse: String(r.employee_response ?? ''),
+    goal: String(r.goal ?? ''),
+    acceptance: ((r.acceptance as string[] | null) ?? []).filter(Boolean),
+    baseline: String(r.baseline ?? ''),
+    target: String(r.target ?? ''),
+    reviewDate: dateOnly(r.review_date),
+    ownerId: (r.owner_id as string | null) ?? null,
+    ownerName: (r.owner_name as string | null) ?? null,
+    support: String(r.support ?? ''),
+    updatedAt: new Date(r.updated_at as string).toISOString(),
+    publishedAt: r.published_at ? new Date(r.published_at as string).toISOString() : null,
+  }));
+}
+
+/* ── Writing one ─────────────────────────────────────────────────────────── */
+
+export interface AssessmentDraft {
+  readonly subjectId: string;
+  readonly periodKind: 'week' | 'month';
+  readonly periodStart: string;
+  readonly periodEnd: string;
+  readonly strengths: string;
+  readonly improvementAreas: string;
+  readonly goal: string;
+  readonly acceptance: readonly string[];
+  readonly baseline: string;
+  readonly target: string;
+  readonly reviewDate: string | null;
+  readonly ownerId: string | null;
+  readonly support: string;
+}
+
+/**
+ * Save the draft for one person and one period.
+ *
+ * ⚠️ AN UPSERT ON THE PERIOD, NOT AN INSERT. One assessment per person per
+ * period is the table's own constraint; a second row for the same week is
+ * somebody pressing save twice, not a revision worth keeping.
+ *
+ * ⚠️ AND IT NEVER TOUCHES `state` OR `employee_response`. Saving the manager's
+ * wording must not silently un-publish a review the person has already read and
+ * answered — moving state is its own deliberate call below.
+ */
+export async function upsertAssessment(
+  actorId: string,
+  draft: AssessmentDraft,
+): Promise<{ id: string }> {
+  const rows = await withUser(actorId, (tx) => tx`
+    insert into public.performance_assessments
+      (subject_id, period_kind, period_start, period_end, reviewer_id, created_by_id,
+       strengths, improvement_areas, goal, acceptance, baseline, target, review_date,
+       owner_id, support)
+    values
+      (${draft.subjectId}, ${draft.periodKind}, ${draft.periodStart}::date, ${draft.periodEnd}::date,
+       ${actorId}, ${actorId},
+       ${draft.strengths}, ${draft.improvementAreas}, ${draft.goal},
+       ${draft.acceptance as string[]}::text[], ${draft.baseline}, ${draft.target},
+       ${draft.reviewDate}::date, ${draft.ownerId}, ${draft.support})
+    on conflict (subject_id, period_start, period_end) do update
+       set reviewer_id = ${actorId},
+           strengths = excluded.strengths,
+           improvement_areas = excluded.improvement_areas,
+           goal = excluded.goal,
+           acceptance = excluded.acceptance,
+           baseline = excluded.baseline,
+           target = excluded.target,
+           review_date = excluded.review_date,
+           owner_id = excluded.owner_id,
+           support = excluded.support
+    returning id
+  `);
+  const row = (rows as Array<Record<string, unknown>>)[0];
+  if (!row) throw new Error('The assessment could not be saved.');
+  return { id: String(row.id) };
+}
+
+/** Draft → reviewed → published, or back. The trigger stamps `published_at`. */
+export async function setAssessmentState(
+  actorId: string,
+  id: string,
+  state: 'draft' | 'reviewed' | 'published',
+): Promise<boolean> {
+  const rows = await withUser(actorId, (tx) => tx`
+    update public.performance_assessments
+       set state = ${state}::public.assessment_state
+     where id = ${id}::uuid
+    returning id
+  `);
+  return (rows as unknown[]).length > 0;
+}
+
+/**
+ * The subject's own reply.
+ *
+ * ⚠️ NOTHING HERE CHECKS WHO IS ASKING, ON PURPOSE. The policy admits the
+ * subject and the trigger refuses every column but this one, so a second copy
+ * of the rule here would be a second copy to get wrong. It is bounded by the
+ * caller's session, like every other read and write in this file.
+ */
+export async function saveEmployeeResponse(
+  actorId: string,
+  id: string,
+  response: string,
+): Promise<boolean> {
+  const rows = await withUser(actorId, (tx) => tx`
+    update public.performance_assessments
+       set employee_response = ${response}
+     where id = ${id}::uuid
+    returning id
+  `);
+  return (rows as unknown[]).length > 0;
+}
+
+/* ============================================================================
+ * THE EVENTS BEHIND THE AI SUMMARY — owner, 2026-09-24
  * ----------------------------------------------------------------------------
  * *"Summarise this activity."*
  *
- * \u26a0\ufe0f THE BROWSER SENDS IDS, NOT SENTENCES. The obvious build has the client
+ * ⚠️ THE BROWSER SENDS IDS, NOT SENTENCES. The obvious build has the client
  * post the rows it has already drawn and the server forward them to the model.
  * That makes the model's input client-supplied text on a screen that reports on
- * a named colleague \u2014 anything typed into a task title would be read as part of
+ * a named colleague — anything typed into a task title would be read as part of
  * the brief. The ids are a SELECTION; every word the model sees is read back out
  * of the database here, under the caller's own RLS.
  * ========================================================================= */
@@ -1384,7 +1680,7 @@ export async function activityEvents(
   ids: readonly string[],
 ): Promise<SummaryEvent[]> {
   if (ids.length === 0) return [];
-  /* \u26a0\ufe0f BOUNDED, AND BOUND TO THE PERSON. A crafted list of ids cannot widen
+  /* ⚠️ BOUNDED, AND BOUND TO THE PERSON. A crafted list of ids cannot widen
      the answer past the record being read: the predicate still demands the row
      was theirs, by action or by assignment. */
   const rows = await withUser(actorId, (tx) => tx`
@@ -1720,7 +2016,7 @@ export async function dailyTaskForms(
     form.rows.push({
       reference: String(r.reference),
       title: String(r.title),
-      /* ⚠️ ONE TASK, ONE ASSIGNER \u2014 the owner's own words. `created_by_id` is
+      /* ⚠️ ONE TASK, ONE ASSIGNER — the owner's own words. `created_by_id` is
          who raised it, and when that is the assignee they gave it to
          themselves, which the sheet says rather than printing their own name
          back at them. */

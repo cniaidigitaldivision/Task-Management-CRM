@@ -191,6 +191,69 @@ export async function writeActivitySummary(log: string): Promise<ActivitySummary
   };
 }
 
+/* ============================================================================
+ * WHAT CHANGED AND WHY — owner, 2026-09-24
+ * ----------------------------------------------------------------------------
+ * The panel beside the Performance history chart. It is given the periods as
+ * rows — completed, reviewed, on-time, overdue at cutoff — and asked to say
+ * what moved between them.
+ *
+ * ⚠️ "AND WHY" IS THE DANGEROUS HALF OF THAT TITLE. Nothing in this system
+ * records why a week was worse than the one before it, and a model asked for a
+ * reason will produce a fluent one about a named colleague. The prompt is
+ * therefore explicit: name what changed from the figures, and where a cause is
+ * not in the rows, say what would explain it only as something to check.
+ * ========================================================================= */
+
+export interface PeriodNote {
+  readonly headline: string;
+  /** What moved, from the figures alone. */
+  readonly changes: readonly string[];
+  /** Things a manager could go and check. Never asserted as the cause. */
+  readonly toCheck: readonly string[];
+  readonly unverifiedFigures: readonly string[];
+  readonly model: string;
+}
+
+const PERIOD_SYSTEM = `You are writing a short note for a manager at the AI & Digital Division of Crescent Nova International, beside a chart of one team member's periods.
+
+You will be given PERIODS: one row per week or month, already counted from the database.
+
+HARD RULES:
+1. Do not calculate anything. Every number you write must appear verbatim in the rows.
+2. Say what CHANGED between periods, using the figures. Do not rank the person, grade them, or describe their attitude, effort or character.
+3. You are not told why anything changed, because the system does not record it. Never state a cause. Anything that might explain a change belongs in "toCheck", phrased as something to look into.
+4. Where a column is zero across every period, say so plainly — it usually means the step is not being used, not that the person failed it.
+5. Do not invent a task, a project, a person or a period that is not in the rows.
+
+STYLE: Plain, specific, past tense. Two or three sentences per item, no bullet characters, no headings, no marketing language.
+
+Reply with JSON only, matching exactly:
+{"headline": string, "changes": [string], "toCheck": [string]}
+
+headline: one sentence, under 120 characters, naming the biggest movement.
+changes: 1 to 3 items, one sentence each.
+toCheck: 0 to 3 items, one sentence each. Use an empty array when the rows suggest nothing.`;
+
+export async function writePeriodNote(periods: string): Promise<PeriodNote> {
+  const parsed = await askJson(PERIOD_SYSTEM, `PERIODS\n\n${periods}`);
+
+  const body = {
+    headline: str(parsed.headline) || 'Period summary',
+    changes: list(parsed.changes),
+    toCheck: list(parsed.toCheck),
+  };
+
+  return {
+    ...body,
+    model: MODEL,
+    unverifiedFigures: verifyFigures(
+      { ...body, summary: body.changes, strengths: body.toCheck, risks: [], recommendations: [] },
+      periods,
+    ),
+  };
+}
+
 /**
  * One request, one set of rules: the key, the timeout, the JSON mode and the
  * two failures worth naming. Both prompts above go through it.

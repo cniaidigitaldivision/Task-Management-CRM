@@ -42,9 +42,11 @@ import { FilterPill, Nothing, Panel, StatCard } from '@/components/performance/p
 import { Avatar } from '@/components/ui/avatar';
 import { Dialog } from '@/components/ui/dialog';
 import type {
+  Assessment,
   AttentionRow,
   BucketRow,
   FilterOptions,
+  PeriodRow,
   PersonStat,
   ProjectRow,
   QualitySummary,
@@ -162,6 +164,9 @@ export function PerformanceBoard({
   ledgerSeed,
   updatedAt,
   ownOnly,
+  viewer,
+  periods,
+  assessments,
 }: {
   board: readonly PersonStat[];
   attention: readonly AttentionRow[];
@@ -189,6 +194,12 @@ export function PerformanceBoard({
   ledgerSeed: { id: string; detail: LedgerDetail } | null;
   /** A Member reads this page about themselves; the server has already scoped it. */
   ownOnly: boolean;
+  /** ⚠️ WHO IS ASKING. Somebody who picks themselves from the person filter is
+      the SUBJECT of an assessment, and nobody assesses themselves. */
+  viewer: { id: string; name: string };
+  /** The Performance history tab's six periods, and what was written about them. */
+  periods: readonly PeriodRow[];
+  assessments: readonly Assessment[];
   /** The server's clock, formatted — so the pill is not the browser's idea of now. */
   updatedAt: string;
 }) {
@@ -324,6 +335,9 @@ export function PerformanceBoard({
           ledger={ledger}
           ledgerTotal={ledgerTotal}
           ledgerSeed={ledgerSeed}
+          viewer={viewer}
+          periods={periods}
+          assessments={assessments}
           quality={quality}
           weekly={weekly}
           monthly={monthly}
