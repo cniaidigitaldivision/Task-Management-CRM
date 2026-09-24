@@ -29,6 +29,7 @@ import {
 
 import { exportTaskFormsAction, performanceInsightAction } from '@/app/actions/performance';
 import { PersonDrawer } from '@/components/performance/person-drawer';
+import { PersonRecord } from '@/components/performance/person-record';
 import {
   CompareTab,
   ProjectsTab,
@@ -47,6 +48,8 @@ import type {
   PersonStat,
   ProjectRow,
   QualitySummary,
+  HistoryEntry,
+  TaskSources,
   TeamRow,
   WorkloadRow,
   WorkRow,
@@ -150,6 +153,8 @@ export function PerformanceBoard({
   monthly,
   work,
   workTotal,
+  sources,
+  history,
   updatedAt,
   ownOnly,
 }: {
@@ -170,6 +175,9 @@ export function PerformanceBoard({
   monthly: readonly BucketRow[];
   work: readonly WorkRow[];
   workTotal: number;
+  /** Only read when one person is open — null for the team view. */
+  sources: TaskSources | null;
+  history: readonly HistoryEntry[];
   /** A Member reads this page about themselves; the server has already scoped it. */
   ownOnly: boolean;
   /** The server's clock, formatted — so the pill is not the browser's idea of now. */
@@ -278,6 +286,70 @@ export function PerformanceBoard({
       router.replace(`/performance?${params.toString()}` as Route, { scroll: false }),
     );
   };
+
+  /* ── ⚠️ A DIFFERENT SCREEN, NOT THE TEAM PAGE WITH ONE ROW ──────────────
+     Owner, 2026-09-24: *"When I select any person specifically from the filter
+     in the admin or super admin dashboard, that person's performance will look
+     exactly like this."* It has its own six tabs and its own header, so it
+     returns before any of the team layout is built.
+
+     ⚠️ ADMIN-SIDE ONLY. A Member reading their own page keeps the team layout
+     scoped to themselves — the record is what a MANAGER opens about somebody,
+     and `ownOnly` is decided by the server. */
+  if (chosenPerson && !ownOnly && sources) {
+    return (
+      <div className="perf-ui mx-auto max-w-[var(--content-max)]">
+        <PersonRecord
+          person={chosenPerson}
+          workload={workload.find((w) => w.id === chosenPerson.id) ?? null}
+          projects={projects}
+          work={work}
+          workTotal={workTotal}
+          history={history}
+          sources={sources}
+          quality={quality}
+          weekly={weekly}
+          monthly={monthly}
+          rangeLabel={period.label}
+          today={today}
+          nowMs={nowMs}
+          projectOptions={options.projects}
+          peopleOptions={workload.map((w) => ({ id: w.id, name: w.name }))}
+          presets={presets}
+          preset={period.preset}
+          project={period.project}
+          onScope={(key, value) => (key === 'person' ? setPerson(value) : setScope(key, value))}
+          onBack={() => setPerson('all')}
+          onCompare={() => setPerson('all')}
+          onExport={() => setExporting(true)}
+          onOpenTask={openTask}
+        />
+
+        {exporting && (
+          <ExportDialog
+            from={period.from}
+            to={period.to}
+            today={today}
+            ownOnly={false}
+            personName={chosenPerson.name}
+            scope={{
+              personId: chosenPerson.id,
+              departmentId: period.team === 'all' ? null : period.team,
+              projectId: period.project === 'all' ? null : period.project,
+            }}
+            onClose={() => setExporting(false)}
+          />
+        )}
+
+        <PersonDrawer
+          person={openPerson}
+          period={{ from: period.from, to: period.to }}
+          today={today}
+          onClose={() => setOpenPerson(null)}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="perf-ui mx-auto max-w-[var(--content-max)]">

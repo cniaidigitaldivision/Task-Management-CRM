@@ -857,6 +857,83 @@ export async function bucketTrend(
 }
 
 /* ============================================================================
+ * WHERE SOMEBODY'S WORK COMES FROM — owner, 2026-09-24
+ * ----------------------------------------------------------------------------
+ * The individual record's "Assignment accountability": self-created,
+ * coordinator-assigned, admin-assigned. The reference draws it as "Not
+ * recorded"; it IS recorded, in `tasks.created_by_id` against the creator's
+ * rank, and measured on the live database it is the most interesting number on
+ * the whole screen — 1,011 of 1,105 assigned tasks were raised by the person
+ * who then did them.
+ *
+ * ⚠️ RANK AT READ TIME, NOT AT CREATION TIME. `users.role` is today's rank, so
+ * a coordinator promoted to admin makes their old assignments read as
+ * admin-assigned. The alternative is stamping the rank onto every task, which
+ * is a migration and a write path for a figure nobody audits. The screen says
+ * which it is rather than implying a history it does not keep.
+ * ========================================================================= */
+
+export interface TaskSources {
+  readonly self: number;
+  readonly coordinator: number;
+  readonly admin: number;
+  readonly teammate: number;
+  readonly unknown: number;
+  readonly total: number;
+}
+
+export async function assignmentSources(
+  actorId: string,
+  period: { from: string; to: string; today: string },
+  filters: PerfFilters = {},
+): Promise<TaskSources> {
+  const departmentId = filters.departmentId ?? null;
+  const projectId = filters.projectId ?? null;
+  const personId = filters.personId ?? null;
+
+  const rows = await withUser(actorId, (tx) => tx`
+    select case
+             when t.created_by_id is null then 'unknown'
+             when t.created_by_id = t.assignee_id then 'self'
+             when cb.role in ('admin', 'super_admin') then 'admin'
+             when cb.role = 'team_coordinator' then 'coordinator'
+             else 'teammate' end as source,
+           count(*)::int as n
+      from public.tasks t
+      left join public.users cb on cb.id = t.created_by_id
+      left join public.users u on u.id = t.assignee_id
+     where not t.is_deleted and t.assignee_id is not null
+       and (${projectId}::uuid is null or t.project_id = ${projectId}::uuid)
+       and (${personId}::uuid is null or t.assignee_id = ${personId}::uuid)
+       and (${departmentId}::uuid is null or u.department_id = ${departmentId}::uuid)
+       /* Raised in the window, or still open \u2014 the same shape the rest of the
+          page uses, so the figures agree with the cards above them. */
+       and (
+             (t.created_at at time zone 'Asia/Karachi')::date
+                 between ${period.from}::date and ${period.to}::date
+          or t.status not in ('done', 'cancelled')
+       )
+     group by 1
+  `);
+
+  const by: Record<string, number> = {};
+  for (const r of rows as Array<Record<string, unknown>>) by[String(r.source)] = Number(r.n ?? 0);
+  const self = by.self ?? 0;
+  const coordinator = by.coordinator ?? 0;
+  const admin = by.admin ?? 0;
+  const teammate = by.teammate ?? 0;
+  const unknown = by.unknown ?? 0;
+  return {
+    self,
+    coordinator,
+    admin,
+    teammate,
+    unknown,
+    total: self + coordinator + admin + teammate + unknown,
+  };
+}
+
+/* ============================================================================
  * THE WORK ITSELF — owner, 2026-09-24
  * ----------------------------------------------------------------------------
  * *"It's not visible who is assigned ... any task I want to see for any

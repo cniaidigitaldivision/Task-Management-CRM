@@ -3,9 +3,11 @@ import type { Metadata } from 'next';
 import { PerformanceBoard } from '@/components/performance/performance-board';
 import { requireUser } from '@/lib/auth/current-user';
 import {
+  assignmentSources,
   bucketTrend,
   performanceBoard,
   performanceFilterOptions,
+  personDetail,
   projectContribution,
   qualitySummary,
   teamContribution,
@@ -116,8 +118,20 @@ export default async function PerformancePage({
      tabs are client state, so switching one must not touch the network; that is
      only true if what they need is already here. Each read is bounded by the
      period and the scope, so this is seven small statements, not seven scans. */
-  const [board, attention, options, projects, teams, workload, quality, weekly, monthly, work] =
-    await Promise.all([
+  const [
+    board,
+    attention,
+    options,
+    projects,
+    teams,
+    workload,
+    quality,
+    weekly,
+    monthly,
+    work,
+    sources,
+    detail,
+  ] = await Promise.all([
       performanceBoard(user.id, scoped, filters),
       workNeedingAttention(user.id, today, filters),
       performanceFilterOptions(user.id),
@@ -131,6 +145,13 @@ export default async function PerformancePage({
          the work. Owner, 2026-09-24: *"The task exactly what he is doing is not
          showing."* */
       workInScope(user.id, scoped, filters),
+      /* ⚠️ THE INDIVIDUAL RECORD'S OWN TWO READS, AND ONLY WHEN ONE IS OPEN.
+         Owner, 2026-09-24: the admin-side person view. `personDetail` is the
+         whole activity log for them and `assignmentSources` is who put the work
+         on them; neither means anything for the team view, so neither is paid
+         for there. */
+      person ? assignmentSources(user.id, scoped, filters) : Promise.resolve(null),
+      person ? personDetail(user.id, person, period) : Promise.resolve(null),
     ]);
 
   return (
@@ -161,6 +182,8 @@ export default async function PerformancePage({
       monthly={monthly}
       work={work.rows}
       workTotal={work.total}
+      sources={sources}
+      history={detail?.history ?? []}
       updatedAt={new Intl.DateTimeFormat('en-GB', {
         timeZone: 'Asia/Karachi',
         hour: '2-digit',

@@ -23,6 +23,61 @@
 
 ---
 
+## 🧭 2026-09-24 (later still) — THE INDIVIDUAL RECORD
+
+Owner sent a design for what a manager sees after picking one person, and was
+explicit about the scope: *"I'm only talking about the admin, super admin, and
+the team coordinator dashboard performance page when they select a filter for
+any specific team member."*
+
+**It is a different screen, not the team page with one row in it** — its own
+header and its own six tabs: **Overview · Tasks · Activity history · Performance
+history · Reviews · Goals**. `components/performance/person-record.tsx`.
+
+### The Overview, and what fills it
+
+| Block | Read from |
+|---|---|
+| Completed / Verified / Completed on time / Open overdue | `performanceBoard`, scoped to them |
+| **Completed work verification** bar | completed vs went-through-review |
+| **Assessment context** | stated from those figures, not asked of a model — it must be right on first paint |
+| **Work across projects** | `projectContribution` — Assigned / Completed / Pending / Open overdue |
+| **Assignment accountability** | `assignmentSources`, NEW — self / coordinator / admin |
+| **Recent activity** | `personDetail.history` |
+
+⚠️ **The reference prints "Not loaded" and "Not recorded" and we do not.**
+Owner: *"In this image no data is displayed, right, but you will display all the
+data according to our live database."* Every figure is read. **Goals** is the one
+tab that genuinely cannot be — a baseline, a target and a follow-up date are
+agreed between two people — so it says so and says what it would need.
+
+### Assignment accountability is the most interesting figure on the page
+
+Measured live: **1,011 of 1,105** assigned tasks were raised by the person who
+then did them; 86 came from a coordinator and 5 from an admin. For Abdul Moiz it
+is 254 of 254 — 100% self-created. The reference drew this as "Not recorded"; it
+was always recorded, in `tasks.created_by_id` against the creator's rank.
+
+⚠️ **Rank is read at read time.** A coordinator later promoted makes their older
+assignments read as admin-assigned. The panel says so rather than implying a
+history the schema does not keep.
+
+### ⚠️ And one real correctness bug was caught by looking at it
+
+The first build divided on-time by everything COMPLETED, following the
+reference's own "(26 of 54 completed)". That silently penalises somebody for
+work that never had a deadline, and it disagreed with the team Overview, which
+divides by tasks that HAD one. The same figure must not differ between two
+screens about the same person — it now uses `judged` on both, and the wording
+follows the arithmetic.
+
+Also fixed on sight: "Verified 1" printed **"0% of what they closed"** (1 of 221
+rounds to zero), which reads as "none". It now says "1 of 221 — under 1%".
+
+**Green:** 152 test files · 3821 tests · typecheck · lint · production build.
+
+---
+
 ## 🧭 2026-09-24 (later) — THE PAGE COUNTED EVERYTHING AND SHOWED NOTHING
 
 Owner: *"It's not visible who is assigned ... any task I want to see for any
