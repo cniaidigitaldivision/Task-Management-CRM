@@ -1232,7 +1232,7 @@ function InsightPanel({
   const recommended =
     n?.recommendations[0] ??
     (firstBlocker
-      ? `${firstBlocker.row.assigneeName ? `${first(firstBlocker.row.assigneeName)}’s` : 'An unassigned'} task ${firstBlocker.row.reference} is ${firstBlocker.why.text.toLowerCase()}. ${firstBlocker.why.nextAction}.`
+      ? `${firstBlocker.row.assigneeName ? `${first(firstBlocker.row.assigneeName)}’s` : 'An unassigned'} task “${firstBlocker.row.title}” is ${firstBlocker.why.text.toLowerCase()}. ${firstBlocker.why.nextAction}.`
       : null);
 
   return (
@@ -1317,13 +1317,14 @@ function InsightPanel({
                 >
                   Prepare follow-up task
                 </Link>
-                {firstBlocker && (!n || recommended.includes(firstBlocker.row.reference)) && (
+                {firstBlocker && (!n || recommended.includes(firstBlocker.row.title)) && (
                   <Link
                     href={`/tasks?task=${firstBlocker.row.taskId}` as Route}
                     className="inline-flex items-center gap-[0.4rem] whitespace-nowrap text-[0.9rem] font-semibold hover:underline"
                     style={{ color: 'var(--pf-link)' }}
                   >
-                    View evidence: {firstBlocker.row.reference}
+                    {/* ⚠️ THE NAME. A code tells nobody which task this is. */}
+                    View evidence: {firstBlocker.row.title}
                     <ArrowRight className="size-[0.95rem]" aria-hidden="true" />
                   </Link>
                 )}

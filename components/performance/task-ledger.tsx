@@ -21,11 +21,11 @@ import {
 } from 'lucide-react';
 
 import { taskLedgerDetailAction } from '@/app/actions/performance';
-import { Caveat } from '@/components/performance/performance-tabs';
 import { repeatWord } from '@/components/performance/person-record';
 import { FilterPill, Nothing, Panel } from '@/components/performance/performance-ui';
 import { Avatar } from '@/components/ui/avatar';
 import type { LedgerDetail, LedgerRow } from '@/lib/db/queries/performance';
+import { namedSummary } from '@/lib/view/task-name';
 
 /* ============================================================================
  * THE TASK LEDGER — the owner's reference, 2026-09-24
@@ -53,8 +53,12 @@ import type { LedgerDetail, LedgerRow } from '@/lib/db/queries/performance';
 
 const num = (n: number) => n.toLocaleString('en-GB');
 
+/* ⚠️ EVERY STATE ITS OWN COLOUR. Owner, 2026-09-24: *"status should display
+   all in colors: done, overdue, all backlog should be in a different color."*
+   Backlog and To do used to share one grey, so two different states read as
+   the same thing at a glance — which is the whole point of a colour. */
 const STATUS_LOOK: Record<string, { label: string; ink: string; bg: string }> = {
-  backlog: { label: 'Backlog', ink: 'var(--pf-soft)', bg: 'var(--pf-strip)' },
+  backlog: { label: 'Backlog', ink: 'var(--pf-violet)', bg: 'var(--pf-violet-chip-bg)' },
   todo: { label: 'To do', ink: 'var(--pf-soft)', bg: 'var(--pf-strip)' },
   in_progress: { label: 'In progress', ink: 'var(--pf-blue)', bg: 'var(--pf-blue-bg)' },
   in_review: { label: 'Awaiting review', ink: 'var(--pf-amber)', bg: 'var(--pf-amber-bg)' },
@@ -62,14 +66,55 @@ const STATUS_LOOK: Record<string, { label: string; ink: string; bg: string }> = 
   blocked: { label: 'Blocked', ink: 'var(--pf-red-ink)', bg: 'var(--pf-red-bg)' },
   /* ⚠️ "Done", NOT "Done unverified" — see the file header. */
   done: { label: 'Done', ink: 'var(--pf-green)', bg: 'var(--pf-green-bg)' },
-  cancelled: { label: 'Cancelled', ink: 'var(--pf-soft)', bg: 'var(--pf-strip)' },
+  cancelled: { label: 'Cancelled', ink: 'var(--pf-mute)', bg: 'var(--pf-strip)' },
 };
 
-const SOURCE_LOOK: Record<
-  LedgerRow['sourceKind'],
-  { label: string; ink: string; bg: string; icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }> }
-> = {
-  self: { label: 'Self-created', ink: 'var(--pf-soft)', bg: 'var(--pf-strip)', icon: User },
+/**
+ * What a row's status chip should say, overdue included.
+ *
+ * ⚠️ "OVERDUE" IS NOT A STATUS IN THE DATABASE — it is open with a date that
+ * has passed. The owner listed it beside done and backlog as something the
+ * colour must show, so it is computed here and wins over the underlying state:
+ * a manager scanning the column needs the late ones to shout.
+ */
+function statusOf(r: LedgerRow, today: string): { label: string; ink: string; bg: string } {
+  const base = STATUS_LOOK[r.status] ?? { label: r.status, ink: 'var(--pf-soft)', bg: 'var(--pf-strip)' };
+  const open = r.status !== 'done' && r.status !== 'cancelled';
+  if (open && r.dueDate !== null && r.dueDate < today) {
+    return { label: 'Overdue', ink: 'var(--pf-on-solid)', bg: 'var(--pf-red)' };
+  }
+  return base;
+}
+
+type Look = {
+  label: string;
+  ink: string;
+  bg: string;
+  icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
+};
+
+/**
+ * ⚠️ A REPEAT COPY IS ASSIGNED BY THE SYSTEM, AND IT IS NAMED "Automation".
+ *
+ * Owner, 2026-09-24: *"Why are you showing Rafay Abbasi in the Assigned By
+ * field? You can say that the system assigns him automatically through daily
+ * rotation. Instead of Rafay Abbasi say 'Automation'."*
+ *
+ * `created_by_id` on a generated copy is whoever set the SERIES up, which may
+ * be somebody who did nothing that morning and has no business appearing in an
+ * "assigned by" filter. The repeat engine handed the work out, so the engine is
+ * named. The series' owner is still reachable on the Repeating tasks page.
+ */
+const AUTOMATION: Look = {
+  label: 'Automation',
+  ink: 'var(--pf-amber)',
+  bg: 'var(--pf-amber-bg)',
+  icon: Repeat,
+};
+
+const SOURCE_LOOK: Record<LedgerRow['sourceKind'], Look> = {
+  /* Blue for self-created — the owner named this colour. */
+  self: { label: 'Self-created', ink: 'var(--pf-blue)', bg: 'var(--pf-blue-bg)', icon: User },
   coordinator: { label: 'Coordinator', ink: 'var(--pf-green)', bg: 'var(--pf-green-bg)', icon: Users },
   admin: { label: 'Admin', ink: 'var(--pf-violet)', bg: 'var(--pf-violet-chip-bg)', icon: UserCog },
   /* ⚠️ NOT "Team member". Owner, 2026-09-24, twice: *"A team member has no
@@ -81,6 +126,13 @@ const SOURCE_LOOK: Record<
   teammate: { label: 'Assigned by', ink: 'var(--pf-soft)', bg: 'var(--pf-strip)', icon: User },
   unknown: { label: 'Not recorded', ink: 'var(--pf-mute)', bg: 'var(--pf-strip)', icon: Info },
 };
+
+/** Automation wins: nobody handed this out today. */
+const lookOf = (r: LedgerRow): Look => (r.recurrenceRule ? AUTOMATION : SOURCE_LOOK[r.sourceKind]);
+
+/** What the "Assigned by" cell and its filter call this row. */
+const assignerOf = (r: LedgerRow): string =>
+  r.recurrenceRule ? 'Automation' : r.sourceKind === 'self' ? 'Self-created' : (r.createdByName ?? 'Not recorded');
 
 const shortDate = (iso: string | null) =>
   iso
@@ -108,6 +160,8 @@ const kb = (n: number | null) =>
 
 type SortKey = 'reference' | 'project' | 'owner' | 'status' | 'due';
 
+const PAGE_SIZE = 25;
+
 export function TaskLedger({
   rows,
   total,
@@ -127,13 +181,17 @@ export function TaskLedger({
   const [project, setProject] = React.useState('all');
   const [sort, setSort] = React.useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'due', dir: 1 });
   const [openId, setOpenId] = React.useState<string | null>(null);
+  const [page, setPage] = React.useState(0);
 
   /* The options are the rows' own values — a filter can never offer something
      that would empty the table. */
   const options = React.useMemo(() => {
     const statuses = [...new Set(rows.map((r) => r.status))];
     const sources = [...new Set(rows.map((r) => r.sourceKind))];
-    const people = [...new Set(rows.map((r) => r.createdByName).filter(Boolean) as string[])].sort();
+    /* ⚠️ BUILT FROM WHAT THE CELL SAYS, not from `created_by_id`. Otherwise
+       the filter lists the person who set a repeat up years ago — the owner saw
+       "Rafay Abbasi" there and rightly asked why. */
+    const people = [...new Set(rows.map(assignerOf))].sort();
     const projects = [...new Map(rows.map((r) => [r.projectId, r.projectName])).entries()].sort((a, b) =>
       a[1].localeCompare(b[1]),
     );
@@ -145,7 +203,7 @@ export function TaskLedger({
       (r) =>
         (status === 'all' || r.status === status) &&
         (source === 'all' || r.sourceKind === source) &&
-        (assignedBy === 'all' || r.createdByName === assignedBy) &&
+        (assignedBy === 'all' || assignerOf(r) === assignedBy) &&
         (project === 'all' || r.projectId === project),
     );
     const val = (r: LedgerRow): string =>
@@ -166,6 +224,17 @@ export function TaskLedger({
      the reader may want back the moment they widen the filter again. Finding it
      in the visible rows answers the same question without either cost. */
   const open = shown.find((r) => r.taskId === openId) ?? null;
+
+  /* ⚠️ PAGED. Owner, 2026-09-24: *"the tasks are getting very long so please
+     divide them. Pagination should be added so the page will not get very
+     long."* 200 rows is a page nobody scrolls to the end of.
+
+     ⚠️ The page number is CLAMPED rather than reset by an effect — changing a
+     filter shortens the list, and writing state from an effect to fix that is
+     the cascading render the lint rule refuses. */
+  const pages = Math.max(1, Math.ceil(shown.length / PAGE_SIZE));
+  const current = Math.min(page, pages - 1);
+  const pageRows = shown.slice(current * PAGE_SIZE, current * PAGE_SIZE + PAGE_SIZE);
 
   return (
     <div className="grid items-start gap-[1.1rem] min-[1500px]:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">
@@ -298,14 +367,10 @@ export function TaskLedger({
                     </tr>
                   </thead>
                   <tbody>
-                    {shown.map((r) => {
+                    {pageRows.map((r) => {
                       const on = r.taskId === openId;
-                      const st = STATUS_LOOK[r.status] ?? {
-                        label: r.status,
-                        ink: 'var(--pf-soft)',
-                        bg: 'var(--pf-strip)',
-                      };
-                      const sc = SOURCE_LOOK[r.sourceKind];
+                      const st = statusOf(r, today);
+                      const sc = lookOf(r);
                       const late =
                         r.status !== 'done' && r.status !== 'cancelled' && r.dueDate !== null && r.dueDate < today;
                       return (
@@ -364,17 +429,17 @@ export function TaskLedger({
                               className="inline-flex max-w-full items-center gap-[0.35rem] truncate rounded-full px-[0.55rem] py-[0.22rem] text-[0.74rem] font-semibold"
                               style={{ background: sc.bg, color: sc.ink }}
                               title={
-                                r.sourceKind === 'self'
-                                  ? 'They raised this task themselves'
-                                  : r.sourceKind === 'teammate'
-                                    ? `${r.createdByName ?? 'Somebody'} is a team member, and a team member cannot assign work in this system. This only appears on demo data seeded straight into the database.`
-                                    : `${r.createdByName ?? 'Somebody'} · ${sc.label}`
+                                r.recurrenceRule
+                                  ? `Created automatically by a ${repeatWord(r.recurrenceRule).toLowerCase()} repeat — nobody handed it out that day.`
+                                  : r.sourceKind === 'self'
+                                    ? 'They raised this task themselves'
+                                    : r.sourceKind === 'teammate'
+                                      ? `${r.createdByName ?? 'Somebody'} is a team member, and a team member cannot assign work in this system. This only appears on demo data seeded straight into the database.`
+                                      : `${r.createdByName ?? 'Somebody'} · ${sc.label}`
                               }
                             >
                               <sc.icon className="size-[0.8rem] shrink-0" aria-hidden="true" />
-                              <span className="truncate">
-                                {r.sourceKind === 'self' ? sc.label : (r.createdByName ?? sc.label)}
-                              </span>
+                              <span className="truncate">{assignerOf(r)}</span>
                             </span>
                           </td>
                           {!personName && (
@@ -433,11 +498,30 @@ export function TaskLedger({
                   </tbody>
                 </table>
               </div>
-              {total > rows.length && (
-                <Caveat>
-                  Showing {num(rows.length)} of {num(total)} tasks. Narrow the period above to see the rest.
-                </Caveat>
-              )}
+              <div
+                className="flex flex-wrap items-center gap-[0.6rem] border-t px-[1.22rem] py-[0.8rem]"
+                style={{ borderColor: 'var(--pf-grid)' }}
+              >
+                <span className="text-[0.82rem]" style={{ color: 'var(--pf-soft)' }}>
+                  {num(current * PAGE_SIZE + 1)}–{num(current * PAGE_SIZE + pageRows.length)} of{' '}
+                  {num(shown.length)}
+                  {total > rows.length ? ` (${num(total)} in the period)` : ''}
+                </span>
+                <span className="ml-auto flex items-center gap-[0.4rem]">
+                  <PageButton onClick={() => setPage(current - 1)} disabled={current === 0}>
+                    Previous
+                  </PageButton>
+                  <span
+                    className="px-[0.6rem] text-[0.82rem] tabular-nums"
+                    style={{ color: 'var(--pf-ink)' }}
+                  >
+                    Page {current + 1} of {pages}
+                  </span>
+                  <PageButton onClick={() => setPage(current + 1)} disabled={current >= pages - 1}>
+                    Next
+                  </PageButton>
+                </span>
+              </div>
             </>
           )}
         </Panel>
@@ -498,8 +582,8 @@ function TaskPanel({ row, today }: { row: LedgerRow | null; today: string }) {
     );
   }
 
-  const st = STATUS_LOOK[row.status] ?? { label: row.status, ink: 'var(--pf-soft)', bg: 'var(--pf-strip)' };
-  const sc = SOURCE_LOOK[row.sourceKind];
+  const st = statusOf(row, today);
+  const sc = lookOf(row);
   const detail = settled && 'detail' in settled ? settled.detail : null;
   const moved = detail?.originalDue && detail.revisedDue && detail.originalDue !== detail.revisedDue;
 
@@ -617,24 +701,7 @@ function TaskPanel({ row, today }: { row: LedgerRow | null; today: string }) {
         )}
 
         {detail && tab === 'timeline' && (
-          <ul className="divide-y" style={{ borderColor: 'var(--pf-grid)' }}>
-            {detail.timeline.length === 0 && (
-              <li className="px-[1.22rem] py-[1.1rem] text-[0.85rem]" style={{ color: 'var(--pf-soft)' }}>
-                Nothing is recorded against this task.
-              </li>
-            )}
-            {detail.timeline.map((e, i) => (
-              <li key={`${e.at}-${i}`} className="px-[1.22rem] py-[0.7rem]">
-                <p className="text-[0.85rem]" style={{ color: 'var(--pf-ink)' }}>
-                  {e.summary}
-                </p>
-                <p className="text-[0.75rem]" style={{ color: 'var(--pf-mute)' }}>
-                  {stamp(e.at)}
-                  {e.actorName ? ` · ${e.actorName}` : ''}
-                </p>
-              </li>
-            ))}
-          </ul>
+          <Timeline events={detail.timeline} reference={row.reference} title={row.title} />
         )}
 
         {detail && tab === 'evidence' && (
@@ -714,6 +781,161 @@ function Box({ label, children }: { label: string; children: React.ReactNode }) 
       <dd className="truncate text-[0.85rem] font-semibold" style={{ color: 'var(--pf-ink)' }}>
         {children}
       </dd>
+    </div>
+  );
+}
+
+function PageButton({
+  onClick,
+  disabled,
+  children,
+}: {
+  onClick: () => void;
+  disabled: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="rounded-[0.6rem] border px-[0.8rem] py-[0.5rem] text-[0.82rem] font-semibold leading-none disabled:opacity-40"
+      style={{
+        background: 'var(--pf-surface)',
+        borderColor: 'var(--pf-field-line)',
+        color: 'var(--pf-ink)',
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+/* ── The timeline, as the owner drew it ──────────────────────────────────── */
+
+const DOT: Record<string, string> = {
+  created: 'var(--pf-blue)',
+  done: 'var(--pf-green)',
+  in_review: 'var(--pf-amber)',
+  in_progress: 'var(--pf-blue)',
+  revisions: 'var(--pf-amber)',
+  blocked: 'var(--pf-red)',
+  cancelled: 'var(--pf-mute)',
+  updated: 'var(--pf-violet)',
+  attachment_added: 'var(--pf-green)',
+  attachment_removed: 'var(--pf-mute)',
+  'task.handoff': 'var(--pf-violet)',
+};
+
+const dayKey = (iso: string) =>
+  new Date(iso).toLocaleDateString('en-GB', {
+    timeZone: 'Asia/Karachi',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+
+const clock = (iso: string) =>
+  new Date(iso).toLocaleTimeString('en-GB', {
+    timeZone: 'Asia/Karachi',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+
+/**
+ * Dots on a rail, grouped by day, newest first.
+ *
+ * ⚠️ THE RAIL IS ONE ELEMENT BEHIND THE DOTS, not a border on each row. A
+ * per-row border leaves a hairline gap at every boundary and breaks entirely
+ * across a date header; one absolutely-positioned line cannot.
+ *
+ * ⚠️ AND THE LAST DOT ENDS THE LINE. The rail stops at the final dot rather
+ * than running on into the padding, which is what makes it read as a sequence
+ * that finished rather than one that was cut off.
+ */
+function Timeline({
+  events,
+  reference,
+  title,
+}: {
+  events: readonly { at: string; action: string; summary: string; actorName: string | null }[];
+  reference: string;
+  title: string;
+}) {
+  if (events.length === 0) {
+    return (
+      <p className="px-[1.22rem] py-[1.1rem] text-[0.85rem]" style={{ color: 'var(--pf-soft)' }}>
+        Nothing is recorded against this task.
+      </p>
+    );
+  }
+
+  /* Newest first, and grouped by the day they happened in Karachi. */
+  const days = new Map<string, typeof events>();
+  for (const e of [...events].sort((a, b) => b.at.localeCompare(a.at))) {
+    const k = dayKey(e.at);
+    days.set(k, [...(days.get(k) ?? []), e] as typeof events);
+  }
+
+  return (
+    <div className="pb-[0.8rem]">
+      {[...days.entries()].map(([day, list]) => (
+        <section key={day}>
+          <h4
+            className="flex items-baseline gap-[0.5rem] px-[1.22rem] py-[0.5rem] text-[0.78rem] font-semibold"
+            style={{ background: 'var(--pf-head)', color: 'var(--pf-ink)' }}
+          >
+            {day}
+            <span className="font-normal" style={{ color: 'var(--pf-mute)' }}>
+              {list.length} event{list.length === 1 ? '' : 's'}
+            </span>
+          </h4>
+
+          <ol className="relative px-[1.22rem] pt-[0.6rem]">
+            {/* the rail: from the first dot's centre to the last dot's centre */}
+            {list.length > 1 && (
+              <span
+                aria-hidden="true"
+                className="absolute left-[1.55rem] top-[1.15rem] w-px"
+                style={{ background: 'var(--pf-line)', bottom: '1.1rem' }}
+              />
+            )}
+            {list.map((e, i) => (
+              <li key={`${e.at}-${i}`} className="relative flex gap-[0.7rem] pb-[0.75rem]">
+                <span
+                  aria-hidden="true"
+                  className="relative z-10 mt-[0.32rem] size-[0.55rem] shrink-0 rounded-full ring-2"
+                  style={{
+                    background: DOT[e.action] ?? 'var(--pf-mute)',
+                    // the ring is the panel's own background, so the rail is
+                    // hidden behind the dot rather than crossing it
+                    ['--tw-ring-color' as string]: 'var(--pf-surface)',
+                  }}
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="flex flex-wrap items-baseline gap-x-[0.5rem]">
+                    <span
+                      className="text-[0.78rem] tabular-nums"
+                      style={{ color: 'var(--pf-mute)' }}
+                    >
+                      {clock(e.at)}
+                    </span>
+                    {e.actorName && (
+                      <span className="text-[0.8rem] font-semibold" style={{ color: 'var(--pf-ink)' }}>
+                        {e.actorName}
+                      </span>
+                    )}
+                  </span>
+                  <span className="block text-[0.84rem] leading-[1.45]" style={{ color: 'var(--pf-body)' }}>
+                    {namedSummary(e.summary, reference, title)}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ol>
+        </section>
+      ))}
     </div>
   );
 }
