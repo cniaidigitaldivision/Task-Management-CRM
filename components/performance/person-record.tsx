@@ -22,6 +22,7 @@ import {
   RotateCcw,
   Send,
   ShieldCheck,
+  Workflow,
   Sparkles,
   TriangleAlert,
   User,
@@ -778,7 +779,16 @@ const ACTIVITY_LOOK: Record<
   updated: { label: 'Task edited', icon: Pencil, tone: 'var(--pf-soft)', bg: 'var(--pf-strip)' },
   attachment_added: { label: 'File attached', icon: Paperclip, tone: 'var(--pf-green)', bg: 'var(--pf-green-bg)' },
   attachment_removed: { label: 'File removed', icon: Paperclip, tone: 'var(--pf-soft)', bg: 'var(--pf-strip)' },
-  'task.handoff': { label: 'Handed over', icon: Users, tone: 'var(--pf-violet)', bg: 'var(--pf-violet-chip-bg)' },
+  /* ⚠️ NOT "Handed over" — that invented a human action. Checked on the live
+     database: all 256 of these carry the summary "Created by the Client
+     retainer pipeline chain". `task.handoff` is the WORKFLOW creating the next
+     task in a chain (doc 12, E-004), not a person passing work to a person. */
+  'task.handoff': {
+    label: 'Created by workflow',
+    icon: Workflow,
+    tone: 'var(--pf-violet)',
+    bg: 'var(--pf-violet-chip-bg)',
+  },
   'task.placement_recorded': { label: 'Placement recorded', icon: CheckCircle2, tone: 'var(--pf-green)', bg: 'var(--pf-green-bg)' },
 };
 
@@ -792,6 +802,18 @@ const FALLBACK = { label: '', icon: Circle, tone: 'var(--pf-soft)', bg: 'var(--p
  * activity."* The rank is read today — the same caveat the accountability panel
  * carries.
  */
+/** The same thing in a full sentence, for the cell's tooltip. */
+function sourceHelp(h: HistoryEntry): string {
+  const who = h.sourceName ?? 'somebody';
+  if (h.sourceKind === 'self') return 'They raised this task themselves.';
+  if (h.sourceKind === 'admin') return `${who}, an admin, raised this task and assigned it to them.`;
+  if (h.sourceKind === 'coordinator')
+    return `${who}, a team coordinator, raised this task and assigned it to them.`;
+  if (h.sourceKind === 'teammate')
+    return `${who} raised this task and assigned it to them. ${who} is a team member, not a manager.`;
+  return 'No creator is recorded against this task.';
+}
+
 function sourceLabel(h: HistoryEntry): { text: string; tone: string } {
   if (h.sourceKind === 'self') return { text: 'Self-created', tone: 'var(--pf-soft)' };
   if (h.sourceKind === 'admin')
@@ -801,8 +823,18 @@ function sourceLabel(h: HistoryEntry): { text: string; tone: string } {
       text: h.sourceName ? `Coordinator · ${h.sourceName}` : 'Coordinator-assigned',
       tone: 'var(--pf-green)',
     };
+  /* ⚠️ "Teammate" MEANT NOTHING TO THE READER. Owner, 2026-09-24: *"What is
+     the meaning of 'teammate Rafay abbasi'? Is that a task assigned by some
+     admin, super admin, or team coordinator, or have they created it
+     themselves?"* — neither, and that was the whole problem. It is a colleague
+     at the SAME rank raising work for somebody else, which is a third case the
+     three-way question does not cover. Three tasks in the whole database, so
+     the label has to carry its own explanation. */
   if (h.sourceKind === 'teammate')
-    return { text: h.sourceName ? `Teammate · ${h.sourceName}` : 'Teammate-assigned', tone: 'var(--pf-blue)' };
+    return {
+      text: h.sourceName ? `Team member · ${h.sourceName}` : 'Raised by a team member',
+      tone: 'var(--pf-blue)',
+    };
   return { text: 'Not recorded', tone: 'var(--pf-mute)' };
 }
 
@@ -891,7 +923,7 @@ function ActivityTable({ history }: { history: readonly HistoryEntry[] }) {
                 >
                   <span className="block truncate">{h.projectName ?? '—'}</span>
                 </td>
-                <td className="pr-[1.22rem] text-[0.84rem]" title={src.text}>
+                <td className="pr-[1.22rem] text-[0.84rem]" title={sourceHelp(h)}>
                   <span className="block truncate font-medium" style={{ color: src.tone }}>
                     {src.text}
                   </span>

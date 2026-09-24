@@ -762,7 +762,10 @@ const ACTION_WORD: Record<string, string> = {
   cancelled: 'Cancelled',
   updated: 'Edited',
   attachment_added: 'Attached a file',
-  'task.handoff': 'Handed over',
+  /* ⚠️ The workflow chain creating the next task, NOT a person handing work
+     over — all 256 of these say "Created by the Client retainer pipeline
+     chain". Same correction as person-record.tsx. */
+  'task.handoff': 'Created by workflow',
   'task.placement_recorded': 'Placement recorded',
 };
 
