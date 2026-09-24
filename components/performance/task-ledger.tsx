@@ -25,6 +25,7 @@ import { repeatWord } from '@/components/performance/person-record';
 import { FilterPill, Nothing, Panel } from '@/components/performance/performance-ui';
 import { Avatar } from '@/components/ui/avatar';
 import type { LedgerDetail, LedgerRow } from '@/lib/db/queries/performance';
+import { dayWord } from '@/lib/view/activity';
 import { namedSummary } from '@/lib/view/task-name';
 
 /* ============================================================================
@@ -134,26 +135,11 @@ const lookOf = (r: LedgerRow): Look => (r.recurrenceRule ? AUTOMATION : SOURCE_L
 const assignerOf = (r: LedgerRow): string =>
   r.recurrenceRule ? 'Automation' : r.sourceKind === 'self' ? 'Self-created' : (r.createdByName ?? 'Not recorded');
 
-const shortDate = (iso: string | null) =>
-  iso
-    ? new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-GB', {
-        timeZone: 'UTC',
-        day: 'numeric',
-        month: 'short',
-        year: 'numeric',
-      })
-    : null;
+/* ⚠️ dayWord, NOT month: 'short'. en-GB writes "16 Sept 2026" while the
+   period label at the top of this page writes "21 – 24 Sep 2026". */
+const shortDate = (iso: string | null) => (iso ? dayWord(iso) : null);
 
-const stamp = (iso: string) =>
-  new Date(iso).toLocaleString('en-GB', {
-    timeZone: 'Asia/Karachi',
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  });
+const stamp = (iso: string) => `${dayKey(iso)}, ${clock(iso)}`;
 
 const kb = (n: number | null) =>
   n === null ? '' : n > 1_048_576 ? `${(n / 1_048_576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`;
@@ -443,8 +429,15 @@ export function TaskLedger({
                             height: '3.6rem',
                             /* ⚠️ THE OWNER'S LIGHT GREEN, and a left bar so the
                                selection survives being read in greyscale or by
-                               anybody who cannot separate the two greens. */
-                            background: on ? 'var(--pf-mint-card)' : undefined,
+                               anybody who cannot separate the two greens.
+
+                               ⚠️ --pf-mint, NOT --pf-mint-card. Owner, 2026-09-24:
+                               *"in the task the color is very light"* — mint-card
+                               is #eefbf7, four points off white, and on a row
+                               that already alternates it read as nothing at all.
+                               This is the same green the Activity history uses,
+                               so a selected row looks the same on both tabs. */
+                            background: on ? 'var(--pf-mint)' : undefined,
                             boxShadow: on ? 'inset 3px 0 0 0 var(--pf-teal)' : undefined,
                           }}
                           aria-selected={on}
@@ -901,12 +894,14 @@ const DOT: Record<string, string> = {
 };
 
 const dayKey = (iso: string) =>
-  new Date(iso).toLocaleDateString('en-GB', {
-    timeZone: 'Asia/Karachi',
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  });
+  dayWord(
+    new Date(iso).toLocaleDateString('en-CA', {
+      timeZone: 'Asia/Karachi',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }),
+  ) as string;
 
 const clock = (iso: string) =>
   new Date(iso).toLocaleTimeString('en-GB', {
@@ -971,7 +966,11 @@ function Timeline({
               <span
                 aria-hidden="true"
                 className="absolute left-[1.55rem] top-[1.15rem] w-px"
-                style={{ background: 'var(--pf-line)', bottom: '1.1rem' }}
+                /* ⚠️ --pf-mint-line, NOT --pf-line. Measured in the browser:
+                   --pf-line resolves to #e6ecf3, and a 1px rail in it is not
+                   visible against the panel at all — the dots read as loose
+                   specks rather than a sequence. */
+                style={{ background: 'var(--pf-mint-line)', bottom: '1.1rem', width: '1.5px' }}
               />
             )}
             {list.map((e, i) => (

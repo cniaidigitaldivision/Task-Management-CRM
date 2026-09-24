@@ -236,17 +236,48 @@ export async function workNeedingAttention(
 /* ── One person, in full ─────────────────────────────────────────────────── */
 
 export interface HistoryEntry {
+  /** `activity_log.id` — an event is SELECTED by it, so it has to be stable. */
+  readonly id: string;
   readonly at: string;
   readonly action: string;
   readonly summary: string;
+  /**
+   * Who performed it.
+   *
+   * ⚠️ THIS FEED IS NO LONGER ONLY THEIR OWN ACTIONS. The owner's reference
+   * shows "Admin assigned ... to Abdul Moiz" and "Coordinator changed due date"
+   * beside the person's own moves — a history of somebody's work that hides
+   * what was DONE TO them answers half the question. Measured on the live log,
+   * Abdul Moiz has 572 actions of his own and 14 by three other people on his
+   * tasks; leaving those out is how a reassignment becomes invisible.
+   */
+  readonly actorId: string | null;
+  readonly actorName: string | null;
+  readonly actorAvatarUrl: string | null;
+  readonly actorRole: string | null;
+  /** False when somebody else acted on their task. */
+  readonly byThem: boolean;
   readonly taskId: string | null;
   readonly reference: string | null;
   readonly title: string | null;
   /** What the person typed about the task, when they typed anything. */
   readonly description: string | null;
+  readonly projectId: string | null;
   readonly projectName: string | null;
   readonly before: unknown;
   readonly after: unknown;
+  /**
+   * Why, when the mover was asked for a reason.
+   *
+   * ⚠️ IT IS RECORDED, BUT ONLY WHERE THE PRODUCT ASKS. Blocking and
+   * cancelling take a reason; a plain status move and a date change do not. 26
+   * of the 1,900 rows carrying the slot have one. The panel prints what was
+   * typed, or says the move never asked — never an invented sentence.
+   */
+  readonly reason: string | null;
+  /** Both sides of a reassignment, by name. */
+  readonly fromName: string | null;
+  readonly toName: string | null;
   /**
    * Where the task came from — the owner's "Source", 2026-09-24:
    * *"Source means 'Assigned by someone' or 'Self-created' ... whether it's an
@@ -320,9 +351,24 @@ export async function personDetail(
        limit 400
     `),
     withUser(actorId, (tx) => tx`
-      select a.created_at, a.action, a.summary, a.entity_id, a.before, a.after,
-             t.reference, t.title, t.description, p.name as project_name,
+      /* ⚠️ BOTH DIRECTIONS — what they did, and what was done to their work.
+         The predicate used to be actor_id = person alone, which drops every
+         assignment, reassignment and review somebody else performed on their
+         task. Those are exactly the rows a manager opens this tab to read: on
+         the live log Abdul Moiz has 572 of his own and 14 by other people. */
+      select a.id, a.created_at, a.action, a.summary, a.entity_id, a.before, a.after,
+             a.actor_id, ac.full_name as actor_name, ac.avatar_url as actor_avatar,
+             ac.role::text as actor_role,
+             t.reference, t.title, t.description,
+             p.id as project_id, p.name as project_name,
              cb.full_name as source_name, t.recurrence_rule,
+             /* The reason, wherever the product asked for one. */
+             coalesce(
+               nullif(a.after->>'reason', ''),
+               nullif(a.after->>'overrideReason', '')
+             ) as reason,
+             fu.full_name as from_name,
+             tu.full_name as to_name,
              case
                when t.id is null then 'unknown'
                when t.created_by_id is null then 'unknown'
@@ -334,11 +380,19 @@ export async function personDetail(
         left join public.tasks t on t.id = a.entity_id and a.entity_type = 'task'
         left join public.projects p on p.id = t.project_id
         left join public.users cb on cb.id = t.created_by_id
-       where a.actor_id = ${personId}
+        left join public.users ac on ac.id = a.actor_id
+        /* Only a reassignment carries these two, and only then are they read. */
+        left join public.users fu
+               on a.action = 'reassigned'
+              and fu.id = nullif(a.before->>'assigneeId', '')::uuid
+        left join public.users tu
+               on a.action = 'reassigned'
+              and tu.id = nullif(a.after->>'assigneeId', '')::uuid
+       where (a.actor_id = ${personId} or t.assignee_id = ${personId})
          and a.created_at >= ${period.from}::date
          and a.created_at < (${period.to}::date + 1)
        order by a.created_at desc
-       limit 300
+       limit 400
     `),
     withUser(actorId, (tx) => tx`
       /* Every move on this person's tasks, whoever made it — the quality rules
@@ -377,16 +431,26 @@ export async function personDetail(
       placements: Number(r.placements ?? 0),
     })),
     history: (history as Array<Record<string, unknown>>).map((h) => ({
+      id: String(h.id),
       at: new Date(h.created_at as string).toISOString(),
       action: String(h.action),
       summary: String(h.summary ?? ''),
+      actorId: (h.actor_id as string | null) ?? null,
+      actorName: (h.actor_name as string | null) ?? null,
+      actorAvatarUrl: (h.actor_avatar as string | null) ?? null,
+      actorRole: (h.actor_role as string | null) ?? null,
+      byThem: h.actor_id === personId,
       taskId: (h.entity_id as string | null) ?? null,
       reference: (h.reference as string | null) ?? null,
       title: (h.title as string | null) ?? null,
       description: (h.description as string | null) ?? null,
+      projectId: (h.project_id as string | null) ?? null,
       projectName: (h.project_name as string | null) ?? null,
       before: h.before ?? null,
       after: h.after ?? null,
+      reason: (h.reason as string | null) ?? null,
+      fromName: (h.from_name as string | null) ?? null,
+      toName: (h.to_name as string | null) ?? null,
       sourceKind: String(h.source_kind ?? 'unknown') as HistoryEntry['sourceKind'],
       sourceName: (h.source_name as string | null) ?? null,
       recurrenceRule: (h.recurrence_rule as string | null) ?? null,
@@ -1284,6 +1348,108 @@ export async function assignmentSources(
     /* ⚠️ `repeat` is deliberately NOT in this sum — it overlaps every bucket. */
     total: self + coordinator + admin + teammate + unknown,
   };
+}
+
+/* ============================================================================
+ * THE EVENTS BEHIND THE AI SUMMARY \u2014 owner, 2026-09-24
+ * ----------------------------------------------------------------------------
+ * *"Summarise this activity."*
+ *
+ * \u26a0\ufe0f THE BROWSER SENDS IDS, NOT SENTENCES. The obvious build has the client
+ * post the rows it has already drawn and the server forward them to the model.
+ * That makes the model's input client-supplied text on a screen that reports on
+ * a named colleague \u2014 anything typed into a task title would be read as part of
+ * the brief. The ids are a SELECTION; every word the model sees is read back out
+ * of the database here, under the caller's own RLS.
+ * ========================================================================= */
+
+export interface SummaryEvent {
+  readonly at: string;
+  readonly action: string;
+  readonly actorName: string | null;
+  readonly sourceKind: 'self' | 'coordinator' | 'admin' | 'teammate' | 'unknown';
+  readonly title: string | null;
+  readonly reference: string | null;
+  readonly projectName: string | null;
+  readonly before: unknown;
+  readonly after: unknown;
+  readonly reason: string | null;
+  readonly fromName: string | null;
+  readonly toName: string | null;
+}
+
+export async function activityEvents(
+  actorId: string,
+  personId: string,
+  ids: readonly string[],
+): Promise<SummaryEvent[]> {
+  if (ids.length === 0) return [];
+  /* \u26a0\ufe0f BOUNDED, AND BOUND TO THE PERSON. A crafted list of ids cannot widen
+     the answer past the record being read: the predicate still demands the row
+     was theirs, by action or by assignment. */
+  const rows = await withUser(actorId, (tx) => tx`
+    select a.created_at, a.action, a.before, a.after,
+           ac.full_name as actor_name,
+           t.reference, t.title, p.name as project_name,
+           coalesce(nullif(a.after->>'reason', ''), nullif(a.after->>'overrideReason', '')) as reason,
+           fu.full_name as from_name, tu.full_name as to_name,
+           case
+             when t.id is null then 'unknown'
+             when t.created_by_id is null then 'unknown'
+             when t.created_by_id = t.assignee_id then 'self'
+             when cb.role in ('admin', 'super_admin') then 'admin'
+             when cb.role = 'team_coordinator' then 'coordinator'
+             else 'teammate' end as source_kind
+      from public.activity_log a
+      left join public.tasks t on t.id = a.entity_id and a.entity_type = 'task'
+      left join public.projects p on p.id = t.project_id
+      left join public.users cb on cb.id = t.created_by_id
+      left join public.users ac on ac.id = a.actor_id
+      left join public.users fu
+             on a.action = 'reassigned' and fu.id = nullif(a.before->>'assigneeId', '')::uuid
+      left join public.users tu
+             on a.action = 'reassigned' and tu.id = nullif(a.after->>'assigneeId', '')::uuid
+     where a.id = any(${ids as string[]}::uuid[])
+       and (a.actor_id = ${personId} or t.assignee_id = ${personId})
+     order by a.created_at
+     limit 200
+  `);
+
+  return (rows as Array<Record<string, unknown>>).map((r) => ({
+    at: new Date(r.created_at as string).toISOString(),
+    action: String(r.action),
+    actorName: (r.actor_name as string | null) ?? null,
+    sourceKind: String(r.source_kind ?? 'unknown') as SummaryEvent['sourceKind'],
+    title: (r.title as string | null) ?? null,
+    reference: (r.reference as string | null) ?? null,
+    projectName: (r.project_name as string | null) ?? null,
+    before: r.before ?? null,
+    after: r.after ?? null,
+    reason: (r.reason as string | null) ?? null,
+    fromName: (r.from_name as string | null) ?? null,
+    toName: (r.to_name as string | null) ?? null,
+  }));
+}
+
+/**
+ * Just enough about a person to head a file with.
+ *
+ * ⚠️ ITS OWN READ, BECAUSE AN EXPORT IS NOT A PAGE RENDER. The board already
+ * carries the name when the screen is open, but a server action is entered
+ * cold: nothing from the browser may be trusted to name the person a document
+ * is about.
+ */
+export async function personBrief(
+  actorId: string,
+  personId: string,
+): Promise<{ name: string; roleTitle: string } | null> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select u.full_name, coalesce(u.role_title, '') as role_title
+      from public.users u
+     where u.id = ${personId}
+  `);
+  const row = (rows as Array<Record<string, unknown>>)[0];
+  return row ? { name: String(row.full_name), roleTitle: String(row.role_title) } : null;
 }
 
 /* ============================================================================

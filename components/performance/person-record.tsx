@@ -32,6 +32,8 @@ import {
   XCircle,
 } from 'lucide-react';
 
+import { ActivityHistory } from '@/components/performance/activity-history';
+import { dayWord } from '@/lib/view/activity';
 import { Caveat, CompareTab, QualityTab } from '@/components/performance/performance-tabs';
 import { TaskLedger } from '@/components/performance/task-ledger';
 import { FilterPill, Nothing, Panel, StatCard } from '@/components/performance/performance-ui';
@@ -223,7 +225,14 @@ export function PersonRecord(p: PersonRecordProps) {
           />
         )}
 
-        {tab === 'activity' && <ActivityTab history={p.history} nowMs={p.nowMs} name={p.person.name} />}
+        {tab === 'activity' && (
+          <ActivityHistory
+            history={p.history}
+            person={{ id: p.person.id, name: p.person.name }}
+            rangeLabel={p.rangeLabel}
+            onOpenTask={p.onOpenTask}
+          />
+        )}
 
         {tab === 'history' && (
           <CompareTab
@@ -885,16 +894,18 @@ function sourceLabel(h: HistoryEntry): { text: string; tone: string } {
   return { text: 'Not recorded', tone: 'var(--pf-mute)' };
 }
 
+/* ⚠️ dayWord, NOT month: 'short' — see `lib/view/activity.ts`. */
 function stamp(iso: string): string {
-  return new Date(iso).toLocaleString('en-GB', {
-    timeZone: 'Asia/Karachi',
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  });
+  const d = new Date(iso);
+  return [
+    dayWord(d.toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' })),
+    d.toLocaleTimeString('en-GB', {
+      timeZone: 'Asia/Karachi',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }),
+  ].join(', ');
 }
 
 function ActivityTable({ history }: { history: readonly HistoryEntry[] }) {
@@ -1014,37 +1025,6 @@ function RecentActivity({
         <Nothing>Nothing is recorded against them in this period.</Nothing>
       ) : (
         <ActivityTable history={history} />
-      )}
-    </Panel>
-  );
-}
-
-function ActivityTab({
-  history,
-  name,
-}: {
-  history: readonly HistoryEntry[];
-  nowMs: number;
-  name: string;
-}) {
-  return (
-    <Panel
-      title="Activity history"
-      description={`Every action recorded against ${first(name)}'s work in this period.`}
-    >
-      {history.length === 0 ? (
-        <Nothing>
-          Nothing is recorded in this period. The log holds status changes, edits, attachments and
-          handovers — widen the period above to see more.
-        </Nothing>
-      ) : (
-        <>
-          <ActivityTable history={history} />
-          <Caveat>
-            Showing the {history.length} most recent. The log records what happened and who did it;
-            it does not record why, so a reason for a change has to be asked for.
-          </Caveat>
-        </>
       )}
     </Panel>
   );

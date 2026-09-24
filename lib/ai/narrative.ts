@@ -108,6 +108,94 @@ strengths, risks, recommendations: 2 to 4 items each, one sentence each. Use an 
  * it should be.
  */
 export async function writeNarrative(factSheet: string): Promise<Narrative> {
+  const parsed = await askJson(SYSTEM, `FACT SHEET\n\n${factSheet}`);
+
+  const narrative = {
+    headline: str(parsed.headline) || 'Monthly performance summary',
+    summary: list(parsed.summary),
+    strengths: list(parsed.strengths),
+    risks: list(parsed.risks),
+    recommendations: list(parsed.recommendations),
+    model: MODEL,
+  };
+
+  return {
+    ...narrative,
+    unverifiedFigures: verifyFigures(narrative, factSheet),
+  };
+}
+
+/* ============================================================================
+ * THE ACTIVITY SUMMARY — owner, 2026-09-24
+ * ----------------------------------------------------------------------------
+ * *"Summarise this activity — get a concise AI summary with links to the
+ * relevant events."* The reference draws the button on the Activity history
+ * panel; this is what it asks for.
+ *
+ * ⚠️ IT IS A DIFFERENT JOB FROM THE MONTHLY COMMENTARY, so it is a different
+ * prompt. `SYSTEM` above briefs the model to write for the CEO about a month of
+ * figures; asked to describe eleven log rows it produces a page of
+ * recommendations about nothing. What is wanted here is what the record shows,
+ * in a paragraph.
+ *
+ * ⚠️ AND THE SAME RULE HOLDS: THE EVENTS ARE GIVEN, NEVER INFERRED. The
+ * caller reads them from the database and lists them; the model orders them into
+ * sentences. `verifyFigures` is reused so an invented count is still caught.
+ * ========================================================================= */
+
+export interface ActivitySummary {
+  readonly headline: string;
+  readonly summary: readonly string[];
+  /** What the record shows repeatedly — the pattern, not a judgement. */
+  readonly pattern: readonly string[];
+  readonly unverifiedFigures: readonly string[];
+  readonly model: string;
+}
+
+const ACTIVITY_SYSTEM = `You are describing an activity log for a manager at the AI & Digital Division of Crescent Nova International. The log belongs to one member of the team.
+
+You will be given a LOG: a list of events already read from the database, each with its date, the person who performed it, the task it was on, and the exact change made.
+
+HARD RULES:
+1. Describe only what is in the log. Do not calculate anything; every number you write must appear verbatim in the log.
+2. Do not infer motive, effort, diligence or attitude. "Moved six tasks to Done" is in the log; "worked hard" is not.
+3. Where the log says a reason was not recorded, say it was not recorded rather than supplying one.
+4. Use the names and task titles exactly as given. Do not invent a task, a person or a project.
+5. If somebody other than the log's owner acted on their work, say who.
+
+STYLE: Plain, specific, past tense. Full sentences, no bullet characters, no headings, no marketing language. Short: a manager is reading this beside the events themselves.
+
+Reply with JSON only, matching exactly:
+{"headline": string, "summary": [string], "pattern": [string]}
+
+headline: one sentence, under 120 characters, saying what this stretch of the record mostly consists of.
+summary: 1 to 3 short paragraphs describing what happened, in order.
+pattern: 0 to 3 items, each one sentence, naming something the log shows more than once. Use an empty array when nothing repeats.`;
+
+export async function writeActivitySummary(log: string): Promise<ActivitySummary> {
+  const parsed = await askJson(ACTIVITY_SYSTEM, `LOG\n\n${log}`);
+
+  const body = {
+    headline: str(parsed.headline) || 'Activity summary',
+    summary: list(parsed.summary),
+    pattern: list(parsed.pattern),
+  };
+
+  return {
+    ...body,
+    model: MODEL,
+    unverifiedFigures: verifyFigures(
+      { ...body, strengths: body.pattern, risks: [], recommendations: [] },
+      log,
+    ),
+  };
+}
+
+/**
+ * One request, one set of rules: the key, the timeout, the JSON mode and the
+ * two failures worth naming. Both prompts above go through it.
+ */
+async function askJson(system: string, user: string): Promise<Record<string, unknown>> {
   const key = chatgptKey();
   if (!key) throw new Error('CHATGPT_API_KEY is not set.');
 
@@ -123,8 +211,8 @@ export async function writeNarrative(factSheet: string): Promise<Narrative> {
          Without it the model occasionally prefixes "Here is the report:". */
       response_format: { type: 'json_object' },
       messages: [
-        { role: 'system', content: SYSTEM },
-        { role: 'user', content: `FACT SHEET\n\n${factSheet}` },
+        { role: 'system', content: system },
+        { role: 'user', content: user },
       ],
       /* `max_completion_tokens`, not `max_tokens`: the newer models reject the
          old name outright, and this one accepts both. */
@@ -165,26 +253,11 @@ export async function writeNarrative(factSheet: string): Promise<Narrative> {
     );
   }
 
-  let parsed: Record<string, unknown>;
   try {
-    parsed = JSON.parse(content) as Record<string, unknown>;
+    return JSON.parse(content) as Record<string, unknown>;
   } catch {
     throw new Error('The model did not return usable JSON.');
   }
-
-  const narrative = {
-    headline: str(parsed.headline) || 'Monthly performance summary',
-    summary: list(parsed.summary),
-    strengths: list(parsed.strengths),
-    risks: list(parsed.risks),
-    recommendations: list(parsed.recommendations),
-    model: MODEL,
-  };
-
-  return {
-    ...narrative,
-    unverifiedFigures: verifyFigures(narrative, factSheet),
-  };
 }
 
 function str(value: unknown): string {
