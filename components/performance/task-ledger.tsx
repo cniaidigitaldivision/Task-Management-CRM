@@ -219,11 +219,17 @@ export function TaskLedger({
     return [...out].sort((a, b) => val(a).localeCompare(val(b)) * sort.dir);
   }, [rows, status, source, assignedBy, project, sort]);
 
-  /* ⚠️ DERIVED, NOT SYNCHRONISED. Clearing `openId` from an effect when the
-     filters hide its row is a cascading render, and it throws away a selection
-     the reader may want back the moment they widen the filter again. Finding it
-     in the visible rows answers the same question without either cost. */
-  const open = shown.find((r) => r.taskId === openId) ?? null;
+  /* ⚠️ DERIVED, NOT SYNCHRONISED, AND IT OPENS ON THE FIRST ROW.
+     Owner, 2026-09-24: *"When the page loads automatically the first row will
+     open on the right side."* Falling back to `shown[0]` does that without an
+     effect — and it keeps working when a filter changes the list, because the
+     panel simply follows whatever is now first.
+
+     The same fallback is why `openId` is never cleared when a filter hides the
+     chosen row: clearing state from an effect is a cascading render, and it
+     would throw away a selection the reader may want back the moment they widen
+     the filter again. */
+  const open = shown.find((r) => r.taskId === openId) ?? shown[0] ?? null;
 
   /* ⚠️ PAGED. Owner, 2026-09-24: *"the tasks are getting very long so please
      divide them. Pagination should be added so the page will not get very
@@ -368,7 +374,7 @@ export function TaskLedger({
                   </thead>
                   <tbody>
                     {pageRows.map((r) => {
-                      const on = r.taskId === openId;
+                      const on = r.taskId === open?.taskId;
                       const st = statusOf(r, today);
                       const sc = lookOf(r);
                       const late =
@@ -376,7 +382,11 @@ export function TaskLedger({
                       return (
                         <tr
                           key={r.taskId}
-                          onClick={() => setOpenId(on ? null : r.taskId)}
+                          /* Selecting, not toggling: with the first row open by
+                             default there is no "nothing selected" state to
+                             toggle back to, and clicking the open row to close
+                             it would silently jump the panel to row one. */
+                          onClick={() => setOpenId(r.taskId)}
                           className="cursor-pointer border-b last:border-0"
                           style={{
                             borderColor: 'var(--pf-grid)',
