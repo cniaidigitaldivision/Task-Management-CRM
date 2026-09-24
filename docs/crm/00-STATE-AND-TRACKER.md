@@ -23,6 +23,55 @@
 
 ---
 
+## 🧭 2026-09-24 (later) — THE PAGE COUNTED EVERYTHING AND SHOWED NOTHING
+
+Owner: *"It's not visible who is assigned ... any task I want to see for any
+individual project. The task exactly what he is doing is not showing. It is not
+mentioning what exact activity he is doing on his task list. A lot of things are
+messy. You are just stuffing with a lot of things but nothing you can say is
+meaningful."*
+
+**The criticism was correct, and it is worth writing down plainly.** Eight tabs
+answered *how many* — completed, verified, on time, overdue, points, review
+coverage — and real task TITLES appeared in exactly **two** places on the whole
+screen: the seven rows of "Work requiring attention", and inside a drawer that
+needed a click to reach. A manager asking *"what is Najamullah doing today"*
+could not answer it from this page. Counting is not showing.
+
+### What was added
+
+`workInScope` and a **"What everyone is working on"** panel — the tasks
+themselves, blocked and in-review first, each row carrying:
+
+| Column | Why |
+|---|---|
+| **Task / activity** | the title, and the description under it where one exists |
+| **Who is on it** | avatar, name, job title — and **"Nobody assigned"** in red, because an unassigned task is the thing a manager most needs to see |
+| **Project** | which project it belongs to |
+| **Status** | Blocked / In review / In progress / Not started |
+| **Due** | red when it has passed |
+| **Last move** | *"Started · 3 days ago · Najamullah"* — the state says what it IS, the last move says what is HAPPENING |
+
+It sits on the **Overview**, full width, and again on **Projects & teams**, where
+the project filter narrows it — *"any task I want to see for any individual
+project."*
+
+### ⚠️ And it shipped the same bug twice before it was right
+
+First attempt put the panel in the Overview's narrow left column beside the AI
+panel: six columns in 840px, the fixed ones totalling 758, and the task title —
+the entire point — rendered as **"KSA ..."**. The same column-budget mistake as
+the people table, in the same session.
+
+Fixed by taking it out of the grid (full width is also the right shape: the work
+is the subject of the page, not a sidebar to it) and sizing the fixed columns
+from their own content. Swept again: no wrapped label, no clipped value that is
+not free text with a tooltip, no horizontal scrollbar at 1366 / 1535 / 1672.
+
+**Green:** 152 test files · 3821 tests · typecheck · lint · production build.
+
+---
+
 ## 🧭 2026-09-24 — THE OFFICE'S OWN TASK ASSIGNMENT FORM, EXPORTED
 
 Owner sent the paper form (`TASK ASSIGNMENT FORM / CNI OFFICE, ISLAMABAD`) as a

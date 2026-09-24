@@ -9,6 +9,7 @@ import {
   projectContribution,
   qualitySummary,
   teamContribution,
+  workInScope,
   workNeedingAttention,
   workloadRows,
 } from '@/lib/db/queries/performance';
@@ -115,7 +116,7 @@ export default async function PerformancePage({
      tabs are client state, so switching one must not touch the network; that is
      only true if what they need is already here. Each read is bounded by the
      period and the scope, so this is seven small statements, not seven scans. */
-  const [board, attention, options, projects, teams, workload, quality, weekly, monthly] =
+  const [board, attention, options, projects, teams, workload, quality, weekly, monthly, work] =
     await Promise.all([
       performanceBoard(user.id, scoped, filters),
       workNeedingAttention(user.id, today, filters),
@@ -126,6 +127,10 @@ export default async function PerformancePage({
       qualitySummary(user.id, scoped, filters),
       bucketTrend(user.id, 'week', filters),
       bucketTrend(user.id, 'month', filters),
+      /* ⚠️ THE ACTUAL TASKS. Everything above this line is a count; this is
+         the work. Owner, 2026-09-24: *"The task exactly what he is doing is not
+         showing."* */
+      workInScope(user.id, scoped, filters),
     ]);
 
   return (
@@ -154,6 +159,8 @@ export default async function PerformancePage({
       quality={quality}
       weekly={weekly}
       monthly={monthly}
+      work={work.rows}
+      workTotal={work.total}
       updatedAt={new Intl.DateTimeFormat('en-GB', {
         timeZone: 'Asia/Karachi',
         hour: '2-digit',

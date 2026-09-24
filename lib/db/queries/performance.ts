@@ -857,6 +857,144 @@ export async function bucketTrend(
 }
 
 /* ============================================================================
+ * THE WORK ITSELF — owner, 2026-09-24
+ * ----------------------------------------------------------------------------
+ * *"It's not visible who is assigned ... any task I want to see for any
+ * individual project. The task exactly what he is doing is not showing. It is
+ * not mentioning what exact activity he is doing on his task list. A lot of
+ * things are messy ... nothing you can say is meaningful."*
+ *
+ * ── ⚠️ THE PAGE COUNTED EVERYTHING AND SHOWED NOTHING ────────────────────
+ * Eight tabs of totals — completed, verified, on time, overdue, points, review
+ * coverage — and the actual task titles appeared in exactly TWO places: the
+ * seven rows of "Work requiring attention", and inside a drawer somebody had to
+ * click a row to reach. A manager asking "what is Najamullah doing today" could
+ * not answer it from this screen. That is what this read is for: the tasks
+ * themselves, with the person on them and the project they belong to.
+ * ========================================================================= */
+
+export interface WorkRow {
+  readonly taskId: string;
+  readonly reference: string;
+  readonly title: string;
+  /** What they typed about it, when they typed anything. */
+  readonly description: string | null;
+  readonly status: string;
+  readonly priority: string;
+  readonly projectId: string;
+  readonly projectName: string;
+  readonly assigneeId: string | null;
+  readonly assigneeName: string | null;
+  readonly assigneeAvatarUrl: string | null;
+  readonly assigneeRole: string | null;
+  readonly startDate: string | null;
+  readonly dueDate: string | null;
+  readonly completedOn: string | null;
+  /** The last thing that happened to it, and when — "what he is doing". */
+  readonly lastAction: string | null;
+  readonly lastActionAt: string | null;
+  readonly lastActorName: string | null;
+}
+
+/**
+ * The actual tasks in scope — open first, then what closed in the period.
+ *
+ * ⚠️ IT CARRIES THE LAST MOVE, NOT JUST THE STATUS. "In progress" says a state;
+ * "moved to in progress by Najamullah, 2 days ago" says what is happening. The
+ * log already holds it, and reading it here costs one join rather than a second
+ * round trip per row.
+ *
+ * ⚠️ AND IT IS CAPPED. 1,235 tasks exist; a screen that tried to draw them all
+ * would be the payload mistake this codebase has already made twice. The caller
+ * is told the total so the page can say what it is not showing.
+ */
+export async function workInScope(
+  actorId: string,
+  period: { from: string; to: string; today: string },
+  filters: PerfFilters = {},
+  limit = 150,
+): Promise<{ rows: WorkRow[]; total: number }> {
+  const departmentId = filters.departmentId ?? null;
+  const projectId = filters.projectId ?? null;
+  const personId = filters.personId ?? null;
+
+  const [rows, counted] = await withUser(actorId, async (tx) => {
+    const where = tx`
+         not t.is_deleted
+     and (${projectId}::uuid is null or t.project_id = ${projectId}::uuid)
+     and (${personId}::uuid is null or t.assignee_id = ${personId}::uuid)
+     and (${departmentId}::uuid is null or u.department_id = ${departmentId}::uuid)
+     and (
+           t.status not in ('done', 'cancelled')
+        or (t.completed_at is not null
+            and (t.completed_at at time zone 'Asia/Karachi')::date
+                between ${period.from}::date and ${period.to}::date)
+     )
+    `;
+    const r = tx`
+      select t.id, t.reference, t.title, t.description,
+             t.status::text as status, t.priority::text as priority,
+             t.start_date, t.due_date,
+             (t.completed_at at time zone 'Asia/Karachi')::date as completed_on,
+             p.id as project_id, p.name as project_name,
+             u.id as assignee_id, u.full_name as assignee_name,
+             u.avatar_url, u.role_title as assignee_role,
+             la.action as last_action, la.created_at as last_action_at,
+             au.full_name as last_actor_name
+        from public.tasks t
+        join public.projects p on p.id = t.project_id
+        left join public.users u on u.id = t.assignee_id
+        left join lateral (
+          select a.action, a.created_at, a.actor_id
+            from public.activity_log a
+           where a.entity_type = 'task' and a.entity_id = t.id
+           order by a.created_at desc
+           limit 1
+        ) la on true
+        left join public.users au on au.id = la.actor_id
+       where ${where}
+       order by
+         case t.status
+           when 'blocked' then 0 when 'in_review' then 1 when 'in_progress' then 2
+           when 'revisions' then 3 when 'todo' then 4 when 'backlog' then 5 else 6 end,
+         t.due_date nulls last, t.reference
+       limit ${limit}
+    `;
+    const c = tx`
+      select count(*)::int as n
+        from public.tasks t
+        left join public.users u on u.id = t.assignee_id
+       where ${where}
+    `;
+    return Promise.all([r, c]);
+  });
+
+  return {
+    rows: (rows as Array<Record<string, unknown>>).map((r) => ({
+      taskId: String(r.id),
+      reference: String(r.reference),
+      title: String(r.title),
+      description: (r.description as string | null) ?? null,
+      status: String(r.status),
+      priority: String(r.priority),
+      projectId: String(r.project_id),
+      projectName: String(r.project_name),
+      assigneeId: (r.assignee_id as string | null) ?? null,
+      assigneeName: (r.assignee_name as string | null) ?? null,
+      assigneeAvatarUrl: (r.avatar_url as string | null) ?? null,
+      assigneeRole: (r.assignee_role as string | null) ?? null,
+      startDate: dateOnly(r.start_date),
+      dueDate: dateOnly(r.due_date),
+      completedOn: dateOnly(r.completed_on),
+      lastAction: (r.last_action as string | null) ?? null,
+      lastActionAt: r.last_action_at ? new Date(r.last_action_at as string).toISOString() : null,
+      lastActorName: (r.last_actor_name as string | null) ?? null,
+    })),
+    total: Number((counted as Array<Record<string, unknown>>)[0]?.n ?? 0),
+  };
+}
+
+/* ============================================================================
  * THE DAILY TASK ASSIGNMENT FORM — owner, 2026-09-24
  * ----------------------------------------------------------------------------
  * *"Every person can download or export their daily task in this template from

@@ -9,6 +9,7 @@ import { Nothing, Panel, StatCard } from '@/components/performance/performance-u
 import { Avatar } from '@/components/ui/avatar';
 import type {
   BucketRow,
+  WorkRow,
   PersonStat,
   ProjectRow,
   QualitySummary,
@@ -706,6 +707,226 @@ export function ReportsTab({
           Open Reports <ArrowRight className="size-[1rem]" aria-hidden="true" />
         </Link>
       </div>
+    </Panel>
+  );
+}
+
+/* ── The work itself — owner, 2026-09-24 ─────────────────────────────────── */
+
+const STATUS_LOOK: Record<string, { label: string; tone: 'green' | 'amber' | 'red' | 'grey' }> = {
+  backlog: { label: 'Backlog', tone: 'grey' },
+  todo: { label: 'Not started', tone: 'grey' },
+  in_progress: { label: 'In progress', tone: 'amber' },
+  in_review: { label: 'In review', tone: 'amber' },
+  revisions: { label: 'In revision', tone: 'amber' },
+  blocked: { label: 'Blocked', tone: 'red' },
+  done: { label: 'Completed', tone: 'green' },
+  cancelled: { label: 'Cancelled', tone: 'grey' },
+};
+
+const ACTION_WORD: Record<string, string> = {
+  created: 'Raised',
+  backlog: 'Backlog',
+  todo: 'Not started',
+  in_progress: 'Started',
+  in_review: 'Submitted',
+  revisions: 'Sent back',
+  blocked: 'Blocked',
+  done: 'Completed',
+  cancelled: 'Cancelled',
+  updated: 'Edited',
+  attachment_added: 'Attached a file',
+  'task.handoff': 'Handed over',
+  'task.placement_recorded': 'Placement recorded',
+};
+
+/** How long since the last thing happened to it. */
+function since(iso: string | null, nowMs: number): string {
+  if (!iso) return '';
+  const h = Math.floor((nowMs - Date.parse(iso)) / 3_600_000);
+  if (!Number.isFinite(h) || h < 0) return '';
+  if (h < 1) return 'just now';
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return d === 1 ? 'yesterday' : `${d} days ago`;
+}
+
+const STATUS_BG = {
+  green: 'var(--pf-green-bg)',
+  amber: 'var(--pf-amber-bg)',
+  red: 'var(--pf-red-bg)',
+  grey: 'var(--pf-strip)',
+} as const;
+
+const STATUS_INK = {
+  green: 'var(--pf-green)',
+  amber: 'var(--pf-amber)',
+  red: 'var(--pf-red-ink)',
+  grey: 'var(--pf-soft)',
+} as const;
+
+/**
+ * What each person is actually doing.
+ *
+ * ⚠️ THE PAGE COUNTED EVERYTHING AND SHOWED NOTHING. Owner, 2026-09-24: *"The
+ * task exactly what he is doing is not showing ... nothing you can say is
+ * meaningful."* Eight tabs of totals, and real task titles appeared in exactly
+ * two places on the whole screen. This panel answers "what is Najamullah doing
+ * today": the activity, the person on it, the project, and the last thing that
+ * happened to it — in that order, because that is the order it gets asked in.
+ */
+export function WorkPanel({
+  rows,
+  total,
+  nowMs,
+  today,
+  title,
+  description,
+  onOpenTask,
+  showAssignee = true,
+}: {
+  rows: readonly WorkRow[];
+  total: number;
+  nowMs: number;
+  today: string;
+  title: string;
+  description: string;
+  onOpenTask: (taskId: string) => void;
+  showAssignee?: boolean;
+}) {
+  return (
+    <Panel title={title} description={description}>
+      {rows.length === 0 ? (
+        <Nothing>Nothing is open or was closed in this scope. Widen the period above.</Nothing>
+      ) : (
+        <>
+          <Grid
+            /* ⚠️ THE TITLE IS THE COLUMN THAT MATTERS AND IT MUST BE THE WIDEST.
+               Budgeted from the design rule that already bit twice on this page:
+               the flexible column gets what is left, so the fixed ones are sized
+               from their own headers, not generously. At the first attempt they
+               totalled 758px of an 840px table and the task title — the whole
+               point of this panel — rendered as "KSA ...". */
+            head={[
+              { label: 'Task / activity' },
+              ...(showAssignee ? [{ label: 'Who is on it', w: '10rem' }] : []),
+              { label: 'Project', w: '9.4rem' },
+              { label: 'Status', w: '7.2rem' },
+              { label: 'Due', w: '5.5rem' },
+              /* 10.6rem, not 9.4: "6 days ago · Rafay abbasi" measures 144px and
+                 was cut at 131. Taken from Task/activity, which has the slack. */
+              { label: 'Last move', w: '10.6rem' },
+            ]}
+            minWidth="52rem"
+          >
+            {rows.map((r) => {
+              const look = STATUS_LOOK[r.status] ?? { label: r.status, tone: 'grey' as const };
+              const late =
+                r.status !== 'done' && r.status !== 'cancelled' && r.dueDate !== null && r.dueDate < today;
+              return (
+                <Row key={r.taskId}>
+                  <Cell first title={r.description ? `${r.title}\n\n${r.description}` : r.title}>
+                    <button
+                      type="button"
+                      onClick={() => onOpenTask(r.taskId)}
+                      className="block w-full truncate text-left font-medium hover:underline"
+                      style={{ color: 'var(--pf-ink)' }}
+                    >
+                      {r.title}
+                    </button>
+                    <span className="block truncate text-[0.72rem]" style={{ color: 'var(--pf-mute)' }}>
+                      {r.reference}
+                      {r.description ? ` \u00b7 ${r.description.replace(/\s+/g, ' ')}` : ''}
+                    </span>
+                  </Cell>
+                  {showAssignee && (
+                    <Cell>
+                      {r.assigneeName ? (
+                        <span className="flex min-w-0 items-center gap-[0.6rem]">
+                          <Avatar name={r.assigneeName} src={r.assigneeAvatarUrl} size="md" />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate" style={{ color: 'var(--pf-ink)' }}>
+                              {r.assigneeName}
+                            </span>
+                            {r.assigneeRole && (
+                              <span
+                                className="block truncate text-[0.72rem]"
+                                style={{ color: 'var(--pf-mute)' }}
+                              >
+                                {r.assigneeRole}
+                              </span>
+                            )}
+                          </span>
+                        </span>
+                      ) : (
+                        /* ⚠️ "Nobody" IS A FINDING, NOT A BLANK. An unassigned
+                           task is the thing a manager most needs to see. */
+                        <span style={{ color: 'var(--pf-red-ink)' }}>Nobody assigned</span>
+                      )}
+                    </Cell>
+                  )}
+                  <Cell title={r.projectName}>
+                    <span className="block truncate">{r.projectName}</span>
+                  </Cell>
+                  <Cell>
+                    <span
+                      className="inline-flex items-center rounded-full px-[0.6rem] py-[0.2rem] text-[0.74rem] font-semibold"
+                      style={{ background: STATUS_BG[look.tone], color: STATUS_INK[look.tone] }}
+                    >
+                      {look.label}
+                    </span>
+                  </Cell>
+                  <Cell>
+                    {r.dueDate ? (
+                      <span style={late ? { color: 'var(--pf-red-ink)' } : undefined}>
+                        {new Date(`${r.dueDate}T00:00:00Z`).toLocaleDateString('en-GB', {
+                          timeZone: 'UTC',
+                          day: '2-digit',
+                          month: 'short',
+                        })}
+                      </span>
+                    ) : (
+                      <Dash why="No due date is set on this task" />
+                    )}
+                  </Cell>
+                  <Cell
+                    last
+                    title={
+                      r.lastAction
+                        ? [ACTION_WORD[r.lastAction] ?? r.lastAction, since(r.lastActionAt, nowMs), r.lastActorName]
+                            .filter(Boolean)
+                            .join(' · ')
+                        : undefined
+                    }
+                  >
+                    {r.lastAction ? (
+                      <span className="block">
+                        <span className="block truncate" style={{ color: 'var(--pf-ink)' }}>
+                          {ACTION_WORD[r.lastAction] ?? r.lastAction}
+                        </span>
+                        <span
+                          className="block truncate text-[0.72rem]"
+                          style={{ color: 'var(--pf-mute)' }}
+                        >
+                          {[since(r.lastActionAt, nowMs), r.lastActorName].filter(Boolean).join(' \u00b7 ')}
+                        </span>
+                      </span>
+                    ) : (
+                      <Dash why="Nothing is recorded in the log for this task" />
+                    )}
+                  </Cell>
+                </Row>
+              );
+            })}
+          </Grid>
+          {total > rows.length && (
+            <Caveat>
+              Showing {rows.length} of {total}. Narrow by person, project or period to see the rest —
+              drawing all {total} would make the page slower than it is useful.
+            </Caveat>
+          )}
+        </>
+      )}
     </Panel>
   );
 }

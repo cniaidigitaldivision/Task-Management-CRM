@@ -35,6 +35,7 @@ import {
   QualityTab,
   ReportsTab,
   WorkloadTab,
+  WorkPanel,
 } from '@/components/performance/performance-tabs';
 import { FilterPill, Nothing, Panel, StatCard } from '@/components/performance/performance-ui';
 import { Avatar } from '@/components/ui/avatar';
@@ -48,6 +49,7 @@ import type {
   QualitySummary,
   TeamRow,
   WorkloadRow,
+  WorkRow,
 } from '@/lib/db/queries/performance';
 import type { Narrative } from '@/lib/ai/narrative';
 import { attentionFor, rate } from '@/lib/domain/performance';
@@ -146,6 +148,8 @@ export function PerformanceBoard({
   quality,
   weekly,
   monthly,
+  work,
+  workTotal,
   updatedAt,
   ownOnly,
 }: {
@@ -164,6 +168,8 @@ export function PerformanceBoard({
   quality: QualitySummary;
   weekly: readonly BucketRow[];
   monthly: readonly BucketRow[];
+  work: readonly WorkRow[];
+  workTotal: number;
   /** A Member reads this page about themselves; the server has already scoped it. */
   ownOnly: boolean;
   /** The server's clock, formatted — so the pill is not the browser's idea of now. */
@@ -255,6 +261,11 @@ export function PerformanceBoard({
      them; `workload` is only consulted for the pill's label, because it is the
      one list that still holds everybody. */
   const chosenPerson = settled === 'all' ? null : (board.find((p) => p.id === settled) ?? null);
+
+  /* A task opens on the board that owns it, not in a second copy of it here. */
+  const openTask = (taskId: string) => {
+    window.open(`/tasks?task=${taskId}`, '_blank', 'noopener');
+  };
   const chosenName =
     chosenPerson?.name ?? workload.find((w) => w.id === person)?.name ?? null;
 
@@ -536,6 +547,31 @@ export function PerformanceBoard({
           </div>
         )}
 
+        {/* ⚠️ FULL WIDTH, OUTSIDE THE TWO-COLUMN GRID. Inside it the table had
+            840px for six columns and crushed the task title to "KSA ..." — the
+            exact complaint this panel exists to answer. It is also the right
+            shape: the work is the subject of the page, not a sidebar to it. */}
+        {tab === 'overview' && (
+          <div className="mt-[1.25rem]">
+            <WorkPanel
+              rows={work}
+              total={workTotal}
+              nowMs={nowMs}
+              today={today}
+              onOpenTask={openTask}
+              showAssignee={!ownOnly && !chosenPerson}
+              title={
+                chosenPerson
+                  ? `What ${chosenPerson.name.split(' ')[0]} is working on`
+                  : ownOnly
+                    ? 'What you are working on'
+                    : 'What everyone is working on'
+              }
+              description="Open work first, then what closed in the period. Blocked and in-review come first."
+            />
+          </div>
+        )}
+
         {tab === 'people' && (
           <Panel title="People" description="Open anybody to see their whole record">
             {board.length === 0 ? (
@@ -607,12 +643,30 @@ export function PerformanceBoard({
         )}
 
         {tab === 'projects' && (
-          <ProjectsTab
-            projects={projects}
-            teams={teams}
-            personName={ownOnly ? null : (chosenPerson?.name ?? null)}
-            ownOnly={ownOnly}
-          />
+          <div className="space-y-[1.25rem]">
+            <ProjectsTab
+              projects={projects}
+              teams={teams}
+              personName={ownOnly ? null : (chosenPerson?.name ?? null)}
+              ownOnly={ownOnly}
+            />
+            {/* ⚠️ A PROJECT ROW IS A COUNT; THIS IS WHAT IS IN IT. Owner:
+                *"any task I want to see for any individual project."* Pick a
+                project in the filter above and this narrows to it. */}
+            <WorkPanel
+              rows={work}
+              total={workTotal}
+              nowMs={nowMs}
+              today={today}
+              onOpenTask={openTask}
+              title={
+                period.project === 'all'
+                  ? 'Every task in these projects'
+                  : `Tasks in ${options.projects.find((x) => x.id === period.project)?.name ?? 'this project'}`
+              }
+              description="Who is on each one, and what has happened to it. Use the project filter above to narrow this."
+            />
+          </div>
         )}
 
         {tab === 'quality' && <QualityTab quality={quality} nowMs={nowMs} />}
