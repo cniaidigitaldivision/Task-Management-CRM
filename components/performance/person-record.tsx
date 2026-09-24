@@ -866,17 +866,23 @@ function ActivityTable({ history }: { history: readonly HistoryEntry[] }) {
                     </span>
                   </span>
                 </td>
+                {/* ⚠️ THE DESCRIPTION IS THE SECOND LINE, NOT A TOOLTIP. Owner,
+                    2026-09-24: *"add a detailed description of that task."* The
+                    whole of it is still in `title` for the rows whose
+                    description runs past the column. */}
                 <td
                   className="pr-[0.6rem] text-[0.86rem]"
                   style={{ color: 'var(--pf-body)' }}
-                  title={[h.reference, h.title, h.summary].filter(Boolean).join(' · ')}
+                  title={[h.reference, h.title, h.description, h.summary]
+                    .filter(Boolean)
+                    .join('\n\n')}
                 >
-                  <span className="block truncate">{detail}</span>
-                  {h.reference && (
-                    <span className="block truncate text-[0.72rem]" style={{ color: 'var(--pf-mute)' }}>
-                      {h.reference}
-                    </span>
-                  )}
+                  <span className="block truncate font-medium" style={{ color: 'var(--pf-ink)' }}>
+                    {detail}
+                  </span>
+                  <span className="block truncate text-[0.72rem]" style={{ color: 'var(--pf-mute)' }}>
+                    {[h.reference, h.description?.replace(/\s+/g, ' ')].filter(Boolean).join(' · ')}
+                  </span>
                 </td>
                 <td
                   className="pr-[0.6rem] text-[0.84rem]"

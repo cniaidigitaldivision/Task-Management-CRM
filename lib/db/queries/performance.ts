@@ -242,6 +242,8 @@ export interface HistoryEntry {
   readonly taskId: string | null;
   readonly reference: string | null;
   readonly title: string | null;
+  /** What the person typed about the task, when they typed anything. */
+  readonly description: string | null;
   readonly projectName: string | null;
   readonly before: unknown;
   readonly after: unknown;
@@ -317,7 +319,7 @@ export async function personDetail(
     `),
     withUser(actorId, (tx) => tx`
       select a.created_at, a.action, a.summary, a.entity_id, a.before, a.after,
-             t.reference, t.title, p.name as project_name,
+             t.reference, t.title, t.description, p.name as project_name,
              cb.full_name as source_name,
              case
                when t.id is null then 'unknown'
@@ -379,6 +381,7 @@ export async function personDetail(
       taskId: (h.entity_id as string | null) ?? null,
       reference: (h.reference as string | null) ?? null,
       title: (h.title as string | null) ?? null,
+      description: (h.description as string | null) ?? null,
       projectName: (h.project_name as string | null) ?? null,
       before: h.before ?? null,
       after: h.after ?? null,
