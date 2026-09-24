@@ -41,6 +41,7 @@ import type {
   HistoryEntry,
   PersonStat,
   ProjectRow,
+  LedgerDetail,
   LedgerRow,
   QualitySummary,
   TaskSources,
@@ -97,6 +98,7 @@ export interface PersonRecordProps {
   readonly history: readonly HistoryEntry[];
   readonly ledger: readonly LedgerRow[];
   readonly ledgerTotal: number;
+  readonly ledgerSeed: { id: string; detail: LedgerDetail } | null;
   readonly sources: TaskSources;
   readonly quality: QualitySummary;
   readonly weekly: readonly BucketRow[];
@@ -214,6 +216,7 @@ export function PersonRecord(p: PersonRecordProps) {
           <TaskLedger
             rows={p.ledger}
             total={p.ledgerTotal}
+            seed={p.ledgerSeed}
             today={p.today}
             personName={p.person.name}
             onExport={p.onExport}

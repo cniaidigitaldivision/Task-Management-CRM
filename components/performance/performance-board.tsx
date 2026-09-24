@@ -49,6 +49,7 @@ import type {
   ProjectRow,
   QualitySummary,
   HistoryEntry,
+  LedgerDetail,
   LedgerRow,
   TaskSources,
   TeamRow,
@@ -158,6 +159,7 @@ export function PerformanceBoard({
   history,
   ledger,
   ledgerTotal,
+  ledgerSeed,
   updatedAt,
   ownOnly,
 }: {
@@ -183,6 +185,8 @@ export function PerformanceBoard({
   history: readonly HistoryEntry[];
   ledger: readonly LedgerRow[];
   ledgerTotal: number;
+  /** The first row's detail, already read — so the default view never waits. */
+  ledgerSeed: { id: string; detail: LedgerDetail } | null;
   /** A Member reads this page about themselves; the server has already scoped it. */
   ownOnly: boolean;
   /** The server's clock, formatted — so the pill is not the browser's idea of now. */
@@ -319,6 +323,7 @@ export function PerformanceBoard({
           sources={sources}
           ledger={ledger}
           ledgerTotal={ledgerTotal}
+          ledgerSeed={ledgerSeed}
           quality={quality}
           weekly={weekly}
           monthly={monthly}

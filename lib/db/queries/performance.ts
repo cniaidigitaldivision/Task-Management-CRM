@@ -1101,37 +1101,59 @@ export interface LedgerDetail {
  * row shows; this is the part a row genuinely could not know (Rule Zero, law 3).
  */
 export async function taskLedgerDetail(actorId: string, taskId: string): Promise<LedgerDetail> {
-  const [events, files, comments] = await withUser(actorId, async (tx) => {
-    const e = tx`
-      select a.created_at, a.action, a.summary, a.before, a.after,
-             au.full_name as actor_name
-        from public.activity_log a
-        left join public.users au on au.id = a.actor_id
-       where a.entity_type = 'task' and a.entity_id = ${taskId}::uuid
-       order by a.created_at
-       limit 120
-    `;
-    const f = tx`
-      select a.id, a.file_name, a.mime_type, a.size_bytes, a.created_at,
-             ub.full_name as uploaded_by_name
-        from public.attachments a
-        left join public.users ub on ub.id = a.uploaded_by_id
-       where a.task_id = ${taskId}::uuid
-       order by a.created_at desc
-       limit 40
-    `;
-    const c = tx`
-      select c.id, c.body, c.created_at, au.full_name as author_name
-        from public.comments c
-        left join public.users au on au.id = c.author_id
-       where c.task_id = ${taskId}::uuid
-       order by c.created_at
-       limit 40
-    `;
-    return Promise.all([e, f, c]);
-  });
+  /* ── ⚠️ ONE STATEMENT, NOT THREE ────────────────────────────────────────
+     This read was three queries inside one `withUser`, and a transaction runs
+     its statements in SERIES on a single connection — `Promise.all` around them
+     changes nothing (transactions-run-queries-in-series). Measured from the
+     browser, each call cost ~2.4s and the timeline took 8s to appear, which is
+     what the owner reported.
 
-  const raw = events as Array<Record<string, unknown>>;
+     Three scalar subqueries returning json is one round trip to Singapore
+     instead of three. The indexes were never the problem: `activity_log` has
+     `(entity_type, entity_id, created_at DESC)` and holds 3,935 rows. */
+  const rows = await withUser(actorId, (tx) => tx`
+    select
+      coalesce((
+        select json_agg(e order by e.created_at)
+          from (
+            select a.created_at, a.action, a.summary, a.before, a.after,
+                   au.full_name as actor_name
+              from public.activity_log a
+              left join public.users au on au.id = a.actor_id
+             where a.entity_type = 'task' and a.entity_id = ${taskId}::uuid
+             order by a.created_at
+             limit 120
+          ) e
+      ), '[]'::json) as timeline,
+      coalesce((
+        select json_agg(f order by f.created_at desc)
+          from (
+            select a.id, a.file_name, a.mime_type, a.size_bytes, a.created_at,
+                   ub.full_name as uploaded_by_name
+              from public.attachments a
+              left join public.users ub on ub.id = a.uploaded_by_id
+             where a.task_id = ${taskId}::uuid
+             order by a.created_at desc
+             limit 40
+          ) f
+      ), '[]'::json) as files,
+      coalesce((
+        select json_agg(c order by c.created_at)
+          from (
+            select c.id, c.body, c.created_at, au.full_name as author_name
+              from public.comments c
+              left join public.users au on au.id = c.author_id
+             where c.task_id = ${taskId}::uuid
+             order by c.created_at
+             limit 40
+          ) c
+      ), '[]'::json) as comments
+  `);
+
+  const row = (rows as Array<Record<string, unknown>>)[0] ?? {};
+  const raw = (row.timeline as Array<Record<string, unknown>>) ?? [];
+  const files = (row.files as Array<Record<string, unknown>>) ?? [];
+  const comments = (row.comments as Array<Record<string, unknown>>) ?? [];
 
   /* ⚠️ THE DATE MOVE IS REAL EVEN THOUGH THE REASON IS NOT. `updated` rows carry
      before/after; the first and last dueDate they mention are the original and
@@ -1151,15 +1173,15 @@ export async function taskLedgerDetail(actorId: string, taskId: string): Promise
       summary: String(r.summary ?? ''),
       actorName: (r.actor_name as string | null) ?? null,
     })),
-    files: (files as Array<Record<string, unknown>>).map((r) => ({
+    files: files.map((r) => ({
       id: String(r.id),
       fileName: String(r.file_name),
       mimeType: (r.mime_type as string | null) ?? null,
-      sizeBytes: r.size_bytes === null ? null : Number(r.size_bytes),
+      sizeBytes: r.size_bytes === null || r.size_bytes === undefined ? null : Number(r.size_bytes),
       uploadedByName: (r.uploaded_by_name as string | null) ?? null,
       at: new Date(r.created_at as string).toISOString(),
     })),
-    comments: (comments as Array<Record<string, unknown>>).map((r) => ({
+    comments: comments.map((r) => ({
       id: String(r.id),
       body: String(r.body ?? ''),
       authorName: (r.author_name as string | null) ?? null,

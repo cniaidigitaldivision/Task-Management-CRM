@@ -9,6 +9,7 @@ import {
   performanceFilterOptions,
   personDetail,
   taskLedger,
+  taskLedgerDetail,
   projectContribution,
   qualitySummary,
   teamContribution,
@@ -159,6 +160,16 @@ export default async function PerformancePage({
       person ? taskLedger(user.id, scoped, filters) : Promise.resolve(null),
     ]);
 
+  /* ⚠️ THE ROW THAT OPENS BY DEFAULT COSTS NO ROUND TRIP. The ledger opens on
+     its first row, and fetching that row's timeline from the browser made the
+     owner wait ~2s on every page load for something the server could have put
+     in the same wave. A second wave, but a cheap one: it needs the ledger's
+     answer to know which row is first. */
+  const firstLedgerRow = ledger?.rows[0] ?? null;
+  const firstDetail = firstLedgerRow
+    ? await taskLedgerDetail(user.id, firstLedgerRow.taskId).catch(() => null)
+    : null;
+
   return (
     <PerformanceBoard
       board={board}
@@ -191,6 +202,9 @@ export default async function PerformancePage({
       history={detail?.history ?? []}
       ledger={ledger?.rows ?? []}
       ledgerTotal={ledger?.total ?? 0}
+      ledgerSeed={
+        firstLedgerRow && firstDetail ? { id: firstLedgerRow.taskId, detail: firstDetail } : null
+      }
       updatedAt={new Intl.DateTimeFormat('en-GB', {
         timeZone: 'Asia/Karachi',
         hour: '2-digit',

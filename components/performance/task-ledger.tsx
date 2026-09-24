@@ -158,19 +158,45 @@ const stamp = (iso: string) =>
 const kb = (n: number | null) =>
   n === null ? '' : n > 1_048_576 ? `${(n / 1_048_576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`;
 
-type SortKey = 'reference' | 'project' | 'owner' | 'status' | 'due';
+/* ⚠️ 'none' MEANS THE ORDER THE SERVER SENT, AND IT IS THE DEFAULT. The query
+   already orders deliberately — blocked first, then in review, then by due date
+   — and re-sorting by due on arrival threw that away. It also made the FIRST ROW
+   on screen a different task from the one the server prefetched the detail for,
+   so the seed never matched and the panel fetched anyway. */
+type SortKey = 'none' | 'reference' | 'project' | 'owner' | 'status' | 'due';
 
 const PAGE_SIZE = 25;
+
+/* ⚠️ EVERY STATUS THE DATABASE HAS, IN WORKFLOW ORDER — not just the ones the
+   loaded rows happen to use. Owner, 2026-09-24: *"you have already provided a
+   very limited set of statuses: blocked, backlog, done. Not provided all the
+   statuses."* Building the list from the rows meant a state nobody was in that
+   week simply vanished from the filter, so there was no way to ask "is anything
+   in revision?" and get the answer "no". The counts below make an empty option
+   read as an answer rather than a dead end. */
+const ALL_STATUSES = [
+  'backlog',
+  'todo',
+  'in_progress',
+  'in_review',
+  'revisions',
+  'blocked',
+  'done',
+  'cancelled',
+] as const;
 
 export function TaskLedger({
   rows,
   total,
+  seed,
   today,
   personName,
   onExport,
 }: {
   rows: readonly LedgerRow[];
   total: number;
+  /** The first row's detail, already read on the server. */
+  seed: { id: string; detail: LedgerDetail } | null;
   today: string;
   personName: string | null;
   onExport: () => void;
@@ -179,19 +205,29 @@ export function TaskLedger({
   const [source, setSource] = React.useState('all');
   const [assignedBy, setAssignedBy] = React.useState('all');
   const [project, setProject] = React.useState('all');
-  const [sort, setSort] = React.useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'due', dir: 1 });
+  const [sort, setSort] = React.useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'none', dir: 1 });
   const [openId, setOpenId] = React.useState<string | null>(null);
   const [page, setPage] = React.useState(0);
 
   /* The options are the rows' own values — a filter can never offer something
      that would empty the table. */
   const options = React.useMemo(() => {
-    const statuses = [...new Set(rows.map((r) => r.status))];
-    const sources = [...new Set(rows.map((r) => r.sourceKind))];
+    const tally = (pick: (r: LedgerRow) => string) => {
+      const m = new Map<string, number>();
+      for (const r of rows) m.set(pick(r), (m.get(pick(r)) ?? 0) + 1);
+      return m;
+    };
+    const byStatus = tally((r) => r.status);
+    const bySource = tally((r) => (r.recurrenceRule ? 'automation' : r.sourceKind));
+    const statuses = ALL_STATUSES.map((v) => ({ value: v, n: byStatus.get(v) ?? 0 }));
+    const sources = [...bySource.entries()].map(([value, n]) => ({ value, n }));
     /* ⚠️ BUILT FROM WHAT THE CELL SAYS, not from `created_by_id`. Otherwise
        the filter lists the person who set a repeat up years ago — the owner saw
        "Rafay Abbasi" there and rightly asked why. */
-    const people = [...new Set(rows.map(assignerOf))].sort();
+    const byPerson = tally(assignerOf);
+    const people = [...byPerson.entries()].map(([value, n]) => ({ value, n })).sort((a, b) =>
+      a.value.localeCompare(b.value),
+    );
     const projects = [...new Map(rows.map((r) => [r.projectId, r.projectName])).entries()].sort((a, b) =>
       a[1].localeCompare(b[1]),
     );
@@ -202,10 +238,12 @@ export function TaskLedger({
     const out = rows.filter(
       (r) =>
         (status === 'all' || r.status === status) &&
-        (source === 'all' || r.sourceKind === source) &&
+        (source === 'all' ||
+          (source === 'automation' ? Boolean(r.recurrenceRule) : !r.recurrenceRule && r.sourceKind === source)) &&
         (assignedBy === 'all' || assignerOf(r) === assignedBy) &&
         (project === 'all' || r.projectId === project),
     );
+    if (sort.key === 'none') return out;
     const val = (r: LedgerRow): string =>
       sort.key === 'reference'
         ? r.reference
@@ -253,19 +291,31 @@ export function TaskLedger({
             label={status === 'all' ? 'Status: All' : (STATUS_LOOK[status]?.label ?? status)}
             value={status}
             options={[
-              { value: 'all', label: 'Status: All' },
-              ...options.statuses.map((x) => ({ value: x, label: STATUS_LOOK[x]?.label ?? x })),
+              { value: 'all', label: `Status: All (${num(rows.length)})` },
+              ...options.statuses.map((x) => ({
+                value: x.value,
+                label: `${STATUS_LOOK[x.value]?.label ?? x.value} (${x.n})`,
+              })),
             ]}
             onChange={setStatus}
           />
           <FilterPill
             icon={Repeat}
             title="Source"
-            label={source === 'all' ? 'Source: All' : SOURCE_LOOK[source as LedgerRow['sourceKind']].label}
+            label={
+              source === 'all'
+                ? 'Source: All'
+                : source === 'automation'
+                  ? AUTOMATION.label
+                  : SOURCE_LOOK[source as LedgerRow['sourceKind']].label
+            }
             value={source}
             options={[
-              { value: 'all', label: 'Source: All' },
-              ...options.sources.map((x) => ({ value: x, label: SOURCE_LOOK[x].label })),
+              { value: 'all', label: `Source: All (${num(rows.length)})` },
+              ...options.sources.map((x) => ({
+                value: x.value,
+                label: `${x.value === 'automation' ? AUTOMATION.label : SOURCE_LOOK[x.value as LedgerRow['sourceKind']].label} (${x.n})`,
+              })),
             ]}
             onChange={setSource}
           />
@@ -276,7 +326,7 @@ export function TaskLedger({
             value={assignedBy}
             options={[
               { value: 'all', label: 'Assigned by: All' },
-              ...options.people.map((x) => ({ value: x, label: x })),
+              ...options.people.map((x) => ({ value: x.value, label: `${x.value} (${x.n})` })),
             ]}
             onChange={setAssignedBy}
           />
@@ -540,26 +590,39 @@ export function TaskLedger({
       {/* ⚠️ KEYED BY TASK. Remounting resets the sub-tab to Timeline without
           an effect calling setState — which is a cascading render, and which
           the lint rule correctly refused. */}
-      <TaskPanel key={open?.taskId ?? 'none'} row={open} today={today} />
+      <TaskPanel key={open?.taskId ?? 'none'} row={open} today={today} seed={seed} />
     </div>
   );
 }
 
 /* ── The right-hand panel ────────────────────────────────────────────────── */
 
-function TaskPanel({ row, today }: { row: LedgerRow | null; today: string }) {
+function TaskPanel({
+  row,
+  today,
+  seed,
+}: {
+  row: LedgerRow | null;
+  today: string;
+  seed: { id: string; detail: LedgerDetail } | null;
+}) {
   /* ⚠️ THE ANSWER CARRIES THE ID IT ANSWERS FOR. "Loading" is then DERIVED —
      `answer === null` — rather than written by the effect before it starts, so
      nothing calls setState synchronously in an effect body. It also means a
      reply for a task nobody is looking at any more can never paint. */
+  /* ⚠️ SEEDED, SO THE DEFAULT ROW NEVER WAITS. The server already read the
+     first row's detail in the page's wave; starting from it means the panel is
+     complete on first paint and the effect below finds nothing to do. */
   const [answer, setAnswer] = React.useState<
     { id: string; detail: LedgerDetail } | { id: string; error: string } | null
-  >(null);
+  >(seed && seed.id === row?.taskId ? seed : null);
   const [tab, setTab] = React.useState<'timeline' | 'evidence' | 'comments'>('timeline');
 
   const id = row?.taskId ?? null;
   React.useEffect(() => {
     if (!id) return;
+    /* Already have this one from the server — no round trip. */
+    if (seed && seed.id === id) return;
     let live = true;
     void taskLedgerDetailAction(id).then((r) => {
       if (!live) return;
@@ -572,7 +635,7 @@ function TaskPanel({ row, today }: { row: LedgerRow | null; today: string }) {
     return () => {
       live = false;
     };
-  }, [id]);
+  }, [id, seed]);
 
   const settled = answer && answer.id === id ? answer : null;
   const loading = id !== null && settled === null;
