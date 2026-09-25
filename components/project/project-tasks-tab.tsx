@@ -34,7 +34,7 @@ import {
   type TaskStatus,
 } from '@/lib/domain/constants';
 import { cn } from '@/lib/utils';
-import { canDeleteTask } from '@/lib/domain/permissions';
+import { canDeleteTask, managesWork } from '@/lib/domain/permissions';
 import { useToast } from '@/components/ui/toast';
 import { bulkDeleteAction } from '@/app/actions/task-relations';
 
@@ -184,7 +184,7 @@ export function ProjectTasksTab({
      to render a control that would be refused. */
   const canMove = React.useCallback(
     (task: TaskRow) =>
-      currentUser.role !== 'member' ||
+      managesWork(currentUser.role) ||
       task.assigneeId === currentUser.id ||
       task.createdById === currentUser.id,
     [currentUser],

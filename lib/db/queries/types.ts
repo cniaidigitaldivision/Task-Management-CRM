@@ -1,3 +1,5 @@
+import type { DepartmentRole } from '@/lib/domain/constants';
+
 import type {
   AvailabilityType,
   ContentKind,
@@ -220,6 +222,10 @@ export interface PersonRow {
   readonly departmentKey: string | null;
   readonly departmentName: string | null;
   readonly isDepartmentManager: boolean;
+  /* The raw value, because there are five of them now and not two. Kept BESIDE
+     `isDepartmentManager` rather than replacing it: a dozen call sites ask the
+     manager question and only the edit form needs the whole answer. */
+  readonly departmentRole: DepartmentRole;
   readonly devicePersonNo: string | null;
   readonly attendanceMode: 'either' | 'terminal_only';
   /* ── Migrations 131 and 132 ────────────────────────────────────────────────

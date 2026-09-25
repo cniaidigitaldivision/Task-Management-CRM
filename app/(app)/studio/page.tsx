@@ -61,7 +61,14 @@ export default async function StudioPage({
   /* ⚠️ Admin and above — see the note in layout.tsx. Repeated here because a
      page is reachable without its layout in some render paths, and a floor
      that exists in only one of the two is not a floor. */
-  const user = await requireRole('admin');
+  /* ⚠️ 'executive', NOT 'admin'. The sidebar now offers this page to an
+     Executive (owner, 2026-09-25), and a guard of `admin` would have bounced
+     them straight back to the dashboard from a link the app itself had just
+     shown them — the worst kind of broken, because it looks like the page is
+     gone. The Executive is rank 3 and a Team Coordinator is 2, so this admits
+     exactly the roles that could reach it before, plus the one that was meant
+     to. */
+  const user = await requireRole('executive');
   const params = await searchParams;
 
   /* ⚠️ BOTH IN ONE WAVE, and the suites are fetched OUTSIDE the `hasAccounts`
@@ -140,6 +147,10 @@ export default async function StudioPage({
 
   return (
     <StudioWorkspace
+      /* ⚠️ THE TAB IS NOT RENDERED, rather than rendered and disabled. A
+         disabled tab still tells an Executive that sync rules exist and invites
+         a click that does nothing. */
+      canConfigure={user.role !== 'executive'}
       projects={projects}
       selected={selected}
       from={from}

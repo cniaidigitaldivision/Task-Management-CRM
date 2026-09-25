@@ -1,4 +1,4 @@
-import { requireCrmAccess } from '@/lib/auth/current-user';
+import { requireCrmAccess, requireNotExecutive } from '@/lib/auth/current-user';
 
 /* The access floor, above the Suspense boundary `loading.tsx` would create.
 
@@ -12,5 +12,10 @@ import { requireCrmAccess } from '@/lib/auth/current-user';
    theirs — normally empty, because they distribute rather than carry. */
 export default async function MyLeadsLayout({ children }: { children: React.ReactNode }) {
   await requireCrmAccess();
+  /* ⚠️ AND NOT THE EXECUTIVE. This page became reachable the moment the Lead
+     Desk opened to them — it sits behind the same floor. Owner, 2026-09-25,
+     listed what an Executive sees on the Growth section and a salesperson's own
+     queue was not in it. */
+  await requireNotExecutive();
   return children;
 }

@@ -14,6 +14,11 @@ import { requireRole } from '@/lib/auth/current-user';
    removing it there would hide the Studio while leaving the URL open to anybody
    who typed it — so BOTH are changed, and only this one is load-bearing. */
 export default async function StudioLayout({ children }: { children: React.ReactNode }) {
-  await requireRole('admin');
+  /* ⚠️ THE LAYOUT HAS ITS OWN FLOOR, AND IT RUNS FIRST. Changing only
+     page.tsx left an Executive bounced to the dashboard from a link the
+     sidebar had just offered them — found by walking the app as one,
+     not by reading the page. Rank 3 admits Admin, Super Admin and the
+     Executive, and still refuses a Coordinator. */
+  await requireRole('executive');
   return children;
 }

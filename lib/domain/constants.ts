@@ -28,6 +28,53 @@ export const ROLES = ['super_admin', 'admin', 'executive', 'team_coordinator', '
 export type Role = (typeof ROLES)[number];
 
 /** Ordered most- to least-privileged. Used for "at least this role" checks. */
+/* ============================================================================
+ * SENIORITY INSIDE A DEPARTMENT — a different question from `Role`
+ * ----------------------------------------------------------------------------
+ * `users.role` is authority over the APPLICATION. `department_role` is what
+ * somebody does inside their department, which is how a sales manager stays a
+ * Team Member in the application and still runs their team (ADR-002, ADR-012).
+ *
+ * ⚠️ MARKETING AND SUPPORT ARE HERE, NOT IN `ROLES`. Owner, 2026-09-25:
+ * *"Marketing will also be in a sales department and the support role will also
+ * lie in a sales department."* Added by migration 255.
+ *
+ * ⚠️ AND NOT ONE OF THESE LABELS IS THE WORD "MEMBER". The Role dropdown says
+ * "Team Member", and when this control also said it the owner read the two as
+ * the same question asked twice: *"they are the same thing, right? Why did you
+ * add them as separators?"* `member` means "nothing special in this department",
+ * so it is labelled that way.
+ * ========================================================================= */
+export const DEPARTMENT_ROLES = [
+  'manager',
+  'salesperson',
+  'marketing',
+  'support',
+  'member',
+] as const;
+export type DepartmentRole = (typeof DEPARTMENT_ROLES)[number];
+
+export const DEPARTMENT_ROLE_LABEL: Readonly<Record<DepartmentRole, string>> = {
+  manager: 'Manages the department',
+  salesperson: 'Salesperson',
+  marketing: 'Marketing',
+  support: 'Support',
+  member: 'No specific role',
+} as const;
+
+/**
+ * A form value, made safe.
+ *
+ * ⚠️ IT FALLS BACK TO `member`, NEVER TO `manager`. A junk value must not be
+ * able to promote somebody to running a department — the lead rota and
+ * `crmReportsOpenTo()` both read this column.
+ */
+export function toDepartmentRole(value: unknown): DepartmentRole {
+  return DEPARTMENT_ROLES.includes(value as DepartmentRole)
+    ? (value as DepartmentRole)
+    : 'member';
+}
+
 export const ROLE_RANK: Readonly<Record<Role, number>> = {
   super_admin: 5,
   admin: 4,

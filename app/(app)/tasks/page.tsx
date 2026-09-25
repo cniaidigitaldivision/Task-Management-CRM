@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 
 import { TasksWorkspace } from '@/components/task/tasks-workspace';
 import { PageHeader } from '@/components/ui/page-header';
-import { requireUser } from '@/lib/auth/current-user';
+import { requireNotExecutive } from '@/lib/auth/current-user';
 import { listAssignablepeople } from '@/lib/db/queries/people';
 import { listProjects } from '@/lib/db/queries/projects';
 import { listTasks, taskTotals } from '@/lib/db/queries/tasks';
@@ -44,7 +44,7 @@ export default async function TasksPage({
   }>;
 }) {
   /* ⚠️ ONE WAVE — Rule Zero, law 4 (docs/20-UI-RESPONSIVENESS.md). */
-  const [user, params] = await Promise.all([requireUser(), searchParams]);
+  const [user, params] = await Promise.all([requireNotExecutive(), searchParams]);
 
   /* ── ⚠️ THE BOARD OPENS ON TODAY, NOT ON EVERYTHING ───────────────────────
      Owner, 2026-09-02: *"by default it should show only today's tasks not the

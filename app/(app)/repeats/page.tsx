@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 
 import { RepeatsBoard } from '@/components/task/repeats-board';
 import { PageHeader } from '@/components/ui/page-header';
-import { requireUser } from '@/lib/auth/current-user';
+import { requireNotExecutive } from '@/lib/auth/current-user';
 import { listTaskSeries } from '@/lib/db/queries/task-series';
 import { isoDateIn } from '@/lib/now';
 
@@ -31,7 +31,7 @@ export const metadata: Metadata = { title: 'Repeating tasks' };
  * ========================================================================= */
 
 export default async function RepeatsPage() {
-  const [user, today] = await Promise.all([requireUser(), Promise.resolve(isoDateIn())]);
+  const [user, today] = await Promise.all([requireNotExecutive(), Promise.resolve(isoDateIn())]);
   const series = await listTaskSeries(user.id);
 
   const live = series.filter((s) => !s.stoppedAt).length;

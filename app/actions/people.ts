@@ -18,13 +18,7 @@ import {
   updateOwnProfile,
   setSalesMarkets,
 } from '@/lib/db/queries/people';
-import {
-  AVAILABILITY_TYPES,
-  ROLE_LABEL,
-  THEMES,
-  type AvailabilityType,
-  type Theme,
-} from '@/lib/domain/constants';
+import { AVAILABILITY_TYPES, ROLE_LABEL, THEMES, toDepartmentRole, type AvailabilityType, type Theme } from '@/lib/domain/constants';
 import { sameEmail, validateEmailAddress } from '@/lib/domain/email-address';
 import { checkEmployeeNo } from '@/lib/domain/attendance-device';
 import { can } from '@/lib/domain/permissions';
@@ -186,8 +180,13 @@ export async function updateCapacityAction(
       ...(isAdmin && form.has('departmentId')
         ? { departmentId: str(form, 'departmentId') || null }
         : {}),
+      /* ⚠️ THE WHOLE ENUM, NOT A MANAGER/MEMBER TERNARY. That ternary silently
+         turned 'salesperson', 'marketing' and 'support' into 'member', so the
+         control could offer them and the save would quietly discard the choice.
+         `toDepartmentRole` validates against the list and falls back to
+         `member` — never to `manager`. */
       ...(isAdmin && form.has('departmentRole')
-        ? { departmentRole: str(form, 'departmentRole') === 'manager' ? ('manager' as const) : ('member' as const) }
+        ? { departmentRole: toDepartmentRole(str(form, 'departmentRole')) }
         : {}),
       ...(form.has('specialisation') ? { specialisation: str(form, 'specialisation') || null } : {}),
       ...(form.has('workStartsAt') ? { workStartsAt: str(form, 'workStartsAt') || null } : {}),

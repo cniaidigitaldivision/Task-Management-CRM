@@ -18,7 +18,7 @@ import { Field, Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { CHECK_IN_MINUTES, CHECK_OUT_MINUTES, OFFICE_TEAMS, OFFICE_TEAM_KEYS } from '@/lib/domain/attendance';
 import { MODE_META } from '@/lib/domain/attendance-device';
-import { ROLE_LABEL, SYSTEM_DEFAULTS, type Role } from '@/lib/domain/constants';
+import { DEPARTMENT_ROLES, DEPARTMENT_ROLE_LABEL, ROLE_LABEL, SYSTEM_DEFAULTS, toDepartmentRole, type Role } from '@/lib/domain/constants';
 
 /* ============================================================================
  * ADD SOMEBODY TO THE TEAM
@@ -379,20 +379,35 @@ export function InviteDialog({
               One tick, only once a department is chosen, where it cannot be
               mistaken for the rank above it. */}
           {chosen && (
-            <Field label={`Seniority in ${chosen.name}`} htmlFor="departmentRole">
-              <label className="flex items-center gap-2 py-2">
-                <input
-                  type="checkbox"
-                  id="departmentRole"
-                  name="departmentRole"
-                  value="manager"
-                  defaultChecked={keep('departmentRole') === 'manager'}
-                  className="size-4 accent-[var(--brand-primary)]"
-                />
-                <span className="text-body text-text-primary">
-                  They manage {chosen.name}
-                </span>
-              </label>
+            <Field label={`What they do in ${chosen.name}`} htmlFor="departmentRole">
+              {/* ⚠️ ONE SELECT, AND NOT ONE OPTION OF IT SAYS "MEMBER".
+
+                      This was a tickbox, because before that it was a
+                      Member/Manager dropdown beside the Role dropdown and the
+                      owner read the two as the same question twice: *"they are
+                      the same thing, right?"* The tick fixed that and could only
+                      ever say manager-or-not.
+
+                      2026-09-25 added three more values — Salesperson,
+                      Marketing, Support (migration 255) — and a tick cannot
+                      express five. So it is a select again, but the old
+                      complaint is designed out rather than reintroduced: the
+                      rank above offers "Team Member", this offers "No specific
+                      role", and no word appears in both lists. */}
+              <Select
+                size="md"
+                id="departmentRole"
+                name="departmentRole"
+                defaultValue={toDepartmentRole(keep('departmentRole'))}
+              >
+                {DEPARTMENT_ROLES.map((value) => (
+                  <option key={value} value={value}>
+                    {value === 'manager'
+                      ? `Manages ${chosen.name}`
+                      : DEPARTMENT_ROLE_LABEL[value]}
+                  </option>
+                ))}
+              </Select>
             </Field>
           )}
         </div>

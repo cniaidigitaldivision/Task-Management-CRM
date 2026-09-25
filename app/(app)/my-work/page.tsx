@@ -7,7 +7,7 @@ import { IconTile } from '@/components/ui/icon-tile';
 import { StatCard } from '@/components/ui/metric';
 import { PageHeader, PageSection } from '@/components/ui/page-header';
 import { ProgressBar } from '@/components/ui/progress';
-import { requireUser } from '@/lib/auth/current-user';
+import { requireNotExecutive } from '@/lib/auth/current-user';
 import { listAssignablepeople } from '@/lib/db/queries/people';
 import { listProjects } from '@/lib/db/queries/projects';
 import { listTasks } from '@/lib/db/queries/tasks';
@@ -39,7 +39,7 @@ export const metadata: Metadata = { title: 'My Work' };
  * ========================================================================= */
 
 export default async function MyWorkPage() {
-  const user = await requireUser();
+  const user = await requireNotExecutive();
   const now = nowMs();
 
   const [rows, cadences, workload, people, projects, settings] = await Promise.all([

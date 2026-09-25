@@ -57,16 +57,21 @@ import { StudioToolbar } from './studio-toolbar';
  * the `hasData` gate on purpose, and each says why.
  * ========================================================================= */
 
+/* ⚠️ `configures` MARKS THE TAB THAT CHANGES THINGS. Owner, 2026-09-25, on the
+   Executive: *"You can say Report and Export: he can see. Settings and Sync:
+   this tab will not be shown to the executive."* Everything else on this screen
+   reads; Settings & Sync writes sync rules and connects accounts. */
 const TABS = [
-  { key: 'overview', label: 'Overview', live: true },
-  { key: 'content', label: 'Content & Posts', live: true },
-  { key: 'accounts', label: 'Meta Accounts', live: true },
-  { key: 'analytics', label: 'Analytics & Insights', live: true },
-  { key: 'reports', label: 'Reports & Exports', live: true },
-  { key: 'settings', label: 'Settings & Sync', live: true },
+  { key: 'overview', label: 'Overview', live: true, configures: false },
+  { key: 'content', label: 'Content & Posts', live: true, configures: false },
+  { key: 'accounts', label: 'Meta Accounts', live: true, configures: false },
+  { key: 'analytics', label: 'Analytics & Insights', live: true, configures: false },
+  { key: 'reports', label: 'Reports & Exports', live: true, configures: false },
+  { key: 'settings', label: 'Settings & Sync', live: true, configures: true },
 ] as const;
 
 export function StudioWorkspace({
+  canConfigure = true,
   projects,
   selected,
   from,
@@ -96,6 +101,9 @@ export function StudioWorkspace({
   metaAppId,
   canConfigureSync,
 }: {
+  /** ⚠️ DEFAULTS TO TRUE so every existing caller behaves exactly as before.
+      Only the Executive is passed `false`, and only the page knows that. */
+  canConfigure?: boolean;
   projects: readonly StudioProject[];
   selected: StudioProject;
   from: string;
@@ -242,7 +250,7 @@ export function StudioWorkspace({
 
       {/* ── Tabs ─────────────────────────────────────────────────────────── */}
       <div className="flex flex-wrap gap-1 border-b border-border-subtle">
-        {TABS.map((t) => (
+        {TABS.filter((t) => canConfigure || !t.configures).map((t) => (
           <button
             key={t.key}
             type="button"

@@ -479,11 +479,29 @@ export interface NavCapabilities {
  * never take one away, because a rule that could remove things would make "why
  * has my sidebar changed?" a support question.
  */
+/**
+ * May a CAPABILITY add a page this role's own list leaves out?
+ *
+ * ⚠️ NO, FOR THE EXECUTIVE, AND THAT IS THE WHOLE OF IT. `requires` exists so a
+ * salesperson — whose app role is `member`, the bottom of the ladder — still
+ * gets a link to the desk that is their entire job. It adds items the role list
+ * does not mention, which is right for everybody whose list is a rank.
+ *
+ * The Executive's list is not a rank. It was decided page by page with the
+ * owner on 2026-09-25, and "not on the list" means "the owner said no". Opening
+ * the Lead Desk to them set `crm` true and quietly handed back My leads and My
+ * to-dos — two pages that had been closed on purpose. Found in a walkthrough,
+ * because `hrefsForRole()` with no capabilities still said they were hidden.
+ */
+function grantsByCapability(role: Role): boolean {
+  return role !== 'executive';
+}
+
 export function sectionsForRole(role: Role, can: NavCapabilities = {}): NavSection[] {
   return NAV_SECTIONS.map((section) => ({
     ...section,
     items: section.items.filter(
-      (item) => item.roles.includes(role) || (item.requires ? can[item.requires] === true : false),
+      (item) => item.roles.includes(role) || (grantsByCapability(role) && item.requires ? can[item.requires] === true : false),
     ),
   })).filter((section) => section.items.length > 0);
 }

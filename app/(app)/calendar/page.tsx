@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 
 import { CalendarView } from '@/components/calendar/calendar-view';
 import { PageHeader } from '@/components/ui/page-header';
-import { requireUser } from '@/lib/auth/current-user';
+import { requireNotExecutive } from '@/lib/auth/current-user';
 import { listPeople } from '@/lib/db/queries/people';
 import { tasksInRange } from '@/lib/db/queries/search';
 import { can } from '@/lib/domain/permissions';
@@ -25,7 +25,7 @@ export const metadata: Metadata = { title: 'Calendar' };
  * ========================================================================= */
 
 export default async function CalendarPage() {
-  const user = await requireUser();
+  const user = await requireNotExecutive();
   /* ⚠️ The division's own day, not UTC — Pakistan is UTC+5, so between midnight
      and 5am a UTC date opens the calendar on yesterday. See `isoDateIn`. */
   const today = isoDateIn();

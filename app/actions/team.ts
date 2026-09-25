@@ -30,12 +30,7 @@ import * as P from '@/lib/db/queries/provisioning';
 import { setSalesMarkets } from '@/lib/db/queries/people';
 import { describeSender, sendEmail } from '@/lib/email/send';
 import { invitationEmail, passwordResetEmail } from '@/lib/email/templates';
-import {
-  ROLES,
-  ROLE_LABEL,
-  SYSTEM_DEFAULTS,
-  type Role,
-} from '@/lib/domain/constants';
+import { ROLES, ROLE_LABEL, SYSTEM_DEFAULTS, toDepartmentRole, type Role } from '@/lib/domain/constants';
 import {
   assignableRolesFor as assignableRolesForRole,
   can,
@@ -218,7 +213,10 @@ export async function invitePersonAction(
      whole reason the form could grow without the setup route, the tests or any
      existing caller noticing. */
   const departmentId = str(form, 'departmentId') || null;
-  const departmentRole = str(form, 'departmentRole') === 'manager' ? 'manager' : 'member';
+  /* ⚠️ VALIDATED AGAINST THE ENUM, and falling back to `member` rather than
+     `manager` — the lead rota and `crmReportsOpenTo()` both read this column, so
+     a junk value must never be able to put somebody in charge of a department. */
+  const departmentRole = toDepartmentRole(str(form, 'departmentRole'));
   const specialisation = str(form, 'specialisation') || null;
   const joinedOn = str(form, 'joinedOn') || null;
   const reportsToId = str(form, 'reportsToId') || null;
