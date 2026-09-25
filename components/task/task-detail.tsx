@@ -54,7 +54,7 @@ import {
   type Role,
   type TaskStatus,
 } from '@/lib/domain/constants';
-import { deleteRefusal } from '@/lib/domain/permissions';
+import { deleteRefusal, managesWork } from '@/lib/domain/permissions';
 import { transitionNeedsReason } from '@/lib/domain/task-machine';
 import { cn } from '@/lib/utils';
 
@@ -262,7 +262,12 @@ export function TaskDetail({
   const status = task ? STATUS_META[task.status] : null;
   const limit = task ? (task.timeLimitMinutes ?? 0) + task.extensionMinutesGranted : 0;
   const timePct = task && limit > 0 ? Math.round((task.timeSpentMinutes / limit) * 100) : 0;
-  const canTrack = task ? task.assigneeId === currentUser.id || currentUser.role !== 'member' : false;
+  /* ⚠️ AN EXECUTIVE IS NEVER THE ASSIGNEE AND NEVER ACTS, so both arms are
+     false for them — which is what stops a start-timer button appearing on a
+     page whose every write their session refuses. */
+  const canTrack = task
+    ? task.assigneeId === currentUser.id || managesWork(currentUser.role)
+    : false;
 
   return (
     <>
@@ -456,7 +461,7 @@ export function TaskDetail({
             </div>
 
             {/* ---- Who should take this (doc 07) ---- */}
-            {currentUser.role !== 'member' && (
+            {managesWork(currentUser.role) && (
               <RecommendPanel
                 taskId={task.id}
                 currentAssigneeId={task.assigneeId}

@@ -81,3 +81,37 @@ describe("the Executive's sidebar", () => {
     expect(hrefsForRole('super_admin')).toContain('/security');
   });
 });
+
+/* ============================================================================
+ * ⚠️ THE CAPABILITY PATH, WHICH THE TESTS ABOVE CANNOT SEE
+ * ----------------------------------------------------------------------------
+ * `hrefsForRole(role)` with no second argument was green while the real sidebar
+ * showed My leads and My to-dos to an Executive. The sidebar passes
+ * `{ crm, crmReports }`, and `requires` adds items a role's own list leaves out
+ * — which is right for a salesperson whose app role is `member`, and wrong for
+ * a role whose list was written page by page.
+ *
+ * Opening the Lead Desk set `crm` true and handed back two pages that had been
+ * closed on purpose. Only a walkthrough caught it, so this is the test that
+ * would have.
+ * ========================================================================= */
+describe("the Executive's sidebar with every capability switched on", () => {
+  const wideOpen = hrefsForRole('executive', { crm: true, crmReports: true });
+
+  it('is exactly the same list', () => {
+    expect([...wideOpen].sort()).toEqual([...hrefsForRole('executive')].sort());
+  });
+
+  it.each(['/my-leads', '/todos'])('still hides %s', (href) => {
+    expect(wideOpen).not.toContain(href);
+  });
+
+  it('still lets a capability add pages for everybody else', () => {
+    /* A salesperson is a `member`, and the desk is their whole job. If this
+       ever fails, the fix above has been applied too widely. */
+    const salesperson = hrefsForRole('member', { crm: true, crmReports: false });
+    expect(salesperson).toContain('/leads');
+    expect(salesperson).toContain('/my-leads');
+    expect(hrefsForRole('member')).not.toContain('/leads');
+  });
+});

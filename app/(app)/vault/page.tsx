@@ -5,7 +5,7 @@ import { VaultWorkspace } from '@/components/vault/vault-workspace';
 import { Card, CardBody } from '@/components/ui/card';
 import { IconTile } from '@/components/ui/icon-tile';
 import { PageHeader } from '@/components/ui/page-header';
-import { requireUser } from '@/lib/auth/current-user';
+import { requireNotExecutive } from '@/lib/auth/current-user';
 import { listCredentials } from '@/lib/db/queries/credentials';
 import { listAssignablepeople, listPeople } from '@/lib/db/queries/people';
 import { listProjects } from '@/lib/db/queries/projects';
@@ -40,7 +40,7 @@ export const metadata: Metadata = { title: 'Vault' };
  * ========================================================================= */
 
 export default async function VaultPage() {
-  const user = await requireUser();
+  const user = await requireNotExecutive();
   const actor = { role: user.role, id: user.id };
 
   const [credentials, projects, people, everyone] = await Promise.all([

@@ -1,4 +1,5 @@
 import 'server-only';
+import { type DepartmentRole } from '@/lib/domain/constants';
 
 import type { OfficeTeam } from '@/lib/domain/attendance';
 import type { Role } from '@/lib/domain/constants';
@@ -83,7 +84,7 @@ export async function createPerson(
        existed. That is what lets the invite form grow without anything else
        noticing. */
     departmentId?: string | null;
-    departmentRole?: 'manager' | 'member';
+    departmentRole?: DepartmentRole;
     specialisation?: string | null;
     workStartsAt?: string | null;
     workEndsAt?: string | null;

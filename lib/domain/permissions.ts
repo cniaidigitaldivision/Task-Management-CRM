@@ -114,6 +114,17 @@ const M = (
   executive: Rule = 'deny',
 ): Readonly<Record<Role, Rule>> => ({ super_admin, admin, executive, team_coordinator, member });
 
+/* ── ⚠️ A FIFTH ARGUMENT MEANS "AND THE EXECUTIVE TOO" ─────────────────────
+   `M()` denies the Executive by default, which is correct for ninety-odd
+   entries and wrong for about a dozen: a denied READ renders a page they were
+   promised as an empty shell. Every row below carrying a fifth `'allow'` is a
+   read backing a page the owner opened to them on 2026-09-25 — the dashboard,
+   projects, tasks inside a project, workload, the team directory, reports,
+   attendance, and exporting what they can already see.
+
+   Finance, credentials, the audit log and the security dashboard are NOT in
+   that list and keep the default refusal, because those are the pages the owner
+   closed. */
 export const PERMISSIONS = {
   /* ---- Account & team management — doc 03 §3.1 ------------------------- */
 
@@ -161,7 +172,7 @@ export const PERMISSIONS = {
   'user.reset_mfa': M('allow', 'outranks', 'deny', 'deny'),
 
   /** The full profile: role, job title, skills, capacity. */
-  'user.view_profile': M('allow', 'allow', 'allow', 'deny'),
+  'user.view_profile': M('allow', 'allow', 'allow', 'deny', 'allow'),
   /**
    * Name and avatar only — ADR-003's "Member sees other users: name and avatar".
    * A Member is denied the full profile above but allowed this, which is what
@@ -194,7 +205,7 @@ export const PERMISSIONS = {
   /** doc 03 gives the Admin soft delete only; the purge is Super Admin, 🔒. */
   'project.soft_delete': M('allow', 'allow', 'deny', 'deny'),
   'project.purge': M('allow', 'deny', 'deny', 'deny'),
-  'project.view_all': M('allow', 'allow', 'allow', 'deny'),
+  'project.view_all': M('allow', 'allow', 'allow', 'deny', 'allow'),
   /**
    * Change how a project collects from Meta — the auto-sync switch, the
    * interval and the retention period.
@@ -316,24 +327,24 @@ export const PERMISSIONS = {
   'time_entry.adjust_own': M('allow', 'allow', 'allow', 'allow'),
   'time_entry.adjust_other': M('allow', 'allow', 'deny', 'deny'),
   /** ADR-003. A Member sees nobody's time but their own. */
-  'time_data.view_any': M('allow', 'allow', 'allow', 'deny'),
+  'time_data.view_any': M('allow', 'allow', 'allow', 'deny', 'allow'),
 
   /* ---- Visibility — doc 03 §3.5, ADR-003 ------------------------------- */
 
-  'task.view_all': M('allow', 'allow', 'allow', 'deny'),
+  'task.view_all': M('allow', 'allow', 'allow', 'deny', 'allow'),
   'task.view_own': M('allow', 'allow', 'allow', 'allow'),
-  'workload.view_team': M('allow', 'allow', 'allow', 'deny'),
+  'workload.view_team': M('allow', 'allow', 'allow', 'deny', 'allow'),
   'workload.view_own': M('allow', 'allow', 'allow', 'allow'),
-  'user.view_role': M('allow', 'allow', 'allow', 'deny'),
-  'user.view_skills_and_capacity': M('allow', 'allow', 'allow', 'deny'),
+  'user.view_role': M('allow', 'allow', 'allow', 'deny', 'allow'),
+  'user.view_skills_and_capacity': M('allow', 'allow', 'allow', 'deny', 'allow'),
   'member_activity_preview.view': M('allow', 'allow', 'allow', 'deny'),
   /**
    * doc 03 marks the Coordinator "⚠️ read-only" on the next four. Viewing IS
    * the action, so viewing is allowed; every write these screens offer is a
    * separate action already denied to them above.
    */
-  'dashboard.view': M('allow', 'allow', 'allow', 'deny'),
-  'reports.view_per_member': M('allow', 'allow', 'allow', 'deny'),
+  'dashboard.view': M('allow', 'allow', 'allow', 'deny', 'allow'),
+  'reports.view_per_member': M('allow', 'allow', 'allow', 'deny', 'allow'),
   'reports.view_own': M('allow', 'allow', 'allow', 'allow'),
   'rebalance_advisor.view': M('allow', 'allow', 'allow', 'deny'),
   /**
@@ -390,7 +401,7 @@ export const PERMISSIONS = {
   'settings.notification_defaults': M('allow', 'allow', 'deny', 'deny'),
   'settings.own_notification_prefs': M('allow', 'allow', 'allow', 'allow'),
   'settings.security': M('allow', 'allow', 'deny', 'deny'),
-  'data.export_all': M('allow', 'allow', 'deny', 'deny'),
+  'data.export_all': M('allow', 'allow', 'deny', 'deny', 'allow'),
   'sessions.view_and_revoke_own': M('allow', 'allow', 'allow', 'allow'),
 
   /* ---- The credentials vault — owner request 2026-08-12 ------------------
@@ -532,7 +543,7 @@ export const PERMISSIONS = {
      admin or admin, and the team coordinator can see who is coming on time and
      who is coming late."* A Member sees their own record and no one else's,
      which is the RLS policy in 060 rather than this line. */
-  'attendance.view_all': M('allow', 'allow', 'allow', 'deny'),
+  'attendance.view_all': M('allow', 'allow', 'allow', 'deny', 'allow'),
 
   /* ── THE ATTENDANCE TERMINALS — owner instruction, 2026-08-30 ─────────────
      Asked where the mapping screen should live, the owner answered: *"only in
@@ -645,7 +656,7 @@ export const PERMISSIONS = {
      So this matrix is the floor somebody falls back to, and `mayUseAssistant()`
      in lib/domain/assistant-access.ts is the function that decides. Reading this
      row alone will give the wrong answer for anybody who has been switched. */
-  'assistant.use': M('allow', 'allow', 'allow', 'deny'),
+  'assistant.use': M('allow', 'allow', 'allow', 'deny', 'allow'),
 
   /* Turning the assistant on or off for one person. Admin and above — the
      owner was explicit that it is *"on admin or super admin choice."* */
@@ -839,9 +850,38 @@ export function actionsFor(role: Role): Action[] {
  * the system, created by first-run setup (BR-028) — so no role, including their
  * own, can produce another.
  */
+/**
+ * Does this role act on OTHER PEOPLE'S work?
+ *
+ * ⚠️ IT EXISTS BECAUSE `role !== 'member'` STOPPED MEANING THAT. Six controls
+ * across Projects, Tasks and the Vault asked it that way, and it was a fair
+ * shorthand while every non-Member could act. The Executive broke it: they
+ * outrank a Coordinator and change nothing, so each of those six would have
+ * offered a button the database then refuses — a start-timer, an assign, a
+ * grant — and the reader would have had no idea why.
+ *
+ * ⚠️ THIS IS A UI QUESTION, NEVER THE BOUNDARY. The refusal lives in migration
+ * 257, which makes an Executive's transaction read-only, and in the permission
+ * matrix, which denies them by default. This is only so nothing is shown that
+ * cannot be done.
+ */
+export function managesWork(role: Role): boolean {
+  return role !== 'member' && role !== 'executive';
+}
+
 export function assignableRolesFor(actorRole: Role): Role[] {
-  if (actorRole === 'super_admin') return ['admin', 'team_coordinator', 'member'];
-  if (actorRole === 'admin') return ['team_coordinator', 'member'];
+  /* ⚠️ THE EXECUTIVE IS ADMIN-AND-ABOVE ONLY. Owner, 2026-09-25: *"make sure
+     that that role is only assigned to admin and super admin."* The database
+     says the same thing twice over — `users_update` refuses anybody below Admin,
+     and `app.guard_executive_role` refuses the role change at the table
+     (migration 256) — so this list is the third place, not the only one. It is
+     here because a control that offers a choice the server will reject is a
+     worse experience than one that never offered it.
+
+     ⚠️ IT IS ORDERED BY RANK, and the Executive sits below Admin and above the
+     Team Coordinator, so the dropdown reads the way the ladder does. */
+  if (actorRole === 'super_admin') return ['admin', 'executive', 'team_coordinator', 'member'];
+  if (actorRole === 'admin') return ['executive', 'team_coordinator', 'member'];
   return [];
 }
 

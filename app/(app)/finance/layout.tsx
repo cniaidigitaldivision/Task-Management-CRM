@@ -1,4 +1,4 @@
-import { requireRole } from '@/lib/auth/current-user';
+import { requireNotExecutive, requireRole } from '@/lib/auth/current-user';
 
 /* ============================================================================
  * THE RANK FLOOR FOR FINANCE
@@ -26,5 +26,10 @@ import { requireRole } from '@/lib/auth/current-user';
  * ========================================================================= */
 export default async function FinanceLayout({ children }: { children: React.ReactNode }) {
   await requireRole('team_coordinator');
+  /* ⚠️ AND NOT THE EXECUTIVE. Owner, 2026-09-25: *"right now I'm not sure about
+     the finance so please hide this financier ... right now hide it."* A rank
+     floor cannot say that — the Executive outranks a Coordinator — so the one
+     role is named. */
+  await requireNotExecutive();
   return children;
 }

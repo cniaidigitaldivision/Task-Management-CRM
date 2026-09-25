@@ -56,6 +56,7 @@ import { TaskDialog } from './task-dialog';
 import { TaskBoard } from './task-board';
 import { TaskDetail } from './task-detail';
 import { TaskList, groupTasks, type GroupBy } from './task-list';
+import { managesWork } from '@/lib/domain/permissions';
 
 
 
@@ -657,7 +658,7 @@ export function TasksWorkspace({
             (`canAssignTo` refuses member → member since 2026-09-03), so "what
             did I hand out" is always empty for them — a control that can only
             ever answer "nothing" is worse than no control. */}
-        {currentUser.role !== 'member' && (
+        {managesWork(currentUser.role) && (
           <ToolbarGroup>
             <ToolbarLabel>Raised by</ToolbarLabel>
             <Select

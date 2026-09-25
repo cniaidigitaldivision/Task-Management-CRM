@@ -54,7 +54,14 @@ export const metadata: Metadata = { title: 'Team' };
 
 export default async function TeamPage() {
   // doc 03 §3.1: the roster is Admin+. Hiding the nav item is convenience, not security (NFR-006).
-  const user = await requireRole('admin');
+  /* ⚠️ 'executive', NOT 'admin'. The sidebar now offers this page to an
+     Executive (owner, 2026-09-25), and a guard of `admin` would have bounced
+     them straight back to the dashboard from a link the app itself had just
+     shown them — the worst kind of broken, because it looks like the page is
+     gone. The Executive is rank 3 and a Team Coordinator is 2, so this admits
+     exactly the roles that could reach it before, plus the one that was meant
+     to. */
+  const user = await requireRole('executive');
   const now = nowMs();
 
   /* ── ONE WAVE ──────────────────────────────────────────────────────────────

@@ -1,6 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import type { Role } from '@/lib/domain/constants';
 
 import { requireUser, stepUpIsFresh } from '@/lib/auth/current-user';
 import { withUser } from '@/lib/db/client';
@@ -511,7 +512,10 @@ export async function setCredentialAccessAction(
   }
 
   const name = target.full_name as string;
-  const role = target.role as string;
+  /* ⚠️ TYPED AS `Role`, NOT `string`. It feeds `managesWork` now, and a bare
+     string would have let a typo past the compiler in a branch that decides who
+     may be handed a stored credential. */
+  const role = target.role as Role;
 
   /* ⚠️ CHECKED HERE FOR THE SENTENCE, AND IN THE DATABASE FOR THE GUARANTEE.
      The trigger in migration 052 refuses both of these too; without these two
@@ -521,6 +525,11 @@ export async function setCredentialAccessAction(
       `${name} is the Super Admin and cannot be removed from a credential — that is the last route back into the vault if everything else is lost.`,
     );
   }
+  /* ⚠️ `!== 'member'`, AND IT WAS BRIEFLY CHANGED TO `managesWork` BY MISTAKE.
+     This branch mirrors a trigger on `credential_grants` which refuses a grant
+     to anybody above a Member, Executive included (proved by migration 259's
+     self-check). Narrowing it to `managesWork` would have let the Executive
+     case fall through to a raw Postgres error instead of this sentence. */
   if (intent === 'grant' && role !== 'member') {
     return fail(
       `${name} can already open every credential as ${

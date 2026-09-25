@@ -1,4 +1,5 @@
 import 'server-only';
+import { toDepartmentRole, type DepartmentRole } from '@/lib/domain/constants';
 
 import { dateOnly } from '../row-values';
 
@@ -40,6 +41,7 @@ function toPerson(row: Record<string, unknown>): PersonRow {
     departmentKey: (row.department_key as string | null) ?? null,
     departmentName: (row.department_name as string | null) ?? null,
     isDepartmentManager: row.department_role === 'manager',
+    departmentRole: toDepartmentRole(row.department_role),
     devicePersonNo: (row.device_person_no as string | null) ?? null,
     attendanceMode: (row.attendance_mode as 'either' | 'terminal_only') ?? 'either',
     specialisation: (row.specialisation as string | null) ?? null,
@@ -275,7 +277,7 @@ export interface ProfileEdit {
      reads to decide who is on shift. Same `case when has(...)` treatment as
      everything above: a field absent from the form is left exactly as it was. */
   departmentId?: string | null;
-  departmentRole?: 'manager' | 'member';
+  departmentRole?: DepartmentRole;
   specialisation?: string | null;
   /** ⚠️ The WHOLE set, or absent. See `setSalesMarkets`. */
   salesMarketIds?: readonly string[];

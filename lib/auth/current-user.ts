@@ -308,7 +308,38 @@ export const getCurrentDepartment = cache(async (): Promise<ActingDepartment> =>
  * routing rather than the name of one department.
  */
 export function crmIsOpenTo(user: CurrentUser, department: ActingDepartment): boolean {
-  return user.role === 'admin' || user.role === 'super_admin' || department.ownsLeadProjects;
+  return (
+    user.role === 'admin' ||
+    user.role === 'super_admin' ||
+    /* ⚠️ ADDED 2026-09-25. Owner, on the Executive: *"in the lead desk, only the
+       lead campaign lead desk page will be displayed ... Conversations will be
+       displayed. Appointments will be displayed. Follows will be displayed ...
+       AI knowledge will be displayed. Clients will be displayed. Live overview
+       and lead reporting will be displayed."* Eight pages sit behind this one
+       predicate, and without it the sidebar offered all eight and every one of
+       them bounced. They read only — their session cannot write (257). */
+    user.role === 'executive' ||
+    department.ownsLeadProjects
+  );
+}
+
+/**
+ * A page the Executive is not offered.
+ *
+ * ⚠️ HIDING A SIDEBAR LINK IS NOT A GUARD. Walking the app as a real Executive
+ * on 2026-09-25 found seven pages that were absent from their menu and still
+ * answered 200 to a typed URL — Finance, the Vault, Tasks, the Calendar,
+ * Repeating tasks, the Composer and My Work. The owner closed those pages, so
+ * they are closed here rather than merely unlisted.
+ *
+ * ⚠️ IT CANNOT BE A RANK. `requireRole` expresses "this rank and above", and
+ * this is "everybody except one role" — an Executive outranks a Coordinator, so
+ * any floor that keeps a Coordinator in also lets the Executive through.
+ */
+export async function requireNotExecutive(): Promise<CurrentUser> {
+  const user = await requireUser();
+  if (user.role === 'executive') redirect('/dashboard');
+  return user;
 }
 
 /** The guard for every CRM page. Sends anybody else where they belong. */
@@ -359,6 +390,12 @@ export async function requireCrmAccess(): Promise<{
  */
 export function crmReportsOpenTo(user: CurrentUser, department: ActingDepartment): boolean {
   if (user.role === 'admin' || user.role === 'super_admin') return true;
+  /* ⚠️ THE EXECUTIVE READS THE WHOLE-PROJECT FIGURES. Owner, 2026-09-25: *"Live
+     overview and lead reporting will be displayed."* Those two pages sit behind
+     this predicate and not behind `crmIsOpenTo`, because every figure on them is
+     a whole-project figure rather than one salesperson's — which is exactly what
+     "company-level reporting" means for this role. */
+  if (user.role === 'executive') return true;
   return department.ownsLeadProjects && department.isManager;
 }
 

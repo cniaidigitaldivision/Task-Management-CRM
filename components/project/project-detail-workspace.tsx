@@ -55,7 +55,7 @@ import type { PlacementRow } from '@/lib/db/queries/placements';
 import type { CalendarTask } from '@/lib/db/queries/search';
 import { CalendarView } from '@/components/calendar/calendar-view';
 import type { Role } from '@/lib/domain/constants';
-import { canAssignTo } from '@/lib/domain/permissions';
+import { canAssignTo, managesWork } from '@/lib/domain/permissions';
 import type { DayStanding } from '@/lib/domain/content-tracker';
 import { useToast } from '@/components/ui/toast';
 
@@ -571,7 +571,7 @@ export function ProjectDetailWorkspace({
               nobody asked them for, or they press it and are refused. Removing
               it is the third option. Reporting permissions on the server are
               unchanged; this is the control, not the boundary. */}
-          {currentUser.role !== 'member' && (
+          {managesWork(currentUser.role) && (
             <ReportMenu projectId={project.id} projectName={project.name} today={today} />
           )}
         </div>

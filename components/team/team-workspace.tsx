@@ -28,12 +28,7 @@ import type { ResetTrailView } from '@/lib/view/reset-trail';
 import { PersonActions, type DepartmentOption } from './person-actions';
 import type { PersonWorkload } from '@/lib/db/queries/workload';
 import type { AvailabilityRow, PersonRow, SalesMarket, SkillRow, UserSkillRow } from '@/lib/db/queries/types';
-import {
-  AVAILABILITY_TYPES,
-  ROLE_LABEL,
-  WORKLOAD_BAND_META,
-  type Role,
-} from '@/lib/domain/constants';
+import { AVAILABILITY_TYPES, DEPARTMENT_ROLES, DEPARTMENT_ROLE_LABEL, ROLE_LABEL, WORKLOAD_BAND_META, type Role } from '@/lib/domain/constants';
 
 /* ============================================================================
  * TEAM — doc 10 §6, FR-010 to FR-017
@@ -673,25 +668,33 @@ function CapacityDialog({
                     />
                   </Field>
 
-                  {/* ⚠️ A TICKBOX, NOT A SECOND "Member/Manager" DROPDOWN — the owner
-                      read two of those as the same question asked twice. This is
-                      seniority INSIDE the department, which is what decides who
-                      reads the lead reports; the rank above is authority over the
-                      application. */}
-                  <Field label="Seniority" htmlFor="departmentRole">
-                    <label className="flex items-center gap-2 py-2">
-                      <input
-                        type="checkbox"
-                        id="departmentRole"
-                        name="departmentRole"
-                        value="manager"
-                        defaultChecked={person.isDepartmentManager}
-                        className="size-4 accent-[var(--brand-primary)]"
-                      />
-                      <span className="text-body text-text-primary">
-                        They manage their department
-                      </span>
-                    </label>
+                  {/* ⚠️ ONE SELECT, AND NOT ONE OPTION OF IT SAYS "MEMBER".
+
+                      This was a tickbox, because before that it was a
+                      Member/Manager dropdown beside the Role dropdown and the
+                      owner read the two as the same question twice: *"they are
+                      the same thing, right?"* The tick fixed that and could only
+                      ever say manager-or-not.
+
+                      2026-09-25 added three more values — Salesperson,
+                      Marketing, Support (migration 255) — and a tick cannot
+                      express five. So it is a select again, but the old
+                      complaint is designed out rather than reintroduced: the
+                      rank above offers "Team Member", this offers "No specific
+                      role", and no word appears in both lists. */}
+                  <Field label="What they do in their department" htmlFor="departmentRole">
+                    <Select
+                      size="md"
+                      id="departmentRole"
+                      name="departmentRole"
+                      defaultValue={person.departmentRole}
+                    >
+                      {DEPARTMENT_ROLES.map((value) => (
+                        <option key={value} value={value}>
+                          {DEPARTMENT_ROLE_LABEL[value]}
+                        </option>
+                      ))}
+                    </Select>
                   </Field>
                 </div>
 
