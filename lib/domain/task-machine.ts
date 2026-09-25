@@ -277,11 +277,24 @@ export type TransitionRefusal =
   | 'reason_required'
   | 'publish_proof_required';
 
+/**
+ * ⚠️ THIS IS THE WRITE LADDER, AND THE EXECUTIVE IS NOT ON IT.
+ *
+ * `ROLE_RANK` puts them third because that is what they may SEE. Every rank
+ * test in this file guards a transition — approving work, sending it back,
+ * cancelling it — and the owner allowed none of those. Zero makes each of those
+ * tests false, while `assignee` and `creator` are already false for a role that
+ * is never assigned work and creates none.
+ *
+ * ⚠️ DO NOT "FIX" THIS TO 3 to match ROLE_RANK. The two ladders differ on
+ * purpose, and the database says the same thing through `app.acting_writes()`.
+ */
 const RANK: Readonly<Record<Role, number>> = {
   super_admin: 4,
   admin: 3,
   team_coordinator: 2,
   member: 1,
+  executive: 0,
 };
 
 function satisfies(actor: TransitionActor, ctx: TransitionContext): boolean {

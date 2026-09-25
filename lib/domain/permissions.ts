@@ -96,12 +96,23 @@ export interface Actor {
  * THE MATRIX — docs/03 §3, in document order
  * ========================================================================== */
 
+/**
+ * ⚠️ THE EXECUTIVE ARM DEFAULTS TO `deny`, AND THAT IS THE WHOLE DESIGN.
+ *
+ * Owner, 2026-09-25: *"all the settings and all the editing will not be allowed
+ * for the executive role."* Written as a fifth positional argument, every one of
+ * the entries below would have had to be revisited to add it — and the one
+ * somebody forgot would have silently granted a write. Defaulted, a permission
+ * this role has not been explicitly given is refused, and granting one later is
+ * a visible, deliberate edit to a single line.
+ */
 const M = (
   super_admin: Rule,
   admin: Rule,
   team_coordinator: Rule,
   member: Rule,
-): Readonly<Record<Role, Rule>> => ({ super_admin, admin, team_coordinator, member });
+  executive: Rule = 'deny',
+): Readonly<Record<Role, Rule>> => ({ super_admin, admin, executive, team_coordinator, member });
 
 export const PERMISSIONS = {
   /* ---- Account & team management — doc 03 §3.1 ------------------------- */
@@ -890,6 +901,15 @@ export function canAssignTo(actorRole: Role, assigneeRole: Role): boolean {
      "me" from "a peer", so it answers the question it can and leaves the other
      to the code that has the ids. */
   if (actorRole === 'member') return false;
+
+  /* ── ⚠️ AND AN EXECUTIVE HANDS WORK TO NOBODY EITHER, 2026-09-25 ────────
+     Same shape as the Member rule above and the same reason rank is the wrong
+     instrument: their rank of 3 outranks a Coordinator and a Member, so the
+     comparison below would have let them assign work down the whole ladder.
+     Owner: *"all the settings and all the editing will not be allowed for the
+     executive role."* The cross-product test caught this, which is what it is
+     for — the rank change alone had silently granted it. */
+  if (actorRole === 'executive') return false;
 
   return ROLE_RANK[actorRole] >= ROLE_RANK[assigneeRole];
 }

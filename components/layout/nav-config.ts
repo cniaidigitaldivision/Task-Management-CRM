@@ -82,6 +82,21 @@ const ADMIN_UP: readonly Role[] = ['super_admin', 'admin'];
    Tasks, which is why it stops here rather than reading `ALL`. */
 const MEMBER_ONLY: readonly Role[] = ['member'];
 
+/* ── ⚠️ THE EXECUTIVE IS DELIBERATELY ABSENT FROM `ALL` ────────────────────
+   `ALL` means "everybody who does the work", and it stayed at four roles when
+   the Executive was added. That makes the sidebar FAIL CLOSED: a page nobody
+   has thought about yet is hidden from them, and showing it is a visible edit
+   to one line rather than something that happened by default.
+
+   Owner, 2026-09-25, page by page. Hidden: Tasks, Repeating tasks, Calendar,
+   My leads, My to-dos, Finance ("right now hide it ... later on when I am sure
+   I will tell you"), Vault ("definitely hide it"), Composer ("it didn't
+   complete"), Settings, Security. Shown read-only: everything below. */
+const EXEC: Role = 'executive';
+const ALL_EXEC: readonly Role[] = [...ALL, EXEC];
+const LEAD_EXEC: readonly Role[] = [...LEAD_UP, EXEC];
+const ADMIN_EXEC: readonly Role[] = [...ADMIN_UP, EXEC];
+
 export const NAV_SECTIONS: readonly NavSection[] = [
   {
     label: null,
@@ -100,10 +115,10 @@ export const NAV_SECTIONS: readonly NavSection[] = [
          Offering it here to everybody would advertise it to the majority who
          are switched off, and this list is cosmetic anyway (NFR-006): the real
          gate is `mayUseAssistant` in the route's own layout. */
-      { label: 'AI Assistant', href: '/assistant', icon: Sparkles, roles: LEAD_UP },
+      { label: 'AI Assistant', href: '/assistant', icon: Sparkles, roles: LEAD_EXEC },
       /* CHANGE-PLAN 7.1: open to a Member too, now that the page has a shape for
          them. It used to be LEAD_UP and they were redirected away. */
-      { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, roles: ALL },
+      { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, roles: ALL_EXEC },
       /* ⚠️ MEMBER ONLY, since 2026-08-22. Owner, about the Coordinator's rail:
          *"Remove Today, workflow, and my work also. I don't need all these
          pages."*
@@ -143,7 +158,7 @@ export const NAV_SECTIONS: readonly NavSection[] = [
       /* Open to everybody: RLS decides what is in it, so a Member sees their
          own due dates and a Coordinator sees the division's. */
       { label: 'Calendar', href: '/calendar', icon: CalendarDays, roles: ALL },
-      { label: 'Workload', href: '/workload', icon: Gauge, roles: LEAD_UP },
+      { label: 'Workload', href: '/workload', icon: Gauge, roles: LEAD_EXEC },
       /* ── ⚠️ ITS OWN ENTRY, BESIDE REPORTS RATHER THAN INSIDE IT ───────────
          Owner, 2026-09-23: *"I want to create a team performance page … I want
          to know or see a single person's performance."*
@@ -160,7 +175,7 @@ export const NAV_SECTIONS: readonly NavSection[] = [
          the page forces the person filter to their own id and hides the team and
          person pills, and RLS independently shows them nothing else. The rank no
          longer decides WHETHER the page opens, only HOW WIDE it is. */
-      { label: 'Performance', href: '/performance', icon: BarChart3, roles: ALL },
+      { label: 'Performance', href: '/performance', icon: BarChart3, roles: ALL_EXEC },
     ],
   },
   {
@@ -176,7 +191,7 @@ export const NAV_SECTIONS: readonly NavSection[] = [
        would restate the confusion. */
     label: 'Projects',
     items: [
-      { label: 'Projects', href: '/projects', icon: FolderKanban, roles: ALL },
+      { label: 'Projects', href: '/projects', icon: FolderKanban, roles: ALL_EXEC },
       /* ── ⚠️ ADDED 2026-09-04 — a SEPARATE PAGE, not a project tab ─────────
          Owner changed the plan explicitly: *"before I was saying data within the
          project… I don't want that to change anything inside of the project. I
@@ -190,7 +205,7 @@ export const NAV_SECTIONS: readonly NavSection[] = [
          boundary (NFR-006) — the real floor is requireRole() in
          app/(app)/studio/layout.tsx. Changing it here alone would hide the link
          and grant nobody anything, which is why both were changed. */
-      { label: 'Trend & Engagement Studio', href: '/studio', icon: TrendingUp, roles: ADMIN_UP },
+      { label: 'Trend & Engagement Studio', href: '/studio', icon: TrendingUp, roles: ADMIN_EXEC },
     ],
   },
   {
@@ -220,7 +235,7 @@ export const NAV_SECTIONS: readonly NavSection[] = [
         label: 'Campaign & Lead Desk',
         href: '/leads',
         icon: Radio,
-        roles: ADMIN_UP,
+        roles: ADMIN_EXEC,
         /* ⚠️ The people whose entire job is this screen are `member`. Without
            this they would have no link to it. */
         requires: 'crm',
@@ -250,7 +265,7 @@ export const NAV_SECTIONS: readonly NavSection[] = [
         label: 'Conversations',
         href: '/conversations',
         icon: MessagesSquare,
-        roles: ADMIN_UP,
+        roles: ADMIN_EXEC,
         requires: 'crm',
       },
       {
@@ -266,7 +281,7 @@ export const NAV_SECTIONS: readonly NavSection[] = [
         label: 'Appointments',
         href: '/appointments',
         icon: CalendarClock,
-        roles: ADMIN_UP,
+        roles: ADMIN_EXEC,
         requires: 'crm',
       },
       {
@@ -285,7 +300,7 @@ export const NAV_SECTIONS: readonly NavSection[] = [
         label: 'Follow-ups',
         href: '/follow-ups',
         icon: Send,
-        roles: ADMIN_UP,
+        roles: ADMIN_EXEC,
         requires: 'crm',
       },
       {
@@ -314,7 +329,7 @@ export const NAV_SECTIONS: readonly NavSection[] = [
         label: 'AI Knowledge',
         href: '/knowledge',
         icon: BookOpen,
-        roles: ADMIN_UP,
+        roles: ADMIN_EXEC,
         requires: 'crm',
       },
       {
@@ -326,7 +341,7 @@ export const NAV_SECTIONS: readonly NavSection[] = [
         label: 'Clients',
         href: '/clients',
         icon: UserCheck,
-        roles: ADMIN_UP,
+        roles: ADMIN_EXEC,
         requires: 'crm',
       },
       {
@@ -339,7 +354,7 @@ export const NAV_SECTIONS: readonly NavSection[] = [
         label: 'Live overview',
         href: '/lead-overview',
         icon: Activity,
-        roles: ADMIN_UP,
+        roles: ADMIN_EXEC,
         requires: 'crmReports',
       },
       {
@@ -351,7 +366,7 @@ export const NAV_SECTIONS: readonly NavSection[] = [
         label: 'Lead reports',
         href: '/lead-reports',
         icon: BarChart3,
-        roles: ADMIN_UP,
+        roles: ADMIN_EXEC,
         /* ⚠️ `crmReports`, NOT `crm` — the desk is the whole sales team's, these
            reports are the manager's. A salesperson who followed this link would
            be redirected by the layout anyway; the link is removed so they are
@@ -363,8 +378,8 @@ export const NAV_SECTIONS: readonly NavSection[] = [
   {
     label: 'Team',
     items: [
-      { label: 'Team', href: '/team', icon: Users, roles: ADMIN_UP },
-      { label: 'Reports', href: '/reports', icon: BarChart3, roles: LEAD_UP },
+      { label: 'Team', href: '/team', icon: Users, roles: ADMIN_EXEC },
+      { label: 'Reports', href: '/reports', icon: BarChart3, roles: LEAD_EXEC },
       /* ── ⚠️ 'MONTHLY REPORT' WAS TAKEN OUT OF THIS LIST ON 2026-08-29 ───────
          Owner: *"only the report page is all working, everything is working over
          there, so this monthly report page, remove it"* — of the item in the left
@@ -392,7 +407,7 @@ export const NAV_SECTIONS: readonly NavSection[] = [
          server — not whether the link is offered. Owner, 2026-08-25: *"Some
          things should be hidden from the team members"*, which is about the
          contents (NFR-006). */
-      { label: 'Attendance', href: '/attendance', icon: Clock3, roles: ALL },
+      { label: 'Attendance', href: '/attendance', icon: Clock3, roles: ALL_EXEC },
     ],
   },
   {
@@ -401,7 +416,7 @@ export const NAV_SECTIONS: readonly NavSection[] = [
       /* Open to every role: anybody may upload, and RLS decides what is on the
          page. Owner: 'every time a user or anybody comes, they should have a place
          where they can upload something.' */
-      { label: 'Documents', href: '/documents', icon: FolderOpen, roles: ALL },
+      { label: 'Documents', href: '/documents', icon: FolderOpen, roles: ALL_EXEC },
       /* ⚠️ MOVED HERE FROM Team, 2026-08-26, on owner instruction. The ledger is
          division machinery — it belongs with Vault and Settings rather than
          beside the screens about people.
@@ -431,7 +446,7 @@ export const NAV_SECTIONS: readonly NavSection[] = [
          configured by an Admin and every action on the screen is already gated
          there — a Coordinator could open it and change nothing, which is a page
          that exists only to refuse. */
-      { label: 'Workflow', href: '/workflow', icon: Workflow, roles: ADMIN_UP },
+      { label: 'Workflow', href: '/workflow', icon: Workflow, roles: ADMIN_EXEC },
       { label: 'Settings', href: '/settings', icon: Settings, roles: ADMIN_UP },
       /* ADMIN_UP since 2026-08-22 — owner decision. Was SUPER_ONLY; the route
          guard, the permission matrix and migration 040 all moved with it. */

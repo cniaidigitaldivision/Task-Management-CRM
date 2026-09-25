@@ -49,10 +49,12 @@ const SUPER_ADMIN: Actor = { id: 'u-super', role: 'super_admin' };
 const ADMIN: Actor = { id: 'u-admin', role: 'admin' };
 const COORDINATOR: Actor = { id: 'u-coord', role: 'team_coordinator' };
 const MEMBER: Actor = { id: 'u-member', role: 'member' };
+const EXECUTIVE: Actor = { id: 'u-exec', role: 'executive' };
 
 const ACTOR_BY_ROLE: Readonly<Record<Role, Actor>> = {
   super_admin: SUPER_ADMIN,
   admin: ADMIN,
+  executive: EXECUTIVE,
   team_coordinator: COORDINATOR,
   member: MEMBER,
 };
@@ -607,9 +609,14 @@ describe('doc 03 §3.4 / ADR-010 — the Coordinator sets the budget, the Admin 
     expect(can(COORDINATOR, 'extension.view_all_pending')).toBe(true);
   });
 
-  it('everyone may request an extension on their own work', () => {
+  /* ⚠️ "EVERYONE WHO HAS WORK", WHICH IS NOT EVERYONE ANY MORE. An Executive
+     is never assigned a task, so "their own work" is an empty set and the
+     permission could only ever fire on nothing. It is left DENIED rather than
+     granted-but-unreachable, because `M()` refuses this role by default and a
+     hand-written exception here would be the first crack in that. */
+  it('everyone who does the work may request an extension on their own', () => {
     for (const role of ROLES) {
-      expect(can(ACTOR_BY_ROLE[role], 'extension.request_own')).toBe(true);
+      expect(can(ACTOR_BY_ROLE[role], 'extension.request_own')).toBe(role !== 'executive');
     }
   });
 });

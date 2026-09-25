@@ -3,7 +3,7 @@ import 'server-only';
 import { cache } from 'react';
 import { redirect } from 'next/navigation';
 
-import { MFA_REQUIRED_ROLES, type Role, type Theme } from '@/lib/domain/constants';
+import { MFA_REQUIRED_ROLES, ROLE_RANK, type Role, type Theme } from '@/lib/domain/constants';
 import { withAppRole, withUser } from '@/lib/db/client';
 
 import { clearSessionCookie, readSessionTokenHash } from './session';
@@ -49,6 +49,11 @@ export type SessionOutcome = 'ok' | 'not_found' | 'revoked' | 'expired' | 'idle'
 const SLIDE_MINUTES: Readonly<Record<Role, number>> = {
   super_admin: 8 * 60,
   admin: 24 * 60,
+  /* ⚠️ SHORT, LIKE A SUPER ADMIN, DESPITE WRITING NOTHING. The window is about
+     what a stolen session can SEE, and an Executive sees every department's
+     figures, every salary-adjacent report and every person's performance. A
+     week-long window on that is the wrong trade. */
+  executive: 8 * 60,
   team_coordinator: 7 * 24 * 60,
   member: 7 * 24 * 60,
 };
@@ -193,13 +198,11 @@ export async function requireRole(minimum: Role): Promise<CurrentUser> {
   // Inherits the enrolment check — a rank floor on top of an unenrolled session
   // would let a privileged account past the very screen it was sent to.
   const user = await requireEnrolledUser();
-  const rank: Readonly<Record<Role, number>> = {
-    super_admin: 4,
-    admin: 3,
-    team_coordinator: 2,
-    member: 1,
-  };
-  if (rank[user.role] < rank[minimum]) {
+  /* ⚠️ ONE LADDER, NOT A SECOND COPY. This was a literal that happened to agree
+     with `ROLE_RANK`; adding the Executive made it a place the two could
+     disagree, and a rank check that disagrees with the database is how somebody
+     gets a page the rows behind it will refuse to fill. */
+  if (ROLE_RANK[user.role] < ROLE_RANK[minimum]) {
     redirect(user.role === 'member' ? '/my-work' : '/dashboard');
   }
   return user;

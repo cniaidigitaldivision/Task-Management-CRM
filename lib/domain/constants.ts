@@ -18,13 +18,24 @@
 
 /** The four roles. ADR-002. There is deliberately no in-app path to create a
  *  super_admin — see docs/16 §2. */
-export const ROLES = ['super_admin', 'admin', 'team_coordinator', 'member'] as const;
+/* ⚠️ THE EXECUTIVE SITS THIRD, AND READS RATHER THAN WRITES. Owner,
+   2026-09-25: *"all the settings and all the editing will not be allowed for
+   the executive role."* Rank alone could not express that — 99 of 265 policies
+   key off rank — so migration 256 pairs the rank with `app.acting_writes()`,
+   which is false for exactly this role. Marketing, Support and Salesperson are
+   NOT here: they are department roles inside Sales (migration 255). */
+export const ROLES = ['super_admin', 'admin', 'executive', 'team_coordinator', 'member'] as const;
 export type Role = (typeof ROLES)[number];
 
 /** Ordered most- to least-privileged. Used for "at least this role" checks. */
 export const ROLE_RANK: Readonly<Record<Role, number>> = {
-  super_admin: 4,
-  admin: 3,
+  super_admin: 5,
+  admin: 4,
+  /* ⚠️ READ RANK, NOT WRITE RANK. An Executive sees what a Coordinator sees and
+     more, and writes less than a Member. Rank cannot say both, so the database
+     pairs this number with `app.acting_writes()` (migration 256) and the
+     permission matrix below denies them by default. */
+  executive: 3,
   team_coordinator: 2,
   member: 1,
 } as const;
@@ -32,6 +43,7 @@ export const ROLE_RANK: Readonly<Record<Role, number>> = {
 export const ROLE_LABEL: Readonly<Record<Role, string>> = {
   super_admin: 'Super Admin',
   admin: 'Admin',
+  executive: 'Executive',
   team_coordinator: 'Team Coordinator',
   member: 'Team Member',
 } as const;

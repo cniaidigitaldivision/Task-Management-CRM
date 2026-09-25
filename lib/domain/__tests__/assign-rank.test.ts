@@ -27,18 +27,23 @@ describe('canAssignTo — the full cross product', () => {
     super_admin: {
       super_admin: true,
       admin: true,
+      executive: true,
       team_coordinator: true,
       member: true,
     },
     admin: {
       super_admin: false,
       admin: true,
+      executive: true,
       team_coordinator: true,
       member: true,
     },
     team_coordinator: {
       super_admin: false,
       admin: false,
+      /* An Executive outranks a Coordinator, so work cannot be pushed onto
+         them from below any more than onto an Admin. */
+      executive: false,
       team_coordinator: true,
       member: true,
     },
@@ -54,6 +59,21 @@ describe('canAssignTo — the full cross product', () => {
     member: {
       super_admin: false,
       admin: false,
+      executive: false,
+      team_coordinator: false,
+      member: false,
+    },
+    /* ── ⚠️ AN EXECUTIVE ASSIGNS NOBODY, INCLUDING DOWNWARDS ──────────────
+       Owner, 2026-09-25: *"all the settings and all the editing will not be
+       allowed for the executive role."* Their rank of 3 would otherwise make
+       every row below them true, which is exactly the accident migration 256
+       exists to prevent — `app.acting_writes()` says the same thing in the
+       database, and `RANK.executive = 0` in the task machine says it a third
+       time. Three places, one answer. */
+    executive: {
+      super_admin: false,
+      admin: false,
+      executive: false,
       team_coordinator: false,
       member: false,
     },
