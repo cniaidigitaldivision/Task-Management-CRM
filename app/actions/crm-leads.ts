@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 
 import { requireUser } from '@/lib/auth/current-user';
-import { withUser } from '@/lib/db/client';
+import { withUser, withUserBypassingReadOnly } from '@/lib/db/client';
 import { createFollowUp } from '@/lib/db/queries/crm-followups';
 import { notify } from '@/lib/db/queries/feed';
 import {
@@ -367,7 +367,13 @@ export async function addNoteAction(leadId: string, body: string): Promise<LeadW
  *  an assignment that already happened. */
 async function tellThem(actorId: string, ownerId: string, leadId: string, who: string) {
   try {
-    await withUser(actorId, (tx) =>
+    /* ⚠️ THE SECOND HALF OF THE SAME APPROVED WRITE. An Executive's session is
+       read-only (migration 257) and this insert would fail with SQLSTATE 25006
+       — quietly, because the whole call is wrapped in the catch below. The lead
+       would change hands and the salesperson would never be told, which is the
+       worst of both outcomes. Handing out a lead is one act in two statements,
+       so both take the same opt-out. */
+    await withUserBypassingReadOnly(actorId, (tx) =>
       notify(tx, actorId, {
         userId: ownerId,
         kind: 'lead_assigned',

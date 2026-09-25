@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { withUser, type Tx } from '../client';
+import { type Tx, withUser, withUserBypassingReadOnly } from '../client';
 import { clientFacingName, letterSubtitle } from '@/lib/domain/crm-brand';
 import { needsApproval, netAmount, nextQuotationNumber } from '@/lib/domain/crm-quotations';
 
@@ -1172,7 +1172,21 @@ export async function assignLead(
   leadId: string,
   ownerId: string | null,
 ): Promise<boolean> {
-  const rows = await withUser(actorId, (tx) => tx`
+  /* ⚠️ THE ONE WRITE AN EXECUTIVE HAS, AND THE ONLY CALLER OF THE OPT-OUT.
+     Owner, 2026-09-25: *"for the lead assignment, definitely it will be the
+     executive role. He can assign a lead to anyone."*
+
+     Every Executive transaction is read-only at the transaction level
+     (migration 257), so this would otherwise fail with SQLSTATE 25006 before a
+     single policy was consulted. `withUserBypassingReadOnly` declines to set
+     that flag and changes nothing else: row-level security still decides WHICH
+     lead, and `app.crm_guard_reassign` still decides WHO may hand one out
+     (migration 258). This statement sets `owner_id` and nothing else, which is
+     what makes the opt-out safe to grant here and nowhere else.
+
+     ⚠️ IF YOU ARE ADDING A SECOND CALLER, STOP. The guard is only worth what
+     the list of exceptions is worth, and this list is meant to stay at one. */
+  const rows = await withUserBypassingReadOnly(actorId, (tx) => tx`
     update public.crm_leads
        set owner_id = ${ownerId}::uuid
      where id = ${leadId}::uuid

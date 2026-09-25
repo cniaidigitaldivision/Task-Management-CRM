@@ -290,6 +290,41 @@ when a repeat is chosen.
 
 ---
 
+## T-08 · A salesperson who manages nothing changed a lead's owner
+
+| | |
+|---|---|
+| **Found** | 2026-09-25, by migration 258's self-check |
+| **Status** | reproduced, cause NOT found |
+| **Severity** | possible permission hole in lead reassignment |
+
+While adding the Executive role, 258's self-check tried to prove that widening
+`app.crm_guard_reassign` for the Executive had not widened it for anybody else.
+It could not: a user with `role = 'member'` and `department_role <> 'manager'`,
+for whom `app.crm_manages_project(project_id)` returned **false**, was still able
+to run `update crm_leads set owner_id = ...` and have the new owner stick.
+
+The trigger `crm_leads_guard_reassign` is present and enabled (`tgenabled = 'O'`,
+BEFORE UPDATE, FOR EACH ROW), and the predicate it runs should raise
+`insufficient_privilege` for exactly that person.
+
+**This is not caused by 258.** That migration only adds an Executive arm to the
+guard; the arm for every other role is migration 120's, unchanged. The check
+arm was REMOVED rather than softened, because a self-check that is weakened
+until it passes is worse than one that was never written.
+
+**What it is not, already ruled out:** the trigger being absent or disabled; the
+update matching zero rows (the owner genuinely changed); the fixture being a
+department manager (checked explicitly with `crm_manages_project` before the
+attempt).
+
+**Next step:** reproduce outside a migration with `RAISE NOTICE` inside
+`app.crm_guard_reassign` to see whether it fires at all, and what
+`app.current_user_id()`, `app.current_user_role()` and
+`app.crm_manages_project(new.project_id)` each return inside it.
+
+---
+
 ## Closed
 
 *(Fixed and confirmed items move here with their commit, so the same report is

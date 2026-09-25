@@ -230,7 +230,77 @@ export async function withUser<T>(userId: string, fn: (tx: Tx) => Promise<T>): P
         /* ONE statement, not two. Each round trip to Singapore costs real time,
            and this one runs before every query in the application — measured at
            roughly 20% of a simple query's total latency. Splitting it read more
-           clearly and cost a trip. */
+           clearly and cost a trip.
+
+           ── ⚠️ THE THIRD SETTING IS A BOUNDARY, NOT A CONVENIENCE ─────────
+           Owner, 2026-09-25: *"regardless of any policy, I am telling you, I
+           want to add this access, specifically for the executive role."*
+
+           `app.session_read_only()` returns 'on' for an Executive and 'off' for
+           everybody else, and Postgres then refuses every INSERT, UPDATE,
+           DELETE and DDL for the rest of the transaction with SQLSTATE 25006 —
+           BEFORE any policy is consulted. That reaches the writes no rank check
+           ever could: commenting on a task, uploading a document, editing your
+           own row. `cni_app` may insert into 104 tables; auditing them one at a
+           time would be a list that rots.
+
+           ⚠️ IT IS A FUNCTION, NOT A CASE WRITTEN HERE, because a SELECT list
+           has no defined evaluation order. A role lookup that happened to run
+           after `set_config('role', …)` but before `set_config('app.user_id', …)`
+           would read `users` as cni_app with no identity, match nothing, and
+           decide the caller is not an Executive — failing OPEN for a reason
+           nobody could see. `app.session_read_only` is SECURITY DEFINER, so the
+           answer does not depend on the order at all (migration 257).
+
+           ⚠️ AND IT CANNOT BE LIFTED from inside the transaction: Postgres
+           refuses to widen a read-only transaction back to read-write. */
+        await tx`
+          select set_config('role', 'cni_app', true),
+                 set_config('app.user_id', ${userId}, true),
+                 set_config('transaction_read_only', app.session_read_only(${userId}::uuid), true)
+        `;
+        return fn(tx);
+      }) as Promise<T>,
+  );
+}
+
+/**
+ * `withUser`, minus the Executive read-only guard.
+ *
+ * ── ⚠️ THERE IS EXACTLY ONE APPROVED WRITE, AND IT IS NAMED HERE ─────────
+ * Handing out a lead. Owner, 2026-09-25: *"for the lead assignment, definitely
+ * it will be the executive role. He can assign a lead to anyone."* That is the
+ * single write the Executive was granted, so it is the only thing allowed to
+ * step around the guard.
+ *
+ * It is ONE act in TWO statements, and both are here: `assignLead` changes the
+ * owner, and `tellThem` tells the person who now has it. Splitting them would
+ * have meant a lead changing hands in silence, since the notification is
+ * wrapped in a catch that would have swallowed the refusal.
+ *
+ * ⚠️ THE NAME IS UGLY ON PURPOSE. Anything calling this is opting out of the
+ * boundary migration 257 exists to draw, and a `grep` for it should return a
+ * list short enough to read in one glance. If that list ever grows past the
+ * writes the owner has actually approved, the guard has been defeated by
+ * convenience rather than by decision.
+ *
+ * ⚠️ IT IS NOT AN AUTHORISATION CHECK. Row-level security still applies in full
+ * — this only declines to make the transaction read-only. The caller is
+ * responsible for deciding that this particular person may do this particular
+ * thing before it opens.
+ */
+export async function withUserBypassingReadOnly<T>(
+  userId: string,
+  fn: (tx: Tx) => Promise<T>,
+): Promise<T> {
+  if (!userId) {
+    throw new Error('withUserBypassingReadOnly requires a user id.');
+  }
+  assertConfigured();
+
+  return withRetry(
+    () =>
+      sql.begin(async (tx) => {
         await tx`
           select set_config('role', 'cni_app', true),
                  set_config('app.user_id', ${userId}, true)
