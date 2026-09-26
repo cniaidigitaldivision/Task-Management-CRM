@@ -16,10 +16,61 @@
 | **Route** | `/leads` · `/my-leads` · `/conversations` · `/appointments` · `/follow-ups` · `/todos` · `/knowledge` · `/clients` · `/lead-reports` · `/lead-overview` · nav: Growth → Campaign & Lead Desk |
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
-| **Deployed** | Every push to `main` deploys to Vercel (`sin1`) → https://taskly.aidigitaldivision.com. Head: **`14da113`**, deploy **success**. Check one with `gh api repos/cniaidigitaldivision/Task-Management-CRM/commits/<sha>/status` |
-| **Green at head** | 152 test files · 3821 tests · typecheck · lint · `scripts/smoke.mjs` |
-| **Last updated** | **2026-09-23** |
-| **Last migration applied anywhere** | **249** (applied 2026-09-22; **249 clients become relationships**; 248 deleting a source takes its answers). CRM next: **250.** |
+| **Deployed** | Every push to `main` deploys to Vercel (`sin1`) → https://taskly.aidigitaldivision.com. Head: **`76826f6`**, deploy **success** (2026-09-26). Check one with `gh api repos/cniaidigitaldivision/Task-Management-CRM/commits/<sha>/status` |
+| **Green at head** | 157 test files · 3916 tests · typecheck · `next build` |
+| **Last updated** | **2026-09-26** |
+| **Last migration applied anywhere** | **262** (applied 2026-09-26; **262 the executive runs the work**). CRM next: **263.** |
+
+---
+
+## 🧭 2026-09-26 — THE EXECUTIVE RUNS THE WORK (live in production)
+
+**Head `76826f6`, deployed and walked in production as a real Executive.**
+
+A fifth application role, built on the 25th to read the company and write
+nothing, and given the work on the 26th when the owner reversed one answer:
+*"he can assign a task to a team member … The task page and these things will
+now be allowed for the executive."* Four questions were asked before any code
+moved — create **and** assign, full control, approvals yes, "anyone below him".
+
+**The role now has**, and this is proved on production, not on a laptop:
+
+| Checked on https://taskly.aidigitaldivision.com | Result |
+|---|---|
+| `/tasks` | opens, **240 open tasks**, "New task" offered, 16 people assignable |
+| creating and assigning | task **CLI-2882** made and handed to a Team Member (removed after) |
+| `/team` | **reads** — no "Add member", no delete control |
+| insert a person / delete a person / promote a person | **42501** · 0 rows · 0 rows |
+| `/settings` · `/finance` · `/vault` | redirect |
+
+**Migration 262** retired the blanket read-only session from 257. A refusal with
+fifteen named holes in it is not a boundary, so the guarantee went back to the
+permission matrix and to policies closed by hand. `app.session_read_only()` is
+kept, returning `'off'` for everyone, so a build mid-rollout cannot break on a
+missing function — drop it once nothing calls it.
+
+### ⚠️ The bug that everything green could not see
+
+3,911 tests, clean typecheck, a passing migration self-check — and the Tasks page
+had **no "New task" button on it**. A constant named `EVERYONE` listed four roles
+by hand, from when there were four. The fifth compiled perfectly and was simply
+never offered the control.
+
+It now reads off `ROLES`; the table moved to `components/layout/primary-action.ts`
+so a test can import it without dragging in a 500-line client component. **Any
+new role will hit this again** — see T-09 for the two instances left standing.
+
+### Open, and deliberately not guessed
+
+- `/repeats` and `/calendar` stay hidden from the role. Task pages, and the
+  Executive now runs tasks — but neither was named in the page-by-page walk.
+- **T-09** — a Documents folder cannot be shared with an Executive.
+- `invitations.email_state` / `email_detail` / `email_attempted_at` exist and are
+  **never written**. Every row is NULL, which is why the invitation problem took
+  a database trip to answer instead of a glance.
+
+**Saad Mustafa** (`coordinator.ceo@attarigroupofcompanies.com`) is the live
+Executive — activated 2026-09-26 05:33, first login 07:24.
 
 ---
 
