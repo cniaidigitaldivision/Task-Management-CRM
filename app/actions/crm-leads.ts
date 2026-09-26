@@ -373,7 +373,7 @@ async function tellThem(actorId: string, ownerId: string, leadId: string, who: s
        would change hands and the salesperson would never be told, which is the
        worst of both outcomes. Handing out a lead is one act in two statements,
        so both take the same opt-out. */
-    await withUserBypassingReadOnly(actorId, (tx) =>
+    await withUser(actorId, (tx) =>
       notify(tx, actorId, {
         userId: ownerId,
         kind: 'lead_assigned',

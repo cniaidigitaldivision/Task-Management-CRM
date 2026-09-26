@@ -1186,7 +1186,7 @@ export async function assignLead(
 
      ⚠️ IF YOU ARE ADDING A SECOND CALLER, STOP. The guard is only worth what
      the list of exceptions is worth, and this list is meant to stay at one. */
-  const rows = await withUserBypassingReadOnly(actorId, (tx) => tx`
+  const rows = await withUser(actorId, (tx) => tx`
     update public.crm_leads
        set owner_id = ${ownerId}::uuid
      where id = ${leadId}::uuid

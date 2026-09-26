@@ -143,7 +143,11 @@ export const NAV_SECTIONS: readonly NavSection[] = [
          it in the rail meant two screens answering one question, which is exactly
          the sprawl the owner keeps asking to remove. It now lives as the Today
          tab inside a project's Tasks, where the work already is. */
-      { label: 'Tasks', href: '/tasks', icon: CalendarClock, roles: ALL },
+      /* ⚠️ THE EXECUTIVE WAS ADDED BACK ON 2026-09-26. Hidden on the 25th
+         (*"any one person's task on the task page doesn't make any sense"*),
+         then restored when the owner gave them task work: *"The task page and
+         these things will now be allowed for the executive."* */
+      { label: 'Tasks', href: '/tasks', icon: CalendarClock, roles: ALL_EXEC },
       /* ── ⚠️ ONE PLACE THAT ANSWERS "WHAT KEEPS COMING BACK?" ──────────────
          Owner, 2026-09-22: *"Can you please exactly tell me where Najmulah, in
          his dashboard, will go to turn off this repeating task or where he can

@@ -63,19 +63,21 @@ describe('canAssignTo — the full cross product', () => {
       team_coordinator: false,
       member: false,
     },
-    /* ── ⚠️ AN EXECUTIVE ASSIGNS NOBODY, INCLUDING DOWNWARDS ──────────────
-       Owner, 2026-09-25: *"all the settings and all the editing will not be
-       allowed for the executive role."* Their rank of 3 would otherwise make
-       every row below them true, which is exactly the accident migration 256
-       exists to prevent — `app.acting_writes()` says the same thing in the
-       database, and `RANK.executive = 0` in the task machine says it a third
-       time. Three places, one answer. */
+    /* ── ⚠️ AN EXECUTIVE HANDS WORK DOWNWARD, REVERSED 2026-09-26 ───────
+       This row was all false for a day. The role was created on the 25th as one
+       that changes nothing, and the owner then added task work to it: *"he can
+       assign a task to a team member ... he can view tasks and everything like
+       that."* Asked who he may assign to, the answer was "anyone below him".
+
+       So rank decides, with no special case: 3 reaches a Coordinator and a
+       Member and stops at an Admin. Executive to Executive is the same
+       equal-rank case Admin to Admin already is. */
     executive: {
       super_admin: false,
       admin: false,
-      executive: false,
-      team_coordinator: false,
-      member: false,
+      executive: true,
+      team_coordinator: true,
+      member: true,
     },
   };
 

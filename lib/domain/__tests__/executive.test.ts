@@ -46,34 +46,49 @@ describe('the Executive sits between Admin and Team Coordinator', () => {
 });
 
 describe('the Executive changes nothing', () => {
-  it('does not manage work', () => {
-    expect(managesWork('executive')).toBe(false);
-    /* And nobody else was caught by that helper. */
+  it('manages work, like a Coordinator', () => {
+    expect(managesWork('executive')).toBe(true);
     expect(managesWork('super_admin')).toBe(true);
     expect(managesWork('admin')).toBe(true);
     expect(managesWork('team_coordinator')).toBe(true);
     expect(managesWork('member')).toBe(false);
   });
 
-  it('cannot put work on anybody, at any rank', () => {
-    for (const role of ROLES) {
-      expect(canAssignTo('executive', role)).toBe(false);
-    }
+  /* ⚠️ REVERSED 2026-09-26. This asserted the opposite for a day. The owner
+     gave the Executive task work — *"he can assign a task to a team member"* —
+     and answered "anyone below him" when asked who. Work still flows downward
+     only: an Admin is out of reach. */
+  it('hands work downward and no further', () => {
+    expect(canAssignTo('executive', 'member')).toBe(true);
+    expect(canAssignTo('executive', 'team_coordinator')).toBe(true);
+    expect(canAssignTo('executive', 'admin')).toBe(false);
+    expect(canAssignTo('executive', 'super_admin')).toBe(false);
   });
 
   /* ⚠️ THE LIST IS ASSERTED WHOLE. A twelfth `'allow'` added to the matrix
      fails here, which is the only way a silent grant gets noticed. */
-  it('is allowed exactly twelve things, and every one of them is a read or the assistant', () => {
+  /* ⚠️ THE LIST GREW ON 2026-09-26 and the shape of the role changed with it.
+     Eight of these are WRITES, all of them about work: create a task, put it on
+     somebody, edit it, move it, approve a submission. Everything outside the
+     work itself is still refused, which the sweep below is what proves. */
+  it('is allowed exactly the reads, the assistant, and work', () => {
     expect(granted).toEqual([
       /* ⚠️ The assistant is not a read, and it is the one exception the owner
-         named outright: *"AI assistance, he will have it."* It writes nothing
-         to the record — a question and an answer. */
+         named outright: *"AI assistance, he will have it."* */
       'assistant.use',
       'attendance.view_all',
       'dashboard.view',
       'data.export_all',
       'project.view_all',
       'reports.view_per_member',
+      /* ── the work, added 2026-09-26 ──────────────────────────────────── */
+      'task.assign',
+      'task.change_status_any',
+      'task.create_for_other',
+      'task.create_in_project',
+      'task.edit_content',
+      'task.edit_planning',
+      'task.override_capacity_block',
       'task.view_all',
       'time_data.view_any',
       'user.view_profile',
@@ -93,16 +108,24 @@ describe('the Executive changes nothing', () => {
     ['user.create', 'they cannot add a team member'],
     ['user.deactivate', 'they cannot remove a team member'],
     ['user.set_capacity_and_skills', 'they cannot edit a team member'],
-    ['task.approve_review', 'approvals were never granted'],
     ['attendance.edit', '"he cannot edit it"'],
   ])('refuses %s — %s', (key) => {
     expect(PERMISSIONS[key as keyof typeof PERMISSIONS].executive).toBe('deny');
   });
 
+  /* ⚠️ APPROVALS ARE `not_assignee`, NOT `allow`, and that word is the rule.
+     The owner said yes to approvals on 2026-09-26; the matrix copies the same
+     condition every other rank has on that permission, so an Executive cannot
+     approve work that is their own. They are never the assignee, which makes it
+     free today and correct if that ever changes. */
+  it('may approve a submission, but never one of their own', () => {
+    expect(PERMISSIONS['task.approve_review'].executive).toBe('not_assignee');
+  });
+
   it('refuses everything the matrix was not explicitly told to allow', () => {
     const allowed = new Set(granted);
     for (const [key, rule] of Object.entries(PERMISSIONS)) {
-      if (allowed.has(key)) continue;
+      if (allowed.has(key) || key === 'task.approve_review') continue;
       expect((rule as Record<Role, unknown>).executive).toBe('deny');
     }
   });
@@ -133,10 +156,15 @@ describe('nobody else moved', () => {
     expect(canAssignTo('member', 'member')).toBe(false);
   });
 
-  it('never lets anybody assign work TO an Executive', () => {
-    for (const role of ROLES) {
-      expect(canAssignTo(role, 'executive')).toBe(role === 'super_admin' || role === 'admin');
-    }
+  /* ⚠️ RANK DECIDES, AND AN EXECUTIVE IS THIRD. Nobody below them can put work
+     on them — a Coordinator at 2 cannot reach 3 — and an Admin can, because work
+     flows downward. An Executive reaching another Executive is the same
+     equal-rank case an Admin has with an Admin, and is left alone. */
+  it('takes work only from above, never from below', () => {
+    expect(canAssignTo('super_admin', 'executive')).toBe(true);
+    expect(canAssignTo('admin', 'executive')).toBe(true);
+    expect(canAssignTo('team_coordinator', 'executive')).toBe(false);
+    expect(canAssignTo('member', 'executive')).toBe(false);
   });
 });
 

@@ -78,10 +78,13 @@ export function toDepartmentRole(value: unknown): DepartmentRole {
 export const ROLE_RANK: Readonly<Record<Role, number>> = {
   super_admin: 5,
   admin: 4,
-  /* ⚠️ READ RANK, NOT WRITE RANK. An Executive sees what a Coordinator sees and
-     more, and writes less than a Member. Rank cannot say both, so the database
-     pairs this number with `app.acting_writes()` (migration 256) and the
-     permission matrix below denies them by default. */
+  /* ⚠️ READ RANK, NOT WRITE RANK, and the two genuinely differ for this role.
+     An Executive SEES more than a Coordinator — every lead, every project, every
+     task — and WRITES only work: tasks, and the people they are put on
+     (2026-09-26). Settings, finance, the vault and the team roster stay shut.
+     Rank alone cannot say that, so the database pairs this number with
+     `app.acting_writes()` (migrations 256 and 262), the permission matrix denies
+     by default, and `task-machine.ts` keeps its own ladder where they are 2. */
   executive: 3,
   team_coordinator: 2,
   member: 1,
