@@ -17,6 +17,8 @@ import { hrefsForRole } from '@/components/layout/nav-config';
 
 const SHOWN = [
   '/assistant',
+  /* ⚠️ Added back 2026-09-26 — see the Executive permission test. */
+  '/tasks',
   '/dashboard',
   '/workload',
   '/performance',
@@ -40,7 +42,6 @@ const SHOWN = [
 /** Each with the owner's own reason, so the next reader does not have to guess. */
 const HIDDEN: ReadonlyArray<readonly [string, string]> = [
   ['/my-work', 'an Executive is never assigned work'],
-  ['/tasks', '"any one person\'s task on the task page doesn\'t make any sense"'],
   ['/repeats', '"definitely it will hide repeating tasks"'],
   ['/calendar', '"the calendar will not show"'],
   ['/my-leads', 'a salesperson\'s own queue, and not in the list the owner named'],

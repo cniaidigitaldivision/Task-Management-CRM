@@ -278,23 +278,25 @@ export type TransitionRefusal =
   | 'publish_proof_required';
 
 /**
- * ⚠️ THIS IS THE WRITE LADDER, AND THE EXECUTIVE IS NOT ON IT.
+ * ⚠️ THIS IS THE WRITE LADDER, AND IT IS NOT `ROLE_RANK`.
  *
- * `ROLE_RANK` puts them third because that is what they may SEE. Every rank
- * test in this file guards a transition — approving work, sending it back,
- * cancelling it — and the owner allowed none of those. Zero makes each of those
- * tests false, while `assignee` and `creator` are already false for a role that
- * is never assigned work and creates none.
+ * The Executive is **2 here and 3 there**, deliberately. `ROLE_RANK` says what
+ * they may SEE — above a Coordinator. This map guards TRANSITIONS, and the owner
+ * gave them a Coordinator's authority over work on 2026-09-26: create, edit,
+ * move, and approve or send back a submission. Two is exactly that.
  *
- * ⚠️ DO NOT "FIX" THIS TO 3 to match ROLE_RANK. The two ladders differ on
- * purpose, and the database says the same thing through `app.acting_writes()`.
+ * ⚠️ THREE WOULD ALSO HAND THEM THE ADMIN-ONLY MOVES, and the only one is
+ * reopening a task that is already Done — which rewrites an on-time figure that
+ * has already been reported. Nobody asked for that.
+ *
+ * ⚠️ AND IT WAS 0 UNTIL 2026-09-26, when the role changed nothing at all.
  */
 const RANK: Readonly<Record<Role, number>> = {
   super_admin: 4,
   admin: 3,
   team_coordinator: 2,
+  executive: 2,
   member: 1,
-  executive: 0,
 };
 
 function satisfies(actor: TransitionActor, ctx: TransitionContext): boolean {

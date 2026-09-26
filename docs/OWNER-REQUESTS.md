@@ -226,3 +226,41 @@ place and the green dot, and changes the word to **"Live data"** — because eve
 figure on it is read from the database. Where nothing is recorded it says so
 (`—`, not `0%`) rather than drawing a zero. On a page read as a judgement about
 a named person, a figure nobody can trace is the worst thing it could ship.
+
+---
+
+## 🗓️ 2026-09-25 / 26 — THE EXECUTIVE ROLE
+
+A fifth application role, created for one real person. It began as a role that
+**read the company and wrote nothing**, and on the second day the owner gave it
+the work: tasks, and the people they are put on. Both sentences are below in
+their own words, in order, because the reversal is the important part of the
+record — half of this file's value is knowing which way a decision has already
+been turned.
+
+| # | Owner's words | What was done | Status |
+|---|---|---|---|
+| S36 | *"Hey now I have to create some more roles … Please go one by one through the pages and see what things will be visible to the executive and tell me that; then I will give you the answer one by one."* | Every page walked and put to them one at a time; their answers became the permission matrix. `executive`, `salesperson`, `marketing` and `support` added — the last three are **department** roles, not application roles (ADR-002), so a marketing lead stays a Team Member in the application. | ✅ |
+| S37 | *"Team, make sure that he will not delete any team member. He cannot add any team member. That's That role is only for the admin and super admin."* | `users_the_caller_outranks()` returns **empty** for an executive, which shuts eleven personnel and auth write policies without any of them being edited. `users_insert` is a whitelist per creating role, and the executive is not on it. | ✅ |
+| S38 | *"And regardless of any policy, I am telling you, I want to add this access, specifically for the executive role … And don't make mess with other things. Keep things synchronized and isolated with other things."* | Taken literally: nothing outside the role was touched. Eight write policies that would newly have admitted an executive were **measured, not guessed**, and closed by hand with `app.acting_writes()` (migration 256). | ✅ |
+| S39 | *"For the lead assignment, definitely it will be the executive role. He can assign a lead to anyone … And we don't need any two-factor authentication for that executive role."* | `crm_sees_every_lead()` and `crm_guard_reassign` opened to the role (258); the lead desk opens through `crm_is_open_to_caller()` (260). No step-up is required of them. | ✅ |
+| S40 | *"Can you now tell me that an admin can create an executive role persona for him?"* / *"Plus also can edit it"* | `assignableRolesFor()` offers Executive to a Super Admin and an Admin; `users_insert` gained the arm (261). An Admin can both create one and change somebody into one. | ✅ |
+| **S41** | *"The executive will not be allowed to see the task page but right now I have to add task-related things for him … he can assign a task to a team member; he can view tasks and everything like that. The task page and these things will now be allowed for the executive."* | **This reverses S36's answer on Tasks.** Asked four questions first and got: **create and assign**, **full control**, **approvals yes**, **anyone below him**. Migration 262 retired the blanket read-only session and opened `tasks_select`; the matrix granted eight task permissions; the page, its layout guard and the sidebar entry all came back. | ✅ |
+
+### ⚠️ What the Executive still cannot do — unchanged by S41
+
+Settings · Security · Finance · the Vault · the team roster · personnel and pay
+records · projects · goals and performance assessments. These are held in three
+independent places — the permission matrix, the RLS policies of migrations 256
+and 262, and the page layouts that bounce the role — and S41 moved none of them.
+
+### The bug that only walking the app could find
+
+Every test passed, `tsc` was clean, the build compiled, the policies were proved
+by the migration's own self-check — and the Tasks page had **no "New task"
+button on it**. A constant named `EVERYONE` listed four roles by hand, from when
+there were four. Adding a fifth broke nothing and offered nothing.
+
+It is now read off `ROLES`, the table lives in `components/layout/primary-action.ts`
+where a test can reach it, and `primary-action.test.ts` fails if anybody writes
+the list out again.

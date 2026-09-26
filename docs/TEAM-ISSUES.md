@@ -325,6 +325,44 @@ attempt).
 
 ---
 
+## T-09 · Two role lists in the Vault and the Documents picker never learned about the Executive — P3
+
+| | |
+|---|---|
+| **Found** | 2026-09-26, sweeping for the cause of the missing "New task" button |
+| **Status** | found, NOT fixed — deliberately out of scope |
+| **Severity** | cosmetic in one place, a small missing capability in the other |
+
+Fixing the Tasks button meant asking where else a hand-written list of roles had
+gone stale when the Executive was added. Two survived the sweep. Neither was
+touched, because the owner's instruction on this role was *"don't make mess with
+other things. Keep things synchronized and isolated"*, and both sit in features
+the change had no business entering.
+
+**1 · A sort order that puts an unknown role first.**
+`lib/domain/credential-access.ts:40` and `components/vault/credential-access-dialog.tsx:195`
+both order people by `rank.indexOf(role)`, over a four-name list. An Executive
+returns **−1**, which sorts them *above a Super Admin*.
+
+Unreachable today: the Vault redirects the role away, and migration 259 refuses
+them the rows, so no Executive can appear in either list. It is recorded because
+the next role added may not be shut out of the Vault, and then the bug is real.
+The security-relevant list beside it, `CREDENTIAL_READER_RANKS`, is **correct** —
+it omits the Executive on purpose.
+
+**2 · A folder cannot be shared with an Executive.**
+`app/actions/folders.ts:442` offers only Members and Coordinators as people who
+may be granted folder access, on the reasoning that Coordinator-and-above
+already sees everything. That reasoning does not hold for an Executive, who
+ranks above a Coordinator but is refused the Vault. So an Admin has no way to
+give one access to a folder.
+
+Whether they should be able to is a **question for the owner**, not a bug to fix
+quietly — it was never asked in the page-by-page walk, because Documents was
+settled before this role existed.
+
+---
+
 ## Closed
 
 *(Fixed and confirmed items move here with their commit, so the same report is

@@ -232,32 +232,22 @@ export async function withUser<T>(userId: string, fn: (tx: Tx) => Promise<T>): P
            roughly 20% of a simple query's total latency. Splitting it read more
            clearly and cost a trip.
 
-           ── ⚠️ THE THIRD SETTING IS A BOUNDARY, NOT A CONVENIENCE ─────────
-           Owner, 2026-09-25: *"regardless of any policy, I am telling you, I
-           want to add this access, specifically for the executive role."*
+           ── ⚠️ THERE WAS A THIRD SETTING HERE, AND IT IS GONE ─────────────
+           Between 2026-09-25 and 26 this statement also set
+           `transaction_read_only` for an Executive, so that role could not write
+           anything at all, whatever the policies said (migration 257). The owner
+           then gave the Executive task work — create, assign, edit, move,
+           approve — and a blanket refusal with fifteen named holes in it is not
+           a boundary, it is a colander.
 
-           `app.session_read_only()` returns 'on' for an Executive and 'off' for
-           everybody else, and Postgres then refuses every INSERT, UPDATE,
-           DELETE and DDL for the rest of the transaction with SQLSTATE 25006 —
-           BEFORE any policy is consulted. That reaches the writes no rank check
-           ever could: commenting on a task, uploading a document, editing your
-           own row. `cni_app` may insert into 104 tables; auditing them one at a
-           time would be a list that rots.
-
-           ⚠️ IT IS A FUNCTION, NOT A CASE WRITTEN HERE, because a SELECT list
-           has no defined evaluation order. A role lookup that happened to run
-           after `set_config('role', …)` but before `set_config('app.user_id', …)`
-           would read `users` as cni_app with no identity, match nothing, and
-           decide the caller is not an Executive — failing OPEN for a reason
-           nobody could see. `app.session_read_only` is SECURITY DEFINER, so the
-           answer does not depend on the order at all (migration 257).
-
-           ⚠️ AND IT CANNOT BE LIFTED from inside the transaction: Postgres
-           refuses to widen a read-only transaction back to read-write. */
+           The guarantee moved to where every other role's already lives: the
+           permission matrix, and the policies migrations 256 and 262 close by
+           hand. `app.session_read_only()` still exists and returns 'off' for
+           everyone, purely so a deployed build that still calls it does not
+           break mid-rollout; it is dropped once none does. */
         await tx`
           select set_config('role', 'cni_app', true),
-                 set_config('app.user_id', ${userId}, true),
-                 set_config('transaction_read_only', app.session_read_only(${userId}::uuid), true)
+                 set_config('app.user_id', ${userId}, true)
         `;
         return fn(tx);
       }) as Promise<T>,

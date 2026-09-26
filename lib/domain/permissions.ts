@@ -246,21 +246,21 @@ export const PERMISSIONS = {
    * below already denies them the alternative. Two simple rules compose more
    * safely than one compound one.
    */
-  'task.create_in_project': M('allow', 'allow', 'allow', 'in_project'),
+  'task.create_in_project': M('allow', 'allow', 'allow', 'in_project', 'allow'),
   'task.promote_other_to_project': M('allow', 'allow', 'deny', 'deny'),
 
   /* ---- Tasks — doc 03 §3.3 --------------------------------------------- */
 
   'task.create_for_self': M('allow', 'allow', 'allow', 'allow'),
-  'task.create_for_other': M('allow', 'allow', 'allow', 'deny'),
-  'task.assign': M('allow', 'allow', 'allow', 'deny'),
+  'task.create_for_other': M('allow', 'allow', 'allow', 'deny', 'allow'),
+  'task.assign': M('allow', 'allow', 'allow', 'deny', 'allow'),
   /** BR-003. The Coordinator plans; only Admin+ may spend past the limit. */
-  'task.override_capacity_block': M('allow', 'allow', 'deny', 'deny'),
-  'task.edit_content': M('allow', 'allow', 'allow', 'own_task'),
+  'task.override_capacity_block': M('allow', 'allow', 'deny', 'deny', 'allow'),
+  'task.edit_content': M('allow', 'allow', 'allow', 'own_task', 'allow'),
   /** doc 03: a Member may re-plan only what they created themselves. */
-  'task.edit_planning': M('allow', 'allow', 'allow', 'self_created'),
+  'task.edit_planning': M('allow', 'allow', 'allow', 'self_created', 'allow'),
   'task.change_status_own': M('allow', 'allow', 'allow', 'allow'),
-  'task.change_status_any': M('allow', 'allow', 'allow', 'deny'),
+  'task.change_status_any': M('allow', 'allow', 'allow', 'deny', 'allow'),
 
   /**
    * BR-002 — nobody approves their own work, at any rank.
@@ -270,7 +270,7 @@ export const PERMISSIONS = {
    * escalates one level up. An Admin approving the task they are assigned is
    * exactly the review that never happened.
    */
-  'task.approve_review': M('not_assignee', 'not_assignee', 'not_assignee', 'deny'),
+  'task.approve_review': M('not_assignee', 'not_assignee', 'not_assignee', 'deny', 'not_assignee'),
   'task.request_revisions': M('not_assignee', 'not_assignee', 'not_assignee', 'deny'),
 
   'task.cancel': M('allow', 'allow', 'allow', 'self_created'),
@@ -866,7 +866,14 @@ export function actionsFor(role: Role): Action[] {
  * cannot be done.
  */
 export function managesWork(role: Role): boolean {
-  return role !== 'member' && role !== 'executive';
+  /* ⚠️ THE EXECUTIVE CAME BACK, 2026-09-26. They were excluded on the 25th
+     because the role changed nothing; the owner then added task work to it —
+     *"he can assign a task to a team member ... he can view tasks and
+     everything like that"* — and confirmed create, edit, status and approvals.
+     For WORK they are now a Coordinator. For settings, finance, the vault, the
+     team roster and personnel records they are still nothing, and that is held
+     by the permission matrix and by migrations 256 and 262. */
+  return role !== 'member';
 }
 
 export function assignableRolesFor(actorRole: Role): Role[] {
@@ -942,14 +949,12 @@ export function canAssignTo(actorRole: Role, assigneeRole: Role): boolean {
      to the code that has the ids. */
   if (actorRole === 'member') return false;
 
-  /* ── ⚠️ AND AN EXECUTIVE HANDS WORK TO NOBODY EITHER, 2026-09-25 ────────
-     Same shape as the Member rule above and the same reason rank is the wrong
-     instrument: their rank of 3 outranks a Coordinator and a Member, so the
-     comparison below would have let them assign work down the whole ladder.
-     Owner: *"all the settings and all the editing will not be allowed for the
-     executive role."* The cross-product test caught this, which is what it is
-     for — the rank change alone had silently granted it. */
-  if (actorRole === 'executive') return false;
+  /* ⚠️ THE EXECUTIVE IS BACK ON THE LADDER, 2026-09-26. This refused them on
+     the 25th, when the role changed nothing. The owner then asked for task
+     assignment and answered "anyone below him" when asked who — so the ordinary
+     rank comparison below is exactly the rule, and a special case would only be
+     a second place for it to disagree. Rank 3 reaches a Coordinator and a
+     Member and stops at an Admin, because work flows downward. */
 
   return ROLE_RANK[actorRole] >= ROLE_RANK[assigneeRole];
 }
