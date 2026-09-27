@@ -277,7 +277,7 @@ the list out again.
 | S47 | *"The Marla standard must be configurable per project."* | `crm_project_settings.marla_sqft_standard` (266). Area computed from it everywhere, and the stored area still wins for a plot already sold. | ✅ |
 | S48 | *"The above cards are not clickable. The buttons below … should be clickable."* | Tiles are plain divs; the five tabs switch the list with **zero network requests**. | ✅ |
 | S49 | *"sharing a property must never reserve it automatically."* | Share is an **allow-list** of customer-safe fields and writes nothing. Proved: a plot with an internal note shared without it, and its status unchanged. | ✅ |
-| S50 | Five dialog references — Add property (4-step wizard + area check), Import (4 steps, mapping preview, options), Download template (format choice), Share (7 sections), Edit (tabbed + change preview) | **Arrived after the page was built.** The dialogs exist and work; they do not yet match these five images. This is the next pass. | 🔜 |
+| S50 | Seven references in one sitting — the page, Add, Edit, Import, Download template, Share, Site map, and the detail page | **All built and driven in a browser as Sarah.** Add is a four-step wizard with the Area check; Edit is tabbed with a change reason and preview; Import counts ready/warnings/errors/duplicates and refuses to let a sheet sell a plot; Share has seven sections with three fields that cannot be unlocked; the site map draws the scheme from the inventory; the record lives at `/properties/PROP-A101`. | ✅ |
 
 ### ⚠️ The bug an admin session could never have found
 
