@@ -532,3 +532,79 @@ export async function crmFirstExistingCode(
   `);
   return (rows[0]?.code as string | undefined) ?? null;
 }
+
+/* ---------------------------------------------------------------------------
+ * One plot, for its own page
+ * ------------------------------------------------------------------------- */
+
+export interface PropertyEvent {
+  readonly at: string;
+  readonly action: string;
+  readonly detail: string;
+  readonly actor: string | null;
+  readonly reason: string | null;
+}
+
+/**
+ * The plot's own history.
+ *
+ * ⚠️ READ FROM `audit_log`, NOT FROM A SECOND TABLE. Every write in
+ * `app/actions/crm-properties.ts` already audits itself with the actor, the
+ * time and — on an edit — the reason the person typed. A parallel
+ * `crm_property_activity` would be a second record of the same events, and the
+ * two would disagree the first time somebody wrote to one and not the other.
+ *
+ * ⚠️ AND IT IS READ THROUGH `withUser`, so a plot somebody cannot see has no
+ * history they can read either.
+ */
+export async function crmPropertyActivity(
+  actorId: string,
+  propertyId: string,
+  limit = 25,
+): Promise<readonly PropertyEvent[]> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select a.created_at, a.action, a.after, a.reason, u.full_name
+      from public.audit_log a
+      left join public.users u on u.id = a.actor_id
+     where a.entity_type = 'crm_property'
+       and a.entity_id = ${propertyId}::uuid
+     order by a.created_at desc
+     limit ${limit}
+  `);
+
+  const WORD: Record<string, string> = {
+    'property.created': 'Property added',
+    'property.updated': 'Details updated',
+    'property.status_changed': 'Availability changed',
+    'property.deleted': 'Property removed',
+    'property.imported': 'Imported from a sheet',
+  };
+
+  return rows.map((r) => {
+    const after = (r.after ?? {}) as Record<string, unknown>;
+    const bits: string[] = [];
+    if (after.status) bits.push(`status ${String(after.status).replace(/_/g, ' ')}`);
+    if (after.price != null) bits.push(`price ${Number(after.price).toLocaleString('en-US')}`);
+    return {
+      at: iso(r.created_at) ?? '',
+      action: WORD[r.action as string] ?? String(r.action),
+      detail: bits.join(' · '),
+      actor: (r.full_name as string | null) ?? null,
+      reason: (r.reason as string | null) ?? null,
+    };
+  });
+}
+
+/** One plot by its code, with everything the board row carries. */
+export async function crmPropertyByCode(
+  actorId: string,
+  code: string,
+): Promise<PropertyRow | null> {
+  /* ⚠️ The board's own reader, filtered in TypeScript rather than a second
+     query with a second copy of the joins and the RLS assumptions. A scheme is
+     hundreds of rows, not hundreds of thousands, and one source of truth for
+     "what a property row looks like" is worth more than the milliseconds. */
+  const all = await crmPropertyBoard(actorId);
+  const wanted = code.trim().toLowerCase();
+  return all.find((r) => r.code.toLowerCase() === wanted) ?? null;
+}

@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import Link from 'next/link';
 import {
   Building2, ChevronDown, ChevronLeft, ChevronRight, CircleSlash, Clock, Download,
   Eye, FileText, Home, Info, LayoutList, Link2, Map as MapIcon, Pencil, Plus, Share2, SlidersHorizontal,
@@ -11,7 +12,7 @@ import {
   createPropertyAction, setPropertyStatusAction,
   sharePropertyListAction, updatePropertyAction, type PropertyForm,
 } from '@/app/actions/crm-properties';
-import { cv, OUTLINE, outlineStyle, SOLID, solidStyle, Select, Square } from '@/components/crm/clients-ui';
+import { cv, OUTLINE, outlineStyle, SOLID, solidStyle, Select, Square, SQUARE } from '@/components/crm/clients-ui';
 import { ImportDialog, ShareDialog } from '@/components/crm/properties-dialogs';
 import { SharePropertyDialog } from '@/components/crm/property-share';
 import { DownloadTemplateDialog } from '@/components/crm/property-template';
@@ -57,7 +58,6 @@ type Dialog =
   | { kind: 'import' }
   | { kind: 'share'; id: string }
   | { kind: 'share-list'; text: string }
-  | { kind: 'record'; id: string }
   | { kind: 'template' }
   | null;
 
@@ -286,7 +286,6 @@ export function PropertiesBoard({
   }
 
   const editing = dialog?.kind === 'edit' ? properties.find((r) => r.id === dialog.id) ?? null : null;
-  const record = dialog?.kind === 'record' ? properties.find((r) => r.id === dialog.id) ?? null : null;
 
   return (
     <div className="prop-ui clients-ui mx-auto max-w-[var(--content-max)] space-y-[1.05rem]">
@@ -484,7 +483,6 @@ export function PropertiesBoard({
           openId={open?.id ?? null}
           onOpen={(id) => setOpenId(id)}
           onShare={(id) => share(id)}
-          onRecord={(id) => setDialog({ kind: 'record', id })}
           activeFilters={[
             ['Project', filters.projectId && filters.projectId !== 'all'
               ? (projects.find((p) => p.id === filters.projectId)?.name ?? 'All') : 'All'],
@@ -548,7 +546,6 @@ export function PropertiesBoard({
             onOpen={(id) => setOpenId(id)}
             onEdit={(id) => { setFormError(null); setDialog({ kind: 'edit', id }); }}
             onShare={(id) => share(id)}
-            onRecord={(id) => setDialog({ kind: 'record', id })}
           />
 
           <footer className="flex flex-wrap items-center justify-between gap-3 px-[1rem] py-[0.75rem]">
@@ -567,7 +564,6 @@ export function PropertiesBoard({
             row={open}
             onEdit={() => { setFormError(null); setDialog({ kind: 'edit', id: open.id }); }}
             onShare={() => share(open.id)}
-            onRecord={() => setDialog({ kind: 'record', id: open.id })}
           />
         ) : (
           <aside className="grid min-h-[20rem] place-items-center rounded-[0.6rem] border p-8 text-center"
@@ -639,9 +635,6 @@ export function PropertiesBoard({
         text={dialog?.kind === 'share-list' ? dialog.text : ''}
       />
 
-      {record && (
-        <FullRecord row={record} viewerName={viewerName} nowMs={nowMs} onClose={() => setDialog(null)} />
-      )}
     </div>
   );
 }
@@ -824,7 +817,7 @@ function useOutside(ref: React.RefObject<HTMLDivElement | null>, close: () => vo
 const COLS = 'grid-cols-[2.1rem_minmax(0,1.9fr)_3.4rem_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,1fr)_minmax(0,0.9fr)_7.4rem]';
 
 function Table({
-  rows, picked, openId, onToggle, onOpen, onEdit, onShare, onRecord,
+  rows, picked, openId, onToggle, onOpen, onEdit, onShare,
 }: {
   rows: readonly PropertyRow[];
   picked: ReadonlySet<string>;
@@ -833,7 +826,6 @@ function Table({
   onOpen: (id: string) => void;
   onEdit: (id: string) => void;
   onShare: (id: string) => void;
-  onRecord: (id: string) => void;
 }) {
   return (
     <div className="min-w-0 overflow-x-auto">
@@ -900,9 +892,19 @@ function Table({
                 <span className="pr-2"><StatusPill status={r.status} small /></span>
                 <span className="truncate pr-2 text-[0.8rem]" style={{ color: cv('soft') }}>{dayLabel(r.updatedAt)}</span>
                 <span className="flex items-center justify-end gap-[0.3rem]">
-                  <Square label={`View ${r.code}`} size="sm" onClick={() => onRecord(r.id)}>
+                  {/* ⚠️ A LINK, not a button that opens a copy. The record is a
+                      route now (the owner's seventh reference draws a breadcrumb,
+                      which is a URL) — so it can be opened in a new tab, pasted
+                      to a colleague, and bookmarked. */}
+                  <Link
+                    href={`/properties/${encodeURIComponent(r.code)}`}
+                    aria-label={`Open the full record for ${r.code}`}
+                    title="Open the full record"
+                    className={cn(SQUARE, 'size-[2.05rem]')}
+                    style={{ borderColor: cv('line'), color: cv('ink') }}
+                  >
                     <Eye className="size-[0.95rem]" style={{ color: cv('brand-ink') }} aria-hidden="true" />
-                  </Square>
+                  </Link>
                   <Square label={`Edit ${r.code}`} size="sm" onClick={() => onEdit(r.id)}>
                     <Pencil className="size-[0.95rem]" style={{ color: cv('brand-ink') }} aria-hidden="true" />
                   </Square>
@@ -950,8 +952,8 @@ function Pager({ page, pages, total, onPage }: { page: number; pages: number; to
 /* ── the detail panel ────────────────────────────────────────────────── */
 
 function PropertyPanel({
-  row, onEdit, onShare, onRecord,
-}: { row: PropertyRow; onEdit: () => void; onShare: () => void; onRecord: () => void }) {
+  row, onEdit, onShare,
+}: { row: PropertyRow; onEdit: () => void; onShare: () => void }) {
   const area = displayArea(row.areaSqft, row.sizeMarla, row.marlaStandard);
   const chips = characterChips(row);
 
@@ -1075,9 +1077,10 @@ function PropertyPanel({
       </Box>
 
       <div className="mt-auto grid gap-2 sm:grid-cols-2">
-        <button type="button" onClick={onRecord} className={`${OUTLINE} h-[2.6rem] text-[0.92rem]`} style={outlineStyle}>
+        <Link href={`/properties/${encodeURIComponent(row.code)}`}
+              className={`${OUTLINE} h-[2.6rem] text-[0.92rem]`} style={outlineStyle}>
           <FileText className="size-[1rem]" aria-hidden="true" /> View full record
-        </button>
+        </Link>
         <button type="button" onClick={onShare} className={`${SOLID} h-[2.6rem] text-[0.92rem]`} style={solidStyle}>
           <Share2 className="size-[1rem]" aria-hidden="true" /> Share property
         </button>
@@ -1104,75 +1107,3 @@ function Row({ k, v, strong }: { k: string; v: string; strong?: boolean }) {
   );
 }
 
-/* ── the full record ─────────────────────────────────────────────────── */
-
-function FullRecord({
-  row, viewerName, nowMs, onClose,
-}: { row: PropertyRow; viewerName: string; nowMs: number; onClose: () => void }) {
-  const area = displayArea(row.areaSqft, row.sizeMarla, row.marlaStandard);
-  return (
-    <Dialog
-      open
-      onClose={onClose}
-      title={`${row.plotNumber ?? row.code} · full record`}
-      description="Everything held about this plot, including what is never shared."
-      size="lg"
-      footer={
-        <div className="flex justify-end">
-          <button type="button" onClick={onClose} className={`${OUTLINE} h-[2.4rem] px-4 text-[0.93rem]`} style={outlineStyle}>
-            Close
-          </button>
-        </div>
-      }
-    >
-      <div className="space-y-3">
-        <div className="grid gap-x-5 gap-y-[0.3rem] sm:grid-cols-2">
-          <Row k="Property ID" v={row.code} />
-          <Row k="Project" v={row.projectName} />
-          <Row k="Plot / unit" v={row.plotNumber ?? '—'} />
-          <Row k="Block" v={row.block ?? '—'} />
-          <Row k="Type" v={row.kind ?? '—'} />
-          <Row k="Category" v={row.category ?? 'Standard'} />
-          <Row k="Size" v={sizeLabel(row.sizeMarla)} />
-          <Row k="Total area" v={areaLabel(area)} />
-          <Row k="Marla standard" v={`${row.marlaStandard} sq ft`} />
-          <Row k="Dimensions" v={row.dimensions ?? '—'} />
-          <Row k="Facing" v={row.facing ?? '—'} />
-          <Row k="Road width" v={row.roadWidthFt ? `${row.roadWidthFt} ft` : '—'} />
-          <Row k="Base price" v={money(row.basePrice)} strong />
-          <Row k="Premium" v={money(row.premiumCharges ?? 0)} />
-          <Row k="Availability" v={statusLook(row.status).label} />
-          <Row k="Development" v={row.developmentStatus ?? '—'} />
-          <Row k="Active booking" v={row.activeBooking ?? 'None'} />
-          <Row k="Last updated" v={dayLabel(row.updatedAt)} />
-        </div>
-
-        {row.stages.length > 0 && (
-          <Box title="Payment plan">
-            <table className="w-full text-[0.82rem]">
-              <tbody>
-                {row.stages.map((s) => (
-                  <tr key={s.label}>
-                    <td className="py-[0.2rem]" style={{ color: cv('soft') }}>{s.label}</td>
-                    <td className="py-[0.2rem] text-right tabular-nums" style={{ color: cv('mute') }}>{s.percentage}%</td>
-                    <td className="py-[0.2rem] text-right tabular-nums font-medium" style={{ color: cv('ink') }}>{money(s.amount)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </Box>
-        )}
-
-        {/* ⚠️ INTERNAL. Present in the full record, absent from every share. */}
-        <Box title="Internal notes">
-          <p className="text-[0.82rem]" style={{ color: row.notes ? cv('ink') : cv('mute') }}>
-            {row.notes || 'Nothing recorded.'}
-          </p>
-          <p className="mt-2 text-[0.74rem]" style={{ color: cv('mute') }}>
-            Read by {viewerName} on {dayLabel(new Date(nowMs).toISOString())}. Never included in a share.
-          </p>
-        </Box>
-      </div>
-    </Dialog>
-  );
-}

@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import Link from 'next/link';
 import { BarChart3, Filter, Maximize2, Minus, Plus, Share2, FileText } from 'lucide-react';
 
 import { cv, OUTLINE, outlineStyle, SOLID, solidStyle } from '@/components/crm/clients-ui';
@@ -45,7 +46,6 @@ export function PropertySiteMap({
   openId,
   onOpen,
   onShare,
-  onRecord,
   activeFilters,
 }: {
   /** The rows the filters left — what the map draws. */
@@ -56,7 +56,6 @@ export function PropertySiteMap({
   openId: string | null;
   onOpen: (id: string) => void;
   onShare: (id: string) => void;
-  onRecord: (id: string) => void;
   activeFilters: readonly (readonly [string, string])[];
 }) {
   const [numbers, setNumbers] = React.useState(true);
@@ -183,10 +182,10 @@ export function PropertySiteMap({
               {open.facing ? <p className="text-[0.8rem]" style={{ color: cv('soft') }}>{open.facing}</p> : null}
               <p className="mt-[0.2rem] text-[0.95rem] font-bold" style={{ color: cv('ink') }}>{money(open.basePrice)}</p>
               <span className="mt-[0.55rem] flex gap-2">
-                <button type="button" onClick={() => onRecord(open.id)}
-                        className={`${SOLID} h-[2.1rem] flex-1 px-[0.6rem] text-[0.82rem]`} style={solidStyle}>
+                <Link href={`/properties/${encodeURIComponent(open.code)}`}
+                      className={`${SOLID} h-[2.1rem] flex-1 px-[0.6rem] text-[0.82rem]`} style={solidStyle}>
                   <FileText className="size-[0.9rem]" aria-hidden="true" /> View record
-                </button>
+                </Link>
                 <button type="button" onClick={() => onShare(open.id)}
                         className={`${OUTLINE} h-[2.1rem] flex-1 px-[0.6rem] text-[0.82rem]`} style={outlineStyle}>
                   <Share2 className="size-[0.9rem]" aria-hidden="true" /> Share
