@@ -3,7 +3,7 @@
 import * as React from 'react';
 import {
   Building2, ChevronDown, ChevronLeft, ChevronRight, CircleSlash, Clock, Download,
-  Eye, FileText, Home, Info, LayoutList, Link2, Map, Pencil, Plus, Share2, SlidersHorizontal,
+  Eye, FileText, Home, Info, LayoutList, Link2, Map as MapIcon, Pencil, Plus, Share2, SlidersHorizontal,
   Search, Tag, Upload,
 } from 'lucide-react';
 
@@ -13,6 +13,7 @@ import {
 } from '@/app/actions/crm-properties';
 import { cv, OUTLINE, outlineStyle, SOLID, solidStyle, Select, Square, SQUARE } from '@/components/crm/clients-ui';
 import { ImportDialog, ShareDialog, templateCsv } from '@/components/crm/properties-dialogs';
+import { PropertySiteMap } from '@/components/crm/property-site-map';
 import {
   AddPropertyWizard, EditPropertyDialog, type ProjectOption,
 } from '@/components/crm/property-form';
@@ -159,6 +160,18 @@ export function PropertiesBoard({
       categories: uniq(properties.map((r) => r.category)),
     };
   }, [properties]);
+
+  /** Whichever project most of the drawn plots belong to, or the chosen one. */
+  const mapTitle = React.useMemo(() => {
+    if (filters.projectId && filters.projectId !== 'all') {
+      return projects.find((p) => p.id === filters.projectId)?.name ?? 'All projects';
+    }
+    const count = new Map<string, number>();
+    for (const r of visible) count.set(r.projectName, (count.get(r.projectName) ?? 0) + 1);
+    const [top] = [...count.entries()].sort((a, b) => b[1] - a[1]);
+    if (!top) return 'All projects';
+    return count.size > 1 ? `${top[0]} + ${count.size - 1} more` : top[0];
+  }, [visible, filters.projectId, projects]);
 
   const allOnPagePicked = rows.length > 0 && rows.every((r) => picked.has(r.id));
 
@@ -325,7 +338,7 @@ export function PropertiesBoard({
           })}
         </div>
         <div className="mb-[0.35rem] inline-flex rounded-[0.55rem] border p-[0.25rem]" style={{ borderColor: cv('line'), background: cv('surface') }} role="tablist" aria-label="View">
-          {([['table', 'Table', LayoutList], ['map', 'Site map', Map]] as const).map(([k, label, Icon]) => {
+          {([['table', 'Table', LayoutList], ['map', 'Site map', MapIcon]] as const).map(([k, label, Icon]) => {
             const on = view === k;
             return (
               <button
@@ -442,7 +455,33 @@ export function PropertiesBoard({
         </div>
       )}
 
-      {/* ── the inventory and the panel ────────────────────────────────── */}
+      {/* ── the inventory, or the scheme drawn ─────────────────────────── */}
+      {view === 'map' ? (
+        <PropertySiteMap
+          rows={visible}
+          all={properties}
+          /* ⚠️ THE DOMINANT SCHEME, not the first row's. Sorted by block, the
+             first row can belong to a project holding two plots while the map
+             below it draws a hundred and forty-eight from another — and the
+             heading would name the wrong scheme over somebody's inventory. */
+          projectName={mapTitle}
+          openId={open?.id ?? null}
+          onOpen={(id) => setOpenId(id)}
+          onShare={(id) => void share(id)}
+          onRecord={(id) => setDialog({ kind: 'record', id })}
+          activeFilters={[
+            ['Project', filters.projectId && filters.projectId !== 'all'
+              ? (projects.find((p) => p.id === filters.projectId)?.name ?? 'All') : 'All'],
+            ['Block', filters.block && filters.block !== 'all' ? filters.block : 'All'],
+            ['Size', filters.size && filters.size !== 'all' ? filters.size : 'All'],
+            ['Property type', filters.kind && filters.kind !== 'all' ? filters.kind : 'All'],
+            ['Status', filters.status && filters.status !== 'all' ? statusLook(filters.status).label : 'All'],
+            ['Price range', filters.priceBand
+              ? (PRICE_BANDS.find((b) => b.key === filters.priceBand)?.label ?? 'All') : 'All'],
+            ['Search', search.trim() || '—'],
+          ]}
+        />
+      ) : (
       <div className="grid min-w-0 gap-[1.05rem] xl:grid-cols-[minmax(0,1fr)_28.5rem]">
         <section className="flex min-w-0 flex-col overflow-hidden rounded-[0.6rem] border"
                  style={{ borderColor: cv('line'), background: cv('surface') }}>
@@ -485,31 +524,16 @@ export function PropertiesBoard({
             <StatusMenu disabled={picked.size === 0 || busy} onPick={(s) => void bulkStatus(s)} />
           </div>
 
-          {view === 'map' ? (
-            <div className="grid min-h-[22rem] place-items-center p-8 text-center">
-              <div>
-                <Map className="mx-auto size-8" style={{ color: cv('mute') }} aria-hidden="true" />
-                <p className="mt-2 text-[0.95rem] font-medium" style={{ color: cv('ink') }}>The site map is not drawn yet.</p>
-                {/* ⚠️ Says what it is waiting for rather than pretending. The owner:
-                    *"I will give you a site map option later but right now just work
-                    on this table view."* */}
-                <p className="mt-1 text-[0.85rem]" style={{ color: cv('soft') }}>
-                  It needs the scheme’s plan drawing. The table holds all {properties.length} plots today.
-                </p>
-              </div>
-            </div>
-          ) : (
-            <Table
-              rows={rows}
-              picked={picked}
-              openId={open?.id ?? null}
-              onToggle={toggle}
-              onOpen={(id) => setOpenId(id)}
-              onEdit={(id) => { setFormError(null); setDialog({ kind: 'edit', id }); }}
-              onShare={(id) => void share(id)}
-              onRecord={(id) => setDialog({ kind: 'record', id })}
-            />
-          )}
+          <Table
+            rows={rows}
+            picked={picked}
+            openId={open?.id ?? null}
+            onToggle={toggle}
+            onOpen={(id) => setOpenId(id)}
+            onEdit={(id) => { setFormError(null); setDialog({ kind: 'edit', id }); }}
+            onShare={(id) => void share(id)}
+            onRecord={(id) => setDialog({ kind: 'record', id })}
+          />
 
           <footer className="flex flex-wrap items-center justify-between gap-3 px-[1rem] py-[0.75rem]">
             <span className="inline-flex items-center gap-[0.4rem] text-[0.8rem]" style={{ color: cv('soft') }}>
@@ -540,6 +564,7 @@ export function PropertiesBoard({
           </aside>
         )}
       </div>
+      )}
 
       {/* ── dialogs ────────────────────────────────────────────────────── */}
       <AddPropertyWizard
