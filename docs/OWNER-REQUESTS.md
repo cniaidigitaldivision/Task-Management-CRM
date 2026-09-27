@@ -264,3 +264,27 @@ there were four. Adding a fifth broke nothing and offered nothing.
 It is now read off `ROLES`, the table lives in `components/layout/primary-action.ts`
 where a test can reach it, and `primary-action.test.ts` fails if anybody writes
 the list out again.
+
+---
+
+## 🗓️ 2026-09-27 — THE PROPERTIES PAGE
+
+| # | Owner's words | What was done | Status |
+|---|---|---|---|
+| S44 | *"create a property page with the exact same UI that I am showing you … Each and every detail, including sleekness, sizes, fonts, and coloring."* | `/properties`, built on the **same measured palette as the Clients page** rather than a second sampling of the same design family. Cards, tabs, filters, table, detail panel. | ✅ |
+| S45 | *"add some dummy data over here so I can see … what the search will look like."* | **148 plots** on a new `Chitral Royal Homes [demo]` scheme — the reference's exact split (82 available · 21 reserved · 38 sold · 7 held), with the five drawn plots exact. ⚠️ Never on the real Chitral project. | ✅ |
+| S46 | *"salespersons can view all of the properties. He can add or import the properties."* | **⚠️ Reverses migration 150.** `crm_properties_write` widened to the project's department (266). Proved as Sarah: she added a plot. | ✅ |
+| S47 | *"The Marla standard must be configurable per project."* | `crm_project_settings.marla_sqft_standard` (266). Area computed from it everywhere, and the stored area still wins for a plot already sold. | ✅ |
+| S48 | *"The above cards are not clickable. The buttons below … should be clickable."* | Tiles are plain divs; the five tabs switch the list with **zero network requests**. | ✅ |
+| S49 | *"sharing a property must never reserve it automatically."* | Share is an **allow-list** of customer-safe fields and writes nothing. Proved: a plot with an internal note shared without it, and its status unchanged. | ✅ |
+| S50 | Five dialog references — Add property (4-step wizard + area check), Import (4 steps, mapping preview, options), Download template (format choice), Share (7 sections), Edit (tabbed + change preview) | **Arrived after the page was built.** The dialogs exist and work; they do not yet match these five images. This is the next pass. | 🔜 |
+
+### ⚠️ The bug an admin session could never have found
+
+The board's query joined `public.projects`. That table's policy is
+`app.project_is_visible(id)` — **project membership** — and a salesperson is not
+a member of the schemes they sell. Run as an admin it returned all 150 rows; run
+as Sarah it returned **zero**, and the page looked finished.
+
+The tracker had already counted **eight** occurrences of this exact join. This
+was the ninth, and it was caught only by running the query as her.

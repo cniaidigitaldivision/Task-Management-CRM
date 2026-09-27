@@ -2,6 +2,7 @@ import {
   Activity,
   BarChart3,
   BookOpen,
+  Building2,
   CalendarClock,
   CalendarDays,
   ClipboardList,
@@ -345,6 +346,17 @@ export const NAV_SECTIONS: readonly NavSection[] = [
         label: 'Clients',
         href: '/clients',
         icon: UserCheck,
+        roles: ADMIN_EXEC,
+        requires: 'crm',
+      },
+      {
+        /* ⚠️ THE SCHEME'S INVENTORY, not a report about it. Owner, 2026-09-27:
+           the salesperson views every plot, adds one, imports a sheet and shares
+           customer-safe details — all on this page and nowhere else. Same
+           audience and same capability as the two above it, so the same gate. */
+        label: 'Properties',
+        href: '/properties',
+        icon: Building2,
         roles: ADMIN_EXEC,
         requires: 'crm',
       },

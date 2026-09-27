@@ -69,7 +69,14 @@ export interface AuditEntry {
        filed that expense", "who changed what somebody is paid", "who exported
        the ledger" — and those questions must be answerable without reading
        every project and user edit to find them. */
-    | 'finance';
+    | 'finance'
+    /* A plot's own record, separate from 'project' — and the question that
+       makes it worth separating is "who changed the price of A-114, and when".
+       A catalogue carries the company's prices and its availability, so a price
+       edit and a hold are the two acts somebody will come back to during a
+       disagreement with a buyer. Folded into 'project' they would sit under
+       every settings change the scheme ever had. */
+    | 'crm_property';
   readonly entityId: string | null;
   /** Dotted and stable — `user.role_changed`, not "changed role". */
   readonly action: string;

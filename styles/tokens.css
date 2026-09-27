@@ -3364,7 +3364,13 @@ body,
  * no other screen moves. Dark values keep the same roles: a tint behind, a
  * strong hue in front.
  * ========================================================================= */
-.clients-ui {
+/* ⚠️ THE PROPERTIES PAGE SHARES THIS SCOPE, 2026-09-27. Its reference is the
+   same design family as the Clients one — the same navy ink, the same teal
+   brand, the same chips — and these values were already SAMPLED from that
+   family's PNG rather than guessed. A second block of near-identical hex would
+   be two things to keep in step and one of them would drift. */
+.clients-ui,
+.prop-ui {
   --cl-ink: #0d1c48;
   --cl-soft: #4b638e;
   --cl-mute: #6c80a4;
@@ -3425,7 +3431,8 @@ body,
   --cl-av-rose-bg: #fbb0dc;   --cl-av-rose: #5c0f3d;
 }
 
-[data-theme='dark'] .clients-ui {
+[data-theme='dark'] .clients-ui,
+[data-theme='dark'] .prop-ui {
   --cl-ink: #e8f0fb;
   --cl-soft: #a6b7d0;
   --cl-mute: #8398b6;
