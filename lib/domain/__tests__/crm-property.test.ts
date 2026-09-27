@@ -11,7 +11,9 @@ import {
   money,
   parseDimensions,
   propertyChanges,
+  shareLines,
   statusNeedsPaperwork,
+  type ShareFields,
   shareable,
   shareText,
   sizeLabel,
@@ -349,5 +351,62 @@ describe('the change preview', () => {
     expect(statusNeedsPaperwork('reserved')).toContain('expiry');
     expect(statusNeedsPaperwork('available')).toBeNull();
     expect(statusNeedsPaperwork('on_hold')).toBeNull();
+  });
+});
+
+describe('⚠️ the share message, and the three fields that can never be in it', () => {
+  const ALL: ShareFields = {
+    projectAndLocation: true, plotDetails: true, price: true, paymentPlan: true, availability: true,
+  };
+  const src = {
+    ...A101,
+    projectCity: 'Islamabad',
+    marlaStandard: 225,
+    stages: [{ label: 'Booking', amount: 900_000 }, { label: '18 monthly instalments', amount: 2_250_000 }],
+  };
+
+  it('writes a message a customer can read', () => {
+    const text = shareLines(src, ALL, { to: 'Faisal Rehman', from: 'Sarah' });
+    expect(text).toContain('Hello Faisal Rehman,');
+    expect(text).toContain('Project: Chitral Royal Homes [demo], Islamabad');
+    expect(text).toContain('Size: 5 Marla (1,125 sq ft)');
+    expect(text).toContain('Price: PKR 4,500,000');
+    expect(text).toContain('Booking: PKR 900,000');
+    expect(text).toContain('Availability: Available');
+    expect(text).toContain('Best regards,\nSarah');
+  });
+
+  it('drops exactly what the salesperson switched off', () => {
+    const text = shareLines(src, { ...ALL, price: false, paymentPlan: false }, { to: null, from: 'Sarah' });
+    expect(text).not.toContain('PKR');
+    expect(text).not.toContain('Payment plan');
+    expect(text).toContain('Size: 5 Marla');
+  });
+
+  /* ⚠️ THE TEST THIS FILE EXISTS FOR. The locked toggles are safe because the
+     function is handed a shape that does not carry those fields — so even a
+     caller that passes them cannot get them printed. */
+  it('cannot print an internal note, a lead or a booking even when handed one', () => {
+    const leaky = {
+      ...src,
+      notes: 'SECRET owner will drop to 4.2M',
+      linkedLeads: 3,
+      activeBooking: 'BK-302',
+      links: [{ label: 'Faisal Rehman', kind: 'lead' }],
+    } as unknown as typeof src;
+
+    const text = shareLines(leaky, ALL, { to: 'Faisal', from: 'Sarah' });
+    expect(text).not.toContain('SECRET');
+    expect(text).not.toContain('4.2M');
+    expect(text).not.toContain('BK-302');
+    expect(text.toLowerCase()).not.toContain('lead');
+  });
+
+  /* ⚠️ A price plus "Available" reads as an offer. */
+  it('always says the plot is not held', () => {
+    for (const f of [ALL, { ...ALL, price: false }, { ...ALL, availability: false }]) {
+      expect(shareLines(src, f, { to: null, from: 'Sarah' }))
+        .toContain('Availability is subject to confirmation at the time of booking.');
+    }
   });
 });

@@ -8,11 +8,12 @@ import {
 } from 'lucide-react';
 
 import {
-  createPropertyAction, setPropertyStatusAction, sharePropertyAction,
+  createPropertyAction, setPropertyStatusAction,
   sharePropertyListAction, updatePropertyAction, type PropertyForm,
 } from '@/app/actions/crm-properties';
 import { cv, OUTLINE, outlineStyle, SOLID, solidStyle, Select, Square, SQUARE } from '@/components/crm/clients-ui';
 import { ImportDialog, ShareDialog, templateCsv } from '@/components/crm/properties-dialogs';
+import { SharePropertyDialog } from '@/components/crm/property-share';
 import { PropertySiteMap } from '@/components/crm/property-site-map';
 import {
   AddPropertyWizard, EditPropertyDialog, type ProjectOption,
@@ -53,7 +54,8 @@ type Dialog =
   | { kind: 'add' }
   | { kind: 'edit'; id: string }
   | { kind: 'import' }
-  | { kind: 'share'; subject: string; text: string }
+  | { kind: 'share'; id: string }
+  | { kind: 'share-list'; text: string }
   | { kind: 'record'; id: string }
   | null;
 
@@ -213,16 +215,19 @@ export function PropertiesBoard({
     if (result.ok) setPicked(new Set());
   }
 
-  async function share(id: string) {
-    const result = await sharePropertyAction(id);
-    if (!result.ok) { toast({ tone: 'error', text: result.error }); return; }
-    setDialog({ kind: 'share', subject: result.subject ?? '', text: result.text ?? '' });
+  /* ⚠️ NO ROUND TRIP. The row is already on the page and already narrowed by
+     RLS, and the dialog builds its message from the same allow-list the server
+     would have used — `shareLines` is handed a shape that cannot carry a note,
+     a lead or a booking. Fetching it again would break Rule Zero law 3 for no
+     gain: there is nothing the server knows that the row does not. */
+  function share(id: string) {
+    setDialog({ kind: 'share', id });
   }
 
   async function shareList() {
     const result = await sharePropertyListAction([...picked]);
     if (!result.ok) { toast({ tone: 'error', text: result.error }); return; }
-    setDialog({ kind: 'share', subject: `${picked.size} properties`, text: result.text ?? '' });
+    setDialog({ kind: 'share-list', text: result.text ?? '' });
   }
 
   /* ── exports ────────────────────────────────────────────────────────── */
@@ -467,7 +472,7 @@ export function PropertiesBoard({
           projectName={mapTitle}
           openId={open?.id ?? null}
           onOpen={(id) => setOpenId(id)}
-          onShare={(id) => void share(id)}
+          onShare={(id) => share(id)}
           onRecord={(id) => setDialog({ kind: 'record', id })}
           activeFilters={[
             ['Project', filters.projectId && filters.projectId !== 'all'
@@ -531,7 +536,7 @@ export function PropertiesBoard({
             onToggle={toggle}
             onOpen={(id) => setOpenId(id)}
             onEdit={(id) => { setFormError(null); setDialog({ kind: 'edit', id }); }}
-            onShare={(id) => void share(id)}
+            onShare={(id) => share(id)}
             onRecord={(id) => setDialog({ kind: 'record', id })}
           />
 
@@ -550,7 +555,7 @@ export function PropertiesBoard({
           <PropertyPanel
             row={open}
             onEdit={() => { setFormError(null); setDialog({ kind: 'edit', id: open.id }); }}
-            onShare={() => void share(open.id)}
+            onShare={() => share(open.id)}
             onRecord={() => setDialog({ kind: 'record', id: open.id })}
           />
         ) : (
@@ -593,11 +598,22 @@ export function PropertiesBoard({
         onDone={(message) => toast({ tone: 'ok', text: message })}
       />
 
-      <ShareDialog
+      <SharePropertyDialog
         open={dialog?.kind === 'share'}
         onClose={() => setDialog(null)}
-        subject={dialog?.kind === 'share' ? dialog.subject : ''}
-        text={dialog?.kind === 'share' ? dialog.text : ''}
+        row={dialog?.kind === 'share' ? (properties.find((r) => r.id === dialog.id) ?? null) : null}
+        viewerName={viewerName}
+        onToast={(tone, text) => toast({ tone, text })}
+      />
+
+      {/* The bulk one stays a plain list — a dozen plots do not get a message
+          preview and a recipient; they get copied into whatever the salesperson
+          is already writing. */}
+      <ShareDialog
+        open={dialog?.kind === 'share-list'}
+        onClose={() => setDialog(null)}
+        subject={dialog?.kind === 'share-list' ? `${picked.size} properties` : ''}
+        text={dialog?.kind === 'share-list' ? dialog.text : ''}
       />
 
       {record && (

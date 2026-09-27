@@ -549,3 +549,94 @@ export function shareText(s: ShareableProperty): string {
   ];
   return lines.filter((l) => l !== null).join('\n');
 }
+
+/* ---------------------------------------------------------------------------
+ * The share message the customer actually reads
+ * ------------------------------------------------------------------------- */
+
+/** The five things the owner's reference lets a salesperson switch on and off. */
+export interface ShareFields {
+  readonly projectAndLocation: boolean;
+  readonly plotDetails: boolean;
+  readonly price: boolean;
+  readonly paymentPlan: boolean;
+  readonly availability: boolean;
+}
+
+export interface ShareSource {
+  readonly code: string;
+  readonly plotNumber: string | null;
+  readonly block: string | null;
+  readonly projectName: string;
+  readonly projectCity?: string | null;
+  readonly kind: string | null;
+  readonly sizeMarla: number | null;
+  readonly areaSqft: number | null;
+  readonly marlaStandard: number;
+  readonly dimensions: string | null;
+  readonly facing: string | null;
+  readonly basePrice: number | null;
+  readonly premiumCharges: number | null;
+  readonly status: string;
+  readonly stages?: readonly { readonly label: string; readonly amount: number }[];
+  /* ⚠️ Anything else on the row — notes, leads, bookings — is deliberately
+     absent from this type. A field this function cannot SEE is a field it can
+     never leak, which is a stronger guarantee than remembering to omit it. */
+}
+
+/**
+ * The message, built from the switches.
+ *
+ * ⚠️ THE LOCKED FIELDS HAVE NO BRANCH HERE. Internal notes, linked leads and
+ * booking information are drawn with a padlock in the owner's reference, and
+ * the reason they are safe is not that their toggle is disabled — it is that
+ * this function is given a `ShareSource` that does not carry them and has no
+ * code that could print them. A disabled switch is a UI state somebody can
+ * change in a later edit; an allow-list is a guarantee.
+ */
+export function shareLines(
+  p: ShareSource,
+  fields: ShareFields,
+  who: { readonly to: string | null; readonly from: string },
+): string {
+  const lines: (string | null)[] = [];
+
+  lines.push(who.to ? `Hello ${who.to},` : 'Hello,');
+  lines.push('');
+  lines.push(`Please find the details of ${p.plotNumber ?? p.code}${p.block ? ` (Block ${p.block})` : ''} below:`);
+
+  if (fields.projectAndLocation) {
+    lines.push(`Project: ${p.projectName}${p.projectCity ? `, ${p.projectCity}` : ''}`);
+  }
+  if (fields.plotDetails) {
+    lines.push(`Plot: ${p.plotNumber ?? p.code}${p.block ? `, Block ${p.block}` : ''}`);
+    lines.push(`Size: ${sizeLabel(p.sizeMarla)} (${areaLabel(displayArea(p.areaSqft, p.sizeMarla, p.marlaStandard))})`);
+    if (p.dimensions) lines.push(`Dimensions: ${p.dimensions}`);
+    if (p.kind) lines.push(`Type: ${p.kind}`);
+    if (p.facing) lines.push(`Facing: ${p.facing}`);
+  }
+  if (fields.price) {
+    lines.push(`Price: ${money(p.basePrice)}`);
+    if ((p.premiumCharges ?? 0) > 0) lines.push(`Premium: ${money(p.premiumCharges)}`);
+  }
+  if (fields.paymentPlan && p.stages && p.stages.length > 0) {
+    lines.push('');
+    lines.push('Payment plan:');
+    for (const st of p.stages) lines.push(`  ${st.label}: ${money(st.amount)}`);
+  }
+  if (fields.availability) {
+    lines.push(`Availability: ${statusLook(p.status).label}`);
+  }
+
+  lines.push('');
+  lines.push('Let us know if you would like to schedule a site visit or need any further information.');
+  lines.push('');
+  lines.push('Best regards,');
+  lines.push(who.from);
+  lines.push('');
+  /* ⚠️ THE LAST LINE IS NOT A COURTESY. A price and an "Available" sent by
+     message is read as an offer; this says plainly that the plot is not held. */
+  lines.push('Availability is subject to confirmation at the time of booking.');
+
+  return lines.filter((l) => l !== null).join('\n');
+}
