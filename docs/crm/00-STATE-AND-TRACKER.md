@@ -19,7 +19,89 @@
 | **Deployed** | Every push to `main` deploys to Vercel (`sin1`) → https://taskly.aidigitaldivision.com. Head: **`76826f6`**, deploy **success** (2026-09-26). Check one with `gh api repos/cniaidigitaldivision/Task-Management-CRM/commits/<sha>/status` |
 | **Green at head** | 157 test files · 3916 tests · typecheck · `next build` |
 | **Last updated** | **2026-09-26** |
-| **Last migration applied anywhere** | **262** (applied 2026-09-26; **262 the executive runs the work**). CRM next: **263.** |
+| **Last migration applied anywhere** | **267** (applied 2026-09-27). ⚠️ **263 and 264 live on `attendance-that-records-itself`, not here** — both are applied to the database, so this branch's files jump 262 → 265. **265–267 are the property catalogue.** CRM next: **268.** |
+
+---
+
+## 🧭 2026-09-27 — THE PROPERTIES PAGE, AND SEVEN REFERENCES
+
+Branch `properties-page`. Migrations **265–267**. The owner sent seven images
+across one afternoon and every one is built and walked as **Sarah**, never as
+an admin.
+
+| Reference | Where it lives |
+|---|---|
+| The page | `/properties` — cards, five tabs, filters, table, detail panel |
+| Add property | 4-step wizard + the **Area check** |
+| Edit property | tabbed, change reason, change preview |
+| Import | 4 steps, four count tiles, mapping preview, three options |
+| Download template | format choice, grouped columns, example switch |
+| Share | seven sections, three locked fields |
+| Site map | the scheme drawn from the inventory |
+| Property record | `/properties/PROP-A101`, seven tabs |
+
+### ⚠️ THE NINTH `join public.projects`
+
+The board joined that table for a project name. `projects_select` is
+`app.project_is_visible(id)` — project MEMBERSHIP — and a salesperson is not a
+member of the schemes they sell. It returned all 150 rows as an admin and
+**zero** as Sarah, with the page looking finished either way. This file had
+counted eight of these before. `app.crm_project_options()` is the definer that
+answers it properly, in a CTE so it is evaluated once.
+
+### ⚠️ THE CATALOGUE READ WAS PER ROW
+
+`crm_properties_select` called `crm_manages_project(project_id)` — the exact
+law-5 example in CLAUDE.md. The two predicates collapse to
+`admin or project_id = any(dept projects)`; 266's self-check proves that per
+user across every property before it commits, and `explain` now shows
+`(InitPlan N).col1` with no function name in the Filter.
+
+### ⚠️ AND A RECORDED DECISION WAS REVERSED, ON INSTRUCTION
+
+150 made the catalogue the project manager's — *"a price is the company's, not
+the seller's."* The owner asked for the opposite in as many words, so 266
+widens `crm_properties_write` to the project's own department. **Putting it
+back is one line**, and the migration header says which one, because she is
+reviewing the salesperson's view first and the manager level later.
+
+### The demo scheme
+
+`Chitral Royal Homes [demo]` — **148 plots**, the reference's exact split
+(82 available · 21 reserved · 38 sold · 7 held), every row `is_test_data`, and
+the five plots she drew reproduced exactly. ⚠️ **Never the real Chitral
+project**, which has 683 live leads. `node scripts/seed-property-inventory.mjs`
+(`--remove` undoes it), and it counts queued WhatsApp sends afterwards and
+refuses to finish if any is not zero.
+
+### What the code refuses to do
+
+A sheet cannot mark a plot Sold — enforced in the action, not only the wizard.
+A share cannot carry an internal note, a lead or a booking, because
+`shareLines()` is handed a shape that does not contain them. Sharing never
+reserves. Nothing generates an allotment letter, an agreement, a NOC or a title
+document. And the site map says on screen that it is a schematic inventory map,
+not a legal site plan.
+
+### Found by driving it, not by testing it
+
+A corner plot printed `Corner · Corner · Not park-facing`. The Updated column
+read `21 Sept 2026` because `en-GB` abbreviates September to four letters. A
+`<label>` wrapped both the ID field and its pencil button. The required
+asterisk was read aloud as part of every field's name. lucide's `Map` icon
+shadowed the global `Map` constructor. A ref was read during render in four
+dialogs. And `PROP-A101` carries booking BK-302 while still marked Available —
+the record page names that contradiction in amber rather than describing one
+side of it.
+
+### Left open
+
+- The site map is grouped by block, not surveyed. A real layout needs the
+  developer's plan as data.
+- A public customer share-link and a property-sheet PDF are both drawn and both
+  say plainly that they are not built.
+- Availability history needs a table with a start, an end and who held the plot.
+- `withdrawn` remains a readable status that no picker offers.
 
 ---
 
