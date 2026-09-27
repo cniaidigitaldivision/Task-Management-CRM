@@ -469,3 +469,86 @@ export async function notify(input: {
             ${input.title}, ${input.body}, ${input.linkTo})
   `;
 }
+
+/* ---------------------------------------------------------------------------
+ * The schedule that records a day for you
+ * ------------------------------------------------------------------------- */
+
+/**
+ * ⚠️ THE TIMES HERE ARE A TARGET, NOT A RECORDED TIME. `attendance_auto` says
+ * when the pg_cron job should act; the row it writes still takes `now()` from the
+ * server like every other row in `attendance_days` (migration 264). Nothing in
+ * this file can write an attendance time, and that includes this.
+ */
+export interface AutoAttendanceRow {
+  readonly userId: string;
+  readonly fullName: string;
+  readonly avatarUrl: string | null;
+  readonly role: string;
+  readonly isEnabled: boolean;
+  /** `HH:MM`, Karachi. */
+  readonly checkInLocal: string;
+  readonly checkOutLocal: string;
+  /** ISO weekdays, 1 = Monday … 7 = Sunday. */
+  readonly workingDays: readonly number[];
+  readonly lastInAt: string | null;
+  readonly lastOutAt: string | null;
+  readonly note: string | null;
+}
+
+/**
+ * Everybody whose attendance is on a schedule.
+ *
+ * RLS narrows this: an Admin sees every row, and anybody else sees only their
+ * own. So a Member opening the attendance page gets their own switch and no
+ * sight of anybody else's — the same shape as the board above it.
+ */
+export async function listAutoAttendance(actorId: string): Promise<readonly AutoAttendanceRow[]> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select a.user_id, a.is_enabled, a.working_days, a.note,
+           to_char(a.check_in_local, 'HH24:MI')  as check_in_local,
+           to_char(a.check_out_local, 'HH24:MI') as check_out_local,
+           a.last_in_at, a.last_out_at,
+           u.full_name, u.avatar_url, u.role
+      from public.attendance_auto a
+      join public.users u on u.id = a.user_id
+     order by u.full_name
+  `);
+
+  return rows.map((row) => ({
+    userId: row.user_id as string,
+    fullName: (row.full_name as string | null) ?? '',
+    avatarUrl: (row.avatar_url as string | null) ?? null,
+    role: (row.role as string | null) ?? 'member',
+    isEnabled: Boolean(row.is_enabled),
+    checkInLocal: (row.check_in_local as string | null) ?? '',
+    checkOutLocal: (row.check_out_local as string | null) ?? '',
+    workingDays: ((row.working_days as number[] | null) ?? []).map(Number),
+    lastInAt: iso(row.last_in_at),
+    lastOutAt: iso(row.last_out_at),
+    note: (row.note as string | null) ?? null,
+  }));
+}
+
+/**
+ * Turn the schedule on or off for one person, creating their row the first time.
+ *
+ * ⚠️ `on conflict ... do update` rather than an insert and an update, because the
+ * first press and every press after it are the same intention. The defaults are
+ * the ones migration 264 documents — 09:40 and 19:10, Monday to Saturday — and
+ * an existing row keeps whatever times it was given.
+ */
+export async function setAutoAttendance(
+  actorId: string,
+  subjectId: string,
+  enabled: boolean,
+): Promise<boolean> {
+  const rows = await withUser(actorId, (tx) => tx`
+    insert into public.attendance_auto
+      (user_id, is_enabled, check_in_local, check_out_local, created_by_id)
+    values (${subjectId}, ${enabled}, time '09:40', time '19:10', ${actorId})
+    on conflict (user_id) do update set is_enabled = excluded.is_enabled
+    returning user_id
+  `);
+  return rows.length > 0;
+}
