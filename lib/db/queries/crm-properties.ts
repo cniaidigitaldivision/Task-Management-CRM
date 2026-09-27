@@ -50,6 +50,8 @@ export interface PropertyRow {
   readonly premiumCharges: number | null;
   readonly status: string;
   readonly developmentStatus: string | null;
+  readonly expectedPossession: string | null;
+  readonly isDraft: boolean;
   readonly notes: string | null;
   readonly priceUpdatedAt: string | null;
   readonly updatedAt: string | null;
@@ -115,7 +117,8 @@ export async function crmPropertyBoard(actorId: string): Promise<readonly Proper
       coalesce(p.is_park_facing, false) as is_park_facing,
       coalesce(p.is_main_boulevard, false) as is_main_boulevard,
       p.base_price, p.premium_charges, p.status::text as status,
-      p.development_status, p.notes, p.price_updated_at, p.updated_at,
+      p.development_status, p.expected_possession, p.is_draft, p.notes,
+      p.price_updated_at, p.updated_at,
       coalesce(p.is_test_data, false) as is_test_data,
 
       (select count(*) from public.crm_leads l where l.property_id = p.id) as linked_leads,
@@ -170,6 +173,10 @@ export async function crmPropertyBoard(actorId: string): Promise<readonly Proper
       from public.crm_properties p
       left join proj on proj.id = p.project_id
       left join public.crm_project_settings s on s.project_id = p.project_id
+     /* ⚠️ A DRAFT IS NOT INVENTORY — 267. Half a plot: no price agreed and no
+        dimensions checked. Counting one puts a figure on a card nobody has
+        finished deciding. */
+     where not p.is_draft
      order by p.block nulls last, p.code
   `);
 
@@ -196,6 +203,8 @@ export async function crmPropertyBoard(actorId: string): Promise<readonly Proper
     premiumCharges: n(r.premium_charges),
     status: (r.status as string | null) ?? 'available',
     developmentStatus: (r.development_status as string | null) ?? null,
+    expectedPossession: iso(r.expected_possession),
+    isDraft: Boolean(r.is_draft),
     notes: (r.notes as string | null) ?? null,
     priceUpdatedAt: iso(r.price_updated_at),
     updatedAt: iso(r.updated_at),
@@ -272,6 +281,11 @@ export interface PropertyInput {
   readonly premiumCharges: number;
   readonly status: string;
   readonly developmentStatus: string | null;
+  readonly expectedPossession: string | null;
+  readonly isDraft: boolean;
+  readonly isCorner: boolean;
+  readonly isParkFacing: boolean;
+  readonly isMainBoulevard: boolean;
   readonly notes: string | null;
 }
 
@@ -303,15 +317,19 @@ export async function crmCreateProperty(actorId: string, input: PropertyInput): 
       (project_id, code, plot_number, block, kind, size_marla, area_sqft, dimensions,
        category, facing, road_width_ft, is_corner, is_park_facing, is_main_boulevard,
        base_price, premium_charges, status, development_status, notes,
+       expected_possession, is_draft,
        price_updated_at, catalogue_kind, created_by_id, is_test_data)
     values (${input.projectId}::uuid, ${input.code}, ${input.plotNumber}, ${input.block},
             ${input.kind}, ${input.sizeMarla}, ${input.areaSqft}, ${input.dimensions},
             ${input.category}, ${input.facing}, ${input.roadWidthFt},
-            ${input.category === 'Corner'}, ${input.category === 'Park facing'},
-            ${input.category === 'Boulevard'},
+            /* ⚠️ THEIR OWN CHECKBOXES on the owner's reference, not derived from
+               Category — a corner plot can also face a park, and deriving them
+               made those two mutually exclusive. */
+            ${input.isCorner}, ${input.isParkFacing}, ${input.isMainBoulevard},
             ${input.basePrice}, ${input.premiumCharges},
             ${input.status}::public.crm_property_status,
             ${input.developmentStatus}, ${input.notes},
+            ${input.expectedPossession}::date, ${input.isDraft},
             now(), 'plot', ${actorId}::uuid,
             /* ⚠️ A property inherits the project's test flag, so a demo scheme
                can never contribute a row to a real pipeline figure. */
@@ -340,13 +358,15 @@ export async function crmUpdateProperty(
            category = ${input.category},
            facing = ${input.facing},
            road_width_ft = ${input.roadWidthFt},
-           is_corner = ${input.category === 'Corner'},
-           is_park_facing = ${input.category === 'Park facing'},
-           is_main_boulevard = ${input.category === 'Boulevard'},
+           is_corner = ${input.isCorner},
+           is_park_facing = ${input.isParkFacing},
+           is_main_boulevard = ${input.isMainBoulevard},
            base_price = ${input.basePrice},
            premium_charges = ${input.premiumCharges},
            status = ${input.status}::public.crm_property_status,
            development_status = ${input.developmentStatus},
+           expected_possession = ${input.expectedPossession}::date,
+           is_draft = ${input.isDraft},
            notes = ${input.notes},
            /* Only stamped when the money actually moved. */
            price_updated_at = case when base_price is distinct from ${input.basePrice}
@@ -414,12 +434,14 @@ export async function crmImportProperties(
       (project_id, code, plot_number, block, kind, size_marla, area_sqft, dimensions,
        category, facing, road_width_ft, is_corner, is_park_facing, is_main_boulevard,
        base_price, premium_charges, status, development_status, notes,
+       expected_possession, is_draft,
        price_updated_at, catalogue_kind, created_by_id, is_test_data)
     select ${projectId}::uuid, x.code, x.plot_number, x.block, x.kind,
            x.size_marla, x.area_sqft, x.dimensions, x.category, x.facing, x.road_width_ft,
-           x.category = 'Corner', x.category = 'Park facing', x.category = 'Boulevard',
+           x.is_corner, x.is_park_facing, x.is_main_boulevard,
            x.base_price, x.premium_charges, x.status::public.crm_property_status,
-           x.development_status, x.notes, now(), 'plot', ${actorId}::uuid,
+           x.development_status, x.notes, x.expected_possession::date, false,
+           now(), 'plot', ${actorId}::uuid,
            coalesce((select is_test_data from public.crm_properties y
                       where y.project_id = ${projectId}::uuid limit 1), false)
       from unnest(
@@ -437,10 +459,15 @@ export async function crmImportProperties(
         ${rows.map((r) => r.premiumCharges)}::bigint[],
         ${rows.map((r) => r.status)}::text[],
         ${rows.map((r) => r.developmentStatus)}::text[],
-        ${rows.map((r) => r.notes)}::text[]
+        ${rows.map((r) => r.notes)}::text[],
+        ${rows.map((r) => r.isCorner)}::boolean[],
+        ${rows.map((r) => r.isParkFacing)}::boolean[],
+        ${rows.map((r) => r.isMainBoulevard)}::boolean[],
+        ${rows.map((r) => r.expectedPossession)}::text[]
       ) as x(code, plot_number, block, kind, size_marla, area_sqft, dimensions,
              category, facing, road_width_ft, base_price, premium_charges,
-             status, development_status, notes)
+             status, development_status, notes,
+             is_corner, is_park_facing, is_main_boulevard, expected_possession)
     /* ⚠️ THE INDEX IS ON AN EXPRESSION, so the conflict target must be the
        same expression. "crm_properties_code_uq" is
        "(project_id, lower(btrim(code)))"; naming the bare column here compiles
@@ -463,6 +490,7 @@ export async function crmImportProperties(
           premium_charges = excluded.premium_charges,
           status = excluded.status,
           development_status = excluded.development_status,
+          expected_possession = excluded.expected_possession,
           notes = excluded.notes,
           price_updated_at = now(),
           updated_at = now()

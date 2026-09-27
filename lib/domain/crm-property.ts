@@ -152,6 +152,24 @@ export function areaCheck(
   };
 }
 
+/**
+ * `25 × 45 ft` → `{ width: 25, length: 45 }`.
+ *
+ * ⚠️ FOR IMPORTS ONLY. The Add dialog asks for two numbers and never needs
+ * this; a sheet writes one string and every scheme punctuates it differently —
+ * `25 x 45`, `25×45 ft`, `25X45`, `25 * 45`. Anything that is not two numbers
+ * returns nulls rather than a guess, and the row simply keeps no dimensions.
+ */
+export function parseDimensions(raw: string | null | undefined): {
+  readonly width: number | null;
+  readonly length: number | null;
+} {
+  const nums = (raw ?? '').match(/\d+(?:\.\d+)?/g);
+  if (!nums || nums.length < 2) return { width: null, length: null };
+  const [w, l] = nums.map(Number);
+  return w > 0 && l > 0 ? { width: w, length: l } : { width: null, length: null };
+}
+
 /* ---------------------------------------------------------------------------
  * Money
  * ------------------------------------------------------------------------- */
@@ -398,6 +416,65 @@ export const TEMPLATE_COLUMNS: readonly TemplateColumn[] = [
   { key: 'developmentStatus', header: 'Development status', required: false, example: 'Developed', note: '' },
   { key: 'notes', header: 'Notes', required: false, example: '', note: 'Internal. Never shared with a customer.' },
 ];
+
+/* ---------------------------------------------------------------------------
+ * The change preview — the owner's Edit reference, 2026-09-27
+ * ------------------------------------------------------------------------- */
+
+export interface FieldChange {
+  readonly field: string;
+  readonly from: string;
+  readonly to: string;
+}
+
+/**
+ * What this edit will actually change, field by field.
+ *
+ * ⚠️ THE POINT IS THE ONES YOU DID NOT MEAN TO TOUCH. The owner's reference
+ * draws a "Change preview" table under the form — `Road size · 25 ft road →
+ * 30 ft road` — and the reason it earns the space is that a form with twenty
+ * fields is a form where a stray keystroke changes a price and nobody notices
+ * until a buyer quotes the old one back.
+ *
+ * ⚠️ COMPARED AS DISPLAYED, NOT AS STORED. `4500000` and `PKR 4,500,000` are
+ * the same price; `null` and `''` and `'—'` are all "not recorded". Comparing
+ * raw values would list changes that are not changes, and a preview that cries
+ * wolf is one nobody reads.
+ */
+export function propertyChanges(
+  before: Readonly<Record<string, string | null | undefined>>,
+  after: Readonly<Record<string, string | null | undefined>>,
+): readonly FieldChange[] {
+  const blank = (v: string | null | undefined) => {
+    const t = (v ?? '').trim();
+    return t === '' || t === '—' ? '—' : t;
+  };
+  const out: FieldChange[] = [];
+  for (const field of Object.keys(after)) {
+    const from = blank(before[field]);
+    const to = blank(after[field]);
+    if (from !== to) out.push({ field, from, to });
+  }
+  return out;
+}
+
+/**
+ * ⚠️ THE TWO STATUSES THAT NEED PAPERWORK, and why the dialog says so.
+ *
+ * Owner's Edit reference, printed in its own amber box:
+ *   · Sold needs an authorised, completed booking
+ *   · Reserved needs a reservation expiry and a booking reference
+ *
+ * This returns the sentence, or null when the move is free. It is ADVICE on the
+ * screen, not the enforcement — `crm_booking_holds_property` is the trigger that
+ * actually ties a reservation to a booking, and a warning in a dialog has never
+ * stopped anybody who went round it.
+ */
+export function statusNeedsPaperwork(status: string): string | null {
+  if (status === 'sold') return 'Marking a plot Sold normally follows an authorised, completed booking.';
+  if (status === 'reserved') return 'A reservation normally carries a booking reference and an expiry date.';
+  return null;
+}
 
 /* ---------------------------------------------------------------------------
  * ⚠️ WHAT A CUSTOMER MAY SEE — the sharing rule, in one place

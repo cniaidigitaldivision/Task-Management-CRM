@@ -12,9 +12,10 @@ import {
   sharePropertyListAction, updatePropertyAction, type PropertyForm,
 } from '@/app/actions/crm-properties';
 import { cv, OUTLINE, outlineStyle, SOLID, solidStyle, Select, Square, SQUARE } from '@/components/crm/clients-ui';
+import { ImportDialog, ShareDialog, templateCsv } from '@/components/crm/properties-dialogs';
 import {
-  BLANK, ImportDialog, PropertyFormDialog, ShareDialog, templateCsv, type ProjectOption,
-} from '@/components/crm/properties-dialogs';
+  AddPropertyWizard, EditPropertyDialog, type ProjectOption,
+} from '@/components/crm/property-form';
 import { Dialog } from '@/components/ui/dialog';
 import { useToast } from '@/components/ui/toast';
 import { downloadBlob } from '@/lib/browser/download';
@@ -170,13 +171,23 @@ export function PropertiesBoard({
   }
 
   /* ── writes ─────────────────────────────────────────────────────────── */
-  async function save(form: PropertyForm, id?: string) {
+  async function add(form: PropertyForm, draft: boolean) {
     setBusy(true);
     setFormError(null);
-    const result = id ? await updatePropertyAction(id, form) : await createPropertyAction(form);
+    const result = await createPropertyAction(form);
     setBusy(false);
     if (!result.ok) { setFormError(result.error); return; }
-    toast({ tone: 'ok', text: result.message });
+    toast({ tone: 'ok', text: draft ? 'Saved as a draft. It is not in the inventory yet.' : result.message });
+    setDialog(null);
+  }
+
+  async function edit(id: string, form: PropertyForm, reason: string, draft: boolean) {
+    setBusy(true);
+    setFormError(null);
+    const result = await updatePropertyAction(id, form, reason);
+    setBusy(false);
+    if (!result.ok) { setFormError(result.error); return; }
+    toast({ tone: 'ok', text: draft ? 'Saved as a draft.' : result.message });
     setDialog(null);
   }
 
@@ -531,35 +542,23 @@ export function PropertiesBoard({
       </div>
 
       {/* ── dialogs ────────────────────────────────────────────────────── */}
-      <PropertyFormDialog
-        open={dialog?.kind === 'add' || dialog?.kind === 'edit'}
+      <AddPropertyWizard
+        open={dialog?.kind === 'add'}
         onClose={() => setDialog(null)}
         projects={projects}
-        title={editing ? `Edit ${editing.code}` : 'Add property'}
         busy={busy}
         error={formError}
-        initial={
-          editing
-            ? {
-                projectId: editing.projectId,
-                code: editing.code,
-                plotNumber: editing.plotNumber ?? '',
-                block: editing.block ?? '',
-                kind: editing.kind ?? '',
-                sizeMarla: editing.sizeMarla != null ? String(editing.sizeMarla) : '',
-                dimensions: editing.dimensions ?? '',
-                category: editing.category ?? 'Standard',
-                facing: editing.facing ?? '',
-                roadWidthFt: editing.roadWidthFt != null ? String(editing.roadWidthFt) : '',
-                basePrice: editing.basePrice != null ? String(editing.basePrice) : '',
-                premiumCharges: String(editing.premiumCharges ?? 0),
-                status: editing.status,
-                developmentStatus: editing.developmentStatus ?? '',
-                notes: editing.notes ?? '',
-              }
-            : { ...BLANK, projectId: projects[0]?.id ?? '' }
-        }
-        onSubmit={(form) => void save(form, editing?.id)}
+        onSubmit={(form, draft) => void add(form, draft)}
+      />
+
+      <EditPropertyDialog
+        open={dialog?.kind === 'edit'}
+        onClose={() => setDialog(null)}
+        row={editing}
+        projects={projects}
+        busy={busy}
+        error={formError}
+        onSubmit={(form, reason, draft) => { if (editing) void edit(editing.id, form, reason, draft); }}
       />
 
       <ImportDialog

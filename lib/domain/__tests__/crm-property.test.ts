@@ -9,6 +9,9 @@ import {
   displayArea,
   filterProperties,
   money,
+  parseDimensions,
+  propertyChanges,
+  statusNeedsPaperwork,
   shareable,
   shareText,
   sizeLabel,
@@ -291,5 +294,60 @@ describe('the area check — two ways of saying the same area', () => {
     expect(c.match).toBe(false);
     expect(c.deltaPct).toBeNull();
     expect(c.note).toContain('Enter a size');
+  });
+});
+
+describe('a sheet writes dimensions a dozen ways', () => {
+  it('reads every separator a scheme uses', () => {
+    for (const raw of ['25 × 45 ft', '25 x 45', '25X45', '25*45 ft', '25 × 45']) {
+      expect(parseDimensions(raw)).toEqual({ width: 25, length: 45 });
+    }
+  });
+
+  it('keeps a decimal frontage', () => {
+    expect(parseDimensions('22.5 × 50 ft')).toEqual({ width: 22.5, length: 50 });
+  });
+
+  /* ⚠️ Nulls, never a guess. A row with unreadable dimensions keeps none —
+     inventing one would put a measurement on a plot that nobody measured. */
+  it('refuses anything that is not two numbers', () => {
+    for (const raw of ['', 'corner plot', '25 ft', null, undefined]) {
+      expect(parseDimensions(raw)).toEqual({ width: null, length: null });
+    }
+  });
+});
+
+describe('the change preview', () => {
+  const before = { 'Road size': '25 ft road', 'Base price': 'PKR 4,500,000', Facing: 'North' };
+
+  it('lists only what actually moved', () => {
+    const out = propertyChanges(before, { ...before, 'Road size': '30 ft road' });
+    expect(out).toEqual([{ field: 'Road size', from: '25 ft road', to: '30 ft road' }]);
+  });
+
+  it('says nothing when nothing moved', () => {
+    expect(propertyChanges(before, { ...before })).toEqual([]);
+  });
+
+  /* ⚠️ A preview that cries wolf is one nobody reads. Empty, null and an em
+     dash all mean "not recorded" and must not be reported as a change. */
+  it('does not report a change between the ways of saying "nothing"', () => {
+    expect(propertyChanges({ Facing: null }, { Facing: '' })).toEqual([]);
+    expect(propertyChanges({ Facing: '—' }, { Facing: '' })).toEqual([]);
+    expect(propertyChanges({ Facing: '  North ' }, { Facing: 'North' })).toEqual([]);
+  });
+
+  it('reports filling in a blank, and clearing a value', () => {
+    expect(propertyChanges({ Facing: null }, { Facing: 'North' }))
+      .toEqual([{ field: 'Facing', from: '—', to: 'North' }]);
+    expect(propertyChanges({ Facing: 'North' }, { Facing: '' }))
+      .toEqual([{ field: 'Facing', from: 'North', to: '—' }]);
+  });
+
+  it('names the paperwork the two committing statuses need', () => {
+    expect(statusNeedsPaperwork('sold')).toContain('booking');
+    expect(statusNeedsPaperwork('reserved')).toContain('expiry');
+    expect(statusNeedsPaperwork('available')).toBeNull();
+    expect(statusNeedsPaperwork('on_hold')).toBeNull();
   });
 });

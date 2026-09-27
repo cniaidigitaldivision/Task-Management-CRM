@@ -3,12 +3,10 @@
 import * as React from 'react';
 import { AlertTriangle, ArrowRight, Check, Copy, FileSpreadsheet, Upload } from 'lucide-react';
 
-import {
-  importPropertiesAction,
-  type PropertyForm,
-} from '@/app/actions/crm-properties';
+import { importPropertiesAction } from '@/app/actions/crm-properties';
 import { cv, OUTLINE, outlineStyle, SOLID, solidStyle, Select } from '@/components/crm/clients-ui';
 import { Dialog } from '@/components/ui/dialog';
+import type { ProjectOption } from '@/components/crm/property-form';
 import {
   areaLabel,
   areaSqft,
@@ -36,239 +34,19 @@ import { cn } from '@/lib/utils';
  * in the browser's TOP LAYER, outside every containing block.
  * ========================================================================= */
 
-export interface ProjectOption {
-  readonly id: string;
-  readonly name: string;
-  readonly city: string | null;
-  readonly marlaStandard: number;
-}
+/* The Add and Edit dialogs moved to `property-form.tsx` when the owner sent
+   their own references: a four-step wizard and a tabbed editor are too much
+   screen to share a file with the importer. */
+export type { ProjectOption } from '@/components/crm/property-form';
 
-const CATEGORIES = ['Standard', 'Corner', 'Park facing', 'Boulevard'] as const;
-const DEV_STATES = ['Developed', 'Under development', 'Balloted', 'Possession ready'] as const;
-const FACINGS = ['North facing', 'South facing', 'East facing', 'West facing'] as const;
-
-const FIELD =
-  'h-[2.5rem] w-full rounded-[0.45rem] border bg-[var(--cl-surface)] px-[0.7rem] text-[0.9rem] transition-colors focus:outline-none';
-
-function Field({
-  label,
-  hint,
-  children,
-  wide,
-}: {
-  label: string;
-  hint?: string;
-  children: React.ReactNode;
-  wide?: boolean;
-}) {
+/** The importer's own label-and-control pair. Small enough not to be worth
+ *  sharing with the wizard, whose fields carry required marks and lock icons. */
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <label className={cn('flex min-w-0 flex-col gap-[0.3rem]', wide && 'sm:col-span-2')}>
-      <span className="text-[0.78rem] font-medium" style={{ color: cv('soft') }}>
-        {label}
-      </span>
+    <label className="flex min-w-0 flex-col gap-[0.3rem]">
+      <span className="text-[0.78rem] font-medium" style={{ color: cv('soft') }}>{label}</span>
       {children}
-      {hint ? (
-        <span className="text-[0.72rem]" style={{ color: cv('mute') }}>
-          {hint}
-        </span>
-      ) : null}
     </label>
-  );
-}
-
-/* ---------------------------------------------------------------------------
- * Add / edit one property
- * ------------------------------------------------------------------------- */
-
-export const BLANK: Omit<PropertyForm, 'marlaStandard'> = {
-  projectId: '',
-  code: '',
-  plotNumber: '',
-  block: '',
-  kind: 'Residential plot',
-  sizeMarla: '',
-  dimensions: '',
-  category: 'Standard',
-  facing: '',
-  roadWidthFt: '',
-  basePrice: '',
-  premiumCharges: '0',
-  status: 'available',
-  developmentStatus: '',
-  notes: '',
-};
-
-export function PropertyFormDialog({
-  open,
-  onClose,
-  projects,
-  initial,
-  title,
-  busy,
-  error,
-  onSubmit,
-}: {
-  open: boolean;
-  onClose: () => void;
-  projects: readonly ProjectOption[];
-  initial: Omit<PropertyForm, 'marlaStandard'>;
-  title: string;
-  busy: boolean;
-  error: string | null;
-  onSubmit: (form: PropertyForm) => void;
-}) {
-  const [f, setF] = React.useState(initial);
-  const seen = React.useRef(initial);
-  if (seen.current !== initial) {
-    seen.current = initial;
-    setF(initial);
-  }
-
-  const set = (patch: Partial<typeof f>) => setF((c) => ({ ...c, ...patch }));
-  const project = projects.find((p) => p.id === f.projectId) ?? projects[0];
-  const standard = project?.marlaStandard ?? 225;
-
-  /* ⚠️ THE AREA IS SHOWN AS IT IS TYPED, computed from THIS project's standard.
-     The owner's instruction in one visible line: change the project and the
-     same 5 Marla becomes a different number of square feet. */
-  const marla = Number(f.sizeMarla);
-  const computed = Number.isFinite(marla) && marla > 0 ? areaSqft(marla, standard) : null;
-
-  return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      title={title}
-      description="Every field except the ID, the plot number, the size and the price is optional."
-      size="lg"
-      footer={
-        <div className="flex items-center justify-between gap-3">
-          <span className="text-[0.78rem]" style={{ color: cv('mute') }}>
-            {computed !== null
-              ? `${sizeLabel(marla)} = ${areaLabel(computed)} at ${standard} sq ft per Marla`
-              : 'Area is calculated from the project’s Marla standard.'}
-          </span>
-          <span className="flex gap-2">
-            <button type="button" onClick={onClose} className={`${OUTLINE} h-[2.4rem] px-4 text-[0.93rem]`} style={outlineStyle}>
-              Cancel
-            </button>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => onSubmit({ ...f, projectId: f.projectId || project?.id || '', marlaStandard: standard })}
-              className={`${SOLID} h-[2.4rem] px-5 text-[0.93rem]`}
-              style={solidStyle}
-            >
-              {busy ? 'Saving…' : 'Save property'}
-            </button>
-          </span>
-        </div>
-      }
-    >
-      <div className="grid gap-[0.85rem] sm:grid-cols-2">
-        <Field label="Project" wide>
-          <Select
-            label="Project"
-            value={f.projectId || project?.id || ''}
-            onChange={(v) => set({ projectId: v })}
-            className="h-[2.5rem] w-full"
-          >
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-                {p.city ? ` · ${p.city}` : ''}
-              </option>
-            ))}
-          </Select>
-        </Field>
-
-        <Field label="Property ID">
-          <input className={FIELD} style={{ borderColor: cv('line'), color: cv('ink') }} value={f.code} onChange={(e) => set({ code: e.target.value })} placeholder="PROP-A101" />
-        </Field>
-        <Field label="Plot / unit number">
-          <input className={FIELD} style={{ borderColor: cv('line'), color: cv('ink') }} value={f.plotNumber} onChange={(e) => set({ plotNumber: e.target.value })} placeholder="A-101" />
-        </Field>
-
-        <Field label="Block">
-          <input className={FIELD} style={{ borderColor: cv('line'), color: cv('ink') }} value={f.block} onChange={(e) => set({ block: e.target.value })} placeholder="A" />
-        </Field>
-        <Field label="Property type">
-          <input className={FIELD} style={{ borderColor: cv('line'), color: cv('ink') }} value={f.kind} onChange={(e) => set({ kind: e.target.value })} placeholder="Residential plot" />
-        </Field>
-
-        <Field label="Size (Marla)" hint="1 Kanal = 20 Marla.">
-          <input className={FIELD} style={{ borderColor: cv('line'), color: cv('ink') }} value={f.sizeMarla} onChange={(e) => set({ sizeMarla: e.target.value })} placeholder="5" inputMode="decimal" />
-        </Field>
-        <Field label="Total area" hint={`Calculated at ${standard} sq ft per Marla.`}>
-          <div className={cn(FIELD, 'flex items-center')} style={{ borderColor: cv('line'), background: cv('head'), color: cv('ink') }}>
-            {computed !== null ? areaLabel(computed) : '—'}
-          </div>
-        </Field>
-
-        <Field label="Dimensions">
-          <input className={FIELD} style={{ borderColor: cv('line'), color: cv('ink') }} value={f.dimensions} onChange={(e) => set({ dimensions: e.target.value })} placeholder="25 × 45 ft" />
-        </Field>
-        <Field label="Facing">
-          <Select label="Facing" value={f.facing} onChange={(v) => set({ facing: v })} className="h-[2.5rem] w-full">
-            <option value="">Not recorded</option>
-            {FACINGS.map((x) => (
-              <option key={x} value={x}>{x}</option>
-            ))}
-          </Select>
-        </Field>
-
-        <Field label="Road width (ft)">
-          <input className={FIELD} style={{ borderColor: cv('line'), color: cv('ink') }} value={f.roadWidthFt} onChange={(e) => set({ roadWidthFt: e.target.value })} placeholder="30" inputMode="numeric" />
-        </Field>
-        <Field label="Category">
-          <Select label="Category" value={f.category} onChange={(v) => set({ category: v })} className="h-[2.5rem] w-full">
-            {CATEGORIES.map((x) => (
-              <option key={x} value={x}>{x}</option>
-            ))}
-          </Select>
-        </Field>
-
-        <Field label="Base price (PKR)">
-          <input className={FIELD} style={{ borderColor: cv('line'), color: cv('ink') }} value={f.basePrice} onChange={(e) => set({ basePrice: e.target.value })} placeholder="4500000" inputMode="numeric" />
-        </Field>
-        <Field label="Premium charges (PKR)">
-          <input className={FIELD} style={{ borderColor: cv('line'), color: cv('ink') }} value={f.premiumCharges} onChange={(e) => set({ premiumCharges: e.target.value })} placeholder="0" inputMode="numeric" />
-        </Field>
-
-        <Field label="Availability">
-          <Select label="Availability" value={f.status} onChange={(v) => set({ status: v })} className="h-[2.5rem] w-full">
-            {SELECTABLE_STATUSES.map((s) => (
-              <option key={s} value={s}>{statusLook(s).label}</option>
-            ))}
-          </Select>
-        </Field>
-        <Field label="Development status">
-          <Select label="Development status" value={f.developmentStatus} onChange={(v) => set({ developmentStatus: v })} className="h-[2.5rem] w-full">
-            <option value="">Not recorded</option>
-            {DEV_STATES.map((x) => (
-              <option key={x} value={x}>{x}</option>
-            ))}
-          </Select>
-        </Field>
-
-        <Field label="Internal notes" hint="⚠️ Never included when a property is shared." wide>
-          <textarea
-            className={cn(FIELD, 'h-[4.5rem] py-[0.5rem]')}
-            style={{ borderColor: cv('line'), color: cv('ink') }}
-            value={f.notes}
-            onChange={(e) => set({ notes: e.target.value })}
-            placeholder="Anything the team should know. Stays inside the company."
-          />
-        </Field>
-      </div>
-
-      {error ? (
-        <p className="mt-3 flex items-start gap-2 text-[0.85rem]" style={{ color: cv('red') }}>
-          <AlertTriangle className="mt-[0.1rem] size-4 shrink-0" aria-hidden="true" />
-          {error}
-        </p>
-      ) : null}
-    </Dialog>
   );
 }
 

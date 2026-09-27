@@ -7,6 +7,7 @@ import { auditAlone } from '@/lib/db/queries/audit';
 import * as P from '@/lib/db/queries/crm-properties';
 import {
   areaSqft,
+  parseDimensions,
   SELECTABLE_STATUSES,
   shareable,
   shareText,
@@ -39,17 +40,32 @@ export interface PropertyForm {
   readonly block: string;
   readonly kind: string;
   readonly sizeMarla: string;
-  readonly dimensions: string;
+  /* ⚠️ WIDTH AND LENGTH, not a "25 × 45 ft" string. The owner's Add-property
+     reference asks for them separately, and it is the only way the Area check
+     can multiply them — parsing a free-text dimension back into two numbers is
+     a guess about which separator somebody typed. `dimensions` is DERIVED. */
+  readonly widthFt: string;
+  readonly lengthFt: string;
   readonly category: string;
+  readonly isCorner: boolean;
+  readonly isParkFacing: boolean;
+  readonly isMainBoulevard: boolean;
   readonly facing: string;
   readonly roadWidthFt: string;
   readonly basePrice: string;
   readonly premiumCharges: string;
   readonly status: string;
   readonly developmentStatus: string;
+  readonly expectedPossession: string;
   readonly notes: string;
+  /** Left part-way through the wizard. Invisible to the inventory until finished. */
+  readonly isDraft?: boolean;
   /** The project's own standard, so the area is computed from the right one. */
   readonly marlaStandard: number;
+}
+
+function trimNum(n: number): string {
+  return Number.isInteger(n) ? String(n) : String(Number(n.toFixed(2)));
 }
 
 /** Digits only. `4,500,000` and `PKR 4500000` both mean the same number. */
@@ -63,21 +79,37 @@ function toAmount(raw: string): number | null {
 function validate(form: PropertyForm): { readonly input: P.PropertyInput } | { readonly error: string } {
   const code = (form.code ?? '').trim();
   const plot = (form.plotNumber ?? '').trim();
+  const draft = Boolean(form.isDraft);
   if (!form.projectId) return { error: 'Choose the project this plot belongs to.' };
   if (code.length < 2) return { error: 'A property needs an ID — PROP-A101, for example.' };
-  if (plot.length < 1) return { error: 'A property needs a plot or unit number.' };
+  if (!draft && plot.length < 1) return { error: 'A property needs a plot or unit number.' };
 
   const marla = Number((form.sizeMarla ?? '').trim());
-  if (!Number.isFinite(marla) || marla <= 0) return { error: 'Size must be a number of Marla. 1 Kanal is 20.' };
+  if (!draft && (!Number.isFinite(marla) || marla <= 0)) {
+    return { error: 'Size must be a number of Marla. 1 Kanal is 20.' };
+  }
 
   const price = toAmount(form.basePrice);
-  if (price === null) return { error: 'Base price must be a number of rupees.' };
+  if (!draft && price === null) return { error: 'Base price must be a number of rupees.' };
   const premium = toAmount(form.premiumCharges) ?? 0;
 
   const status = (form.status || 'available') as PropertyStatus;
   if (!SELECTABLE_STATUSES.includes(status)) return { error: 'That is not an availability state.' };
 
   const road = Number((form.roadWidthFt ?? '').replace(/[^0-9]/g, ''));
+  const width = Number((form.widthFt ?? '').replace(/[^0-9.]/g, ''));
+  const length = Number((form.lengthFt ?? '').replace(/[^0-9.]/g, ''));
+  const hasDims = Number.isFinite(width) && width > 0 && Number.isFinite(length) && length > 0;
+
+  /* ⚠️ A DRAFT IS HELD TO A LOWER BAR ON PURPOSE. The wizard's whole point is
+     that somebody can stop after step one; refusing to save because the price
+     is not typed yet would lose the work the button exists to keep. The bar for
+     a FINISHED property is unchanged — and a draft is invisible to the
+     inventory until it passes it. */
+  const possession = (form.expectedPossession ?? '').trim();
+  if (possession && !/^\d{4}-\d{2}-\d{2}$/.test(possession)) {
+    return { error: 'The expected possession date is not a date.' };
+  }
 
   return {
     input: {
@@ -86,15 +118,21 @@ function validate(form: PropertyForm): { readonly input: P.PropertyInput } | { r
       plotNumber: plot,
       block: (form.block ?? '').trim() || null,
       kind: (form.kind ?? '').trim() || null,
-      sizeMarla: marla,
+      sizeMarla: Number.isFinite(marla) && marla > 0 ? marla : 0,
       /* ⚠️ COMPUTED FROM THE PROJECT'S STANDARD, which travelled with the form.
          Never from 225 — see `lib/domain/crm-property.ts`. */
       areaSqft: areaSqft(marla, form.marlaStandard),
-      dimensions: (form.dimensions ?? '').trim() || null,
+      /* Derived, so the table and the Area check can never disagree. */
+      dimensions: hasDims ? `${trimNum(width)} × ${trimNum(length)} ft` : null,
       category: (form.category ?? '').trim() || 'Standard',
       facing: (form.facing ?? '').trim() || null,
       roadWidthFt: Number.isFinite(road) && road > 0 ? road : null,
-      basePrice: price,
+      isCorner: Boolean(form.isCorner),
+      isParkFacing: Boolean(form.isParkFacing),
+      isMainBoulevard: Boolean(form.isMainBoulevard),
+      expectedPossession: possession || null,
+      isDraft: Boolean(form.isDraft),
+      basePrice: price ?? 0,
       premiumCharges: premium,
       status,
       developmentStatus: (form.developmentStatus ?? '').trim() || null,
@@ -130,7 +168,16 @@ export async function createPropertyAction(form: PropertyForm): Promise<Property
   return { ok: true, message: `${checked.input.code} was added.`, id: written.id };
 }
 
-export async function updatePropertyAction(id: string, form: PropertyForm): Promise<PropertyResult> {
+export async function updatePropertyAction(
+  id: string,
+  form: PropertyForm,
+  /* ⚠️ WHY, IN THE EDITOR'S OWN WORDS. The owner's Edit reference puts a
+     required "Change reason" under the form and says it is saved in the
+     property's change history — so it goes to the audit row, not to a column
+     that the next edit overwrites. A price argument months later is settled by
+     the log, and a log without a reason only says that somebody did it. */
+  reason?: string,
+): Promise<PropertyResult> {
   const { user } = await requireCrmAccess();
   const checked = validate(form);
   if ('error' in checked) return { ok: false, error: checked.error };
@@ -147,6 +194,7 @@ export async function updatePropertyAction(id: string, form: PropertyForm): Prom
     entityId: id,
     action: 'property.updated',
     after: { code: checked.input.code, status: checked.input.status, price: checked.input.basePrice },
+    reason: (reason ?? '').trim() || null,
   });
 
   refresh();
@@ -224,6 +272,8 @@ export async function importPropertiesAction(
   const prepared: P.PropertyInput[] = [];
   const seen = new Set<string>();
   for (const [i, raw] of rows.entries()) {
+    const dims = parseDimensions(raw.dimensions);
+    const category = (raw.category ?? '').trim() || 'Standard';
     const checked = validate({
       projectId,
       marlaStandard,
@@ -232,8 +282,16 @@ export async function importPropertiesAction(
       block: raw.block ?? '',
       kind: raw.kind ?? '',
       sizeMarla: raw.sizeMarla ?? '',
-      dimensions: raw.dimensions ?? '',
-      category: raw.category ?? '',
+      widthFt: dims.width != null ? String(dims.width) : '',
+      lengthFt: dims.length != null ? String(dims.length) : '',
+      category: category,
+      /* ⚠️ A sheet says "Corner" in the Category column and has no checkboxes,
+         so the flags ARE derived here — the only place they are. The dialog sets
+         them independently because a person can see both apply. */
+      isCorner: /corner/i.test(category),
+      isParkFacing: /park/i.test(category),
+      isMainBoulevard: /boulevard/i.test(category),
+      expectedPossession: '',
       facing: raw.facing ?? '',
       roadWidthFt: raw.roadWidthFt ?? '',
       basePrice: raw.basePrice ?? '',
