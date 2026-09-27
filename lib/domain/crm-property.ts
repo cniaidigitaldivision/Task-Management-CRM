@@ -387,12 +387,19 @@ export function countProperties(rows: readonly PropertyLike[]) {
  * The import template — one list, used by the downloader AND the parser
  * ------------------------------------------------------------------------- */
 
+/** The six groups the owner's Download reference lists as chips. */
+export const TEMPLATE_GROUPS = [
+  'Core details', 'Measurements', 'Pricing', 'Availability', 'Development', 'Linked references',
+] as const;
+export type TemplateGroup = (typeof TEMPLATE_GROUPS)[number];
+
 export interface TemplateColumn {
   readonly key: string;
   readonly header: string;
   readonly required: boolean;
   readonly example: string;
   readonly note: string;
+  readonly group: TemplateGroup;
 }
 
 /**
@@ -401,20 +408,20 @@ export interface TemplateColumn {
  * it is an instruction to make a file that will be rejected.
  */
 export const TEMPLATE_COLUMNS: readonly TemplateColumn[] = [
-  { key: 'code', header: 'Property ID', required: true, example: 'PROP-A101', note: 'Unique within the project.' },
-  { key: 'plotNumber', header: 'Plot / unit number', required: true, example: 'A-101', note: 'As the scheme writes it.' },
-  { key: 'block', header: 'Block', required: false, example: 'A', note: '' },
-  { key: 'kind', header: 'Property type', required: false, example: 'Residential plot', note: 'Free text.' },
-  { key: 'sizeMarla', header: 'Size (Marla)', required: true, example: '5', note: '1 Kanal = 20 Marla.' },
-  { key: 'dimensions', header: 'Dimensions', required: false, example: '25 × 45 ft', note: 'Width × length.' },
-  { key: 'facing', header: 'Facing', required: false, example: 'North facing', note: '' },
-  { key: 'roadWidthFt', header: 'Road width (ft)', required: false, example: '30', note: '' },
-  { key: 'category', header: 'Category', required: false, example: 'Corner', note: 'Standard · Corner · Park facing · Boulevard.' },
-  { key: 'basePrice', header: 'Base price (PKR)', required: true, example: '4500000', note: 'Whole rupees, digits only.' },
-  { key: 'premiumCharges', header: 'Premium charges (PKR)', required: false, example: '0', note: '' },
-  { key: 'status', header: 'Status', required: false, example: 'Available', note: 'Available · Reserved · Sold · On hold · Blocked.' },
-  { key: 'developmentStatus', header: 'Development status', required: false, example: 'Developed', note: '' },
-  { key: 'notes', header: 'Notes', required: false, example: '', note: 'Internal. Never shared with a customer.' },
+  { key: 'code', header: 'Property ID', required: true, example: 'PROP-A101', note: 'Unique within the project.' , group: 'Core details' },
+  { key: 'plotNumber', header: 'Plot / unit number', required: true, example: 'A-101', note: 'As the scheme writes it.' , group: 'Core details' },
+  { key: 'block', header: 'Block', required: false, example: 'A', note: '' , group: 'Core details' },
+  { key: 'kind', header: 'Property type', required: false, example: 'Residential plot', note: 'Free text.' , group: 'Core details' },
+  { key: 'sizeMarla', header: 'Size (Marla)', required: true, example: '5', note: '1 Kanal = 20 Marla.' , group: 'Measurements' },
+  { key: 'dimensions', header: 'Dimensions', required: false, example: '25 × 45 ft', note: 'Width × length.' , group: 'Measurements' },
+  { key: 'facing', header: 'Facing', required: false, example: 'North facing', note: '' , group: 'Measurements' },
+  { key: 'roadWidthFt', header: 'Road width (ft)', required: false, example: '30', note: '' , group: 'Measurements' },
+  { key: 'category', header: 'Category', required: false, example: 'Corner', note: 'Standard · Corner · Park facing · Boulevard.' , group: 'Measurements' },
+  { key: 'basePrice', header: 'Base price (PKR)', required: true, example: '4500000', note: 'Whole rupees, digits only.' , group: 'Pricing' },
+  { key: 'premiumCharges', header: 'Premium charges (PKR)', required: false, example: '0', note: '' , group: 'Pricing' },
+  { key: 'status', header: 'Status', required: false, example: 'Available', note: 'Available · Reserved · Sold · On hold · Blocked.' , group: 'Availability' },
+  { key: 'developmentStatus', header: 'Development status', required: false, example: 'Developed', note: '' , group: 'Development' },
+  { key: 'notes', header: 'Notes', required: false, example: '', note: 'Internal. Never shared with a customer.' , group: 'Linked references' },
 ];
 
 /* ---------------------------------------------------------------------------
@@ -639,4 +646,112 @@ export function shareLines(
   lines.push('Availability is subject to confirmation at the time of booking.');
 
   return lines.filter((l) => l !== null).join('\n');
+}
+
+/* ---------------------------------------------------------------------------
+ * Importing a sheet — what counts as an error, and what only as a warning
+ * ------------------------------------------------------------------------- */
+
+export interface ImportIssue {
+  readonly line: number;
+  readonly severity: 'error' | 'warning' | 'duplicate';
+  readonly text: string;
+}
+
+export interface ImportOptions {
+  readonly markTestData: boolean;
+  readonly skipUnchanged: boolean;
+  /** Off by default: a repeated ID is a mistake far more often than an update. */
+  readonly updateMatching: boolean;
+}
+
+/**
+ * Check one row of a sheet.
+ *
+ * ⚠️ ERRORS AND WARNINGS ARE DIFFERENT ANSWERS, which is why the owner's
+ * reference counts them in separate tiles. An error means the row cannot become
+ * a property — no ID, no size, a price that is not a number. A warning means it
+ * can, but somebody should look: a size that disagrees with its own dimensions
+ * imports perfectly well and is very likely a typo.
+ *
+ * Refusing on warnings would make people delete the column; ignoring them would
+ * make the check pointless. Counting both, and blocking only on errors, is the
+ * shape that gets used.
+ *
+ * ⚠️ AND A SHEET CANNOT SELL A PLOT. The owner's reference prints the rule in
+ * its own line: *"Import cannot mark a property Sold without an authorised
+ * booking reference."* A spreadsheet has no booking reference, so `sold` is
+ * refused here rather than quietly downgraded — a row silently imported as
+ * Available when the sheet said Sold is how a plot gets sold twice.
+ */
+export function checkImportRow(
+  row: Readonly<Record<string, string>>,
+  line: number,
+  seenCodes: ReadonlySet<string>,
+  existingCodes: ReadonlySet<string>,
+  options: ImportOptions,
+  standard: number,
+): readonly ImportIssue[] {
+  const out: ImportIssue[] = [];
+  const err = (text: string) => out.push({ line, severity: 'error', text });
+  const warn = (text: string) => out.push({ line, severity: 'warning', text });
+
+  const code = (row.code ?? '').trim();
+  if (!code) err('No Property ID.');
+  if (!(row.plotNumber ?? '').trim()) err('No plot or unit number.');
+
+  const marla = Number((row.sizeMarla ?? '').trim());
+  if (!Number.isFinite(marla) || marla <= 0) {
+    err(`Size "${row.sizeMarla || '—'}" is not a number of Marla.`);
+  }
+  if (!/[0-9]/.test(row.basePrice ?? '')) {
+    err(`Base price "${row.basePrice || '—'}" is not a number.`);
+  }
+
+  const status = (row.status ?? 'available').toLowerCase().replace(/\s+/g, '_');
+  if (status === 'sold') {
+    err('Import cannot mark a property Sold without an authorised booking reference.');
+  } else if (!SELECTABLE_STATUSES.includes(status as PropertyStatus)) {
+    err(`"${row.status}" is not one of Available, Reserved, On hold or Blocked.`);
+  }
+
+  const key = code.toLowerCase();
+  if (key && seenCodes.has(key)) {
+    out.push({ line, severity: 'duplicate', text: `${code} appears more than once in this sheet.` });
+  } else if (key && existingCodes.has(key)) {
+    if (options.updateMatching) {
+      out.push({ line, severity: 'duplicate', text: `${code} already exists — it will be updated.` });
+    } else {
+      err(`${code} already exists on this project. Turn on "Update matching property IDs" to change it.`);
+    }
+  }
+
+  /* The soft one: the two ways of saying the area disagree. */
+  const dims = parseDimensions(row.dimensions);
+  if (Number.isFinite(marla) && marla > 0 && dims.width !== null && dims.length !== null) {
+    const check = areaCheck(marla, standard, dims.width, dims.length);
+    if (!check.match && check.deltaPct !== null) {
+      warn(`${sizeLabel(marla)} and ${row.dimensions} disagree by ${check.deltaPct}%.`);
+    }
+  }
+
+  return out;
+}
+
+export interface ImportTally {
+  readonly ready: number;
+  readonly errors: number;
+  readonly warnings: number;
+  readonly duplicates: number;
+}
+
+/** The four tiles on the owner's Import reference. */
+export function tallyImport(rows: number, issues: readonly ImportIssue[]): ImportTally {
+  const linesWithErrors = new Set(issues.filter((i) => i.severity === 'error').map((i) => i.line));
+  return {
+    ready: Math.max(0, rows - linesWithErrors.size),
+    errors: issues.filter((i) => i.severity === 'error').length,
+    warnings: issues.filter((i) => i.severity === 'warning').length,
+    duplicates: issues.filter((i) => i.severity === 'duplicate').length,
+  };
 }

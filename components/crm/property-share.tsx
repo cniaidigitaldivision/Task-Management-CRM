@@ -77,9 +77,14 @@ export function SharePropertyDialog({
 
   /* A fresh dialog each time it opens — a previous customer's name left in the
      box is how the wrong person gets addressed. */
-  const was = React.useRef(open);
-  if (was.current !== open) {
-    was.current = open;
+  /* ⚠️ STATE, NOT A REF. Resetting when a prop changes is React's own
+     "adjusting state during render" pattern, and it has to be state: a ref read
+     or written during render is `react-hooks/refs`, and it is a real bug rather
+     than a style rule — a ref does not schedule the re-render the reset needs,
+     so under Strict Mode's double invocation the two can disagree. */
+  const [wasOpen, setWasOpen] = React.useState(open);
+  if (wasOpen !== open) {
+    setWasOpen(open);
     if (open) { setName(''); setPhone(''); setCopied(null); }
   }
 

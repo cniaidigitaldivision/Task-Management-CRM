@@ -11,9 +11,10 @@ import {
   createPropertyAction, setPropertyStatusAction,
   sharePropertyListAction, updatePropertyAction, type PropertyForm,
 } from '@/app/actions/crm-properties';
-import { cv, OUTLINE, outlineStyle, SOLID, solidStyle, Select, Square, SQUARE } from '@/components/crm/clients-ui';
-import { ImportDialog, ShareDialog, templateCsv } from '@/components/crm/properties-dialogs';
+import { cv, OUTLINE, outlineStyle, SOLID, solidStyle, Select, Square } from '@/components/crm/clients-ui';
+import { ImportDialog, ShareDialog } from '@/components/crm/properties-dialogs';
 import { SharePropertyDialog } from '@/components/crm/property-share';
+import { DownloadTemplateDialog } from '@/components/crm/property-template';
 import { PropertySiteMap } from '@/components/crm/property-site-map';
 import {
   AddPropertyWizard, EditPropertyDialog, type ProjectOption,
@@ -24,7 +25,7 @@ import { downloadBlob } from '@/lib/browser/download';
 import type { PropertyRow } from '@/lib/db/queries/crm-properties';
 import {
   areaLabel, characterChips, countProperties, displayArea, filterProperties, money,
-  PRICE_BANDS, SELECTABLE_STATUSES, sizeLabel, statusLook, TEMPLATE_COLUMNS,
+  PRICE_BANDS, SELECTABLE_STATUSES, sizeLabel, statusLook,
   type PropertyFilters,
 } from '@/lib/domain/crm-property';
 import { writeXlsx } from '@/lib/view/xlsx-write';
@@ -57,6 +58,7 @@ type Dialog =
   | { kind: 'share'; id: string }
   | { kind: 'share-list'; text: string }
   | { kind: 'record'; id: string }
+  | { kind: 'template' }
   | null;
 
 const PER_PAGE = 25;
@@ -122,10 +124,11 @@ export function PropertiesBoard({
   };
 
   /* ── the rows on screen ─────────────────────────────────────────────── */
-  const tabFilter: PropertyFilters =
-    tab === 'all' ? {} : tab === 'held' ? {} : { tab };
-
   const visible = React.useMemo(() => {
+    /* Inlined rather than computed above: `tabFilter` derived from `tab` outside
+       the memo reads as a missing dependency, and silencing the rule is how a
+       stale filter ships. */
+    const tabFilter: PropertyFilters = tab === 'all' || tab === 'held' ? {} : { tab };
     const base = filterProperties(properties, { ...filters, ...tabFilter, search });
     /* "On hold" is one tab over two states, as the card is one figure over two. */
     return tab === 'held'
@@ -174,6 +177,12 @@ export function PropertiesBoard({
     if (!top) return 'All projects';
     return count.size > 1 ? `${top[0]} + ${count.size - 1} more` : top[0];
   }, [visible, filters.projectId, projects]);
+
+  const codesByProject = React.useMemo(() => {
+    const out: Record<string, string[]> = {};
+    for (const r of properties) (out[r.projectId] ??= []).push(r.code);
+    return out;
+  }, [properties]);
 
   const allOnPagePicked = rows.length > 0 && rows.every((r) => picked.has(r.id));
 
@@ -269,9 +278,11 @@ export function PropertiesBoard({
     toast({ tone: 'ok', text: `${list.length} properties exported.` });
   }
 
+  /* The template now has a dialog of its own — format, what it contains, and
+     whether to include an example row. The one-press CSV it replaced could not
+     answer "what goes in column F". */
   function downloadTemplate() {
-    downloadBlob('property-import-template.csv', `﻿${templateCsv()}`, 'text/csv;charset=utf-8');
-    toast({ tone: 'ok', text: 'Template downloaded.' });
+    setDialog({ kind: 'template' });
   }
 
   const editing = dialog?.kind === 'edit' ? properties.find((r) => r.id === dialog.id) ?? null : null;
@@ -595,7 +606,12 @@ export function PropertiesBoard({
         open={dialog?.kind === 'import'}
         onClose={() => setDialog(null)}
         projects={projects}
+        /* ⚠️ The codes already on each project, so a clash is NAMED in the
+           wizard rather than discovered by the server after somebody has mapped
+           thirty columns. The board already holds every row. */
+        existingCodes={codesByProject}
         onDone={(message) => toast({ tone: 'ok', text: message })}
+        onTemplate={() => setDialog({ kind: 'template' })}
       />
 
       <SharePropertyDialog
@@ -609,6 +625,13 @@ export function PropertiesBoard({
       {/* The bulk one stays a plain list — a dozen plots do not get a message
           preview and a recipient; they get copied into whatever the salesperson
           is already writing. */}
+      <DownloadTemplateDialog
+        open={dialog?.kind === 'template'}
+        onClose={() => setDialog(null)}
+        projects={projects}
+        onToast={(tone, text) => toast({ tone, text })}
+      />
+
       <ShareDialog
         open={dialog?.kind === 'share-list'}
         onClose={() => setDialog(null)}

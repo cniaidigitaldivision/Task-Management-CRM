@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 
 import {
   areaCheck,
+  checkImportRow,
+  tallyImport,
+  type ImportOptions,
   areaLabel,
   areaSqft,
   characterChips,
@@ -408,5 +411,71 @@ describe('⚠️ the share message, and the three fields that can never be in it
       expect(shareLines(src, f, { to: null, from: 'Sarah' }))
         .toContain('Availability is subject to confirmation at the time of booking.');
     }
+  });
+});
+
+describe('importing a sheet', () => {
+  const OPTS: ImportOptions = { markTestData: true, skipUnchanged: true, updateMatching: false };
+  const good = {
+    code: 'PROP-A200', plotNumber: 'A-200', sizeMarla: '5', basePrice: '4500000',
+    dimensions: '25 × 45 ft', status: 'available',
+  };
+  const none = new Set<string>();
+
+  it('passes a clean row', () => {
+    expect(checkImportRow(good, 2, none, none, OPTS, 225)).toEqual([]);
+  });
+
+  it('refuses a row that cannot become a property', () => {
+    const issues = checkImportRow({ ...good, code: '', sizeMarla: 'five', basePrice: 'call us' }, 3, none, none, OPTS, 225);
+    expect(issues.filter((i) => i.severity === 'error')).toHaveLength(3);
+  });
+
+  /* ⚠️ THE OWNER'S OWN LINE, and it is an error rather than a silent downgrade:
+     a row imported as Available when the sheet said Sold is how a plot gets
+     sold twice. */
+  it('will not let a spreadsheet sell a plot', () => {
+    const issues = checkImportRow({ ...good, status: 'sold' }, 4, none, none, OPTS, 225);
+    expect(issues[0]).toMatchObject({ severity: 'error' });
+    expect(issues[0].text).toContain('authorised booking reference');
+  });
+
+  it('allows the other four states', () => {
+    for (const s of ['available', 'reserved', 'on hold', 'blocked']) {
+      expect(checkImportRow({ ...good, status: s }, 5, none, none, OPTS, 225)).toEqual([]);
+    }
+  });
+
+  it('calls a repeat inside one sheet a duplicate', () => {
+    const issues = checkImportRow(good, 6, new Set(['prop-a200']), none, OPTS, 225);
+    expect(issues[0].severity).toBe('duplicate');
+  });
+
+  /* ⚠️ An ID that already exists is an ERROR by default and a duplicate only
+     when the person has said they mean to update. A repeated ID is a mistake
+     far more often than an intention. */
+  it('refuses an existing ID unless updating was asked for', () => {
+    const existing = new Set(['prop-a200']);
+    expect(checkImportRow(good, 7, none, existing, OPTS, 225)[0].severity).toBe('error');
+    expect(checkImportRow(good, 7, none, existing, { ...OPTS, updateMatching: true }, 225)[0].severity)
+      .toBe('duplicate');
+  });
+
+  /* A warning, not an error: it imports fine and is very likely a typo. */
+  it('warns when the size and the dimensions disagree', () => {
+    const issues = checkImportRow({ ...good, dimensions: '30 × 60 ft' }, 8, none, none, OPTS, 225);
+    expect(issues).toHaveLength(1);
+    expect(issues[0].severity).toBe('warning');
+    expect(issues[0].text).toContain('60%');
+  });
+
+  it('counts the four tiles, and a row with two errors is still one unready row', () => {
+    const issues = [
+      { line: 2, severity: 'error' as const, text: 'a' },
+      { line: 2, severity: 'error' as const, text: 'b' },
+      { line: 3, severity: 'warning' as const, text: 'c' },
+      { line: 4, severity: 'duplicate' as const, text: 'd' },
+    ];
+    expect(tallyImport(10, issues)).toEqual({ ready: 9, errors: 2, warnings: 1, duplicates: 1 });
   });
 });

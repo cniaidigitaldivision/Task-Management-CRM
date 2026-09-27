@@ -244,9 +244,14 @@ export function AddPropertyWizard({
   const [idLocked, setIdLocked] = React.useState(true);
 
   /* Reopening starts clean. */
-  const was = React.useRef(open);
-  if (was.current !== open) {
-    was.current = open;
+  /* ⚠️ STATE, NOT A REF. Resetting when a prop changes is React's own
+     "adjusting state during render" pattern, and it has to be state: a ref read
+     or written during render is `react-hooks/refs`, and it is a real bug rather
+     than a style rule — a ref does not schedule the re-render the reset needs,
+     so under Strict Mode's double invocation the two can disagree. */
+  const [wasOpen, setWasOpen] = React.useState(open);
+  if (wasOpen !== open) {
+    setWasOpen(open);
     if (open) { setStep(0); setF({ ...BLANK_FORM, projectId: projects[0]?.id ?? '' }); setIdLocked(true); }
   }
 
@@ -647,9 +652,14 @@ export function EditPropertyDialog({
   const [tab, setTab] = React.useState<(typeof TABS)[number]>('Details');
   const [reason, setReason] = React.useState('');
 
-  const seen = React.useRef(original);
-  if (seen.current !== original) {
-    seen.current = original;
+  /* ⚠️ STATE, NOT A REF. Resetting when a prop changes is React's own
+     "adjusting state during render" pattern, and it has to be state: a ref read
+     or written during render is `react-hooks/refs`, and it is a real bug rather
+     than a style rule — a ref does not schedule the re-render the reset needs,
+     so under Strict Mode's double invocation the two can disagree. */
+  const [seen, setSeen] = React.useState(original);
+  if (seen !== original) {
+    setSeen(original);
     setF(original);
     setTab('Details');
     setReason('');

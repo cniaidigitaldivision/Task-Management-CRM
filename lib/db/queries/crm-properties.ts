@@ -510,3 +510,25 @@ export async function crmPropertyCount(): Promise<number> {
   const rows = await sql`select count(*)::int as n from public.crm_properties`;
   return Number(rows[0]?.n ?? 0);
 }
+
+/**
+ * The first of these codes that already exists on the project, or null.
+ *
+ * ⚠️ ONE QUERY FOR THE WHOLE SHEET. Asking per row would be 500 round trips in
+ * series down one connection — the lesson the leads importer learned at 49
+ * seconds.
+ */
+export async function crmFirstExistingCode(
+  actorId: string,
+  projectId: string,
+  codes: readonly string[],
+): Promise<string | null> {
+  if (codes.length === 0) return null;
+  const rows = await withUser(actorId, (tx) => tx`
+    select code from public.crm_properties
+     where project_id = ${projectId}::uuid
+       and lower(btrim(code)) = any (${codes.map((c) => c.trim().toLowerCase())}::text[])
+     limit 1
+  `);
+  return (rows[0]?.code as string | undefined) ?? null;
+}

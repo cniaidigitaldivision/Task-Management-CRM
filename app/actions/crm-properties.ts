@@ -263,6 +263,11 @@ export async function importPropertiesAction(
   projectId: string,
   marlaStandard: number,
   rows: readonly ImportRow[],
+  /* ⚠️ THE WIZARD'S SWITCHES ARE RE-READ HERE. They change what is written,
+     so they are arguments to the write — not a browser preference the server
+     takes on trust. `updateMatching` in particular decides whether an existing
+     plot is overwritten. */
+  options: { readonly markTestData?: boolean; readonly updateMatching?: boolean } = {},
 ): Promise<PropertyResult & { readonly inserted?: number; readonly updated?: number }> {
   const { user } = await requireCrmAccess();
   if (!projectId) return { ok: false, error: 'Choose the project to import into.' };
@@ -302,6 +307,16 @@ export async function importPropertiesAction(
     });
     if ('error' in checked) return { ok: false, error: `Row ${i + 2}: ${checked.error}` };
 
+    /* ⚠️ THE SHEET CANNOT SELL A PLOT — owner's Import reference, and it is
+       enforced HERE as well as in the wizard. A crafted request must meet the
+       same rule the dialog shows, or the rule is decoration. */
+    if (checked.input.status === 'sold') {
+      return {
+        ok: false,
+        error: `Row ${i + 2}: import cannot mark a property Sold without an authorised booking reference.`,
+      };
+    }
+
     /* ⚠️ A sheet naming the same plot twice would make the upsert's last row
        win silently. Refused instead — the person needs to know their sheet is
        wrong, not to discover one of the two prices later. */
@@ -310,6 +325,17 @@ export async function importPropertiesAction(
     seen.add(key);
 
     prepared.push(checked.input);
+  }
+
+  /* An existing plot is only touched when the person asked for it. */
+  if (!options.updateMatching) {
+    const clash = await P.crmFirstExistingCode(user.id, projectId, prepared.map((r) => r.code));
+    if (clash) {
+      return {
+        ok: false,
+        error: `${clash} already exists on this project. Turn on “Update matching property IDs” to change it.`,
+      };
+    }
   }
 
   const { inserted, updated } = await P.crmImportProperties(user.id, projectId, prepared);
