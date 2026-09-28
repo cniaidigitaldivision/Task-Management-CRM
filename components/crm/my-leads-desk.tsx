@@ -849,7 +849,6 @@ export function MyLeadsDesk({
             onTab={onDrawerTab}
             onClose={closeLead}
             onRaiseQuotation={() => setQuoteFor(openLead)}
-            onChooseUnit={() => setUnitFor(openLead)}
             onSummary={onSummary}
           />
         );

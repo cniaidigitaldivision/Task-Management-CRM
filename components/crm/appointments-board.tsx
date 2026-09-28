@@ -605,7 +605,6 @@ export function AppointmentsBoard({
             seed={seedRelated(bundles[dialog.leadId].record.lead, bundles[dialog.leadId].related)}
             initialTab={dialog.tab}
             onClose={() => setDialog(null)}
-            onChooseUnit={() => setDialog(null)}
             onRecordOutcome={() => setDialog({ kind: 'stage', leadId: dialog.leadId })}
             onAttach={() => {
               /* A file is sent from the lead's own WhatsApp tab, where the

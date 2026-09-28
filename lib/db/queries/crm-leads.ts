@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { type Tx, withUser, withUserBypassingReadOnly } from '../client';
+import { type Tx, withUser } from '../client';
 import { clientFacingName, letterSubtitle } from '@/lib/domain/crm-brand';
 import { needsApproval, netAmount, nextQuotationNumber } from '@/lib/domain/crm-quotations';
 
@@ -4191,4 +4191,33 @@ export async function crmAgentStates(actorId: string, leadIds: readonly string[]
     handoffAt: r.agent_handoff_at ? new Date(r.agent_handoff_at as string).toISOString() : null,
     handoffReason: (r.agent_handoff_reason as string | null) ?? null,
   }));
+}
+
+/**
+ * The lead's own project catalogue, plus what is attached today.
+ *
+ * ⚠️ ONE ROUND TRIP, and it answers three questions at once — which project,
+ * which plots, which one is already on the lead. Three calls would be three
+ * waits on a picker somebody opened expecting it to be there.
+ *
+ * ⚠️ AND IT RETURNS NULL WHEN THE LEAD IS NOT READABLE, rather than an empty
+ * catalogue. Those are different answers: "this scheme has no plots" is a thing
+ * to tell somebody, and "this lead is not yours" is another.
+ */
+export async function crmLeadCatalogue(
+  actorId: string,
+  leadId: string,
+): Promise<{ units: CrmUnit[]; projectName: string; attachedId: string | null } | null> {
+  const found = await withUser(actorId, (tx) => tx`
+    select l.project_id, l.property_id, app.crm_project_name(l.project_id) as project_name
+      from public.crm_leads l where l.id = ${leadId}::uuid
+  `);
+  const lead = found[0];
+  if (!lead) return null;
+
+  return {
+    units: await crmProjectUnits(actorId, lead.project_id as string),
+    projectName: (lead.project_name as string | null) ?? '',
+    attachedId: (lead.property_id as string | null) ?? null,
+  };
 }

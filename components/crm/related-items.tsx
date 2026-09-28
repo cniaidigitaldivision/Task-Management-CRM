@@ -64,7 +64,9 @@ import {
   type AppointmentDraft,
 } from '@/components/crm/appointment-scheduler';
 import { formatWhen, fromInputValue, karachiAt, karachiParts, toInputValue } from '@/components/crm/when';
+import { attachUnitAction, leadCatalogueAction } from '@/app/actions/crm-leads';
 import { useToast } from '@/components/ui/toast';
+import type { CrmUnit } from '@/lib/db/queries/crm-leads';
 import type { CrmLeadRecord, CrmLeadRelated, CrmSender } from '@/lib/db/queries/crm-leads';
 import type { ParsedPlot } from '@/lib/domain/crm-property-sheet';
 import type {
@@ -256,7 +258,6 @@ export function RelatedItemsDialog({
   seed,
   initialTab = 'quotations',
   onClose,
-  onChooseUnit,
   onRecordOutcome,
   onAttach,
 }: {
@@ -275,7 +276,6 @@ export function RelatedItemsDialog({
   seed?: RelatedBundle;
   initialTab?: TabKey;
   onClose: () => void;
-  onChooseUnit: () => void;
   onRecordOutcome: () => void;
   /** Hand files and a line of text to the WhatsApp composer. */
   onAttach: (payload: AttachPayload) => void;
@@ -522,7 +522,7 @@ export function RelatedItemsDialog({
         ) : tab === 'quotations' ? (
           <QuotationsTab ctx={ctx} pickedId={picked.quotations} onPick={pick('quotations')} />
         ) : tab === 'properties' ? (
-          <PropertiesTab ctx={ctx} pickedId={picked.properties} onPick={pick('properties')} onChooseUnit={onChooseUnit} />
+          <PropertiesTab ctx={ctx} pickedId={picked.properties} onPick={pick('properties')} />
         ) : tab === 'appointments' ? (
           <AppointmentsTab ctx={ctx} pickedId={picked.appointments} onPick={pick('appointments')} onRecordOutcome={onRecordOutcome} />
         ) : tab === 'bookings' ? (
@@ -1801,11 +1801,10 @@ function PropertySheetPicker({ ctx, onClose }: { ctx: Ctx; onClose: () => void }
 
 const P_COLS = `18px minmax(0,1.5fr) minmax(0,0.6fr) ${MONEY_COL} ${MONEY_COL}`;
 
-function PropertiesTab({ ctx, pickedId, onPick, onChooseUnit }: {
+function PropertiesTab({ ctx, pickedId, onPick }: {
   ctx: Ctx;
   pickedId?: string;
   onPick: (id: string) => void;
-  onChooseUnit: () => void;
 }) {
   const { lead, items } = ctx;
   const list = items.properties;
@@ -1819,6 +1818,7 @@ function PropertiesTab({ ctx, pickedId, onPick, onChooseUnit }: {
   const sheet = items.files.find((f) => ['brochure', 'site_plan', 'price_list'].includes(f.kind)) ?? null;
   const [attachSheet, setAttachSheet] = React.useState(true);
   const [addingPlots, setAddingPlots] = React.useState(false);
+  const [linking, setLinking] = React.useState(false);
 
   const attach = async () => {
     if (!chosen) return;
@@ -1883,7 +1883,7 @@ function PropertiesTab({ ctx, pickedId, onPick, onChooseUnit }: {
               }
             />
             {list.length === 0 ? (
-              <EmptyList loading={ctx.loading} action={<OutlineBlue icon={PlusCircle} onClick={onChooseUnit}>Link property</OutlineBlue>}>
+              <EmptyList loading={ctx.loading} action={<OutlineBlue icon={PlusCircle} onClick={() => setLinking(true)}>Link property</OutlineBlue>}>
                 No unit is linked to this lead yet.
               </EmptyList>
             ) : (
@@ -2014,7 +2014,7 @@ function PropertiesTab({ ctx, pickedId, onPick, onChooseUnit }: {
       <Foot
         left={
           <div>
-            <OutlineBlue icon={PlusCircle} onClick={onChooseUnit}>
+            <OutlineBlue icon={PlusCircle} onClick={() => setLinking(true)}>
               Link property
             </OutlineBlue>
             <p className="mt-1 pl-1 text-caption text-text-secondary">Link another property to this lead.</p>
@@ -2031,6 +2031,7 @@ function PropertiesTab({ ctx, pickedId, onPick, onChooseUnit }: {
         }
       />
       {addingPlots && <PropertySheetPicker ctx={ctx} onClose={() => setAddingPlots(false)} />}
+      {linking && <PlotPicker ctx={ctx} onClose={() => setLinking(false)} />}
     </>
   );
 }
@@ -3431,5 +3432,166 @@ function InvoicesTab({ ctx, pickedId, onPick }: { ctx: Ctx; pickedId?: string; o
         </Sheet>
       )}
     </>
+  );
+}
+
+/* ── The plot picker, on the lead's own catalogue ────────────────────────────
+ * ⚠️ IT LIVES HERE, NOT IN THE HOST PAGE. `UnitPicker` was wired only on
+ * `/my-leads`, because only that page loads a catalogue — and it loads the one
+ * for whatever project its URL FILTER names, which is empty when no filter is
+ * set. The four other screens that show a lead (Appointments, Clients,
+ * Conversations, Follow-ups) passed `onChooseUnit={() => setDialog(null)}`: the
+ * button closed the panel and did nothing at all.
+ *
+ * So the Related panel asks for the catalogue itself, using the lead's own
+ * project, when somebody opens the picker. One round trip, on demand, and
+ * correct from all five screens.
+ * ========================================================================= */
+
+function PlotPicker({ ctx, onClose }: { ctx: Ctx; onClose: () => void }) {
+  const { lead } = ctx;
+  const toast = useToast();
+  const [state, setState] = React.useState<
+    | { phase: 'loading' }
+    | { phase: 'error'; message: string }
+    | { phase: 'ready'; units: readonly CrmUnit[]; projectName: string; attachedId: string | null }
+  >({ phase: 'loading' });
+  const [chosen, setChosen] = React.useState<string | null>(null);
+  const [search, setSearch] = React.useState('');
+  const [saving, setSaving] = React.useState(false);
+
+  React.useEffect(() => {
+    let alive = true;
+    void leadCatalogueAction(lead.id).then((r) => {
+      if (!alive) return;
+      if (!r.ok) {
+        setState({ phase: 'error', message: r.error ?? 'That catalogue could not be read.' });
+        return;
+      }
+      setState({
+        phase: 'ready',
+        units: r.units ?? [],
+        projectName: r.projectName ?? '',
+        attachedId: r.attachedId ?? null,
+      });
+      setChosen(r.attachedId ?? null);
+    });
+    return () => { alive = false; };
+  }, [lead.id]);
+
+  const units = state.phase === 'ready' ? state.units : [];
+  const needle = search.trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
+  const shown = needle
+    ? units.filter((u) => `${u.code} ${u.label}`.toLowerCase().replace(/[^a-z0-9]+/g, '').includes(needle))
+    : units;
+
+  async function save(next: string | null) {
+    setSaving(true);
+    const result = await attachUnitAction(lead.id, next);
+    setSaving(false);
+    if (!result.ok) {
+      toast({ tone: 'error', text: result.error ?? 'That plot could not be linked.' });
+      return;
+    }
+    toast({ tone: 'ok', text: next ? 'That plot is linked to this lead.' : 'The plot was unlinked.' });
+    onClose();
+  }
+
+  return (
+    <Sheet title="Link a plot" onClose={onClose}>
+      {state.phase === 'loading' && <p className="text-caption text-text-secondary">Reading the catalogue…</p>}
+      {state.phase === 'error' && <p className="text-caption text-feedback-error">{state.message}</p>}
+
+      {state.phase === 'ready' && (
+        <div className="space-y-2">
+          <p className="text-caption text-text-secondary">
+            {state.projectName} · {units.length} plot{units.length === 1 ? '' : 's'} in this scheme
+          </p>
+
+          {units.length === 0 ? (
+            /* ⚠️ NAMES THE SCHEME AND WHAT TO DO. The old wording — "This project
+               has no units in the catalogue yet" — sent somebody looking for a
+               bug when the catalogue simply had not been loaded for THIS scheme,
+               and did not say where it is loaded. */
+            <p className="text-caption text-text-secondary">
+              <strong className="text-text-primary">{state.projectName}</strong> has no plots in the
+              catalogue yet. Add them on the Properties page — one at a time, or by importing a sheet.
+            </p>
+          ) : (
+            <>
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Find a plot number…"
+                aria-label="Find a plot"
+                className="h-9 w-full rounded-lg border border-border-default bg-bg-surface px-3 text-body-sm outline-none"
+              />
+
+              <div className="max-h-56 space-y-1.5 overflow-y-auto">
+                {shown.length === 0 && (
+                  <p className="text-caption text-text-secondary">No plot matches “{search}”.</p>
+                )}
+                {shown.map((u) => {
+                  const gone = u.status !== 'available';
+                  const on = chosen === u.id;
+                  return (
+                    <button
+                      key={u.id}
+                      type="button"
+                      onClick={() => setChosen(on ? null : u.id)}
+                      className={cn(
+                        'flex w-full items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left transition-colors',
+                        on
+                          ? 'border-accent-primary bg-accent-primary/5'
+                          : 'border-border-subtle hover:bg-bg-surface-sunken',
+                      )}
+                    >
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-body-sm font-medium text-text-primary">{u.code}</span>
+                        <span className="block truncate text-caption text-text-secondary">{u.label}</span>
+                      </span>
+                      {/* ⚠️ A SOLD PLOT IS LISTED AND MARKED, NOT HIDDEN. Somebody
+                          asked "what about B-201?" has to be able to say it is
+                          gone, or the catalogue disagrees with the board on the
+                          wall. 150's rule, kept. */}
+                      {gone && (
+                        <span className="shrink-0 rounded-full bg-bg-surface-sunken px-2 py-0.5 text-micro capitalize text-text-tertiary">
+                          {u.status.replace(/_/g, ' ')}
+                        </span>
+                      )}
+                      {on && <Check className="size-4 shrink-0 text-accent-primary" aria-hidden="true" />}
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          )}
+
+          <div className="flex items-center justify-between gap-2 pt-1">
+            <span className="text-micro text-text-tertiary">Linking a plot does not reserve it.</span>
+            <span className="flex gap-2">
+              {state.attachedId && (
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => void save(null)}
+                  className="h-8 rounded-lg border border-border-default px-3 text-body-sm"
+                >
+                  Unlink
+                </button>
+              )}
+              <button
+                type="button"
+                disabled={saving || units.length === 0 || chosen === state.attachedId}
+                onClick={() => void save(chosen)}
+                className="h-8 rounded-lg bg-accent-primary px-3 text-body-sm font-medium text-text-on-accent disabled:opacity-40"
+              >
+                {saving ? 'Saving…' : 'Link plot'}
+              </button>
+            </span>
+          </div>
+        </div>
+      )}
+    </Sheet>
   );
 }

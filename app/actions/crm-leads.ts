@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 
 import { requireUser } from '@/lib/auth/current-user';
-import { withUser, withUserBypassingReadOnly } from '@/lib/db/client';
+import { withUser } from '@/lib/db/client';
 import { createFollowUp } from '@/lib/db/queries/crm-followups';
 import { notify } from '@/lib/db/queries/feed';
 import {
@@ -37,6 +37,8 @@ import {
   type CrmDiaryEntry,
   type CrmDuplicate,
   type CrmLeadRow,
+  crmLeadCatalogue,
+  type CrmUnit,
 } from '@/lib/db/queries/crm-leads';
 import { isLostReason, isStage, TEMPERATURES } from '@/lib/domain/crm-stages';
 import {
@@ -1385,6 +1387,34 @@ export async function sendQuotationAction(
  * price argument on this action would be a way around that rule dressed as a
  * convenience.
  */
+/**
+ * The catalogue for THIS lead's project, fetched when the picker opens.
+ *
+ * ⚠️ WHY THIS EXISTS AT ALL. `UnitPicker` was wired on `/my-leads` only, because
+ * only that page loads `crmProjectUnits` for the project in its URL. The four
+ * other screens that show a lead — Appointments, Clients, Conversations and
+ * Follow-ups — passed `onChooseUnit={() => setDialog(null)}`: the button closed
+ * the panel and did nothing at all. Measured 2026-09-28.
+ *
+ * ⚠️ AND THE URL WAS THE WRONG SOURCE ANYWAY. `/my-leads` loads the catalogue
+ * for whatever project the FILTER is set to; with no filter it loads none, so
+ * the picker opened empty on a lead whose scheme has a hundred and fifty plots.
+ * The lead knows its own project. Asking it is one round trip when somebody
+ * actually opens the picker, and correct from every screen.
+ */
+export async function leadCatalogueAction(leadId: string): Promise<{
+  readonly ok: boolean;
+  readonly units?: readonly CrmUnit[];
+  readonly projectName?: string;
+  readonly attachedId?: string | null;
+  readonly error?: string;
+}> {
+  const user = await requireUser();
+  const found = await crmLeadCatalogue(user.id, leadId);
+  if (!found) return { ok: false, error: NOT_YOURS };
+  return { ok: true, ...found };
+}
+
 export async function attachUnitAction(
   leadId: string,
   propertyId: string | null,

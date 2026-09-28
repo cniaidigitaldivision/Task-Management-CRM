@@ -250,9 +250,17 @@ async function main() {
       const [p] = await tx`select id from public.crm_properties
         where project_id = ${project.id} and code = ${code}`;
       const phone = `+9230000000${String(i).padStart(2, '0')}`;
-      const exists = await tx`select 1 from public.crm_leads
+      /* ⚠️ RE-LINK, DO NOT SKIP. `crm_leads.property_id` is ON DELETE SET
+         NULL, and this script deletes the whole catalogue before re-seeding it
+         — so the second run silently unlinked every demo lead and the Related
+         items panel went empty. Skipping an existing lead left it pointing at
+         nothing; updating it puts the link back on the NEW plot row. */
+      const exists = await tx`select id from public.crm_leads
         where project_id = ${project.id} and phone_e164 = ${phone}`;
-      if (exists.length) continue;
+      if (exists.length) {
+        await tx`update public.crm_leads set property_id = ${p.id} where id = ${exists[0].id}`;
+        continue;
+      }
       await tx`select app.crm_create_lead(
         ${project.id}::uuid, ${name}::text, ${phone}::text, ${phone}::text,
         ${`${name.split(' ')[0].toLowerCase()}@example.invalid`}::text, ${CITY}::text,
@@ -270,7 +278,13 @@ async function main() {
   const [{ n: consenting }] = await sql`
     select count(*)::int n from public.crm_leads
      where project_id = ${project.id} and whatsapp_consent`;
-  console.log(`queued WhatsApp follow-ups: ${queued}   leads with consent: ${consenting}`);
+  const [{ n: linked }] = await sql`
+    select count(*)::int n from public.crm_leads
+     where project_id = ${project.id} and property_id is not null`;
+  console.log(`queued WhatsApp follow-ups: ${queued}   leads with consent: ${consenting}   leads linked to a plot: ${linked}`);
+  if (linked !== NAMES.length) {
+    throw new Error(`${NAMES.length} leads should be linked to a plot and ${linked} are. The catalogue was probably re-seeded under them.`);
+  }
   if (queued !== 0 || consenting !== 0) {
     throw new Error('A demo row could message somebody. Refusing to finish quietly.');
   }

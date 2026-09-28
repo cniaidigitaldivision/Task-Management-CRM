@@ -737,7 +737,6 @@ export function ClientsBoard({
           seed={seedRelated(bundles[dialog.leadId].record.lead, bundles[dialog.leadId].related)}
           initialTab={dialog.tab}
           onClose={() => setDialog(null)}
-          onChooseUnit={() => setDialog(null)}
           onRecordOutcome={() => setDialog({ kind: 'lead', leadId: dialog.leadId })}
           onAttach={() => {
             setDialog(null);
