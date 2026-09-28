@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import {
   Building2, ChevronDown, ChevronLeft, ChevronRight, CircleSlash, Clock, Download,
@@ -722,7 +723,6 @@ function ImportMenu({ onImport, onTemplate }: { onImport: () => void; onTemplate
   const [open, setOpen] = React.useState(false);
   const ref = React.useRef<HTMLDivElement>(null);
   useOutside(ref, () => setOpen(false), open);
-  const side = useMenuSide(ref, open, 14);
 
   return (
     <div className="relative" ref={ref}>
@@ -732,13 +732,10 @@ function ImportMenu({ onImport, onTemplate }: { onImport: () => void; onTemplate
         Import properties
         <ChevronDown className="size-[1rem]" aria-hidden="true" />
       </button>
-      {open && (
-        <div className={cn('absolute top-[calc(100%+0.3rem)] z-20 w-[14rem] overflow-hidden rounded-[0.5rem] border shadow-[var(--shadow-md)]', side === 'right' ? 'right-0' : 'left-0')}
-             style={{ borderColor: cv('line'), background: cv('surface') }}>
-          <MenuItem onClick={() => { setOpen(false); onImport(); }}>Upload a sheet…</MenuItem>
-          <MenuItem onClick={() => { setOpen(false); onTemplate(); }}>CSV / Excel template</MenuItem>
-        </div>
-      )}
+      <DropMenu anchor={ref} open={open} widthRem={14}>
+        <MenuItem onClick={() => { setOpen(false); onImport(); }}>Upload a sheet…</MenuItem>
+        <MenuItem onClick={() => { setOpen(false); onTemplate(); }}>CSV / Excel template</MenuItem>
+      </DropMenu>
     </div>
   );
 }
@@ -749,7 +746,6 @@ function DownloadMenu({
   const [open, setOpen] = React.useState(false);
   const ref = React.useRef<HTMLDivElement>(null);
   useOutside(ref, () => setOpen(false), open);
-  const side = useMenuSide(ref, open, 17);
 
   return (
     <div className="relative" ref={ref}>
@@ -759,18 +755,15 @@ function DownloadMenu({
         Download template
         <ChevronDown className="size-[1rem]" aria-hidden="true" />
       </button>
-      {open && (
-        <div className={cn('absolute top-[calc(100%+0.3rem)] z-20 w-[17rem] overflow-hidden rounded-[0.5rem] border shadow-[var(--shadow-md)]', side === 'right' ? 'right-0' : 'left-0')}
-             style={{ borderColor: cv('line'), background: cv('surface') }}>
+      <DropMenu anchor={ref} open={open} widthRem={17}>
           {/* ⚠️ The owner's own words for this button are "download this list of
               properties ... with the filters that are set", so the filtered list
               comes FIRST and the count is named — a download that quietly
               carried all 150 when the screen showed 12 is the bug this avoids. */}
           <MenuItem onClick={() => { setOpen(false); onList(); }}>These {count} properties (CSV)</MenuItem>
           <MenuItem onClick={() => { setOpen(false); onListXlsx(); }}>These {count} properties (Excel)</MenuItem>
-          <MenuItem onClick={() => { setOpen(false); onTemplate(); }}>Blank import template</MenuItem>
-        </div>
-      )}
+        <MenuItem onClick={() => { setOpen(false); onTemplate(); }}>Blank import template</MenuItem>
+      </DropMenu>
     </div>
   );
 }
@@ -779,7 +772,6 @@ function StatusMenu({ disabled, onPick }: { disabled: boolean; onPick: (s: strin
   const [open, setOpen] = React.useState(false);
   const ref = React.useRef<HTMLDivElement>(null);
   useOutside(ref, () => setOpen(false), open);
-  const side = useMenuSide(ref, open, 12);
 
   return (
     <div className="relative" ref={ref}>
@@ -789,16 +781,13 @@ function StatusMenu({ disabled, onPick }: { disabled: boolean; onPick: (s: strin
         Update status
         <ChevronDown className="size-[0.95rem]" aria-hidden="true" />
       </button>
-      {open && (
-        <div className={cn('absolute top-[calc(100%+0.3rem)] z-20 w-[12rem] overflow-hidden rounded-[0.5rem] border shadow-[var(--shadow-md)]', side === 'right' ? 'right-0' : 'left-0')}
-             style={{ borderColor: cv('line'), background: cv('surface') }}>
-          {SELECTABLE_STATUSES.map((s) => (
-            <MenuItem key={s} onClick={() => { setOpen(false); onPick(s); }}>
-              {statusLook(s).label}
-            </MenuItem>
-          ))}
-        </div>
-      )}
+      <DropMenu anchor={ref} open={open} widthRem={12}>
+        {SELECTABLE_STATUSES.map((s) => (
+          <MenuItem key={s} onClick={() => { setOpen(false); onPick(s); }}>
+            {statusLook(s).label}
+          </MenuItem>
+        ))}
+      </DropMenu>
     </div>
   );
 }
@@ -814,26 +803,139 @@ function MenuItem({ onClick, children }: { onClick: () => void; children: React.
 }
 
 /**
- * Which side a dropdown should hang from.
+ * A dropdown that cannot be hidden, because it is not in the page.
  *
- * ⚠️ BOTH SIDES ARE WRONG SOMETIMES, which is why this measures instead of
- * picking one. "Download template" sits at the far right of the filter row on a
- * wide screen — so the menu must hang LEFT from its right edge. On a narrower
- * screen the row wraps and that same button starts at the left margin, where
- * hanging left puts the menu under the sidebar. The owner sent a screenshot of
- * the second case: the items read "ese 150 properties (CSV)".
+ * ⚠️ TWO THINGS IN THIS SHELL WILL EAT AN ABSOLUTELY-POSITIONED MENU, and the
+ * owner met both at once — her menu items read "ese 150 properties (CSV)".
+ *
+ *   1. The sidebar is `fixed … z-50`. Any menu at a lower z-index that reaches
+ *      under it is simply covered.
+ *   2. `<main>` carries `overflow-x-clip`, so anything extending past its box
+ *      sideways is cut off whatever its z-index.
+ *
+ * Repositioning cannot solve either — it only moves the moment they bite. So
+ * the menu is PORTALLED TO `document.body`, which is outside `<main>`'s clip
+ * and outside `reveal-children`'s transform (the same reasoning the app shell
+ * already records for the notification panel, and the same trap the handover
+ * lists for `position: fixed`).
+ *
+ * ⚠️ AND IT IS CLAMPED, NOT JUST FLIPPED. Preferring the right edge and falling
+ * back to the left still leaves a narrow window where neither fits; clamping to
+ * the viewport is the only rule with no gap in it.
  */
-function useMenuSide(ref: React.RefObject<HTMLDivElement | null>, open: boolean, widthRem: number) {
-  const [side, setSide] = React.useState<'left' | 'right'>('right');
+/**
+ * Put the panel under its button, clamped into the viewport.
+ *
+ * ⚠️ A PURE FUNCTION, OUTSIDE THE COMPONENT, so the effect below has stable
+ * dependencies and the React Compiler has nothing to memoize by hand.
+ *
+ * ⚠️ AND CLAMPED, NOT FLIPPED. Right-aligned to the button by preference, then
+ * clamped from both ends: preferring one side and falling back to the other
+ * still leaves a window where neither fits, and clamping has no gap in it.
+ */
+function placeMenu(panel: HTMLElement | null, anchor: HTMLElement | null, widthRem: number) {
+  const r = anchor?.getBoundingClientRect();
+  if (!panel || !r) return;
+
+  /* ⚠️⚠️ THE APP RENDERS AT `zoom: 0.9`, AND THAT BREAKS NAIVE POSITIONING.
+     `getBoundingClientRect()` returns SCREEN pixels — already scaled — while a
+     value written to `style.left` is in the element's own unscaled space and is
+     scaled again on the way to the screen. Mixing them put every menu at 90% of
+     where it belonged: computed 184, painted at 166, which is how it ended up
+     over the sidebar however the clamp was written.
+
+     So the arithmetic below happens entirely in SCREEN space, and only the
+     final two numbers are divided back. The scale is measured from the panel
+     itself rather than assumed: its width is set in rem, so the ratio between
+     its rect and that rem value IS the zoom, whatever the owner has set. */
+  const wantedPx = widthRem * 16;
+  const panelRect = panel.getBoundingClientRect();
+  const z = panelRect.width > 0 ? panelRect.width / wantedPx : 1;
+  const width = wantedPx * z;
+  const GUTTER = 8 * z;
+
+  /* Clamped to the CONTENT AREA, not the window — a menu painted across the
+     navigation looks like a bug even when nothing is hidden. */
+  const page = anchor?.closest('main')?.getBoundingClientRect();
+  const min = Math.max(GUTTER, (page?.left ?? 0) + GUTTER);
+  const max = Math.max(min, (page ? page.right : window.innerWidth) - width - GUTTER);
+
+  /* Right-aligned to the button by preference, then clamped from both ends:
+     preferring one side and falling back to the other leaves a window where
+     neither fits, and clamping has no gap in it. */
+  const left = Math.min(Math.max(r.right - width, min), max);
+
+  panel.style.top = `${(r.bottom + 5 * z) / z}px`;
+  panel.style.left = `${left / z}px`;
+}
+
+function DropMenu({
+  anchor,
+  open,
+  widthRem,
+  children,
+}: {
+  anchor: React.RefObject<HTMLElement | null>;
+  open: boolean;
+  widthRem: number;
+  children: React.ReactNode;
+}) {
+  const panel = React.useRef<HTMLDivElement | null>(null);
+
   React.useEffect(() => {
     if (!open) return;
-    const box = ref.current?.getBoundingClientRect();
-    if (!box) return;
-    const width = widthRem * 16;
-    /* Room to hang left from the right edge? If not, hang right from the left. */
-    setSide(box.right - width >= 8 ? 'right' : 'left');
-  }, [open, ref, widthRem]);
-  return side;
+    const move = () => placeMenu(panel.current, anchor.current, widthRem);
+    /* ⚠️ PLACED HERE TOO, NOT ONLY IN THE REF CALLBACK. React attaches a
+       child's ref BEFORE its parent's, and the portal is rendered inside the
+       anchor's own element — so on the first open `anchor.current` can still be
+       null when the panel's ref fires, and the menu keeps whatever position it
+       had. Running it again from the effect is the cheap way to be certain. */
+    move();
+    window.addEventListener('resize', move);
+    /* `capture`, so a scroll in any container moves it too. */
+    window.addEventListener('scroll', move, true);
+    return () => {
+      window.removeEventListener('resize', move);
+      window.removeEventListener('scroll', move, true);
+    };
+  }, [open, anchor, widthRem]);
+
+  if (!open || typeof document === 'undefined') return null;
+
+  return createPortal(
+    <div
+      /* ⚠️ Placed by the callback ref, BEFORE PAINT. Measuring into state would
+         paint the menu at 0,0 for one frame and jump. */
+      ref={(el) => {
+        panel.current = el;
+        placeMenu(el, anchor.current, widthRem);
+      }}
+      /* ⚠️ The portal is not inside the anchor, so `useOutside`'s document
+         listener would read a click on a menu item as a click OUTSIDE and close
+         the menu on mousedown — before the item's own click could fire. */
+      onMouseDown={(e) => e.stopPropagation()}
+      /* ⚠️ z-[60], ABOVE THE SIDEBAR'S z-50. A portal escapes `<main>`'s
+         `overflow-x-clip`; it does not escape the stacking order. */
+      /* ⚠️ THE SCOPE CLASSES COME WITH IT. `--cl-surface` and the rest are
+         defined on `.prop-ui, .clients-ui` (styles/tokens.css), and a portal to
+         `document.body` lands OUTSIDE that scope — so every token resolved to
+         nothing and the menu rendered with a TRANSPARENT background, with the
+         table legible straight through it. Carrying the classes is what makes a
+         portalled child still belong to its page. */
+      className="prop-ui clients-ui fixed z-[60] overflow-hidden rounded-[0.5rem] border shadow-[var(--shadow-md)]"
+      style={{
+        top: 0,
+        left: 0,
+        width: `${widthRem}rem`,
+        maxWidth: 'calc(100vw - 1rem)',
+        borderColor: cv('line'),
+        background: cv('surface'),
+      }}
+    >
+      {children}
+    </div>,
+    document.body,
+  );
 }
 
 function useOutside(ref: React.RefObject<HTMLDivElement | null>, close: () => void, on: boolean) {
