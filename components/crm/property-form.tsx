@@ -316,147 +316,156 @@ export function AddPropertyWizard({
     >
       <Stepper at={step} onGo={setStep} />
 
-      {step === 0 && (
-        <div className="grid gap-[0.9rem] lg:grid-cols-[minmax(0,1fr)_15rem]">
-          <div className="grid gap-[0.8rem] sm:grid-cols-3">
-            <Field label="Project" required wide>
-              <Select label="Project" value={f.projectId} onChange={(v) => set({ projectId: v })} className="h-[2.5rem] w-full">
-                {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </Select>
-            </Field>
-            <FieldBlock label="Property ID" required>
-              <span className="flex gap-[0.4rem]">
-                <input
-                  aria-label="Property ID"
-                  className={FIELD}
-                  style={{ borderColor: cv('line'), color: cv('ink'), background: idLocked ? cv('head') : cv('surface') }}
-                  value={f.code}
-                  readOnly={idLocked}
-                  onChange={(e) => set({ code: e.target.value })}
-                  placeholder="PROP-A101"
-                />
-                <button
-                  type="button"
-                  onClick={() => setIdLocked(!idLocked)}
-                  aria-label={idLocked ? 'Type the property ID by hand' : 'Follow the plot number again'}
-                  title={idLocked ? 'Type it by hand' : 'Follow the plot number'}
-                  className="grid size-[2.5rem] shrink-0 place-items-center rounded-[0.45rem] border transition-colors hover:bg-[var(--cl-head)]"
-                  style={{ borderColor: cv('line'), color: cv('brand-ink') }}
-                >
-                  <Pencil className="size-[0.95rem]" aria-hidden="true" />
-                </button>
+      {/* ⚠️ ONE HEIGHT FOR EVERY STEP. Owner: *"the heights of the tabs should
+          not change — in each tab on the modal, the height should be constant."*
+          Without a floor the dialog grew and shrank as somebody moved through
+          it, which moves the footer buttons out from under the cursor between
+          one press and the next — and on a native `<dialog>` it re-centres the
+          whole box, so the content jumps too. The floor is the tallest step, so
+          nothing is ever clipped and nothing ever moves. */}
+      <div className="min-h-[26rem]">
+        {step === 0 && (
+          <div className="grid gap-[0.9rem] lg:grid-cols-[minmax(0,1fr)_15rem]">
+            <div className="grid gap-[0.8rem] sm:grid-cols-3">
+              <Field label="Project" required wide>
+                <Select label="Project" value={f.projectId} onChange={(v) => set({ projectId: v })} className="h-[2.5rem] w-full">
+                  {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </Select>
+              </Field>
+              <FieldBlock label="Property ID" required>
+                <span className="flex gap-[0.4rem]">
+                  <input
+                    aria-label="Property ID"
+                    className={FIELD}
+                    style={{ borderColor: cv('line'), color: cv('ink'), background: idLocked ? cv('head') : cv('surface') }}
+                    value={f.code}
+                    readOnly={idLocked}
+                    onChange={(e) => set({ code: e.target.value })}
+                    placeholder="PROP-A101"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setIdLocked(!idLocked)}
+                    aria-label={idLocked ? 'Type the property ID by hand' : 'Follow the plot number again'}
+                    title={idLocked ? 'Type it by hand' : 'Follow the plot number'}
+                    className="grid size-[2.5rem] shrink-0 place-items-center rounded-[0.45rem] border transition-colors hover:bg-[var(--cl-head)]"
+                    style={{ borderColor: cv('line'), color: cv('brand-ink') }}
+                  >
+                    <Pencil className="size-[0.95rem]" aria-hidden="true" />
+                  </button>
+                </span>
+              </FieldBlock>
+
+              <Field label="Block" required>
+                <Text value={f.block} onChange={(v) => set({ block: v, code: suggestId(f.plotNumber) })} placeholder="A" />
+              </Field>
+              <Field label="Plot number" required>
+                <Text value={f.plotNumber} onChange={(v) => set({ plotNumber: v, code: suggestId(v) })} placeholder="A-101" />
+              </Field>
+              <Field label="Property type" required>
+                <Select label="Property type" value={f.kind} onChange={(v) => set({ kind: v })} className="h-[2.5rem] w-full">
+                  {TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                </Select>
+              </Field>
+
+              {/* ⚠️ The aria-label must MATCH the visible one. `Select` puts its
+                  `label` on the control as an aria-label, and an aria-label
+                  overrides the wrapping `<label>` — so "Size" here against
+                  "Size (Marla)" on screen means somebody using voice control says
+                  the words they can see and nothing happens. */}
+              <Field label="Size (Marla)" required>
+                <Select label="Size (Marla)" value={f.sizeMarla} onChange={(v) => set({ sizeMarla: v })} className="h-[2.5rem] w-full">
+                  <option value="">Choose…</option>
+                  {SIZES.map((s) => <option key={s.marla} value={s.marla}>{s.label}</option>)}
+                </Select>
+              </Field>
+              {/* ⚠️ READ-ONLY, AND IT COMES FROM THE PROJECT. This field existing at
+                  all is the owner's instruction made visible: change the project
+                  above and this number changes with it. */}
+              <Field label="Marla standard" locked hint="Set on the project.">
+                <Readonly>{standard} sq ft</Readonly>
+              </Field>
+              <Field label="Total area" locked>
+                <Readonly>{areaLabel(areaSqft(Number(f.sizeMarla), standard))}</Readonly>
+              </Field>
+
+              <Field label="Width (ft)" required>
+                <Text value={f.widthFt} onChange={(v) => set({ widthFt: v })} placeholder="25" mode="decimal" />
+              </Field>
+              <Field label="Length (ft)" required>
+                <Text value={f.lengthFt} onChange={(v) => set({ lengthFt: v })} placeholder="45" mode="decimal" />
+              </Field>
+              <Field label="Facing" required>
+                <Select label="Facing" value={f.facing} onChange={(v) => set({ facing: v })} className="h-[2.5rem] w-full">
+                  <option value="">Choose…</option>
+                  {FACINGS.map((x) => <option key={x} value={x}>{x}</option>)}
+                </Select>
+              </Field>
+
+              <Field label="Road width (ft)" required>
+                <Text value={f.roadWidthFt} onChange={(v) => set({ roadWidthFt: v })} placeholder="30" mode="numeric" />
+              </Field>
+              <Field label="Category" required>
+                <Select label="Category" value={f.category} onChange={(v) => set({ category: v })} className="h-[2.5rem] w-full">
+                  {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                </Select>
+              </Field>
+              <span className="flex flex-wrap items-end gap-[0.9rem] pb-[0.5rem]">
+                {/* ⚠️ INDEPENDENT of Category, because a corner plot can also face a
+                    park. Deriving them from one dropdown made those exclusive. */}
+                <Tick label="Corner" on={f.isCorner} onFlip={() => set({ isCorner: !f.isCorner })} />
+                <Tick label="Park facing" on={f.isParkFacing} onFlip={() => set({ isParkFacing: !f.isParkFacing })} />
+                <Tick label="Main boulevard" on={f.isMainBoulevard} onFlip={() => set({ isMainBoulevard: !f.isMainBoulevard })} />
               </span>
-            </FieldBlock>
 
-            <Field label="Block" required>
-              <Text value={f.block} onChange={(v) => set({ block: v, code: suggestId(f.plotNumber) })} placeholder="A" />
-            </Field>
-            <Field label="Plot number" required>
-              <Text value={f.plotNumber} onChange={(v) => set({ plotNumber: v, code: suggestId(v) })} placeholder="A-101" />
-            </Field>
-            <Field label="Property type" required>
-              <Select label="Property type" value={f.kind} onChange={(v) => set({ kind: v })} className="h-[2.5rem] w-full">
-                {TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-              </Select>
-            </Field>
+              <Field label="Status" required>
+                <Select label="Status" value={f.status} onChange={(v) => set({ status: v })} className="h-[2.5rem] w-full">
+                  {SELECTABLE_STATUSES.map((s) => <option key={s} value={s}>{statusLook(s).label}</option>)}
+                </Select>
+              </Field>
+              <Field label="Development status" required>
+                <Select label="Development status" value={f.developmentStatus} onChange={(v) => set({ developmentStatus: v })} className="h-[2.5rem] w-full">
+                  <option value="">Choose…</option>
+                  {DEV_STATES.map((x) => <option key={x} value={x}>{x}</option>)}
+                </Select>
+              </Field>
+              <Field label="Expected possession">
+                <input type="date" className={FIELD} style={{ borderColor: cv('line'), color: cv('ink') }}
+                       value={f.expectedPossession} onChange={(e) => set({ expectedPossession: e.target.value })} />
+              </Field>
+            </div>
 
-            {/* ⚠️ The aria-label must MATCH the visible one. `Select` puts its
-                `label` on the control as an aria-label, and an aria-label
-                overrides the wrapping `<label>` — so "Size" here against
-                "Size (Marla)" on screen means somebody using voice control says
-                the words they can see and nothing happens. */}
-            <Field label="Size (Marla)" required>
-              <Select label="Size (Marla)" value={f.sizeMarla} onChange={(v) => set({ sizeMarla: v })} className="h-[2.5rem] w-full">
-                <option value="">Choose…</option>
-                {SIZES.map((s) => <option key={s.marla} value={s.marla}>{s.label}</option>)}
-              </Select>
-            </Field>
-            {/* ⚠️ READ-ONLY, AND IT COMES FROM THE PROJECT. This field existing at
-                all is the owner's instruction made visible: change the project
-                above and this number changes with it. */}
-            <Field label="Marla standard" locked hint="Set on the project.">
-              <Readonly>{standard} sq ft</Readonly>
-            </Field>
-            <Field label="Total area" locked>
-              <Readonly>{areaLabel(areaSqft(Number(f.sizeMarla), standard))}</Readonly>
-            </Field>
+            <AreaCheckPanel form={f} standard={standard} />
+          </div>
+        )}
 
-            <Field label="Width (ft)" required>
-              <Text value={f.widthFt} onChange={(v) => set({ widthFt: v })} placeholder="25" mode="decimal" />
+        {step === 1 && (
+          <div className="grid gap-[0.8rem] sm:grid-cols-3">
+            <Field label="Base price (PKR)" required>
+              <Text value={f.basePrice} onChange={(v) => set({ basePrice: v })} placeholder="4500000" mode="numeric" />
             </Field>
-            <Field label="Length (ft)" required>
-              <Text value={f.lengthFt} onChange={(v) => set({ lengthFt: v })} placeholder="45" mode="decimal" />
+            <Field label="Premium charges (PKR)" hint="Corner, park or boulevard premium.">
+              <Text value={f.premiumCharges} onChange={(v) => set({ premiumCharges: v })} placeholder="0" mode="numeric" />
             </Field>
-            <Field label="Facing" required>
-              <Select label="Facing" value={f.facing} onChange={(v) => set({ facing: v })} className="h-[2.5rem] w-full">
-                <option value="">Choose…</option>
-                {FACINGS.map((x) => <option key={x} value={x}>{x}</option>)}
-              </Select>
+            <Field label="Total price" locked>
+              <Readonly>
+                {money((Number(f.basePrice.replace(/[^0-9]/g, '')) || 0) + (Number(f.premiumCharges.replace(/[^0-9]/g, '')) || 0))}
+              </Readonly>
             </Field>
-
-            <Field label="Road width (ft)" required>
-              <Text value={f.roadWidthFt} onChange={(v) => set({ roadWidthFt: v })} placeholder="30" mode="numeric" />
-            </Field>
-            <Field label="Category" required>
-              <Select label="Category" value={f.category} onChange={(v) => set({ category: v })} className="h-[2.5rem] w-full">
-                {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-              </Select>
-            </Field>
-            <span className="flex flex-wrap items-end gap-[0.9rem] pb-[0.5rem]">
-              {/* ⚠️ INDEPENDENT of Category, because a corner plot can also face a
-                  park. Deriving them from one dropdown made those exclusive. */}
-              <Tick label="Corner" on={f.isCorner} onFlip={() => set({ isCorner: !f.isCorner })} />
-              <Tick label="Park facing" on={f.isParkFacing} onFlip={() => set({ isParkFacing: !f.isParkFacing })} />
-              <Tick label="Main boulevard" on={f.isMainBoulevard} onFlip={() => set({ isMainBoulevard: !f.isMainBoulevard })} />
-            </span>
-
-            <Field label="Status" required>
-              <Select label="Status" value={f.status} onChange={(v) => set({ status: v })} className="h-[2.5rem] w-full">
-                {SELECTABLE_STATUSES.map((s) => <option key={s} value={s}>{statusLook(s).label}</option>)}
-              </Select>
-            </Field>
-            <Field label="Development status" required>
-              <Select label="Development status" value={f.developmentStatus} onChange={(v) => set({ developmentStatus: v })} className="h-[2.5rem] w-full">
-                <option value="">Choose…</option>
-                {DEV_STATES.map((x) => <option key={x} value={x}>{x}</option>)}
-              </Select>
-            </Field>
-            <Field label="Expected possession">
-              <input type="date" className={FIELD} style={{ borderColor: cv('line'), color: cv('ink') }}
-                     value={f.expectedPossession} onChange={(e) => set({ expectedPossession: e.target.value })} />
+            <Field label="Internal notes" hint="⚠️ Never included when a property is shared." wide>
+              <textarea className={cn(FIELD, 'h-[5rem] py-[0.5rem]')} style={{ borderColor: cv('line'), color: cv('ink') }}
+                        value={f.notes} onChange={(e) => set({ notes: e.target.value })}
+                        placeholder="Anything the team should know. Stays inside the company." />
             </Field>
           </div>
+        )}
 
-          <AreaCheckPanel form={f} standard={standard} />
-        </div>
-      )}
+        {step === 2 && <DocumentSlots />}
 
-      {step === 1 && (
-        <div className="grid gap-[0.8rem] sm:grid-cols-3">
-          <Field label="Base price (PKR)" required>
-            <Text value={f.basePrice} onChange={(v) => set({ basePrice: v })} placeholder="4500000" mode="numeric" />
-          </Field>
-          <Field label="Premium charges (PKR)" hint="Corner, park or boulevard premium.">
-            <Text value={f.premiumCharges} onChange={(v) => set({ premiumCharges: v })} placeholder="0" mode="numeric" />
-          </Field>
-          <Field label="Total price" locked>
-            <Readonly>
-              {money((Number(f.basePrice.replace(/[^0-9]/g, '')) || 0) + (Number(f.premiumCharges.replace(/[^0-9]/g, '')) || 0))}
-            </Readonly>
-          </Field>
-          <Field label="Internal notes" hint="⚠️ Never included when a property is shared." wide>
-            <textarea className={cn(FIELD, 'h-[5rem] py-[0.5rem]')} style={{ borderColor: cv('line'), color: cv('ink') }}
-                      value={f.notes} onChange={(e) => set({ notes: e.target.value })}
-                      placeholder="Anything the team should know. Stays inside the company." />
-          </Field>
-        </div>
-      )}
-
-      {step === 2 && <DocumentSlots />}
-
-      {step === 3 && (
-        <Review form={f} standard={standard} projectName={project?.name ?? '—'} />
-      )}
+        {step === 3 && (
+          <Review form={f} standard={standard} projectName={project?.name ?? '—'} />
+        )}
+      </div>
 
       {error ? (
         <p className="mt-3 flex items-start gap-2 text-[0.85rem]" style={{ color: cv('red') }}>
@@ -741,99 +750,106 @@ export function EditPropertyDialog({
 
       <div className="grid gap-[0.9rem] lg:grid-cols-[minmax(0,1fr)_16rem]">
         <div className="min-w-0 space-y-[0.8rem]">
-          {tab === 'Details' && (
-            <div className="grid gap-[0.8rem] sm:grid-cols-3">
-              <Field label="Plot number" required><Text value={f.plotNumber} onChange={(v) => set({ plotNumber: v })} /></Field>
-              <Field label="Block" required><Text value={f.block} onChange={(v) => set({ block: v })} /></Field>
-              <Field label="Size" required>
-                <Select label="Size" value={f.sizeMarla} onChange={(v) => set({ sizeMarla: v })} className="h-[2.5rem] w-full">
-                  {SIZES.map((s) => <option key={s.marla} value={s.marla}>{s.label}</option>)}
-                </Select>
-              </Field>
-              <Field label="Marla standard" locked hint="Set on the project."><Readonly>{standard} sq ft</Readonly></Field>
-              <Field label="Area (calculated)" locked><Readonly>{areaLabel(areaSqft(Number(f.sizeMarla), standard))}</Readonly></Field>
-              <FieldBlock label="Dimensions" required>
-                <span className="flex items-center gap-[0.35rem]">
-                  <input aria-label="Width (ft)" className={FIELD} style={{ borderColor: cv('line'), color: cv('ink') }}
-                         value={f.widthFt} onChange={(e) => set({ widthFt: e.target.value })} inputMode="decimal" />
-                  <span style={{ color: cv('mute') }}>×</span>
-                  <input aria-label="Length (ft)" className={FIELD} style={{ borderColor: cv('line'), color: cv('ink') }}
-                         value={f.lengthFt} onChange={(e) => set({ lengthFt: e.target.value })} inputMode="decimal" />
-                </span>
-              </FieldBlock>
-              <Field label="Facing" required>
-                <Select label="Facing" value={f.facing} onChange={(v) => set({ facing: v })} className="h-[2.5rem] w-full">
-                  <option value="">Not recorded</option>
-                  {FACINGS.map((x) => <option key={x} value={x}>{x}</option>)}
-                </Select>
-              </Field>
-              <Field label="Road size" required>
-                <Select label="Road size" value={f.roadWidthFt ? `${f.roadWidthFt} ft road` : ''}
-                        onChange={(v) => set({ roadWidthFt: v.replace(/[^0-9]/g, '') })} className="h-[2.5rem] w-full">
-                  <option value="">Not recorded</option>
-                  {ROADS.map((x) => <option key={x} value={x}>{x}</option>)}
-                </Select>
-              </Field>
-              <Field label="Category" required>
-                <Select label="Category" value={f.category} onChange={(v) => set({ category: v })} className="h-[2.5rem] w-full">
-                  {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-                </Select>
-              </Field>
-            </div>
-          )}
-
-          {tab === 'Features' && (
-            <div className="space-y-3">
-              <div className="flex flex-wrap gap-[1.2rem]">
-                <Tick label="Corner" on={f.isCorner} onFlip={() => set({ isCorner: !f.isCorner })} />
-                <Tick label="Park facing" on={f.isParkFacing} onFlip={() => set({ isParkFacing: !f.isParkFacing })} />
-                <Tick label="Main boulevard" on={f.isMainBoulevard} onFlip={() => set({ isMainBoulevard: !f.isMainBoulevard })} />
-              </div>
-              <Field label="Property type"><Text value={f.kind} onChange={(v) => set({ kind: v })} /></Field>
-              <Field label="Internal notes" hint="⚠️ Never included when a property is shared.">
-                <textarea className={cn(FIELD, 'h-[5rem] py-[0.5rem]')} style={{ borderColor: cv('line'), color: cv('ink') }}
-                          value={f.notes} onChange={(e) => set({ notes: e.target.value })} />
-              </Field>
-            </div>
-          )}
-
-          {tab === 'Pricing' && (
-            <div className="rounded-[0.5rem] border p-[0.7rem]" style={{ borderColor: cv('line') }}>
-              <h4 className="mb-[0.6rem] text-[0.95rem] font-semibold" style={{ color: cv('ink') }}>Pricing (PKR)</h4>
+          {/* ⚠️ ONE HEIGHT FOR EVERY TAB — the owner's instruction. Details has
+              nine fields and Documents has three, so without a floor the dialog
+              shrank by half a screen when somebody moved between them, taking
+              the change reason and the Save button with it. The floor is the
+              tallest tab. */}
+          <div className="min-h-[15.5rem]">
+            {tab === 'Details' && (
               <div className="grid gap-[0.8rem] sm:grid-cols-3">
-                <Field label="Base price" required><Text value={f.basePrice} onChange={(v) => set({ basePrice: v })} mode="numeric" /></Field>
-                <Field label="Premium"><Text value={f.premiumCharges} onChange={(v) => set({ premiumCharges: v })} mode="numeric" /></Field>
-                <Field label="Total price" locked>
-                  <Readonly>{money((Number(f.basePrice.replace(/[^0-9]/g, '')) || 0) + (Number(f.premiumCharges.replace(/[^0-9]/g, '')) || 0))}</Readonly>
+                <Field label="Plot number" required><Text value={f.plotNumber} onChange={(v) => set({ plotNumber: v })} /></Field>
+                <Field label="Block" required><Text value={f.block} onChange={(v) => set({ block: v })} /></Field>
+                <Field label="Size" required>
+                  <Select label="Size" value={f.sizeMarla} onChange={(v) => set({ sizeMarla: v })} className="h-[2.5rem] w-full">
+                    {SIZES.map((s) => <option key={s.marla} value={s.marla}>{s.label}</option>)}
+                  </Select>
+                </Field>
+                <Field label="Marla standard" locked hint="Set on the project."><Readonly>{standard} sq ft</Readonly></Field>
+                <Field label="Area (calculated)" locked><Readonly>{areaLabel(areaSqft(Number(f.sizeMarla), standard))}</Readonly></Field>
+                <FieldBlock label="Dimensions" required>
+                  <span className="flex items-center gap-[0.35rem]">
+                    <input aria-label="Width (ft)" className={FIELD} style={{ borderColor: cv('line'), color: cv('ink') }}
+                           value={f.widthFt} onChange={(e) => set({ widthFt: e.target.value })} inputMode="decimal" />
+                    <span style={{ color: cv('mute') }}>×</span>
+                    <input aria-label="Length (ft)" className={FIELD} style={{ borderColor: cv('line'), color: cv('ink') }}
+                           value={f.lengthFt} onChange={(e) => set({ lengthFt: e.target.value })} inputMode="decimal" />
+                  </span>
+                </FieldBlock>
+                <Field label="Facing" required>
+                  <Select label="Facing" value={f.facing} onChange={(v) => set({ facing: v })} className="h-[2.5rem] w-full">
+                    <option value="">Not recorded</option>
+                    {FACINGS.map((x) => <option key={x} value={x}>{x}</option>)}
+                  </Select>
+                </Field>
+                <Field label="Road size" required>
+                  <Select label="Road size" value={f.roadWidthFt ? `${f.roadWidthFt} ft road` : ''}
+                          onChange={(v) => set({ roadWidthFt: v.replace(/[^0-9]/g, '') })} className="h-[2.5rem] w-full">
+                    <option value="">Not recorded</option>
+                    {ROADS.map((x) => <option key={x} value={x}>{x}</option>)}
+                  </Select>
+                </Field>
+                <Field label="Category" required>
+                  <Select label="Category" value={f.category} onChange={(v) => set({ category: v })} className="h-[2.5rem] w-full">
+                    {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                  </Select>
                 </Field>
               </div>
-            </div>
-          )}
+            )}
 
-          {tab === 'Availability' && (
-            <div className="grid gap-[0.8rem] sm:grid-cols-2">
-              <Field label="Status" required>
-                <Select label="Status" value={f.status} onChange={(v) => set({ status: v })} className="h-[2.5rem] w-full">
-                  {SELECTABLE_STATUSES.map((s) => <option key={s} value={s}>{statusLook(s).label}</option>)}
-                </Select>
-              </Field>
-              <Field label="Development status" required>
-                <Select label="Development status" value={f.developmentStatus} onChange={(v) => set({ developmentStatus: v })} className="h-[2.5rem] w-full">
-                  <option value="">Not recorded</option>
-                  {DEV_STATES.map((x) => <option key={x} value={x}>{x}</option>)}
-                </Select>
-              </Field>
-              <Field label="Expected possession">
-                <input type="date" className={FIELD} style={{ borderColor: cv('line'), color: cv('ink') }}
-                       value={f.expectedPossession} onChange={(e) => set({ expectedPossession: e.target.value })} />
-              </Field>
-              <Field label="Active booking" locked>
-                <Readonly>{row.activeBooking ?? 'No active booking'}</Readonly>
-              </Field>
-            </div>
-          )}
+            {tab === 'Features' && (
+              <div className="space-y-3">
+                <div className="flex flex-wrap gap-[1.2rem]">
+                  <Tick label="Corner" on={f.isCorner} onFlip={() => set({ isCorner: !f.isCorner })} />
+                  <Tick label="Park facing" on={f.isParkFacing} onFlip={() => set({ isParkFacing: !f.isParkFacing })} />
+                  <Tick label="Main boulevard" on={f.isMainBoulevard} onFlip={() => set({ isMainBoulevard: !f.isMainBoulevard })} />
+                </div>
+                <Field label="Property type"><Text value={f.kind} onChange={(v) => set({ kind: v })} /></Field>
+                <Field label="Internal notes" hint="⚠️ Never included when a property is shared.">
+                  <textarea className={cn(FIELD, 'h-[5rem] py-[0.5rem]')} style={{ borderColor: cv('line'), color: cv('ink') }}
+                            value={f.notes} onChange={(e) => set({ notes: e.target.value })} />
+                </Field>
+              </div>
+            )}
 
-          {tab === 'Documents' && <DocumentSlots />}
+            {tab === 'Pricing' && (
+              <div className="rounded-[0.5rem] border p-[0.7rem]" style={{ borderColor: cv('line') }}>
+                <h4 className="mb-[0.6rem] text-[0.95rem] font-semibold" style={{ color: cv('ink') }}>Pricing (PKR)</h4>
+                <div className="grid gap-[0.8rem] sm:grid-cols-3">
+                  <Field label="Base price" required><Text value={f.basePrice} onChange={(v) => set({ basePrice: v })} mode="numeric" /></Field>
+                  <Field label="Premium"><Text value={f.premiumCharges} onChange={(v) => set({ premiumCharges: v })} mode="numeric" /></Field>
+                  <Field label="Total price" locked>
+                    <Readonly>{money((Number(f.basePrice.replace(/[^0-9]/g, '')) || 0) + (Number(f.premiumCharges.replace(/[^0-9]/g, '')) || 0))}</Readonly>
+                  </Field>
+                </div>
+              </div>
+            )}
+
+            {tab === 'Availability' && (
+              <div className="grid gap-[0.8rem] sm:grid-cols-2">
+                <Field label="Status" required>
+                  <Select label="Status" value={f.status} onChange={(v) => set({ status: v })} className="h-[2.5rem] w-full">
+                    {SELECTABLE_STATUSES.map((s) => <option key={s} value={s}>{statusLook(s).label}</option>)}
+                  </Select>
+                </Field>
+                <Field label="Development status" required>
+                  <Select label="Development status" value={f.developmentStatus} onChange={(v) => set({ developmentStatus: v })} className="h-[2.5rem] w-full">
+                    <option value="">Not recorded</option>
+                    {DEV_STATES.map((x) => <option key={x} value={x}>{x}</option>)}
+                  </Select>
+                </Field>
+                <Field label="Expected possession">
+                  <input type="date" className={FIELD} style={{ borderColor: cv('line'), color: cv('ink') }}
+                         value={f.expectedPossession} onChange={(e) => set({ expectedPossession: e.target.value })} />
+                </Field>
+                <Field label="Active booking" locked>
+                  <Readonly>{row.activeBooking ?? 'No active booking'}</Readonly>
+                </Field>
+              </div>
+            )}
+
+            {tab === 'Documents' && <DocumentSlots />}
+          </div>
 
           {/* ── the reason, and what will move ─────────────────────────── */}
           <div className="grid gap-[0.8rem] sm:grid-cols-2">

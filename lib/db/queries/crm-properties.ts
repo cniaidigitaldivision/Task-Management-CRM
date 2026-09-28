@@ -524,27 +524,6 @@ export async function crmPropertyCount(): Promise<number> {
   return Number(rows[0]?.n ?? 0);
 }
 
-/**
- * The first of these codes that already exists on the project, or null.
- *
- * ⚠️ ONE QUERY FOR THE WHOLE SHEET. Asking per row would be 500 round trips in
- * series down one connection — the lesson the leads importer learned at 49
- * seconds.
- */
-export async function crmFirstExistingCode(
-  actorId: string,
-  projectId: string,
-  codes: readonly string[],
-): Promise<string | null> {
-  if (codes.length === 0) return null;
-  const rows = await withUser(actorId, (tx) => tx`
-    select code from public.crm_properties
-     where project_id = ${projectId}::uuid
-       and lower(btrim(code)) = any (${codes.map((c) => c.trim().toLowerCase())}::text[])
-     limit 1
-  `);
-  return (rows[0]?.code as string | undefined) ?? null;
-}
 
 /* ---------------------------------------------------------------------------
  * One plot, for its own page
@@ -667,4 +646,24 @@ export async function crmPropertyStatusSpans(
     reason: (r.reason as string | null) ?? null,
     days: r.days == null ? null : Number(r.days),
   }));
+}
+
+/**
+ * Every plot code on a project, with the status it holds.
+ *
+ * ⚠️ ONE QUERY FOR THE WHOLE SHEET. The importer needs both "does this exist"
+ * and "what is it now" for every row — asking per row would be 500 round trips
+ * in series down one connection, which is the lesson the leads importer learned
+ * at 49 seconds.
+ */
+export async function crmPropertyStatuses(
+  actorId: string,
+  projectId: string,
+): Promise<ReadonlyMap<string, string>> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select lower(btrim(code)) as code, status::text as status
+      from public.crm_properties
+     where project_id = ${projectId}::uuid
+  `);
+  return new Map(rows.map((r) => [String(r.code), String(r.status)]));
 }

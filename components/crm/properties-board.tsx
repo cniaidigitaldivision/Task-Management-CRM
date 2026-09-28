@@ -27,7 +27,7 @@ import { downloadBlob } from '@/lib/browser/download';
 import type { PropertyRow } from '@/lib/db/queries/crm-properties';
 import {
   areaLabel, characterChips, countProperties, displayArea, filterProperties, money,
-  PRICE_BANDS, SELECTABLE_STATUSES, sizeLabel, statusLook,
+  PRICE_BANDS, SELECTABLE_STATUSES, sizeLabel, statusLook, TEMPLATE_COLUMNS,
   type PropertyFilters,
 } from '@/lib/domain/crm-property';
 import { writeXlsx } from '@/lib/view/xlsx-write';
@@ -177,9 +177,9 @@ export function PropertiesBoard({
     return count.size > 1 ? `${top[0]} + ${count.size - 1} more` : top[0];
   }, [visible, filters.projectId, projects]);
 
-  const codesByProject = React.useMemo(() => {
-    const out: Record<string, string[]> = {};
-    for (const r of properties) (out[r.projectId] ??= []).push(r.code);
+  const statusesByProject = React.useMemo(() => {
+    const out: Record<string, [string, string][]> = {};
+    for (const r of properties) (out[r.projectId] ??= []).push([r.code, r.status]);
     return out;
   }, [properties]);
 
@@ -245,17 +245,40 @@ export function PropertiesBoard({
   }
 
   /* ── exports ────────────────────────────────────────────────────────── */
+  /* ⚠️ THE EXPORT IS A VALID IMPORT FILE, and it was not.
+     Exporting 150 plots and feeding the file straight back gave 338 errors:
+     the header read "Plot / unit" where the importer matches "Plot / unit
+     number", and Size held the string "5 Marla" where it needs a number. Found
+     by round-tripping a real export rather than by reading the two lists.
+
+     Export → edit in Excel → import is how a scheme's prices actually get
+     updated in bulk, so the headers are TEMPLATE_COLUMNS verbatim and the
+     values are raw. The four columns after them are for the person reading the
+     sheet; the importer ignores any column it was not asked to map. */
   const EXPORT_HEAD = [
-    'Property ID', 'Plot / unit', 'Block', 'Project', 'Type', 'Size', 'Area (sq ft)',
-    'Dimensions', 'Facing', 'Road (ft)', 'Category', 'Base price (PKR)',
-    'Premium (PKR)', 'Status', 'Development', 'Updated',
+    ...TEMPLATE_COLUMNS.map((c) => c.header),
+    'Project', 'Total area (sq ft)', 'Marla standard', 'Last updated',
   ];
   const exportRow = (r: PropertyRow) => [
-    r.code, r.plotNumber ?? '', r.block ?? '', r.projectName, r.kind ?? '',
-    sizeLabel(r.sizeMarla), displayArea(r.areaSqft, r.sizeMarla, r.marlaStandard) ?? '',
-    r.dimensions ?? '', r.facing ?? '', r.roadWidthFt ?? '', r.category ?? '',
-    r.basePrice ?? 0, r.premiumCharges ?? 0, statusLook(r.status).label,
-    r.developmentStatus ?? '', dayLabel(r.updatedAt),
+    r.code,
+    r.plotNumber ?? '',
+    r.block ?? '',
+    r.kind ?? '',
+    r.sizeMarla ?? '',
+    r.dimensions ?? '',
+    r.facing ?? '',
+    r.roadWidthFt ?? '',
+    r.category ?? '',
+    r.basePrice ?? 0,
+    r.premiumCharges ?? 0,
+    statusLook(r.status).label,
+    r.developmentStatus ?? '',
+    r.notes ?? '',
+    /* read-only, for the reader */
+    r.projectName,
+    displayArea(r.areaSqft, r.sizeMarla, r.marlaStandard) ?? '',
+    r.marlaStandard,
+    dayLabel(r.updatedAt),
   ];
 
   function exportCsv(list: readonly PropertyRow[]) {
@@ -273,7 +296,7 @@ export function PropertiesBoard({
       name: 'Properties',
       header: EXPORT_HEAD,
       rows: list.map((r) => exportRow(r)),
-      widths: [14, 12, 8, 26, 18, 14, 13, 14, 14, 10, 13, 18, 16, 12, 18, 14],
+      widths: [...TEMPLATE_COLUMNS.map((c) => Math.max(12, c.header.length + 4)), 26, 16, 14, 14],
     });
     downloadBlob(
       `properties-${list.length}.xlsx`,
@@ -618,7 +641,7 @@ export function PropertiesBoard({
         /* ⚠️ The codes already on each project, so a clash is NAMED in the
            wizard rather than discovered by the server after somebody has mapped
            thirty columns. The board already holds every row. */
-        existingCodes={codesByProject}
+        existingStatuses={statusesByProject}
         onDone={(message) => toast({ tone: 'ok', text: message })}
         onTemplate={() => setDialog({ kind: 'template' })}
       />

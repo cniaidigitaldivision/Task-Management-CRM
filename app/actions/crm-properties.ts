@@ -276,6 +276,10 @@ export async function importPropertiesAction(
   if (rows.length === 0) return { ok: false, error: 'That sheet had no rows to import.' };
   if (rows.length > 2000) return { ok: false, error: 'That is more than 2,000 rows. Split the sheet.' };
 
+  /* ⚠️ ONE QUERY FOR THE WHOLE SHEET, before the loop. Asking per row would
+     be 500 round trips in series down a single connection. */
+  const stored = await P.crmPropertyStatuses(user.id, projectId);
+
   const prepared: P.PropertyInput[] = [];
   const seen = new Set<string>();
   for (const [i, raw] of rows.entries()) {
@@ -309,13 +313,24 @@ export async function importPropertiesAction(
     });
     if ('error' in checked) return { ok: false, error: `Row ${i + 2}: ${checked.error}` };
 
-    /* ⚠️ THE SHEET CANNOT SELL A PLOT — owner's Import reference, and it is
-       enforced HERE as well as in the wizard. A crafted request must meet the
-       same rule the dialog shows, or the rule is decoration. */
-    if (checked.input.status === 'sold') {
+    /* ⚠️ THE SHEET CANNOT SELL A PLOT, NOR UN-SELL ONE — enforced HERE as
+       well as in the wizard, because a crafted request must meet the rule the
+       dialog shows or the rule is decoration.
+
+       ⚠️ BUT RESTATING A SOLD PLOT IS NOT SELLING IT. `stored` is read once
+       below; a row whose status matches what is already there changes nothing,
+       and refusing it refused somebody their own exported catalogue. */
+    const was = stored.get(checked.input.code.trim().toLowerCase()) ?? null;
+    if (checked.input.status === 'sold' && was !== 'sold') {
       return {
         ok: false,
         error: `Row ${i + 2}: import cannot mark a property Sold without an authorised booking reference.`,
+      };
+    }
+    if (was === 'sold' && checked.input.status !== 'sold') {
+      return {
+        ok: false,
+        error: `Row ${i + 2}: ${checked.input.code} is Sold. A sheet cannot put it back on the market.`,
       };
     }
 
@@ -331,7 +346,7 @@ export async function importPropertiesAction(
 
   /* An existing plot is only touched when the person asked for it. */
   if (!options.updateMatching) {
-    const clash = await P.crmFirstExistingCode(user.id, projectId, prepared.map((r) => r.code));
+    const clash = prepared.map((r) => r.code).find((c) => stored.has(c.trim().toLowerCase()));
     if (clash) {
       return {
         ok: false,

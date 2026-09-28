@@ -688,7 +688,9 @@ export function checkImportRow(
   row: Readonly<Record<string, string>>,
   line: number,
   seenCodes: ReadonlySet<string>,
-  existingCodes: ReadonlySet<string>,
+  /* code (lower-cased) → the status that plot ALREADY has. A set of codes was
+     not enough — see the `sold` rule below. */
+  existing: ReadonlyMap<string, string>,
   options: ImportOptions,
   standard: number,
 ): readonly ImportIssue[] {
@@ -708,17 +710,34 @@ export function checkImportRow(
     err(`Base price "${row.basePrice || '—'}" is not a number.`);
   }
 
+  const key = code.toLowerCase();
+  const was = existing.get(key) ?? null;
+
   const status = (row.status ?? 'available').toLowerCase().replace(/\s+/g, '_');
   if (status === 'sold') {
-    err('Import cannot mark a property Sold without an authorised booking reference.');
+    /* ⚠️ A SHEET CANNOT SELL A PLOT — BUT IT CAN RESTATE ONE ALREADY SOLD.
+       Exporting the catalogue, editing a price and importing it back is how
+       bulk updates actually happen, and every sold plot in that file says
+       "Sold" because it IS sold. Refusing those is refusing somebody their own
+       unchanged data: 38 errors on a 150-row round trip, none of them a change.
+
+       So the rule bites on what it was always about — a sheet TURNING a plot
+       sold — and stays silent when the row agrees with the record. */
+    if (was !== 'sold') {
+      err('Import cannot mark a property Sold without an authorised booking reference.');
+    }
   } else if (!SELECTABLE_STATUSES.includes(status as PropertyStatus)) {
     err(`"${row.status}" is not one of Available, Reserved, On hold or Blocked.`);
+  } else if (was === 'sold' && status !== 'sold') {
+    /* ⚠️ AND IT CANNOT UN-SELL ONE EITHER, which is the same rule looked at
+       from the other side and the more damaging direction: a plot quietly
+       returned to Available is one that gets sold twice. */
+    err(`${code} is Sold. A sheet cannot put it back on the market — change it on the property itself.`);
   }
 
-  const key = code.toLowerCase();
   if (key && seenCodes.has(key)) {
     out.push({ line, severity: 'duplicate', text: `${code} appears more than once in this sheet.` });
-  } else if (key && existingCodes.has(key)) {
+  } else if (key && was !== null) {
     if (options.updateMatching) {
       out.push({ line, severity: 'duplicate', text: `${code} already exists — it will be updated.` });
     } else {

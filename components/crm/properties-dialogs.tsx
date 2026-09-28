@@ -2,12 +2,14 @@
 
 import * as React from 'react';
 import {
-  AlertTriangle, ArrowRight, Check, Copy, FileSpreadsheet, Info, RefreshCw, Upload, XCircle,
+  AlertTriangle, ArrowRight, Building2, Check, Copy, FileSpreadsheet, Info, RefreshCw,
+  Upload, XCircle,
 } from 'lucide-react';
 
 import { importPropertiesAction } from '@/app/actions/crm-properties';
 import { cv, OUTLINE, outlineStyle, SOLID, solidStyle, Select } from '@/components/crm/clients-ui';
 import { Dialog } from '@/components/ui/dialog';
+import { readXlsx } from '@/lib/view/xlsx-read';
 import type { ProjectOption } from '@/components/crm/property-form';
 import {
   areaLabel,
@@ -43,17 +45,6 @@ import { cn } from '@/lib/utils';
    their own references: a four-step wizard and a tabbed editor are too much
    screen to share a file with the importer. */
 export type { ProjectOption } from '@/components/crm/property-form';
-
-/** The importer's own label-and-control pair. Small enough not to be worth
- *  sharing with the wizard, whose fields carry required marks and lock icons. */
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="flex min-w-0 flex-col gap-[0.3rem]">
-      <span className="text-[0.78rem] font-medium" style={{ color: cv('soft') }}>{label}</span>
-      {children}
-    </label>
-  );
-}
 
 /* ---------------------------------------------------------------------------
  * The import wizard
@@ -124,15 +115,17 @@ export function ImportDialog({
   open,
   onClose,
   projects,
-  existingCodes,
+  existingStatuses,
   onDone,
   onTemplate,
 }: {
   open: boolean;
   onClose: () => void;
   projects: readonly ProjectOption[];
-  /** Codes already on each project, so a clash is named before anything is sent. */
-  existingCodes: Readonly<Record<string, readonly string[]>>;
+  /** Per project: the code of every plot already there, and the status it
+   *  holds. The status matters — a sheet may restate a sold plot but not
+   *  create or undo one (see `checkImportRow`). */
+  existingStatuses: Readonly<Record<string, ReadonlyArray<readonly [string, string]>>>;
   onDone: (message: string) => void;
   onTemplate: () => void;
 }) {
@@ -170,14 +163,36 @@ export function ImportDialog({
 
   async function pick(file: File) {
     setError(null);
-    if (!file.name.toLowerCase().endsWith('.csv')) {
-      /* ⚠️ HONEST ABOUT THE FORMAT. Reading .xlsx in the browser needs a parser
-         this page does not carry, and a silent failure on a real sheet is worse
-         than a sentence saying to save it as CSV first. */
-      setError('Save the sheet as CSV and upload that — Excel’s “Save as → CSV” keeps every column.');
+    const name = file.name.toLowerCase();
+
+    /* ⚠️ EXCEL IS READ HERE, NOT SENT SOMEWHERE. `lib/view/xlsx-read.ts` is a
+       dependency-free parser built on `DecompressionStream`, which every modern
+       browser ships — so a .xlsx is unzipped and parsed in the tab, the same as
+       a CSV, with no upload and no round trip. The owner asked for this: *"It
+       only lets me upload CSV files."*
+
+       ⚠️ A PDF IS NOT A SPREADSHEET, and saying so is better than pretending.
+       Text extracted from a PDF has no columns — only positions that usually
+       look like columns — and the reliable path for one already exists
+       elsewhere, scoped to a lead. Naming the two formats that work beats
+       accepting a third that silently mangles a scheme's prices. */
+    let parsed: ParsedSheet;
+    if (name.endsWith('.xlsx')) {
+      const rows = await readXlsx(new Uint8Array(await file.arrayBuffer()));
+      const [head = [], ...body] = rows;
+      parsed = { headers: head.map((h) => h.trim()), rows: body };
+    } else if (name.endsWith('.csv')) {
+      parsed = parseCsv(await file.text());
+    } else if (name.endsWith('.xls')) {
+      setError('That is the older .xls format. Open it in Excel and use “Save as → .xlsx” or “Save as → CSV”.');
+      return;
+    } else if (name.endsWith('.pdf')) {
+      setError('A PDF has no columns to read — only text that looks like columns. Export the list as Excel or CSV.');
+      return;
+    } else {
+      setError('Upload an Excel (.xlsx) or CSV file.');
       return;
     }
-    const parsed = parseCsv(await file.text());
     if (parsed.headers.length === 0 || parsed.rows.length === 0) {
       setError('That file had no rows under its header line.');
       return;
@@ -195,7 +210,9 @@ export function ImportDialog({
   /* ── the rows, and what is wrong with them ──────────────────────────── */
   const checked = React.useMemo(() => {
     if (!sheet) return { rows: [] as Record<string, string>[], issues: [] as ImportIssue[] };
-    const existing = new Set((existingCodes[projectId] ?? []).map((c) => c.toLowerCase()));
+    const existing = new Map(
+      (existingStatuses[projectId] ?? []).map(([code, status]) => [code.toLowerCase(), status]),
+    );
     const seen = new Set<string>();
     const rows: Record<string, string>[] = [];
     const issues: ImportIssue[] = [];
@@ -213,7 +230,7 @@ export function ImportDialog({
       rows.push(row);
     });
     return { rows, issues };
-  }, [sheet, mapping, options, projectId, existingCodes, standard]);
+  }, [sheet, mapping, options, projectId, existingStatuses, standard]);
 
   const tally = tallyImport(checked.rows.length, checked.issues);
   const blocked = tally.errors > 0;
@@ -246,7 +263,7 @@ export function ImportDialog({
           </span>
           <span>
             <span className="block text-[1.25rem] font-bold leading-tight" style={{ color: cv('ink') }}>Import properties</span>
-            <span className="block text-[0.86rem]" style={{ color: cv('soft') }}>Upload a CSV inventory list</span>
+            <span className="block text-[0.86rem]" style={{ color: cv('soft') }}>Upload a CSV or Excel inventory list</span>
           </span>
         </div>
       }
@@ -317,6 +334,31 @@ export function ImportDialog({
         ))}
       </ol>
 
+      {/* ⚠️ THE PROJECT STAYS ON SCREEN THE WHOLE WAY THROUGH. It used to live
+          on the upload step alone, so the moment a file was chosen the one fact
+          that decides where 150 plots land disappeared — and there was no way
+          to correct it without starting again. The owner asked for exactly
+          this: *"where I can link that imported sheet with the project, there
+          is no option over there."*
+
+          ⚠️ AND IT IS STILL EDITABLE AFTER UPLOAD, because changing it re-runs
+          the duplicate check against the NEW project's codes — `checked` already
+          depends on `projectId`. Freezing it would be the safe-looking choice
+          that forces the work to be redone. */}
+      <div className="mb-3 flex flex-wrap items-center gap-[0.6rem] rounded-[0.5rem] border px-[0.7rem] py-[0.55rem]"
+           style={{ borderColor: cv('brand-line'), background: cv('pick') }}>
+        <span className="inline-flex items-center gap-[0.4rem] text-[0.85rem] font-medium" style={{ color: cv('brand-ink') }}>
+          <Building2 className="size-[0.95rem]" aria-hidden="true" />
+          Importing into
+        </span>
+        <Select label="Import into" value={projectId} onChange={setProjectId} className="h-[2.2rem] min-w-[14rem] flex-1">
+          {projects.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+        </Select>
+        <span className="text-[0.78rem]" style={{ color: cv('soft') }}>
+          {standard} sq ft per Marla
+        </span>
+      </div>
+
       {/* the file, once there is one */}
       {sheet && (
         <div className="mb-3 flex flex-wrap items-center gap-[0.7rem] rounded-[0.5rem] border p-[0.6rem]"
@@ -346,168 +388,182 @@ export function ImportDialog({
         </div>
       )}
 
-      {step === 'upload' && (
-        <div className="space-y-3">
-          <Field label="Import into">
-            <Select label="Import into" value={projectId} onChange={setProjectId} className="h-[2.5rem] w-full">
-              {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </Select>
-          </Field>
-          <button type="button" onClick={() => fileRef.current?.click()}
-                  className="flex w-full flex-col items-center justify-center gap-2 rounded-[0.6rem] border border-dashed py-10 transition-colors hover:bg-[var(--cl-head)]"
-                  style={{ borderColor: cv('brand-line') }}>
-            <Upload className="size-6" style={{ color: cv('brand-ink') }} aria-hidden="true" />
-            <span className="text-[0.95rem] font-medium" style={{ color: cv('ink') }}>Choose a CSV file</span>
-            <span className="text-[0.8rem]" style={{ color: cv('mute') }}>
-              The header row is what the columns are matched on.
-            </span>
-          </button>
-        </div>
-      )}
-
-      {step === 'map' && sheet && (
-        <div className="space-y-2">
-          <h4 className="text-[0.93rem] font-semibold" style={{ color: cv('ink') }}>Column mapping preview</h4>
-          <div className="max-h-[20rem] overflow-y-auto rounded-[0.5rem] border" style={{ borderColor: cv('line') }}>
-            <table className="w-full text-[0.84rem]">
-              <thead className="sticky top-0" style={{ background: cv('head') }}>
-                <tr style={{ color: cv('soft') }}>
-                  <th className="px-3 py-[0.45rem] text-left font-medium">File column</th>
-                  <th className="px-3 py-[0.45rem] text-left font-medium">Maps to</th>
-                  <th className="px-3 py-[0.45rem] text-left font-medium">Example</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sheet.headers.map((h, i) => {
-                  const mapped = TEMPLATE_COLUMNS.find((c) => mapping[c.key] === i);
-                  return (
-                    <tr key={`${h}-${i}`} className="border-t" style={{ borderColor: cv('grid') }}>
-                      <td className="px-3 py-[0.35rem] font-medium" style={{ color: cv('ink') }}>
-                        {h || `Column ${i + 1}`}
-                      </td>
-                      <td className="px-3 py-[0.3rem]">
-                        <Select
-                          label={`What ${h || `column ${i + 1}`} means`}
-                          value={mapped?.key ?? ''}
-                          onChange={(key) => setMapping((m) => {
-                            const next = { ...m };
-                            for (const [k, v] of Object.entries(next)) if (v === i) delete next[k];
-                            if (key) next[key] = i;
-                            return next;
-                          })}
-                          className="h-[2.1rem] w-full"
-                        >
-                          <option value="">Not imported</option>
-                          {TEMPLATE_COLUMNS.map((c) => <option key={c.key} value={c.key}>{c.header}</option>)}
-                        </Select>
-                      </td>
-                      <td className="px-3 py-[0.35rem]" style={{ color: cv('soft') }}>
-                        {(sheet.rows[0]?.[i] ?? '').slice(0, 28) || '—'}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+      {/* ⚠️ ONE HEIGHT FOR EVERY STEP. Owner: *"the heights of the tabs should
+          not change — in each tab on the modal, the height should be constant."*
+          Without a floor the dialog grew and shrank as somebody moved through
+          it, which moves the footer buttons out from under the cursor between
+          one press and the next — and on a native `<dialog>` it re-centres the
+          whole box, so the content jumps too. The floor is the tallest step, so
+          nothing is ever clipped and nothing ever moves. */}
+      <div className="min-h-[21rem]">
+        {step === 'upload' && (
+          <div className="space-y-3">
+            <button type="button" onClick={() => fileRef.current?.click()}
+                    className="flex w-full flex-col items-center justify-center gap-2 rounded-[0.6rem] border border-dashed py-10 transition-colors hover:bg-[var(--cl-head)]"
+                    style={{ borderColor: cv('brand-line') }}>
+              <Upload className="size-6" style={{ color: cv('brand-ink') }} aria-hidden="true" />
+              <span className="text-[0.95rem] font-medium" style={{ color: cv('ink') }}>Choose an Excel or CSV file</span>
+              <span className="text-[0.8rem]" style={{ color: cv('mute') }}>
+                .xlsx or .csv · the header row is what the columns are matched on.
+              </span>
+            </button>
           </div>
-          <p className="text-[0.78rem]" style={{ color: cv('mute') }}>
-            Required: {TEMPLATE_COLUMNS.filter((c) => c.required).map((c) => c.header).join(' · ')}
-          </p>
-        </div>
-      )}
+        )}
 
-      {step === 'validate' && (
-        <div className="space-y-2">
-          {checked.issues.length === 0 ? (
-            <p className="flex items-center gap-2 rounded-[0.5rem] px-3 py-2 text-[0.88rem]"
-               style={{ background: cv('green-soft'), color: cv('green') }}>
-              <Check className="size-4" strokeWidth={3} aria-hidden="true" /> All {tally.ready} rows are usable.
-            </p>
-          ) : (
-            <ul className="max-h-[18rem] space-y-1 overflow-y-auto rounded-[0.5rem] border p-3 text-[0.82rem]"
-                style={{ borderColor: cv('line') }}>
-              {checked.issues.slice(0, 200).map((is, i) => (
-                <li key={`${is.line}-${i}`} className="flex items-start gap-[0.45rem]">
-                  <span className="mt-[0.15rem] size-[0.55rem] shrink-0 rounded-full"
-                        style={{ background: cv(is.severity === 'error' ? 'red-dot' : is.severity === 'warning' ? 'amber-dot' : 'grey-dot') }}
-                        aria-hidden="true" />
-                  <span style={{ color: cv('soft') }}>
-                    <strong style={{ color: cv('ink') }}>Row {is.line}</strong> · {is.text}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-          {blocked && (
-            <p className="text-[0.82rem]" style={{ color: cv('red') }}>
-              Nothing is imported while there are errors. Warnings and duplicates do not block.
-            </p>
-          )}
-        </div>
-      )}
-
-      {step === 'review' && (
-        <div className="space-y-3">
-          <section>
-            <h4 className="mb-[0.45rem] text-[0.93rem] font-semibold" style={{ color: cv('ink') }}>Import options</h4>
-            <ul className="space-y-[0.5rem]">
-              <Option
-                on={options.markTestData}
-                onFlip={() => setOptions((c) => ({ ...c, markTestData: !c.markTestData }))}
-                label="Mark all imported rows as test data"
-                hint="Keeps them out of real reports and pipeline figures."
-              />
-              <Option
-                on={options.skipUnchanged}
-                onFlip={() => setOptions((c) => ({ ...c, skipUnchanged: !c.skipUnchanged }))}
-                label="Skip unchanged records"
-                hint="A row identical to what is stored is left alone."
-              />
-              <Option
-                on={options.updateMatching}
-                onFlip={() => setOptions((c) => ({ ...c, updateMatching: !c.updateMatching }))}
-                label="Update matching property IDs"
-                hint="Off, an existing ID is an error. On, the stored plot is overwritten."
-              />
-            </ul>
-          </section>
-
-          <p className="flex items-start gap-[0.45rem] rounded-[0.45rem] px-[0.6rem] py-[0.5rem] text-[0.82rem]"
-             style={{ background: cv('pick'), color: cv('brand-ink') }}>
-            <Info className="mt-[0.1rem] size-[0.95rem] shrink-0" aria-hidden="true" />
-            Import cannot mark a property Sold without an authorised booking reference.
-          </p>
-
-          <div className="max-h-[14rem] overflow-auto rounded-[0.5rem] border" style={{ borderColor: cv('line') }}>
-            <table className="w-full text-[0.8rem]">
-              <thead>
-                <tr style={{ background: cv('head'), color: cv('soft') }}>
-                  {['ID', 'Plot', 'Block', 'Size', 'Area', 'Price', 'Status'].map((h) => (
-                    <th key={h} className="px-2 py-[0.4rem] text-left font-medium">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {checked.rows.slice(0, 40).map((r, i) => (
-                  <tr key={`${r.code}-${i}`} className="border-t" style={{ borderColor: cv('grid'), color: cv('ink') }}>
-                    <td className="px-2 py-[0.3rem] font-medium">{r.code}</td>
-                    <td className="px-2 py-[0.3rem]">{r.plotNumber}</td>
-                    <td className="px-2 py-[0.3rem]">{r.block || '—'}</td>
-                    <td className="px-2 py-[0.3rem]">{sizeLabel(Number(r.sizeMarla))}</td>
-                    <td className="px-2 py-[0.3rem]">{areaLabel(areaSqft(Number(r.sizeMarla), standard))}</td>
-                    <td className="px-2 py-[0.3rem] tabular-nums">
-                      {money(Number(r.basePrice.replace(/[^0-9]/g, '')))}
-                    </td>
-                    <td className="px-2 py-[0.3rem]">{statusLook(r.status).label}</td>
+        {step === 'map' && sheet && (
+          <div className="space-y-2">
+            <h4 className="text-[0.93rem] font-semibold" style={{ color: cv('ink') }}>Column mapping preview</h4>
+            <div className="max-h-[20rem] overflow-y-auto rounded-[0.5rem] border" style={{ borderColor: cv('line') }}>
+              <table className="w-full text-[0.84rem]">
+                <thead className="sticky top-0" style={{ background: cv('head') }}>
+                  <tr style={{ color: cv('soft') }}>
+                    <th className="px-3 py-[0.45rem] text-left font-medium">File column</th>
+                    <th className="px-3 py-[0.45rem] text-left font-medium">Maps to</th>
+                    <th className="px-3 py-[0.45rem] text-left font-medium">Example</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {sheet.headers.map((h, i) => {
+                    const mapped = TEMPLATE_COLUMNS.find((c) => mapping[c.key] === i);
+                    return (
+                      <tr key={`${h}-${i}`} className="border-t" style={{ borderColor: cv('grid') }}>
+                        <td className="px-3 py-[0.35rem] font-medium" style={{ color: cv('ink') }}>
+                          {h || `Column ${i + 1}`}
+                        </td>
+                        <td className="px-3 py-[0.3rem]">
+                          <Select
+                            label={`What ${h || `column ${i + 1}`} means`}
+                            value={mapped?.key ?? ''}
+                            onChange={(key) => setMapping((m) => {
+                              const next = { ...m };
+                              for (const [k, v] of Object.entries(next)) if (v === i) delete next[k];
+                              if (key) next[key] = i;
+                              return next;
+                            })}
+                            className="h-[2.1rem] w-full"
+                          >
+                            <option value="">Not imported</option>
+                            {TEMPLATE_COLUMNS.map((c) => <option key={c.key} value={c.key}>{c.header}</option>)}
+                          </Select>
+                        </td>
+                        <td className="px-3 py-[0.35rem]" style={{ color: cv('soft') }}>
+                          {(sheet.rows[0]?.[i] ?? '').slice(0, 28) || '—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-[0.78rem]" style={{ color: cv('mute') }}>
+              Required: {TEMPLATE_COLUMNS.filter((c) => c.required).map((c) => c.header).join(' · ')}
+            </p>
           </div>
-        </div>
-      )}
+        )}
 
-      <input ref={fileRef} type="file" accept=".csv,text/csv" className="sr-only"
+        {step === 'validate' && (
+          <div className="space-y-2">
+            {/* ⚠️ THE OPTIONS LIVE HERE, NOT ON REVIEW, AND THAT IS A CORRECTION.
+                They were on the last step — which is past a button that stays
+                disabled while any error stands. So re-importing an exported
+                catalogue showed 148 “already exists, turn on Update matching
+                property IDs” and the switch saying exactly that sat on a step
+                those errors would not let anybody reach. An option that fixes a
+                problem belongs on the screen showing the problem. */}
+            <section>
+              <h4 className="mb-[0.45rem] text-[0.93rem] font-semibold" style={{ color: cv('ink') }}>Import options</h4>
+              <ul className="space-y-[0.5rem]">
+                <Option
+                  on={options.markTestData}
+                  onFlip={() => setOptions((c) => ({ ...c, markTestData: !c.markTestData }))}
+                  label="Mark all imported rows as test data"
+                  hint="Keeps them out of real reports and pipeline figures."
+                />
+                <Option
+                  on={options.skipUnchanged}
+                  onFlip={() => setOptions((c) => ({ ...c, skipUnchanged: !c.skipUnchanged }))}
+                  label="Skip unchanged records"
+                  hint="A row identical to what is stored is left alone."
+                />
+                <Option
+                  on={options.updateMatching}
+                  onFlip={() => setOptions((c) => ({ ...c, updateMatching: !c.updateMatching }))}
+                  label="Update matching property IDs"
+                  hint="Off, an existing ID is an error. On, the stored plot is overwritten."
+                />
+              </ul>
+            </section>
+
+            <p className="flex items-start gap-[0.45rem] rounded-[0.45rem] px-[0.6rem] py-[0.5rem] text-[0.82rem]"
+               style={{ background: cv('pick'), color: cv('brand-ink') }}>
+              <Info className="mt-[0.1rem] size-[0.95rem] shrink-0" aria-hidden="true" />
+              Import cannot mark a property Sold without an authorised booking reference — but a
+              sheet may restate one that is already sold.
+            </p>
+
+            {checked.issues.length === 0 ? (
+              <p className="flex items-center gap-2 rounded-[0.5rem] px-3 py-2 text-[0.88rem]"
+                 style={{ background: cv('green-soft'), color: cv('green') }}>
+                <Check className="size-4" strokeWidth={3} aria-hidden="true" /> All {tally.ready} rows are usable.
+              </p>
+            ) : (
+              <ul className="max-h-[18rem] space-y-1 overflow-y-auto rounded-[0.5rem] border p-3 text-[0.82rem]"
+                  style={{ borderColor: cv('line') }}>
+                {checked.issues.slice(0, 200).map((is, i) => (
+                  <li key={`${is.line}-${i}`} className="flex items-start gap-[0.45rem]">
+                    <span className="mt-[0.15rem] size-[0.55rem] shrink-0 rounded-full"
+                          style={{ background: cv(is.severity === 'error' ? 'red-dot' : is.severity === 'warning' ? 'amber-dot' : 'grey-dot') }}
+                          aria-hidden="true" />
+                    <span style={{ color: cv('soft') }}>
+                      <strong style={{ color: cv('ink') }}>Row {is.line}</strong> · {is.text}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {blocked && (
+              <p className="text-[0.82rem]" style={{ color: cv('red') }}>
+                Nothing is imported while there are errors. Warnings and duplicates do not block.
+              </p>
+            )}
+          </div>
+        )}
+
+        {step === 'review' && (
+          <div className="space-y-3">
+            <div className="max-h-[14rem] overflow-auto rounded-[0.5rem] border" style={{ borderColor: cv('line') }}>
+              <table className="w-full text-[0.8rem]">
+                <thead>
+                  <tr style={{ background: cv('head'), color: cv('soft') }}>
+                    {['ID', 'Plot', 'Block', 'Size', 'Area', 'Price', 'Status'].map((h) => (
+                      <th key={h} className="px-2 py-[0.4rem] text-left font-medium">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {checked.rows.slice(0, 40).map((r, i) => (
+                    <tr key={`${r.code}-${i}`} className="border-t" style={{ borderColor: cv('grid'), color: cv('ink') }}>
+                      <td className="px-2 py-[0.3rem] font-medium">{r.code}</td>
+                      <td className="px-2 py-[0.3rem]">{r.plotNumber}</td>
+                      <td className="px-2 py-[0.3rem]">{r.block || '—'}</td>
+                      <td className="px-2 py-[0.3rem]">{sizeLabel(Number(r.sizeMarla))}</td>
+                      <td className="px-2 py-[0.3rem]">{areaLabel(areaSqft(Number(r.sizeMarla), standard))}</td>
+                      <td className="px-2 py-[0.3rem] tabular-nums">
+                        {money(Number(r.basePrice.replace(/[^0-9]/g, '')))}
+                      </td>
+                      <td className="px-2 py-[0.3rem]">{statusLook(r.status).label}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <input ref={fileRef} type="file"
+             accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+             className="sr-only"
              onChange={(e) => { const f = e.target.files?.[0]; if (f) void pick(f); e.target.value = ''; }} />
 
       {error ? (

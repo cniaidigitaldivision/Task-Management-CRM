@@ -420,14 +420,18 @@ describe('importing a sheet', () => {
     code: 'PROP-A200', plotNumber: 'A-200', sizeMarla: '5', basePrice: '4500000',
     dimensions: '25 × 45 ft', status: 'available',
   };
-  const none = new Set<string>();
+  /* The two "nothing" arguments are different shapes: `seenCodes` is the set of
+     codes already met in THIS sheet, `existing` maps a stored code to the
+     status it holds. */
+  const seen = new Set<string>();
+  const none = new Map<string, string>();
 
   it('passes a clean row', () => {
-    expect(checkImportRow(good, 2, none, none, OPTS, 225)).toEqual([]);
+    expect(checkImportRow(good, 2, seen, none, OPTS, 225)).toEqual([]);
   });
 
   it('refuses a row that cannot become a property', () => {
-    const issues = checkImportRow({ ...good, code: '', sizeMarla: 'five', basePrice: 'call us' }, 3, none, none, OPTS, 225);
+    const issues = checkImportRow({ ...good, code: '', sizeMarla: 'five', basePrice: 'call us' }, 3, seen, none, OPTS, 225);
     expect(issues.filter((i) => i.severity === 'error')).toHaveLength(3);
   });
 
@@ -435,14 +439,14 @@ describe('importing a sheet', () => {
      a row imported as Available when the sheet said Sold is how a plot gets
      sold twice. */
   it('will not let a spreadsheet sell a plot', () => {
-    const issues = checkImportRow({ ...good, status: 'sold' }, 4, none, none, OPTS, 225);
+    const issues = checkImportRow({ ...good, status: 'sold' }, 4, seen, none, OPTS, 225);
     expect(issues[0]).toMatchObject({ severity: 'error' });
     expect(issues[0].text).toContain('authorised booking reference');
   });
 
   it('allows the other four states', () => {
     for (const s of ['available', 'reserved', 'on hold', 'blocked']) {
-      expect(checkImportRow({ ...good, status: s }, 5, none, none, OPTS, 225)).toEqual([]);
+      expect(checkImportRow({ ...good, status: s }, 5, seen, none, OPTS, 225)).toEqual([]);
     }
   });
 
@@ -455,15 +459,15 @@ describe('importing a sheet', () => {
      when the person has said they mean to update. A repeated ID is a mistake
      far more often than an intention. */
   it('refuses an existing ID unless updating was asked for', () => {
-    const existing = new Set(['prop-a200']);
-    expect(checkImportRow(good, 7, none, existing, OPTS, 225)[0].severity).toBe('error');
-    expect(checkImportRow(good, 7, none, existing, { ...OPTS, updateMatching: true }, 225)[0].severity)
+    const existing = new Map([['prop-a200', 'available']]);
+    expect(checkImportRow(good, 7, seen, existing, OPTS, 225)[0].severity).toBe('error');
+    expect(checkImportRow(good, 7, seen, existing, { ...OPTS, updateMatching: true }, 225)[0].severity)
       .toBe('duplicate');
   });
 
   /* A warning, not an error: it imports fine and is very likely a typo. */
   it('warns when the size and the dimensions disagree', () => {
-    const issues = checkImportRow({ ...good, dimensions: '30 × 60 ft' }, 8, none, none, OPTS, 225);
+    const issues = checkImportRow({ ...good, dimensions: '30 × 60 ft' }, 8, seen, none, OPTS, 225);
     expect(issues).toHaveLength(1);
     expect(issues[0].severity).toBe('warning');
     expect(issues[0].text).toContain('60%');
@@ -477,5 +481,44 @@ describe('importing a sheet', () => {
       { line: 4, severity: 'duplicate' as const, text: 'd' },
     ];
     expect(tallyImport(10, issues)).toEqual({ ready: 9, errors: 2, warnings: 1, duplicates: 1 });
+  });
+});
+
+describe('⚠️ a sheet may restate a sold plot, but not create or undo one', () => {
+  const OPTS2: ImportOptions = { markTestData: true, skipUnchanged: true, updateMatching: true };
+  const row = {
+    code: 'PROP-A200', plotNumber: 'A-200', sizeMarla: '5', basePrice: '4500000',
+    dimensions: '25 × 45 ft', status: 'sold',
+  };
+
+  /* ⚠️ THE CASE THIS RULE WAS NARROWED FOR. Export → edit a price → import is
+     how bulk updates happen, and every sold plot in that file says "Sold"
+     because it IS sold. A round trip of 150 real rows produced 38 errors, none
+     of which was a change. */
+  it('accepts Sold when that plot is already sold', () => {
+    const existing = new Map([['prop-a200', 'sold']]);
+    const issues = checkImportRow(row, 2, new Set(), existing, OPTS2, 225);
+    expect(issues.filter((i) => i.severity === 'error')).toEqual([]);
+  });
+
+  it('still refuses a sheet that turns a plot sold', () => {
+    const existing = new Map([['prop-a200', 'available']]);
+    const issues = checkImportRow(row, 3, new Set(), existing, OPTS2, 225);
+    expect(issues[0].severity).toBe('error');
+    expect(issues[0].text).toContain('authorised booking reference');
+  });
+
+  it('refuses a brand new row that arrives Sold', () => {
+    const issues = checkImportRow(row, 4, new Set(), new Map(), OPTS2, 225);
+    expect(issues[0].text).toContain('authorised booking reference');
+  });
+
+  /* ⚠️ The more damaging direction: a plot quietly returned to Available is one
+     that gets sold twice. */
+  it('refuses a sheet that puts a sold plot back on the market', () => {
+    const existing = new Map([['prop-a200', 'sold']]);
+    const issues = checkImportRow({ ...row, status: 'available' }, 5, new Set(), existing, OPTS2, 225);
+    expect(issues[0].severity).toBe('error');
+    expect(issues[0].text).toContain('cannot put it back on the market');
   });
 });
