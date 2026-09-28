@@ -292,7 +292,12 @@ export function PropertiesBoard({
   const editing = dialog?.kind === 'edit' ? properties.find((r) => r.id === dialog.id) ?? null : null;
 
   return (
-    <div className="prop-ui clients-ui mx-auto max-w-[var(--content-max)] space-y-[1.05rem]">
+    /* ⚠️ `@container`, NOT `xl:`. A viewport breakpoint does not know the
+       sidebar is 240px wide: at 1367px the page took the two-column layout,
+       handed the table 654px of the 896px it needs, and clipped the Actions
+       column clean off. The owner sent a screenshot of exactly that.
+       Container queries measure what is actually available. */
+    <div className="prop-ui clients-ui @container mx-auto max-w-[var(--content-max)] space-y-[1.05rem]">
       {/* ── header ─────────────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
@@ -318,7 +323,7 @@ export function PropertiesBoard({
       </div>
 
       {/* ── the five cards. NOT clickable, by instruction ───────────────── */}
-      <div className="grid gap-[0.85rem] sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-[0.85rem] @[34rem]:grid-cols-2 @[68rem]:grid-cols-5">
         <Tile label="Total inventory" value={cards.total} icon={Building2} bg="tile" ink="tile-ink" />
         <Tile
           label="Available"
@@ -500,7 +505,10 @@ export function PropertiesBoard({
           ]}
         />
       ) : (
-      <div className="grid min-w-0 gap-[1.05rem] xl:grid-cols-[minmax(0,1fr)_28.5rem]">
+      /* ⚠️ 78rem, BECAUSE THE TABLE NEEDS 56 OF IT. Below that the panel goes
+         underneath at full width rather than squeezing the table — a detail
+         panel is worth less than the Actions column it was hiding. */
+      <div className="grid min-w-0 gap-[1.05rem] @[78rem]:grid-cols-[minmax(0,1fr)_26rem]">
         <section className="flex min-w-0 flex-col overflow-hidden rounded-[0.6rem] border"
                  style={{ borderColor: cv('line'), background: cv('surface') }}>
           <header className="flex flex-wrap items-center justify-between gap-2 px-[1rem] py-[0.85rem]">
@@ -714,6 +722,7 @@ function ImportMenu({ onImport, onTemplate }: { onImport: () => void; onTemplate
   const [open, setOpen] = React.useState(false);
   const ref = React.useRef<HTMLDivElement>(null);
   useOutside(ref, () => setOpen(false), open);
+  const side = useMenuSide(ref, open, 14);
 
   return (
     <div className="relative" ref={ref}>
@@ -724,7 +733,7 @@ function ImportMenu({ onImport, onTemplate }: { onImport: () => void; onTemplate
         <ChevronDown className="size-[1rem]" aria-hidden="true" />
       </button>
       {open && (
-        <div className="absolute right-0 top-[calc(100%+0.3rem)] z-20 w-[14rem] overflow-hidden rounded-[0.5rem] border shadow-[var(--shadow-md)]"
+        <div className={cn('absolute top-[calc(100%+0.3rem)] z-20 w-[14rem] overflow-hidden rounded-[0.5rem] border shadow-[var(--shadow-md)]', side === 'right' ? 'right-0' : 'left-0')}
              style={{ borderColor: cv('line'), background: cv('surface') }}>
           <MenuItem onClick={() => { setOpen(false); onImport(); }}>Upload a sheet…</MenuItem>
           <MenuItem onClick={() => { setOpen(false); onTemplate(); }}>CSV / Excel template</MenuItem>
@@ -740,6 +749,7 @@ function DownloadMenu({
   const [open, setOpen] = React.useState(false);
   const ref = React.useRef<HTMLDivElement>(null);
   useOutside(ref, () => setOpen(false), open);
+  const side = useMenuSide(ref, open, 17);
 
   return (
     <div className="relative" ref={ref}>
@@ -750,7 +760,7 @@ function DownloadMenu({
         <ChevronDown className="size-[1rem]" aria-hidden="true" />
       </button>
       {open && (
-        <div className="absolute right-0 top-[calc(100%+0.3rem)] z-20 w-[17rem] overflow-hidden rounded-[0.5rem] border shadow-[var(--shadow-md)]"
+        <div className={cn('absolute top-[calc(100%+0.3rem)] z-20 w-[17rem] overflow-hidden rounded-[0.5rem] border shadow-[var(--shadow-md)]', side === 'right' ? 'right-0' : 'left-0')}
              style={{ borderColor: cv('line'), background: cv('surface') }}>
           {/* ⚠️ The owner's own words for this button are "download this list of
               properties ... with the filters that are set", so the filtered list
@@ -769,6 +779,7 @@ function StatusMenu({ disabled, onPick }: { disabled: boolean; onPick: (s: strin
   const [open, setOpen] = React.useState(false);
   const ref = React.useRef<HTMLDivElement>(null);
   useOutside(ref, () => setOpen(false), open);
+  const side = useMenuSide(ref, open, 12);
 
   return (
     <div className="relative" ref={ref}>
@@ -779,7 +790,7 @@ function StatusMenu({ disabled, onPick }: { disabled: boolean; onPick: (s: strin
         <ChevronDown className="size-[0.95rem]" aria-hidden="true" />
       </button>
       {open && (
-        <div className="absolute left-0 top-[calc(100%+0.3rem)] z-20 w-[12rem] overflow-hidden rounded-[0.5rem] border shadow-[var(--shadow-md)]"
+        <div className={cn('absolute top-[calc(100%+0.3rem)] z-20 w-[12rem] overflow-hidden rounded-[0.5rem] border shadow-[var(--shadow-md)]', side === 'right' ? 'right-0' : 'left-0')}
              style={{ borderColor: cv('line'), background: cv('surface') }}>
           {SELECTABLE_STATUSES.map((s) => (
             <MenuItem key={s} onClick={() => { setOpen(false); onPick(s); }}>
@@ -800,6 +811,29 @@ function MenuItem({ onClick, children }: { onClick: () => void; children: React.
       {children}
     </button>
   );
+}
+
+/**
+ * Which side a dropdown should hang from.
+ *
+ * ⚠️ BOTH SIDES ARE WRONG SOMETIMES, which is why this measures instead of
+ * picking one. "Download template" sits at the far right of the filter row on a
+ * wide screen — so the menu must hang LEFT from its right edge. On a narrower
+ * screen the row wraps and that same button starts at the left margin, where
+ * hanging left puts the menu under the sidebar. The owner sent a screenshot of
+ * the second case: the items read "ese 150 properties (CSV)".
+ */
+function useMenuSide(ref: React.RefObject<HTMLDivElement | null>, open: boolean, widthRem: number) {
+  const [side, setSide] = React.useState<'left' | 'right'>('right');
+  React.useEffect(() => {
+    if (!open) return;
+    const box = ref.current?.getBoundingClientRect();
+    if (!box) return;
+    const width = widthRem * 16;
+    /* Room to hang left from the right edge? If not, hang right from the left. */
+    setSide(box.right - width >= 8 ? 'right' : 'left');
+  }, [open, ref, widthRem]);
+  return side;
 }
 
 function useOutside(ref: React.RefObject<HTMLDivElement | null>, close: () => void, on: boolean) {
