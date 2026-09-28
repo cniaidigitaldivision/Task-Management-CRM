@@ -235,38 +235,113 @@ async function main() {
   }
   console.log(`Seeded ${rows.length} plots and ${rows.length * 5} payment stages.`);
 
-  /* ── 3 · a few leads, so Linked items is not always empty ─────────────── */
+  /* ── 3 · the enquiries ───────────────────────────────────────────────────
+     ⚠️ HALF OF THEM CARRY NO PLOT, ON PURPOSE. A roster where every lead is
+     already linked leaves nothing to practise the picker on — and "Link a plot"
+     is the thing being tested. The unlinked half is the point of the list, not
+     an oversight.
+
+     ⚠️ AND EVERY NUMBER IS UNREACHABLE. `+92 300 000 00NN` is in no allocated
+     range, consent is false and the insert is quiet, so none of the triggers
+     that greet a new lead can fire. The count at the end proves it rather than
+     asserting it. */
+  /* ⚠️ THE QUALIFYING ANSWERS ARE REAL ANSWERS, not a way round the trigger.
+     `app.crm_require_qualification` refuses any stage from `qualified` onwards
+     until budget, authority, purpose and timeline are recorded — and its own
+     hint says why that is right: *"Not disclosed is a valid answer — never
+     asking is not."* So a demo lead sitting at `negotiation` carries the four
+     answers a real one would, and the ones still at `new` carry none. */
+  const QUALIFIED = {
+    budget: ['4m_to_6m', '6m_to_10m', 'over_10m', '2m_to_4m', 'not_disclosed'],
+    authority: ['sole_decider', 'shares_decision', 'unknown'],
+    purpose: ['investment', 'build_to_live', 'resale', 'build_to_rent'],
+    timeline: ['within_1_month', '1_to_3_months', '3_to_6_months', 'just_exploring'],
+  };
+  const PAST_QUALIFYING = ['qualified', 'proposal_pending', 'quotation_sent',
+                           'visit_scheduled', 'visited', 'negotiation', 'won'];
+
   const NAMES = [
-    ['Faisal Rehman', 'PROP-A101'], ['Hina Shahzad', 'PROP-A102'],
-    ['Ayesha Noor', 'PROP-B201'], ['Kamran Sheikh', 'PROP-C301'],
-    ['Mohsin Ahmed', 'PROP-B401'], ['Bilal Tariq', 'PROP-A101'],
+    /* linked to a plot */
+    ['Faisal Rehman', 'PROP-A101', 'qualified', 'Islamabad'],
+    ['Hina Shahzad', 'PROP-A102', 'quotation_sent', 'Rawalpindi'],
+    ['Ayesha Noor', 'PROP-B201', 'visit_scheduled', 'Lahore'],
+    ['Kamran Sheikh', 'PROP-C301', 'negotiation', 'Karachi'],
+    ['Mohsin Ahmed', 'PROP-B401', 'contacted', 'Peshawar'],
+    ['Bilal Tariq', 'PROP-A101', 'new', 'Islamabad'],
+    ['Sana Iqbal', 'PROP-A104', 'qualified', 'Chitral'],
+    ['Rehan Malik', 'PROP-B205', 'visited', 'Islamabad'],
+    ['Nadia Aslam', 'PROP-C305', 'quotation_sent', 'Abbottabad'],
+    ['Usman Ghani', 'PROP-D402', 'negotiation', 'Multan'],
+    /* no plot yet — these are the ones to practise linking on */
+    ['Maryam Siddiqui', null, 'new', 'Islamabad'],
+    ['Tariq Jameel', null, 'contacted', 'Faisalabad'],
+    ['Saira Butt', null, 'new', 'Lahore'],
+    ['Imran Qureshi', null, 'qualified', 'Rawalpindi'],
+    ['Zoya Hassan', null, 'contacted', 'Chitral'],
+    ['Adeel Raza', null, 'new', 'Karachi'],
+    ['Farah Nawaz', null, 'qualified', 'Islamabad'],
+    ['Waqas Anjum', null, 'contacted', 'Sialkot'],
   ];
+
   await sql.begin(async (tx) => {
     await tx`select set_config('app.user_id', ${admin.id}, true),
                     set_config('app.crm_quiet_insert', 'on', true)`;
     let i = 0;
-    for (const [name, code] of NAMES) {
+    for (const [name, code, stage, city] of NAMES) {
       i += 1;
-      const [p] = await tx`select id from public.crm_properties
-        where project_id = ${project.id} and code = ${code}`;
+      const found = code
+        ? await tx`select id from public.crm_properties
+            where project_id = ${project.id} and code = ${code}`
+        : [];
+      const plot = found[0]?.id ?? null;
+      if (code && !plot) throw new Error(`${name} wants ${code} and this scheme has no such plot.`);
+
       const phone = `+9230000000${String(i).padStart(2, '0')}`;
-      /* ⚠️ RE-LINK, DO NOT SKIP. `crm_leads.property_id` is ON DELETE SET
-         NULL, and this script deletes the whole catalogue before re-seeding it
-         — so the second run silently unlinked every demo lead and the Related
-         items panel went empty. Skipping an existing lead left it pointing at
+
+      /* ⚠️ RE-LINK, DO NOT SKIP. `crm_leads.property_id` is ON DELETE SET NULL
+         and this script deletes the whole catalogue before re-seeding it — so
+         the second run silently unlinked every demo lead and the Related items
+         panel went empty. Skipping an existing lead left it pointing at
          nothing; updating it puts the link back on the NEW plot row. */
       const exists = await tx`select id from public.crm_leads
         where project_id = ${project.id} and phone_e164 = ${phone}`;
       if (exists.length) {
-        await tx`update public.crm_leads set property_id = ${p.id} where id = ${exists[0].id}`;
+        if (PAST_QUALIFYING.includes(stage)) {
+          await tx`update public.crm_leads
+                      set budget_band = ${QUALIFIED.budget[i % QUALIFIED.budget.length]}::public.crm_budget_band,
+                          authority   = ${QUALIFIED.authority[i % QUALIFIED.authority.length]}::public.crm_authority,
+                          purpose     = ${QUALIFIED.purpose[i % QUALIFIED.purpose.length]}::public.crm_purpose,
+                          timeline    = ${QUALIFIED.timeline[i % QUALIFIED.timeline.length]}::public.crm_timeline
+                    where id = ${exists[0].id}`;
+        }
+        await tx`update public.crm_leads
+                    set property_id = ${plot}, stage = ${stage}::public.crm_stage, city = ${city}
+                  where id = ${exists[0].id}`;
         continue;
       }
-      await tx`select app.crm_create_lead(
+
+      const [{ crm_create_lead: id }] = await tx`select app.crm_create_lead(
         ${project.id}::uuid, ${name}::text, ${phone}::text, ${phone}::text,
-        ${`${name.split(' ')[0].toLowerCase()}@example.invalid`}::text, ${CITY}::text,
+        ${`${name.split(' ')[0].toLowerCase()}@example.invalid`}::text, ${city}::text,
         'manual'::public.crm_lead_source, 'Demo inventory'::text,
-        ${`Asking about ${code}`}::text, ${p.id}::uuid, null::bigint,
+        ${code ? `Asking about ${code}` : 'Asking what is available in Block A'}::text,
+        ${plot}::uuid, null::bigint,
         false, null, null, null, null, null, true)`;
+
+      /* The stage is set afterwards: `crm_create_lead` opens every lead as new,
+         which is right for a real enquiry and useless for a demo desk that
+         should show the whole pipeline. */
+      if (PAST_QUALIFYING.includes(stage)) {
+        await tx`update public.crm_leads
+                    set budget_band = ${QUALIFIED.budget[i % QUALIFIED.budget.length]}::public.crm_budget_band,
+                        authority   = ${QUALIFIED.authority[i % QUALIFIED.authority.length]}::public.crm_authority,
+                        purpose     = ${QUALIFIED.purpose[i % QUALIFIED.purpose.length]}::public.crm_purpose,
+                        timeline    = ${QUALIFIED.timeline[i % QUALIFIED.timeline.length]}::public.crm_timeline
+                  where id = ${id}`;
+      }
+      if (stage !== 'new') {
+        await tx`update public.crm_leads set stage = ${stage}::public.crm_stage where id = ${id}`;
+      }
     }
   });
 
@@ -282,9 +357,11 @@ async function main() {
     select count(*)::int n from public.crm_leads
      where project_id = ${project.id} and property_id is not null`;
   console.log(`queued WhatsApp follow-ups: ${queued}   leads with consent: ${consenting}   leads linked to a plot: ${linked}`);
-  if (linked !== NAMES.length) {
-    throw new Error(`${NAMES.length} leads should be linked to a plot and ${linked} are. The catalogue was probably re-seeded under them.`);
+  const wantLinked = NAMES.filter(([, code]) => code).length;
+  if (linked !== wantLinked) {
+    throw new Error(`${wantLinked} leads should carry a plot and ${linked} do. The catalogue was probably re-seeded under them.`);
   }
+  console.log(`leads: ${NAMES.length} total · ${linked} linked · ${NAMES.length - linked} waiting to be linked`);
   if (queued !== 0 || consenting !== 0) {
     throw new Error('A demo row could message somebody. Refusing to finish quietly.');
   }
