@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 
 import { AttendanceRangePicker } from '@/components/attendance/attendance-range-picker';
+import { AutoAttendancePanel } from '@/components/attendance/auto-attendance-panel';
 import { AttendanceWorkspace } from '@/components/attendance/attendance-workspace';
 import { TerminalHealth } from '@/components/attendance/terminal-panel';
 import { PageHeader } from '@/components/ui/page-header';
@@ -11,6 +12,7 @@ import {
   listApprovedLeave,
   listAttendance,
   listAttendees,
+  listAutoAttendance,
   todayFor,
 } from '@/lib/db/queries/attendance';
 import { can } from '@/lib/domain/permissions';
@@ -103,11 +105,16 @@ export default async function AttendancePage({
           now.today,
         );
 
-  const [attendees, records, leave, mine, terminals] = await Promise.all([
+  const [attendees, records, leave, mine, autoRows, terminals] = await Promise.all([
     listAttendees(user.id),
     listAttendance(user.id, range),
     listApprovedLeave(user.id, range),
     todayFor(user.id),
+    /* ⚠️ In the same wave — Rule Zero, law 4. It owes nothing to the range or to
+       any answer above it, so making it wait would be a third round trip for a
+       card that is drawn beside the board, not after it. RLS narrows the rows:
+       an Admin sees everybody's schedule, anybody else sees only their own. */
+    listAutoAttendance(user.id),
     /* ⚠️ Only fetched for somebody who may see them. RLS would return empty
        anyway (079), but a query issued for data the page will not draw is a
        round trip for nothing — the same rule the finance page follows. */
@@ -150,6 +157,19 @@ export default async function AttendancePage({
           it belongs beside the record it explains. Mapping is a people job and
           lives on Team. */}
       {canManageTerminals && <TerminalHealth terminals={terminals} nowMs={nowMs()} />}
+
+      {/* ── ATTENDANCE THAT RECORDS ITSELF ────────────────────────────────
+          Owner, 2026-09-27: *"an on/off radio button ... And this button I want
+          on the attendees page not anywhere else."* So: here, under the terminal
+          health and above the board, which is the order those three things are
+          read in — is the wall working, who is automatic, and then the record
+          itself. */}
+      <AutoAttendancePanel
+        rows={autoRows}
+        me={{ id: user.id, fullName: user.fullName, avatarUrl: user.avatarUrl, role: user.role }}
+        canManage={canEdit}
+        todayKarachi={now.today}
+      />
 
       <AttendanceWorkspace
         board={board}

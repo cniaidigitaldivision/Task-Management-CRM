@@ -1,0 +1,26 @@
+-- ============================================================================
+-- 263 · A THIRD WAY A DAY CAN BE RECORDED
+-- ----------------------------------------------------------------------------
+-- Owner (Umm-e-Habiba, Admin), 2026-09-27: *"I'm remotely working and I have to
+-- do it all the time: check in and check out ... I want to put a cron job only
+-- for my attendance, except Sunday."*
+--
+-- `attendance_source` has said `self` or `device` since migration 060 — a button
+-- somebody pressed, or a scan at the reader in Blue Area. A day written by a
+-- schedule is neither, and calling it `self` would be a lie told to every report
+-- that reads this column: the attendance export, the late count, the monthly
+-- sheet, and anybody arguing about a figure months from now.
+--
+-- So it gets its own word. A row marked `scheduled` says exactly what happened —
+-- nobody pressed anything, an automation recorded the day — and that is the
+-- whole point of having the column at all.
+--
+-- ── ⚠️ WHY THIS FILE HAS ONE STATEMENT IN IT ─────────────────────────────
+-- `alter type ... add value` cannot be USED in the transaction that adds it.
+-- Postgres accepts the ALTER, then refuses every reference to the new label
+-- until that transaction commits ("unsafe use of new value of enum type"). The
+-- table, the policies, the function and the two cron jobs all name `scheduled`,
+-- so they live in 264 and this file exists purely to commit first.
+-- ============================================================================
+
+alter type public.attendance_source add value if not exists 'scheduled';

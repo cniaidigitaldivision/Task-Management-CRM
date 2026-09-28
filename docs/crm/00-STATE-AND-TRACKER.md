@@ -19,7 +19,55 @@
 | **Deployed** | Every push to `main` deploys to Vercel (`sin1`) → https://taskly.aidigitaldivision.com. Head: **`76826f6`**, deploy **success** (2026-09-26). Check one with `gh api repos/cniaidigitaldivision/Task-Management-CRM/commits/<sha>/status` |
 | **Green at head** | 157 test files · 3916 tests · typecheck · `next build` |
 | **Last updated** | **2026-09-26** |
-| **Last migration applied anywhere** | **262** (applied 2026-09-26; **262 the executive runs the work**). CRM next: **263.** |
+| **Last migration applied anywhere** | **264** (applied 2026-09-27; **263 the `scheduled` attendance source**, **264 a day that records itself**). CRM next: **265.** |
+
+---
+
+## 🧭 2026-09-27 — A DAY THAT RECORDS ITSELF
+
+Migrations **263** and **264**, applied. The owner works remotely, kept being
+marked absent, and asked for her own attendance to be recorded on a schedule —
+**in Supabase, pg_cron, not Vercel** (her call, and the right one: this instance
+already runs seven cron jobs and the Vercel project is near its plan's limit).
+
+| | |
+|---|---|
+| Jobs | `attendance-auto-in` `*/10 4-5 * * 1-6` · `attendance-auto-out` `*/10 13-15 * * 1-6` (UTC; Karachi is +5, so 09:00–10:59 and 18:00–20:59) |
+| Who | `public.attendance_auto` — one row, hers: in **09:40**, out **19:10**, Mon–Sat |
+| Marked | `check_in_source = 'scheduled'`, never `self` — 263 added the word |
+| Switch | **Automatic attendance** card on `/attendance` only, her instruction |
+
+### ⚠️ The window ticks every ten minutes, and that is the design
+
+The jobs do not fire once. `app.guard_attendance()` has said since 060 that a
+check-in time is *the moment the write reached the server*, and this feature does
+not punch a hole in that — it could have, since an Admin writing their own row is
+allowed past that branch. Instead the cron fires at the time we want recorded and
+the function refuses to act before its target. The first tick at or after 09:40
+does the work; every later tick finds it done. So a failed tick costs nothing and
+no clock is ever written by hand.
+
+### What it refuses
+
+A day off · approved leave, a holiday or an `unavailable` block · anything before
+the target local time · a check-in that already exists · a check-out on a day that
+was never opened · a check-out earlier than that morning's check-in. All six are
+asserted by 264's self-check, which runs against a fixture and proves it changed
+**zero** live attendance rows before it commits.
+
+### Verified
+
+Sunday live call: 0 recorded. Her own row through the real function on a working
+day, inside a transaction that was rolled back: recorded 1, `src: scheduled`, no
+edit trail, her real row untouched. The switch pressed in a browser by an Admin:
+moved in **153 ms**, persisted, and turned off again.
+
+### Left for her
+
+Friday **2026-08-28** and Monday **2026-08-31** are the two days she was marked
+absent. Not corrected here — an Admin correction carries a name and is hers to
+make. And the 19:10 check-out will close nights she works past it, which she has
+done twice this month.
 
 ---
 

@@ -264,3 +264,35 @@ there were four. Adding a fifth broke nothing and offered nothing.
 It is now read off `ROLES`, the table lives in `components/layout/primary-action.ts`
 where a test can reach it, and `primary-action.test.ts` fails if anybody writes
 the list out again.
+
+
+---
+
+## 🗓️ 2026-09-27 — ATTENDANCE THAT RECORDS ITSELF
+
+| # | Owner's words | What was done | Status |
+|---|---|---|---|
+| S42 | *"I'm remotely working and I have to do it all the time: check in and check out ... For that they mark me absent for 2 days ... except Sunday, every day, check-in between 9:30 to 10:30 ... and my check-out between 6 and 7:30, or almost between 6 and 8."* | Two **pg_cron** jobs in Supabase (not Vercel — her call) and an `attendance_auto` table saying who they are for. Hers: in at **09:40**, out at **19:10**, Monday to Saturday. Migrations 263 and 264. | ✅ |
+| S43 | *"an on/off radio button on my dashboard ... If I create some more admins I will turn off that radio button for them."* → *"And this button I want on the attendees page not anywhere else."* | An **Automatic attendance** card on `/attendance`, under the terminal health. One line per person with a schedule, a switch, and when it last ran. Moved in **153 ms** when measured. | ✅ |
+
+### The two days she was actually marked absent
+
+**Friday 2026-08-28** and **Monday 2026-08-31**. Those are the only two weekdays
+missing from her record in the last eleven weeks — every other non-Sunday since
+2026-09-01 has a row. (July has a long gap, but that predates daily use.)
+They were **not** corrected: an Admin correction is a deliberate act with a name
+attached to it, and it is hers to make, not something to slip into a migration.
+
+### ⚠️ Three things she was told rather than left to find
+
+1. **The 19:10 check-out closes the day even when she is still working.** Her own
+   history has check-outs at 22:59 and 23:34. On those nights the record will now
+   read 19:10 unless she checks out herself first — the schedule never overwrites
+   a check-out she has already made.
+2. **Any Admin can switch their own on.** The write rule is `attendance.edit`,
+   which is Admin-and-above, and it cannot name one person without hard-coding
+   her. What she gets instead is sight: the moment anybody enables it their row
+   appears in the panel and she can switch it off.
+3. **It stands down on approved leave, a holiday and any `unavailable` block.**
+   Marking somebody present on their own approved leave would corrupt two records
+   at once, so the job skips those days entirely.

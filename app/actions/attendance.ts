@@ -207,6 +207,57 @@ export async function setOfficeTeamAction(
   return { ok: true, message: 'Their office was changed.' };
 }
 
+/**
+ * Put somebody's attendance on a schedule, or take it off one.
+ *
+ * Owner (Umm-e-Habiba, Admin), 2026-09-27: *"an on/off radio button ... where I
+ * can turn it on. If I create some more admins I will turn off that radio button
+ * for them."*
+ *
+ * ⚠️ `attendance.edit`, the same gate as correcting a day and moving somebody
+ * between offices — and for the same reason. A schedule writes real attendance
+ * rows on real days, so switching one on is the same weight as typing a time in
+ * by hand, not the same as changing a preference.
+ *
+ * ⚠️ WHICH MEANS ANY ADMIN CAN SWITCH THEIR OWN ON, and the owner should know
+ * that rather than discover it. The rule cannot single her out without naming her
+ * in code. What it DOES give her is sight: the moment anybody enables it a row
+ * exists, the panel lists it, and she can switch it off. If that is not enough,
+ * the narrower rule is `super_admin` only — one word here and one in the policy
+ * of migration 264 — but she is an Admin, so that would lock her out too.
+ */
+export async function setAutoAttendanceAction(
+  subjectId: string,
+  enabled: boolean,
+): Promise<AttendanceResult> {
+  const user = await requireUser();
+
+  if (!can({ role: user.role, id: user.id }, 'attendance.edit')) {
+    return { ok: false, error: 'Only an Admin can put attendance on a schedule.' };
+  }
+
+  const written = await A.setAutoAttendance(user.id, subjectId, enabled);
+  if (!written) return { ok: false, error: 'That was not saved.' };
+
+  /* ⚠️ Audited every time. This decides whether days appear on somebody's
+     record without them touching the app, which is exactly the kind of change
+     that must be answerable months later. */
+  await auditAlone(user, {
+    entityType: 'attendance',
+    entityId: subjectId,
+    action: enabled ? 'attendance.schedule_on' : 'attendance.schedule_off',
+    after: { enabled },
+  });
+
+  refresh();
+  return {
+    ok: true,
+    message: enabled
+      ? 'Their day will be recorded automatically.'
+      : 'Their attendance is back to being recorded by hand.',
+  };
+}
+
 /* ---------------------------------------------------------------------------
  * Karachi wall-clock → instant
  * ------------------------------------------------------------------------- */
