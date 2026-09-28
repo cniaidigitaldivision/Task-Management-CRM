@@ -345,8 +345,16 @@ export async function crmUpdateProperty(
   actorId: string,
   id: string,
   input: PropertyInput,
+  /* ⚠️ HANDED TO THE TRIGGER, not written by this statement. 268 records the
+     availability span, and it is the trigger that knows whether the status
+     actually moved — this only has to make the reason reachable. `set_config`
+     with `is_local` true ties it to this transaction, so a reason cannot leak
+     onto the next person's write over a pooled connection. */
+  reason?: string,
 ): Promise<WriteResult> {
-  const rows = await withUser(actorId, (tx) => tx`
+  const rows = await withUser(actorId, async (tx) => {
+    await tx`select set_config('app.crm_status_reason', ${reason ?? ''}, true)`;
+    return tx`
     update public.crm_properties
        set code = ${input.code},
            plot_number = ${input.plotNumber},
@@ -375,7 +383,8 @@ export async function crmUpdateProperty(
            updated_at = now()
      where id = ${id}::uuid
     returning id
-  `);
+  `;
+  });
   const out = rows[0]?.id as string | undefined;
   return out ? { ok: true, id: out } : { ok: false, error: 'That property could not be changed.' };
 }
@@ -385,17 +394,21 @@ export async function crmSetPropertyStatus(
   actorId: string,
   ids: readonly string[],
   status: string,
+  reason?: string,
 ): Promise<number> {
   if (ids.length === 0) return 0;
   /* ⚠️ One set-based statement, not a loop. A transaction runs its queries in
      series on one connection — 49 s became 2.4 s on the leads importer when
      that lesson was learned. */
-  const rows = await withUser(actorId, (tx) => tx`
-    update public.crm_properties
-       set status = ${status}::public.crm_property_status, updated_at = now()
-     where id = any (${ids as string[]}::uuid[])
-    returning id
-  `);
+  const rows = await withUser(actorId, async (tx) => {
+    await tx`select set_config('app.crm_status_reason', ${reason ?? ''}, true)`;
+    return tx`
+      update public.crm_properties
+         set status = ${status}::public.crm_property_status, updated_at = now()
+       where id = any (${ids as string[]}::uuid[])
+      returning id
+    `;
+  });
   return rows.length;
 }
 
@@ -607,4 +620,51 @@ export async function crmPropertyByCode(
   const all = await crmPropertyBoard(actorId);
   const wanted = code.trim().toLowerCase();
   return all.find((r) => r.code.toLowerCase() === wanted) ?? null;
+}
+
+/* ---------------------------------------------------------------------------
+ * How long a plot spent in each state — migration 268
+ * ------------------------------------------------------------------------- */
+
+export interface StatusSpan {
+  readonly status: string;
+  readonly previous: string | null;
+  readonly startedAt: string;
+  readonly endedAt: string | null;
+  readonly by: string | null;
+  readonly reason: string | null;
+  /** Whole days, rounded down. Null while the span is still open. */
+  readonly days: number | null;
+}
+
+/**
+ * ⚠️ NEWEST FIRST, and the open span is the first row. A history read
+ * bottom-up is a history nobody reads: the question is almost always "what
+ * happened recently", and scrolling to find today is friction on every visit.
+ */
+export async function crmPropertyStatusSpans(
+  actorId: string,
+  propertyId: string,
+): Promise<readonly StatusSpan[]> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select s.status::text as status, s.previous::text as previous,
+           s.started_at, s.ended_at, s.reason, u.full_name,
+           case when s.ended_at is null then null
+                else floor(extract(epoch from (s.ended_at - s.started_at)) / 86400)::int
+           end as days
+      from public.crm_property_status_spans s
+      left join public.users u on u.id = s.changed_by_id
+     where s.property_id = ${propertyId}::uuid
+     order by s.started_at desc, s.created_at desc
+  `);
+
+  return rows.map((r) => ({
+    status: (r.status as string | null) ?? 'available',
+    previous: (r.previous as string | null) ?? null,
+    startedAt: iso(r.started_at) ?? '',
+    endedAt: iso(r.ended_at),
+    by: (r.full_name as string | null) ?? null,
+    reason: (r.reason as string | null) ?? null,
+    days: r.days == null ? null : Number(r.days),
+  }));
 }

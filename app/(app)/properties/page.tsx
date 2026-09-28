@@ -3,7 +3,6 @@ import type { Metadata } from 'next';
 import { PropertiesBoard } from '@/components/crm/properties-board';
 import { requireCrmAccess } from '@/lib/auth/current-user';
 import { crmCatalogueProjects, crmPropertyBoard } from '@/lib/db/queries/crm-properties';
-import { nowMs } from '@/lib/now';
 
 export const metadata: Metadata = { title: 'Properties' };
 
@@ -44,9 +43,6 @@ export default async function PropertiesPage() {
     <PropertiesBoard
       properties={properties}
       projects={projects}
-      /* The SERVER's clock. "Updated 21 Sep" is decided with it, and a laptop an
-         hour out would otherwise disagree with the render. */
-      nowMs={nowMs()}
       viewerName={user.fullName}
     />
   );

@@ -10,7 +10,7 @@ import {
 import { cv, OUTLINE, outlineStyle } from '@/components/crm/clients-ui';
 import { SharePropertyDialog } from '@/components/crm/property-share';
 import { useToast } from '@/components/ui/toast';
-import type { PropertyEvent, PropertyRow } from '@/lib/db/queries/crm-properties';
+import type { PropertyEvent, PropertyRow, StatusSpan } from '@/lib/db/queries/crm-properties';
 import {
   areaLabel, characterChips, displayArea, money, sizeLabel, statusLook,
 } from '@/lib/domain/crm-property';
@@ -62,10 +62,12 @@ function timeLabel(iso: string | null): string {
 export function PropertyRecord({
   property: row,
   activity,
+  spans,
   viewerName,
 }: {
   property: PropertyRow;
   activity: readonly PropertyEvent[];
+  spans: readonly StatusSpan[];
   viewerName: string;
 }) {
   const [tab, setTab] = React.useState<Tab>('Overview');
@@ -255,15 +257,7 @@ export function PropertyRecord({
 
           {tab === 'Availability history' && (
             <Card title="Availability history" icon={Calendar}>
-              {/* ⚠️ NOT BUILT, AND IT SAYS SO. Every status change IS recorded in
-                  the audit log and shows under Activity, but a history of who
-                  held this plot and for how long needs a table of its own with a
-                  start and an end. Drawing an empty table here would read as
-                  "this plot has never changed hands". */}
-              <Empty>
-                A held-and-released history needs its own table — start, end and who held it. Every
-                status change so far is under <strong>Activity</strong>, with who made it and why.
-              </Empty>
+              <Spans spans={spans} />
             </Card>
           )}
 
@@ -499,6 +493,65 @@ function Timeline({ events }: { events: readonly PropertyEvent[] }) {
           </span>
         </li>
       ))}
+    </ol>
+  );
+}
+
+/**
+ * How long this plot spent in each state — migration 268's spans.
+ *
+ * ⚠️ A SPAN, NOT AN EVENT. "Reserved for 19 days, by Sarah, because a
+ * walk-in was deciding" is the answer somebody wants; "on the 14th the status
+ * became reserved" makes them do the arithmetic and find the next row
+ * themselves. The Activity tab still lists the events.
+ */
+function Spans({ spans }: { spans: readonly StatusSpan[] }) {
+  if (spans.length === 0) {
+    return <Empty>No availability history has been recorded for this plot yet.</Empty>;
+  }
+  return (
+    <ol className="space-y-[0.55rem]">
+      {spans.map((sp, i) => {
+        const look = statusLook(sp.status);
+        const open = sp.endedAt === null;
+        return (
+          <li key={`${sp.startedAt}-${i}`}
+              className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-[0.5rem] border px-[0.7rem] py-[0.5rem]"
+              style={{ borderColor: cv('line'), background: open ? cv('strip') : 'transparent' }}>
+            <span className="inline-flex shrink-0 items-center gap-[0.4rem] rounded-full px-[0.6rem] py-[0.2rem] text-[0.78rem] font-medium"
+                  style={{ background: cv(`${look.tone}-bg`), color: cv(look.tone) }}>
+              <span className="size-[0.4rem] rounded-full" style={{ background: cv(`${look.tone}-dot`) }} aria-hidden="true" />
+              {look.label}
+            </span>
+
+            <span className="text-[0.84rem]" style={{ color: cv('ink') }}>
+              {dayLabel(sp.startedAt)}
+              {open ? (
+                <span style={{ color: cv('soft') }}> — now</span>
+              ) : (
+                <span style={{ color: cv('soft') }}> — {dayLabel(sp.endedAt)}</span>
+              )}
+            </span>
+
+            {/* ⚠️ "Today" rather than "0 days" for a span opened this morning.
+                Zero reads as an error; it is simply not a whole day old yet. */}
+            <span className="shrink-0 text-[0.82rem] tabular-nums" style={{ color: cv('mute') }}>
+              {open ? 'current' : sp.days === 0 ? 'same day' : `${sp.days} ${sp.days === 1 ? 'day' : 'days'}`}
+            </span>
+
+            {sp.previous ? (
+              <span className="shrink-0 text-[0.8rem]" style={{ color: cv('mute') }}>
+                from {statusLook(sp.previous).label.toLowerCase()}
+              </span>
+            ) : null}
+
+            <span className="min-w-0 flex-1 text-right text-[0.82rem]" style={{ color: cv('soft') }}>
+              {sp.by ? `by ${sp.by}` : 'by the system'}
+              {sp.reason ? <span className="italic" style={{ color: cv('mute') }}> · “{sp.reason}”</span> : null}
+            </span>
+          </li>
+        );
+      })}
     </ol>
   );
 }

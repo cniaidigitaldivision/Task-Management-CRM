@@ -186,7 +186,7 @@ export async function updatePropertyAction(
     return { ok: false, error: `${checked.input.code} already belongs to another plot on this project.` };
   }
 
-  const written = await P.crmUpdateProperty(user.id, id, checked.input);
+  const written = await P.crmUpdateProperty(user.id, id, checked.input, reason);
   if (!written.ok) return { ok: false, error: written.error };
 
   await auditAlone(user, {
@@ -211,6 +211,7 @@ export async function updatePropertyAction(
 export async function setPropertyStatusAction(
   ids: readonly string[],
   status: string,
+  reason?: string,
 ): Promise<PropertyResult> {
   const { user } = await requireCrmAccess();
   if (ids.length === 0) return { ok: false, error: 'Nothing was selected.' };
@@ -218,7 +219,7 @@ export async function setPropertyStatusAction(
     return { ok: false, error: 'That is not an availability state.' };
   }
 
-  const moved = await P.crmSetPropertyStatus(user.id, ids, status);
+  const moved = await P.crmSetPropertyStatus(user.id, ids, status, reason);
   if (moved === 0) return { ok: false, error: 'None of those could be changed.' };
 
   for (const id of ids.slice(0, moved)) {
@@ -227,6 +228,7 @@ export async function setPropertyStatusAction(
       entityId: id,
       action: 'property.status_changed',
       after: { status },
+      reason: (reason ?? '').trim() || null,
     });
   }
 

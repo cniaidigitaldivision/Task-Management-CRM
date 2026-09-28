@@ -3,7 +3,9 @@ import { notFound } from 'next/navigation';
 
 import { PropertyRecord } from '@/components/crm/property-record';
 import { requireCrmAccess } from '@/lib/auth/current-user';
-import { crmPropertyActivity, crmPropertyByCode } from '@/lib/db/queries/crm-properties';
+import {
+  crmPropertyActivity, crmPropertyByCode, crmPropertyStatusSpans,
+} from '@/lib/db/queries/crm-properties';
 
 export const metadata: Metadata = { title: 'Property' };
 
@@ -45,12 +47,18 @@ export default async function PropertyPage({
      disclosure — the same reasoning the lead drawer uses. */
   if (!property) notFound();
 
-  const activity = await crmPropertyActivity(user.id, property.id);
+  /* ⚠️ ONE WAVE — law 4. The history and the activity owe each other nothing,
+     and neither needs the other's answer, so they leave together. */
+  const [activity, spans] = await Promise.all([
+    crmPropertyActivity(user.id, property.id),
+    crmPropertyStatusSpans(user.id, property.id),
+  ]);
 
   return (
     <PropertyRecord
       property={property}
       activity={activity}
+      spans={spans}
       viewerName={user.fullName}
     />
   );

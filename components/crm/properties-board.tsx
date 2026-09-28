@@ -96,12 +96,10 @@ function dayLabel(iso: string | null): string {
 export function PropertiesBoard({
   properties,
   projects,
-  nowMs,
   viewerName,
 }: {
   properties: readonly PropertyRow[];
   projects: readonly ProjectOption[];
-  nowMs: number;
   viewerName: string;
 }) {
   const toast = useToast();
@@ -218,7 +216,13 @@ export function PropertiesBoard({
   async function bulkStatus(status: string) {
     const ids = [...picked];
     setBusy(true);
-    const result = await setPropertyStatusAction(ids, status);
+    /* ⚠️ A REASON EVEN HERE. The bulk control does not ask for one — the
+       owner's reference has no field for it — but twelve plots changing
+       availability at once with a blank reason is exactly the row somebody
+       queries in three months. Saying where it came from is better than null. */
+    const result = await setPropertyStatusAction(
+      ids, status, `Bulk update from the property list (${ids.length} plots).`,
+    );
     setBusy(false);
     toast(result.ok ? { tone: 'ok', text: result.message } : { tone: 'error', text: result.error });
     if (result.ok) setPicked(new Set());
