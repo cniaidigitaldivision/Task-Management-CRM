@@ -225,7 +225,21 @@ export function LeadImportDialog({
   }, [issues, options.skipDuplicates]);
 
   const willImport = Math.max(0, records.length - skipLines.size);
-  const blocked = tally.errors > 0 || willImport === 0;
+  const skipped = records.length - willImport;
+
+  /* ── ⚠️ A BAD ROW IS SKIPPED. IT DOES NOT HOLD THE FILE BACK ──────────────
+     Owner, 2026-10-01, with a file of two rows, one good: *"Each time it's
+     showing me the error and not letting me upload it. How can I upload it and
+     how can I resolve it? I want that if something is missing let it go."*
+
+     This was `tally.errors > 0 || willImport === 0` — one unusable row in five
+     hundred refused the other four hundred and ninety-nine, and the only way
+     out was to open the sheet and hunt for it. Every real list has a blank line
+     in it somewhere.
+
+     ⚠️ THE ONLY REMAINING BLOCK IS "NOTHING TO DO". A button that imports zero
+     leads is a button that lies about having worked. */
+  const blocked = willImport === 0;
   const canShare = salesTeam.length > 0;
 
   async function confirm() {
@@ -404,6 +418,32 @@ export function LeadImportDialog({
           </label>
         )}
 
+        {/* ── ⚠️ THE GUIDANCE LIVES HERE, NOT IN THE FILE ──────────────────
+            It used to be a third row in the downloaded template, and the
+            importer read it as a person. On screen it says the same things and
+            is read by a person instead. */}
+        {step === 'upload' && (
+          <div className="mt-3 rounded-xl border border-border-default px-3 py-2.5">
+            <p className="text-caption font-medium text-text-primary">
+              Only two things are needed: a name, and a phone or an email.
+            </p>
+            <p className="mt-0.5 text-micro leading-relaxed text-text-secondary">
+              Everything else is optional, and a row missing something still goes in — a budget
+              that is not a number, an address that is not an email, and a channel we do not
+              recognise are all left out rather than refused. Extra columns are ignored, so a
+              sheet from somewhere else usually works as it is.
+            </p>
+            <dl className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+              {LEAD_TEMPLATE_COLUMNS.map((col) => (
+                <span key={col.key} className="text-micro">
+                  <dt className="inline font-medium text-text-primary">{col.header}</dt>
+                  <dd className="inline text-text-tertiary"> · {col.example || 'anything'}</dd>
+                </span>
+              ))}
+            </dl>
+          </div>
+        )}
+
         {step === 'map' && sheet && (
           <div className="space-y-2">
             <p className="text-caption leading-relaxed text-text-secondary">
@@ -464,6 +504,31 @@ export function LeadImportDialog({
                 hint="Keeps them out of the reports."
               />
             </div>
+            {/* ⚠️ SAID BEFORE THE LIST, NOT AFTER IT. Somebody looking at a
+                column of red rows needs to know in the first sentence that the
+                import still works — otherwise they close the dialog and go and
+                edit the spreadsheet, which is exactly the afternoon this is
+                meant to save. */}
+            <p className="rounded-lg border border-border-default bg-bg-subtle px-3 py-2 text-caption leading-relaxed text-text-primary">
+              {willImport === 0 && tally.duplicates >= records.length ? (
+                /* ⚠️ THE TWO WAYS OF IMPORTING NOTHING ARE DIFFERENT NEWS, and
+                   saying the wrong one sends somebody to edit a file that is
+                   perfectly fine. A sheet of people we already have is a
+                   successful no-op; a sheet of unusable rows is a problem. */
+                <>Everybody in this file is already a lead on this project, so there is nothing
+                  new to add. Turn off &ldquo;Skip people we already have&rdquo; if you meant to
+                  bring them in again.</>
+              ) : willImport === 0 ? (
+                <>No row in this file can become a lead. Every one is missing a name, or any way
+                  to contact the person. Nothing will be imported.</>
+              ) : skipped === 0 ? (
+                <>All {records.length} rows will be imported.</>
+              ) : (
+                <><strong>{willImport}</strong> of {records.length} rows will be imported.{' '}
+                  <strong>{skipped}</strong> will be left out and listed below — the rest go in
+                  regardless, so there is nothing to fix before carrying on.</>
+              )}
+            </p>
             <div className="max-h-[13rem] space-y-1 overflow-y-auto pr-1">
               {issues.length === 0 ? (
                 <p className="rounded-lg border border-dashed border-border-default px-3 py-6 text-center text-caption text-text-secondary">
@@ -599,12 +664,26 @@ export function LeadImportDialog({
  * writer and the reader spelled the headers differently. One list, two readers.
  */
 export function downloadLeadTemplate(): void {
+  /* ⚠️⚠️ HEADERS AND ONE EXAMPLE. NOT A NOTES ROW — THAT WAS A REAL BUG.
+     This wrote three rows: headers, an example, and a row of guidance
+     ("Required. Phone or email — at least one.", "Whole rupees, digits only.").
+     The importer reads every row under the header as a person, so the owner
+     downloaded this product's own template, uploaded it unchanged, and was
+     shown two errors quoting my own help text back at them as if it were
+     somebody's name and somebody's budget.
+
+     A template that fails the importer it belongs to is worse than no template:
+     it is an instruction to build a file that will be rejected. The guidance
+     now lives on the Upload step, where it cannot be mistaken for data.
+
+     ⚠️ THE EXAMPLE ROW STAYS. An empty sheet leaves people guessing at the
+     format of a phone number — and unlike the notes row it is a VALID lead, so
+     importing the template unchanged creates one obviously-fake person rather
+     than failing. */
   const headers = LEAD_TEMPLATE_COLUMNS.map((c) => c.header);
   const example = LEAD_TEMPLATE_COLUMNS.map((c) => c.example);
-  const notes = LEAD_TEMPLATE_COLUMNS.map((c) =>
-    [c.required ? 'Required.' : '', c.note].filter(Boolean).join(' '));
 
-  const csv = [headers, example, notes]
+  const csv = [headers, example]
     .map((row) => row.map(csvCell).join(','))
     .join('\r\n');
 

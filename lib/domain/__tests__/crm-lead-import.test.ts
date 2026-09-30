@@ -68,10 +68,15 @@ describe('what a row must have', () => {
     expect(warningsOf(issues).join(' ')).toContain('could not be read as a mobile');
   });
 
-  it('refuses a channel it does not recognise', () => {
+  it('⚠️ WARNS about a channel it does not recognise, and lets the row in', () => {
+    /* This asserted an ERROR until 2026-10-01, and the owner was right that it
+       should not be one: *"if something is missing let it go with that."* The
+       word is kept in the source detail, so nothing is lost and no figure in
+       the Which-app report is invented. */
     const issues = checkLeadRow(
       { fullName: 'A', phone: '03001234567', source: 'Carrier pigeon' }, 2, FRESH, NOBODY, OPTIONS);
-    expect(errorsOf(issues).join(' ')).toContain('not a channel we recognise');
+    expect(errorsOf(issues)).toEqual([]);
+    expect(warningsOf(issues).join(' ')).toContain('not a channel we recognise');
   });
 });
 
@@ -252,5 +257,120 @@ describe('the count tiles', () => {
       { line: 3, severity: 'warning' as const, text: 'c' },
     ];
     expect(tallyImport(10, issues)).toEqual({ ready: 9, errors: 2, warnings: 1, duplicates: 0 });
+  });
+});
+
+/* ============================================================================
+ * "IF SOMETHING IS MISSING, LET IT GO"
+ * ----------------------------------------------------------------------------
+ * Owner, 2026-10-01, with a two-row file and one good row in it: *"Each time
+ * it's showing me the error and not letting me upload it. How can I upload it
+ * and how can I resolve it? I want that if something is missing let it go with
+ * that. For example, email is missing. Let it go."*
+ *
+ * ── ⚠️ ONLY TWO THINGS ARE WORTH REFUSING A PERSON OVER ────────────────────
+ * A name, and some way to contact them — because `crm_create_lead` refuses a
+ * row without either, so the wizard cannot be more permissive than the writer.
+ * Everything else is dropped and the lead goes in. Every real list has a blank
+ * cell in it somewhere, and an importer that stops for one is an importer
+ * somebody gives up on.
+ * ========================================================================= */
+describe('a row that is missing something', () => {
+  /** The error TEXTS, so an assertion reads the message and not "[object Object]". */
+  const ok = (row: Record<string, string>) =>
+    checkLeadRow(row, 2, FRESH, NOBODY, OPTIONS)
+      .filter((i) => i.severity === 'error')
+      .map((i) => i.text);
+
+  it('⚠️ a budget that is not a number does not refuse the person', () => {
+    expect(ok({ fullName: 'A', phone: '03001234567', budget: 'around 45 lakh' })).toEqual([]);
+  });
+
+  it('⚠️ an address that is not an email does not refuse the person', () => {
+    expect(ok({ fullName: 'A', phone: '03001234567', email: 'n/a' })).toEqual([]);
+  });
+
+  it('⚠️ a channel we do not recognise does not refuse the person', () => {
+    expect(ok({ fullName: 'A', phone: '03001234567', source: 'Property expo' })).toEqual([]);
+  });
+
+  it('⚠️ but a bad email with NO phone still does, because nothing is left', () => {
+    /* There would be no way to contact them, and `crm_create_lead` raises CRM04
+       — so letting this through would mean the counts said "ready" about a row
+       the database then refused. */
+    expect(ok({ fullName: 'A', email: 'n/a' }).join(' ')).toContain('only way to contact');
+  });
+
+  it('still refuses a row with no name at all', () => {
+    expect(ok({ phone: '03001234567' }).join(' ')).toContain('No name');
+  });
+});
+
+describe('what the warnings promised actually happens', () => {
+  /* ⚠️ THE TWO HALVES MUST AGREE. If the screen says an email will be left out
+     and `toImportRows` writes it through anyway, the row is refused at import
+     time — after the counts have already called it ready. */
+  const rows: Array<Record<string, string>> = [
+    { fullName: 'A', phone: '03001234567', email: 'not-an-email',
+      budget: 'about 40 lakh', source: 'Property expo', sourceDetail: 'March' },
+  ];
+
+  it('drops an email it warned about', () => {
+    expect(toImportRows(rows, new Set()) [0].email).toBeNull();
+  });
+
+  it('drops a budget it warned about', () => {
+    expect(toImportRows(rows, new Set())[0].budget).toBeNull();
+  });
+
+  it('⚠️ files an unknown channel as "import" and KEEPS the word', () => {
+    /* Filing it as a channel would invent a figure in "Which app the leads came
+       from"; throwing it away would lose a real fact about where they came
+       from. It goes in the detail, where it can still be read and searched. */
+    const [row] = toImportRows(rows, new Set());
+    expect(row.source).toBe('import');
+    expect(row.sourceDetail).toBe('Property expo · March');
+  });
+
+  it('keeps a good email and a good budget', () => {
+    const [row] = toImportRows(
+      [{ fullName: 'A', phone: '03001234567', email: 'a@b.com', budget: '4,500,000' }],
+      new Set());
+    expect(row.email).toBe('a@b.com');
+    expect(row.budget).toBe(4500000);
+  });
+});
+
+describe('⚠️ the template this product hands out', () => {
+  /* THE BUG THE OWNER FOUND. The template used to carry a third row of guidance
+     — "Required. Phone or email — at least one." — and the importer reads every
+     row under the header as a person, so downloading the template and uploading
+     it unchanged produced two errors quoting our own help text back as somebody's
+     name and budget. A template that fails its own importer is an instruction to
+     build a file that will be rejected. */
+  const headers = LEAD_TEMPLATE_COLUMNS.map((c) => c.header);
+  const example = LEAD_TEMPLATE_COLUMNS.map((c) => c.example);
+
+  it('maps its own headers with no help', () => {
+    const map = guessLeadMapping(headers);
+    expect(Object.keys(map)).toHaveLength(LEAD_TEMPLATE_COLUMNS.length);
+  });
+
+  it('⚠️ has an example row that imports without a single error', () => {
+    const map = guessLeadMapping(headers);
+    const row: Record<string, string> = {};
+    for (const [key, i] of Object.entries(map)) row[key] = example[i];
+    const issues = checkLeadRow(row, 2, FRESH, NOBODY, OPTIONS);
+    expect(issues.filter((i) => i.severity === 'error')).toEqual([]);
+  });
+
+  it('⚠️ carries no row whose cells are the column NOTES', () => {
+    /* The notes are guidance for a person and belong on screen. This asserts
+       they are not in the data, by checking the example row shares no cell with
+       the note text. */
+    const notes = LEAD_TEMPLATE_COLUMNS.map((c) => c.note).filter(Boolean);
+    for (const cell of example) {
+      expect(notes).not.toContain(cell);
+    }
   });
 });

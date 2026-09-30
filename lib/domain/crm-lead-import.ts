@@ -64,9 +64,15 @@ export interface LeadTemplateColumn {
 export const LEAD_TEMPLATE_COLUMNS: readonly LeadTemplateColumn[] = [
   { key: 'fullName', header: 'Full name', required: true, example: 'Ayesha Noor',
     note: 'A lead needs a name.', group: 'Who they are' },
-  { key: 'phone', header: 'Phone', required: true, example: '0300 1234567',
+  { key: 'phone', header: 'Phone', required: true, example: '0300 0000000',
     note: 'Phone or email — at least one.', group: 'Who they are' },
-  { key: 'email', header: 'Email', required: false, example: 'ayesha@example.com',
+  /* ⚠️ `example.invalid` IS RESERVED FOR EXACTLY THIS (RFC 2606) AND THE FIRST
+     DRAFT USED example.com, WHICH COLLIDED. A demo lead on the live database
+     already holds ayesha@example.com, so downloading the template and uploading
+     it unchanged reported the example row as somebody we already have — true,
+     and baffling. A template's example must not be able to match a real
+     person. */
+  { key: 'email', header: 'Email', required: false, example: 'ayesha.noor@example.invalid',
     note: '', group: 'Who they are' },
   { key: 'city', header: 'City', required: false, example: 'Islamabad',
     note: '', group: 'Who they are' },
@@ -217,8 +223,16 @@ export function checkLeadRow(
     err('No phone and no email — there would be no way to contact this person.');
   }
 
-  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
-    err(`"${row.email}" is not an email address.`);
+  /* ⚠️ A WARNING, NOT AN ERROR — unless it is the only way to reach them.
+     Owner, 2026-10-01: *"if something is missing let it go with that. For
+     example, email is missing. Let it go."* A typo in a column nobody needs is
+     not a reason to refuse a real enquiry with a good phone number; the address
+     is dropped and the row imports. When it is the ONLY contact there is
+     nothing left to import, and `crm_create_lead` would refuse it anyway. */
+  const emailLooksWrong = Boolean(email) && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email);
+  if (emailLooksWrong) {
+    if (rawPhone) warn(`"${row.email}" is not an email address, so it will be left out. The rest of the row imports.`);
+    else err(`"${row.email}" is not an email address, and it is the only way to contact this person.`);
   }
 
   const e164 = rawPhone ? toE164(rawPhone) : null;
@@ -228,13 +242,22 @@ export function checkLeadRow(
     warn(`"${rawPhone}" could not be read as a mobile number. It will be saved exactly as written, but WhatsApp will not reach it.`);
   }
 
+  /* ⚠️ ALSO A WARNING. A budget is a nice-to-have written in a column people
+     fill with "around 45 lakh" and "TBD"; refusing the person over it throws
+     away the enquiry to protect a field nobody has ever queried. The value is
+     dropped and the lead imports without one. */
   if ((row.budget ?? '').trim() && !/^[0-9][0-9,\s.]*$/.test(row.budget.trim())) {
-    err(`Budget "${row.budget}" is not a number.`);
+    warn(`Budget "${row.budget}" is not a number, so it will be left out. The rest of the row imports.`);
   }
 
+  /* ⚠️ AND SO IS AN UNKNOWN CHANNEL, BUT THE WORD IS NOT THROWN AWAY. Filing a
+     lead under a channel we invented would put a figure in "Which app the leads
+     came from" that no integration produced — so it falls back to Imported, and
+     whatever the sheet said is kept in Source detail where it can still be read
+     and searched. Nothing is lost and nothing is fabricated. */
   const source = (row.source ?? '').trim();
   if (source && readSource(source) === null) {
-    err(`"${source}" is not a channel we recognise. Leave it blank for "Imported".`);
+    warn(`"${source}" is not a channel we recognise, so this will be filed as Imported with "${source}" kept in the detail.`);
   }
 
   /* ── Already known? ──────────────────────────────────────────────────── */
@@ -310,11 +333,22 @@ export function toImportRows(
     const budgetText = (row.budget ?? '').replace(/[,\s]/g, '').trim();
     const budget = budgetText ? Number(budgetText) : NaN;
 
+    /* ⚠️ WHAT THE WARNINGS PROMISED, CARRIED OUT HERE. `checkLeadRow` tells the
+       reader a malformed email will be left out and an unknown channel filed as
+       Imported; if this function then wrote them through anyway, the screen
+       would have lied and `crm_create_lead` would refuse the row at import time
+       — after the counts had already said it was ready. */
+    const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email);
+
+    const rawSource = (row.source ?? '').trim();
+    const known = readSource(rawSource);
+    const detail = (row.sourceDetail ?? '').trim();
+
     out.push({
       fullName: (row.fullName ?? '').trim(),
       phone: rawPhone || null,
       phoneE164: rawPhone ? toE164(rawPhone) : null,
-      email: email || null,
+      email: emailOk ? email : null,
       city: (row.city ?? '').trim() || null,
       enquiry: (row.enquiry ?? '').trim() || null,
       budget: Number.isFinite(budget) && budget > 0 ? Math.round(budget) : null,
@@ -322,8 +356,15 @@ export function toImportRows(
          person into a spreadsheet somewhere else; where they originally came
          from is not recorded, and `manual` would claim a salesperson entered
          them here. */
-      source: readSource(row.source) ?? 'import',
-      sourceDetail: (row.sourceDetail ?? '').trim() || null,
+      source: known ?? 'import',
+      /* ⚠️ AN UNRECOGNISED CHANNEL IS KEPT AS TEXT rather than dropped. The
+         sheet said something — "Property expo", "Saad's contact" — and it is
+         real information about where this person came from even though it is
+         not one of our channels. Filing it as a channel would invent a figure;
+         throwing it away would lose a fact. */
+      sourceDetail: (!known && rawSource)
+        ? [rawSource, detail].filter(Boolean).join(' · ')
+        : (detail || null),
     });
   });
   return out;
