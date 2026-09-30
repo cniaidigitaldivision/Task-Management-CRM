@@ -1644,3 +1644,72 @@ export async function updateLeadDetailsAction(input: {
   revalidatePath('/my-leads');
   return { ok: true, changed: saved.changed, phoneE164 };
 }
+
+/* ---------------------------------------------------------------------------
+ * Spam — migration 270
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Archive a lead AND block the number it came from.
+ *
+ * ⚠️ BOTH HALVES, OR THE MANAGER DOES THIS FOREVER. Archiving alone leaves the
+ * next text from the same number making a fresh lead. `app.crm_mark_spam` does
+ * the pair in one statement and refuses a salesperson outright — one person
+ * must not be able to make a number invisible to the whole team.
+ */
+export async function markSpamAction(
+  leadId: string,
+  reason?: string,
+): Promise<LeadWriteResult> {
+  const user = await requireUser();
+  try {
+    const done = await withUser(user.id, (tx) => tx`
+      select app.crm_mark_spam(${leadId}::uuid, ${reason ?? null}) as ok
+    `);
+    if (!(done as Array<Record<string, unknown>>)[0]?.ok) {
+      return { ok: false, error: 'That lead could not be found.' };
+    }
+  } catch (err) {
+    return { ok: false, error: spamRefusal(err, 'mark a number as spam') };
+  }
+  refresh(leadId);
+  revalidatePath('/leads');
+  return { ok: true };
+}
+
+/** Let a number back in. A wrong call must be as easy to undo as to make. */
+export async function unmarkSpamAction(phoneE164: string): Promise<LeadWriteResult> {
+  const user = await requireUser();
+  try {
+    await withUser(user.id, (tx) => tx`select app.crm_unmark_spam(${phoneE164}) as ok`);
+  } catch (err) {
+    return { ok: false, error: spamRefusal(err, 'unblock a number') };
+  }
+  revalidatePath('/leads');
+  return { ok: true };
+}
+
+/**
+ * Why the database said no — BY SQLSTATE, never by guessing.
+ *
+ * ⚠️ THE GUESS SHIPPED, AND IT LIED. Both blocks above used to answer "Only a
+ * manager can mark a number as spam" for any throw at all. Migration 270 had
+ * revoked EXECUTE from public and never granted it to `cni_app`, so every call
+ * failed at the door with `42501 permission denied for function` — and a real
+ * sales manager, whose own session answers `crm_manages_own_department() =
+ * true`, was told in plain words that they were not a manager. Two hours could
+ * have gone on the role system for a missing GRANT. Migration 271 has the
+ * grants; this makes sure the next wrong thing says which wrong thing it is.
+ *
+ * `23514` is the function's own refusal and the only one whose sentence is
+ * about permission.
+ */
+function spamRefusal(err: unknown, what: string): string {
+  const code = (err as { code?: string } | null)?.code;
+  if (code === '23514') return `Only a manager can ${what}.`;
+  if (code === '42501') {
+    return `The database refused this app permission to ${what}. Nothing is wrong with your account — this needs a migration, not a role change.`;
+  }
+  const detail = String((err as { message?: string } | null)?.message ?? '').trim();
+  return detail ? `That did not save: ${detail}` : 'That did not save.';
+}

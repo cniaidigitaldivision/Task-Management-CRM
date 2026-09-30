@@ -47,6 +47,7 @@ const ROWS: CrmLeadRow[] = [
     temperature: null,
     nextAction: null,
     nextActionAt: null,
+    inboundAt: null,
     submittedAt: '2026-09-09T18:26:50.000Z',
     ownerId: null,
     ownerName: null,
@@ -86,6 +87,7 @@ const ROWS: CrmLeadRow[] = [
     temperature: 'cold',
     nextAction: null,
     nextActionAt: null,
+    inboundAt: null,
     submittedAt: '2026-07-28T15:19:17.000Z',
     ownerId: null,
     ownerName: null,
@@ -124,6 +126,7 @@ const ROWS: CrmLeadRow[] = [
     temperature: 'hot',
     nextAction: 'Call back about the 5 Marla plot',
     nextActionAt: '2026-09-08T09:00:00.000Z', // overdue
+    inboundAt: null,
     submittedAt: '2026-09-01T10:00:00.000Z',
     ownerId: 'u1',
     ownerName: 'Abdul Moiz',
@@ -178,7 +181,10 @@ const base = {
   },
   /* Step 7. The manager's view by default — `canShareOut` false is the
      salesperson's, and has its own cases below. */
-  unassigned: 0,
+  /* Step 7 / migration 270. `shareable` is what the rota may hand out;
+     `held` is the strangers it must not. Nothing waiting by default — the
+     strip earns its place only when there is something on it. */
+  queue: { unassigned: 0, shareable: 0, held: 0 },
   /* Step 8. Nothing owed by default — the strip earns its place only when there
      is something on it, so most cases here should not see it. */
   due: { overdue: 0, dueToday: 0, noPlan: 0, waitingForReply: 0 },
@@ -347,7 +353,7 @@ describe('sharing leads out — Step 7', () => {
     /* ⚠️ THE RULE IS PRINTED. A salesperson who cannot see how the rota works
        has no way to check it, and an unexplained allocation gets argued with. */
     const html = renderToStaticMarkup(
-      <LeadDesk {...base} selected={PROJECTS[0]} unassigned={312} />,
+      <LeadDesk {...base} selected={PROJECTS[0]} queue={{ unassigned: 312, shareable: 312, held: 0 }} />,
     );
 
     expect(html).toContain('312');
@@ -360,7 +366,7 @@ describe('sharing leads out — Step 7', () => {
     /* A salesperson told "312 leads have nobody working them" is being shown a
        queue they cannot take from — which reads as a complaint about them. */
     const html = renderToStaticMarkup(
-      <LeadDesk {...base} selected={PROJECTS[0]} unassigned={312} canShareOut={false} />,
+      <LeadDesk {...base} selected={PROJECTS[0]} queue={{ unassigned: 312, shareable: 312, held: 0 }} canShareOut={false} />,
     );
 
     expect(html).not.toContain('Share out');
@@ -375,7 +381,7 @@ describe('sharing leads out — Step 7', () => {
       <LeadDesk
         {...base}
         selected={PROJECTS[0]}
-        unassigned={312}
+        queue={{ unassigned: 312, shareable: 312, held: 0 }}
         salesTeam={base.salesTeam.filter((p) => p.isManager)}
       />,
     );
@@ -387,7 +393,7 @@ describe('sharing leads out — Step 7', () => {
 
   it('disappears once every lead has an owner', () => {
     const html = renderToStaticMarkup(
-      <LeadDesk {...base} selected={PROJECTS[0]} unassigned={0} />,
+      <LeadDesk {...base} selected={PROJECTS[0]} queue={{ unassigned: 0, shareable: 0, held: 0 }} />,
     );
     expect(html).not.toContain('Share out');
   });
@@ -625,5 +631,120 @@ describe('the WhatsApp icon on a row', () => {
     const rowHtml = html.split('<tr').find((r) => r.includes(ROWS[2].id)) ?? '';
     expect(rowHtml).toContain('?chat=1');
     expect(rowHtml).not.toContain('wa.me');
+  });
+});
+
+/* ============================================================================
+ * THE WALK-UP QUEUE — migration 270
+ * ----------------------------------------------------------------------------
+ * Owner, 2026-09-30: *"if someone other than a lead or other than a campaign
+ * sends any message to that WhatsApp number … will it show and if it shows then
+ * to whom will it be assigned?"* — and then: *"just display these messages to
+ * the sales manager, not to the salesperson … I want to not lose any message."*
+ *
+ * The database side of that shipped in 270: the message is kept, a lead is made
+ * for it, and the rota is HELD so nobody is quietly given a stranger. What the
+ * desk owes is the other half — a manager has to be able to SEE the held rows
+ * among six hundred ordinary ones, and tell them apart from a Meta lead the
+ * rota simply has not reached yet. These cases hold that line.
+ * ========================================================================= */
+describe('a lead that messaged us first', () => {
+  const walkUp: CrmLeadRow = { ...ROWS[0], id: 'walk-up-1', ownerId: null, ownerName: null,
+    inboundAt: '2026-09-10T06:12:00.000Z' };
+  const rowFor = (row: CrmLeadRow) => {
+    const html = renderToStaticMarkup(
+      <LeadDesk {...base} selected={PROJECTS[0]} rows={[row]} queue={{ unassigned: 1, shareable: 0, held: 1 }} />,
+    );
+    return html.split('<tr').find((r) => r.includes(row.id)) ?? '';
+  };
+
+  it('is marked on the desk while nobody owns it', () => {
+    expect(rowFor(walkUp)).toContain('Messaged us');
+  });
+
+  it('⚠️ loses the mark once somebody owns it', () => {
+    /* Otherwise every WhatsApp conversation the team ever has carries a badge
+       that stopped meaning anything the moment it was assigned. */
+    expect(rowFor({ ...walkUp, ownerId: 'u1', ownerName: 'Abdul Moiz' })).not.toContain(
+      'Messaged us',
+    );
+  });
+
+  it('⚠️ never marks an ordinary unassigned Meta lead', () => {
+    /* ROWS[0] is unowned and came through a form. Marking it would tell a
+       manager to read six hundred rows as walk-ups. */
+    expect(rowFor({ ...walkUp, inboundAt: null })).not.toContain('Messaged us');
+  });
+});
+
+describe('the owner filter', () => {
+  const withQueue = renderToStaticMarkup(
+    <LeadDesk {...base} selected={PROJECTS[0]} queue={{ unassigned: 7, shareable: 5, held: 2 }} />,
+  );
+
+  it('offers the queue, counted', () => {
+    expect(withQueue).toContain('Unassigned (7)');
+    expect(withQueue).toContain('value="none"');
+  });
+
+  it('⚠️ says nothing when the queue is empty', () => {
+    /* A permanent "Unassigned (0)" is how the eye learns to skip the one row
+       that matters on the day it is not zero. `base` has none. */
+    const empty = renderToStaticMarkup(<LeadDesk {...base} selected={PROJECTS[0]} />);
+    expect(empty).not.toContain('Unassigned (');
+  });
+});
+
+/* ============================================================================
+ * SHARING OUT MUST NOT REACH A WALK-UP
+ * ----------------------------------------------------------------------------
+ * `unassignedLeadIds` now filters `inbound_at is null`, so the button cannot
+ * hand a stranger to a salesperson however hard it is pressed. These cases hold
+ * the SCREEN to the same story: the number beside "Share out" is what will
+ * actually move, and the held rows are named separately rather than counted in.
+ *
+ * ⚠️ A STRIP READING "7" THAT MOVES 5 IS THE BUG THIS PREVENTS. The manager
+ * presses it, sees two left over, and concludes the rota is broken.
+ * ========================================================================= */
+describe('the share-out strip with walk-ups in the queue', () => {
+  const html = renderToStaticMarkup(
+    <LeadDesk {...base} selected={PROJECTS[0]}
+      queue={{ unassigned: 7, shareable: 5, held: 2 }} />,
+  );
+
+  it('counts only what the rota may hand out', () => {
+    expect(html).toContain('Share out 5');
+  });
+
+  it('names the held ones separately', () => {
+    expect(html).toContain('messaged the WhatsApp number');
+    expect(html).toContain('never hands a stranger to a salesperson');
+  });
+
+  it('⚠️ still says "Unassigned (7)" in the owner filter', () => {
+    /* That filter means "nobody owns these", and all seven qualify. The two
+       numbers differ because they answer different questions — which is the
+       reason they are two numbers. */
+    expect(html).toContain('Unassigned (7)');
+  });
+
+  it('shows only the held line when there is nothing to share out', () => {
+    const onlyHeld = renderToStaticMarkup(
+      <LeadDesk {...base} selected={PROJECTS[0]}
+        queue={{ unassigned: 2, shareable: 0, held: 2 }} />,
+    );
+    expect(onlyHeld).toContain('messaged the WhatsApp number');
+    expect(onlyHeld).not.toContain('Share out');
+  });
+
+  it('⚠️ says nothing at all to a salesperson', () => {
+    /* They can neither share out nor block a number, so both halves of this
+       strip describe work they cannot take. */
+    const sales = renderToStaticMarkup(
+      <LeadDesk {...base} selected={PROJECTS[0]} canShareOut={false}
+        queue={{ unassigned: 7, shareable: 5, held: 2 }} />,
+    );
+    expect(sales).not.toContain('messaged the WhatsApp number');
+    expect(sales).not.toContain('Share out');
   });
 });

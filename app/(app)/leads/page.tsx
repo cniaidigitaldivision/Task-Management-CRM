@@ -130,7 +130,11 @@ export default async function LeadsPage({
            that also holds ERP forms filters to something the reader did not mean.
            Empty in "all" mode, and the menu drops the section. */
         allProjects ? Promise.resolve([]) : crmFormOptions(user.id, selected!.id),
-        allProjects ? Promise.resolve(0) : unassignedCount(user.id, selected!.id),
+        /* ⚠️ `scope`, NOT `selected!.id` — see the reader. A walk-up lands on
+           whichever project owns the WhatsApp number that was texted, and in
+           "All projects" mode this used to answer zero, which took the owner
+           filter's Unassigned option off the screen. */
+        unassignedCount(user.id, scope),
         /* ⚠️ EMPTY FOR A SALESPERSON, by migration 120's guard rather than by
            a check here — which is also how the page knows whether to draw the
            share-out control at all.
@@ -157,7 +161,7 @@ export default async function LeadsPage({
       perPage={PER_PAGE}
       filters={filters}
       allProjects={allProjects}
-      unassigned={data?.[3] ?? 0}
+      queue={data?.[3] ?? { unassigned: 0, shareable: 0, held: 0 }}
       due={data?.[5] ?? { overdue: 0, dueToday: 0, noPlan: 0, waitingForReply: 0 }}
       salesTeam={roster}
       canShareOut={roster.length > 0}

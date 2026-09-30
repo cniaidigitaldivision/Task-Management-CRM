@@ -36,6 +36,7 @@ import { Pagination } from '@/components/ui/pagination';
 import type {
   CrmDueCounts,
   CrmLeadRow,
+  CrmQueueCounts,
   CrmProjectOption,
   CrmSalesPerson,
 } from '@/lib/db/queries/crm-leads';
@@ -114,7 +115,7 @@ export function LeadDesk({
   page,
   perPage,
   filters,
-  unassigned,
+  queue,
   due,
   salesTeam,
   canShareOut,
@@ -131,8 +132,8 @@ export function LeadDesk({
   page: number;
   perPage: number;
   filters: LeadFilterState;
-  /** How many leads on this project have no owner. */
-  unassigned: number;
+  /** What nobody owns, split by whether the rota may touch it. Migration 270. */
+  queue: CrmQueueCounts;
   /** What is owed — narrowed by RLS, so it means "mine" for a salesperson. */
   due: CrmDueCounts;
   /** ⚠️ EMPTY FOR A SALESPERSON, by migration 120's guard inside
@@ -333,6 +334,7 @@ export function LeadDesk({
                     owners={owners}
                     selectedId={filters.ownerId ?? ''}
                     onSelect={(id) => setParam('owner', id || null)}
+                    unassigned={queue.unassigned}
                   />
                 )}
 
@@ -427,7 +429,13 @@ export function LeadDesk({
           {canShareOut && selected && (
             <ShareOutControl
               projectId={selected.id}
-              unassigned={unassigned}
+              shareable={queue.shareable}
+              held={queue.held}
+              /* ⚠️ INSTANT, AND THROUGH THE SAME DOOR AS THE FILTER MENU. The
+                 held rows are already reachable by picking Unassigned in the
+                 owner filter; this is a shortcut to that exact state, not a
+                 second mechanism with its own idea of what is held. */
+              onShowHeld={() => setParam('owner', 'none')}
               salesTeam={salesTeam.filter((p) => !p.isManager).length}
             />
           )}
@@ -553,10 +561,14 @@ function OwnerSelect({
   owners,
   selectedId,
   onSelect,
+  unassigned,
 }: {
   owners: readonly Option[];
   selectedId: string;
   onSelect: (id: string) => void;
+  /** How many leads nobody owns. Named on the option, so the queue is visible
+   *  without opening it. */
+  unassigned: number;
 }) {
   return (
     <div className="relative">
@@ -567,6 +579,15 @@ function OwnerSelect({
         className="min-h-[2.6rem] min-w-[11rem] cursor-pointer appearance-none rounded-xl border border-border-subtle bg-bg-surface px-3 pr-9 text-body-sm font-medium text-text-primary transition-colors hover:border-border-default focus:border-accent-primary focus:outline-none"
       >
         <option value="">All owners</option>
+        {/* ⚠️ THE QUEUE, AND IT HAS TO BE REACHABLE FROM HERE. Migration 270
+            makes a stranger's WhatsApp message a lead that nobody owns, held
+            for a manager. Without this option that queue exists in the database
+            and nowhere on screen — which is the same as not existing.
+
+            ⚠️ SHOWN ONLY WHEN THERE IS SOMETHING IN IT. A permanent
+            "Unassigned (0)" teaches the eye to skip exactly the row that
+            matters on the day it is not zero. */}
+        {unassigned > 0 && <option value="none">Unassigned ({unassigned})</option>}
         {owners.map((o) => (
           <option key={o.id} value={o.id}>
             {o.name} ({o.leads})
@@ -1488,12 +1509,26 @@ function Row({
             steals the text selection from anybody copying a phone number out of
             the cell below. An anchor is reachable, focusable, opens in a new tab
             with a middle click, and shows its destination in the status bar. */}
-        <Link
-          href={`/leads/${lead.id}${from ? `?from=${encodeURIComponent(from)}` : ''}`}
-          className="block truncate text-body-sm font-semibold text-text-primary underline-offset-2 hover:text-text-brand hover:underline"
-        >
-          {lead.fullName ?? 'Name not given'}
-        </Link>
+        <span className="flex min-w-0 items-center gap-1.5">
+          <Link
+            href={`/leads/${lead.id}${from ? `?from=${encodeURIComponent(from)}` : ''}`}
+            className="min-w-0 flex-1 truncate text-body-sm font-semibold text-text-primary underline-offset-2 hover:text-text-brand hover:underline"
+          >
+            {lead.fullName ?? 'Name not given'}
+          </Link>
+          {/* ⚠️ WHAT THIS ROW ACTUALLY IS — migration 270. Everything else on
+              the desk arrived through a Meta form we published; this one texted
+              a number nobody gave out, and until somebody reads it there is no
+              telling whether it is a buyer or a wrong number. The Owner column
+              already says "Unassigned"; this says WHY it is unassigned, which
+              is the part that decides whether a manager opens it or shares it
+              out with the rest.
+
+              ⚠️ ONLY WHILE IT IS STILL IN THE QUEUE. Once somebody owns it, it
+              is an ordinary lead and a permanent badge would just be noise on
+              every WhatsApp conversation the team ever has. */}
+          {lead.inboundAt && !lead.ownerId && <WalkUpChip at={lead.inboundAt} />}
+        </span>
         {/* ⚠️ THE PROJECT, NOT THE PHONE NUMBER. The desk can be filtered to one
             project, but it does not have to be — and once it is not, "Chitral
             Royal Homes" is the difference between a plot enquiry and a frozen
@@ -2034,6 +2069,33 @@ function ReachLink({
  * floor for text this size; secondary gives 6.42:1. Relative ages stay tertiary,
  * because those genuinely are secondary to the row.
  */
+/**
+ * "Messaged us" — a lead that exists only because a stranger texted.
+ *
+ * ⚠️ NOT A `Badge`. The badges on this desk carry stage, and a second one on
+ * the same line reads as a second stage. This is a whisper: an outline, the
+ * WhatsApp green, and the word — findable when scanning for it, invisible when
+ * scanning for something else.
+ */
+function WalkUpChip({ at }: { at: string }) {
+  return (
+    <span
+      title={`They messaged us first, on ${new Date(at).toLocaleString('en-GB', {
+        timeZone: 'Asia/Karachi',
+      })}. Nobody owns this yet.`}
+      className="inline-flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-px text-micro font-medium"
+      style={{
+        borderColor: `color-mix(in oklab, ${WA_GREEN} 45%, transparent)`,
+        backgroundColor: `color-mix(in oklab, ${WA_GREEN} 12%, transparent)`,
+        color: 'var(--text-primary)',
+      }}
+    >
+      <WhatsAppMark className="size-3" />
+      Messaged us
+    </span>
+  );
+}
+
 function Nothing({ children }: { children: React.ReactNode }) {
   return <span className="text-caption text-text-secondary">{children}</span>;
 }

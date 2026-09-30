@@ -144,6 +144,9 @@ export function leadFromRow(row: CrmLeadRow): CrmLeadRecord {
     nextAction: row.nextAction,
     nextActionAt: row.nextActionAt,
     submittedAt: row.submittedAt,
+    /* ⚠️ REAL, NOT A PLACEHOLDER. The row carries it, so the drawer can decide
+       whether this was a walk-up without waiting for the record. */
+    inboundAt: row.inboundAt,
     importedAt: row.submittedAt,
     firstContactedAt: null,
     closedAt: null,
@@ -152,6 +155,7 @@ export function leadFromRow(row: CrmLeadRow): CrmLeadRecord {
     formName: row.formName,
     campaignName: row.campaignName,
     source: row.source ?? '',
+    sourceDetail: row.sourceDetail,
     externalId: null,
     /* ⚠️ Unknown, not unasked. The Overview shows "Loading…" for these while
        `loading` is set, rather than reading five nulls as "never asked". */

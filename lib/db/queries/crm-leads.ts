@@ -82,6 +82,11 @@ export interface CrmLeadRow {
   readonly nextAction: string | null;
   readonly nextActionAt: string | null;
   readonly submittedAt: string;
+  /** Migration 270. Non-null for somebody who messaged the WhatsApp number
+   *  without ever filling a form — a walk-up. The desk marks these, and the
+   *  drawer reads it straight from the row so the spam control can be drawn in
+   *  the click's own frame rather than after the record lands. */
+  readonly inboundAt: string | null;
   readonly ownerId: string | null;
   readonly ownerName: string | null;
   readonly formName: string | null;
@@ -164,6 +169,10 @@ export interface CrmLeadRecord {
   readonly phoneE164: string | null;
   readonly email: string | null;
   readonly city: string | null;
+  /** Set only when this lead messaged us out of the blue — migration 270. It is
+   *  what tells the desk a walk-up from an ad, and what decides whether the
+   *  spam control is offered at all. */
+  readonly inboundAt: string | null;
   /** Every answer Meta sent, raw. See `lib/domain/crm-answers.ts`. */
   readonly answers: Record<string, string>;
   readonly stage: string;
@@ -180,6 +189,10 @@ export interface CrmLeadRecord {
   readonly formName: string | null;
   readonly campaignName: string | null;
   readonly source: string;
+  /** The open half — "Lead ad", "Messaged the business number". See
+   *  `lib/domain/lead-source.ts`; the record prints it when there is no form
+   *  and no campaign, which is every walk-up. */
+  readonly sourceDetail: string | null;
   /** Meta's own lead id. Shown so a row can be traced back to the account. */
   readonly externalId: string | null;
   /* ── Qualification · migration 167 ────────────────────────────────────────
@@ -366,7 +379,12 @@ export async function listCrmLeads(
       tx`(${projectId}::uuid is null or l.project_id = ${projectId}::uuid)`,
     ];
 
-    if (filters.ownerId) conditions.push(tx`l.owner_id = ${filters.ownerId}::uuid`);
+    /* ⚠️ `none` IS A REAL CHOICE, NOT AN ABSENT ONE. An empty owner filter
+       means "everybody"; the manager also needs "nobody", which is the queue
+       that migration 270's WhatsApp walk-ups arrive in. Sent as a word rather
+       than an empty string precisely so the two cannot be confused. */
+    if (filters.ownerId === 'none') conditions.push(tx`l.owner_id is null`);
+    else if (filters.ownerId) conditions.push(tx`l.owner_id = ${filters.ownerId}::uuid`);
     if (filters.temperature) conditions.push(tx`l.temperature::text = ${filters.temperature}`);
     if (filters.formId) conditions.push(tx`l.form_id = ${filters.formId}::uuid`);
 
@@ -456,7 +474,7 @@ export async function listCrmLeads(
     const page = await tx`
       select l.id, l.full_name, l.phone, l.phone_e164, l.email, l.city,
              l.stage::text, l.temperature::text,
-             l.next_action, l.next_action_at, l.submitted_at,
+             l.next_action, l.next_action_at, l.submitted_at, l.inbound_at,
              l.owner_id,
              f.name as form_name,
              c.name as campaign_name,
@@ -600,6 +618,7 @@ export async function listCrmLeads(
       nextAction: (r.next_action as string | null) ?? null,
       nextActionAt: r.next_action_at ? new Date(r.next_action_at as string).toISOString() : null,
       submittedAt: new Date(r.submitted_at as string).toISOString(),
+      inboundAt: r.inbound_at ? new Date(r.inbound_at as string).toISOString() : null,
       ownerId: (r.owner_id as string | null) ?? null,
       /* ⚠️ A name that is missing here means the account is GONE — the reader
          returns every owner the caller can see. Before 121 it meant "hidden by
@@ -735,13 +754,17 @@ async function readCrmLeads(
                 on the one screen that exists to say where a lead came from. */
              app.crm_project_name(l.project_id) as project_name,
              l.full_name, l.phone, l.phone_e164, l.email, l.city,
+             /* 270. Non-null only for somebody who messaged us first, which is
+                the one case where "is this spam?" is a fair question to put in
+                front of a manager. */
+             l.inbound_at,
              l.answers,
              l.stage::text, l.temperature::text, l.lost_reason::text,
              l.next_action, l.next_action_at,
              l.submitted_at, l.imported_at, l.first_contacted_at, l.closed_at,
              l.owner_id,
              f.name as form_name, c.name as campaign_name,
-             l.source::text, l.external_id,
+             l.source::text, l.source_detail, l.external_id,
              l.property_id,
              /* Qualification · 167. In the same select, so opening the drawer
                 costs no extra wait — Rule Zero, law 4. */
@@ -843,6 +866,7 @@ async function readCrmLeads(
         phoneE164: (row.phone_e164 as string | null) ?? null,
         email: (row.email as string | null) ?? null,
         city: (row.city as string | null) ?? null,
+        inboundAt: row.inbound_at ? new Date(row.inbound_at as string).toISOString() : null,
         answers: (row.answers as Record<string, string> | null) ?? {},
         stage: String(row.stage),
         temperature: (row.temperature as string | null) ?? null,
@@ -862,6 +886,7 @@ async function readCrmLeads(
         formName: (row.form_name as string | null) ?? null,
         campaignName: (row.campaign_name as string | null) ?? null,
         source: String(row.source),
+        sourceDetail: (row.source_detail as string | null) ?? null,
         externalId: (row.external_id as string | null) ?? null,
         /* ⚠️ `?? null` ON EVERY ONE, never `|| null`. An empty string in
            `qualification_note` is a note somebody cleared, and `||` would turn
@@ -1213,11 +1238,19 @@ export async function crmNextOwner(actorId: string, projectId: string): Promise<
 }
 
 /**
- * The unassigned leads on a project, oldest enquiry first.
+ * The unassigned leads on a project the rota may hand out, oldest enquiry first.
  *
  * ⚠️ OLDEST FIRST, deliberately. Somebody who filled the form in June has been
  * waiting longest and their lead is closest to Meta's 90-day deletion; sharing
  * out the newest first would leave the stalest leads permanently at the back.
+ *
+ * ⚠️⚠️ AND NEVER A WALK-UP. `inbound_at is null` is the whole of migration 270
+ * held in one line. Without it "Share out 10" takes the ten oldest ownerless
+ * leads — and a stranger's message is ownerless BY DESIGN, so the first press
+ * would hand every held enquiry, spam included, to a salesperson with their
+ * name against it. That is precisely what the owner asked not to happen:
+ * *"just display these messages to the sales manager, not to the salesperson."*
+ * 270 put the hold on the INSERT; this is the other door into the same field.
  */
 export async function unassignedLeadIds(
   actorId: string,
@@ -1228,6 +1261,7 @@ export async function unassignedLeadIds(
     select id from public.crm_leads
      where project_id = ${projectId}::uuid
        and owner_id is null
+       and inbound_at is null
        and stage not in ('won', 'lost')
      order by submitted_at asc
      limit ${limit}
@@ -1349,20 +1383,50 @@ export async function crmDueCounts(
 }
 
 /**
- * How many leads on this project have nobody working them.
+ * The two kinds of lead nobody owns.
+ *
+ * ⚠️ TWO NUMBERS, BECAUSE THE ROTA MAY ONLY TOUCH ONE OF THEM. Before migration
+ * 270 "unassigned" meant one thing: a Meta lead waiting to be shared out. It now
+ * also means a stranger who texted the business number, which 270 deliberately
+ * HOLDS so it reaches a manager rather than a salesperson. One count could not
+ * serve both — see `unassignedLeadIds`, which shares out `shareable` and must
+ * never reach `held`.
  *
  * ⚠️ OPEN ONES ONLY, matching the rota in migration 120. A lead that was closed
  * without ever being assigned is not waiting for anybody, and counting it would
  * offer to share out work that does not exist.
  */
-export async function unassignedCount(actorId: string, projectId: string): Promise<number> {
+export interface CrmQueueCounts {
+  /** Everything nobody owns — what the owner filter's "Unassigned" means. */
+  readonly unassigned: number;
+  /** Of those, the ones the rota may hand out: form leads, imports, manual. */
+  readonly shareable: number;
+  /** Of those, the strangers. Read one at a time, never shared out. */
+  readonly held: number;
+}
+
+export async function unassignedCount(
+  actorId: string,
+  /* ⚠️ NULL MEANS EVERY PROJECT, the same convention `crmOwnerOptions` above
+     uses — and it is not decoration. Since migration 270 a stranger's WhatsApp
+     message lands unowned on whichever project owns the number they texted, so
+     in "All projects" mode a hard-coded zero here hid the owner filter's
+     Unassigned option on exactly the view a manager scanning for walk-ups is
+     most likely to be sitting on. */
+  projectId: string | null,
+): Promise<CrmQueueCounts> {
   const rows = await withUser(actorId, (tx) => tx`
-    select count(*) as n from public.crm_leads
-     where project_id = ${projectId}::uuid
+    select count(*) as n,
+           count(*) filter (where inbound_at is not null) as held
+      from public.crm_leads
+     where (${projectId}::uuid is null or project_id = ${projectId}::uuid)
        and owner_id is null
        and stage not in ('won', 'lost')
   `);
-  return Number((rows as Array<Record<string, unknown>>)[0]?.n ?? 0);
+  const r = (rows as Array<Record<string, unknown>>)[0];
+  const unassigned = Number(r?.n ?? 0);
+  const held = Number(r?.held ?? 0);
+  return { unassigned, held, shareable: unassigned - held };
 }
 
 /**

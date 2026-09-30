@@ -13,6 +13,7 @@ import {
   setTemperatureAction,
   shareOutLeadsAction,
   type LeadWriteResult,
+  markSpamAction,
 } from '@/app/actions/crm-leads';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -468,39 +469,85 @@ export function OwnerControl({
  */
 export function ShareOutControl({
   projectId,
-  unassigned,
+  shareable,
+  held,
+  onShowHeld,
   salesTeam,
 }: {
   projectId: string;
-  unassigned: number;
+  /** Ownerless leads the rota may hand out — forms, imports, manual entry. */
+  shareable: number;
+  /** Ownerless leads that MESSAGED US FIRST. Migration 270 holds these for a
+   *  manager, and `unassignedLeadIds` refuses to include them, so they are
+   *  named here rather than folded into the number beside the button. */
+  held: number;
+  /** Show them — the owner filter set to Unassigned, in this frame. */
+  onShowHeld: () => void;
   salesTeam: number;
 }) {
   const [pending, start] = React.useTransition();
   const toast = useToast();
   const [count, setCount] = React.useState(10);
 
-  if (unassigned === 0) return null;
+  if (shareable === 0 && held === 0) return null;
+
+  /* ⚠️ THE HELD ROWS ARE SAID FIRST AND SEPARATELY, because they are the one
+     part of this strip the button will not touch. Folding them into the number
+     beside "Share out" would promise to hand out enquiries that the rota is
+     specifically built to keep back — and the manager would press it, see the
+     count barely move, and reasonably conclude the feature is broken. */
+  const heldLine = held > 0 && (
+    <p className="min-w-0 basis-full text-caption leading-relaxed text-text-secondary">
+      <strong className="text-text-primary">{held}</strong>{' '}
+      {held === 1 ? 'person' : 'people'} messaged the WhatsApp number{' '}
+      {held === 1 ? 'itself' : 'themselves'} and {held === 1 ? 'is' : 'are'} waiting for you to
+      read {held === 1 ? 'it' : 'them'}. Sharing out never hands a stranger to a salesperson, so{' '}
+      {held === 1 ? 'it stays' : 'they stay'} here until you assign{' '}
+      {held === 1 ? 'it' : 'them'} or mark {held === 1 ? 'it' : 'them'} as spam.{' '}
+      <button
+        type="button"
+        onClick={onShowHeld}
+        className="font-medium text-text-brand underline underline-offset-2"
+      >
+        Show {held === 1 ? 'it' : 'them'}
+      </button>
+    </p>
+  );
 
   /* ⚠️ Said plainly rather than drawn as a disabled button somebody has to guess
      about — with nobody in Sales the rota has nowhere to put anything. */
   if (salesTeam === 0) {
     return (
-      <p className="rounded-xl border border-dashed border-border-default bg-bg-surface px-4 py-2.5 text-caption leading-relaxed text-text-secondary">
-        <strong>{unassigned}</strong> {unassigned === 1 ? 'lead has' : 'leads have'} nobody working
-        them, and there is nobody in the Sales department to give them to. Add somebody to Sales on
-        the Team page first.
-      </p>
+      <div className="flex flex-wrap gap-2 rounded-xl border border-dashed border-border-default bg-bg-surface px-4 py-2.5">
+        {shareable > 0 && (
+          <p className="min-w-0 basis-full text-caption leading-relaxed text-text-secondary">
+            <strong>{shareable}</strong> {shareable === 1 ? 'lead has' : 'leads have'} nobody
+            working them, and there is nobody in the Sales department to give them to. Add somebody
+            to Sales on the Team page first.
+          </p>
+        )}
+        {heldLine}
+      </div>
     );
   }
 
-  const take = Math.min(count, unassigned);
+  /* Nothing the rota may touch — the held rows are the whole of this strip. */
+  if (shareable === 0) {
+    return (
+      <div className="flex flex-wrap gap-2 rounded-xl border border-dashed border-border-default bg-bg-surface px-4 py-2.5">
+        {heldLine}
+      </div>
+    );
+  }
+
+  const take = Math.min(count, shareable);
 
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-border-default bg-bg-surface px-4 py-2.5">
       <p className="min-w-0 flex-1 text-caption leading-relaxed text-text-secondary">
-        <strong className="text-text-primary">{unassigned}</strong>{' '}
-        {unassigned === 1 ? 'lead has' : 'leads have'} nobody working{' '}
-        {unassigned === 1 ? 'it' : 'them'}. Sharing out gives each to whoever holds the{' '}
+        <strong className="text-text-primary">{shareable}</strong>{' '}
+        {shareable === 1 ? 'lead has' : 'leads have'} nobody working{' '}
+        {shareable === 1 ? 'it' : 'them'}. Sharing out gives each to whoever holds the{' '}
         <strong className="text-text-primary">fewest open leads</strong>, and on a tie to whoever
         has waited longest — oldest enquiry first.
       </p>
@@ -508,7 +555,7 @@ export function ShareOutControl({
       <input
         type="number"
         min={1}
-        max={Math.min(50, unassigned)}
+        max={Math.min(50, shareable)}
         value={count}
         disabled={pending}
         onChange={(e) => setCount(Math.max(1, Number(e.target.value) || 1))}
@@ -536,6 +583,8 @@ export function ShareOutControl({
       >
         {pending ? 'Sharing…' : `Share out ${take}`}
       </Button>
+
+      {heldLine}
     </div>
   );
 }
@@ -550,5 +599,71 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <span className="pt-1.5 text-caption text-text-secondary">{label}</span>
       <div className="min-w-0">{children}</div>
     </div>
+  );
+}
+
+/**
+ * Mark a walk-up as spam — migration 270.
+ *
+ * ⚠️ IT ARCHIVES THE LEAD **AND** BLOCKS THE NUMBER, which is the whole reason
+ * it is one button rather than two. Archiving alone leaves the next text from
+ * the same number making a fresh lead, and the manager doing this forever.
+ *
+ * ⚠️ AND IT ASKS FIRST. Blocking is the one action here that stops future
+ * business arriving, and a misplaced click on a row a salesperson had not read
+ * yet is not recoverable by the person who made it — only a manager can
+ * unblock. Two presses, with the number in the sentence.
+ *
+ * ⚠️ SHOWN ONLY FOR A LEAD THAT WALKED UP. A Meta lead with a form submission
+ * behind it is not spam, and offering the button there invites the mistake.
+ */
+export function SpamControl({
+  leadId,
+  leadName,
+  phone,
+  inboundAt,
+}: {
+  leadId: string;
+  leadName: string;
+  phone: string | null;
+  /** Set only when this lead messaged us out of the blue (migration 270). */
+  inboundAt: string | null;
+}) {
+  const [pending, go] = useAction();
+  const [asking, setAsking] = React.useState(false);
+
+  if (!inboundAt || !phone) return null;
+
+  return (
+    <Field label="Not a real enquiry?">
+      {asking ? (
+        <div className="space-y-2">
+          <p className="text-caption text-text-secondary">
+            Block <strong className="text-text-primary">{phone}</strong> and archive{' '}
+            {leadName}? Their future messages will not reach anybody, and only a manager
+            can undo it.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="ghost" onClick={() => setAsking(false)} disabled={pending}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              variant="danger"
+              disabled={pending}
+              onClick={() => go(() => markSpamAction(leadId, 'Marked as spam from the lead desk.'),
+                () => setAsking(false))}
+            >
+              {pending ? 'Blocking…' : 'Block and archive'}
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <Button size="sm" variant="ghost" onClick={() => setAsking(true)}>
+          <Trash2 className="size-3.5" aria-hidden="true" />
+          Mark as spam
+        </Button>
+      )}
+    </Field>
   );
 }

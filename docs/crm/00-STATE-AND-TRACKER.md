@@ -17,9 +17,114 @@
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
 | **Deployed** | Every push to `main` deploys to Vercel (`sin1`) → https://taskly.aidigitaldivision.com. Head: **`76826f6`**, deploy **success** (2026-09-26). Check one with `gh api repos/cniaidigitaldivision/Task-Management-CRM/commits/<sha>/status` |
-| **Green at head** | 157 test files · 3916 tests · typecheck · `next build` |
-| **Last updated** | **2026-09-26** |
-| **Last migration applied anywhere** | **267** (applied 2026-09-27). ⚠️ **263 and 264 live on `attendance-that-records-itself`, not here** — both are applied to the database, so this branch's files jump 262 → 265. **265–267 are the property catalogue.** CRM next: **268.** |
+| **Green at head** | 158 test files · 3994 tests · typecheck · `next build` |
+| **Last updated** | **2026-09-30** |
+| **Last migration applied anywhere** | **271** (applied 2026-09-30). ⚠️ **263 and 264 live on `attendance-that-records-itself`, not here** — both are applied to the database, so this branch's files jump 262 → 265. **265–269 are the property catalogue; 270–271 are lead capture.** CRM next: **272.** |
+
+---
+
+## 🧭 2026-09-30 — NO MESSAGE IS LOST, AND THE MANAGER CAN SEE THEM
+
+Branch `properties-page`. Migrations **270** and **271**.
+
+Owner: *"if someone other than a lead or other than a campaign sends any message
+to that WhatsApp number … will it show and if it shows then to whom will it be
+assigned?"* — and then, once told: *"I want to not lose any message … just
+display these messages to the sales manager, not to the salesperson … Assign it
+to the salesperson / Move it to spam."*
+
+### ⚠️ WHAT WAS HAPPENING, MEASURED
+
+`app.crm_record_inbound_message` opened with a lookup and `return null` when the
+number was unknown. **Every stranger who texted the business number was
+discarded at that line** — no lead, no row, no table to look in. There is no
+unmatched inbox anywhere in this schema; that was checked before 270 was
+written.
+
+### 270 — the capture
+
+`crm_blocked_numbers`, `crm_leads.inbound_at`, an `app.crm_hold_assignment`
+transaction-local hold that `crm_assign_new_lead` honours (so a stranger is NOT
+handed to the rota), the rewritten recorder with **the block check FIRST, then
+the lead lookup** — the other order let a blocked number back in, because
+`crm_lead_for_number` matches archived leads — and `crm_mark_spam` /
+`crm_unmark_spam`. The webhook now reads `metadata.phone_number_id` and matches
+`contacts[]` by `wa_id`, which is what gives a walk-up a name rather than a
+number.
+
+Found while writing it: the **"nobody eligible" branch of `crm_assign_new_lead`
+has written a row with both user ids null since migration 158**, which the
+`crm_lead_assignments_moved` CHECK refuses — a latent crash that would have
+failed the whole lead insert. Both branches now leave that table alone.
+
+### ⚠⚠ 271 — AND THE BUTTON COULD NEVER HAVE BEEN PRESSED
+
+270 ends `revoke all on function app.crm_mark_spam(uuid, text) from public;`
+with **no matching grant to `cni_app`**. Every press failed at the door with
+`42501 permission denied for function` — and the action's catch block answered
+*"Only a manager can mark a number as spam"*, so a real sales manager was told
+in plain words that they were not a manager. Two hours could have gone on the
+role system for a missing GRANT.
+
+**270's own self-check could not have caught it.** It runs as the migration
+owner, who has EXECUTE on everything. 271's check does `set local role cni_app`
+and calls the functions the way the app does. A definer's grants are invisible
+to every test that does not run as the role that will call it.
+
+271 also closes two things found while looking:
+
+- `create or replace` with a **new signature** does not replace anything. 270's
+  twelve-argument recorder was a second function with DEFAULT privileges —
+  `proacl` NULL, i.e. **EXECUTE TO PUBLIC** — on a cluster that has `anon` and
+  `authenticated`. Revoked and granted properly.
+- The old ten-argument overload was dead and, with four defaults on the new one,
+  a ten-argument call now matches **both**. Dropped.
+
+And `spamRefusal()` maps `23514` / `42501` by SQLSTATE instead of guessing.
+
+### ⚠️ SHARING OUT WOULD HAVE UNDONE THE HOLD
+
+270 held the assignment on the INSERT. `unassignedLeadIds` is the other door
+into the same field, and it had no such filter: one press of **Share out** would
+have handed every held stranger — spam included — to a salesperson with their
+name against it. It now filters `inbound_at is null`, and `unassignedCount`
+returns three numbers rather than one, so the strip cannot say 7 and move 5.
+
+### The manager's queue, on screen
+
+| | Where |
+|---|---|
+| **Unassigned (n)** in the owner filter | only when > 0 — a permanent `(0)` teaches the eye to skip it |
+| **"Messaged us"** chip on the row | only while unowned; it is an ordinary lead once assigned |
+| A second line on the share-out strip | names the held ones, says they are never shared out, **Show them** |
+| **Assign** and **Mark as spam** on the record | manager only — `crm_project_roster()` returns nothing to a salesperson, so a non-empty roster IS the check |
+
+### ⚠️ AND THE RECORD WAS LYING ABOUT A WALK-UP
+
+Seen on screen: a stranger's record was headed **"What they told the form"**,
+said **"Meta sent no answers with this lead"**, and gave **"Came from: Not
+recorded"** — three statements about a submission that never happened, on the
+one page a manager opens to decide whether this is a buyer or spam. The origin
+was in the row the whole time (`whatsapp` / "Messaged the business number"). All
+three fixed; the Meta path is untouched and tested.
+
+### Walked, as the manager and then as Sarah
+
+A signed Meta payload posted at the real webhook, twice — one genuine enquiry,
+one obvious spam. Manager: both visible and chipped, filter shows them, assign
+to Sarah works, **Block and archive** archives and blocks, a further message is
+refused and counted. Sarah: sees her new lead, has **no** spam button, **no**
+owner control, and **cannot see** the held one at all. "Share out" pressed with
+a walk-up in the queue — the ordinary lead moved, the stranger did not.
+Click-to-paint: **185 ms** to the confirm, **152 ms** to cancel; the filter costs
+what every filter on that desk costs (**3.7 s**, against **3.5 s** through the
+owner select that was already there) and dims at **566 ms**.
+
+⚠️ **Still open:** the desk sorts `next_action_at asc nulls last`, so a
+brand-new walk-up lands behind every lead with a plan — page 2 with `PER_PAGE =
+10`. The filter and the strip are therefore the route to the queue, not a
+convenience. Changing the sort would reorder the desk for every salesperson to
+serve the manager, so it was left alone deliberately.
 
 ---
 

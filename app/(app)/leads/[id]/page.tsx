@@ -125,6 +125,11 @@ export default async function LeadPage({
         openLeads: person.openLeads,
         isManager: person.isManager,
       }))}
+      /* ⚠️ THE SAME TEST AS THE DESK'S SHARE-OUT. `crm_project_roster()`
+         returns nothing at all to a salesperson, so a non-empty roster IS the
+         manager check, read from the database rather than from a role string
+         this page happens to hold. */
+      canMarkSpam={roster.length > 0}
       /* ⚠️ The SERVER's clock, so "3d ago" is the same for everyone — and so
          React cannot report a reader's wrong system time as a hydration error
          instead of the clock problem it is. Same as the desk. */

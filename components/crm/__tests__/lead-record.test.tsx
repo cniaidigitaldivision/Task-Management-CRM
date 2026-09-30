@@ -62,6 +62,10 @@ const LEAD: CrmLeadRecord = {
   lostReason: null,
   nextAction: null,
   nextActionAt: null,
+  /* A Meta lead, so it never walked up — the spam control must not be drawn
+     for it, which is what the test below asserts. */
+  sourceDetail: 'Lead ad',
+  inboundAt: null,
   submittedAt: '2026-09-09T18:26:50.000Z',
   importedAt: '2026-09-09T20:02:56.000Z',
   firstContactedAt: null,
@@ -99,6 +103,7 @@ function render(props: Partial<React.ComponentProps<typeof LeadRecord>> = {}) {
       backHref={'/leads?project=abc' as Route}
       viewerId="u1"
       viewerIsAdmin={false}
+      canMarkSpam={false}
       assignableOwners={[]}
       /* Step 8. No number on the project by default — the ordinary state for
          every client project — so WhatsApp falls back to `wa.me`. The case that
@@ -464,5 +469,87 @@ describe('the WhatsApp button', () => {
 
     expect(html).toContain('https://wa.me/');
     expect(html).not.toContain('Open the WhatsApp chat with');
+  });
+});
+
+/* ============================================================================
+ * MARK AS SPAM — migration 270, and the two gates in front of it
+ * ----------------------------------------------------------------------------
+ * The button archives the lead AND blocks the number for everybody, and only a
+ * manager can undo it. So it is drawn only when BOTH are true: the viewer may
+ * block, and this lead actually walked up. `app.crm_mark_spam` refuses anybody
+ * else anyway — these cases are about not OFFERING an action that would be
+ * refused, and about not offering it on a lead where it is the wrong answer.
+ * ========================================================================= */
+describe('the spam control', () => {
+  const walkUp = { ...LEAD, inboundAt: '2026-09-10T06:12:00.000Z' };
+
+  it('is offered to a manager on a lead that messaged us first', () => {
+    expect(render({ lead: walkUp, canMarkSpam: true })).toContain('Mark as spam');
+  });
+
+  it('⚠️ is not offered to a salesperson', () => {
+    /* They cannot block a number, and a button that only ever errors is worse
+       than no button — it reads as the system being broken. */
+    expect(render({ lead: walkUp, canMarkSpam: false })).not.toContain('Mark as spam');
+  });
+
+  it('⚠️ is not offered on a Meta lead, even to a manager', () => {
+    /* Somebody who filled in our own form is not a stranger, and offering the
+       block there invites the mistake it cannot be undone from. */
+    expect(render({ lead: LEAD, canMarkSpam: true })).not.toContain('Mark as spam');
+  });
+
+  it('⚠️ is not offered when there is no number to block', () => {
+    /* Archiving without blocking leaves the next message making a fresh lead,
+       which is the loop the one button exists to end. */
+    const noNumber = { ...walkUp, phone: null, phoneE164: null };
+    expect(render({ lead: noNumber, canMarkSpam: true })).not.toContain('Mark as spam');
+  });
+});
+
+/* ============================================================================
+ * A WALK-UP IS NOT A FORM SUBMISSION, AND THE RECORD MUST NOT SAY IT IS
+ * ----------------------------------------------------------------------------
+ * Seen on screen while verifying the queue: a stranger who texted the business
+ * number was given a card headed "What they told the form", the sentence "Meta
+ * sent no answers with this lead", and "Came from: Not recorded" — three
+ * statements about a Meta submission that never happened, on the one page a
+ * manager opens to decide whether this person is a buyer or spam. The origin
+ * was in the row the whole time: migration 270 writes `whatsapp` and "Messaged
+ * the business number".
+ * ========================================================================= */
+describe('the record of somebody who messaged us first', () => {
+  const walkUp = {
+    ...LEAD,
+    inboundAt: '2026-09-10T06:12:00.000Z',
+    source: 'whatsapp',
+    sourceDetail: 'Messaged the business number',
+    formName: null,
+    campaignName: null,
+    answers: {},
+  };
+  const html = render({ lead: walkUp });
+
+  it('does not head the card with a form', () => {
+    expect(html).toContain('What they wrote');
+    expect(html).not.toContain('What they told the form');
+  });
+
+  it('⚠️ does not claim Meta sent anything', () => {
+    expect(html).not.toContain('Meta sent no answers');
+    expect(html).toContain('messaged the business number rather than filling in a form');
+  });
+
+  it('⚠️ says where it came from instead of "Not recorded"', () => {
+    expect(html).toContain('Messaged the business number');
+    expect(html).toContain('WhatsApp');
+    expect(html).not.toContain('Not recorded');
+  });
+
+  it('still heads the card with the form for a Meta lead', () => {
+    /* The fixture is a real imported Meta lead with real answers — the ordinary
+       case must be untouched by all of the above. */
+    expect(render()).toContain('What they told the form');
   });
 });
