@@ -17,9 +17,128 @@
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
 | **Deployed** | Every push to `main` deploys to Vercel (`sin1`) → https://taskly.aidigitaldivision.com. Head: **`76826f6`**, deploy **success** (2026-09-26). Check one with `gh api repos/cniaidigitaldivision/Task-Management-CRM/commits/<sha>/status` |
-| **Green at head** | 158 test files · 4001 tests · typecheck · `next build` |
-| **Last updated** | **2026-09-30** |
-| **Last migration applied anywhere** | **273** (applied 2026-09-30). ⚠️ **263 and 264 live on `attendance-that-records-itself`, not here** — both are applied to the database, so this branch's files jump 262 → 265. **265–269 are the property catalogue; 270–271 lead capture; 272–273 the channel split.** CRM next: **274.** |
+| **Green at head** | 160 test files · 4035 tests · typecheck · `next build` |
+| **Last updated** | **2026-10-01** |
+| **Last migration applied anywhere** | **275** (applied 2026-10-01). ⚠️ **263 and 264 live on `attendance-that-records-itself`, not here** — both are applied to the database, so this branch's files jump 262 → 265. **265–269 are the property catalogue; 270–271 lead capture; 272–273 the channel split.** CRM next: **274.** |
+
+---
+
+## 🧭 2026-10-01 — IMPORT AND EXPORT LEADS, AND A FILTER THAT OPENED NOTHING
+
+Migrations **274** and **275**. Owner: *"one more thing I want right now is to
+import a CSV or Excel file … My focus right now is to make sure to properly
+import and export the leads."* And separately: *"when I click on the More
+filter, it is not showing me anything."*
+
+### ⚠️ THE MORE-FILTERS BUTTON WAS WORSE THAN DEAD
+
+`onClick={() => setDue('no-plan')}`. It opened nothing and quietly applied an
+unrelated filter, so the list changed under the reader with no panel in sight.
+A dead button looks broken; this looked like the data had gone.
+
+It is now a drawer: Project, Stage, **Priority**, Temperature, Came from, What
+is owed, Form, Enquired between. It drafts and applies once — seven controls
+would otherwise be seven full server renders of a page that also carries the
+diary, the approvals and the counts. Opening it is client state, 716 ms.
+
+**Priority and Temperature are two columns, not one.** The first draft folded
+them together; the page disproves it — the table already prints Priority
+(High/Normal), and `lead-priority.ts` keeps them apart on purpose: temperature
+is *will they buy?*, set by a salesperson; priority is *who do I ring first?*,
+set by the clock.
+
+### ⚠️⚠️ AND THE PRIORITY FILTER WAS SILENTLY WRONG
+
+Priority is derived, so the rule had to be written a second time in SQL:
+
+```
+(select …) = 'inbound'   is NULL when the lead has no messages
+not (NULL or NULL)       is NULL
+WHERE NULL               matches nothing
+```
+
+`normal` — written `not (inbound or overdue)` — dropped every lead with no
+conversation and no next action. **Sarah's own chips said 31 Normal; the filter
+returned 9.** Driving the page found it; the TypeScript transcription test
+passed throughout, because JavaScript has no NULL to get wrong. `coalesce(…,
+false)` fixes it, and the test now models Postgres's three-valued logic.
+
+**Three definitions of "waiting for reply" disagreed** — the list's lateral
+excluded hidden messages; the due filter and both counts did not. Four messages
+are hidden on the live table. All four now read the same.
+
+### The importer
+
+| | |
+|---|---|
+| Four steps | Upload → Map → Validate → Review, one constant height (1000 px at every step) |
+| Both formats | .xlsx read in the tab with the browser's own unzip; .csv with quotes and CRLF |
+| Column mapping | auto-matched, plus aliases — "Mobile Number", "E-mail", "Remarks" |
+| The project | on screen the whole way through and still editable, as on the property importer |
+| Who works them | a manager picks salespeople; a salesperson keeps their own list |
+| Export | Excel and CSV, carrying the filters on screen |
+
+**One database call for the whole file.** 500 rows driven per-row from Node is
+500 round trips in series on one connection — the shape that cost 49 seconds
+elsewhere in this schema. The rows travel as jsonb and `app.crm_import_leads`
+loops server-side.
+
+**It creates leads through `crm_create_lead`**, not by inserting — that function
+owns the name check, the contact check, the duplicate rule, the demo flag and
+the activity row. What it must NOT do is pick the owner, so 274 teaches it the
+hold migration 270 already invented, spliced into the live definition with a
+literal `replace()` and a re-read that refuses to commit unless it took.
+
+### ⚠️ A SHEET CANNOT SET A STAGE, AN OWNER OR A TEMPERATURE
+
+There is no column for any of them, and the Review step says so. 167's gate
+refuses `won` on an unqualified lead; who gets a lead is the rota's decision or
+the manager's; and "Hot" is a sheet asserting a conversation happened.
+
+### ⚠️ THE ROUND TRIP FOUND THE DUPLICATE RULE TOO NARROW
+
+Exporting 37 leads and importing that exact file back: **0 errors**, all eight
+importable columns auto-matched — and 11 rows offered as new. Matching only on
+E.164 and email means a number `toE164` refuses (an Islamabad landline is ten
+digits and fits no mobile pattern) can never be recognised, so importing your
+own export doubles those people. A third key — the bare digits — now matches
+them, and a row with neither digits nor email says plainly that it cannot be
+recognised at all.
+
+### ⚠️⚠️ 275 — AND A SALESPERSON COULD NOT KEEP THEIR OWN LIST
+
+Driving /my-leads as Sarah: validated two rows, said "these will all be yours to
+work", imported nothing. `crm_leads_guard_reassign` fires on any `owner_id`
+change and cannot tell claiming from reassigning — so setting a lead to HERSELF
+read as handing out leads.
+
+The guard is right. 275 gives the importer a **named flag**,
+`app.crm_importing`, set around that UPDATE alone. The guard's own comment
+points at a shortcut — clear `app.user_id` and it passes — and that is
+deliberately rejected: a function that blanks the acting user to get past a
+security check is one nobody can grep for. Its self-check proves the door shuts
+again afterwards, and that a salesperson still cannot share an import out.
+
+### Coming soon, said in the picker
+
+Website form, Landing pages, Google Ads, TikTok and an Inbound API appear as a
+disabled group. **Disabled is the point:** a channel that cannot deliver a lead
+must not be recordable as the channel a lead arrived on, or it puts a figure in
+the Which-app report that no integration produced. `website` and `google` stay
+selectable — a person can file a lead under either by hand today; what is coming
+is the automatic capture.
+
+### Walked
+
+Manager on `/leads`: export 37 → import that file → 0 errors, 26 recognised,
+heights identical at every step; then a file of three strangers imported and
+shared. Salesperson on `/my-leads`: no share picker, both leads kept, and the
+export returns her 45 rather than the project's.
+
+⚠️ **Worth remembering:** 275's self-check had to pick its fixture from
+`crm_preview_members`, not from the department — the CRM is still restricted and
+`crm_in_project_department` runs `crm_preview_allows()` first, so an ordinary
+department member is refused CRM02 for reasons nothing to do with the test.
 
 ---
 

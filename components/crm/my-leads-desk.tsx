@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 
 import { WA_GREEN, WhatsAppMark } from '@/components/crm/whatsapp-mark';
+import { LeadSheetButtons } from './lead-sheet-buttons';
 import { MyLeadsFilterDrawer } from './my-leads-filters';
 import { SourceMark } from './source-mark';
 import { Pagination } from '@/components/ui/pagination';
@@ -962,6 +963,33 @@ export function MyLeadsDesk({
             <CalendarPlus className="size-4" aria-hidden="true" />
             New follow-up
           </button>
+
+          {/* ── ⚠️ A SALESPERSON MAY IMPORT, AND KEEPS WHAT THEY IMPORT ──────
+              The owner's rule, and it is the reason this is here rather than
+              only on the manager's desk: *"if a salesperson imports, all the
+              leads are theirs."* `salesTeam` is empty here, so the wizard does
+              not offer a share-out picker — and migration 274 refuses one from
+              a salesperson regardless, so the screen and the database agree. */}
+          <LeadSheetButtons
+            projects={addProjects.map((p) => ({ id: p.id, name: p.name }))}
+            selectedProjectId={selectedProjectId}
+            selectedProjectName={
+              projects.find((p) => p.id === selectedProjectId)?.name ?? 'my leads'
+            }
+            salesTeam={[]}
+            filters={{
+              stage: filters.stage,
+              source: filters.source,
+              temperature: filters.temperature,
+            }}
+            total={total}
+            /* ⚠️ MINE, ALWAYS. This page is "leads assigned to me" and the
+               export has to answer the same question the screen does — a file
+               of the whole project downloaded from a personal desk is a
+               different document from the one somebody thought they asked
+               for. */
+            mine
+          />
         </div>
       </div>
 

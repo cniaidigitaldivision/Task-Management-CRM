@@ -156,6 +156,26 @@ export interface LeadImportOptions {
 export interface KnownContacts {
   readonly phones: ReadonlySet<string>;
   readonly emails: ReadonlySet<string>;
+  /** Raw numbers reduced to digits — see `digitsOf`. */
+  readonly digits: ReadonlySet<string>;
+}
+
+/**
+ * A phone number as bare digits, or null when there are too few to be one.
+ *
+ * ⚠️ THE THIRD KEY, AND A ROUND TRIP IS WHY IT EXISTS. Matching only on E.164
+ * and email means a number `toE164` refuses — an Islamabad landline is ten
+ * digits and fits no mobile pattern — can never be recognised, so importing
+ * your own export creates a second copy of every such person. Exporting this
+ * product's own demo project and importing it straight back offered to create
+ * eleven duplicates before this was added.
+ *
+ * ⚠️ SEVEN DIGITS MINIMUM. Fewer than that is not a phone number, and matching
+ * on three would fold unrelated people into one another.
+ */
+export function digitsOf(raw: string | null | undefined): string | null {
+  const digits = (raw ?? '').replace(/[^0-9]/g, '');
+  return digits.length >= 7 ? digits : null;
 }
 
 /**
@@ -175,7 +195,11 @@ export interface KnownContacts {
 export function checkLeadRow(
   row: Readonly<Record<string, string>>,
   line: number,
-  seen: { readonly phones: ReadonlySet<string>; readonly emails: ReadonlySet<string> },
+  seen: {
+    readonly phones: ReadonlySet<string>;
+    readonly emails: ReadonlySet<string>;
+    readonly digits: ReadonlySet<string>;
+  },
   known: KnownContacts,
   options: LeadImportOptions,
 ): readonly ImportIssue[] {
@@ -214,8 +238,24 @@ export function checkLeadRow(
   }
 
   /* ── Already known? ──────────────────────────────────────────────────── */
-  const inSheet = (e164 && seen.phones.has(e164)) || (email && seen.emails.has(email));
-  const onProject = (e164 && known.phones.has(e164)) || (email && known.emails.has(email));
+  /* ⚠️ THREE KEYS, NOT TWO. See `digitsOf` — the third is what recognises a
+     number this product stored but could not normalise, which is every landline
+     and every row whose phone was typed oddly. */
+  const digits = digitsOf(rawPhone);
+  const inSheet = (e164 && seen.phones.has(e164))
+    || (email && seen.emails.has(email))
+    || (digits && seen.digits.has(digits));
+  const onProject = (e164 && known.phones.has(e164))
+    || (email && known.emails.has(email))
+    || (digits && known.digits.has(digits));
+
+  /* ⚠️ AND A ROW WITH NO IDENTITY AT ALL SAYS SO. No readable number and no
+     email means no duplicate rule can see this person — so importing the same
+     file twice makes two of them, and nothing here can warn about it afterwards.
+     Better to say it while somebody can still add a column. */
+  if (!digits && !email && rawPhone) {
+    warn(`"${rawPhone}" has no digits in it, so we cannot tell whether this person is already here. Importing this file twice would create them twice.`);
+  }
 
   if (inSheet) {
     dup(`${name || rawPhone || email} appears more than once in this sheet.`);

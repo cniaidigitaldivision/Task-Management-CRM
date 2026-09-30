@@ -1580,6 +1580,153 @@ export async function crmSourceOptions(
   }));
 }
 
+/**
+ * Everybody this project already knows, by phone and by email.
+ *
+ * ⚠️ ONE QUERY FOR THE WHOLE SHEET, not one per row. A 500-row file checked
+ * row by row is 500 round trips in series down a single connection — the shape
+ * that turned a 2.4-second write into 49 seconds elsewhere in this schema. The
+ * wizard holds both sets in memory and answers every row from them.
+ *
+ * ⚠️ AND IT IS SCOPED TO THE PROJECT, which is where `crm_create_lead` looks
+ * too. The same person may be a lead on Chitral and on the ERP pipeline without
+ * either being a duplicate; the clash rule has always been per project and this
+ * must agree with it or the wizard will promise an import the writer refuses.
+ */
+export interface CrmKnownContacts {
+  readonly phones: readonly string[];
+  readonly emails: readonly string[];
+  /**
+   * The raw phone reduced to its digits, for numbers `toE164` could not read.
+   *
+   * ⚠️ FOUND BY A ROUND TRIP, NOT BY READING THE CODE. Exporting this project's
+   * 37 leads and importing that exact file back recognised 26 and offered to
+   * create 11 — the 11 whose number cannot be normalised. Matching only on
+   * `phone_e164` and `email` means an Islamabad landline (ten digits, no mobile
+   * pattern, so `toE164` correctly returns null) can never be recognised as
+   * somebody we already have, and re-importing your own export quietly doubles
+   * them.
+   *
+   * ⚠️ SEVEN DIGITS MINIMUM. Below that it is not a phone number, and matching
+   * on three digits would collapse unrelated people into one duplicate.
+   */
+  readonly digits: readonly string[];
+}
+
+export async function crmKnownContacts(
+  actorId: string,
+  projectId: string,
+): Promise<CrmKnownContacts> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select
+      coalesce(array_agg(distinct l.phone_e164) filter (where l.phone_e164 is not null), '{}') as phones,
+      coalesce(array_agg(distinct lower(l.email)) filter (where l.email is not null), '{}') as emails,
+      coalesce(array_agg(distinct regexp_replace(l.phone, '[^0-9]', '', 'g'))
+        filter (where length(regexp_replace(coalesce(l.phone, ''), '[^0-9]', '', 'g')) >= 7), '{}') as digits
+      from public.crm_leads l
+     where l.project_id = ${projectId}::uuid
+  `);
+  const r = (rows as Array<Record<string, unknown>>)[0];
+  return {
+    phones: (r?.phones as string[] | null) ?? [],
+    emails: (r?.emails as string[] | null) ?? [],
+    digits: (r?.digits as string[] | null) ?? [],
+  };
+}
+
+/**
+ * Every lead on a project, whole, for an export.
+ *
+ * ⚠️ NOT `listCrmLeads` WITH A BIG LIMIT. That reads six laterals per row to
+ * build a desk; an export wants columns a spreadsheet can hold and nothing
+ * else. And it is narrowed by RLS exactly like the desk, so a salesperson
+ * exports their own leads and a manager exports the project's — one query, two
+ * answers, and no second rule about who may download what.
+ */
+export interface CrmLeadExportRow {
+  readonly fullName: string | null;
+  readonly phone: string | null;
+  readonly phoneE164: string | null;
+  readonly email: string | null;
+  readonly city: string | null;
+  readonly enquiry: string | null;
+  readonly budget: number | null;
+  readonly source: string;
+  readonly sourceDetail: string | null;
+  readonly stage: string;
+  readonly temperature: string | null;
+  readonly ownerName: string | null;
+  readonly projectName: string;
+  readonly formName: string | null;
+  readonly nextAction: string | null;
+  readonly nextActionAt: string | null;
+  readonly submittedAt: string;
+  readonly lastActivityAt: string | null;
+}
+
+export async function crmLeadsForExport(
+  actorId: string,
+  projectId: string | null,
+  filters: CrmLeadFilters = {},
+): Promise<readonly CrmLeadExportRow[]> {
+  const { rows, owners } = await withUser(actorId, async (tx) => {
+    const conditions = [tx`true`];
+    if (projectId) conditions.push(tx`l.project_id = ${projectId}::uuid`);
+    if (filters.stage) conditions.push(tx`l.stage::text = ${filters.stage}`);
+    if (filters.source) conditions.push(tx`l.source::text = ${filters.source}`);
+    if (filters.temperature) conditions.push(tx`l.temperature::text = ${filters.temperature}`);
+    if (filters.mine) conditions.push(tx`l.owner_id = app.current_user_id()`);
+    let where = conditions[0];
+    for (const c of conditions.slice(1)) where = tx`${where} and ${c}`;
+
+    const rows = await tx`
+      select l.full_name, l.phone, l.phone_e164, l.email, l.city,
+             l.budget, l.source::text, l.source_detail,
+             l.stage::text, l.temperature::text, l.owner_id,
+             l.next_action, l.next_action_at, l.submitted_at,
+             app.crm_project_name(l.project_id) as project_name,
+             f.name as form_name,
+             (select n.body from public.crm_lead_notes n
+               where n.lead_id = l.id order by n.created_at asc limit 1) as enquiry,
+             (select a.occurred_at from public.crm_lead_activity a
+               where a.lead_id = l.id order by a.occurred_at desc limit 1) as last_at
+        from public.crm_leads l
+        left join public.crm_lead_forms f on f.id = l.form_id
+       where ${where}
+       order by l.submitted_at desc
+       limit 20000
+    `;
+    const owners = await tx`select * from app.crm_lead_owners()`;
+    return { rows, owners };
+  });
+
+  const names = new Map<string, string>();
+  for (const o of owners as Array<Record<string, unknown>>) {
+    names.set(String(o.id), String(o.full_name ?? 'Unnamed'));
+  }
+
+  return (rows as Array<Record<string, unknown>>).map((r) => ({
+    fullName: (r.full_name as string | null) ?? null,
+    phone: (r.phone as string | null) ?? null,
+    phoneE164: (r.phone_e164 as string | null) ?? null,
+    email: (r.email as string | null) ?? null,
+    city: (r.city as string | null) ?? null,
+    enquiry: (r.enquiry as string | null) ?? null,
+    budget: r.budget === null || r.budget === undefined ? null : Number(r.budget),
+    source: String(r.source),
+    sourceDetail: (r.source_detail as string | null) ?? null,
+    stage: String(r.stage),
+    temperature: (r.temperature as string | null) ?? null,
+    ownerName: r.owner_id ? (names.get(String(r.owner_id)) ?? null) : null,
+    projectName: String(r.project_name ?? ''),
+    formName: (r.form_name as string | null) ?? null,
+    nextAction: (r.next_action as string | null) ?? null,
+    nextActionAt: r.next_action_at ? new Date(r.next_action_at as string).toISOString() : null,
+    submittedAt: new Date(r.submitted_at as string).toISOString(),
+    lastActivityAt: r.last_at ? new Date(r.last_at as string).toISOString() : null,
+  }));
+}
+
 /** The forms this project's leads came from — the filter's options. */
 export async function crmFormOptions(
   actorId: string,

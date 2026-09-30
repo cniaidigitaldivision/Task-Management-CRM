@@ -94,6 +94,48 @@ export const SOURCE_OPTIONS = Object.entries(SOURCES).map(([value, meta]) => ({
   label: meta.label,
 }));
 
+/* ============================================================================
+ * THE CHANNELS THAT ARE NOT CONNECTED YET
+ * ----------------------------------------------------------------------------
+ * Owner, 2026-10-01, listing what should appear as coming soon: *"website,
+ * TikTok, Google campaign APIs, website form, landing pages."* And earlier,
+ * setting the rule: *"Google Ads: that is the integration needed or you can add
+ * them but show in a dropdown: data is coming soon, right? Same way for the
+ * TikTok."*
+ *
+ * ── ⚠️ THIS IS ABOUT AUTOMATIC CAPTURE, NOT ABOUT FILING ──────────────────
+ * `website` and `google` are already real values in `crm_lead_source` and
+ * somebody can file a lead under either by hand today — three leads carry each.
+ * What does not exist is anything that POSTS a lead into this system without a
+ * person typing it: no form endpoint, no inbound API, no ad-platform sync.
+ *
+ * So these are listed as what they are — connections not yet built — rather
+ * than removed from the picker, which would take away a filing choice that
+ * works. A disabled entry saying "coming soon" answers the question somebody
+ * opens the dropdown to ask; an absent entry makes them ask it again next week.
+ *
+ * ⚠️ AND NOTHING HERE IS SELECTABLE. Each entry is rendered `disabled`, because
+ * a channel that cannot deliver a lead must not be recordable as the channel a
+ * lead arrived on — that would put a number in the Which-app report that no
+ * integration produced.
+ * ========================================================================= */
+
+export interface ComingSoonSource {
+  readonly label: string;
+  /** What it will do, in one line, for the title attribute. */
+  readonly note: string;
+  /** The brand mark, where there is one to draw. */
+  readonly mark: string | null;
+}
+
+export const COMING_SOON_SOURCES: readonly ComingSoonSource[] = [
+  { label: 'Website form', note: 'A form on your own site posting straight into this desk.', mark: null },
+  { label: 'Landing pages', note: 'Campaign landing pages, each one tagged to its campaign.', mark: null },
+  { label: 'Google Ads', note: 'Lead form extensions pulled from the Google Ads API.', mark: 'google' },
+  { label: 'TikTok', note: 'TikTok Lead Generation, pulled the way Meta is today.', mark: 'tiktok' },
+  { label: 'Inbound API', note: 'A key any other system can post a lead to.', mark: null },
+];
+
 /**
  * The brand slug for this source, or null when it has no logo.
  *

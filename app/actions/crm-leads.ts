@@ -39,6 +39,9 @@ import {
   type CrmLeadRow,
   crmLeadCatalogue,
   type CrmUnit,
+  crmKnownContacts,
+  crmLeadsForExport,
+  type CrmLeadExportRow,
 } from '@/lib/db/queries/crm-leads';
 import { isLostReason, isStage, TEMPERATURES } from '@/lib/domain/crm-stages';
 import {
@@ -50,6 +53,7 @@ import { newLeadProblems } from '@/lib/domain/crm-new-lead';
 import { appointmentKindLabel, appointmentProblems, clashesWith, MAX_MINUTES, MIN_MINUTES } from '@/lib/domain/crm-appointments';
 import { needsApproval, quotationProblems, toRupees } from '@/lib/domain/crm-quotations';
 import { displayPhone, toE164 } from '@/lib/domain/phone';
+import type { LeadImportRow } from '@/lib/domain/crm-lead-import';
 import { fromAddress, quotationEmail, sendLeadEmail } from '@/lib/crm/email';
 import { describeSender } from '@/lib/email/send';
 import { DIVISION_NAME } from '@/lib/domain/constants';
@@ -1712,4 +1716,119 @@ function spamRefusal(err: unknown, what: string): string {
   }
   const detail = String((err as { message?: string } | null)?.message ?? '').trim();
   return detail ? `That did not save: ${detail}` : 'That did not save.';
+}
+
+/* ---------------------------------------------------------------------------
+ * Importing a list — migration 274
+ * ------------------------------------------------------------------------- */
+
+export interface ImportLeadsResult {
+  readonly ok: boolean;
+  readonly error?: string;
+  readonly created?: number;
+  readonly skipped?: number;
+  readonly unassigned?: number;
+  /** user id → how many they were given, for the confirmation sentence. */
+  readonly byOwner?: Readonly<Record<string, number>>;
+}
+
+/**
+ * Write a whole sheet of leads.
+ *
+ * ⚠️ ONE DATABASE CALL FOR THE WHOLE FILE. The rows travel as JSON and
+ * `app.crm_import_leads` loops server-side. Calling a definer per row from here
+ * would be 500 round trips in series on one connection — the exact shape that
+ * cost 49 seconds elsewhere in this schema before it was made set-based.
+ *
+ * ⚠️ AND THE ASSIGNMENT RULE IS THE DATABASE'S, NOT THIS FUNCTION'S. Empty
+ * `owners` means the importer keeps them; a list means share between exactly
+ * those people. 274 refuses a salesperson who tries to hand leads to somebody
+ * else, so a tampered request is answered by the same rule as an honest one.
+ */
+export async function importLeadsAction(
+  projectId: string,
+  rows: readonly LeadImportRow[],
+  owners: readonly string[] = [],
+  options: { readonly markTestData?: boolean } = {},
+): Promise<ImportLeadsResult> {
+  const user = await requireUser();
+
+  if (!projectId) return { ok: false, error: 'Choose the project to import into.' };
+  if (rows.length === 0) return { ok: false, error: 'That sheet had no rows to import.' };
+  /* ⚠️ A CEILING, SAID IN NUMBERS. 2,000 rows is roughly a minute of writes and
+     the same limit the property importer carries; beyond it somebody should be
+     told to split the file rather than watch a spinner and wonder. */
+  if (rows.length > 2000) {
+    return { ok: false, error: `That is ${rows.length.toLocaleString('en-GB')} rows. Split the sheet into files of 2,000 or fewer.` };
+  }
+
+  try {
+    const result = await withUser(user.id, (tx) => tx`
+      select app.crm_import_leads(
+        ${projectId}::uuid,
+        ${tx.json(rows as never)},
+        ${owners as unknown as string[]}::uuid[],
+        ${options.markTestData ?? false}
+      ) as out
+    `);
+    const out = (result as Array<Record<string, unknown>>)[0]?.out as
+      | { created?: number; skipped?: number; unassigned?: number; byOwner?: Record<string, number> }
+      | undefined;
+
+    revalidatePath('/leads');
+    revalidatePath('/my-leads');
+    return {
+      ok: true,
+      created: out?.created ?? 0,
+      skipped: out?.skipped ?? 0,
+      unassigned: out?.unassigned ?? 0,
+      byOwner: out?.byOwner ?? {},
+    };
+  } catch (err) {
+    /* ⚠️ BY SQLSTATE, NOT BY GUESSING — the lesson migration 271 taught when a
+       catch block told a real manager they were not a manager. */
+    const code = (err as { code?: string } | null)?.code;
+    if (code === 'CRM02') {
+      return { ok: false, error: 'You cannot add leads to that project.' };
+    }
+    if (code === '23514') {
+      return { ok: false, error: 'Only a manager can share imported leads out to other people. Import them yourself and ask a manager to hand them round.' };
+    }
+    if (code === '42501') {
+      return { ok: false, error: 'The database refused this app permission to import leads. This needs a migration, not a role change.' };
+    }
+    const detail = String((err as { message?: string } | null)?.message ?? '').trim();
+    return { ok: false, error: detail ? `Nothing was imported: ${detail}` : 'Nothing was imported.' };
+  }
+}
+
+/** What the wizard needs to recognise somebody it already has. */
+export async function knownContactsAction(
+  projectId: string,
+): Promise<{ phones: readonly string[]; emails: readonly string[]; digits: readonly string[] }> {
+  const user = await requireUser();
+  if (!projectId) return { phones: [], emails: [], digits: [] };
+  try {
+    return await crmKnownContacts(user.id, projectId);
+  } catch {
+    /* ⚠️ EMPTY, NOT A THROW. This runs while somebody is mapping columns; a
+       rejected promise would put a red banner on a screen nobody has finished.
+       The database refuses a real clash on write regardless — the worst case of
+       failing quietly here is duplicates reported at import instead of at
+       validate. */
+    return { phones: [], emails: [], digits: [] };
+  }
+}
+
+/** Every lead the reader may see, for a spreadsheet. */
+export async function exportLeadsAction(
+  projectId: string | null,
+  filters: { stage?: string | null; source?: string | null; temperature?: string | null; mine?: boolean } = {},
+): Promise<{ ok: boolean; error?: string; rows?: readonly CrmLeadExportRow[] }> {
+  const user = await requireUser();
+  try {
+    return { ok: true, rows: await crmLeadsForExport(user.id, projectId, filters) };
+  } catch {
+    return { ok: false, error: 'Those leads could not be read.' };
+  }
 }

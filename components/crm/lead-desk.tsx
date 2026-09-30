@@ -25,6 +25,7 @@ import {
 
 import { ShareOutControl } from '@/components/crm/lead-actions';
 import { SalesTeamPanel } from '@/components/crm/sales-team';
+import { LeadSheetButtons } from '@/components/crm/lead-sheet-buttons';
 import { SourceMark } from '@/components/crm/source-mark';
 import { useToast } from '@/components/ui/toast';
 import { WA_GREEN, WhatsAppMark } from '@/components/crm/whatsapp-mark';
@@ -366,6 +367,27 @@ export function LeadDesk({
                       screenshot is the widest piece of empty space on the page. Only
                       on the demo project, and the SERVER re-checks that on every
                       call — a hidden button is not a permission. */}
+                  {/* ── ⚠️ IMPORT AND EXPORT SIT TOGETHER ────────────────────
+                      Owner, 2026-10-01: *"My focus right now is to make sure to
+                      properly import and export the leads."* They are one pair
+                      of scissors: the file you get out is a valid file to put
+                      back in, and separating them across the page hides that.
+
+                      ⚠️ THE EXPORT CARRIES THE FILTERS ON SCREEN. Downloading
+                      the whole project while the reader is looking at 13
+                      Instagram leads would be a file about a different
+                      question from the one they asked. */}
+                  <LeadSheetButtons
+                    projects={projects.filter((p) => p.connection !== 'not-connected')}
+                    selectedProjectId={selected?.id ?? null}
+                    selectedProjectName={selected?.name ?? 'leads'}
+                    salesTeam={salesTeam.filter((p) => !p.isManager).map((p) => ({
+                      id: p.id, name: p.name, openLeads: p.openLeads,
+                    }))}
+                    filters={filters}
+                    total={total}
+                  />
+
                   <FilterMenu
                     filters={filters}
                     owners={owners}
