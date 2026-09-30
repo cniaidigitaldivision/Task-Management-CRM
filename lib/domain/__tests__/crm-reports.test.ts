@@ -4,6 +4,7 @@ import {
   buildAgeingReport,
   buildFunnelReport,
   buildPeopleReport,
+  buildChannelsReport,
   buildSourcesReport,
   isReportKind,
   REPORT_KINDS,
@@ -55,12 +56,25 @@ const SOURCES: SourceRow[] = [
 ];
 
 describe('the vocabulary', () => {
-  it('names all four reports', () => {
-    expect(REPORT_KINDS).toHaveLength(4);
+  /* ⚠️ NO COUNT. This asserted `toHaveLength(4)` and failed the moment a fifth
+     report was added — a test that has to be edited to add a kind teaches
+     nothing and delays the edit that matters. What is worth holding is that
+     EVERY kind has a label and that no label is the raw enum value. */
+  it('gives every report a name of its own', () => {
+    expect(REPORT_KINDS.length).toBeGreaterThan(0);
     for (const kind of REPORT_KINDS) {
       expect(REPORT_LABEL[kind]).toBeTruthy();
       expect(REPORT_LABEL[kind]).not.toBe(kind);
     }
+  });
+
+  it('⚠️ never gives two reports the same name', () => {
+    /* `sources` and `channels` are one population grouped two ways, and their
+       first drafts both began "Where the leads came from" — two entries in a
+       dropdown that read identically is how somebody generates the wrong one
+       and then quotes it. */
+    const names = REPORT_KINDS.map((k) => REPORT_LABEL[k]);
+    expect(new Set(names).size).toBe(names.length);
   });
 
   it('rejects anything else, which is what keeps it out of an enum cast', () => {
@@ -308,5 +322,71 @@ describe('every report', () => {
         expect(row.length, report.title).toBe(report.columns.length);
       }
     }
+  });
+});
+
+/* ============================================================================
+ * CHANNELS — migration 273
+ * ----------------------------------------------------------------------------
+ * The real numbers, read off the live table on 2026-09-30: on Chitral Royal
+ * Homes, 15 Instagram and 7 Facebook leads arrived 18–20 September through the
+ * SAME forms, and 660 older ones are filed as plain Meta because the importer
+ * did not ask Graph for `platform` until 15 September.
+ *
+ * That third bucket is the whole reason this report needs care. 15 against 7
+ * looks like a clean comparison until you notice 660 leads sitting outside it.
+ * ========================================================================= */
+const CHANNELS: SourceRow[] = [
+  { source: 'meta_lead_ad', leads: 660, contacted: 40, won: 0, lost: 1, winRate: 0 },
+  { source: 'instagram', leads: 15, contacted: 6, won: 1, lost: 1, winRate: 50 },
+  { source: 'facebook', leads: 7, contacted: 3, won: 0, lost: 0, winRate: null },
+];
+
+describe('channels', () => {
+  const report = buildChannelsReport(CHANNELS, CTX);
+
+  it('names the apps rather than printing the enum', () => {
+    /* `meta_lead_ad` is not a word anybody says out loud, and this text reaches
+       a printed PDF. */
+    const names = report.rows.map((r) => cellText(r[0]));
+    expect(names).toContain('Instagram');
+    expect(names).toContain('Facebook');
+    expect(names).toContain('Meta');
+    expect(names).not.toContain('meta_lead_ad');
+  });
+
+  it('⚠️ says how many could not be split, and why', () => {
+    /* WITHOUT THIS THE REPORT IS MISLEADING RATHER THAN INCOMPLETE. A reader
+       comparing 15 to 7 has to know that 660 leads are in neither column. */
+    const notes = report.notes.join(' ');
+    expect(notes).toContain('660 of these are filed as Meta');
+    expect(notes).toContain('15 September 2026');
+    expect(notes).toContain('cannot be recovered');
+  });
+
+  it('⚠️ says nothing about splitting when there is nothing unsplit', () => {
+    /* Once every lead carries an app, that paragraph is just noise. */
+    const clean = buildChannelsReport(CHANNELS.filter((r) => r.source !== 'meta_lead_ad'), CTX);
+    expect(clean.notes.join(' ')).not.toContain('filed as Meta');
+  });
+
+  it('⚠️ shows a dash for a channel that has closed nothing, never 0%', () => {
+    const fb = report.rows.find((r) => cellText(r[0]) === 'Facebook');
+    expect(cellText(fb![5])).toBe('—');
+    /* And a real zero is still a zero — Meta has one lost and nothing won. */
+    const meta = report.rows.find((r) => cellText(r[0]) === 'Meta');
+    expect(cellText(meta![5])).not.toBe('—');
+  });
+
+  it('⚠️ does not call itself "Where the leads came from"', () => {
+    /* That is the FORM report. Two reports with one title is how the wrong one
+       gets generated, and then quoted. */
+    expect(report.title).not.toBe(buildSourcesReport(SOURCES, CTX).title);
+    expect(report.notes.join(' ')).toContain('one form runs on both Facebook and Instagram');
+  });
+
+  it('orders by volume, biggest first', () => {
+    const leads = report.rows.map((r) => Number(cellText(r[1]).replace(/[^0-9]/g, '')));
+    expect(leads).toEqual([...leads].sort((a, b) => b - a));
   });
 });

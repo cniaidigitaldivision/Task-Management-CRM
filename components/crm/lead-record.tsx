@@ -28,6 +28,7 @@ import type {
   CrmLeadSibling,
 } from '@/lib/db/queries/crm-leads';
 import { orderedAnswers } from '@/lib/domain/crm-answers';
+import { SourceMark } from '@/components/crm/source-mark';
 import { sourceDetail, sourceLabel } from '@/lib/domain/lead-source';
 import {
   activityLabel,
@@ -389,16 +390,25 @@ export function LeadRecord({
                     written by migration 270. Saying nothing was recorded when
                     something was is the kind of small lie that sends somebody
                     to look for a setting that is not missing. */}
+                {/* ⚠️ AND THE LOGO, BECAUSE THE SPLIT IS THE POINT. Migration
+                    160 files a Meta lead under the app its ad ran on; 22 leads
+                    on the real Chitral project already carry one. Written out,
+                    "Facebook" and "Instagram" are two similar words in small
+                    grey text on a card full of them — the mark is what makes
+                    the difference readable at a glance. */}
                 <Fact label="Came from">
+                  {lead.source && (
+                    <span className="mb-1 flex items-center gap-1.5">
+                      <SourceMark source={lead.source} size={18} />
+                      <span className="text-caption text-text-secondary">
+                        {sourceLabel(lead.source)}
+                      </span>
+                    </span>
+                  )}
                   {lead.campaignName ??
                     lead.formName ??
                     sourceDetail(lead.source, lead.sourceDetail) ??
                     <Nothing>Not recorded</Nothing>}
-                  {!lead.campaignName && !lead.formName && lead.source && (
-                    <span className="mt-0.5 block text-micro text-text-tertiary">
-                      {sourceLabel(lead.source)}
-                    </span>
-                  )}
                   {lead.campaignName && lead.formName && (
                     <span className="mt-0.5 block text-micro text-text-tertiary">
                       {lead.formName}

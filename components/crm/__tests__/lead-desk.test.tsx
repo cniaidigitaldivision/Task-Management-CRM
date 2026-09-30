@@ -166,6 +166,13 @@ const base = {
   stageCounts: { new: 612, negotiation: 2, lost: 1 },
   owners: [{ id: 'u1', name: 'Abdul Moiz', leads: 1 }],
   forms: [{ id: 'f1', name: 'Chitral Royal Homes-copy', leads: 553 }],
+  /* Migration 160, and these are the live shape: the same forms ran on both
+     apps, so the split is a CHANNEL fact rather than a form fact. */
+  sources: [
+    { id: 'meta_lead_ad', leads: 593 },
+    { id: 'instagram', leads: 15 },
+    { id: 'facebook', leads: 7 },
+  ],
   page: 1,
   perPage: 25,
   filters: {
@@ -173,6 +180,7 @@ const base = {
     ownerId: null,
     temperature: null,
     formId: null,
+    source: null,
     search: null,
     from: null,
     to: null,

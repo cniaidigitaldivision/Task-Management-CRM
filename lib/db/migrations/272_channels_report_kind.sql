@@ -1,0 +1,31 @@
+-- ============================================================================
+-- 272 · A REPORT KIND FOR THE CHANNEL
+-- ----------------------------------------------------------------------------
+-- ⚠️ THIS FILE ADDS THE ENUM VALUE AND NOTHING ELSE, AND THAT IS NOT TIDINESS.
+-- `alter type ... add value` cannot be USED in the transaction that adds it —
+-- Postgres raises `unsafe use of new value of enum type`. The migration runner
+-- wraps each file in one transaction, so a file that both adds `channels` and
+-- writes a self-check casting to it cannot pass. 273 carries the function and
+-- the check.
+--
+-- ── WHY A SECOND REPORT RATHER THAN A CHANGE TO `sources` ────────────────
+-- "Where the leads came from" groups by the lead FORM, and its own note says so.
+-- That is a real question — which form pulls — and rewriting it would silently
+-- change what two already-generated reports mean.
+--
+-- The channel is a DIFFERENT question, and the numbers say it is worth asking.
+-- Measured on the real Chitral Royal Homes project as the APPLICATION SEES IT —
+-- as `cni_app`, not as the owner — its 18 visible leads are **13 Instagram,
+-- 4 Facebook, 1 WhatsApp**, and the Instagram ones came through the SAME forms
+-- as the Facebook ones. One form, two apps, two answers. Migration 160 stores
+-- it; until now nothing could compare it.
+--
+-- ⚠️ READ AS THE OWNER THE SAME TABLE SAYS 15 AND 7, AND THAT NUMBER IS WRONG
+-- FOR EVERY PURPOSE HERE. `crm_leads_not_archived` is a policy of its own —
+-- `archived_at is null` — so an archived lead is invisible to the app entirely,
+-- and 665 of this project's 683 rows are archived (all 660 plain `meta_lead_ad`
+-- ones among them). A probe run as `postgres` bypasses that policy and reports a
+-- population no screen will ever show.
+-- ============================================================================
+
+alter type public.crm_report_kind add value if not exists 'channels';

@@ -272,6 +272,12 @@ export interface CrmLeadFilters {
   readonly ownerId?: string | null;
   readonly temperature?: string | null;
   readonly formId?: string | null;
+  /** The CHANNEL — `facebook`, `instagram`, `whatsapp`, `website`… Migration
+   *  160 files a Meta lead under the app its ad ran on, and 22 leads on the
+   *  real Chitral project already carry one. Distinct from `formId`: a single
+   *  form runs on both apps, which is the whole reason the split is worth
+   *  having. */
+  readonly source?: string | null;
   readonly search?: string | null;
   /** Inclusive, on `submitted_at` — when THEY enquired, not when we imported. */
   readonly from?: string | null;
@@ -387,6 +393,11 @@ export async function listCrmLeads(
     else if (filters.ownerId) conditions.push(tx`l.owner_id = ${filters.ownerId}::uuid`);
     if (filters.temperature) conditions.push(tx`l.temperature::text = ${filters.temperature}`);
     if (filters.formId) conditions.push(tx`l.form_id = ${filters.formId}::uuid`);
+    /* ⚠️ `::text`, NOT A CAST TO THE ENUM. An unknown value cast to
+       `crm_lead_source` raises 22P02 and turns a hand-edited URL into a 500;
+       compared as text it simply matches nothing, which is what a filter for a
+       channel that does not exist should do. */
+    if (filters.source) conditions.push(tx`l.source::text = ${filters.source}`);
 
     if (search) {
       /* ⚠️ Searches the name, the raw phone AND the normalised one. Somebody
@@ -1468,6 +1479,40 @@ export async function crmOwnerOptions(
       leads: Number(r.leads ?? 0),
     }))
     .sort((a, b) => b.leads - a.leads || a.name.localeCompare(b.name));
+}
+
+/**
+ * The CHANNELS this project's leads came from — the filter's options.
+ *
+ * ⚠️ COUNTED FROM THE LEADS, not from the enum. Offering all eleven values
+ * would put "LinkedIn 0" and "TikTok 0" in front of somebody scanning for the
+ * two that matter; the list is what actually arrived. Same rule as the owner
+ * and form options above.
+ *
+ * ⚠️ AND NO `archived_at is null` HERE, WHICH IS DELIBERATE RATHER THAN MISSING.
+ * `crm_leads_not_archived` is a policy on the table — archived rows are invisible
+ * to `cni_app` full stop — so adding the predicate would be a second copy of a
+ * rule that already holds, and the count would still match the list. Checked as
+ * the app's own role on Chitral Royal Homes: 13 Instagram and 4 Facebook here,
+ * 13 and 4 in the table. As the OWNER the same query says 15 and 7, because
+ * `postgres` bypasses policies — which is why that reading is never the one to
+ * trust about what a screen will show.
+ */
+export async function crmSourceOptions(
+  actorId: string,
+  projectId: string | null,
+): Promise<Array<{ id: string; leads: number }>> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select source::text as source, count(*) as leads
+      from public.crm_leads
+     where (${projectId}::uuid is null or project_id = ${projectId}::uuid)
+     group by source
+     order by count(*) desc, source
+  `);
+  return (rows as Array<Record<string, unknown>>).map((r) => ({
+    id: String(r.source),
+    leads: Number(r.leads ?? 0),
+  }));
 }
 
 /** The forms this project's leads came from — the filter's options. */

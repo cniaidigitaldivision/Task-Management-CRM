@@ -25,6 +25,7 @@ import {
 
 import { ShareOutControl } from '@/components/crm/lead-actions';
 import { SalesTeamPanel } from '@/components/crm/sales-team';
+import { SourceMark } from '@/components/crm/source-mark';
 import { useToast } from '@/components/ui/toast';
 import { WA_GREEN, WhatsAppMark } from '@/components/crm/whatsapp-mark';
 /* ⚠️⚠️ TEMPORARY — delete with the block that uses it. See below. */
@@ -50,6 +51,7 @@ import {
   TEMPERATURES,
 } from '@/lib/domain/crm-stages';
 import { DIVISION_NAME } from '@/lib/domain/constants';
+import { sourceLabel } from '@/lib/domain/lead-source';
 import { displayPhone, whatsAppDigits } from '@/lib/domain/phone';
 import { relativeAge } from '@/lib/view/relative-age';
 import { cn } from '@/lib/utils';
@@ -87,6 +89,8 @@ export interface LeadFilterState {
   readonly ownerId: string | null;
   readonly temperature: string | null;
   readonly formId: string | null;
+  /** The channel — `facebook`, `instagram`, `whatsapp`… Migration 160. */
+  readonly source: string | null;
   readonly search: string | null;
   readonly from: string | null;
   readonly to: string | null;
@@ -104,6 +108,13 @@ interface Option {
   readonly leads: number;
 }
 
+/** A channel and its count. No name — `sourceLabel` is the one place that
+ *  decides what `meta_lead_ad` is called on screen. */
+export interface SourceOption {
+  readonly id: string;
+  readonly leads: number;
+}
+
 export function LeadDesk({
   projects,
   selected,
@@ -112,6 +123,7 @@ export function LeadDesk({
   stageCounts,
   owners,
   forms,
+  sources,
   page,
   perPage,
   filters,
@@ -129,6 +141,10 @@ export function LeadDesk({
   stageCounts: Record<string, number>;
   owners: readonly Option[];
   forms: readonly Option[];
+  /** The channels this project's leads actually arrived on, with counts. The
+   *  LABEL is not carried — `sourceLabel` owns the wording, and shipping a
+   *  second copy of it through props is how the two drift. */
+  sources: readonly SourceOption[];
   page: number;
   perPage: number;
   filters: LeadFilterState;
@@ -242,6 +258,7 @@ export function LeadDesk({
     filters.ownerId,
     filters.temperature,
     filters.formId,
+    filters.source,
     filters.from ?? filters.to,
     /* ⚠️ The due strip is its own control, but it narrows the table like any
        other filter and the count has to say so — otherwise "Filters 2" above a
@@ -353,6 +370,7 @@ export function LeadDesk({
                     filters={filters}
                     owners={owners}
                     forms={forms}
+                    sources={sources}
                     count={activeFilters}
                     onSet={setParam}
                   />
@@ -707,12 +725,14 @@ function FilterMenu({
   filters,
   owners,
   forms,
+  sources,
   count,
   onSet,
 }: {
   filters: LeadFilterState;
   owners: readonly Option[];
   forms: readonly Option[];
+  sources: readonly SourceOption[];
   count: number;
   onSet: (key: string, value: string | null) => void;
 }) {
@@ -829,6 +849,36 @@ function FilterMenu({
                   onClick={() => onSet('form', f.id)}
                   label={f.name}
                   count={f.leads}
+                />
+              ))}
+            </Section>
+          )}
+
+          {/* ── ⚠️ THE CHANNEL, WHICH IS NOT THE FORM ──────────────────────
+              Owner, 2026-09-30: *"No need to split the Facebook and Instagram,
+              right? … If it is easy then do that."* It was already stored —
+              migration 160 files a Meta lead under the app its ad ran on, and
+              22 leads on the real Chitral project carry one — but nothing on
+              this desk could ask for it, so the split existed and answered no
+              question.
+
+              ⚠️ ONE FORM RUNS ON BOTH APPS, which is why this is a separate
+              section from Form rather than more entries in it. Chitral's 15
+              Instagram and 7 Facebook leads came through the SAME forms. */}
+          {sources.length > 1 && (
+            <Section label="Came from">
+              <Choice
+                selected={filters.source === null}
+                onClick={() => onSet('source', null)}
+                label="Any channel"
+              />
+              {sources.map((sc) => (
+                <Choice
+                  key={sc.id}
+                  selected={filters.source === sc.id}
+                  onClick={() => onSet('source', sc.id)}
+                  label={sourceLabel(sc.id)}
+                  count={sc.leads}
                 />
               ))}
             </Section>
@@ -1536,6 +1586,26 @@ function Row({
             title on the WhatsApp and call controls, where it is used rather than
             read. */}
         <span className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-caption text-text-secondary">
+          {/* ── ⚠️ THE CHANNEL, AS A MARK, ON THE LINE THAT ALREADY EXISTS ──
+              Not a column. The owner removed "Came from" for width — *"Why did
+              you add a scrollbar in a table?"* — and warned about turning rows
+              into a grid of chips: *"four filled squares per row is what turns a
+              list into a grid."* So this rides the project/city/age line at 16px
+              with the words beside it doing the naming, and costs no width at
+              all.
+
+              ⚠️ IT IS A TOOLTIP, NOT A LABEL. "Instagram" written out on every
+              row would be the column again in a thinner disguise. The mark is
+              what a reader scans for; the title is there for the one time they
+              need to be sure. */}
+          {lead.source && (
+            <span
+              title={`Came from ${sourceLabel(lead.source)}`}
+              className="inline-flex shrink-0 items-center"
+            >
+              <SourceMark source={lead.source} size={16} />
+            </span>
+          )}
           {lead.projectName && <span className="truncate">{lead.projectName}</span>}
           {lead.city && (
             <>

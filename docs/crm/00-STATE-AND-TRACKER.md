@@ -17,9 +17,77 @@
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
 | **Deployed** | Every push to `main` deploys to Vercel (`sin1`) → https://taskly.aidigitaldivision.com. Head: **`76826f6`**, deploy **success** (2026-09-26). Check one with `gh api repos/cniaidigitaldivision/Task-Management-CRM/commits/<sha>/status` |
-| **Green at head** | 158 test files · 3994 tests · typecheck · `next build` |
+| **Green at head** | 158 test files · 4001 tests · typecheck · `next build` |
 | **Last updated** | **2026-09-30** |
-| **Last migration applied anywhere** | **271** (applied 2026-09-30). ⚠️ **263 and 264 live on `attendance-that-records-itself`, not here** — both are applied to the database, so this branch's files jump 262 → 265. **265–269 are the property catalogue; 270–271 are lead capture.** CRM next: **272.** |
+| **Last migration applied anywhere** | **273** (applied 2026-09-30). ⚠️ **263 and 264 live on `attendance-that-records-itself`, not here** — both are applied to the database, so this branch's files jump 262 → 265. **265–269 are the property catalogue; 270–271 lead capture; 272–273 the channel split.** CRM next: **274.** |
+
+---
+
+## 🧭 2026-09-30 (later) — FACEBOOK OR INSTAGRAM, AND THE THREE PLACES IT WAS INVISIBLE
+
+Migrations **272** and **273**. Owner: *"No need to split the Facebook and
+Instagram, right? … If it is easy then do that."*
+
+**It was already stored.** Migration 160 (2026-09-15) asked Graph for `platform`
+and files a Meta lead as `facebook` or `instagram`. What did not exist was any
+way to USE it: no filter on the desk, no mark on the record, and a report called
+"Where the leads came from" that groups by the **form** and says so in its own
+notes. The split existed and answered no question.
+
+### ⚠️ MEASURE AS `cni_app`, OR THE NUMBER IS WRONG
+
+Read as the owner, Chitral Royal Homes has 15 Instagram and 7 Facebook leads.
+The application sees **13 and 4**. `crm_leads_not_archived` is a policy of its
+own — `archived_at is null` — and 665 of that project's 683 rows are archived,
+including all 660 plain `meta_lead_ad` ones. A probe run as `postgres` bypasses
+the policy and reports a population no screen will ever show. The first draft of
+272's header carried the owner's numbers; both migration headers now carry the
+app's, and say why they differ.
+
+### What was built
+
+| | |
+|---|---|
+| **Came from** in the desk's filter menu | counted from the leads, not the enum — no "LinkedIn 0" |
+| The brand mark on each row | 16px, on the project/city/age line — **no new column** |
+| The mark on the lead record's "Came from" | with the form kept underneath as the detail |
+| The mark in the drawer's Overview | replacing a generic tag glyph beside the word "Instagram" |
+| **"Which app the leads came from"** | a report: leads, contacted, won, lost, win rate, per channel |
+
+### ⚠️ A SECOND REPORT, NOT A REWRITE OF THE FIRST
+
+`sources` groups by FORM and `channels` by the app — one form runs on both, which
+is the whole point. Rewriting `sources` would silently change what two
+already-generated reports mean. They share `SourceRow` and one mapper on purpose:
+two definitions of "contacted" growing between them is how two reports come to
+disagree about a number neither is wrong about.
+
+The builder names the unattributed bucket rather than hiding it: *"660 of these
+are filed as Meta rather than Facebook or Instagram, because Meta did not say
+which app the ad ran on."* A reader comparing 15 to 7 has to know what is in
+neither column.
+
+### Three smaller things fixed on the way
+
+- **`app/(app)/leads/page.tsx` read a seven-element `Promise.all` by INDEX.**
+  Inserting one reader in the middle shifted five of them — the roster became the
+  unassigned count — and nothing failed to compile, because indexing widens to a
+  union. Destructured by name; the same mistake is now a type error.
+- **`REPORT_KINDS` had a test asserting `toHaveLength(4)`**, so adding a report
+  broke a test that taught nothing. Replaced with "every kind has a label" and a
+  new one: **no two reports share a name** — both drafts of these two titles
+  began "Where the leads came from".
+- 273's self-check needed three goes: **167's qualification gate** refuses `won`
+  on a lead nobody qualified (CRM08), `not_interested` is not a
+  `crm_lost_reason`, and a three-row `insert ... returning into` a scalar raises
+  in plpgsql. Its check runs `set local role cni_app`, after 271.
+
+### Walked
+
+Desk filtered to Instagram (13 rows, marks on every one), a real Meta lead opened
+— **Came from: [logo] Instagram**, form underneath — and the report generated and
+read on screen: nine channels, proper names, "—" where nothing has closed, CSV
+download. 4001 tests.
 
 ---
 

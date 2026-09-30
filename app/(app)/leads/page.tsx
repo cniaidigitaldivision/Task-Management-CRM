@@ -5,6 +5,7 @@ import { requireCrmAccess } from '@/lib/auth/current-user';
 import {
   crmFormOptions,
   crmOwnerOptions,
+  crmSourceOptions,
   crmDueCounts,
   crmProjectRoster,
   listCrmLeads,
@@ -98,6 +99,10 @@ export default async function LeadsPage({
     ownerId: params.owner ?? null,
     temperature: params.temp ?? null,
     formId: params.form ?? null,
+    /* ⚠️ NOT VALIDATED AGAINST THE ENUM HERE, on purpose — the reader compares
+       it as text, so an unknown channel matches nothing instead of raising
+       22P02 on a URL somebody edited by hand. */
+    source: params.source ?? null,
     search: params.q ?? null,
     from: params.from ?? null,
     to: params.to ?? null,
@@ -122,6 +127,12 @@ export default async function LeadsPage({
   const scope = allProjects ? null : (selected?.id ?? null);
   const shouldFetch = allProjects || (selected !== null && selected.connection === 'live');
 
+  /* ⚠️⚠️ DESTRUCTURED BY NAME, NOT READ BY INDEX, AND THAT IS A BUG FIX.
+     This was `data?.[0]` … `data?.[5]`, and adding one reader in the middle of
+     the array silently shifted five of them — the roster became the unassigned
+     count, `canShareOut` became a number, and nothing failed to compile because
+     every element is a different type behind an index TypeScript widens to a
+     union. A named tuple makes the same mistake a type error. */
   const data = shouldFetch
     ? await Promise.all([
         listCrmLeads(user.id, scope, filters, PER_PAGE, (page - 1) * PER_PAGE),
@@ -130,6 +141,10 @@ export default async function LeadsPage({
            that also holds ERP forms filters to something the reader did not mean.
            Empty in "all" mode, and the menu drops the section. */
         allProjects ? Promise.resolve([]) : crmFormOptions(user.id, selected!.id),
+        /* ⚠️ THE CHANNEL LIST IS FINE ACROSS PROJECTS, unlike forms. "Instagram"
+           means the same thing on every project; a Chitral form in an ERP list
+           does not. So this one is not emptied in "all" mode. */
+        crmSourceOptions(user.id, scope),
         /* ⚠️ `scope`, NOT `selected!.id` — see the reader. A walk-up lands on
            whichever project owns the WhatsApp number that was texted, and in
            "All projects" mode this used to answer zero, which took the owner
@@ -143,26 +158,28 @@ export default async function LeadsPage({
            mode offers no roster and therefore no share-out. */
         allProjects ? Promise.resolve([]) : crmProjectRoster(user.id, selected!.id),
         crmDueCounts(user.id, scope),
-      ])
+      ] as const)
     : null;
 
-  const roster = data?.[4] ?? [];
+  const [list, owners, forms, sources, queue, rosterRows, due] = data ?? [];
+  const roster = rosterRows ?? [];
 
   return (
     <LeadDesk
       projects={projects}
       selected={selected}
-      rows={data?.[0].rows ?? []}
-      total={data?.[0].total ?? 0}
-      stageCounts={data?.[0].stageCounts ?? {}}
-      owners={data?.[1] ?? []}
-      forms={data?.[2] ?? []}
+      rows={list?.rows ?? []}
+      total={list?.total ?? 0}
+      stageCounts={list?.stageCounts ?? {}}
+      owners={owners ?? []}
+      forms={forms ?? []}
+      sources={sources ?? []}
       page={page}
       perPage={PER_PAGE}
       filters={filters}
       allProjects={allProjects}
-      queue={data?.[3] ?? { unassigned: 0, shareable: 0, held: 0 }}
-      due={data?.[5] ?? { overdue: 0, dueToday: 0, noPlan: 0, waitingForReply: 0 }}
+      queue={queue ?? { unassigned: 0, shareable: 0, held: 0 }}
+      due={due ?? { overdue: 0, dueToday: 0, noPlan: 0, waitingForReply: 0 }}
       salesTeam={roster}
       canShareOut={roster.length > 0}
       /* ⚠️ The SERVER's clock, so "3d ago" is the same for everyone. Reading it
