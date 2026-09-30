@@ -278,6 +278,18 @@ export interface CrmLeadFilters {
    *  form runs on both apps, which is the whole reason the split is worth
    *  having. */
   readonly source?: string | null;
+  /**
+   * "high" / "normal" / "low" — the same verdict `lib/domain/lead-priority.ts`
+   * computes for the chip on every row.
+   *
+   * ⚠️ DERIVED, NOT STORED, AND THEREFORE WRITTEN TWICE — once in TypeScript
+   * for the chip and once here for the filter. That file's own header warns
+   * what happens next: *"Two definitions of 'high priority' on two screens is
+   * how somebody stops trusting both."* So
+   * `lib/db/queries/__tests__/lead-priority-agrees.test.ts` drives every
+   * combination through both and refuses to pass if one differs.
+   */
+  readonly priority?: string | null;
   readonly search?: string | null;
   /** Inclusive, on `submitted_at` — when THEY enquired, not when we imported. */
   readonly from?: string | null;
@@ -399,6 +411,47 @@ export async function listCrmLeads(
        channel that does not exist should do. */
     if (filters.source) conditions.push(tx`l.source::text = ${filters.source}`);
 
+    /* ── Priority — lib/domain/lead-priority.ts, transcribed ───────────────
+         closed            -> low
+         they wrote last   -> high
+         next action past  -> high
+         anything else     -> normal
+
+       ⚠️ "hidden_at is null" MATCHES THE ROW THE READER IS LOOKING AT. The
+       list's own lateral excludes hidden messages, so a lead whose only inbound
+       message has been hidden shows no conversation — and must not be ranked
+       high because of it. Four messages are hidden on the live table today, so
+       the difference is real rather than hypothetical.
+       (No backticks anywhere in this file: one in a SQL comment ends the
+       template literal, and tsc then blames a line twenty rows away.) */
+    /* ⚠️⚠️ coalesce(..., false) IS LOad-BEARING, AND THE BROWSER FOUND OUT.
+       A lead with no messages makes that scalar subquery return NULL, so
+       "(subquery) = 'inbound'" is NULL, not false. In the high branch NULL
+       behaves as false and nothing is wrong. In the NOT branch it is fatal:
+       "not (NULL or NULL)" is NULL, a WHERE clause treats NULL as false, and
+       every lead with no conversation AND no next action silently vanishes.
+
+       Measured before the fix, driving the real page as Sarah: the chips on her
+       own list say 31 Normal; the filter returned 9. The TypeScript
+       transcription test passed throughout, because JavaScript has no
+       three-valued logic to get wrong — which is exactly why that test now
+       models NULL explicitly. */
+    const lastIsInbound = tx`coalesce((select m.direction from public.crm_lead_messages m
+        where m.lead_id = l.id and m.hidden_at is null
+        order by m.occurred_at desc, m.id desc limit 1) = 'inbound', false)`;
+    /* Never NULL: the "is not null" guard makes the comparison total. */
+    const actionOverdue = tx`(l.next_action_at is not null and l.next_action_at < now())`;
+
+    if (filters.priority === 'low') {
+      conditions.push(tx`l.stage in ('won', 'lost')`);
+    } else if (filters.priority === 'high') {
+      conditions.push(tx`l.stage not in ('won', 'lost')
+        and (${lastIsInbound} or ${actionOverdue})`);
+    } else if (filters.priority === 'normal') {
+      conditions.push(tx`l.stage not in ('won', 'lost')
+        and not (${lastIsInbound} or ${actionOverdue})`);
+    }
+
     if (search) {
       /* ⚠️ Searches the name, the raw phone AND the normalised one. Somebody
          reading a number off a ringing handset types it however they see it;
@@ -457,8 +510,13 @@ export async function listCrmLeads(
       /* ⚠️ THE SAME EXPRESSION AS THE COUNT ABOVE, deliberately — a tab whose
          number and whose rows are computed two different ways is a tab that
          eventually says 3 and shows 2. */
+      /* ⚠️ "hidden_at is null" ADDED 2026-10-01, matching the list's own lateral,
+         the two counts and the priority rule above. Without it a lead whose last
+         inbound message has been HIDDEN counted as waiting for a reply while its
+         row showed no conversation at all — the tab said one thing and the rows
+         said another. Four messages are hidden on the live table. */
       conditions.push(tx`(select m.direction from public.crm_lead_messages m
-                           where m.lead_id = l.id
+                           where m.lead_id = l.id and m.hidden_at is null
                            order by m.occurred_at desc, m.id desc limit 1) = 'inbound'`);
     }
 
@@ -1375,8 +1433,15 @@ export async function crmDueCounts(
         where l.next_action_at is null and l.owner_id is not null
       ) as no_plan,
       count(*) filter (
+        /* ⚠️ "hidden_at is null" — THE THIRD TIME A BACKTICK IN A SQL COMMENT
+           ended the template string. No backticks anywhere in this file. The
+           same expression as the filter this
+           counts, and as the list's own lateral. A tab whose number and whose
+           rows are computed two different ways is a tab that eventually says 3
+           and shows 2. Four messages are hidden on the live table today, so
+           the two really did disagree. */
         where (select m.direction from public.crm_lead_messages m
-                where m.lead_id = l.id
+                where m.lead_id = l.id and m.hidden_at is null
                 order by m.occurred_at desc, m.id desc limit 1) = 'inbound'
       ) as waiting_for_reply
       from public.crm_leads l
@@ -2011,8 +2076,15 @@ export async function crmMyCounts(
       ) as due_today,
       count(*) filter (where l.next_action_at is null) as no_plan,
       count(*) filter (
+        /* ⚠️ "hidden_at is null" — THE THIRD TIME A BACKTICK IN A SQL COMMENT
+           ended the template string. No backticks anywhere in this file. The
+           same expression as the filter this
+           counts, and as the list's own lateral. A tab whose number and whose
+           rows are computed two different ways is a tab that eventually says 3
+           and shows 2. Four messages are hidden on the live table today, so
+           the two really did disagree. */
         where (select m.direction from public.crm_lead_messages m
-                where m.lead_id = l.id
+                where m.lead_id = l.id and m.hidden_at is null
                 order by m.occurred_at desc, m.id desc limit 1) = 'inbound'
       ) as waiting_for_reply,
       count(*) as assigned

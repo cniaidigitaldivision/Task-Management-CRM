@@ -9,7 +9,9 @@ import {
   crmMyCounts,
   crmAwaitingApproval,
   crmMyDiary,
+  crmFormOptions,
   crmOwnerOptions,
+  crmSourceOptions,
   crmProjectProperties,
   crmProjectUnits,
   getCrmLead,
@@ -70,10 +72,22 @@ export default async function MyLeadsPage({
     stage: params.stage && isStage(params.stage) ? params.stage : null,
     ownerId: null,
     temperature: params.temp ?? null,
+    /* ⚠️ Whitelisted — this one BRANCHES in SQL rather than travelling as a
+       value, and "anything the visitor typed" is not a thing to branch on. */
+    priority: ['high', 'normal', 'low'].includes(params.priority ?? '')
+      ? (params.priority ?? null)
+      : null,
     formId: params.form ?? null,
+    /* ⚠️ COMPARED AS TEXT BY THE READER, so an unknown channel typed into the
+       URL matches nothing rather than raising 22P02 on an enum cast. */
+    source: params.source ?? null,
     search: params.q ?? null,
-    from: null,
-    to: null,
+    /* ⚠️ THESE TWO WERE HARD `null` AND THE DRAWER IS WHY THEY ARE NOT ANY MORE.
+       "More filters" offers a date range; a filter the panel can set and the
+       query ignores is worse than one that is missing, because the chip says it
+       is on. */
+    from: params.from ?? null,
+    to: params.to ?? null,
     due: ['overdue', 'today', 'no-plan', 'waiting', 'upcoming', 'closed'].includes(
       params.due ?? '',
     )
@@ -127,7 +141,7 @@ export default async function MyLeadsPage({
      saves a wave on every real click. */
   const [
     projects, data, counts, owners, record, thread, related, addProjects, diary, approvals,
-    addProperties, units,
+    addProperties, units, sources, forms,
   ] = await Promise.all([
     listCrmProjects(user.id),
     listCrmLeads(user.id, projectId, filters, PER_PAGE, (page - 1) * PER_PAGE),
@@ -156,6 +170,11 @@ export default async function MyLeadsPage({
        picker; fetching EVERY project's would be a query per project on a page
        that mostly never opens it. */
     projectId ? crmProjectUnits(user.id, projectId) : Promise.resolve([]),
+    /* ⚠️ THE DRAWER'S OPTIONS TRAVEL IN THE SAME WAVE. Fetching them when the
+       panel opens would make opening it a round trip, and Rule Zero's first law
+       says opening a panel is free. Two small aggregates cost nothing here. */
+    crmSourceOptions(user.id, projectId),
+    projectId ? crmFormOptions(user.id, projectId) : Promise.resolve([]),
   ]);
 
 
@@ -185,6 +204,8 @@ export default async function MyLeadsPage({
       /* Which tab a shared link or a refresh asked for. */
       initialTab={tab}
       addProjects={addProjects}
+      sources={sources}
+      forms={forms}
       addProperties={addProperties}
       diary={diary}
       approvals={approvals}
