@@ -128,8 +128,9 @@ words matter, and they are set in different places.
 
 1. **Attendance** — does the panel say *In between 09:30–10:15* for both people,
    rather than a single time?
-2. Pick a day last week. Is anybody marked late? (September was normalised to
-   none.)
+2. Pick a day last week. Late arrivals and unclosed days are **real** — 64 late
+   arrivals and 40 days nobody closed, in September alone. They are the record
+   as people made it, and nothing has been tidied.
 3. **Growth → Campaign & Lead Desk** — can you see every project in the picker,
    including the ones marked *not connected*?
 4. **Lead reports** → *Which app the leads came from* on Chitral Royal Homes.
