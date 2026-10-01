@@ -1,9 +1,10 @@
 'use client';
 
 import * as React from 'react';
-import { ChevronDown, Download, Upload } from 'lucide-react';
+import { ChevronDown, Download, Globe, Upload } from 'lucide-react';
 
 import { exportLeadsAction } from '@/app/actions/crm-leads';
+import { IntakeKeysDialog } from '@/components/crm/intake-keys-dialog';
 import { useToast } from '@/components/ui/toast';
 import {
   downloadBlob,
@@ -65,6 +66,7 @@ export function LeadSheetButtons({
 }) {
   const toast = useToast();
   const [importing, setImporting] = React.useState(false);
+  const [connecting, setConnecting] = React.useState(false);
   const [menu, setMenu] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const ref = React.useRef<HTMLDivElement>(null);
@@ -118,6 +120,23 @@ export function LeadSheetButtons({
 
   return (
     <div ref={ref} className="relative flex items-center gap-2">
+      {/* ── ⚠️ ONLY WHERE LEADS CAN BE HANDED OUT ────────────────────────
+          A key files leads into a project and the rota gives them to whoever
+          is lightest. Issuing one is a manager's decision, and 277 refuses a
+          salesperson anyway — so the button is absent rather than drawn and
+          then refused. `salesTeam` is empty for a salesperson by migration
+          120's own guard, which is the same signal the share-out uses. */}
+      {salesTeam.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setConnecting(true)}
+          className="inline-flex min-h-[2.6rem] items-center gap-1.5 rounded-xl border border-border-subtle bg-bg-surface px-3 text-micro font-medium text-text-primary transition-colors hover:border-border-default"
+        >
+          <Globe className="size-4 text-text-tertiary" aria-hidden="true" />
+          Website form
+        </button>
+      )}
+
       <button
         type="button"
         onClick={() => setImporting(true)}
@@ -160,6 +179,18 @@ export function LeadSheetButtons({
           <MenuItem onClick={() => void exportAs('csv')}>These leads (CSV)</MenuItem>
         </div>
       )}
+
+      <IntakeKeysDialog
+        open={connecting}
+        onClose={() => setConnecting(false)}
+        projects={projects}
+        initialProjectId={selectedProjectId}
+        /* ⚠️ READ IN THE BROWSER, so the snippet shows the host somebody is
+           actually using — localhost while testing, the real domain in
+           production. A constant here would hand out a snippet that posts to
+           the wrong place from whichever of the two is not hard-coded. */
+        baseUrl={typeof window === 'undefined' ? '' : window.location.origin}
+      />
 
       <LeadImportDialog
         open={importing}
