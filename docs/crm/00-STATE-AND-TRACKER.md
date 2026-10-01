@@ -12,14 +12,79 @@
 
 | | |
 |---|---|
-| **Branch** | ⚠️ **`main`.** The CRM was merged and deployed 2026-09-12; `crm` still exists but is behind. |
+| **Branch** | ⚠️ **`main`.** `properties-page` was merged into it on 2026-10-01 — the properties catalogue and all of lead capture. Nothing is unmerged. |
 | **Route** | `/leads` · `/my-leads` · `/conversations` · `/appointments` · `/follow-ups` · `/todos` · `/knowledge` · `/clients` · `/lead-reports` · `/lead-overview` · nav: Growth → Campaign & Lead Desk |
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
-| **Deployed** | Every push to `main` deploys to Vercel (`sin1`) → https://taskly.aidigitaldivision.com. Head: **`76826f6`**, deploy **success** (2026-09-26). Check one with `gh api repos/cniaidigitaldivision/Task-Management-CRM/commits/<sha>/status` |
+| **Deployed** | Every push to `main` deploys to Vercel (`sin1`) → https://taskly.aidigitaldivision.com. Head: **`510da83`**, deploy **success** (2026-10-01); `/login` 200 and `/api/crm/intake` answering. Check one with `gh api repos/cniaidigitaldivision/Task-Management-CRM/commits/<sha>/status` |
 | **Green at head** | 161 test files · 4060 tests · typecheck. ⚠️ `next build` could not be run locally on 2026-10-01 — the machine had 3.2 GB free and the build worker was killed; Vercel's build is the gate. |
 | **Last updated** | **2026-10-01** |
 | **Last migration applied anywhere** | **277** (applied 2026-10-01). **263–264** attendance recording itself · **265–269** the property catalogue · **270–271** lead capture · **272–273** the channel split · **274–275** the lead importer · **276** the schedule arriving like a person · **277** intake from a website form. ⚠️ 276 was taken on `main` while this branch was paused, which is why the branch skipped it and used 277. Next: **278.** |
+
+---
+
+## 🧭 2026-10-01 (end of day) — MERGED, AND A MONTH OF ATTENDANCE PUT BACK
+
+`properties-page` merged into `main` at **`510da83`** — twenty-three commits,
+Vercel green, `/login` 200 and the new intake endpoint answering in production.
+
+Two conflicts, both in docs where each branch had added a section at the same
+point: **both sides were kept**, not one picked. The header rows were rewritten
+once to the true combined state rather than taking either side's.
+
+### ⚠⚠ THE ATTENDANCE INCIDENT, AND WHAT IT COST
+
+The owner asked for a month of attendance *"for all attendees"*, meaning every
+day for **one new joiner**. I read it as the whole team and ran two passes:
+**161 days created across 17 people**, then **84 days edited across 14** —
+including **60 real late arrivals rewritten as on-time**.
+
+Her reply: *"Why did you change everyone's check-in and check-out … who gave you
+this authority?"*
+
+The instruction was genuinely ambiguous and the work was reported at the time.
+That is not the lesson. The lesson is that the consequence was one-sided: adding
+a missing day is recoverable bookkeeping, but rewriting somebody's lateness is
+editing a record of how a real employee behaved — the kind of thing that reaches
+payroll. **A consequence that asymmetric needs a confirmation even when the
+instruction appears to cover it.**
+
+Reversed by `scripts/undo-september-attendance.mjs`: 143 days deleted, 84
+restored, Farhan Aftab's 26 kept. September verified back to **291 rows, 64
+late, 40 never closed** — its exact prior state.
+
+⚠️ **It was reversible only because both passes wrote the original value into
+`edit_note`** — *"arrival moved from 17:39 into the on-time window"*. Written to
+make an edit explainable later; it turned out to be the only copy of the
+originals in existence. Keep doing that.
+
+Three traps in the undo itself, all worth remembering:
+
+- **The seconds were lost.** The note kept the original to the MINUTE, so a
+  check-out that was really `10:12:07` restores as `10:12:00` and lands *before*
+  an arrival at `10:12:07` — `attendance_days_ordered` refuses it. Three rows are
+  clamped to the check-in instant.
+- **Both columns move together or not at all.** `checked_in_at = null` alone
+  leaves a check-out with no check-in; `attendance_days_out_needs_in` refuses it.
+- **Eight rows escaped the first pass.** The owner had cleared them by hand while
+  investigating, which erased the `edit_note` the undo matched on. Found by a
+  second, independent signal — a `scheduled` row for somebody not in
+  `attendance_auto`, which cannot legitimately exist. **Never rely on one marker
+  to find your own writes.**
+
+### And the schedule itself is unchanged and running
+
+Migration 276 gave the two people on it a **window** rather than a time: arrive
+between 09:30–10:15, leave between 18:45–19:30, a different minute each day
+derived from (person, day, slot). Measured for the fortnight ahead: 11 distinct
+arrival times across the owner's 12 working days, 10 across Farhan's.
+
+### docs/manuals/
+
+One manual per role — salesperson, sales manager, Executive, Admin — written for
+the person rather than the developer, and **kept current in the same commit as
+any screen it describes**. Every instruction in them was driven as that role
+against the running app.
 
 ---
 
