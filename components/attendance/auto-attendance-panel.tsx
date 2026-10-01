@@ -82,10 +82,17 @@ export function AutoAttendancePanel({
   const toast = useToast();
 
   /* The server is the truth. When a navigation brings new rows, take them —
-     unless a flip is still in flight, whose optimistic value must survive. */
-  const seen = React.useRef(rows);
-  if (seen.current !== rows && busy === null) {
-    seen.current = rows;
+     unless a flip is still in flight, whose optimistic value must survive.
+     ⚠️ STATE, NOT A REF, AND `react-hooks/refs` IS RIGHT ABOUT WHY. A ref read
+     and written during render is invisible to React: it cannot tell that this
+     render depends on it, so the re-render it schedules may use a value the ref
+     has already moved past. The same "adjusting state during render" shape with
+     plain state is what React documents for exactly this — remembering the last
+     props you reconciled against — and it is what the four CRM dialogs with the
+     identical warning were changed to. */
+  const [seen, setSeen] = React.useState(rows);
+  if (seen !== rows && busy === null) {
+    setSeen(rows);
     setState(rows);
   }
 
@@ -103,8 +110,10 @@ export function AutoAttendancePanel({
           avatarUrl: me.avatarUrl,
           role: me.role,
           isEnabled: false,
-          checkInLocal: '09:40',
-          checkOutLocal: '19:10',
+          checkInLocal: '09:30',
+          checkInUntil: '10:15',
+          checkOutLocal: '18:45',
+          checkOutUntil: '19:30',
           workingDays: [1, 2, 3, 4, 5, 6],
           lastInAt: null,
           lastOutAt: null,
@@ -171,9 +180,20 @@ export function AutoAttendancePanel({
                 </p>
                 <p className="text-caption text-text-secondary">
                   {row.isEnabled ? (
+                    /* ⚠️ A RANGE, NOT A TIME — migration 276. Owner: *"you are
+                       checking in daily at the same time, 9:40 … I want to
+                       randomize some time up and some time down."* The job now
+                       picks a different minute inside this window for each
+                       person each day, so "In at 09:40" would be a screen
+                       describing behaviour the product no longer has. */
                     <>
-                      In at <strong className="font-medium text-text-primary">{row.checkInLocal}</strong>,
-                      out at <strong className="font-medium text-text-primary">{row.checkOutLocal}</strong>
+                      In between{' '}
+                      <strong className="font-medium text-text-primary">
+                        {row.checkInLocal}–{row.checkInUntil}
+                      </strong>, out between{' '}
+                      <strong className="font-medium text-text-primary">
+                        {row.checkOutLocal}–{row.checkOutUntil}
+                      </strong>
                       {off.length > 0 && <> · {off.join(' and ')} off</>}
                     </>
                   ) : (

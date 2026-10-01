@@ -486,9 +486,19 @@ export interface AutoAttendanceRow {
   readonly avatarUrl: string | null;
   readonly role: string;
   readonly isEnabled: boolean;
-  /** `HH:MM`, Karachi. */
+  /**
+   * `HH:MM`–`HH:MM`, Karachi — a WINDOW since migration 276, not an instant.
+   *
+   * ⚠️ THE PANEL MUST NOT PRINT ONE TIME. Owner, 2026-10-01: *"you are checking
+   * in daily at the same time, 9:40 … I want to randomize some time up and some
+   * time down."* The job now picks a stable minute inside this range for each
+   * person each day, so a screen still saying "In at 09:40" would describe
+   * behaviour the product no longer has.
+   */
   readonly checkInLocal: string;
+  readonly checkInUntil: string;
   readonly checkOutLocal: string;
+  readonly checkOutUntil: string;
   /** ISO weekdays, 1 = Monday … 7 = Sunday. */
   readonly workingDays: readonly number[];
   readonly lastInAt: string | null;
@@ -507,7 +517,9 @@ export async function listAutoAttendance(actorId: string): Promise<readonly Auto
   const rows = await withUser(actorId, (tx) => tx`
     select a.user_id, a.is_enabled, a.working_days, a.note,
            to_char(a.check_in_local, 'HH24:MI')  as check_in_local,
+           to_char(a.check_in_until, 'HH24:MI')  as check_in_until,
            to_char(a.check_out_local, 'HH24:MI') as check_out_local,
+           to_char(a.check_out_until, 'HH24:MI') as check_out_until,
            a.last_in_at, a.last_out_at,
            u.full_name, u.avatar_url, u.role
       from public.attendance_auto a
@@ -522,7 +534,9 @@ export async function listAutoAttendance(actorId: string): Promise<readonly Auto
     role: (row.role as string | null) ?? 'member',
     isEnabled: Boolean(row.is_enabled),
     checkInLocal: (row.check_in_local as string | null) ?? '',
+    checkInUntil: (row.check_in_until as string | null) ?? '',
     checkOutLocal: (row.check_out_local as string | null) ?? '',
+    checkOutUntil: (row.check_out_until as string | null) ?? '',
     workingDays: ((row.working_days as number[] | null) ?? []).map(Number),
     lastInAt: iso(row.last_in_at),
     lastOutAt: iso(row.last_out_at),
@@ -534,9 +548,14 @@ export async function listAutoAttendance(actorId: string): Promise<readonly Auto
  * Turn the schedule on or off for one person, creating their row the first time.
  *
  * ⚠️ `on conflict ... do update` rather than an insert and an update, because the
- * first press and every press after it are the same intention. The defaults are
- * the ones migration 264 documents — 09:40 and 19:10, Monday to Saturday — and
- * an existing row keeps whatever times it was given.
+ * first press and every press after it are the same intention. An existing row
+ * keeps whatever windows it was given.
+ *
+ * ⚠️ AND THE DEFAULTS ARE WINDOWS, AND THE WEEK IS READ OFF THE PERSON. Two
+ * things migration 276 changed and this had hard-coded: a single time (09:40),
+ * and `Monday to Saturday`. The second was the quieter bug — the Wah team rests
+ * on FRIDAY and works Sunday, so switching this on for one of them would have
+ * recorded them absent every Sunday and present on their day off.
  */
 export async function setAutoAttendance(
   actorId: string,
@@ -545,8 +564,14 @@ export async function setAutoAttendance(
 ): Promise<boolean> {
   const rows = await withUser(actorId, (tx) => tx`
     insert into public.attendance_auto
-      (user_id, is_enabled, check_in_local, check_out_local, created_by_id)
-    values (${subjectId}, ${enabled}, time '09:40', time '19:10', ${actorId})
+      (user_id, is_enabled, check_in_local, check_in_until,
+       check_out_local, check_out_until, working_days, created_by_id)
+    select ${subjectId}::uuid, ${enabled},
+           time '09:30', time '10:15', time '18:45', time '19:30',
+           case when u.office_team = 'wah'
+             then '{1,2,3,4,6,7}'::smallint[] else '{1,2,3,4,5,6}'::smallint[] end,
+           ${actorId}
+      from public.users u where u.id = ${subjectId}::uuid
     on conflict (user_id) do update set is_enabled = excluded.is_enabled
     returning user_id
   `);
