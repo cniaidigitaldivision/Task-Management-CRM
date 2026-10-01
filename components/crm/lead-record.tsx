@@ -9,6 +9,7 @@ import {
   NoteComposer,
   NoteDeleteButton,
   OwnerControl,
+  SpamControl,
   StageControl,
   TemperatureControl,
   type OwnerOption,
@@ -27,6 +28,8 @@ import type {
   CrmLeadSibling,
 } from '@/lib/db/queries/crm-leads';
 import { orderedAnswers } from '@/lib/domain/crm-answers';
+import { SourceMark } from '@/components/crm/source-mark';
+import { sourceDetail, sourceLabel } from '@/lib/domain/lead-source';
 import {
   activityLabel,
   lostReasonLabel,
@@ -77,6 +80,7 @@ export function LeadRecord({
   viewerId,
   viewerIsAdmin,
   assignableOwners,
+  canMarkSpam,
   canWhatsApp,
   nowMs,
 }: {
@@ -96,6 +100,10 @@ export function LeadRecord({
   /** The sales team, or empty for somebody who may not reassign. Migration 120
    *  refuses them anyway; this decides whether the control is drawn. */
   assignableOwners: readonly OwnerOption[];
+  /** Whether the viewer may block a number — a manager or above. Migration
+   *  270's function refuses everybody else, so this decides only whether the
+   *  button is drawn rather than whether the block can happen. */
+  canMarkSpam: boolean;
   /** Whether THIS lead's project has a WhatsApp number of its own (migration
    *  139). False for every client project so far, and that is the ordinary
    *  state — it decides whether "WhatsApp" opens our thread or their handset. */
@@ -223,6 +231,17 @@ export function LeadRecord({
             dueDate={lead.nextActionAt ? karachiInputDate(lead.nextActionAt) : null}
           />
           <LogContactControl leadId={lead.id} />
+          {/* ⚠️ LAST, AND ONLY FOR A WALK-UP A MANAGER IS LOOKING AT. It is the
+              only control on this card that cannot be undone by the person
+              pressing it, so it does not sit between two that can. */}
+          {canMarkSpam ? (
+            <SpamControl
+              leadId={lead.id}
+              leadName={lead.fullName ?? 'this lead'}
+              phone={lead.phoneE164 ?? lead.phone}
+              inboundAt={lead.inboundAt}
+            />
+          ) : null}
         </CardBody>
       </Card>
 
@@ -240,11 +259,21 @@ export function LeadRecord({
           {/* ── What they actually asked for ──────────────────────────────── */}
           <Card>
             <CardHeader>
-              <CardTitle>What they told the form</CardTitle>
+              {/* ⚠️ A WALK-UP NEVER TOUCHED A FORM, so it does not get a card
+                  headed with one. Before this, a stranger who texted the
+                  business number was told "Meta sent no answers with this
+                  lead" — a sentence about a submission that never existed, on
+                  the one screen a manager opens to work out what this person
+                  actually wants. */}
+              <CardTitle>{lead.inboundAt ? 'What they wrote' : 'What they told the form'}</CardTitle>
             </CardHeader>
             <CardBody>
               {answers.length === 0 ? (
-                <Nothing>Meta sent no answers with this lead — only the submission itself.</Nothing>
+                <Nothing>
+                  {lead.inboundAt
+                    ? 'They messaged the business number rather than filling in a form, so there are no answers to read. What they wrote is in the conversation.'
+                    : 'Meta sent no answers with this lead — only the submission itself.'}
+                </Nothing>
               ) : (
                 <dl className="divide-y divide-border-subtle">
                   {answers.map((a) => (
@@ -354,8 +383,32 @@ export function LeadRecord({
                     that paid for them is Step 8. A heading saying "Campaign"
                     over a form name is how spend gets judged by the wrong
                     figure. The campaign appears here the day it is linked. */}
+                {/* ⚠️ AND THE SOURCE IS THE LAST FALLBACK, NOT "Not recorded".
+                    A walk-up has no campaign and no form, so this card said
+                    "Not recorded" about a lead whose origin the database knows
+                    exactly — `whatsapp` / "Messaged the business number",
+                    written by migration 270. Saying nothing was recorded when
+                    something was is the kind of small lie that sends somebody
+                    to look for a setting that is not missing. */}
+                {/* ⚠️ AND THE LOGO, BECAUSE THE SPLIT IS THE POINT. Migration
+                    160 files a Meta lead under the app its ad ran on; 22 leads
+                    on the real Chitral project already carry one. Written out,
+                    "Facebook" and "Instagram" are two similar words in small
+                    grey text on a card full of them — the mark is what makes
+                    the difference readable at a glance. */}
                 <Fact label="Came from">
-                  {lead.campaignName ?? lead.formName ?? <Nothing>Not recorded</Nothing>}
+                  {lead.source && (
+                    <span className="mb-1 flex items-center gap-1.5">
+                      <SourceMark source={lead.source} size={18} />
+                      <span className="text-caption text-text-secondary">
+                        {sourceLabel(lead.source)}
+                      </span>
+                    </span>
+                  )}
+                  {lead.campaignName ??
+                    lead.formName ??
+                    sourceDetail(lead.source, lead.sourceDetail) ??
+                    <Nothing>Not recorded</Nothing>}
                   {lead.campaignName && lead.formName && (
                     <span className="mt-0.5 block text-micro text-text-tertiary">
                       {lead.formName}

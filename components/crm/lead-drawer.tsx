@@ -144,6 +144,9 @@ export function leadFromRow(row: CrmLeadRow): CrmLeadRecord {
     nextAction: row.nextAction,
     nextActionAt: row.nextActionAt,
     submittedAt: row.submittedAt,
+    /* ⚠️ REAL, NOT A PLACEHOLDER. The row carries it, so the drawer can decide
+       whether this was a walk-up without waiting for the record. */
+    inboundAt: row.inboundAt,
     importedAt: row.submittedAt,
     firstContactedAt: null,
     closedAt: null,
@@ -152,6 +155,7 @@ export function leadFromRow(row: CrmLeadRow): CrmLeadRecord {
     formName: row.formName,
     campaignName: row.campaignName,
     source: row.source ?? '',
+    sourceDetail: row.sourceDetail,
     externalId: null,
     /* ⚠️ Unknown, not unasked. The Overview shows "Loading…" for these while
        `loading` is set, rather than reading five nulls as "never asked". */
@@ -228,7 +232,6 @@ export function LeadDrawer({
   onTab,
   onClose,
   onRaiseQuotation,
-  onChooseUnit,
   loading = false,
   onSummary,
 }: {
@@ -247,7 +250,6 @@ export function LeadDrawer({
   /** Opens the quotation form over this drawer. */
   onRaiseQuotation: () => void;
   /** Opens the catalogue, to say which unit they are asking about. */
-  onChooseUnit: () => void;
   /** Drawn from the clicked row; the record is on its way. See `leadFromRow`. */
   loading?: boolean;
   /** A summary was just written — the desk keeps it with this lead's drawer. */
@@ -785,7 +787,6 @@ export function LeadDrawer({
                 related={related}
                 lead={lead}
                 onRaiseQuotation={onRaiseQuotation}
-                onChooseUnit={onChooseUnit}
                 onOpen={(t) => {
                   setRelatedTab(t);
                   setRelatedOpen(true);
@@ -904,10 +905,6 @@ export function LeadDrawer({
             go('conversations');
           }}
           onClose={() => setRelatedOpen(false)}
-          onChooseUnit={() => {
-            setRelatedOpen(false);
-            onChooseUnit();
-          }}
           onRecordOutcome={() => {
             setRelatedOpen(false);
             setOutcomeStage(lead.stage);
@@ -962,13 +959,11 @@ function Related({
   related,
   lead,
   onRaiseQuotation,
-  onChooseUnit,
   onOpen,
 }: {
   related: CrmLeadRelated;
   lead: CrmLeadRecord;
   onRaiseQuotation: () => void;
-  onChooseUnit: () => void;
   /** Opens the dialog, on the tab that was asked for. */
   onOpen: (tab: 'quotations' | 'properties' | 'appointments' | 'bookings' | 'invoices' | 'files') => void;
 }) {
@@ -1118,7 +1113,7 @@ function Related({
           <h3 className="min-w-0 flex-1 truncate text-body-sm font-semibold text-text-primary">Property</h3>
           <button
             type="button"
-            onClick={onChooseUnit}
+            onClick={() => onOpen('properties')}
             className="shrink-0 rounded-lg border border-border-default px-2.5 py-1 text-caption font-medium text-text-primary transition-colors hover:bg-bg-subtle"
           >
             {lead.propertyLabel ? 'Change' : 'Choose one'}

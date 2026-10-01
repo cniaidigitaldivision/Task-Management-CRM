@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 
 import { requireUser } from '@/lib/auth/current-user';
-import { withUser, withUserBypassingReadOnly } from '@/lib/db/client';
+import { withUser } from '@/lib/db/client';
 import { createFollowUp } from '@/lib/db/queries/crm-followups';
 import { notify } from '@/lib/db/queries/feed';
 import {
@@ -37,6 +37,11 @@ import {
   type CrmDiaryEntry,
   type CrmDuplicate,
   type CrmLeadRow,
+  crmLeadCatalogue,
+  type CrmUnit,
+  crmKnownContacts,
+  crmLeadsForExport,
+  type CrmLeadExportRow,
 } from '@/lib/db/queries/crm-leads';
 import { isLostReason, isStage, TEMPERATURES } from '@/lib/domain/crm-stages';
 import {
@@ -48,6 +53,7 @@ import { newLeadProblems } from '@/lib/domain/crm-new-lead';
 import { appointmentKindLabel, appointmentProblems, clashesWith, MAX_MINUTES, MIN_MINUTES } from '@/lib/domain/crm-appointments';
 import { needsApproval, quotationProblems, toRupees } from '@/lib/domain/crm-quotations';
 import { displayPhone, toE164 } from '@/lib/domain/phone';
+import type { LeadImportRow } from '@/lib/domain/crm-lead-import';
 import { fromAddress, quotationEmail, sendLeadEmail } from '@/lib/crm/email';
 import { describeSender } from '@/lib/email/send';
 import { DIVISION_NAME } from '@/lib/domain/constants';
@@ -1385,6 +1391,34 @@ export async function sendQuotationAction(
  * price argument on this action would be a way around that rule dressed as a
  * convenience.
  */
+/**
+ * The catalogue for THIS lead's project, fetched when the picker opens.
+ *
+ * ⚠️ WHY THIS EXISTS AT ALL. `UnitPicker` was wired on `/my-leads` only, because
+ * only that page loads `crmProjectUnits` for the project in its URL. The four
+ * other screens that show a lead — Appointments, Clients, Conversations and
+ * Follow-ups — passed `onChooseUnit={() => setDialog(null)}`: the button closed
+ * the panel and did nothing at all. Measured 2026-09-28.
+ *
+ * ⚠️ AND THE URL WAS THE WRONG SOURCE ANYWAY. `/my-leads` loads the catalogue
+ * for whatever project the FILTER is set to; with no filter it loads none, so
+ * the picker opened empty on a lead whose scheme has a hundred and fifty plots.
+ * The lead knows its own project. Asking it is one round trip when somebody
+ * actually opens the picker, and correct from every screen.
+ */
+export async function leadCatalogueAction(leadId: string): Promise<{
+  readonly ok: boolean;
+  readonly units?: readonly CrmUnit[];
+  readonly projectName?: string;
+  readonly attachedId?: string | null;
+  readonly error?: string;
+}> {
+  const user = await requireUser();
+  const found = await crmLeadCatalogue(user.id, leadId);
+  if (!found) return { ok: false, error: NOT_YOURS };
+  return { ok: true, ...found };
+}
+
 export async function attachUnitAction(
   leadId: string,
   propertyId: string | null,
@@ -1613,4 +1647,188 @@ export async function updateLeadDetailsAction(input: {
   refresh(input.leadId);
   revalidatePath('/my-leads');
   return { ok: true, changed: saved.changed, phoneE164 };
+}
+
+/* ---------------------------------------------------------------------------
+ * Spam — migration 270
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Archive a lead AND block the number it came from.
+ *
+ * ⚠️ BOTH HALVES, OR THE MANAGER DOES THIS FOREVER. Archiving alone leaves the
+ * next text from the same number making a fresh lead. `app.crm_mark_spam` does
+ * the pair in one statement and refuses a salesperson outright — one person
+ * must not be able to make a number invisible to the whole team.
+ */
+export async function markSpamAction(
+  leadId: string,
+  reason?: string,
+): Promise<LeadWriteResult> {
+  const user = await requireUser();
+  try {
+    const done = await withUser(user.id, (tx) => tx`
+      select app.crm_mark_spam(${leadId}::uuid, ${reason ?? null}) as ok
+    `);
+    if (!(done as Array<Record<string, unknown>>)[0]?.ok) {
+      return { ok: false, error: 'That lead could not be found.' };
+    }
+  } catch (err) {
+    return { ok: false, error: spamRefusal(err, 'mark a number as spam') };
+  }
+  refresh(leadId);
+  revalidatePath('/leads');
+  return { ok: true };
+}
+
+/** Let a number back in. A wrong call must be as easy to undo as to make. */
+export async function unmarkSpamAction(phoneE164: string): Promise<LeadWriteResult> {
+  const user = await requireUser();
+  try {
+    await withUser(user.id, (tx) => tx`select app.crm_unmark_spam(${phoneE164}) as ok`);
+  } catch (err) {
+    return { ok: false, error: spamRefusal(err, 'unblock a number') };
+  }
+  revalidatePath('/leads');
+  return { ok: true };
+}
+
+/**
+ * Why the database said no — BY SQLSTATE, never by guessing.
+ *
+ * ⚠️ THE GUESS SHIPPED, AND IT LIED. Both blocks above used to answer "Only a
+ * manager can mark a number as spam" for any throw at all. Migration 270 had
+ * revoked EXECUTE from public and never granted it to `cni_app`, so every call
+ * failed at the door with `42501 permission denied for function` — and a real
+ * sales manager, whose own session answers `crm_manages_own_department() =
+ * true`, was told in plain words that they were not a manager. Two hours could
+ * have gone on the role system for a missing GRANT. Migration 271 has the
+ * grants; this makes sure the next wrong thing says which wrong thing it is.
+ *
+ * `23514` is the function's own refusal and the only one whose sentence is
+ * about permission.
+ */
+function spamRefusal(err: unknown, what: string): string {
+  const code = (err as { code?: string } | null)?.code;
+  if (code === '23514') return `Only a manager can ${what}.`;
+  if (code === '42501') {
+    return `The database refused this app permission to ${what}. Nothing is wrong with your account — this needs a migration, not a role change.`;
+  }
+  const detail = String((err as { message?: string } | null)?.message ?? '').trim();
+  return detail ? `That did not save: ${detail}` : 'That did not save.';
+}
+
+/* ---------------------------------------------------------------------------
+ * Importing a list — migration 274
+ * ------------------------------------------------------------------------- */
+
+export interface ImportLeadsResult {
+  readonly ok: boolean;
+  readonly error?: string;
+  readonly created?: number;
+  readonly skipped?: number;
+  readonly unassigned?: number;
+  /** user id → how many they were given, for the confirmation sentence. */
+  readonly byOwner?: Readonly<Record<string, number>>;
+}
+
+/**
+ * Write a whole sheet of leads.
+ *
+ * ⚠️ ONE DATABASE CALL FOR THE WHOLE FILE. The rows travel as JSON and
+ * `app.crm_import_leads` loops server-side. Calling a definer per row from here
+ * would be 500 round trips in series on one connection — the exact shape that
+ * cost 49 seconds elsewhere in this schema before it was made set-based.
+ *
+ * ⚠️ AND THE ASSIGNMENT RULE IS THE DATABASE'S, NOT THIS FUNCTION'S. Empty
+ * `owners` means the importer keeps them; a list means share between exactly
+ * those people. 274 refuses a salesperson who tries to hand leads to somebody
+ * else, so a tampered request is answered by the same rule as an honest one.
+ */
+export async function importLeadsAction(
+  projectId: string,
+  rows: readonly LeadImportRow[],
+  owners: readonly string[] = [],
+  options: { readonly markTestData?: boolean } = {},
+): Promise<ImportLeadsResult> {
+  const user = await requireUser();
+
+  if (!projectId) return { ok: false, error: 'Choose the project to import into.' };
+  if (rows.length === 0) return { ok: false, error: 'That sheet had no rows to import.' };
+  /* ⚠️ A CEILING, SAID IN NUMBERS. 2,000 rows is roughly a minute of writes and
+     the same limit the property importer carries; beyond it somebody should be
+     told to split the file rather than watch a spinner and wonder. */
+  if (rows.length > 2000) {
+    return { ok: false, error: `That is ${rows.length.toLocaleString('en-GB')} rows. Split the sheet into files of 2,000 or fewer.` };
+  }
+
+  try {
+    const result = await withUser(user.id, (tx) => tx`
+      select app.crm_import_leads(
+        ${projectId}::uuid,
+        ${tx.json(rows as never)},
+        ${owners as unknown as string[]}::uuid[],
+        ${options.markTestData ?? false}
+      ) as out
+    `);
+    const out = (result as Array<Record<string, unknown>>)[0]?.out as
+      | { created?: number; skipped?: number; unassigned?: number; byOwner?: Record<string, number> }
+      | undefined;
+
+    revalidatePath('/leads');
+    revalidatePath('/my-leads');
+    return {
+      ok: true,
+      created: out?.created ?? 0,
+      skipped: out?.skipped ?? 0,
+      unassigned: out?.unassigned ?? 0,
+      byOwner: out?.byOwner ?? {},
+    };
+  } catch (err) {
+    /* ⚠️ BY SQLSTATE, NOT BY GUESSING — the lesson migration 271 taught when a
+       catch block told a real manager they were not a manager. */
+    const code = (err as { code?: string } | null)?.code;
+    if (code === 'CRM02') {
+      return { ok: false, error: 'You cannot add leads to that project.' };
+    }
+    if (code === '23514') {
+      return { ok: false, error: 'Only a manager can share imported leads out to other people. Import them yourself and ask a manager to hand them round.' };
+    }
+    if (code === '42501') {
+      return { ok: false, error: 'The database refused this app permission to import leads. This needs a migration, not a role change.' };
+    }
+    const detail = String((err as { message?: string } | null)?.message ?? '').trim();
+    return { ok: false, error: detail ? `Nothing was imported: ${detail}` : 'Nothing was imported.' };
+  }
+}
+
+/** What the wizard needs to recognise somebody it already has. */
+export async function knownContactsAction(
+  projectId: string,
+): Promise<{ phones: readonly string[]; emails: readonly string[]; digits: readonly string[] }> {
+  const user = await requireUser();
+  if (!projectId) return { phones: [], emails: [], digits: [] };
+  try {
+    return await crmKnownContacts(user.id, projectId);
+  } catch {
+    /* ⚠️ EMPTY, NOT A THROW. This runs while somebody is mapping columns; a
+       rejected promise would put a red banner on a screen nobody has finished.
+       The database refuses a real clash on write regardless — the worst case of
+       failing quietly here is duplicates reported at import instead of at
+       validate. */
+    return { phones: [], emails: [], digits: [] };
+  }
+}
+
+/** Every lead the reader may see, for a spreadsheet. */
+export async function exportLeadsAction(
+  projectId: string | null,
+  filters: { stage?: string | null; source?: string | null; temperature?: string | null; mine?: boolean } = {},
+): Promise<{ ok: boolean; error?: string; rows?: readonly CrmLeadExportRow[] }> {
+  const user = await requireUser();
+  try {
+    return { ok: true, rows: await crmLeadsForExport(user.id, projectId, filters) };
+  } catch {
+    return { ok: false, error: 'Those leads could not be read.' };
+  }
 }

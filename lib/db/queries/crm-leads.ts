@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { type Tx, withUser, withUserBypassingReadOnly } from '../client';
+import { type Tx, withUser } from '../client';
 import { clientFacingName, letterSubtitle } from '@/lib/domain/crm-brand';
 import { needsApproval, netAmount, nextQuotationNumber } from '@/lib/domain/crm-quotations';
 
@@ -82,6 +82,11 @@ export interface CrmLeadRow {
   readonly nextAction: string | null;
   readonly nextActionAt: string | null;
   readonly submittedAt: string;
+  /** Migration 270. Non-null for somebody who messaged the WhatsApp number
+   *  without ever filling a form — a walk-up. The desk marks these, and the
+   *  drawer reads it straight from the row so the spam control can be drawn in
+   *  the click's own frame rather than after the record lands. */
+  readonly inboundAt: string | null;
   readonly ownerId: string | null;
   readonly ownerName: string | null;
   readonly formName: string | null;
@@ -164,6 +169,10 @@ export interface CrmLeadRecord {
   readonly phoneE164: string | null;
   readonly email: string | null;
   readonly city: string | null;
+  /** Set only when this lead messaged us out of the blue — migration 270. It is
+   *  what tells the desk a walk-up from an ad, and what decides whether the
+   *  spam control is offered at all. */
+  readonly inboundAt: string | null;
   /** Every answer Meta sent, raw. See `lib/domain/crm-answers.ts`. */
   readonly answers: Record<string, string>;
   readonly stage: string;
@@ -180,6 +189,10 @@ export interface CrmLeadRecord {
   readonly formName: string | null;
   readonly campaignName: string | null;
   readonly source: string;
+  /** The open half — "Lead ad", "Messaged the business number". See
+   *  `lib/domain/lead-source.ts`; the record prints it when there is no form
+   *  and no campaign, which is every walk-up. */
+  readonly sourceDetail: string | null;
   /** Meta's own lead id. Shown so a row can be traced back to the account. */
   readonly externalId: string | null;
   /* ── Qualification · migration 167 ────────────────────────────────────────
@@ -259,6 +272,24 @@ export interface CrmLeadFilters {
   readonly ownerId?: string | null;
   readonly temperature?: string | null;
   readonly formId?: string | null;
+  /** The CHANNEL — `facebook`, `instagram`, `whatsapp`, `website`… Migration
+   *  160 files a Meta lead under the app its ad ran on, and 22 leads on the
+   *  real Chitral project already carry one. Distinct from `formId`: a single
+   *  form runs on both apps, which is the whole reason the split is worth
+   *  having. */
+  readonly source?: string | null;
+  /**
+   * "high" / "normal" / "low" — the same verdict `lib/domain/lead-priority.ts`
+   * computes for the chip on every row.
+   *
+   * ⚠️ DERIVED, NOT STORED, AND THEREFORE WRITTEN TWICE — once in TypeScript
+   * for the chip and once here for the filter. That file's own header warns
+   * what happens next: *"Two definitions of 'high priority' on two screens is
+   * how somebody stops trusting both."* So
+   * `lib/db/queries/__tests__/lead-priority-agrees.test.ts` drives every
+   * combination through both and refuses to pass if one differs.
+   */
+  readonly priority?: string | null;
   readonly search?: string | null;
   /** Inclusive, on `submitted_at` — when THEY enquired, not when we imported. */
   readonly from?: string | null;
@@ -366,9 +397,60 @@ export async function listCrmLeads(
       tx`(${projectId}::uuid is null or l.project_id = ${projectId}::uuid)`,
     ];
 
-    if (filters.ownerId) conditions.push(tx`l.owner_id = ${filters.ownerId}::uuid`);
+    /* ⚠️ `none` IS A REAL CHOICE, NOT AN ABSENT ONE. An empty owner filter
+       means "everybody"; the manager also needs "nobody", which is the queue
+       that migration 270's WhatsApp walk-ups arrive in. Sent as a word rather
+       than an empty string precisely so the two cannot be confused. */
+    if (filters.ownerId === 'none') conditions.push(tx`l.owner_id is null`);
+    else if (filters.ownerId) conditions.push(tx`l.owner_id = ${filters.ownerId}::uuid`);
     if (filters.temperature) conditions.push(tx`l.temperature::text = ${filters.temperature}`);
     if (filters.formId) conditions.push(tx`l.form_id = ${filters.formId}::uuid`);
+    /* ⚠️ `::text`, NOT A CAST TO THE ENUM. An unknown value cast to
+       `crm_lead_source` raises 22P02 and turns a hand-edited URL into a 500;
+       compared as text it simply matches nothing, which is what a filter for a
+       channel that does not exist should do. */
+    if (filters.source) conditions.push(tx`l.source::text = ${filters.source}`);
+
+    /* ── Priority — lib/domain/lead-priority.ts, transcribed ───────────────
+         closed            -> low
+         they wrote last   -> high
+         next action past  -> high
+         anything else     -> normal
+
+       ⚠️ "hidden_at is null" MATCHES THE ROW THE READER IS LOOKING AT. The
+       list's own lateral excludes hidden messages, so a lead whose only inbound
+       message has been hidden shows no conversation — and must not be ranked
+       high because of it. Four messages are hidden on the live table today, so
+       the difference is real rather than hypothetical.
+       (No backticks anywhere in this file: one in a SQL comment ends the
+       template literal, and tsc then blames a line twenty rows away.) */
+    /* ⚠️⚠️ coalesce(..., false) IS LOad-BEARING, AND THE BROWSER FOUND OUT.
+       A lead with no messages makes that scalar subquery return NULL, so
+       "(subquery) = 'inbound'" is NULL, not false. In the high branch NULL
+       behaves as false and nothing is wrong. In the NOT branch it is fatal:
+       "not (NULL or NULL)" is NULL, a WHERE clause treats NULL as false, and
+       every lead with no conversation AND no next action silently vanishes.
+
+       Measured before the fix, driving the real page as Sarah: the chips on her
+       own list say 31 Normal; the filter returned 9. The TypeScript
+       transcription test passed throughout, because JavaScript has no
+       three-valued logic to get wrong — which is exactly why that test now
+       models NULL explicitly. */
+    const lastIsInbound = tx`coalesce((select m.direction from public.crm_lead_messages m
+        where m.lead_id = l.id and m.hidden_at is null
+        order by m.occurred_at desc, m.id desc limit 1) = 'inbound', false)`;
+    /* Never NULL: the "is not null" guard makes the comparison total. */
+    const actionOverdue = tx`(l.next_action_at is not null and l.next_action_at < now())`;
+
+    if (filters.priority === 'low') {
+      conditions.push(tx`l.stage in ('won', 'lost')`);
+    } else if (filters.priority === 'high') {
+      conditions.push(tx`l.stage not in ('won', 'lost')
+        and (${lastIsInbound} or ${actionOverdue})`);
+    } else if (filters.priority === 'normal') {
+      conditions.push(tx`l.stage not in ('won', 'lost')
+        and not (${lastIsInbound} or ${actionOverdue})`);
+    }
 
     if (search) {
       /* ⚠️ Searches the name, the raw phone AND the normalised one. Somebody
@@ -428,8 +510,13 @@ export async function listCrmLeads(
       /* ⚠️ THE SAME EXPRESSION AS THE COUNT ABOVE, deliberately — a tab whose
          number and whose rows are computed two different ways is a tab that
          eventually says 3 and shows 2. */
+      /* ⚠️ "hidden_at is null" ADDED 2026-10-01, matching the list's own lateral,
+         the two counts and the priority rule above. Without it a lead whose last
+         inbound message has been HIDDEN counted as waiting for a reply while its
+         row showed no conversation at all — the tab said one thing and the rows
+         said another. Four messages are hidden on the live table. */
       conditions.push(tx`(select m.direction from public.crm_lead_messages m
-                           where m.lead_id = l.id
+                           where m.lead_id = l.id and m.hidden_at is null
                            order by m.occurred_at desc, m.id desc limit 1) = 'inbound'`);
     }
 
@@ -456,7 +543,7 @@ export async function listCrmLeads(
     const page = await tx`
       select l.id, l.full_name, l.phone, l.phone_e164, l.email, l.city,
              l.stage::text, l.temperature::text,
-             l.next_action, l.next_action_at, l.submitted_at,
+             l.next_action, l.next_action_at, l.submitted_at, l.inbound_at,
              l.owner_id,
              f.name as form_name,
              c.name as campaign_name,
@@ -600,6 +687,7 @@ export async function listCrmLeads(
       nextAction: (r.next_action as string | null) ?? null,
       nextActionAt: r.next_action_at ? new Date(r.next_action_at as string).toISOString() : null,
       submittedAt: new Date(r.submitted_at as string).toISOString(),
+      inboundAt: r.inbound_at ? new Date(r.inbound_at as string).toISOString() : null,
       ownerId: (r.owner_id as string | null) ?? null,
       /* ⚠️ A name that is missing here means the account is GONE — the reader
          returns every owner the caller can see. Before 121 it meant "hidden by
@@ -735,13 +823,17 @@ async function readCrmLeads(
                 on the one screen that exists to say where a lead came from. */
              app.crm_project_name(l.project_id) as project_name,
              l.full_name, l.phone, l.phone_e164, l.email, l.city,
+             /* 270. Non-null only for somebody who messaged us first, which is
+                the one case where "is this spam?" is a fair question to put in
+                front of a manager. */
+             l.inbound_at,
              l.answers,
              l.stage::text, l.temperature::text, l.lost_reason::text,
              l.next_action, l.next_action_at,
              l.submitted_at, l.imported_at, l.first_contacted_at, l.closed_at,
              l.owner_id,
              f.name as form_name, c.name as campaign_name,
-             l.source::text, l.external_id,
+             l.source::text, l.source_detail, l.external_id,
              l.property_id,
              /* Qualification · 167. In the same select, so opening the drawer
                 costs no extra wait — Rule Zero, law 4. */
@@ -843,6 +935,7 @@ async function readCrmLeads(
         phoneE164: (row.phone_e164 as string | null) ?? null,
         email: (row.email as string | null) ?? null,
         city: (row.city as string | null) ?? null,
+        inboundAt: row.inbound_at ? new Date(row.inbound_at as string).toISOString() : null,
         answers: (row.answers as Record<string, string> | null) ?? {},
         stage: String(row.stage),
         temperature: (row.temperature as string | null) ?? null,
@@ -862,6 +955,7 @@ async function readCrmLeads(
         formName: (row.form_name as string | null) ?? null,
         campaignName: (row.campaign_name as string | null) ?? null,
         source: String(row.source),
+        sourceDetail: (row.source_detail as string | null) ?? null,
         externalId: (row.external_id as string | null) ?? null,
         /* ⚠️ `?? null` ON EVERY ONE, never `|| null`. An empty string in
            `qualification_note` is a note somebody cleared, and `||` would turn
@@ -1213,11 +1307,19 @@ export async function crmNextOwner(actorId: string, projectId: string): Promise<
 }
 
 /**
- * The unassigned leads on a project, oldest enquiry first.
+ * The unassigned leads on a project the rota may hand out, oldest enquiry first.
  *
  * ⚠️ OLDEST FIRST, deliberately. Somebody who filled the form in June has been
  * waiting longest and their lead is closest to Meta's 90-day deletion; sharing
  * out the newest first would leave the stalest leads permanently at the back.
+ *
+ * ⚠️⚠️ AND NEVER A WALK-UP. `inbound_at is null` is the whole of migration 270
+ * held in one line. Without it "Share out 10" takes the ten oldest ownerless
+ * leads — and a stranger's message is ownerless BY DESIGN, so the first press
+ * would hand every held enquiry, spam included, to a salesperson with their
+ * name against it. That is precisely what the owner asked not to happen:
+ * *"just display these messages to the sales manager, not to the salesperson."*
+ * 270 put the hold on the INSERT; this is the other door into the same field.
  */
 export async function unassignedLeadIds(
   actorId: string,
@@ -1228,6 +1330,7 @@ export async function unassignedLeadIds(
     select id from public.crm_leads
      where project_id = ${projectId}::uuid
        and owner_id is null
+       and inbound_at is null
        and stage not in ('won', 'lost')
      order by submitted_at asc
      limit ${limit}
@@ -1330,8 +1433,15 @@ export async function crmDueCounts(
         where l.next_action_at is null and l.owner_id is not null
       ) as no_plan,
       count(*) filter (
+        /* ⚠️ "hidden_at is null" — THE THIRD TIME A BACKTICK IN A SQL COMMENT
+           ended the template string. No backticks anywhere in this file. The
+           same expression as the filter this
+           counts, and as the list's own lateral. A tab whose number and whose
+           rows are computed two different ways is a tab that eventually says 3
+           and shows 2. Four messages are hidden on the live table today, so
+           the two really did disagree. */
         where (select m.direction from public.crm_lead_messages m
-                where m.lead_id = l.id
+                where m.lead_id = l.id and m.hidden_at is null
                 order by m.occurred_at desc, m.id desc limit 1) = 'inbound'
       ) as waiting_for_reply
       from public.crm_leads l
@@ -1349,20 +1459,50 @@ export async function crmDueCounts(
 }
 
 /**
- * How many leads on this project have nobody working them.
+ * The two kinds of lead nobody owns.
+ *
+ * ⚠️ TWO NUMBERS, BECAUSE THE ROTA MAY ONLY TOUCH ONE OF THEM. Before migration
+ * 270 "unassigned" meant one thing: a Meta lead waiting to be shared out. It now
+ * also means a stranger who texted the business number, which 270 deliberately
+ * HOLDS so it reaches a manager rather than a salesperson. One count could not
+ * serve both — see `unassignedLeadIds`, which shares out `shareable` and must
+ * never reach `held`.
  *
  * ⚠️ OPEN ONES ONLY, matching the rota in migration 120. A lead that was closed
  * without ever being assigned is not waiting for anybody, and counting it would
  * offer to share out work that does not exist.
  */
-export async function unassignedCount(actorId: string, projectId: string): Promise<number> {
+export interface CrmQueueCounts {
+  /** Everything nobody owns — what the owner filter's "Unassigned" means. */
+  readonly unassigned: number;
+  /** Of those, the ones the rota may hand out: form leads, imports, manual. */
+  readonly shareable: number;
+  /** Of those, the strangers. Read one at a time, never shared out. */
+  readonly held: number;
+}
+
+export async function unassignedCount(
+  actorId: string,
+  /* ⚠️ NULL MEANS EVERY PROJECT, the same convention `crmOwnerOptions` above
+     uses — and it is not decoration. Since migration 270 a stranger's WhatsApp
+     message lands unowned on whichever project owns the number they texted, so
+     in "All projects" mode a hard-coded zero here hid the owner filter's
+     Unassigned option on exactly the view a manager scanning for walk-ups is
+     most likely to be sitting on. */
+  projectId: string | null,
+): Promise<CrmQueueCounts> {
   const rows = await withUser(actorId, (tx) => tx`
-    select count(*) as n from public.crm_leads
-     where project_id = ${projectId}::uuid
+    select count(*) as n,
+           count(*) filter (where inbound_at is not null) as held
+      from public.crm_leads
+     where (${projectId}::uuid is null or project_id = ${projectId}::uuid)
        and owner_id is null
        and stage not in ('won', 'lost')
   `);
-  return Number((rows as Array<Record<string, unknown>>)[0]?.n ?? 0);
+  const r = (rows as Array<Record<string, unknown>>)[0];
+  const unassigned = Number(r?.n ?? 0);
+  const held = Number(r?.held ?? 0);
+  return { unassigned, held, shareable: unassigned - held };
 }
 
 /**
@@ -1404,6 +1544,187 @@ export async function crmOwnerOptions(
       leads: Number(r.leads ?? 0),
     }))
     .sort((a, b) => b.leads - a.leads || a.name.localeCompare(b.name));
+}
+
+/**
+ * The CHANNELS this project's leads came from — the filter's options.
+ *
+ * ⚠️ COUNTED FROM THE LEADS, not from the enum. Offering all eleven values
+ * would put "LinkedIn 0" and "TikTok 0" in front of somebody scanning for the
+ * two that matter; the list is what actually arrived. Same rule as the owner
+ * and form options above.
+ *
+ * ⚠️ AND NO `archived_at is null` HERE, WHICH IS DELIBERATE RATHER THAN MISSING.
+ * `crm_leads_not_archived` is a policy on the table — archived rows are invisible
+ * to `cni_app` full stop — so adding the predicate would be a second copy of a
+ * rule that already holds, and the count would still match the list. Checked as
+ * the app's own role on Chitral Royal Homes: 13 Instagram and 4 Facebook here,
+ * 13 and 4 in the table. As the OWNER the same query says 15 and 7, because
+ * `postgres` bypasses policies — which is why that reading is never the one to
+ * trust about what a screen will show.
+ */
+export async function crmSourceOptions(
+  actorId: string,
+  projectId: string | null,
+): Promise<Array<{ id: string; leads: number }>> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select source::text as source, count(*) as leads
+      from public.crm_leads
+     where (${projectId}::uuid is null or project_id = ${projectId}::uuid)
+     group by source
+     order by count(*) desc, source
+  `);
+  return (rows as Array<Record<string, unknown>>).map((r) => ({
+    id: String(r.source),
+    leads: Number(r.leads ?? 0),
+  }));
+}
+
+/**
+ * Everybody this project already knows, by phone and by email.
+ *
+ * ⚠️ ONE QUERY FOR THE WHOLE SHEET, not one per row. A 500-row file checked
+ * row by row is 500 round trips in series down a single connection — the shape
+ * that turned a 2.4-second write into 49 seconds elsewhere in this schema. The
+ * wizard holds both sets in memory and answers every row from them.
+ *
+ * ⚠️ AND IT IS SCOPED TO THE PROJECT, which is where `crm_create_lead` looks
+ * too. The same person may be a lead on Chitral and on the ERP pipeline without
+ * either being a duplicate; the clash rule has always been per project and this
+ * must agree with it or the wizard will promise an import the writer refuses.
+ */
+export interface CrmKnownContacts {
+  readonly phones: readonly string[];
+  readonly emails: readonly string[];
+  /**
+   * The raw phone reduced to its digits, for numbers `toE164` could not read.
+   *
+   * ⚠️ FOUND BY A ROUND TRIP, NOT BY READING THE CODE. Exporting this project's
+   * 37 leads and importing that exact file back recognised 26 and offered to
+   * create 11 — the 11 whose number cannot be normalised. Matching only on
+   * `phone_e164` and `email` means an Islamabad landline (ten digits, no mobile
+   * pattern, so `toE164` correctly returns null) can never be recognised as
+   * somebody we already have, and re-importing your own export quietly doubles
+   * them.
+   *
+   * ⚠️ SEVEN DIGITS MINIMUM. Below that it is not a phone number, and matching
+   * on three digits would collapse unrelated people into one duplicate.
+   */
+  readonly digits: readonly string[];
+}
+
+export async function crmKnownContacts(
+  actorId: string,
+  projectId: string,
+): Promise<CrmKnownContacts> {
+  const rows = await withUser(actorId, (tx) => tx`
+    select
+      coalesce(array_agg(distinct l.phone_e164) filter (where l.phone_e164 is not null), '{}') as phones,
+      coalesce(array_agg(distinct lower(l.email)) filter (where l.email is not null), '{}') as emails,
+      coalesce(array_agg(distinct regexp_replace(l.phone, '[^0-9]', '', 'g'))
+        filter (where length(regexp_replace(coalesce(l.phone, ''), '[^0-9]', '', 'g')) >= 7), '{}') as digits
+      from public.crm_leads l
+     where l.project_id = ${projectId}::uuid
+  `);
+  const r = (rows as Array<Record<string, unknown>>)[0];
+  return {
+    phones: (r?.phones as string[] | null) ?? [],
+    emails: (r?.emails as string[] | null) ?? [],
+    digits: (r?.digits as string[] | null) ?? [],
+  };
+}
+
+/**
+ * Every lead on a project, whole, for an export.
+ *
+ * ⚠️ NOT `listCrmLeads` WITH A BIG LIMIT. That reads six laterals per row to
+ * build a desk; an export wants columns a spreadsheet can hold and nothing
+ * else. And it is narrowed by RLS exactly like the desk, so a salesperson
+ * exports their own leads and a manager exports the project's — one query, two
+ * answers, and no second rule about who may download what.
+ */
+export interface CrmLeadExportRow {
+  readonly fullName: string | null;
+  readonly phone: string | null;
+  readonly phoneE164: string | null;
+  readonly email: string | null;
+  readonly city: string | null;
+  readonly enquiry: string | null;
+  readonly budget: number | null;
+  readonly source: string;
+  readonly sourceDetail: string | null;
+  readonly stage: string;
+  readonly temperature: string | null;
+  readonly ownerName: string | null;
+  readonly projectName: string;
+  readonly formName: string | null;
+  readonly nextAction: string | null;
+  readonly nextActionAt: string | null;
+  readonly submittedAt: string;
+  readonly lastActivityAt: string | null;
+}
+
+export async function crmLeadsForExport(
+  actorId: string,
+  projectId: string | null,
+  filters: CrmLeadFilters = {},
+): Promise<readonly CrmLeadExportRow[]> {
+  const { rows, owners } = await withUser(actorId, async (tx) => {
+    const conditions = [tx`true`];
+    if (projectId) conditions.push(tx`l.project_id = ${projectId}::uuid`);
+    if (filters.stage) conditions.push(tx`l.stage::text = ${filters.stage}`);
+    if (filters.source) conditions.push(tx`l.source::text = ${filters.source}`);
+    if (filters.temperature) conditions.push(tx`l.temperature::text = ${filters.temperature}`);
+    if (filters.mine) conditions.push(tx`l.owner_id = app.current_user_id()`);
+    let where = conditions[0];
+    for (const c of conditions.slice(1)) where = tx`${where} and ${c}`;
+
+    const rows = await tx`
+      select l.full_name, l.phone, l.phone_e164, l.email, l.city,
+             l.budget, l.source::text, l.source_detail,
+             l.stage::text, l.temperature::text, l.owner_id,
+             l.next_action, l.next_action_at, l.submitted_at,
+             app.crm_project_name(l.project_id) as project_name,
+             f.name as form_name,
+             (select n.body from public.crm_lead_notes n
+               where n.lead_id = l.id order by n.created_at asc limit 1) as enquiry,
+             (select a.occurred_at from public.crm_lead_activity a
+               where a.lead_id = l.id order by a.occurred_at desc limit 1) as last_at
+        from public.crm_leads l
+        left join public.crm_lead_forms f on f.id = l.form_id
+       where ${where}
+       order by l.submitted_at desc
+       limit 20000
+    `;
+    const owners = await tx`select * from app.crm_lead_owners()`;
+    return { rows, owners };
+  });
+
+  const names = new Map<string, string>();
+  for (const o of owners as Array<Record<string, unknown>>) {
+    names.set(String(o.id), String(o.full_name ?? 'Unnamed'));
+  }
+
+  return (rows as Array<Record<string, unknown>>).map((r) => ({
+    fullName: (r.full_name as string | null) ?? null,
+    phone: (r.phone as string | null) ?? null,
+    phoneE164: (r.phone_e164 as string | null) ?? null,
+    email: (r.email as string | null) ?? null,
+    city: (r.city as string | null) ?? null,
+    enquiry: (r.enquiry as string | null) ?? null,
+    budget: r.budget === null || r.budget === undefined ? null : Number(r.budget),
+    source: String(r.source),
+    sourceDetail: (r.source_detail as string | null) ?? null,
+    stage: String(r.stage),
+    temperature: (r.temperature as string | null) ?? null,
+    ownerName: r.owner_id ? (names.get(String(r.owner_id)) ?? null) : null,
+    projectName: String(r.project_name ?? ''),
+    formName: (r.form_name as string | null) ?? null,
+    nextAction: (r.next_action as string | null) ?? null,
+    nextActionAt: r.next_action_at ? new Date(r.next_action_at as string).toISOString() : null,
+    submittedAt: new Date(r.submitted_at as string).toISOString(),
+    lastActivityAt: r.last_at ? new Date(r.last_at as string).toISOString() : null,
+  }));
 }
 
 /** The forms this project's leads came from — the filter's options. */
@@ -1902,8 +2223,15 @@ export async function crmMyCounts(
       ) as due_today,
       count(*) filter (where l.next_action_at is null) as no_plan,
       count(*) filter (
+        /* ⚠️ "hidden_at is null" — THE THIRD TIME A BACKTICK IN A SQL COMMENT
+           ended the template string. No backticks anywhere in this file. The
+           same expression as the filter this
+           counts, and as the list's own lateral. A tab whose number and whose
+           rows are computed two different ways is a tab that eventually says 3
+           and shows 2. Four messages are hidden on the live table today, so
+           the two really did disagree. */
         where (select m.direction from public.crm_lead_messages m
-                where m.lead_id = l.id
+                where m.lead_id = l.id and m.hidden_at is null
                 order by m.occurred_at desc, m.id desc limit 1) = 'inbound'
       ) as waiting_for_reply,
       count(*) as assigned
@@ -4191,4 +4519,33 @@ export async function crmAgentStates(actorId: string, leadIds: readonly string[]
     handoffAt: r.agent_handoff_at ? new Date(r.agent_handoff_at as string).toISOString() : null,
     handoffReason: (r.agent_handoff_reason as string | null) ?? null,
   }));
+}
+
+/**
+ * The lead's own project catalogue, plus what is attached today.
+ *
+ * ⚠️ ONE ROUND TRIP, and it answers three questions at once — which project,
+ * which plots, which one is already on the lead. Three calls would be three
+ * waits on a picker somebody opened expecting it to be there.
+ *
+ * ⚠️ AND IT RETURNS NULL WHEN THE LEAD IS NOT READABLE, rather than an empty
+ * catalogue. Those are different answers: "this scheme has no plots" is a thing
+ * to tell somebody, and "this lead is not yours" is another.
+ */
+export async function crmLeadCatalogue(
+  actorId: string,
+  leadId: string,
+): Promise<{ units: CrmUnit[]; projectName: string; attachedId: string | null } | null> {
+  const found = await withUser(actorId, (tx) => tx`
+    select l.project_id, l.property_id, app.crm_project_name(l.project_id) as project_name
+      from public.crm_leads l where l.id = ${leadId}::uuid
+  `);
+  const lead = found[0];
+  if (!lead) return null;
+
+  return {
+    units: await crmProjectUnits(actorId, lead.project_id as string),
+    projectName: (lead.project_name as string | null) ?? '',
+    attachedId: (lead.property_id as string | null) ?? null,
+  };
 }

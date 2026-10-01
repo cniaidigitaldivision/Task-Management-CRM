@@ -174,6 +174,16 @@ interface WhatsAppPayload {
       readonly value?: {
         readonly messages?: ReadonlyArray<Record<string, unknown>>;
         readonly statuses?: ReadonlyArray<Record<string, unknown>>;
+        /* ⚠️ WHICH OF OUR NUMBERS THEY WROTE TO. Read at last, because it is
+           what tells a first-time message which project it belongs to — and
+           without it every stranger's enquiry was discarded (migration 270). */
+        readonly metadata?: { readonly phone_number_id?: string };
+        /* ⚠️ AND WHO THEY SAY THEY ARE. Their WhatsApp profile name, so a new
+           lead is called "Imran" rather than "+923001234567". */
+        readonly contacts?: ReadonlyArray<{
+          readonly wa_id?: string;
+          readonly profile?: { readonly name?: string };
+        }>;
       };
     }>;
   }>;
@@ -193,7 +203,16 @@ async function store(payload: WhatsAppPayload): Promise<void> {
       const value = change.value;
       if (!value) continue;
 
-      for (const message of value.messages ?? []) await storeMessage(message);
+      const toNumberId = value.metadata?.phone_number_id ?? null;
+      for (const message of value.messages ?? []) {
+        /* ⚠️ MATCHED BY `wa_id`, NOT TAKEN AS contacts[0]. One webhook can
+           carry messages from several people, and the contacts array is a
+           parallel list — taking the first would put one person's name on
+           another's lead. */
+        const from = message.from as string | undefined;
+        const profile = (value.contacts ?? []).find((x) => x.wa_id === from)?.profile?.name ?? null;
+        await storeMessage(message, toNumberId, profile);
+      }
       for (const status of value.statuses ?? []) await storeStatus(status);
     }
   }
@@ -211,7 +230,11 @@ function readMedia(message: Record<string, unknown>, kind: string) {
   };
 }
 
-async function storeMessage(message: Record<string, unknown>): Promise<void> {
+async function storeMessage(
+  message: Record<string, unknown>,
+  toNumberId: string | null,
+  profileName: string | null,
+): Promise<void> {
   const wamid = message.id as string | undefined;
   const from = message.from as string | undefined;
   let kind = (message.type as string | undefined) ?? 'unknown';
@@ -272,7 +295,12 @@ async function storeMessage(message: Record<string, unknown>): Promise<void> {
     select app.crm_record_inbound_message(
       ${e164}, ${wamid}, ${kind}, ${body},
       ${media.id}, ${media.mime}, ${media.filename}, ${at}::timestamptz,
-      ${replyTo}, ${voice}
+      ${replyTo}, ${voice},
+      /* ⚠️ THESE TWO ARE WHAT STOP A STRANGER BEING LOST. Without the number
+         they wrote to, the function cannot tell which project a first-time
+         enquiry belongs to; without the profile name the lead is a phone
+         number. Both are nullable so a mid-rollout build still works. */
+      ${toNumberId}, ${profileName}
     ) as id
   `);
 

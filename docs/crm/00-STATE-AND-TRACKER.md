@@ -17,9 +17,383 @@
 | **Phase** | 🔒 **PREVIEW — Sales Workspace phases A–E done, F next.** The build order is `14-SALES-WORKSPACE-PHASES.md`. The CRM is visible ONLY to Sarah, Sahad and the sales manager, plus admin/super_admin (migration 143), until the owner says otherwise. |
 | **Scope** | Chitral Royal Homes (real, 641 leads) + the demo project (21 leads, WhatsApp wired). ⚠️ Everything is built and demonstrated on **Demo — Product Enquiries [demo]**. |
 | **Deployed** | Every push to `main` deploys to Vercel (`sin1`) → https://taskly.aidigitaldivision.com. Head: **`76826f6`**, deploy **success** (2026-09-26). Check one with `gh api repos/cniaidigitaldivision/Task-Management-CRM/commits/<sha>/status` |
-| **Green at head** | 157 test files · 3916 tests · typecheck · `next build` |
-| **Last updated** | **2026-09-26** |
-| **Last migration applied anywhere** | **264** (applied 2026-09-27; **263 the `scheduled` attendance source**, **264 a day that records itself**). CRM next: **265.** |
+| **Green at head** | 161 test files · 4060 tests · typecheck. ⚠️ `next build` could not be run locally on 2026-10-01 — the machine had 3.2 GB free and the build worker was killed; Vercel's build is the gate. |
+| **Last updated** | **2026-10-01** |
+| **Last migration applied anywhere** | **277** (applied 2026-10-01). **263–264** attendance recording itself · **265–269** the property catalogue · **270–271** lead capture · **272–273** the channel split · **274–275** the lead importer · **276** the schedule arriving like a person · **277** intake from a website form. ⚠️ 276 was taken on `main` while this branch was paused, which is why the branch skipped it and used 277. Next: **278.** |
+
+---
+
+## 🧭 2026-10-01 — IMPORT AND EXPORT LEADS, AND A FILTER THAT OPENED NOTHING
+
+Migrations **274** and **275**. Owner: *"one more thing I want right now is to
+import a CSV or Excel file … My focus right now is to make sure to properly
+import and export the leads."* And separately: *"when I click on the More
+filter, it is not showing me anything."*
+
+### ⚠️ THE MORE-FILTERS BUTTON WAS WORSE THAN DEAD
+
+`onClick={() => setDue('no-plan')}`. It opened nothing and quietly applied an
+unrelated filter, so the list changed under the reader with no panel in sight.
+A dead button looks broken; this looked like the data had gone.
+
+It is now a drawer: Project, Stage, **Priority**, Temperature, Came from, What
+is owed, Form, Enquired between. It drafts and applies once — seven controls
+would otherwise be seven full server renders of a page that also carries the
+diary, the approvals and the counts. Opening it is client state, 716 ms.
+
+**Priority and Temperature are two columns, not one.** The first draft folded
+them together; the page disproves it — the table already prints Priority
+(High/Normal), and `lead-priority.ts` keeps them apart on purpose: temperature
+is *will they buy?*, set by a salesperson; priority is *who do I ring first?*,
+set by the clock.
+
+### ⚠️⚠️ AND THE PRIORITY FILTER WAS SILENTLY WRONG
+
+Priority is derived, so the rule had to be written a second time in SQL:
+
+```
+(select …) = 'inbound'   is NULL when the lead has no messages
+not (NULL or NULL)       is NULL
+WHERE NULL               matches nothing
+```
+
+`normal` — written `not (inbound or overdue)` — dropped every lead with no
+conversation and no next action. **Sarah's own chips said 31 Normal; the filter
+returned 9.** Driving the page found it; the TypeScript transcription test
+passed throughout, because JavaScript has no NULL to get wrong. `coalesce(…,
+false)` fixes it, and the test now models Postgres's three-valued logic.
+
+**Three definitions of "waiting for reply" disagreed** — the list's lateral
+excluded hidden messages; the due filter and both counts did not. Four messages
+are hidden on the live table. All four now read the same.
+
+### The importer
+
+| | |
+|---|---|
+| Four steps | Upload → Map → Validate → Review, one constant height (1000 px at every step) |
+| Both formats | .xlsx read in the tab with the browser's own unzip; .csv with quotes and CRLF |
+| Column mapping | auto-matched, plus aliases — "Mobile Number", "E-mail", "Remarks" |
+| The project | on screen the whole way through and still editable, as on the property importer |
+| Who works them | a manager picks salespeople; a salesperson keeps their own list |
+| Export | Excel and CSV, carrying the filters on screen |
+
+**One database call for the whole file.** 500 rows driven per-row from Node is
+500 round trips in series on one connection — the shape that cost 49 seconds
+elsewhere in this schema. The rows travel as jsonb and `app.crm_import_leads`
+loops server-side.
+
+**It creates leads through `crm_create_lead`**, not by inserting — that function
+owns the name check, the contact check, the duplicate rule, the demo flag and
+the activity row. What it must NOT do is pick the owner, so 274 teaches it the
+hold migration 270 already invented, spliced into the live definition with a
+literal `replace()` and a re-read that refuses to commit unless it took.
+
+### ⚠️ A SHEET CANNOT SET A STAGE, AN OWNER OR A TEMPERATURE
+
+There is no column for any of them, and the Review step says so. 167's gate
+refuses `won` on an unqualified lead; who gets a lead is the rota's decision or
+the manager's; and "Hot" is a sheet asserting a conversation happened.
+
+### ⚠️ THE ROUND TRIP FOUND THE DUPLICATE RULE TOO NARROW
+
+Exporting 37 leads and importing that exact file back: **0 errors**, all eight
+importable columns auto-matched — and 11 rows offered as new. Matching only on
+E.164 and email means a number `toE164` refuses (an Islamabad landline is ten
+digits and fits no mobile pattern) can never be recognised, so importing your
+own export doubles those people. A third key — the bare digits — now matches
+them, and a row with neither digits nor email says plainly that it cannot be
+recognised at all.
+
+### ⚠️⚠️ 275 — AND A SALESPERSON COULD NOT KEEP THEIR OWN LIST
+
+Driving /my-leads as Sarah: validated two rows, said "these will all be yours to
+work", imported nothing. `crm_leads_guard_reassign` fires on any `owner_id`
+change and cannot tell claiming from reassigning — so setting a lead to HERSELF
+read as handing out leads.
+
+The guard is right. 275 gives the importer a **named flag**,
+`app.crm_importing`, set around that UPDATE alone. The guard's own comment
+points at a shortcut — clear `app.user_id` and it passes — and that is
+deliberately rejected: a function that blanks the acting user to get past a
+security check is one nobody can grep for. Its self-check proves the door shuts
+again afterwards, and that a salesperson still cannot share an import out.
+
+### Coming soon, said in the picker
+
+Website form, Landing pages, Google Ads, TikTok and an Inbound API appear as a
+disabled group. **Disabled is the point:** a channel that cannot deliver a lead
+must not be recordable as the channel a lead arrived on, or it puts a figure in
+the Which-app report that no integration produced. `website` and `google` stay
+selectable — a person can file a lead under either by hand today; what is coming
+is the automatic capture.
+
+### Walked
+
+Manager on `/leads`: export 37 → import that file → 0 errors, 26 recognised,
+heights identical at every step; then a file of three strangers imported and
+shared. Salesperson on `/my-leads`: no share picker, both leads kept, and the
+export returns her 45 rather than the project's.
+
+⚠️ **Worth remembering:** 275's self-check had to pick its fixture from
+`crm_preview_members`, not from the department — the CRM is still restricted and
+`crm_in_project_department` runs `crm_preview_allows()` first, so an ordinary
+department member is refused CRM02 for reasons nothing to do with the test.
+
+---
+
+## 🧭 2026-09-30 (later) — FACEBOOK OR INSTAGRAM, AND THE THREE PLACES IT WAS INVISIBLE
+
+Migrations **272** and **273**. Owner: *"No need to split the Facebook and
+Instagram, right? … If it is easy then do that."*
+
+**It was already stored.** Migration 160 (2026-09-15) asked Graph for `platform`
+and files a Meta lead as `facebook` or `instagram`. What did not exist was any
+way to USE it: no filter on the desk, no mark on the record, and a report called
+"Where the leads came from" that groups by the **form** and says so in its own
+notes. The split existed and answered no question.
+
+### ⚠️ MEASURE AS `cni_app`, OR THE NUMBER IS WRONG
+
+Read as the owner, Chitral Royal Homes has 15 Instagram and 7 Facebook leads.
+The application sees **13 and 4**. `crm_leads_not_archived` is a policy of its
+own — `archived_at is null` — and 665 of that project's 683 rows are archived,
+including all 660 plain `meta_lead_ad` ones. A probe run as `postgres` bypasses
+the policy and reports a population no screen will ever show. The first draft of
+272's header carried the owner's numbers; both migration headers now carry the
+app's, and say why they differ.
+
+### What was built
+
+| | |
+|---|---|
+| **Came from** in the desk's filter menu | counted from the leads, not the enum — no "LinkedIn 0" |
+| The brand mark on each row | 16px, on the project/city/age line — **no new column** |
+| The mark on the lead record's "Came from" | with the form kept underneath as the detail |
+| The mark in the drawer's Overview | replacing a generic tag glyph beside the word "Instagram" |
+| **"Which app the leads came from"** | a report: leads, contacted, won, lost, win rate, per channel |
+
+### ⚠️ A SECOND REPORT, NOT A REWRITE OF THE FIRST
+
+`sources` groups by FORM and `channels` by the app — one form runs on both, which
+is the whole point. Rewriting `sources` would silently change what two
+already-generated reports mean. They share `SourceRow` and one mapper on purpose:
+two definitions of "contacted" growing between them is how two reports come to
+disagree about a number neither is wrong about.
+
+The builder names the unattributed bucket rather than hiding it: *"660 of these
+are filed as Meta rather than Facebook or Instagram, because Meta did not say
+which app the ad ran on."* A reader comparing 15 to 7 has to know what is in
+neither column.
+
+### Three smaller things fixed on the way
+
+- **`app/(app)/leads/page.tsx` read a seven-element `Promise.all` by INDEX.**
+  Inserting one reader in the middle shifted five of them — the roster became the
+  unassigned count — and nothing failed to compile, because indexing widens to a
+  union. Destructured by name; the same mistake is now a type error.
+- **`REPORT_KINDS` had a test asserting `toHaveLength(4)`**, so adding a report
+  broke a test that taught nothing. Replaced with "every kind has a label" and a
+  new one: **no two reports share a name** — both drafts of these two titles
+  began "Where the leads came from".
+- 273's self-check needed three goes: **167's qualification gate** refuses `won`
+  on a lead nobody qualified (CRM08), `not_interested` is not a
+  `crm_lost_reason`, and a three-row `insert ... returning into` a scalar raises
+  in plpgsql. Its check runs `set local role cni_app`, after 271.
+
+### Walked
+
+Desk filtered to Instagram (13 rows, marks on every one), a real Meta lead opened
+— **Came from: [logo] Instagram**, form underneath — and the report generated and
+read on screen: nine channels, proper names, "—" where nothing has closed, CSV
+download. 4001 tests.
+
+---
+
+## 🧭 2026-09-30 — NO MESSAGE IS LOST, AND THE MANAGER CAN SEE THEM
+
+Branch `properties-page`. Migrations **270** and **271**.
+
+Owner: *"if someone other than a lead or other than a campaign sends any message
+to that WhatsApp number … will it show and if it shows then to whom will it be
+assigned?"* — and then, once told: *"I want to not lose any message … just
+display these messages to the sales manager, not to the salesperson … Assign it
+to the salesperson / Move it to spam."*
+
+### ⚠️ WHAT WAS HAPPENING, MEASURED
+
+`app.crm_record_inbound_message` opened with a lookup and `return null` when the
+number was unknown. **Every stranger who texted the business number was
+discarded at that line** — no lead, no row, no table to look in. There is no
+unmatched inbox anywhere in this schema; that was checked before 270 was
+written.
+
+### 270 — the capture
+
+`crm_blocked_numbers`, `crm_leads.inbound_at`, an `app.crm_hold_assignment`
+transaction-local hold that `crm_assign_new_lead` honours (so a stranger is NOT
+handed to the rota), the rewritten recorder with **the block check FIRST, then
+the lead lookup** — the other order let a blocked number back in, because
+`crm_lead_for_number` matches archived leads — and `crm_mark_spam` /
+`crm_unmark_spam`. The webhook now reads `metadata.phone_number_id` and matches
+`contacts[]` by `wa_id`, which is what gives a walk-up a name rather than a
+number.
+
+Found while writing it: the **"nobody eligible" branch of `crm_assign_new_lead`
+has written a row with both user ids null since migration 158**, which the
+`crm_lead_assignments_moved` CHECK refuses — a latent crash that would have
+failed the whole lead insert. Both branches now leave that table alone.
+
+### ⚠⚠ 271 — AND THE BUTTON COULD NEVER HAVE BEEN PRESSED
+
+270 ends `revoke all on function app.crm_mark_spam(uuid, text) from public;`
+with **no matching grant to `cni_app`**. Every press failed at the door with
+`42501 permission denied for function` — and the action's catch block answered
+*"Only a manager can mark a number as spam"*, so a real sales manager was told
+in plain words that they were not a manager. Two hours could have gone on the
+role system for a missing GRANT.
+
+**270's own self-check could not have caught it.** It runs as the migration
+owner, who has EXECUTE on everything. 271's check does `set local role cni_app`
+and calls the functions the way the app does. A definer's grants are invisible
+to every test that does not run as the role that will call it.
+
+271 also closes two things found while looking:
+
+- `create or replace` with a **new signature** does not replace anything. 270's
+  twelve-argument recorder was a second function with DEFAULT privileges —
+  `proacl` NULL, i.e. **EXECUTE TO PUBLIC** — on a cluster that has `anon` and
+  `authenticated`. Revoked and granted properly.
+- The old ten-argument overload was dead and, with four defaults on the new one,
+  a ten-argument call now matches **both**. Dropped.
+
+And `spamRefusal()` maps `23514` / `42501` by SQLSTATE instead of guessing.
+
+### ⚠️ SHARING OUT WOULD HAVE UNDONE THE HOLD
+
+270 held the assignment on the INSERT. `unassignedLeadIds` is the other door
+into the same field, and it had no such filter: one press of **Share out** would
+have handed every held stranger — spam included — to a salesperson with their
+name against it. It now filters `inbound_at is null`, and `unassignedCount`
+returns three numbers rather than one, so the strip cannot say 7 and move 5.
+
+### The manager's queue, on screen
+
+| | Where |
+|---|---|
+| **Unassigned (n)** in the owner filter | only when > 0 — a permanent `(0)` teaches the eye to skip it |
+| **"Messaged us"** chip on the row | only while unowned; it is an ordinary lead once assigned |
+| A second line on the share-out strip | names the held ones, says they are never shared out, **Show them** |
+| **Assign** and **Mark as spam** on the record | manager only — `crm_project_roster()` returns nothing to a salesperson, so a non-empty roster IS the check |
+
+### ⚠️ AND THE RECORD WAS LYING ABOUT A WALK-UP
+
+Seen on screen: a stranger's record was headed **"What they told the form"**,
+said **"Meta sent no answers with this lead"**, and gave **"Came from: Not
+recorded"** — three statements about a submission that never happened, on the
+one page a manager opens to decide whether this is a buyer or spam. The origin
+was in the row the whole time (`whatsapp` / "Messaged the business number"). All
+three fixed; the Meta path is untouched and tested.
+
+### Walked, as the manager and then as Sarah
+
+A signed Meta payload posted at the real webhook, twice — one genuine enquiry,
+one obvious spam. Manager: both visible and chipped, filter shows them, assign
+to Sarah works, **Block and archive** archives and blocks, a further message is
+refused and counted. Sarah: sees her new lead, has **no** spam button, **no**
+owner control, and **cannot see** the held one at all. "Share out" pressed with
+a walk-up in the queue — the ordinary lead moved, the stranger did not.
+Click-to-paint: **185 ms** to the confirm, **152 ms** to cancel; the filter costs
+what every filter on that desk costs (**3.7 s**, against **3.5 s** through the
+owner select that was already there) and dims at **566 ms**.
+
+⚠️ **Still open:** the desk sorts `next_action_at asc nulls last`, so a
+brand-new walk-up lands behind every lead with a plan — page 2 with `PER_PAGE =
+10`. The filter and the strip are therefore the route to the queue, not a
+convenience. Changing the sort would reorder the desk for every salesperson to
+serve the manager, so it was left alone deliberately.
+
+---
+
+## 🧭 2026-09-27 — THE PROPERTIES PAGE, AND SEVEN REFERENCES
+
+Branch `properties-page`. Migrations **265–267**. The owner sent seven images
+across one afternoon and every one is built and walked as **Sarah**, never as
+an admin.
+
+| Reference | Where it lives |
+|---|---|
+| The page | `/properties` — cards, five tabs, filters, table, detail panel |
+| Add property | 4-step wizard + the **Area check** |
+| Edit property | tabbed, change reason, change preview |
+| Import | 4 steps, four count tiles, mapping preview, three options |
+| Download template | format choice, grouped columns, example switch |
+| Share | seven sections, three locked fields |
+| Site map | the scheme drawn from the inventory |
+| Property record | `/properties/PROP-A101`, seven tabs |
+
+### ⚠️ THE NINTH `join public.projects`
+
+The board joined that table for a project name. `projects_select` is
+`app.project_is_visible(id)` — project MEMBERSHIP — and a salesperson is not a
+member of the schemes they sell. It returned all 150 rows as an admin and
+**zero** as Sarah, with the page looking finished either way. This file had
+counted eight of these before. `app.crm_project_options()` is the definer that
+answers it properly, in a CTE so it is evaluated once.
+
+### ⚠️ THE CATALOGUE READ WAS PER ROW
+
+`crm_properties_select` called `crm_manages_project(project_id)` — the exact
+law-5 example in CLAUDE.md. The two predicates collapse to
+`admin or project_id = any(dept projects)`; 266's self-check proves that per
+user across every property before it commits, and `explain` now shows
+`(InitPlan N).col1` with no function name in the Filter.
+
+### ⚠️ AND A RECORDED DECISION WAS REVERSED, ON INSTRUCTION
+
+150 made the catalogue the project manager's — *"a price is the company's, not
+the seller's."* The owner asked for the opposite in as many words, so 266
+widens `crm_properties_write` to the project's own department. **Putting it
+back is one line**, and the migration header says which one, because she is
+reviewing the salesperson's view first and the manager level later.
+
+### The demo scheme
+
+`Chitral Royal Homes [demo]` — **148 plots**, the reference's exact split
+(82 available · 21 reserved · 38 sold · 7 held), every row `is_test_data`, and
+the five plots she drew reproduced exactly. ⚠️ **Never the real Chitral
+project**, which has 683 live leads. `node scripts/seed-property-inventory.mjs`
+(`--remove` undoes it), and it counts queued WhatsApp sends afterwards and
+refuses to finish if any is not zero.
+
+### What the code refuses to do
+
+A sheet cannot mark a plot Sold — enforced in the action, not only the wizard.
+A share cannot carry an internal note, a lead or a booking, because
+`shareLines()` is handed a shape that does not contain them. Sharing never
+reserves. Nothing generates an allotment letter, an agreement, a NOC or a title
+document. And the site map says on screen that it is a schematic inventory map,
+not a legal site plan.
+
+### Found by driving it, not by testing it
+
+A corner plot printed `Corner · Corner · Not park-facing`. The Updated column
+read `21 Sept 2026` because `en-GB` abbreviates September to four letters. A
+`<label>` wrapped both the ID field and its pencil button. The required
+asterisk was read aloud as part of every field's name. lucide's `Map` icon
+shadowed the global `Map` constructor. A ref was read during render in four
+dialogs. And `PROP-A101` carries booking BK-302 while still marked Available —
+the record page names that contradiction in amber rather than describing one
+side of it.
+
+### Left open
+
+- The site map is grouped by block, not surveyed. A real layout needs the
+  developer's plan as data.
+- A public customer share-link and a property-sheet PDF are both drawn and both
+  say plainly that they are not built.
+- Availability history needs a table with a start, an end and who held the plot.
+- `withdrawn` remains a readable status that no picker offers.
 
 ---
 
@@ -68,6 +442,7 @@ Friday **2026-08-28** and Monday **2026-08-31** are the two days she was marked
 absent. Not corrected here — an Admin correction carries a name and is hers to
 make. And the 19:10 check-out will close nights she works past it, which she has
 done twice this month.
+
 
 ---
 

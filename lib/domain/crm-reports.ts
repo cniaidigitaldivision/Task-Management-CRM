@@ -1,5 +1,6 @@
 import type { Cell, Report, ReportFigure } from './reports';
 import { stageLabel, STAGE_ORDER } from './crm-stages';
+import { sourceLabel } from './lead-source';
 
 /* ============================================================================
  * SHAPING A CRM REPORT — Step 10, LAYER 2
@@ -26,7 +27,7 @@ import { stageLabel, STAGE_ORDER } from './crm-stages';
    Importing a VALUE from a server-only module type-checks and then breaks the
    production build — `design-tokens.test.ts` guards exactly this and caught it.
    Pure vocabulary belongs in `lib/domain/` (doc 20 §1), and this is pure. */
-export const REPORT_KINDS = ['funnel', 'ageing', 'sources', 'people'] as const;
+export const REPORT_KINDS = ['funnel', 'ageing', 'sources', 'channels', 'people'] as const;
 
 export type CrmReportKind = (typeof REPORT_KINDS)[number];
 
@@ -34,6 +35,11 @@ export const REPORT_LABEL: Readonly<Record<CrmReportKind, string>> = {
   funnel: 'Lead funnel',
   ageing: 'How long leads have been waiting',
   sources: 'Where the leads came from',
+  /* ⚠️ "Which app", NOT "Where" — the two reports answer different questions and
+     two similar titles is how somebody generates the wrong one. `sources`
+     groups by the lead FORM; this groups by the CHANNEL, and one form runs on
+     both Facebook and Instagram. */
+  channels: 'Which app the leads came from',
   people: 'How the team is doing',
 };
 
@@ -47,6 +53,10 @@ export function reportNeedsPeriod(kind: CrmReportKind): boolean {
 }
 
 const text = (value: string): Cell => ({ kind: 'text', value });
+
+/** The channel's own name. `lib/domain/lead-source.ts` owns the wording; this
+ *  keeps `lib/domain/` importing only from `lib/domain/`, per doc 20 §1. */
+const channelName = (source: string): string => sourceLabel(source);
 const num = (value: number): Cell => ({ kind: 'number', value });
 const pct = (value: number): Cell => ({ kind: 'percent', value });
 
@@ -290,6 +300,86 @@ export function buildSourcesReport(rows: readonly SourceRow[], ctx: ReportContex
       num(r.won),
       num(r.lost),
       /* ⚠️ Null all the way through from SQL. See `notYet`. */
+      r.winRate === null ? notYet() : pct(r.winRate),
+    ]),
+    figures,
+    notes,
+  };
+}
+
+/* ---- Channels ------------------------------------------------------------ */
+
+/**
+ * Leads by the app they arrived on — migration 273.
+ *
+ * ⚠️ IT SHARES `SourceRow` AND THAT IS DELIBERATE. The two reports are the same
+ * population grouped two ways, and the SQL behind them is the same query with
+ * one `group by` changed. A second row type here would invite a second
+ * definition of "contacted" to grow between them, and then the two reports
+ * would disagree about a number neither of them is wrong about.
+ */
+export function buildChannelsReport(rows: readonly SourceRow[], ctx: ReportContext): Report {
+  const ordered = [...rows].sort((a, b) => b.leads - a.leads || a.source.localeCompare(b.source));
+  const total = ordered.reduce((sum, r) => sum + r.leads, 0);
+  const contacted = ordered.reduce((sum, r) => sum + r.contacted, 0);
+  const won = ordered.reduce((sum, r) => sum + r.won, 0);
+
+  /* ⚠️ COUNTED, NOT ASSUMED. Meta only began telling us which app an ad ran on
+     when the importer started asking for `platform` (2026-09-15), and it cannot
+     be recovered for anything older. A report that silently folded those into
+     "Facebook" would be inventing the answer; one that does not SAY how many are
+     unattributed lets a reader compare 15 against 7 without knowing that 660
+     others are sitting in a third bucket. */
+  const unsplit = ordered.find((r) => r.source === 'meta_lead_ad')?.leads ?? 0;
+
+  const figures: ReportFigure[] = [
+    { label: 'Leads in the period', value: num(total) },
+    {
+      label: 'Ever contacted',
+      value: num(contacted),
+      hint: total === 0 ? undefined : `${Math.round((contacted / total) * 100)}% of them`,
+    },
+    { label: 'Won', value: won === 0 ? notYet() : num(won) },
+  ];
+
+  const notes = [
+    'Grouped by the channel the lead arrived on, which is a different question from the form it came through — one form runs on both Facebook and Instagram.',
+    'Contacted means somebody logged a call, a message or an email against the lead — not that the lead replied.',
+  ];
+
+  if (unsplit > 0) {
+    notes.push(
+      `${unsplit} of these are filed as Meta rather than Facebook or Instagram, because Meta did not say which app the ad ran on. Leads imported before 15 September 2026 all fall in that group and it cannot be recovered for them — everything since carries the app it came from.`,
+    );
+  }
+
+  if (total > 0 && contacted === 0) {
+    notes.push(
+      'Nobody has been contacted at all, so nothing here says anything about which app is worth the money. It says the leads have not been worked yet.',
+    );
+  }
+
+  return {
+    type: 'project',
+    title: 'Which app the leads came from',
+    subtitle: ctx.projectName,
+    period: { start: ctx.from, end: ctx.to },
+    columns: [
+      { key: 'source', label: 'Channel', kind: 'text', width: 34 },
+      { key: 'leads', label: 'Leads', kind: 'number' },
+      { key: 'contacted', label: 'Contacted', kind: 'number' },
+      { key: 'won', label: 'Won', kind: 'number' },
+      { key: 'lost', label: 'Lost', kind: 'number' },
+      { key: 'rate', label: 'Win rate', kind: 'percent' },
+    ],
+    rows: ordered.map((r) => [
+      /* ⚠️ THE LABEL, NOT THE ENUM VALUE. A printed report and a PDF both come
+         through here, and `meta_lead_ad` is not a word anybody says out loud. */
+      text(channelName(r.source)),
+      num(r.leads),
+      num(r.contacted),
+      num(r.won),
+      num(r.lost),
       r.winRate === null ? notYet() : pct(r.winRate),
     ]),
     figures,

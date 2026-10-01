@@ -399,7 +399,6 @@ export function ConversationsWorkspace({
           initialTab={relatedTab}
           onAttach={() => setPanel(null)}
           onClose={() => setPanel(null)}
-          onChooseUnit={() => setPanel(null)}
           onRecordOutcome={() => {
             setPanel(null);
             setOutcomeStage(bundle.record.lead.stage);

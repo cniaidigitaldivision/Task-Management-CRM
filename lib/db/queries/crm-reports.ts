@@ -5,6 +5,7 @@ import {
   buildAgeingReport,
   buildFunnelReport,
   buildPeopleReport,
+  buildChannelsReport,
   buildSourcesReport,
   type AgeingRow,
   type FunnelRow,
@@ -88,12 +89,22 @@ export async function computeCrmReport(
       );
     }
 
-    if (kind === 'sources') {
-      const rows = await tx`
-        select * from app.crm_report_sources(
-          ${projectId}::uuid, ${ctx.from}::date, ${ctx.to}::date)
-      `;
-      return buildSourcesReport(
+    /* ⚠️ ONE READER FOR BOTH GROUPINGS. `sources` groups by form and `channels`
+       by the app; the rows come back in the same shape from two functions that
+       are the same query with one `group by` changed, so mapping them twice
+       would be two chances to disagree about what `contacted` means. */
+    if (kind === 'sources' || kind === 'channels') {
+      const rows = kind === 'channels'
+        ? await tx`
+            select * from app.crm_report_channels(
+              ${projectId}::uuid, ${ctx.from}::date, ${ctx.to}::date)
+          `
+        : await tx`
+            select * from app.crm_report_sources(
+              ${projectId}::uuid, ${ctx.from}::date, ${ctx.to}::date)
+          `;
+      const build = kind === 'channels' ? buildChannelsReport : buildSourcesReport;
+      return build(
         (rows as Array<Record<string, unknown>>).map(
           (r): SourceRow => ({
             source: String(r.source),

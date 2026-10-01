@@ -15,7 +15,7 @@ import {
   newLeadProblems,
   phoneWarning,
 } from '@/lib/domain/crm-new-lead';
-import { sourceLabel } from '@/lib/domain/lead-source';
+import { COMING_SOON_SOURCES, sourceLabel } from '@/lib/domain/lead-source';
 import { stageLabel } from '@/lib/domain/crm-stages';
 import { cn } from '@/lib/utils';
 
@@ -426,6 +426,30 @@ export function AddLead({
                       {sourceLabel(s)}
                     </option>
                   ))}
+                  {/* ── ⚠️ LISTED, AND NOT SELECTABLE ────────────────────────
+                      Owner, 2026-10-01: *"other things should also be imported
+                      and should also be displayed as coming soon — website,
+                      TikTok, Google campaign APIs, website form, landing
+                      pages."*
+
+                      ⚠️ EVERY ONE IS `disabled`, and that is the point rather
+                      than a limitation. A channel that cannot deliver a lead
+                      must not be recordable as the channel a lead arrived on —
+                      it would put a figure in "Which app the leads came from"
+                      that no integration produced, and somebody would compare
+                      spend against it.
+
+                      ⚠️ AND `website` AND `google` STAY IN THE LIST ABOVE. Both
+                      are real values and a person can file a lead under either
+                      by hand today; what is coming is the AUTOMATIC capture,
+                      which is what this group names. */}
+                  <optgroup label="Automatic capture — coming soon">
+                    {COMING_SOON_SOURCES.map((c) => (
+                      <option key={c.label} value="" disabled title={c.note}>
+                        {c.label} — coming soon
+                      </option>
+                    ))}
+                  </optgroup>
                 </select>
               </Field>
               <Field label="Detail">

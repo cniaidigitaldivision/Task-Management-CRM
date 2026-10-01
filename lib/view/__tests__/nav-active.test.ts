@@ -63,6 +63,8 @@ const ADMIN_NAV = [
      "clients" unreachable. Its own route reads as what it is: the owner's
      reference names "Clients & Leads" as two things. */
   '/clients',
+  /* The Properties page, 2026-09-27. */
+  '/properties',
   /* Added 2026-09-20 with the AI agent's knowledge base. ⚠️ A TOP-LEVEL
      ROUTE, not `/leads/knowledge`: it is scoped to a PROJECT rather than to a
      lead, and the same answers serve every lead on that project. Like `/clients`

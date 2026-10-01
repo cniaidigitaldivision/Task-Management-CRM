@@ -30,6 +30,11 @@ const SHOWN = [
   '/follow-ups',
   '/knowledge',
   '/clients',
+  /* ⚠️ Added 2026-09-27 with the Properties page. Same gate as Clients and
+     the lead desk beside it — the Executive reads the company's inventory the
+     way they read its leads. Writing it is a separate question the owner has
+     not reached yet; she is reviewing the SALESPERSON's view first. */
+  '/properties',
   '/lead-overview',
   '/lead-reports',
   '/team',

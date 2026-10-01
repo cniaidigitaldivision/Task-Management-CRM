@@ -8,6 +8,11 @@ it. Everything else here is reference.
 ⏸️ **2026-09-22 — the CRM is paused on the owner's instruction.** The active work
 is `docs/TEAM-ISSUES.md`.
 
+> 📘 **Looking for something to hand to a salesperson or a sales manager?**
+> That is `docs/manuals/` — one manual per role, written for the person rather
+> than the developer, and kept current in the same commit as any screen it
+> describes. Everything in THIS folder is for whoever builds the next thing.
+
 | File | What it holds |
 |---|---|
 | `19-HANDOVER.md` | ⭐ **The cold start.** Read first, every time. |

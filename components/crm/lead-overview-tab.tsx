@@ -17,6 +17,7 @@ import { setTemperatureAction } from '@/app/actions/crm-leads';
 import { bantQuestions, qualificationGaps } from '@/lib/domain/crm-qualification';
 import { plannedSummary } from '@/lib/domain/crm-planned';
 import { nextSteps, type NextStepAction } from '@/lib/domain/crm-next-step';
+import { SourceMark } from '@/components/crm/source-mark';
 import { sourceLabel } from '@/lib/domain/lead-source';
 import { displayPhone } from '@/lib/domain/phone';
 import { cn } from '@/lib/utils';
@@ -323,7 +324,11 @@ export function LeadOverviewTab({
               value={lead.budget === null ? null : `PKR ${lead.budget.toLocaleString('en-PK')}`}
             />
             <Row icon={MapPin} label="City" value={lead.city} />
-            <Row icon={Tag} label="Source" value={sourceLabel(lead.source)} />
+            {/* ⚠️ THE BRAND MARK, NOT A TAG GLYPH. Every other row here uses a
+                lucide icon because its subject has no logo; this one does, and
+                a generic tag beside the word "Instagram" was the only row on
+                the card that threw away information it already had. */}
+            <SourceRow source={lead.source} />
             <Row
               icon={Mail}
               label="Email"
@@ -675,6 +680,28 @@ function currentLabel(stage: string, fallback: string): string {
   if (stage === 'visit_scheduled') return 'Visit scheduled';
   if (stage === 'visited') return 'Visited';
   return fallback;
+}
+
+/**
+ * Where the lead came from, wearing its own logo.
+ *
+ * ⚠️ IT MATCHES `Row` TO THE PIXEL rather than being a variation on it — same
+ * 16px leading slot, same gap, same two lines — because it sits in the middle
+ * of a column of them and anything that does not line up reads as a mistake.
+ */
+function SourceRow({ source }: { source: string | null }) {
+  if (!source) return null;
+  return (
+    <div className="flex items-start gap-3">
+      <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center">
+        <SourceMark source={source} size={16} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <dt className="text-caption text-text-secondary">Source</dt>
+        <dd className="text-body-sm text-text-primary">{sourceLabel(source)}</dd>
+      </div>
+    </div>
+  );
 }
 
 function Row({

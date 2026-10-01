@@ -19,6 +19,8 @@ import {
 } from 'lucide-react';
 
 import { WA_GREEN, WhatsAppMark } from '@/components/crm/whatsapp-mark';
+import { LeadSheetButtons } from './lead-sheet-buttons';
+import { MyLeadsFilterDrawer } from './my-leads-filters';
 import { SourceMark } from './source-mark';
 import { Pagination } from '@/components/ui/pagination';
 import { useToast } from '@/components/ui/toast';
@@ -88,6 +90,8 @@ export function MyLeadsDesk({
   initialTab,
   addProjects,
   addProperties,
+  sources,
+  forms,
   diary,
   approvals,
   units,
@@ -113,6 +117,12 @@ export function MyLeadsDesk({
       picker above the list, and the one the write actually asks (migration 159). */
   addProjects: readonly AddLeadProject[];
   addProperties: readonly AddLeadProperty[];
+  /** The channels this person's leads actually arrived on, with counts —
+   *  migration 160's split, and the drawer's "Came from" section. */
+  sources: readonly { id: string; leads: number }[];
+  /** The lead forms on the project in view. Empty across all projects, where a
+   *  form from one client filtered against another's leads means nothing. */
+  forms: readonly { id: string; name: string; leads: number }[];
   /** This person's upcoming appointments — Phase E. */
   diary: readonly CrmDiaryEntry[];
   /** Quotations waiting on THIS person's decision — never their own. */
@@ -127,13 +137,41 @@ export function MyLeadsDesk({
   owners: readonly Option[];
   page: number;
   perPage: number;
-  filters: { stage: string | null; search: string | null; due: string | null };
+  filters: {
+    stage: string | null;
+    search: string | null;
+    due: string | null;
+    /* ⚠️ THESE FOUR WERE ALREADY READ BY THE PAGE AND BY THE QUERY, and had no
+       control anywhere on this screen. `temp` and `form` have been in the URL
+       since migration 119; `source` arrived today; `from`/`to` were hard-coded
+       to null in the page until the drawer needed them. A filter the URL
+       carries and the interface cannot set is a filter nobody knows exists. */
+    temperature: string | null;
+    priority: string | null;
+    source: string | null;
+    formId: string | null;
+    from: string | null;
+    to: string | null;
+  };
   firstName: string;
   fullName: string;
   nowMs: number;
 }) {
   const router = useRouter();
   const search = useSearchParams();
+
+  /* ⚠️ WHAT THE BUTTON'S BADGE COUNTS: the filters that are ONLY reachable
+     through the drawer. Stage, project and search have their own controls in
+     the row above and speak for themselves; counting those too would show "3"
+     beside a screen whose three filters are all plainly visible. A date range
+     counts once, not twice — from and to are one decision. */
+  const moreCount = [
+    filters.temperature,
+    filters.priority,
+    filters.source,
+    filters.formId,
+    filters.from ?? filters.to,
+  ].filter(Boolean).length;
 
   /* ── ⚠️ EVERY CONTROL ON THIS PAGE IS A SERVER NAVIGATION ─────────────────
      A filter, a tab, a page number: each one re-runs the whole render in
@@ -180,6 +218,36 @@ export function MyLeadsDesk({
          while still on page 9 shows an empty list, which reads as "no leads"
          rather than as "wrong page". */
       if (key !== 'page') next.delete('page');
+      startTransition(() => {
+        router.push(`/my-leads?${next.toString()}` as Route);
+      });
+    },
+    [router, search],
+  );
+
+  /**
+   * Several parameters, ONE navigation.
+   *
+   * ⚠️ THE DRAWER IS WHY THIS EXISTS. Seven `setParam` calls is seven server
+   * renders of the whole page — every query on it, not just the list — to answer
+   * one press of "Apply". The drawer therefore holds a DRAFT and commits it
+   * here in a single push, which is also why its controls do not each cost a
+   * round trip while somebody is still deciding.
+   */
+  /* ⚠️ CLIENT STATE, NOT A URL PARAMETER — Rule Zero, law 1. Opening a filter
+     panel touches nothing the server knows; routing it through `?filters=open`
+     would re-run every query on this page to draw a box whose contents are
+     already here. */
+  const [filtersOpen, setFiltersOpen] = React.useState(false);
+
+  const setParams = React.useCallback(
+    (patch: Readonly<Record<string, string | null>>) => {
+      const next = new URLSearchParams(search.toString());
+      for (const [key, value] of Object.entries(patch)) {
+        if (value === null || value === '') next.delete(key);
+        else next.set(key, value);
+      }
+      next.delete('page');
       startTransition(() => {
         router.push(`/my-leads?${next.toString()}` as Route);
       });
@@ -849,7 +917,6 @@ export function MyLeadsDesk({
             onTab={onDrawerTab}
             onClose={closeLead}
             onRaiseQuotation={() => setQuoteFor(openLead)}
-            onChooseUnit={() => setUnitFor(openLead)}
             onSummary={onSummary}
           />
         );
@@ -896,6 +963,33 @@ export function MyLeadsDesk({
             <CalendarPlus className="size-4" aria-hidden="true" />
             New follow-up
           </button>
+
+          {/* ── ⚠️ A SALESPERSON MAY IMPORT, AND KEEPS WHAT THEY IMPORT ──────
+              The owner's rule, and it is the reason this is here rather than
+              only on the manager's desk: *"if a salesperson imports, all the
+              leads are theirs."* `salesTeam` is empty here, so the wizard does
+              not offer a share-out picker — and migration 274 refuses one from
+              a salesperson regardless, so the screen and the database agree. */}
+          <LeadSheetButtons
+            projects={addProjects.map((p) => ({ id: p.id, name: p.name }))}
+            selectedProjectId={selectedProjectId}
+            selectedProjectName={
+              projects.find((p) => p.id === selectedProjectId)?.name ?? 'my leads'
+            }
+            salesTeam={[]}
+            filters={{
+              stage: filters.stage,
+              source: filters.source,
+              temperature: filters.temperature,
+            }}
+            total={total}
+            /* ⚠️ MINE, ALWAYS. This page is "leads assigned to me" and the
+               export has to answer the same question the screen does — a file
+               of the whole project downloaded from a personal desk is a
+               different document from the one somebody thought they asked
+               for. */
+            mine
+          />
         </div>
       </div>
 
@@ -1030,15 +1124,54 @@ export function MyLeadsDesk({
           ]}
         />
 
+        {/* ── ⚠️ THIS BUTTON USED TO CALL `setDue('no-plan')` ────────────────
+            Owner, 2026-10-01: *"when I click on the More filter, it is not
+            showing me anything."* It was worse than nothing: it silently
+            applied an unrelated filter — leads with no next action — so the
+            list changed under them and no panel appeared, which reads exactly
+            like a page that has broken.
+
+            ⚠️ AND THE COUNT IS ON THE BUTTON. Five of these filters leave no
+            other mark on the screen, so without a number here somebody can
+            narrow the list, forget, and spend a while wondering where their
+            leads went. */}
         <button
           type="button"
-          onClick={() => setDue('no-plan')}
-          className="inline-flex min-h-[2.6rem] items-center gap-1.5 rounded-xl border border-border-subtle bg-bg-surface px-3 text-body-sm font-medium text-text-primary transition-colors hover:border-border-default"
+          onClick={() => setFiltersOpen(true)}
+          aria-haspopup="dialog"
+          aria-expanded={filtersOpen}
+          className={cn(
+            'inline-flex min-h-[2.6rem] items-center gap-1.5 rounded-xl border bg-bg-surface px-3 text-body-sm font-medium text-text-primary transition-colors',
+            moreCount > 0
+              ? 'border-accent-primary'
+              : 'border-border-subtle hover:border-border-default',
+          )}
         >
           <SlidersHorizontal className="size-4" aria-hidden="true" />
           More filters
+          {moreCount > 0 && (
+            <span
+              className="rounded-full px-1.5 py-0.5 text-[0.6rem] font-bold"
+              style={{ backgroundColor: 'var(--chart-1-wash)', color: 'var(--chart-1)' }}
+            >
+              {moreCount}
+            </span>
+          )}
         </button>
       </div>
+
+      {filtersOpen && (
+        <MyLeadsFilterDrawer
+          close={() => setFiltersOpen(false)}
+          apply={setParams}
+          filters={filters}
+          projects={projects}
+          selectedProjectId={selectedProjectId}
+          stageCounts={stageCounts}
+          sources={sources}
+          forms={forms}
+        />
+      )}
 
       {/* ⚠️ THE COUNT IS SHOWN, EVEN THOUGH NOTHING ACTS ON IT YET. A checkbox
           with no feedback anywhere reads as broken; a line saying what is

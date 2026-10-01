@@ -768,7 +768,6 @@ export function FollowUpsBoard({
           seed={seedRelated(bundles[dialog.leadId].record.lead, bundles[dialog.leadId].related)}
           initialTab={dialog.tab}
           onClose={() => setDialog({ kind: 'lead', leadId: dialog.leadId })}
-          onChooseUnit={() => setDialog({ kind: 'lead', leadId: dialog.leadId })}
           onRecordOutcome={() => setDialog({ kind: 'lead', leadId: dialog.leadId })}
           onAttach={() => {
             /* A file is sent from the lead's own WhatsApp tab, where the

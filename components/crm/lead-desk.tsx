@@ -25,6 +25,8 @@ import {
 
 import { ShareOutControl } from '@/components/crm/lead-actions';
 import { SalesTeamPanel } from '@/components/crm/sales-team';
+import { LeadSheetButtons } from '@/components/crm/lead-sheet-buttons';
+import { SourceMark } from '@/components/crm/source-mark';
 import { useToast } from '@/components/ui/toast';
 import { WA_GREEN, WhatsAppMark } from '@/components/crm/whatsapp-mark';
 /* ⚠️⚠️ TEMPORARY — delete with the block that uses it. See below. */
@@ -36,6 +38,7 @@ import { Pagination } from '@/components/ui/pagination';
 import type {
   CrmDueCounts,
   CrmLeadRow,
+  CrmQueueCounts,
   CrmProjectOption,
   CrmSalesPerson,
 } from '@/lib/db/queries/crm-leads';
@@ -49,6 +52,7 @@ import {
   TEMPERATURES,
 } from '@/lib/domain/crm-stages';
 import { DIVISION_NAME } from '@/lib/domain/constants';
+import { sourceLabel } from '@/lib/domain/lead-source';
 import { displayPhone, whatsAppDigits } from '@/lib/domain/phone';
 import { relativeAge } from '@/lib/view/relative-age';
 import { cn } from '@/lib/utils';
@@ -86,6 +90,8 @@ export interface LeadFilterState {
   readonly ownerId: string | null;
   readonly temperature: string | null;
   readonly formId: string | null;
+  /** The channel — `facebook`, `instagram`, `whatsapp`… Migration 160. */
+  readonly source: string | null;
   readonly search: string | null;
   readonly from: string | null;
   readonly to: string | null;
@@ -103,6 +109,13 @@ interface Option {
   readonly leads: number;
 }
 
+/** A channel and its count. No name — `sourceLabel` is the one place that
+ *  decides what `meta_lead_ad` is called on screen. */
+export interface SourceOption {
+  readonly id: string;
+  readonly leads: number;
+}
+
 export function LeadDesk({
   projects,
   selected,
@@ -111,10 +124,11 @@ export function LeadDesk({
   stageCounts,
   owners,
   forms,
+  sources,
   page,
   perPage,
   filters,
-  unassigned,
+  queue,
   due,
   salesTeam,
   canShareOut,
@@ -128,11 +142,15 @@ export function LeadDesk({
   stageCounts: Record<string, number>;
   owners: readonly Option[];
   forms: readonly Option[];
+  /** The channels this project's leads actually arrived on, with counts. The
+   *  LABEL is not carried — `sourceLabel` owns the wording, and shipping a
+   *  second copy of it through props is how the two drift. */
+  sources: readonly SourceOption[];
   page: number;
   perPage: number;
   filters: LeadFilterState;
-  /** How many leads on this project have no owner. */
-  unassigned: number;
+  /** What nobody owns, split by whether the rota may touch it. Migration 270. */
+  queue: CrmQueueCounts;
   /** What is owed — narrowed by RLS, so it means "mine" for a salesperson. */
   due: CrmDueCounts;
   /** ⚠️ EMPTY FOR A SALESPERSON, by migration 120's guard inside
@@ -241,6 +259,7 @@ export function LeadDesk({
     filters.ownerId,
     filters.temperature,
     filters.formId,
+    filters.source,
     filters.from ?? filters.to,
     /* ⚠️ The due strip is its own control, but it narrows the table like any
        other filter and the count has to say so — otherwise "Filters 2" above a
@@ -333,6 +352,7 @@ export function LeadDesk({
                     owners={owners}
                     selectedId={filters.ownerId ?? ''}
                     onSelect={(id) => setParam('owner', id || null)}
+                    unassigned={queue.unassigned}
                   />
                 )}
 
@@ -347,10 +367,32 @@ export function LeadDesk({
                       screenshot is the widest piece of empty space on the page. Only
                       on the demo project, and the SERVER re-checks that on every
                       call — a hidden button is not a permission. */}
+                  {/* ── ⚠️ IMPORT AND EXPORT SIT TOGETHER ────────────────────
+                      Owner, 2026-10-01: *"My focus right now is to make sure to
+                      properly import and export the leads."* They are one pair
+                      of scissors: the file you get out is a valid file to put
+                      back in, and separating them across the page hides that.
+
+                      ⚠️ THE EXPORT CARRIES THE FILTERS ON SCREEN. Downloading
+                      the whole project while the reader is looking at 13
+                      Instagram leads would be a file about a different
+                      question from the one they asked. */}
+                  <LeadSheetButtons
+                    projects={projects.filter((p) => p.connection !== 'not-connected')}
+                    selectedProjectId={selected?.id ?? null}
+                    selectedProjectName={selected?.name ?? 'leads'}
+                    salesTeam={salesTeam.filter((p) => !p.isManager).map((p) => ({
+                      id: p.id, name: p.name, openLeads: p.openLeads,
+                    }))}
+                    filters={filters}
+                    total={total}
+                  />
+
                   <FilterMenu
                     filters={filters}
                     owners={owners}
                     forms={forms}
+                    sources={sources}
                     count={activeFilters}
                     onSet={setParam}
                   />
@@ -427,7 +469,13 @@ export function LeadDesk({
           {canShareOut && selected && (
             <ShareOutControl
               projectId={selected.id}
-              unassigned={unassigned}
+              shareable={queue.shareable}
+              held={queue.held}
+              /* ⚠️ INSTANT, AND THROUGH THE SAME DOOR AS THE FILTER MENU. The
+                 held rows are already reachable by picking Unassigned in the
+                 owner filter; this is a shortcut to that exact state, not a
+                 second mechanism with its own idea of what is held. */
+              onShowHeld={() => setParam('owner', 'none')}
               salesTeam={salesTeam.filter((p) => !p.isManager).length}
             />
           )}
@@ -553,10 +601,14 @@ function OwnerSelect({
   owners,
   selectedId,
   onSelect,
+  unassigned,
 }: {
   owners: readonly Option[];
   selectedId: string;
   onSelect: (id: string) => void;
+  /** How many leads nobody owns. Named on the option, so the queue is visible
+   *  without opening it. */
+  unassigned: number;
 }) {
   return (
     <div className="relative">
@@ -567,6 +619,15 @@ function OwnerSelect({
         className="min-h-[2.6rem] min-w-[11rem] cursor-pointer appearance-none rounded-xl border border-border-subtle bg-bg-surface px-3 pr-9 text-body-sm font-medium text-text-primary transition-colors hover:border-border-default focus:border-accent-primary focus:outline-none"
       >
         <option value="">All owners</option>
+        {/* ⚠️ THE QUEUE, AND IT HAS TO BE REACHABLE FROM HERE. Migration 270
+            makes a stranger's WhatsApp message a lead that nobody owns, held
+            for a manager. Without this option that queue exists in the database
+            and nowhere on screen — which is the same as not existing.
+
+            ⚠️ SHOWN ONLY WHEN THERE IS SOMETHING IN IT. A permanent
+            "Unassigned (0)" teaches the eye to skip exactly the row that
+            matters on the day it is not zero. */}
+        {unassigned > 0 && <option value="none">Unassigned ({unassigned})</option>}
         {owners.map((o) => (
           <option key={o.id} value={o.id}>
             {o.name} ({o.leads})
@@ -686,12 +747,14 @@ function FilterMenu({
   filters,
   owners,
   forms,
+  sources,
   count,
   onSet,
 }: {
   filters: LeadFilterState;
   owners: readonly Option[];
   forms: readonly Option[];
+  sources: readonly SourceOption[];
   count: number;
   onSet: (key: string, value: string | null) => void;
 }) {
@@ -808,6 +871,36 @@ function FilterMenu({
                   onClick={() => onSet('form', f.id)}
                   label={f.name}
                   count={f.leads}
+                />
+              ))}
+            </Section>
+          )}
+
+          {/* ── ⚠️ THE CHANNEL, WHICH IS NOT THE FORM ──────────────────────
+              Owner, 2026-09-30: *"No need to split the Facebook and Instagram,
+              right? … If it is easy then do that."* It was already stored —
+              migration 160 files a Meta lead under the app its ad ran on, and
+              22 leads on the real Chitral project carry one — but nothing on
+              this desk could ask for it, so the split existed and answered no
+              question.
+
+              ⚠️ ONE FORM RUNS ON BOTH APPS, which is why this is a separate
+              section from Form rather than more entries in it. Chitral's 15
+              Instagram and 7 Facebook leads came through the SAME forms. */}
+          {sources.length > 1 && (
+            <Section label="Came from">
+              <Choice
+                selected={filters.source === null}
+                onClick={() => onSet('source', null)}
+                label="Any channel"
+              />
+              {sources.map((sc) => (
+                <Choice
+                  key={sc.id}
+                  selected={filters.source === sc.id}
+                  onClick={() => onSet('source', sc.id)}
+                  label={sourceLabel(sc.id)}
+                  count={sc.leads}
                 />
               ))}
             </Section>
@@ -1488,12 +1581,26 @@ function Row({
             steals the text selection from anybody copying a phone number out of
             the cell below. An anchor is reachable, focusable, opens in a new tab
             with a middle click, and shows its destination in the status bar. */}
-        <Link
-          href={`/leads/${lead.id}${from ? `?from=${encodeURIComponent(from)}` : ''}`}
-          className="block truncate text-body-sm font-semibold text-text-primary underline-offset-2 hover:text-text-brand hover:underline"
-        >
-          {lead.fullName ?? 'Name not given'}
-        </Link>
+        <span className="flex min-w-0 items-center gap-1.5">
+          <Link
+            href={`/leads/${lead.id}${from ? `?from=${encodeURIComponent(from)}` : ''}`}
+            className="min-w-0 flex-1 truncate text-body-sm font-semibold text-text-primary underline-offset-2 hover:text-text-brand hover:underline"
+          >
+            {lead.fullName ?? 'Name not given'}
+          </Link>
+          {/* ⚠️ WHAT THIS ROW ACTUALLY IS — migration 270. Everything else on
+              the desk arrived through a Meta form we published; this one texted
+              a number nobody gave out, and until somebody reads it there is no
+              telling whether it is a buyer or a wrong number. The Owner column
+              already says "Unassigned"; this says WHY it is unassigned, which
+              is the part that decides whether a manager opens it or shares it
+              out with the rest.
+
+              ⚠️ ONLY WHILE IT IS STILL IN THE QUEUE. Once somebody owns it, it
+              is an ordinary lead and a permanent badge would just be noise on
+              every WhatsApp conversation the team ever has. */}
+          {lead.inboundAt && !lead.ownerId && <WalkUpChip at={lead.inboundAt} />}
+        </span>
         {/* ⚠️ THE PROJECT, NOT THE PHONE NUMBER. The desk can be filtered to one
             project, but it does not have to be — and once it is not, "Chitral
             Royal Homes" is the difference between a plot enquiry and a frozen
@@ -1501,6 +1608,26 @@ function Row({
             title on the WhatsApp and call controls, where it is used rather than
             read. */}
         <span className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-caption text-text-secondary">
+          {/* ── ⚠️ THE CHANNEL, AS A MARK, ON THE LINE THAT ALREADY EXISTS ──
+              Not a column. The owner removed "Came from" for width — *"Why did
+              you add a scrollbar in a table?"* — and warned about turning rows
+              into a grid of chips: *"four filled squares per row is what turns a
+              list into a grid."* So this rides the project/city/age line at 16px
+              with the words beside it doing the naming, and costs no width at
+              all.
+
+              ⚠️ IT IS A TOOLTIP, NOT A LABEL. "Instagram" written out on every
+              row would be the column again in a thinner disguise. The mark is
+              what a reader scans for; the title is there for the one time they
+              need to be sure. */}
+          {lead.source && (
+            <span
+              title={`Came from ${sourceLabel(lead.source)}`}
+              className="inline-flex shrink-0 items-center"
+            >
+              <SourceMark source={lead.source} size={16} />
+            </span>
+          )}
           {lead.projectName && <span className="truncate">{lead.projectName}</span>}
           {lead.city && (
             <>
@@ -2034,6 +2161,33 @@ function ReachLink({
  * floor for text this size; secondary gives 6.42:1. Relative ages stay tertiary,
  * because those genuinely are secondary to the row.
  */
+/**
+ * "Messaged us" — a lead that exists only because a stranger texted.
+ *
+ * ⚠️ NOT A `Badge`. The badges on this desk carry stage, and a second one on
+ * the same line reads as a second stage. This is a whisper: an outline, the
+ * WhatsApp green, and the word — findable when scanning for it, invisible when
+ * scanning for something else.
+ */
+function WalkUpChip({ at }: { at: string }) {
+  return (
+    <span
+      title={`They messaged us first, on ${new Date(at).toLocaleString('en-GB', {
+        timeZone: 'Asia/Karachi',
+      })}. Nobody owns this yet.`}
+      className="inline-flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-px text-micro font-medium"
+      style={{
+        borderColor: `color-mix(in oklab, ${WA_GREEN} 45%, transparent)`,
+        backgroundColor: `color-mix(in oklab, ${WA_GREEN} 12%, transparent)`,
+        color: 'var(--text-primary)',
+      }}
+    >
+      <WhatsAppMark className="size-3" />
+      Messaged us
+    </span>
+  );
+}
+
 function Nothing({ children }: { children: React.ReactNode }) {
   return <span className="text-caption text-text-secondary">{children}</span>;
 }
